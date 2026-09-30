@@ -483,6 +483,7 @@ fn validates_layout_builtin_array_length_for_32_bit_target() {
     let target = nia_layout::TargetDataLayout {
         pointer_size: 4,
         pointer_align: 4,
+        wide_scalar_align: 4,
     };
     let program = single_module_program(
         module_id,
@@ -566,6 +567,7 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
             target: nia_layout::TargetDataLayout {
                 pointer_size: 4,
                 pointer_align: 4,
+                wide_scalar_align: 4,
             },
             // Exercise the target-aware validator/codegen fallback rather than
             // satisfying it from a precomputed per-type layout.
@@ -646,6 +648,7 @@ fn rejects_out_of_range_builtin_usize_before_llvm() {
             target: nia_layout::TargetDataLayout {
                 pointer_size: 4,
                 pointer_align: 4,
+                wide_scalar_align: 4,
             },
             types: Vec::new(),
             structs: Vec::new(),
@@ -681,6 +684,7 @@ fn rejects_invalid_target_layout_without_published_type_layouts() {
             target: nia_layout::TargetDataLayout {
                 pointer_size: 4,
                 pointer_align: 2,
+                wide_scalar_align: 8,
             },
             types: Vec::new(),
             structs: Vec::new(),
@@ -746,6 +750,7 @@ fn rejects_mixed_target_layouts_across_backend_modules() {
             nia_layout::TargetDataLayout {
                 pointer_size: 4,
                 pointer_align: 4,
+                wide_scalar_align: 4,
             },
         ),
     ])
@@ -1119,6 +1124,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                 target: nia_layout::TargetDataLayout {
                     pointer_size: 4,
                     pointer_align: 4,
+                    wide_scalar_align: 4,
                 },
                 types: vec![
                     (usize_ty, TypeLayout { size: 4, align: 4 }),

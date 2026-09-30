@@ -76,10 +76,6 @@ fn examples_run_on_the_host() {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn examples_run_identically_on_every_linux_target() {
-    let qemu = ["qemu-aarch64-static", "qemu-aarch64"]
-        .into_iter()
-        .find(|program| Command::new(program).arg("--version").output().is_ok())
-        .expect("aarch64 Linux executables run under user-mode QEMU; install qemu-user-static");
     let root = temp_dir("examples_run_identically_on_every_linux_target");
     for source in examples() {
         let name = source
@@ -88,20 +84,10 @@ fn examples_run_identically_on_every_linux_target() {
             .to_string_lossy()
             .into_owned();
         let mut outputs = Vec::new();
-        for target in [
-            "x86_64-unknown-linux",
-            "x86-unknown-linux",
-            "aarch64-unknown-linux",
-        ] {
+        for target in nia_test_support::LINUX_TARGETS {
             let exe = root.join(format!("{name}-{target}"));
             emit(&source, Some(target), &exe);
-            let command = if target.starts_with("aarch64") {
-                let mut command = Command::new(qemu);
-                command.arg(&exe);
-                command
-            } else {
-                Command::new(&exe)
-            };
+            let command = nia_test_support::linux_target_command(target, &exe);
             outputs.push((target, run(command, &format!("{name} {target}"))));
         }
         for (target, output) in &outputs[1..] {

@@ -29,12 +29,9 @@ enum LayoutSource {
 }
 
 pub(super) fn target_layout_supported(target: nia_layout::TargetDataLayout) -> bool {
-    target
-        .pointer_size
-        .checked_mul(8)
-        .and_then(|bits| u32::try_from(bits).ok())
-        .and_then(nia_layout::TargetDataLayout::from_pointer_width)
-        == Some(target)
+    nia_target::SUPPORTED_TARGETS
+        .into_iter()
+        .any(|config| nia_layout::TargetDataLayout::for_target(config) == target)
 }
 
 impl BackendValidator<'_> {

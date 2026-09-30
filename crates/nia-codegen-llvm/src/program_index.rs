@@ -1444,6 +1444,7 @@ mod tests {
         second_module.layouts.target = nia_layout::TargetDataLayout {
             pointer_size: 4,
             pointer_align: 4,
+            wide_scalar_align: 4,
         };
         let program =
             BackendProgram::new(vec![first_module, second_module]).expect("build backend program");
@@ -1458,6 +1459,7 @@ mod tests {
                 nia_layout::TargetDataLayout {
                     pointer_size: 4,
                     pointer_align: 4,
+                    wide_scalar_align: 4,
                 },
             ]
         );

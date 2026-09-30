@@ -188,6 +188,7 @@ fn emits_bitmask_with_32_bit_usize_result() {
             target: nia_layout::TargetDataLayout {
                 pointer_size: 4,
                 pointer_align: 4,
+                wide_scalar_align: 4,
             },
             types: Vec::new(),
             structs: Vec::new(),

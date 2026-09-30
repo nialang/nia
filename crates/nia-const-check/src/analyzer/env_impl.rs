@@ -714,13 +714,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 ),
             });
         }
-        let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: "const union evaluation requires a supported target pointer width"
-                        .to_string(),
-                })?;
+        let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let mut abi_fields = BTreeMap::new();
         let mut field_layouts = Vec::with_capacity(field_tys.len());
         for (name, field_ty) in field_tys {

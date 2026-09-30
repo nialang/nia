@@ -52,6 +52,10 @@ pub struct TargetDataLayout {
     pub pointer_size: u64,
     /// Required pointer alignment in bytes.
     pub pointer_align: u64,
+    /// Alignment of the 8-byte scalars `i64`, `u64` and `f64`. The i386
+    /// System V data model aligns them to 4, every other maintained target to
+    /// 8, so Nia and C aggregates share one placement rule on every target.
+    pub wide_scalar_align: u64,
 }
 
 impl TargetDataLayout {
@@ -59,21 +63,21 @@ impl TargetDataLayout {
     pub const LP64: Self = Self {
         pointer_size: 8,
         pointer_align: 8,
+        wide_scalar_align: 8,
     };
 
-    /// Derives the supported pointer layout from a target width in bits.
-    ///
-    /// Nia currently accepts byte-addressable power-of-two widths from 8 to
-    /// 128 bits and uses the pointer width as its alignment.
-    pub fn from_pointer_width(pointer_width: u32) -> Option<Self> {
-        if !pointer_width.is_multiple_of(8) {
-            return None;
-        }
-        let pointer_size = u64::from(pointer_width.checked_div(8)?);
-        matches!(pointer_size, 1 | 2 | 4 | 8 | 16).then_some(Self {
+    /// The data layout of a maintained target.
+    pub fn for_target(target: nia_target::TargetConfig) -> Self {
+        let pointer_size = u64::from(target.pointer_width() / 8);
+        Self {
             pointer_size,
             pointer_align: pointer_size,
-        })
+            wide_scalar_align: if target.arch() == nia_target::Arch::X86 {
+                4
+            } else {
+                8
+            },
+        }
     }
 }
 
@@ -1681,11 +1685,18 @@ mod tests {
     use nia_value_resolve::resolve_module_values;
 
     #[test]
-    fn target_data_layout_rejects_non_byte_pointer_widths() {
-        assert_eq!(TargetDataLayout::from_pointer_width(9), None);
+    fn target_data_layout_follows_the_target_c_abi() {
+        let layout =
+            |name| TargetDataLayout::for_target(nia_target::TargetConfig::parse(name).unwrap());
+        assert_eq!(layout("x86_64-unknown-linux"), TargetDataLayout::LP64);
+        assert_eq!(layout("aarch64-apple-macos"), TargetDataLayout::LP64);
         assert_eq!(
-            TargetDataLayout::from_pointer_width(64),
-            Some(TargetDataLayout::LP64)
+            layout("x86-unknown-linux"),
+            TargetDataLayout {
+                pointer_size: 4,
+                pointer_align: 4,
+                wide_scalar_align: 4,
+            }
         );
     }
 

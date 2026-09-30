@@ -9,6 +9,7 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_llvm::{
     Attribute, AttributeLoc,
     module::{Linkage, Visibility},
+    types::StructType,
     values::{FunctionValue, GlobalValue},
 };
 use nia_span::Span;
@@ -537,6 +538,102 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     false,
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
+        }
+        Ok(())
+    }
+
+    /// Checks that LLVM places every aggregate body exactly where the Nia
+    /// layout does. Code generation addresses fields through LLVM element
+    /// indices and sizes values through Nia layouts; the two only agree while
+    /// the target's LLVM data layout places each type like the Nia target data
+    /// model.
+    pub(super) fn verify_aggregate_bodies(
+        &self,
+        data: &nia_llvm::target::TargetData,
+    ) -> Result<(), Diagnostic> {
+        for &def_id in &self.declarations.structs {
+            if let (Some(ty), Some(layout)) = (
+                self.structs.get(&def_id).copied(),
+                self.struct_layout(def_id, &[], &[]),
+            ) {
+                self.verify_aggregate_body(data, def_id, ty, layout, false)?;
+            }
+        }
+        for key in &self.declarations.struct_instances {
+            if let (Some(ty), Some(layout)) = (
+                self.struct_instances
+                    .get(&key.def_id)
+                    .and_then(|instances| {
+                        instances.get(&(key.args.clone(), key.const_args.clone()))
+                    })
+                    .copied(),
+                self.struct_layout(key.def_id, &key.args, &key.const_args),
+            ) {
+                self.verify_aggregate_body(data, key.def_id, ty, layout, false)?;
+            }
+        }
+        for &def_id in &self.declarations.unions {
+            if let (Some(ty), Some(layout)) = (
+                self.unions.get(&def_id).copied(),
+                self.union_layout(def_id, &[], &[]),
+            ) {
+                self.verify_aggregate_body(data, def_id, ty, layout, true)?;
+            }
+        }
+        for key in &self.declarations.union_instances {
+            if let (Some(ty), Some(layout)) = (
+                self.union_instances
+                    .get(&key.def_id)
+                    .and_then(|instances| {
+                        instances.get(&(key.args.clone(), key.const_args.clone()))
+                    })
+                    .copied(),
+                self.union_layout(key.def_id, &key.args, &key.const_args),
+            ) {
+                self.verify_aggregate_body(data, key.def_id, ty, layout, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_aggregate_body(
+        &self,
+        data: &nia_llvm::target::TargetData,
+        def_id: GlobalDefId,
+        ty: StructType<'ctx>,
+        layout: &nia_layout::StructLayout,
+        is_union: bool,
+    ) -> Result<(), Diagnostic> {
+        let mismatch = |what: &str| {
+            self.error(
+                Span::default(),
+                format!("LLVM places aggregate {def_id:?} differently from its Nia layout: {what}"),
+            )
+        };
+        if data.abi_size(ty) != layout.layout.size {
+            return Err(mismatch("size"));
+        }
+        // LLVM omits zero-sized fields, so it may align a type less strictly
+        // than Nia does, never more.
+        if data.abi_align(ty) > layout.layout.align {
+            return Err(mismatch("alignment"));
+        }
+        if is_union {
+            return Ok(());
+        }
+        let offsets = layout
+            .fields
+            .iter()
+            .filter(|field| field.layout.size != 0)
+            .map(|field| field.offset)
+            .collect::<Vec<_>>();
+        if usize::try_from(ty.count_fields()) != Ok(offsets.len()) {
+            return Err(mismatch("field count"));
+        }
+        for (index, offset) in (0..ty.count_fields()).zip(offsets) {
+            if data.element_offset(ty, index) != offset {
+                return Err(mismatch("field offset"));
+            }
         }
         Ok(())
     }

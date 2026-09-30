@@ -410,6 +410,7 @@ fn ordinary_and_signature_layouts_use_artifact_pointer_width() {
             nia_layout::TargetDataLayout {
                 pointer_size: 4,
                 pointer_align: 4,
+                wide_scalar_align: 4,
             }
         );
         assert_eq!(
