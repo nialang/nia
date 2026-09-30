@@ -10,7 +10,7 @@ use nia_function_ir::{
 use nia_llvm::{
     Context, FloatPredicate, IntPredicate, LlvmError, OptimizationLevel,
     lto::{emit_full_lto_bitcode, emit_thin_lto_bitcode},
-    module::Linkage,
+    module::{Linkage, Visibility},
     target::TargetMachine,
     types::BasicTypeEnum,
     values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue},
@@ -682,6 +682,7 @@ fn emit_i128_to_float<'ctx>(
     let function = module
         .add_function(function_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
+    hide_builtin(function);
     let entry = context
         .append_basic_block(function, "entry")
         .map_err(diagnostic_from_llvm_error)?;
@@ -1040,6 +1041,7 @@ fn emit_i128_from_float<'ctx>(
     let function = module
         .add_function(function_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
+    hide_builtin(function);
     let entry = context
         .append_basic_block(function, "entry")
         .map_err(diagnostic_from_llvm_error)?;
@@ -1185,9 +1187,11 @@ fn emit_wide_div_rem<'ctx>(
     let div = module
         .add_function(div_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
+    hide_builtin(div);
     let rem = module
         .add_function(rem_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
+    hide_builtin(rem);
 
     let divmod_ty = int_ty
         .fn_type(
@@ -1664,6 +1668,14 @@ fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {
     error.diagnostic()
 }
 
+// Builtins satisfy LLVM libcalls inside the linked image; they are not part
+// of a program's exported interface.
+fn hide_builtin(function: nia_llvm::values::FunctionValue<'_>) {
+    function
+        .as_global_value()
+        .set_visibility(Visibility::Hidden);
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -1720,18 +1732,18 @@ mod tests {
                 .find(|line| line.contains(&format!("@{symbol}(")))
                 .unwrap_or_else(|| panic!("missing {symbol} definition:\n{ir}"));
             assert!(
-                signature.starts_with("define <2 x i64> ")
+                signature.starts_with("define hidden <2 x i64> ")
                     && signature.contains("(ptr ")
                     && signature.matches("ptr ").count() == 2,
                 "{symbol} does not use the Windows compiler-rt ABI:\n{signature}"
             );
         }
         assert!(
-            ir.contains("define <2 x i64> @__fixunsdfti(double "),
+            ir.contains("define hidden <2 x i64> @__fixunsdfti(double "),
             "Windows float-to-i128 helper must return the vector ABI:\n{ir}"
         );
         assert!(
-            ir.contains("define double @__floatuntidf(<2 x i64> "),
+            ir.contains("define hidden double @__floatuntidf(<2 x i64> "),
             "Windows i128-to-float helper must accept the vector ABI:\n{ir}"
         );
         assert!(

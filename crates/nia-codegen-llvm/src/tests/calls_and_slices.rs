@@ -59,7 +59,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define i32 @_N"));
+    assert!(ir.contains("define hidden i32 @_N"));
     assert!(ir.contains("call i32 @_N"));
     assert!(ir.contains("ret i32"));
 }
@@ -208,7 +208,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(ir.contains("define void @_start("), "{ir}");
-    assert!(ir.contains("define void @_N"), "{ir}");
+    assert!(ir.contains("define hidden void @_N"), "{ir}");
     assert!(ir.contains("call void @_N"), "{ir}");
 }
 

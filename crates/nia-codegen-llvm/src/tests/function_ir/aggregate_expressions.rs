@@ -206,7 +206,7 @@ fn emits_bitmask_with_32_bit_usize_result() {
     let output = emit_owned_llvm_ir(program, type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define i32"), "{ir}");
+    assert!(ir.contains("define hidden i32"), "{ir}");
     assert!(ir.contains("ret i32 65535"), "{ir}");
     assert!(!ir.contains("ret i64"), "{ir}");
 }

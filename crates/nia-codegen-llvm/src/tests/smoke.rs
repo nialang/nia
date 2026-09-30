@@ -319,14 +319,14 @@ fn main() usize {
         source_modules
             .iter()
             .flat_map(|module| module.ir.lines())
-            .filter(|line| line.starts_with('@') && line.contains(" = constant "))
+            .filter(|line| line.starts_with('@') && line.contains(" = hidden constant "))
             .count(),
         8
     );
     let external_constants = source_modules
         .iter()
         .flat_map(|module| module.ir.lines())
-        .filter(|line| line.starts_with('@') && line.contains(" = external constant "))
+        .filter(|line| line.starts_with('@') && line.contains(" = external hidden constant "))
         .collect::<Vec<_>>();
     assert_eq!(external_constants.len(), 5, "{external_constants:#?}");
 }
@@ -451,6 +451,9 @@ fn main() i32 {
             .map(|module| module.ir.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(joined_ir.contains("define i32 @"), "{level:?}: {joined_ir}");
+        assert!(
+            joined_ir.contains("define hidden i32 @"),
+            "{level:?}: {joined_ir}"
+        );
     }
 }

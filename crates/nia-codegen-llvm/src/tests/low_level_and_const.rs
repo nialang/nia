@@ -84,7 +84,10 @@ fn main() bool {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert!(
-        ir.contains(&format!("linkonce_odr constant {} 34", native_llvm_int())),
+        ir.contains(&format!(
+            "linkonce_odr hidden constant {} 34",
+            native_llvm_int()
+        )),
         "{ir}"
     );
     assert!(
@@ -127,8 +130,11 @@ fn main() bool {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert_eq!(
-        ir.matches(&format!("linkonce_odr constant {} 34", native_llvm_int()))
-            .count(),
+        ir.matches(&format!(
+            "linkonce_odr hidden constant {} 34",
+            native_llvm_int()
+        ))
+        .count(),
         2,
         "{ir}"
     );
@@ -170,7 +176,10 @@ fn main() usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert!(
-        ir.contains(&format!("linkonce_odr constant {} 55", native_llvm_int())),
+        ir.contains(&format!(
+            "linkonce_odr hidden constant {} 55",
+            native_llvm_int()
+        )),
         "{ir}"
     );
     assert!(
@@ -233,9 +242,12 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
-    assert!(ir.contains("linkonce_odr constant %_N"), "{ir}");
-    assert!(ir.contains("linkonce_odr constant [3 x i8]"), "{ir}");
-    assert!(ir.contains("linkonce_odr constant [2 x i32]"), "{ir}");
+    assert!(ir.contains("linkonce_odr hidden constant %_N"), "{ir}");
+    assert!(ir.contains("linkonce_odr hidden constant [3 x i8]"), "{ir}");
+    assert!(
+        ir.contains("linkonce_odr hidden constant [2 x i32]"),
+        "{ir}"
+    );
 }
 
 #[test]
@@ -266,13 +278,13 @@ fn main() usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert_eq!(
-        ir.matches("linkonce_odr constant [3 x i8] c\"\\01\\02\\03\"")
+        ir.matches("linkonce_odr hidden constant [3 x i8] c\"\\01\\02\\03\"")
             .count(),
         2,
         "{ir}"
     );
     assert_eq!(
-        ir.matches("linkonce_odr constant [3 x i8]").count(),
+        ir.matches("linkonce_odr hidden constant [3 x i8]").count(),
         3,
         "{ir}"
     );
@@ -309,7 +321,7 @@ fn main() usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert_eq!(
-        ir.matches("linkonce_odr constant [3 x i8]").count(),
+        ir.matches("linkonce_odr hidden constant [3 x i8]").count(),
         1,
         "{ir}"
     );
@@ -345,7 +357,11 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
-    assert_eq!(ir.matches("linkonce_odr constant [").count(), 2, "{ir}");
+    assert_eq!(
+        ir.matches("linkonce_odr hidden constant [").count(),
+        2,
+        "{ir}"
+    );
     assert!(!ir.contains(".nia.static.array"), "{ir}");
 }
 
@@ -382,7 +398,7 @@ fn main() bool {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert_eq!(
-        ir.matches("linkonce_odr constant <{ i8 }> zeroinitializer")
+        ir.matches("linkonce_odr hidden constant <{ i8 }> zeroinitializer")
             .count(),
         2,
         "{ir}"
@@ -423,7 +439,7 @@ fn main() u16 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert!(
-        ir.contains("linkonce_odr constant <2 x i16> <i16 4386, i16 13124>"),
+        ir.contains("linkonce_odr hidden constant <2 x i16> <i16 4386, i16 13124>"),
         "{ir}"
     );
 }
@@ -502,9 +518,19 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
-    assert!(ir.contains("linkonce_odr constant <{ ptr }>"), "{ir}");
-    assert_eq!(ir.matches("linkonce_odr constant").count(), 8, "{ir}");
-    assert!(ir.matches("linkonce_odr constant <{").count() >= 4, "{ir}");
+    assert!(
+        ir.contains("linkonce_odr hidden constant <{ ptr }>"),
+        "{ir}"
+    );
+    assert_eq!(
+        ir.matches("linkonce_odr hidden constant").count(),
+        8,
+        "{ir}"
+    );
+    assert!(
+        ir.matches("linkonce_odr hidden constant <{").count() >= 4,
+        "{ir}"
+    );
     assert!(ir.contains("[7 x i8] undef"), "{ir}");
 }
 

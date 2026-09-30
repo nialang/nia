@@ -775,6 +775,19 @@ runtime entry extern fn      `ExternExport`, selected runtime entry symbol
 
 Nia mangling must be deterministic and must distinguish generic instances.
 
+Only `ExternImport` and `ExternExport` symbols have default visibility. Every
+Nia-mangled symbol, vtable, closure entry, generic instance, source-location
+record, and compiler builtin is hidden: it links between objects of one image
+but is never exported from a shared object and never preempted, so references
+to it need no GOT indirection. A program's external interface is therefore
+exactly its `extern` declarations, whatever links its objects.
+
+Objects follow the platform C toolchain's code model, which is position
+independent on Linux and macOS. Data that holds addresses, such as vtables, is
+placed where load-time relocation may write it (`.data.rel.ro`), so Nia objects
+link into position-independent executables and shared objects with read-only
+text and no text relocations.
+
 The Nia ABI does not encode ABI versions or layout hashes in symbols. Stable
 binary compatibility requires a separate explicit compatibility model.
 

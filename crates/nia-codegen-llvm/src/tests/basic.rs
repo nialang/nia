@@ -165,7 +165,7 @@ fn main() i32 {
     assert!(!ir.contains("@use_point"), "{ir}");
     assert!(contains_mangled_kind(ir, '@', MangleSymbolKind::Function));
     assert!(!ir.contains("%_N"), "{ir}");
-    assert!(ir.contains("define i32 @"));
+    assert!(ir.contains("define hidden i32 @"));
     assert!(ir.contains("alloca i32"));
     assert!(ir.contains("store i32 40"));
     assert!(ir.contains("llvm.sadd.with.overflow.i32"));
@@ -193,7 +193,7 @@ fn id(v: u8x16) u8x16 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(
-        ir.contains("define <16 x i8> @"),
+        ir.contains("define hidden <16 x i8> @"),
         "expected vector return type in IR:\n{ir}"
     );
     assert!(
@@ -223,7 +223,7 @@ fn make(value: u8) u8x16 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(
-        ir.contains("define <16 x i8> @"),
+        ir.contains("define hidden <16 x i8> @"),
         "expected vector return type in IR:\n{ir}"
     );
     assert!(ir.contains("i8 %"), "expected scalar parameter:\n{ir}");
@@ -438,7 +438,7 @@ fn cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
         "expected vector float compare:\n{ir}"
     );
     assert!(
-        ir.contains("define <4 x i1> @"),
+        ir.contains("define hidden <4 x i1> @"),
         "expected vector comparison mask return:\n{ir}"
     );
 }
@@ -1150,4 +1150,60 @@ fn load(ptr: &u8) u8x8 {
         ir.contains("load <8 x i8>, ptr %") && ir.contains("align 1"),
         "expected explicit align-1 vector load:\n{ir}"
     );
+}
+
+// A program exports exactly its `extern` symbols: canonical Nia symbols bind
+// within the linked image, so linking Nia objects into another language's
+// program adds only the names the source declared `extern`.
+#[test]
+fn only_extern_symbols_keep_default_visibility() {
+    let root = temp_dir("only_extern_symbols_keep_default_visibility");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn puts(s: &u8) i32;
+static hello: [u8; 6] = b"hello\0";
+static mut calls: i32 = 0;
+
+pub extern fn add(a: i32, b: i32) i32 {
+    calls += 1;
+    helper(a) + b
+}
+
+fn helper(value: i32) i32 {
+    _ = puts(&hello[0]);
+    value
+}
+
+fn main() i32 { add(1, 2) }
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+
+    assert!(ir.contains("define i32 @add("), "{ir}");
+    assert!(ir.contains("declare i32 @puts("), "{ir}");
+    for line in ir.lines().filter(|line| {
+        (line.starts_with("define ") || line.starts_with("declare ") || line.starts_with('@'))
+            && line.contains("@_N")
+    }) {
+        let symbol = line
+            .split_whitespace()
+            .find(|word| word.starts_with("@_N"))
+            .expect("canonical symbol");
+        let hidden = if line.starts_with('@') {
+            line.contains(" hidden ")
+        } else {
+            line.split(symbol)
+                .next()
+                .is_some_and(|prefix| prefix.contains(" hidden "))
+        };
+        assert!(hidden, "canonical symbol is not hidden: {line}");
+    }
 }

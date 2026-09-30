@@ -586,7 +586,7 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
     let output = emit_owned_llvm_ir(program, type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define i32"), "{ir}");
+    assert!(ir.contains("define hidden i32"), "{ir}");
     assert!(ir.contains("ret i32 7"), "{ir}");
 }
 

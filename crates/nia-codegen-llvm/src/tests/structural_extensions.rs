@@ -41,7 +41,7 @@ fn main() i32 {
         "{ir}"
     );
     assert!(
-        ir.contains(&format!("define void {make}(ptr %0, i32 %1)")),
+        ir.contains(&format!("define hidden void {make}(ptr %0, i32 %1)")),
         "{ir}"
     );
     assert!(ir.contains("ret i32"));
@@ -181,7 +181,7 @@ extend[T] &T {
         "{ir}"
     );
     assert!(ir.contains("call i1 @"), "{ir}");
-    assert!(ir.contains("define i1 @"), "{ir}");
+    assert!(ir.contains("define hidden i1 @"), "{ir}");
 }
 
 #[test]
@@ -437,7 +437,7 @@ fn main(p: & Point) i32 {
     let point_get = mangled_symbol(ir, '@', "point_get");
     let get = mangled_symbol(ir, '@', "get");
     assert!(
-        ir.contains(&format!("{point_get} = constant ptr {get}")),
+        ir.contains(&format!("{point_get} = hidden constant ptr {get}")),
         "{ir}"
     );
 }

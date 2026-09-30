@@ -6,7 +6,11 @@ use nia_backend_ir::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
-use nia_llvm::{Attribute, AttributeLoc, module::Linkage, values::FunctionValue};
+use nia_llvm::{
+    Attribute, AttributeLoc,
+    module::{Linkage, Visibility},
+    values::{FunctionValue, GlobalValue},
+};
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, TyKind};
 
@@ -565,6 +569,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .module
                 .add_function(&self.function_symbol_name(function)?, ty, linkage)
                 .map_err(Self::diagnostic_from_llvm_error)?;
+            value
+                .as_global_value()
+                .set_visibility(symbol_visibility(&function.linkage));
             self.apply_function_attributes(value, &function.attributes)?;
             self.functions.insert(function.def_id, value);
         }
@@ -596,6 +603,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .module
                 .add_function(&instance.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
+            value
+                .as_global_value()
+                .set_visibility(symbol_visibility(&instance.linkage));
             self.apply_function_attributes(value, &instance.attributes)?;
             self.function_instances
                 .entry((instance.def_id, instance.arg_module_id))
@@ -641,6 +651,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .module
                 .add_function(&entry.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
+            hide_compiler_symbol(value.as_global_value());
             self.closure_entries.insert(entry.key.clone(), value);
         }
         Ok(())
@@ -691,6 +702,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if !is_definition || global.linkage.is_extern() {
                 value.set_linkage(Linkage::External);
             }
+            value.set_visibility(symbol_visibility(&global.linkage));
             if global.is_let {
                 value.set_constant(true);
             }
@@ -707,6 +719,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .add_global(ty, None, &global.symbol)
                 .map_err(Self::diagnostic_from_llvm_error)?;
             value.set_linkage(Linkage::External);
+            hide_compiler_symbol(value);
             if global.is_let {
                 value.set_constant(true);
             }
@@ -836,6 +849,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             } else {
                 global.set_linkage(Linkage::External);
             }
+            hide_compiler_symbol(global);
             self.trait_object_vtables
                 .insert((vtable.key.self_ty, vtable.key.object_ty), global);
             inserted_vtable = true;
@@ -1040,4 +1054,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.trait_object_adapters.borrow_mut().insert(key, adapter);
         Ok(adapter)
     }
+}
+
+/// Visibility of a symbol the backend declares or defines. Only `extern`
+/// declarations and definitions carry an external ABI name; every canonical
+/// `_N` symbol binds within the linked image, so it is hidden and `dso_local`
+/// and a program exports exactly its `extern` functions and statics.
+fn symbol_visibility(linkage: &nia_backend_ir::BackendLinkage) -> Visibility {
+    match linkage {
+        nia_backend_ir::BackendLinkage::Nia => Visibility::Hidden,
+        nia_backend_ir::BackendLinkage::ExternImport { .. }
+        | nia_backend_ir::BackendLinkage::ExternExport { .. } => Visibility::Default,
+    }
+}
+
+/// Hides a compiler-generated symbol, which never has an external ABI name.
+pub(super) fn hide_compiler_symbol(global: GlobalValue<'_>) {
+    global.set_visibility(Visibility::Hidden);
 }

@@ -37,7 +37,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define void @"));
+    assert!(ir.contains("define hidden void @"));
     assert!(ir.contains("call void @"));
     assert!(ir.contains("call i32 @"));
     assert!(ir.contains("i32 42"));
