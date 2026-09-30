@@ -24,8 +24,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
 
         let mut constraints = Vec::new();
-        constraints.extend(asm.outputs.iter().map(|output| output.constraint.clone()));
-        constraints.extend(asm.inputs.iter().map(|input| input.constraint.clone()));
+        let target = self.module.target;
+        constraints.extend(
+            asm.outputs
+                .iter()
+                .map(|output| target_constraint(target, &output.constraint)),
+        );
+        constraints.extend(
+            asm.inputs
+                .iter()
+                .map(|input| target_constraint(target, &input.constraint)),
+        );
         constraints.extend(asm.clobbers.iter().map(|clobber| format!("~{{{clobber}}}")));
         let param_tys = input_values
             .iter()
@@ -64,7 +73,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 InlineAsmOptions {
                     sideeffects: has_sideeffects,
                     alignstack: false,
-                    dialect: Some(InlineAsmDialect::Intel),
+                    // Nia assembly is Intel syntax on x86; other architectures
+                    // have a single syntax.
+                    dialect: matches!(
+                        self.module.target.arch(),
+                        nia_target::Arch::X86 | nia_target::Arch::X86_64
+                    )
+                    .then_some(InlineAsmDialect::Intel),
                     can_throw: false,
                 },
             )
@@ -109,5 +124,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             })?;
         }
         Ok(())
+    }
+}
+
+// The floating-point register class is spelled `f` on x86 and `w` on
+// AArch64; fixed registers and the general class are spelled alike.
+fn target_constraint(target: nia_target::TargetConfig, constraint: &str) -> String {
+    match (target.arch(), constraint) {
+        (nia_target::Arch::Aarch64, "f") => "w".to_string(),
+        (nia_target::Arch::Aarch64, "=f") => "=w".to_string(),
+        _ => constraint.to_string(),
     }
 }

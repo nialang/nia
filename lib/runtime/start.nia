@@ -3,5 +3,7 @@ pub(pkg) module freestanding;
 using pkg::start::freestanding::linux::x86_64;
 @[if os == "linux" and arch == "x86"]
 using pkg::start::freestanding::linux::x86;
+@[if os == "linux" and arch == "aarch64"]
+using pkg::start::freestanding::linux::aarch64;
 @[if os == "windows" and arch == "x86_64"]
 using pkg::start::freestanding::windows::x86_64;

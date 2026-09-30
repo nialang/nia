@@ -4,7 +4,14 @@ pub const atRemoveDir: usize = 0x200;
 pub const openCreate: i32 = 0o100;
 pub const openExclusive: i32 = 0o200;
 pub const openTruncate: i32 = 0o1000;
+// arm64 moves these two flags; x86 and x86_64 share the classic values.
+@[if arch == "aarch64"]
+pub const openDirectory: i32 = 0o40000;
+@[if arch == "aarch64"]
+pub const openNoFollow: i32 = 0o100000;
+@[if arch != "aarch64"]
 pub const openDirectory: i32 = 0o200000;
+@[if arch != "aarch64"]
 pub const openNoFollow: i32 = 0o400000;
 pub const openPath: i32 = 0x200000;
 pub const resolveNoMagicLinks: u64 = 0x02;

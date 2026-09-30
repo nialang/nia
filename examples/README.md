@@ -9,7 +9,7 @@ the complete surface.
 Every executable uses the same entry point:
 
 ```nia
-pub fn main(process::Init) process::ExitCode!()
+pub fn main(init: process::Init) process::ExitCode!()
 ```
 
 The examples use `std::io::debugPrint` for compact diagnostic output. `io.nia`
@@ -34,7 +34,8 @@ deinitialized.
    `ArrayList`, `HashMap`, mutation, lookup, and cleanup.
 7. `io.nia` writes formatted application output through `std::io`.
 8. `process.nia` starts a child process with typed arguments, environment
-   entries, a piped stdout handle, and a termination status.
+   entries, a piped stdout handle, and a termination status. It runs `/bin/sh`,
+   so it needs a POSIX host.
 9. `modules/main.nia` is a multi-file program with public modules, aliases,
    selected imports, and a facade that re-exports an API.
 

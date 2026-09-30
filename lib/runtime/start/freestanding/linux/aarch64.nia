@@ -1,0 +1,25 @@
+@[naked]
+pub extern fn _start() () {
+    std::builtin::asm(.{
+        code:
+            // See the x86_64 startup: `_DYNAMIC` is weak because only a
+            // position-independent image has one. `adrp` with a `:lo12:`
+            // offset is PC-relative, so neither address needs a relocation.
+            b".weak _DYNAMIC\n"
+            b".hidden _DYNAMIC\n"
+            b".hidden __ehdr_start\n"
+            b"mov x0, sp\n"
+            b"adrp x1, __ehdr_start\n"
+            b"add x1, x1, :lo12:__ehdr_start\n"
+            b"adrp x2, _DYNAMIC\n"
+            b"add x2, x2, :lo12:_DYNAMIC\n"
+            // The kernel leaves sp 16-byte aligned, as the call requires. A
+            // direct branch-and-link is PC-relative: no GOT or register
+            // operand, so the naked function holds exactly this assembly.
+            b"bl niaStartStack\n"
+            b"brk #0",
+        clobbers: [b"x0", b"x1", b"x2", b"x30", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}

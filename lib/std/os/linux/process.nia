@@ -4,6 +4,9 @@ using pkg::os::linux::fd as linuxFd;
 
 using types::{Errno, OpenMode, Pipe, ProcessId, SpawnAttempt, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
 
+const sigChild: usize = 17;
+const setDescriptorFlags: usize = 2;
+
 struct SpawnPipe {
     read: ?types::FileDescriptor,
     write: ?types::FileDescriptor,
@@ -57,7 +60,10 @@ fn spawnWithResources(
         !pipe => pipe,
         error! => return .failure(.Setup(error)),
     };
-    let ret = syscall::syscall0(syscall::fork);
+    // clone with only SIGCHLD is fork, and every architecture has it; its
+    // pointer arguments are all zero, so their per-architecture order is
+    // irrelevant.
+    let ret = syscall::syscall5(syscall::clone, sigChild, 0, 0, 0, 0);
     if ret < 0 {
         .failure(.Setup(ret.syscallError()))
     } else if ret == 0 {
@@ -326,8 +332,16 @@ fn openDevNull() Errno!types::FileDescriptor {
     }
 }
 
+// Makes `to` refer to `from` in the exec'd image. A descriptor that already
+// is `to` keeps its file but must lose close-on-exec, which dup3 would reject
+// and dup2 would leave set.
 fn dupTo(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
-    let ret = syscall::syscall2(syscall::dup2, from.raw() as usize, to.raw() as usize);
+    if from.raw() == to.raw() {
+        let clearFlags: usize = 0;
+        let ret = syscall::syscall3(syscall::fcntl, to.raw() as usize, setDescriptorFlags, clearFlags);
+        return ret.syscallSuccess();
+    }
+    let ret = syscall::syscall3(syscall::dup3, from.raw() as usize, to.raw() as usize, 0);
     if ret < 0 {
         ret.syscallError()!
     } else if ret != to.raw() as isize {
