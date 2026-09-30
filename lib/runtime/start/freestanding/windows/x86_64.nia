@@ -1,4 +1,3 @@
-using pkg::start::freestanding::windows::startup::niaWindowsStart;
 using pkg::builtins::windows::x86_64::__chkstk;
 
 @[naked]
@@ -6,9 +5,10 @@ pub extern fn _start() () {
     std::builtin::asm(.{
         code:
             b"sub rsp, 40\n"
-            b"call $0\n"
+            // A direct call is PC-relative: no import thunk or register
+            // operand, so the naked function holds exactly this assembly.
+            b"call niaWindowsStart\n"
             b"ud2",
-        inputs: .{ reg: &niaWindowsStart },
         clobbers: [b"rax", b"rcx", b"rdx", b"r8", b"r9", b"r10", b"r11", b"memory"],
         options: [b"volatile"],
     });

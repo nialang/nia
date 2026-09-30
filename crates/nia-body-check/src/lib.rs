@@ -245,6 +245,8 @@ struct BodyChecker<'a> {
     timing_module_id: ModuleId,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
+    // A naked function's body is its inline assembly alone.
+    current_naked: bool,
     closure_ordinals: FastHashMap<VersionedNodeKey, u32>,
     current_param_locals: Vec<LocalId>,
     const_context_depth: usize,

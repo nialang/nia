@@ -18,7 +18,7 @@ extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protect
 static mut startupArgumentBytes: [u8; startupByteCapacity] = [0; startupByteCapacity];
 static mut startupWideArgument: [u16; startupCapacity] = [0; startupCapacity];
 
-pub(pkg) extern fn niaWindowsStart() () {
+extern fn niaWindowsStart() () {
     let mut argumentPointers: [&u8; startupPointerCapacity] = [0usize as &u8; startupPointerCapacity];
     let argc = parseArguments(
         GetCommandLineW(),

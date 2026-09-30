@@ -54,8 +54,14 @@ impl<'a> BodyChecker<'a> {
                         }
                     }
                 }
-                Some(AsmConfigField::Inputs) => self.check_asm_inputs(&field.value),
-                Some(AsmConfigField::Outputs) => self.check_asm_outputs(&field.value),
+                Some(AsmConfigField::Inputs) => {
+                    self.reject_naked_asm_operands(&field.value, "inputs");
+                    self.check_asm_inputs(&field.value);
+                }
+                Some(AsmConfigField::Outputs) => {
+                    self.reject_naked_asm_operands(&field.value, "outputs");
+                    self.check_asm_outputs(&field.value);
+                }
                 Some(AsmConfigField::Clobbers) => self.check_asm_clobbers(&field.value),
                 Some(AsmConfigField::Options) => self.check_asm_options(&field.value),
                 None => {
@@ -77,6 +83,32 @@ impl<'a> BodyChecker<'a> {
             ));
         }
         self.unit()
+    }
+
+    // A naked function has no prologue, frame, or spill slots, so its body is
+    // exactly its assembly. Every operand needs compiler code to place a value
+    // in or read one from a register, which in a naked function could spill
+    // over the caller's stack, so operands are rejected rather than compiled.
+    fn reject_naked_asm_operands(&mut self, expr: &Expr, field: &str) {
+        if !self.current_naked {
+            return;
+        }
+        let empty = match &expr.kind {
+            ExprKind::OmittedAggregateLiteral { fields } => fields.is_empty(),
+            ExprKind::TypedStructLiteral { fields, .. } => fields.is_empty(),
+            _ => false,
+        };
+        if !empty {
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::TYPE_CHECK,
+                    format!("inline assembly in a `naked` function cannot have {field}"),
+                )
+                .primary(expr.span, "operands need compiler-generated code")
+                .help("name symbols directly in the assembly, such as `call symbol`")
+                .finish(),
+            );
+        }
     }
 
     fn check_asm_inputs(&mut self, expr: &Expr) {

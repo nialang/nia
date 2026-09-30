@@ -238,14 +238,32 @@ impl RuntimeSpec {
         package_root: impl Into<PathBuf>,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
-        let required_exports = if (target.os(), target.arch()) == (Os::Windows, Arch::X86_64) {
-            vec![RuntimeExport::new(
+        // A naked `_start` calls its startup function by symbol name, so the
+        // function is rooted explicitly rather than through a code operand.
+        let startup = match target.os() {
+            Os::Linux => Some((
+                format!(
+                    "toolchain:/runtime/start/freestanding/linux/{}.nia",
+                    target.arch().name()
+                ),
+                "niaStartStack",
+            )),
+            Os::Windows => Some((
+                "toolchain:/runtime/start/freestanding/windows/startup.nia".to_string(),
+                "niaWindowsStart",
+            )),
+            Os::Macos => None,
+        };
+        let mut required_exports = startup
+            .into_iter()
+            .map(|(module, definition)| RuntimeExport::new(module, definition))
+            .collect::<Vec<_>>();
+        if (target.os(), target.arch()) == (Os::Windows, Arch::X86_64) {
+            required_exports.push(RuntimeExport::new(
                 "toolchain:/runtime/builtins/windows/x86_64.nia",
                 "__chkstk",
-            )]
-        } else {
-            Vec::new()
-        };
+            ));
+        }
         Self::source_from_package_root(package_root, target, required_exports)
     }
 
@@ -1153,13 +1171,25 @@ mod tests {
             if target.os() == Os::Windows {
                 assert_eq!(
                     source.required_exports(),
-                    [RuntimeExport::new(
-                        "toolchain:/runtime/builtins/windows/x86_64.nia",
-                        "__chkstk",
-                    )]
+                    [
+                        RuntimeExport::new(
+                            "toolchain:/runtime/start/freestanding/windows/startup.nia",
+                            "niaWindowsStart",
+                        ),
+                        RuntimeExport::new(
+                            "toolchain:/runtime/builtins/windows/x86_64.nia",
+                            "__chkstk",
+                        ),
+                    ]
                 );
             } else {
-                assert!(source.required_exports().is_empty());
+                assert_eq!(
+                    source.required_exports(),
+                    [RuntimeExport::new(
+                        format!("toolchain:/runtime/start/freestanding/linux/{implementation}.nia"),
+                        "niaStartStack",
+                    )]
+                );
             }
             assert_eq!(
                 source.dependencies(),

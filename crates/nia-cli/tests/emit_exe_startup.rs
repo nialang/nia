@@ -200,7 +200,7 @@ pub(pkg) module windows;
     .expect("write custom std freestanding facade");
     std::fs::write(
         &std_start_freestanding_windows,
-        "@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n",
+        "pub(pkg) module startup;\n@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n",
     )
     .expect("write custom std Windows freestanding facade");
     std::fs::write(
@@ -234,16 +234,15 @@ fn syscallExit(code: i32) () {
 pub extern fn _start() () {
     std::builtin::asm(.{
         code:
-            b"call $0\n"
+            b"call niaStartStack\n"
             b"ud2",
-        inputs: .{ reg: &customStart },
         clobbers: [b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });
     loop {}
 }
 
-extern fn customStart() () {
+extern fn niaStartStack() () {
     syscallExit(entry::mymain());
     loop {}
 }
@@ -271,16 +270,15 @@ fn syscallExit(code: i32) () {
 pub extern fn _start() () {
     std::builtin::asm(.{
         code:
-            b"call $0\n"
+            b"call niaStartStack\n"
             b"ud2",
-        inputs: .{ reg: &customStart },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });
     loop {}
 }
 
-extern fn customStart() () {
+extern fn niaStartStack() () {
     syscallExit(entry::mymain());
     loop {}
 }
@@ -289,9 +287,15 @@ extern fn customStart() () {
     .expect("write custom i686 std start");
     std::fs::write(
         &std_start_windows_x86_64,
-        "using entry;\nusing pkg::builtins::windows::x86_64::__chkstk;\n\nextern fn ExitProcess(code: u32) ();\n\n@[naked]\npub extern fn _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall $0\\nud2\", inputs: .{ reg: &customStart }, clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n\nextern fn customStart() () { ExitProcess(11u32); loop {} }\n",
+        "using pkg::builtins::windows::x86_64::__chkstk;\n\n@[naked]\npub extern fn _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall niaWindowsStart\\nud2\", clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n",
     )
     .expect("write custom Windows std start");
+    // The runtime roots Windows startup in `startup.nia` by definition name.
+    std::fs::write(
+        std_start_windows_x86_64.with_file_name("startup.nia"),
+        "using entry;\n\nextern fn ExitProcess(code: u32) ();\n\nextern fn niaWindowsStart() () { ExitProcess(11u32); loop {} }\n",
+    )
+    .expect("write custom Windows startup");
     std::fs::write(
         &main,
         r#"
@@ -428,4 +432,49 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(5));
+}
+
+// Startup runs before any stack frame exists, so it must work at every
+// optimization level, including the unoptimized default where the register
+// allocator spills freely. Arguments reach `main` intact on both x86 Linux
+// targets.
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn linux_startup_passes_arguments_at_every_optimization_level() {
+    let root = temp_dir("linux_startup_passes_arguments_at_every_optimization_level");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    if init.args().len() != 3 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write startup argument source");
+    for target in ["x86_64-unknown-linux", "x86-unknown-linux"] {
+        for level in ["-O0", "-O2"] {
+            let exe = root.join(format!("main-{target}{level}"));
+            let output = support::nia_command()
+                .args(["--target", target, level, "emit", "--exe"])
+                .arg(&main)
+                .arg("-o")
+                .arg(&exe)
+                .output_timeout_for_build("emit startup argument executable");
+            assert!(
+                output.status.success(),
+                "{target} {level}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let status = Command::new(&exe)
+                .args(["first", "second"])
+                .status_timeout("run startup argument executable");
+            assert_eq!(status.code(), Some(0), "{target} {level}");
+        }
+    }
 }
