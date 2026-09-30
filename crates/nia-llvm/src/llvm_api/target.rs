@@ -7,7 +7,8 @@ use llvm_sys::core::{
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
 use llvm_sys::target::{
     LLVM_InitializeAllAsmParsers, LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos,
-    LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets, LLVMDisposeTargetData,
+    LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets, LLVMABIAlignmentOfType,
+    LLVMABISizeOfType, LLVMDisposeTargetData, LLVMOffsetOfElement, LLVMTargetDataRef,
 };
 use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
@@ -22,7 +23,9 @@ use std::ptr;
 use std::slice;
 use std::sync::OnceLock;
 
-use super::{LlvmError, LlvmResult, Module, OptimizationLevel, to_c_string};
+use super::{
+    AsTypeRef, BasicType, LlvmError, LlvmResult, Module, OptimizationLevel, StructType, to_c_string,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A module-local LLVM optimization that is safe before separate object emission.
@@ -140,14 +143,8 @@ impl TargetMachine {
     /// malformed or unusable target machine; surface that failure instead of
     /// allowing later size/alignment queries to observe a stale layout.
     pub fn configure_module<'ctx>(&self, module: &Module<'ctx>) -> LlvmResult<()> {
-        let target_data = unsafe { LLVMCreateTargetDataLayout(self.raw) };
-        if target_data.is_null() {
-            return Err(LlvmError::error("LLVM returned a null target data layout"));
-        }
-        unsafe {
-            module.set_data_layout_from_target(target_data);
-            LLVMDisposeTargetData(target_data);
-        }
+        let target_data = self.target_data()?;
+        unsafe { module.set_data_layout_from_target(target_data.raw) };
         let triple = unsafe { llvm_sys::target_machine::LLVMGetTargetMachineTriple(self.raw) };
         let triple = llvm_owned_string(triple)?;
         module.set_triple(&triple)?;
@@ -259,6 +256,48 @@ impl TargetMachine {
 impl Drop for TargetMachine {
     fn drop(&mut self) {
         unsafe { LLVMDisposeTargetMachine(self.raw) };
+    }
+}
+
+/// The data layout a target machine gives the modules it configures.
+///
+/// It answers how LLVM itself places a type, so callers that own a layout
+/// contract can check that the LLVM types they build agree with it.
+pub struct TargetData {
+    raw: LLVMTargetDataRef,
+}
+
+impl TargetMachine {
+    /// Returns the data layout of this target machine.
+    pub fn target_data(&self) -> LlvmResult<TargetData> {
+        let raw = unsafe { LLVMCreateTargetDataLayout(self.raw) };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null target data layout"));
+        }
+        Ok(TargetData { raw })
+    }
+}
+
+impl TargetData {
+    /// The allocation size of `ty` in bytes, including tail padding.
+    pub fn abi_size<'ctx>(&self, ty: impl BasicType<'ctx>) -> u64 {
+        unsafe { LLVMABISizeOfType(self.raw, ty.as_type_ref()) }
+    }
+
+    /// The ABI alignment of `ty` in bytes.
+    pub fn abi_align<'ctx>(&self, ty: impl BasicType<'ctx>) -> u64 {
+        u64::from(unsafe { LLVMABIAlignmentOfType(self.raw, ty.as_type_ref()) })
+    }
+
+    /// The byte offset of element `index` of the sized struct `ty`.
+    pub fn element_offset<'ctx>(&self, ty: StructType<'ctx>, index: u32) -> u64 {
+        unsafe { LLVMOffsetOfElement(self.raw, ty.as_type_ref(), index) }
+    }
+}
+
+impl Drop for TargetData {
+    fn drop(&mut self) {
+        unsafe { LLVMDisposeTargetData(self.raw) };
     }
 }
 

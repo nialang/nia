@@ -12,9 +12,7 @@ pub fn check_module_bodies_with_program_signatures(
 ) -> BodyCheck {
     let root_types = input.signatures.type_roots();
     let array_lengths = |id| input.const_eval.array_lengths.get(&id).copied();
-    let Some(target_layout) = target_data_layout(input.target) else {
-        return body_check_target_layout_error(input.target);
-    };
+    let target_layout = nia_layout::TargetDataLayout::for_target(*input.target);
     let layouts =
         match nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: input.type_store,
@@ -64,35 +62,6 @@ pub fn check_module_bodies_with_program_signatures(
     });
     Arc::make_mut(&mut checked.diagnostics).extend(layouts.diagnostics);
     checked
-}
-
-fn target_data_layout(target: &TargetConfig) -> Option<nia_layout::TargetDataLayout> {
-    nia_layout::TargetDataLayout::from_pointer_width(target.pointer_width())
-}
-
-fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
-    let diagnostic = Diagnostic::user_error_at(
-        codes::TARGET_CONFIG,
-        Span::new(0, 0),
-        format!(
-            "body checking requires a supported target pointer width, got {}",
-            target.pointer_width()
-        ),
-    );
-    BodyCheck {
-        internal_error: None,
-        ir: Arc::new(BodyIr {
-            function_bodies: HashMap::new(),
-            global_inits: HashMap::new(),
-        }),
-        facts: Arc::new(SemanticFacts::default()),
-        static_init_refs: HashMap::new(),
-        checked_functions: HashSet::new(),
-        provider_demands: Arc::new(HashSet::new()),
-        provider_demands_by_function: HashMap::new(),
-        diagnostic_owners: vec![None],
-        diagnostics: Arc::new(vec![diagnostic]),
-    }
 }
 
 fn body_check_internal_error(error: nia_ice::Ice) -> BodyCheck {
@@ -381,7 +350,7 @@ pub(super) fn time_body_stage_if_slow<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{SemanticFacts, body_check_internal_error, target_data_layout};
+    use super::{SemanticFacts, body_check_internal_error};
     use nia_ice::Ice;
 
     #[test]
@@ -404,12 +373,5 @@ mod tests {
         assert!(check.provider_demands_by_function.is_empty());
         assert!(check.diagnostic_owners.is_empty());
         assert!(check.diagnostics.is_empty());
-    }
-
-    #[test]
-    fn every_maintained_target_has_a_data_layout() {
-        for target in nia_target::SUPPORTED_TARGETS {
-            assert!(target_data_layout(&target).is_some(), "{target}");
-        }
     }
 }

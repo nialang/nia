@@ -162,31 +162,35 @@ or symbol identity, that behavior belongs in this document.
 ## 5. Target Data Model
 
 ABI layout must be computed from an explicit target data model. Compiler phases
-must not silently use host assumptions.
-
-The current default model is LP64:
+must not silently use host assumptions. Every maintained target has one of two
+models:
 
 ```text
-pointer size   8
-pointer align  8
-usize/isize    8
+                 LP64                      ILP32 (i386 System V)
+targets          x86_64, aarch64           x86-unknown-linux
+pointer size     8                         4
+pointer align    8                         4
+usize/isize      8                         4
+i64/u64/f64      align 8                   align 4
 ```
 
 The target data model controls pointer-sized types, aggregate alignment, static
-data layout, and backend lowering.
+data layout, and backend lowering. It is the target's C data model: `extern`
+and Nia-owned aggregates use the same primitive alignments, so an 8-byte scalar
+has the same placement in both. Code generation checks every LLVM aggregate body
+against its Nia layout, and a disagreement is a compiler error rather than a
+silent difference between `std::builtin::size[T]()` and the storage LLVM uses.
 
 ## 6. Primitive Representation
-
-For the current LP64 model:
 
 ```text
 i8/u8/bool      size 1,  align 1
 i16/u16         size 2,  align 2
 i32/u32/f32     size 4,  align 4
 char            size 4,  align 4
-i64/u64/f64     size 8,  align 8
+i64/u64/f64     size 8,  align 8 (LP64) or 4 (ILP32)
 i128/u128       size 16, align 16
-isize/usize     size 8,  align 8
+isize/usize     pointer size and alignment
 ()              size 0,  align 1
 never           size 0,  align 1
 ```

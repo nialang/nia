@@ -497,10 +497,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         .map_err(Diagnostic::from)
     }
 
+    fn verify_aggregate_bodies_for(&self, target: &TargetMachine) -> Result<(), Diagnostic> {
+        let data = target
+            .target_data()
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        self.verify_aggregate_bodies(&data)
+    }
+
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
         })?;
+        self.verify_aggregate_bodies_for(target)?;
         time_codegen_module_stage(
             self.timings,
             "run_module_optimization",
@@ -528,6 +536,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
         })?;
+        self.verify_aggregate_bodies_for(target)?;
         self.module.set_identifier(module_identifier);
         time_codegen_module_stage(
             self.timings,
@@ -719,27 +728,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn primitive_layout(&self, primitive: PrimitiveTy) -> Option<TypeLayout> {
-        Some(match primitive {
-            PrimitiveTy::Never => TypeLayout { size: 0, align: 1 },
-            PrimitiveTy::Bool | PrimitiveTy::I8 | PrimitiveTy::U8 => {
-                TypeLayout { size: 1, align: 1 }
-            }
-            PrimitiveTy::I16 | PrimitiveTy::U16 => TypeLayout { size: 2, align: 2 },
-            PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::F32 | PrimitiveTy::Char => {
-                TypeLayout { size: 4, align: 4 }
-            }
-            PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::F64 => {
-                TypeLayout { size: 8, align: 8 }
-            }
-            PrimitiveTy::I128 | PrimitiveTy::U128 => TypeLayout {
-                size: 16,
-                align: 16,
-            },
-            PrimitiveTy::Isize | PrimitiveTy::Usize => TypeLayout {
-                size: self.source.layouts.target.pointer_size,
-                align: self.source.layouts.target.pointer_align,
-            },
-        })
+        Some(nia_layout::primitive_layout(
+            primitive,
+            self.source.layouts.target,
+        ))
     }
 
     fn vector_layout(&self, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {

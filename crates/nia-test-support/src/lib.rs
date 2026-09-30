@@ -124,6 +124,29 @@ pub fn workspace_root() -> &'static Path {
         .expect("nia-test-support lives under crates/")
 }
 
+/// Every Linux target an x86_64 Linux host runs: i686 natively and aarch64
+/// under user-mode QEMU.
+pub const LINUX_TARGETS: [&str; 3] = [
+    "x86_64-unknown-linux",
+    "x86-unknown-linux",
+    "aarch64-unknown-linux",
+];
+
+/// A command that runs the Linux executable `exe` built for `target` on an
+/// x86_64 Linux host.
+pub fn linux_target_command(target: &str, exe: &Path) -> Command {
+    if !target.starts_with("aarch64") {
+        return Command::new(exe);
+    }
+    let qemu = ["qemu-aarch64-static", "qemu-aarch64"]
+        .into_iter()
+        .find(|program| Command::new(program).arg("--version").output().is_ok())
+        .expect("aarch64 Linux executables run under user-mode QEMU; install qemu-user-static");
+    let mut command = Command::new(qemu);
+    command.arg(exe);
+    command
+}
+
 /// A `nia` invocation using `resource_root` as its toolchain resources.
 ///
 /// `program` is the compiler under test, normally `env!("CARGO_BIN_EXE_nia")`,

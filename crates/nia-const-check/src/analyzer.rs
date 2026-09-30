@@ -1100,11 +1100,7 @@ impl Analyzer<'_> {
         let Some((_def_id, _args, _const_args)) = self.expected_nominal_parts(ty) else {
             return;
         };
-        let Some(target) =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
-        else {
-            return;
-        };
+        let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let Some((ConstAbiType::Union { fields, size }, _)) =
             self.const_union_abi_type(span, ty, target)
         else {

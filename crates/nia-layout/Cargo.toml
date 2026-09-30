@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 nia-defs.workspace = true
+nia-target.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
@@ -16,7 +17,6 @@ nia-symbol.workspace = true
 nia-ty.workspace = true
 
 [dev-dependencies]
-nia-target.workspace = true
 nia-ast.workspace = true
 nia-const-check.workspace = true
 nia-item-tree.workspace = true

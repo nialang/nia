@@ -1041,7 +1041,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    fn union_layout(
+    pub(super) fn union_layout(
         &self,
         def_id: GlobalDefId,
         args: &[InternedTyId],

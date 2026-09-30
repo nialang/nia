@@ -1113,13 +1113,7 @@ impl Analyzer<'_> {
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
         let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
-        let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: "cannot compute layout for unsupported target pointer width"
-                        .to_string(),
-                })?;
+        let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let Some(layouts) = self.recover_internal(
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
@@ -1237,13 +1231,7 @@ impl Analyzer<'_> {
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
         let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
-        let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: "cannot compute field offset for unsupported target pointer width"
-                        .to_string(),
-                })?;
+        let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let input = nia_layout::LayoutComputationInput {
             type_store: self.input.type_store,
             defs: defs.as_ref(),
@@ -1523,8 +1511,7 @@ impl Analyzer<'_> {
         module_id: ModuleId,
         array_lengths: &HashMap<GlobalConstExprId, u64>,
     ) -> Option<Arc<nia_layout::Layouts>> {
-        let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width())?;
+        let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();
