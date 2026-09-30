@@ -41,12 +41,12 @@ pub fn main(init: Init) ExitCode!() {
 
     let mut point = Point { x: 3, y: 4 };
     let distance = point.distanceSquared();
-    let samples = [distance, 60, 87];
+    let samples = [distance, 60, 95];
     let total = sum(&samples);
     let band = classify(samples[2]);
     defer point.x = point.x + 1;
 
-    if total != 176 {
+    if total != 180 {
         return ExitCode(1)!;
     }
     match band {

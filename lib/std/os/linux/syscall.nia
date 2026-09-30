@@ -2,16 +2,19 @@
 using pkg::os::linux::x86_64::syscall as platform;
 @[if arch == "x86"]
 using pkg::os::linux::x86::syscall as platform;
+@[if arch == "aarch64"]
+using pkg::os::linux::aarch64::syscall as platform;
 
 pub using platform::{
     chdir,
     close,
-    dup2,
+    dup3,
     execve,
     fdatasync,
     exit,
     fchmod,
-    fork,
+    clone,
+    fcntl,
     ftruncate,
     getdents64,
     getcwd,

@@ -1,11 +1,12 @@
 pub const read: usize = 3;
 pub const write: usize = 4;
 pub const close: usize = 6;
-pub const dup2: usize = 63;
+pub const fcntl: usize = 55;
+pub const dup3: usize = 330;
 pub const lseek: usize = 19;
 pub const mmap: usize = 192;
 pub const munmap: usize = 91;
-pub const fork: usize = 2;
+pub const clone: usize = 120;
 pub const execve: usize = 11;
 pub const exit: usize = 1;
 pub const wait4: usize = 114;

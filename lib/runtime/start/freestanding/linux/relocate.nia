@@ -23,6 +23,9 @@ const ptInterp: u32 = 3;
 // R_X86_64_RELATIVE and R_386_RELATIVE.
 @[if arch == "x86_64" or arch == "x86"]
 const relativeType: usize = 8;
+// R_AARCH64_RELATIVE.
+@[if arch == "aarch64"]
+const relativeType: usize = 1027;
 
 // `header` is the runtime address of the ELF header (`__ehdr_start`), and
 // `dynamic` of the dynamic section (`_DYNAMIC`), or 0 for an image without

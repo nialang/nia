@@ -161,6 +161,8 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,
     trait_object_adapters: RefCell<HashMap<TraitObjectAdapterKey, FunctionValue<'ctx>>>,
     timings: nia_timing::TimingMode,
+    // Artifact target; inline assembly syntax depends on its architecture.
+    pub(super) target: nia_target::TargetConfig,
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
@@ -211,6 +213,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             trait_object_vtable_lookups: RefCell::new(HashMap::new()),
             trait_object_adapters: RefCell::new(HashMap::new()),
             timings: options.timings,
+            target: options.target,
         })
     }
 

@@ -64,7 +64,7 @@ jobs:
       - name: Install LLVM 23.1 toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --yes curl gnupg gcc-multilib g++-multilib libc6-dev-i386
+          sudo apt-get install --yes curl gnupg gcc-multilib g++-multilib libc6-dev-i386 qemu-user-static
           curl --fail --silent --show-error --location \
             https://apt.llvm.org/llvm-snapshot.gpg.key \
             --output "${RUNNER_TEMP}/llvm-snapshot.gpg.key"

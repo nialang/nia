@@ -70,6 +70,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+On Linux x86_64 the workspace tests also build and run executables for the
+other Linux targets: i686 natively, which needs a 32-bit C toolchain
+(`gcc-multilib`) for the C interoperability tests, and aarch64 under user-mode
+QEMU (`qemu-user-static`). Executables link with LLD, so `ld.lld` must be on
+`PATH`.
+
 On Windows, use an LLVM prefix built with the static MSVC CRT (`/MT`, or
 `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`). The repository's MSVC target
 configuration enables Rust's `crt-static`, and the C++ bridge follows it.

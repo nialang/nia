@@ -206,6 +206,7 @@ pub(pkg) module windows;
     std::fs::write(
         &std_start_freestanding_linux,
         r#"
+pub(pkg) module startup;
 @[if arch == "x86_64"]
 pub(pkg) module x86_64;
 @[if arch == "x86"]
@@ -213,11 +214,15 @@ pub(pkg) module x86;
 "#,
     )
     .expect("write custom std linux facade");
+    // The runtime roots Linux startup in `startup.nia` by definition name.
     std::fs::write(
-        &std_start_linux_x86_64,
+        std_start_freestanding_linux
+            .with_extension("")
+            .join("startup.nia"),
         r#"
 using entry;
 
+@[if arch == "x86_64"]
 fn syscallExit(code: i32) () {
     std::builtin::asm(.{
         code: b"syscall",
@@ -230,30 +235,7 @@ fn syscallExit(code: i32) () {
     });
 }
 
-@[naked]
-pub extern fn _start() () {
-    std::builtin::asm(.{
-        code:
-            b"call niaStartStack\n"
-            b"ud2",
-        clobbers: [b"rax", b"rcx", b"r11", b"memory"],
-        options: [b"volatile"],
-    });
-    loop {}
-}
-
-extern fn niaStartStack() () {
-    syscallExit(entry::mymain());
-    loop {}
-}
-"#,
-    )
-    .expect("write custom std start");
-    std::fs::write(
-        &std_start_linux_x86,
-        r#"
-using entry;
-
+@[if arch == "x86"]
 fn syscallExit(code: i32) () {
     std::builtin::asm(.{
         code: b"int 0x80",
@@ -266,6 +248,33 @@ fn syscallExit(code: i32) () {
     });
 }
 
+extern fn niaStartStack() () {
+    syscallExit(entry::mymain());
+    loop {}
+}
+"#,
+    )
+    .expect("write custom Linux startup");
+    std::fs::write(
+        &std_start_linux_x86_64,
+        r#"
+@[naked]
+pub extern fn _start() () {
+    std::builtin::asm(.{
+        code:
+            b"call niaStartStack\n"
+            b"ud2",
+        clobbers: [b"rax", b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}
+"#,
+    )
+    .expect("write custom std start");
+    std::fs::write(
+        &std_start_linux_x86,
+        r#"
 @[naked]
 pub extern fn _start() () {
     std::builtin::asm(.{
@@ -275,11 +284,6 @@ pub extern fn _start() () {
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });
-    loop {}
-}
-
-extern fn niaStartStack() () {
-    syscallExit(entry::mymain());
     loop {}
 }
 "#,

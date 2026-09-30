@@ -242,10 +242,7 @@ impl RuntimeSpec {
         // function is rooted explicitly rather than through a code operand.
         let startup = match target.os() {
             Os::Linux => Some((
-                format!(
-                    "toolchain:/runtime/start/freestanding/linux/{}.nia",
-                    target.arch().name()
-                ),
+                "toolchain:/runtime/start/freestanding/linux/startup.nia".to_string(),
                 "niaStartStack",
             )),
             Os::Windows => Some((
@@ -277,7 +274,8 @@ impl RuntimeSpec {
     ) -> Result<Self, RuntimeSpecError> {
         // The startup module is named by architecture below its OS directory.
         match (target.os(), target.arch()) {
-            (Os::Linux, Arch::X86_64 | Arch::X86) | (Os::Windows, Arch::X86_64) => {}
+            (Os::Linux, Arch::X86_64 | Arch::X86 | Arch::Aarch64) | (Os::Windows, Arch::X86_64) => {
+            }
             _ => return Err(RuntimeSpecError::UnsupportedTarget(*target)),
         }
         let implementation = target.arch().name();
@@ -1143,6 +1141,7 @@ mod tests {
         for (name, implementation) in [
             ("x86_64-unknown-linux", "x86_64"),
             ("x86-unknown-linux", "x86"),
+            ("aarch64-unknown-linux", "aarch64"),
             ("x86_64-pc-windows-msvc", "x86_64"),
         ] {
             let target = TargetConfig::parse(name).expect("maintained target");
@@ -1186,7 +1185,7 @@ mod tests {
                 assert_eq!(
                     source.required_exports(),
                     [RuntimeExport::new(
-                        format!("toolchain:/runtime/start/freestanding/linux/{implementation}.nia"),
+                        "toolchain:/runtime/start/freestanding/linux/startup.nia",
                         "niaStartStack",
                     )]
                 );
@@ -1205,8 +1204,8 @@ mod tests {
 
     #[test]
     fn runtime_selection_rejects_unsupported_and_mismatched_targets() {
-        // aarch64 startup does not exist yet; its absence is a typed error.
-        let unsupported = TargetConfig::parse("aarch64-unknown-linux").unwrap();
+        // Darwin startup does not exist yet; its absence is a typed error.
+        let unsupported = TargetConfig::parse("aarch64-apple-macos").unwrap();
         assert_eq!(
             RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &unsupported),
             Err(RuntimeSpecError::UnsupportedTarget(unsupported))

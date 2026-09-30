@@ -1,0 +1,149 @@
+// AArch64 uses the generic Linux system-call table: the number is in x8,
+// arguments in x0-x5, and the result returns in x0.
+pub const read: usize = 63;
+pub const write: usize = 64;
+pub const close: usize = 57;
+pub const fcntl: usize = 25;
+pub const dup3: usize = 24;
+pub const lseek: usize = 62;
+pub const mmap: usize = 222;
+pub const munmap: usize = 215;
+pub const clone: usize = 220;
+pub const execve: usize = 221;
+pub const exit: usize = 93;
+pub const wait4: usize = 260;
+pub const kill: usize = 129;
+pub const fchmod: usize = 52;
+pub const fsync: usize = 82;
+pub const fdatasync: usize = 83;
+pub const ftruncate: usize = 46;
+pub const getcwd: usize = 17;
+pub const chdir: usize = 49;
+pub const getdents64: usize = 61;
+pub const openat: usize = 56;
+pub const openat2: usize = 437;
+pub const mkdirat: usize = 34;
+pub const unlinkat: usize = 35;
+pub const renameat: usize = 38;
+pub const pipe2: usize = 59;
+pub const getrandom: usize = 278;
+pub const statx: usize = 291;
+
+pub fn syscall0(number: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall1(number: usize, arg0: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+            x0: arg0,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+            x0: arg0,
+            x1: arg1,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+            x0: arg0,
+            x1: arg1,
+            x2: arg2,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+            x0: arg0,
+            x1: arg1,
+            x2: arg2,
+            x3: arg3,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+            x0: arg0,
+            x1: arg1,
+            x2: arg2,
+            x3: arg3,
+            x4: arg4,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall6(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) isize {
+    let mut ret: isize = 0;
+    pkg::builtin::asm(.{
+        code: b"svc #0",
+        outputs: .{ x0: ret },
+        inputs: .{
+            x8: number,
+            x0: arg0,
+            x1: arg1,
+            x2: arg2,
+            x3: arg3,
+            x4: arg4,
+            x5: arg5,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
