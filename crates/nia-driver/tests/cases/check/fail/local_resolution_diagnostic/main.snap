@@ -24,6 +24,6 @@ error[E0302]: `self` cannot cross a closure boundary; bind it to a local and cap
   --> fail/local_resolution_diagnostic/main.nia:7:35
   |
 7 |         let callback = \z: i32 -> self.value + z;
-  |                                   ^^^^ `self` cannot cross a closure boundary; bind it to a local and capture that local
+  |                                   ^^^^
 
 summary: 2 errors, 0 warnings

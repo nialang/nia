@@ -402,6 +402,26 @@ impl<'a> ModuleLowerer<'a> {
             | TyKind::ConstOnly
             | TyKind::Error
             | TyKind::ClosureState { .. } => false,
+            TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            } => {
+                self_arg.is_some_and(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                    || args
+                        .iter()
+                        .any(|ty| self.ty_exceeds_backend_instance_depth(*ty, next))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                    || params
+                        .iter()
+                        .any(|ty| self.ty_exceeds_backend_instance_depth(*ty, next))
+                    || self.ty_exceeds_backend_instance_depth(*return_type, next)
+            }
         }
     }
 
@@ -870,6 +890,26 @@ pub(crate) fn contains_generic_param(
                 .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
                 || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
         }
+        Some(TyKind::FunctionItem {
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            ..
+        }) => {
+            self_arg.is_some_and(|ty| contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
+                || args
+                    .iter()
+                    .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || const_args
+                    .iter()
+                    .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
+                || params
+                    .iter()
+                    .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
+                || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
+        }
         Some(TyKind::Optional { elem }) => {
             contains_generic_param(elem, ty_kind, cache.as_deref_mut())
         }
@@ -991,6 +1031,26 @@ pub(crate) fn contains_unresolved_projection(
                 .any(|param| contains_unresolved_projection(param, ty_kind))
                 || contains_unresolved_projection(return_type, ty_kind)
         }
+        Some(TyKind::FunctionItem {
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            ..
+        }) => {
+            self_arg.is_some_and(|ty| contains_unresolved_projection(ty, ty_kind))
+                || args
+                    .into_iter()
+                    .any(|arg| contains_unresolved_projection(arg, ty_kind))
+                || const_args
+                    .into_iter()
+                    .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+                || params
+                    .into_iter()
+                    .any(|param| contains_unresolved_projection(param, ty_kind))
+                || contains_unresolved_projection(return_type, ty_kind)
+        }
         Some(TyKind::Optional { elem }) => contains_unresolved_projection(elem, ty_kind),
         Some(TyKind::ErrorUnion { error, value }) => {
             contains_unresolved_projection(error, ty_kind)
@@ -1099,6 +1159,26 @@ pub(crate) fn contains_error(
             params
                 .into_iter()
                 .any(|param| contains_error(param, ty_kind, None))
+                || contains_error(return_type, ty_kind, None)
+        }
+        Some(TyKind::FunctionItem {
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            ..
+        }) => {
+            self_arg.is_some_and(|ty| contains_error(ty, ty_kind, None))
+                || args
+                    .into_iter()
+                    .any(|arg| contains_error(arg, ty_kind, None))
+                || const_args
+                    .into_iter()
+                    .any(|arg| contains_error(arg.ty, ty_kind, None))
+                || params
+                    .into_iter()
+                    .any(|param| contains_error(param, ty_kind, None))
                 || contains_error(return_type, ty_kind, None)
         }
         Some(TyKind::Optional { elem }) => contains_error(elem, ty_kind, None),

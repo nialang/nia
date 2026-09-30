@@ -1436,3 +1436,20 @@ fn error_union(value: i32!i32) i32 {
     ));
     assert!(if_pattern.else_branch.is_some());
 }
+
+#[test]
+fn parses_extern_function_pointer_type_as_a_type_annotation() {
+    let (module, errors) = parse_module("struct Header { callback: &extern fn(i32) () }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Struct(header) = &module.items[0].kind else {
+        panic!("expected struct");
+    };
+    assert!(matches!(
+        &header.fields[0].ty.kind,
+        TypeKind::FunctionPointer {
+            is_extern: true,
+            is_variadic: false,
+            ..
+        }
+    ));
+}

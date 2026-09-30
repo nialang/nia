@@ -580,7 +580,8 @@ pub enum TypedExprKind {
         closure_id: nia_ids::ClosureId,
     },
     /// Builds a callable value from a thin function pointer. The lowered
-    /// callable uses the null state pointer as its function-kind tag.
+    /// callable stores the function pointer in its state slot and uses a
+    /// signature-specific entry thunk, matching closure callable dispatch.
     FunctionCallable {
         /// Function pointer expression.
         function: Box<TypedExpr>,

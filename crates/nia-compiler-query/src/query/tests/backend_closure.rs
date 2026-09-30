@@ -301,7 +301,6 @@ pub fn main() i32 {
     let module_id = fixture.entry_id();
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
-
     let backend = db.expect_get(BackendLoweringQuery);
     assert!(resolve_diagnostic_bundle(&backend.diagnostics).is_empty());
     let module = backend
@@ -381,7 +380,6 @@ pub fn main(base: i32) i32 {
     );
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
-
     let backend = db.expect_get(BackendLoweringQuery);
     assert!(
         resolve_diagnostic_bundle(&backend.diagnostics).is_empty(),

@@ -19,7 +19,7 @@ use nia_item_signatures::{
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_span::Span;
 use nia_target::{Arch, TargetConfig};
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
+use nia_ty::{ArrayLenTy, FunctionPointerAbi, PrimitiveTy, TyKind, TypeStore};
 
 pub mod c_abi;
 
@@ -596,6 +596,12 @@ impl AbiChecker<'_> {
             Some(TyKind::Primitive(_))
             | Some(TyKind::Pointer { .. })
             | Some(TyKind::VolatilePointer { .. }) => {}
+            Some(TyKind::FunctionItem { .. }) => self.diagnostics.push(extern_type_diagnostic(
+                span,
+                format!("{context_desc} cannot use a function item directly"),
+                "function items are compile-time-only values and have no C ABI representation",
+                "take an explicit `&fn(...)` pointer before crossing the foreign boundary",
+            )),
             Some(TyKind::Opaque) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use incomplete `opaque` directly"),
@@ -658,7 +664,16 @@ impl AbiChecker<'_> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
+                if *abi != FunctionPointerAbi::C {
+                    self.diagnostics.push(extern_type_diagnostic(
+                        span,
+                        format!("{context_desc} must use a C function pointer"),
+                        "a Nia function pointer uses the internal calling convention and cannot cross a C ABI boundary",
+                        "write the type as `&extern fn(...)` and take the address of an `extern fn`",
+                    ));
+                }
                 if *is_variadic {
                     self.diagnostics.push(extern_type_diagnostic(
                         span,

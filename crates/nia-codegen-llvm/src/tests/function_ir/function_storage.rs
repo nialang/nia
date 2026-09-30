@@ -128,6 +128,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
         params: Vec::new(),
         return_type: i32_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let span = Span::default();
     let missing_function = GlobalDefId {
@@ -194,11 +195,13 @@ fn validates_static_function_address_signatures_before_llvm() {
         params: vec![bool_ty],
         return_type: i32_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let wrong_variadic_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: bool_ty,
         is_variadic: true,
+        abi: FunctionPointerAbi::Nia,
     });
     let function_id = GlobalDefId {
         module_id,
@@ -328,6 +331,7 @@ fn validates_static_function_address_instance_with_structurally_equal_args() {
         params: vec![bool_ty],
         return_type: i32_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let span = Span::default();
     let program = BackendProgram {

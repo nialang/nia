@@ -103,7 +103,7 @@ pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buff
 pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
     if parseDirectoryRecord(buffer, offset) is ?record { ?DirectoryEntry::init(record.kind, &buffer[record.nameStart..record.nameEnd]) } else { null }
 }
-pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { parseDirectoryRecord(buffer, offset).map(&\record -> record.end) }
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { parseDirectoryRecord(buffer, offset).map[usize, _](\record: DirectoryRecord -> record.end) }
 
 struct DirectoryRecord { end: usize, kind: FileKind, nameStart: usize, nameEnd: usize }
 

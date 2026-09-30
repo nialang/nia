@@ -258,11 +258,13 @@ pub(crate) fn write_ty_kind(
             params,
             return_type,
             is_variadic,
+            abi,
         } => {
             encoded.push(10);
             write_types(encoded, params, graph)?;
             write_type_index(encoded, graph.intern(*return_type)?);
             write_bool(encoded, *is_variadic);
+            write_bool(encoded, matches!(abi, nia_ty::FunctionPointerAbi::C));
         }
         TyKind::Optional { elem } => {
             encoded.push(11);
@@ -373,6 +375,32 @@ pub(crate) fn write_ty_kind(
             write_types(encoded, params, graph)?;
             write_type_index(encoded, graph.intern(*return_type)?);
         }
+        TyKind::FunctionItem {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            is_variadic,
+        } => {
+            encoded.push(26);
+            write_global_def(encoded, *def_id, graph.module_paths)?;
+            let arg_module_path = graph.module_paths.get(arg_module_id).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "function item argument module is not loaded",
+                )
+            })?;
+            write_string(encoded, arg_module_path);
+            write_optional_type(encoded, *self_arg, graph)?;
+            write_types(encoded, args, graph)?;
+            write_const_args(encoded, const_args, graph)?;
+            write_types(encoded, params, graph)?;
+            write_type_index(encoded, graph.intern(*return_type)?);
+            write_bool(encoded, *is_variadic);
+        }
     }
     Ok(())
 }
@@ -418,6 +446,11 @@ pub(crate) fn read_ty_kind(
             params: read_types(cursor, types)?,
             return_type: read_type_index(cursor, types)?,
             is_variadic: read_bool(cursor)?,
+            abi: if read_bool(cursor)? {
+                nia_ty::FunctionPointerAbi::C
+            } else {
+                nia_ty::FunctionPointerAbi::Nia
+            },
         },
         11 => TyKind::Optional {
             elem: read_type_index(cursor, types)?,
@@ -477,6 +510,19 @@ pub(crate) fn read_ty_kind(
         25 => TyKind::CallablePointee {
             params: read_types(cursor, types)?,
             return_type: read_type_index(cursor, types)?,
+        },
+        26 => TyKind::FunctionItem {
+            def_id: read_global_def(cursor, modules)?,
+            arg_module_id: {
+                let path = read_string(cursor, cursor.get_ref().len())?;
+                *modules.get(&path)?
+            },
+            self_arg: read_optional_type(cursor, types)?,
+            args: read_types(cursor, types)?,
+            const_args: read_const_args(cursor, types, symbols)?,
+            params: read_types(cursor, types)?,
+            return_type: read_type_index(cursor, types)?,
+            is_variadic: read_bool(cursor)?,
         },
         _ => return None,
     })

@@ -52,7 +52,16 @@ impl<'a> BodyChecker<'a> {
         key: &VersionedNodeKey,
         call: ResolvedCall,
     ) {
-        if self.in_const_context() {
+        // Nested const-expression checking still needs the semantic fact for
+        // rejected indirect calls so the const-declaration filter can emit a
+        // useful diagnostic. Other calls remain suppressed while evaluating
+        // an already-const-capable expression.
+        if self.in_const_context()
+            && !matches!(
+                call,
+                ResolvedCall::FunctionPointer | ResolvedCall::Closure | ResolvedCall::Callable
+            )
+        {
             return;
         }
         if self.body_filter.checks_const_declarations()

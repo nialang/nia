@@ -17,6 +17,19 @@ pub use substitution::{array_len_from_const_arg, substitute_ty};
 
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
 
+/// Calling convention carried by a thin function pointer type.
+///
+/// A function item's linkage determines this value when its address is taken.
+/// Keeping it in the type prevents a C function pointer from being passed to a
+/// Nia indirect call (or the other way around) after it has been stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FunctionPointerAbi {
+    /// The internal Nia calling convention.
+    Nia,
+    /// The target's C calling convention.
+    C,
+}
+
 type TypeKindLeaf = [OnceLock<Arc<TyKind>>; TYPE_KIND_ARENA_FANOUT];
 type TypeKindBranch = [OnceLock<Box<TypeKindLeaf>>; TYPE_KIND_ARENA_FANOUT];
 type TypeKindTrunk = [OnceLock<Box<TypeKindBranch>>; TYPE_KIND_ARENA_FANOUT];
@@ -276,11 +289,36 @@ pub enum TyKind {
         /// Element bound type, when present.
         bound: Option<InternedTyId>,
     },
-    /// Thin C-compatible function pointer.
+    /// Thin function pointer with an explicit calling convention.
     FunctionPointer {
         /// Parameter types.
         params: Vec<InternedTyId>,
         /// Return type.
+        return_type: InternedTyId,
+        /// Whether the function accepts variadic arguments.
+        is_variadic: bool,
+        /// Calling convention used by indirect calls through this pointer.
+        abi: FunctionPointerAbi,
+    },
+    /// A zero-sized, statically known function value.
+    ///
+    /// Unlike [`TyKind::FunctionPointer`], this preserves the exact function
+    /// identity and concrete generic arguments. It is lowered directly to a
+    /// function callee when used in a statically dispatched call.
+    FunctionItem {
+        /// Defining function identity.
+        def_id: GlobalDefId,
+        /// Module supplying generic argument resolution context.
+        arg_module_id: ModuleId,
+        /// Optional receiver substitution for an associated function item.
+        self_arg: Option<InternedTyId>,
+        /// Type arguments in canonical order.
+        args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
+        const_args: Vec<ConstGenericArg>,
+        /// Parameter types after applying all substitutions.
+        params: Vec<InternedTyId>,
+        /// Return type after applying all substitutions.
         return_type: InternedTyId,
         /// Whether the function accepts variadic arguments.
         is_variadic: bool,
@@ -425,6 +463,26 @@ impl TyKind {
                 return_type,
                 ..
             } => {
+                for param in params {
+                    visit(*param);
+                }
+                visit(*return_type);
+            }
+            Self::FunctionItem {
+                args,
+                const_args,
+                params,
+                return_type,
+                self_arg,
+                ..
+            } => {
+                if let Some(self_arg) = self_arg {
+                    visit(*self_arg);
+                }
+                for arg in args {
+                    visit(*arg);
+                }
+                visit_const_args(const_args, &mut visit);
                 for param in params {
                     visit(*param);
                 }
@@ -912,14 +970,51 @@ pub trait TypeEquivalence {
                     params: left_params,
                     return_type: left_return,
                     is_variadic: left_variadic,
+                    abi: left_abi,
                 }),
                 Some(TyKind::FunctionPointer {
                     params: right_params,
                     return_type: right_return,
                     is_variadic: right_variadic,
+                    abi: right_abi,
                 }),
             ) => {
-                left_variadic == right_variadic
+                left_abi == right_abi
+                    && left_variadic == right_variadic
+                    && self.same_type_args_for_equiv(left_params, right_params)
+                    && self.same_type_for_equiv(*left_return, *right_return)
+            }
+            (
+                Some(TyKind::FunctionItem {
+                    def_id: left_def,
+                    arg_module_id: _left_module,
+                    self_arg: left_self,
+                    args: left_args,
+                    const_args: left_const_args,
+                    params: left_params,
+                    return_type: left_return,
+                    is_variadic: left_variadic,
+                }),
+                Some(TyKind::FunctionItem {
+                    def_id: right_def,
+                    arg_module_id: _right_module,
+                    self_arg: right_self,
+                    args: right_args,
+                    const_args: right_const_args,
+                    params: right_params,
+                    return_type: right_return,
+                    is_variadic: right_variadic,
+                }),
+            ) => {
+                left_def == right_def
+                    && left_variadic == right_variadic
+                    && match (left_self, right_self) {
+                        (Some(left), Some(right)) => self.same_type_for_equiv(*left, *right),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && self.same_type_args_for_equiv(left_args, right_args)
+                    && self.same_const_generic_args_for_equiv(left_const_args, right_const_args)
                     && self.same_type_args_for_equiv(left_params, right_params)
                     && self.same_type_for_equiv(*left_return, *right_return)
             }

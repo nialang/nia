@@ -1531,6 +1531,7 @@ impl BackendValidator<'_> {
                 params,
                 return_type,
                 is_variadic,
+                ..
             } => {
                 if is_variadic {
                     self.extern_abi_error(
@@ -1601,6 +1602,12 @@ impl BackendValidator<'_> {
                 span,
                 nominal_stack,
             ),
+            TyKind::FunctionItem { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use a function item directly"),
+                );
+            }
             TyKind::BuiltinTrait { .. } => {
                 self.extern_abi_error(
                     span,

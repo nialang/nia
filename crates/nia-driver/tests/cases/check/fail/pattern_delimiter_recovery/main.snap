@@ -20,20 +20,20 @@ error[E0101]: expected `,` or `)` after tuple pattern; found `false`
   --> fail/pattern_delimiter_recovery/main.nia:9:15
   |
 9 |         (true false) => (),
-  |               ^^^^^ expected `,` or `)` after tuple pattern; found `false`
+  |               ^^^^^
 
 root diagnostic:
 error[E0101]: expected `,` or `)` after tuple pattern; found `false`
    --> fail/pattern_delimiter_recovery/main.nia:10:19
    |
 10 |         Pair(true false) => (),
-   |                   ^^^^^ expected `,` or `)` after tuple pattern; found `false`
+   |                   ^^^^^
 
 root diagnostic:
 error[E0101]: expected `,` or `}` after nominal pattern field; found `y`
    --> fail/pattern_delimiter_recovery/main.nia:11:25
    |
 11 |         Point { x: true y: false } => (),
-   |                         ^ expected `,` or `}` after nominal pattern field; found `y`
+   |                         ^
 
 summary: 3 errors, 0 warnings

@@ -6,10 +6,9 @@ use nia_backend_ir::BackendClosureEntryKey;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
 use nia_ids::{InternedTyId, ReceiverKind};
-use nia_llvm::IntPredicate;
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
-use nia_ty::{TyKind, TypeEquivalence};
+use nia_ty::{FunctionPointerAbi, TyKind, TypeEquivalence};
 
 use super::c_call::CCallTarget;
 use super::{FunctionCodegen, callee_is_extern, method_requires_instance_metadata};
@@ -41,6 +40,17 @@ struct DynamicTraitMethodCall<'a, 'ctx> {
 /// present (and may remain effectful) in the source argument sequence.
 fn call_arity_is_valid(actual: usize, fixed: usize, is_variadic: bool) -> bool {
     actual >= fixed && (is_variadic || actual == fixed)
+}
+
+fn is_c_function_pointer(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCallee) -> bool {
+    matches!(
+        callee,
+        FunctionCallee::FunctionPointer(pointer)
+            if matches!(
+                codegen.module.ty_kind(pointer.ty),
+                Some(TyKind::FunctionPointer { abi: FunctionPointerAbi::C, .. })
+            )
+    )
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
@@ -151,6 +161,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
         if matches!(callee, FunctionCallee::Callable(_)) {
             return self.emit_callable_value_call(expr, callee, args);
+        }
+        if is_c_function_pointer(self, callee) {
+            return self
+                .emit_c_function_pointer_call(expr, callee, args, None)?
+                .ok_or_else(|| {
+                    self.error(
+                        expr.span,
+                        "unit function pointer call cannot be used as a value",
+                    )
+                });
         }
         if callee_is_extern(self, callee) {
             return self
@@ -316,31 +336,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_extract_value(callable, 1, "callable.entry")
             .map_err(|_| self.error(receiver.span, "failed to extract callable entry"))?
             .into_pointer_value()?;
-        let is_function = self
-            .builder
-            .build_basic_int_compare(
-                IntPredicate::EQ,
-                state.into(),
-                self.module
-                    .context
-                    .ptr_type(Default::default())
-                    .const_null()?
-                    .into(),
-                "callable.is_function",
-            )?
-            .into_int_value()?;
-        let function_block = self
-            .module
-            .context
-            .append_basic_block(self.llvm_function, "callable.function")?;
-        let closure_block = self
-            .module
-            .context
-            .append_basic_block(self.llvm_function, "callable.closure")?;
-        let merge_block = self
-            .module
-            .context
-            .append_basic_block(self.llvm_function, "callable.merge")?;
         let abi_return = self.module.classify_function_return(return_type);
         let result_ptr = match abi_return {
             AbiReturn::Direct(ty) if load_result => Some(self.builder.build_alloca(
@@ -358,61 +353,27 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             AbiReturn::Void | AbiReturn::Never => None,
         };
         let call_out_ptr = result_ptr.filter(|_| matches!(abi_return, AbiReturn::IndirectOut(_)));
-        self.builder
-            .build_conditional_branch(is_function, function_block, closure_block)
-            .map_err(|_| self.error(expr.span, "failed to branch callable dispatch"))?;
-        self.builder.position_at_end(function_block);
-        let function_type =
-            self.module
-                .function_pointer_type_in(&params, return_type, false, receiver.span)?;
-        let function_args =
-            self.emit_call_args(expr.span, args, params.iter().copied(), call_out_ptr, false)?;
-        let function_call = self
-            .builder
-            .build_indirect_call(
-                function_type,
-                entry,
-                &function_args,
-                "callable.function.call",
-            )
-            .map_err(|error| {
-                self.error(
-                    expr.span,
-                    format!("failed to call function callable: {error:?}"),
-                )
-            })?;
-        if let Some(result_ptr) = result_ptr
-            && matches!(abi_return, AbiReturn::Direct(_))
-            && let Some(value) = function_call.try_as_basic_value().basic()
-        {
-            self.builder.build_store(result_ptr, value?)?;
-        }
-        self.builder.build_unconditional_branch(merge_block)?;
-
-        self.builder.position_at_end(closure_block);
-        let closure_type =
+        let callable_type =
             self.module
                 .callable_entry_function_type_in(&params, return_type, receiver.span)?;
-        let mut closure_args =
+        let mut callable_args =
             self.emit_call_args(expr.span, args, params.iter().copied(), call_out_ptr, false)?;
-        closure_args.insert(usize::from(call_out_ptr.is_some()), state.into());
-        let closure_call = self
+        callable_args.insert(usize::from(call_out_ptr.is_some()), state.into());
+        let call = self
             .builder
-            .build_indirect_call(closure_type, entry, &closure_args, "callable.call")
+            .build_indirect_call(callable_type, entry, &callable_args, "callable.call")
             .map_err(|error| {
                 self.error(
                     expr.span,
-                    format!("failed to call closure callable: {error:?}"),
+                    format!("failed to call callable entry: {error:?}"),
                 )
             })?;
         if let Some(result_ptr) = result_ptr
             && matches!(abi_return, AbiReturn::Direct(_))
-            && let Some(value) = closure_call.try_as_basic_value().basic()
+            && let Some(value) = call.try_as_basic_value().basic()
         {
             self.builder.build_store(result_ptr, value?)?;
         }
-        self.builder.build_unconditional_branch(merge_block)?;
-        self.builder.position_at_end(merge_block);
         if !load_result {
             return Ok(None);
         }
@@ -443,6 +404,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         if let FunctionCallee::Callable(receiver) = callee {
             let _ = self.emit_callable_dispatch(expr, receiver, args, destination, false)?;
+        } else if is_c_function_pointer(self, callee) {
+            let _ = self.emit_c_function_pointer_call(expr, callee, args, destination)?;
         } else if callee_is_extern(self, callee) {
             let value = self.emit_extern_call(expr, callee, args)?;
             if let (Some(destination), Some(value)) = (destination, value) {
@@ -572,11 +535,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         self.error(expr.span, "closure entry cannot use tracked-caller ABI")
                     );
                 }
-                let key = BackendClosureEntryKey {
-                    closure_id: *closure_id,
-                    owner: self.function.closure_owner.clone(),
-                };
-                let Some(entry) = self.module.closure_entry_item(&key) else {
+                let Some((key, entry)) = self.closure_entry_for_call(*closure_id) else {
                     return Err(self.error(expr.span, "missing generated closure entry ABI"));
                 };
                 let state_pointer_type = entry.abi.state_pointer_type;
@@ -829,21 +788,80 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         self.error(expr.span, "function pointer cannot use tracked-caller ABI")
                     );
                 }
+                // A generic `F: Fn(...) R` parameter is represented as a
+                // generic local in the checked body. After monomorphization
+                // its type is either the zero-sized function item or a
+                // concrete closure state. Recover the direct target here so
+                // this path never turns a static callable into an indirect
+                // function-pointer call.
+                match self.module.ty_kind(callee.ty).cloned() {
+                    Some(TyKind::FunctionItem {
+                        def_id,
+                        arg_module_id,
+                        self_arg,
+                        args: type_args,
+                        const_args,
+                        ..
+                    }) => {
+                        let direct = if self_arg.is_some()
+                            || !type_args.is_empty()
+                            || !const_args.is_empty()
+                        {
+                            FunctionCallee::FunctionInstance {
+                                def_id,
+                                arg_module_id,
+                                self_arg,
+                                args: type_args,
+                                const_args,
+                            }
+                        } else {
+                            FunctionCallee::Function(def_id)
+                        };
+                        return self.emit_call_raw_with_caller(
+                            expr,
+                            &direct,
+                            args,
+                            out_ptr,
+                            caller_location,
+                        );
+                    }
+                    Some(TyKind::ClosureState { closure_id, .. }) => {
+                        let direct = FunctionCallee::ClosureEntry {
+                            closure_id,
+                            state: Box::new(callee.as_ref().clone()),
+                        };
+                        return self.emit_call_raw_with_caller(
+                            expr,
+                            &direct,
+                            args,
+                            out_ptr,
+                            caller_location,
+                        );
+                    }
+                    _ => {}
+                }
                 let Some(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
+                    abi,
                 }) = self.module.ty_kind(callee.ty)
                 else {
                     return Err(self.error(callee.span, "callee is not a function pointer"));
                 };
+                let function_pointer = self.emit_expr(callee)?.into_pointer_value()?;
+                if matches!(abi, FunctionPointerAbi::C) {
+                    return Err(
+                        self.error(expr.span, "C function pointer bypassed C ABI call lowering")
+                    );
+                }
                 let function_type = self.module.function_pointer_type_in(
                     params,
                     *return_type,
                     *is_variadic,
+                    FunctionPointerAbi::Nia,
                     callee.span,
                 )?;
-                let function_pointer = self.emit_expr(callee)?.into_pointer_value()?;
                 let llvm_args = self.emit_call_args(
                     expr.span,
                     args,
@@ -856,6 +874,96 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .map_err(|_| self.error(expr.span, "failed to build indirect call"))
             }
         }
+    }
+
+    /// Resolve a closure entry for a static callable call.
+    ///
+    /// A closure created inside the current function is owned by the current
+    /// source/instance. A closure passed through a static callable generic,
+    /// however, keeps the caller's source closure identity while the callee
+    /// is emitted under a different owner. Prefer the current owner for the
+    /// former case and fall back to the source owner for the latter.
+    pub(super) fn closure_entry_for_call(
+        &self,
+        closure_id: nia_ids::ClosureId,
+    ) -> Option<(
+        BackendClosureEntryKey,
+        &'a nia_backend_ir::BackendClosureEntry,
+    )> {
+        let current = BackendClosureEntryKey {
+            closure_id,
+            owner: self.function.closure_owner.clone(),
+        };
+        if let Some(entry) = self.module.closure_entry_item(&current) {
+            return Some((current, entry));
+        }
+        let source = BackendClosureEntryKey {
+            closure_id,
+            owner: nia_backend_ir::BackendClosureEntryOwner::Source(closure_id.owner),
+        };
+        self.module
+            .closure_entry_item(&source)
+            .map(|entry| (source, entry))
+    }
+
+    fn emit_c_function_pointer_call(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+        destination: Option<nia_llvm::values::PointerValue<'ctx>>,
+    ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
+        let FunctionCallee::FunctionPointer(callee_expr) = callee else {
+            return Err(self.error(expr.span, "expected C function pointer callee"));
+        };
+        let Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+            abi: FunctionPointerAbi::C,
+        }) = self.module.ty_kind(callee_expr.ty)
+        else {
+            return Err(self.error(callee_expr.span, "callee is not a C function pointer"));
+        };
+        if !call_arity_is_valid(args.len(), params.len(), *is_variadic) {
+            return Err(self.error(
+                expr.span,
+                format!(
+                    "C call has {} arguments for {} declared parameters",
+                    args.len(),
+                    params.len()
+                ),
+            ));
+        }
+        let mut values = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let ty = params.get(index).copied().unwrap_or(arg.ty);
+            values.push((self.emit_expr(arg)?, ty));
+        }
+        let pointer = self.emit_expr(callee_expr)?.into_pointer_value()?;
+        let function_type = self.module.function_pointer_type_in(
+            params,
+            *return_type,
+            *is_variadic,
+            FunctionPointerAbi::C,
+            callee_expr.span,
+        )?;
+        let value = self.emit_c_call(
+            expr.span,
+            CCallTarget::Indirect {
+                function_type,
+                pointer,
+            },
+            params,
+            *return_type,
+            values,
+        )?;
+        if let (Some(destination), Some(value)) = (destination, value) {
+            self.builder
+                .build_store(destination, value)
+                .map_err(|_| self.error(expr.span, "failed to store C call result"))?;
+        }
+        Ok(value)
     }
 
     fn emit_dynamic_trait_method_call(

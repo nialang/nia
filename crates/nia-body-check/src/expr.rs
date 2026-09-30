@@ -74,10 +74,18 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Bool(_) => self.bool(),
             ExprKind::Null => self.check_null_expr(expr.span, expected),
             ExprKind::Underscore => self.error(),
-            ExprKind::Ident(_) | ExprKind::SelfValue => self.ident_type(expr),
+            ExprKind::Ident(_) | ExprKind::SelfValue => self
+                .check_function_ref(expr, false, expected)
+                .unwrap_or_else(|| self.ident_type(expr)),
             ExprKind::PathRoot(_) => self.error(),
             ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => self.error(),
             ExprKind::BracketSuffix { callee, args } => {
+                if matches!(
+                    self.bracket_suffix_resolution(expr),
+                    Some(BracketSuffixResolution::GenericCall)
+                ) {
+                    return self.expr_ty(expr).unwrap_or_else(|| self.error());
+                }
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
             }
             ExprKind::Tuple(elems) => {
@@ -197,8 +205,11 @@ impl<'a> BodyChecker<'a> {
                     return function_ptr_ty;
                 }
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
-                    && let Some(function_ptr_ty) =
-                        self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly), expected)
+                    && let Some(function_ptr_ty) = self.check_function_ref(
+                        inner,
+                        matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly),
+                        expected,
+                    )
                 {
                     self.record_expr_node_type(expr, function_ptr_ty);
                     return function_ptr_ty;
@@ -647,6 +658,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic: false,
+                ..
             }) => Some((params, return_type)),
             Some(TyKind::Pointer { elem, .. }) => self.callable_signature(elem),
             _ => None,
@@ -2047,6 +2059,24 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
+        // Resolve a function instantiation before checking its base as an
+        // ordinary value. A generic base such as `id` cannot be checked as a
+        // complete function value until the suffix supplies its arguments;
+        // doing that first produces the misleading function-pointer error and
+        // can make the suffix fall through to `Index`.
+        let is_direct_function_instantiation = matches!(callee.kind, ExprKind::Ident(_))
+            && args.iter().all(|arg| {
+                !matches!(
+                    arg.ty.as_ref().map(|ty| &ty.kind),
+                    Some(nia_ast::TypeKind::Infer)
+                )
+            });
+        if is_direct_function_instantiation
+            && let Some(function_ty) = self.check_function_item_ref_for_type(expr, expected)
+        {
+            self.record_expr_node_type(expr, function_ty);
+            return function_ty;
+        }
         let lhs_expected =
             if args.len() == 1 && args[0].expr.is_some() && self.expr_ty(callee).is_none() {
                 self.index_lhs_expected_from_index_expected(expected)
@@ -2281,12 +2311,26 @@ impl<'a> BodyChecker<'a> {
         };
         match def.kind {
             DefKind::Function | DefKind::Method => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "function values are not supported in this body-check stage",
-                ));
-                self.error()
+                let Some(resolved) = self.resolved_function_signature(self.global_def_id(def_id))
+                else {
+                    return self.error();
+                };
+                let params = resolved
+                    .signature
+                    .params
+                    .iter()
+                    .map(|param| param.ty)
+                    .collect();
+                self.interner.intern(TyKind::FunctionItem {
+                    def_id: self.global_def_id(def_id),
+                    arg_module_id: self.defs.module_id,
+                    self_arg: None,
+                    args: Vec::new(),
+                    const_args: Vec::new(),
+                    params,
+                    return_type: resolved.signature.return_type,
+                    is_variadic: resolved.signature.is_variadic,
+                })
             }
             DefKind::Global => self.global_types.get(&def_id).copied().unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(

@@ -214,7 +214,13 @@ impl<'a> BodyChecker<'a> {
             .skip(1)
             .map(|param| instantiate_trait_pattern(self, param.ty))
             .collect::<Vec<_>>();
-        self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+        self.infer_method_generics_from_args(
+            call.args,
+            &params,
+            &mut substitutions,
+            &trait_method.signature.where_predicates,
+            &const_substitutions,
+        );
         for (param, arg) in params.iter().zip(call.args) {
             if let Some(actual) = self.expr_ty(arg) {
                 self.infer_const_generics_from_type(
@@ -361,7 +367,13 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect::<Vec<_>>();
-        self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+        self.infer_method_generics_from_args(
+            call.args,
+            &params,
+            &mut substitutions,
+            &signature.where_predicates,
+            &const_substitutions,
+        );
         for (param, arg) in params.iter().zip(call.args) {
             if let Some(actual) = self.expr_ty(arg) {
                 self.infer_const_generics_from_type(
@@ -1649,7 +1661,13 @@ impl<'a> BodyChecker<'a> {
         };
         let mut params = self.method_candidate_param_types(candidate, &signature);
         if call.type_args.is_none() {
-            self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            self.infer_method_generics_from_args(
+                call.args,
+                &params,
+                &mut substitutions,
+                &signature.where_predicates,
+                &const_substitutions,
+            );
             if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
                 return false;
             }
@@ -1718,7 +1736,7 @@ impl<'a> BodyChecker<'a> {
                     );
                     return None;
                 }
-                self.lower_bracket_args_for_generic_params(span, params, args)
+                self.lower_call_bracket_args_for_generic_params(span, params, args)
                     .map(|lowered| (lowered.type_args, lowered.const_args))
             })
             .unwrap_or(Some((Vec::new(), Vec::new())))
@@ -1733,7 +1751,16 @@ impl<'a> BodyChecker<'a> {
         let mut const_substitutions = context.target_const_substitutions.clone();
         let method_arg_count = context.lowered_method_args.len();
         let const_arg_count = context.lowered_method_const_args.len();
+        let has_inferred_args = context.method_args.is_some_and(|args| {
+            args.iter().any(|arg| {
+                matches!(
+                    arg.ty.as_ref().map(|ty| &ty.kind),
+                    Some(nia_ast::TypeKind::Infer)
+                )
+            })
+        });
         if context.method_args.is_some()
+            && !has_inferred_args
             && signature.generic_params.len() != method_arg_count + const_arg_count
         {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1748,33 +1775,31 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         if context.method_args.is_some() {
-            for (name, ty) in signature
+            let mut type_args = context.lowered_method_args.iter().copied();
+            let mut const_args = context.lowered_method_const_args.iter().cloned();
+            for (param, arg) in signature
                 .generic_params
                 .iter()
-                .filter_map(|param| {
-                    matches!(
-                        param.kind,
-                        nia_item_signatures::GenericParamSignatureKind::Type
-                    )
-                    .then_some(param.name)
-                })
-                .zip(context.lowered_method_args.iter().copied())
+                .zip(context.method_args.into_iter().flatten())
             {
-                substitutions.insert(name, ty);
-            }
-            for (name, arg) in signature
-                .generic_params
-                .iter()
-                .filter_map(|param| {
-                    matches!(
-                        param.kind,
-                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                    )
-                    .then_some(param.name)
-                })
-                .zip(context.lowered_method_const_args.iter().cloned())
-            {
-                const_substitutions.insert(name, arg);
+                if matches!(
+                    arg.ty.as_ref().map(|ty| &ty.kind),
+                    Some(nia_ast::TypeKind::Infer)
+                ) {
+                    continue;
+                }
+                match param.kind {
+                    nia_item_signatures::GenericParamSignatureKind::Type => {
+                        if let Some(ty) = type_args.next() {
+                            substitutions.insert(param.name, ty);
+                        }
+                    }
+                    nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
+                        if let Some(value) = const_args.next() {
+                            const_substitutions.insert(param.name, value);
+                        }
+                    }
+                }
             }
         } else if let Some(expected) = context.expected {
             let return_type = self.substitute_generics_and_consts_with_self(
@@ -1835,28 +1860,71 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         params: &[InternedTyId],
         substitutions: &mut SymbolMap<InternedTyId>,
+        where_predicates: &[nia_defs::WherePredicateSignature],
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) {
         let actuals = args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
                 let param = params.get(index).copied();
-                let mut inferred_from_closure = param.is_some_and(|param| {
-                    self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
-                });
-                let closure_params_ready = param.is_some_and(|param| {
-                    let substituted = self.substitute_generics(param, substitutions);
-                    self.seed_closure_params_from_callable_pattern(substituted, arg)
-                });
-                if closure_params_ready && let Some(param) = param {
-                    inferred_from_closure |= self.infer_generics_from_closure_signature(
+                let callable_pattern = param.and_then(|param| {
+                    self.static_callable_bound_from_predicates(
                         param,
+                        where_predicates,
+                        substitutions,
+                        const_substitutions,
+                    )
+                });
+                let callable_pattern = callable_pattern.map(|(params, return_type)| {
+                    self.interner.intern(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                    })
+                });
+                let mut inferred_from_closure = callable_pattern.is_some_and(|pattern| {
+                    self.infer_generics_from_closure_signature(
+                        pattern,
                         arg,
                         substitutions,
                         arg.span,
-                    );
+                    )
+                }) || param.is_some_and(|param| {
+                    self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
+                });
+                let closure_pattern = callable_pattern
+                    .or_else(|| param.map(|param| self.substitute_generics(param, substitutions)));
+                let closure_params_ready = closure_pattern.is_some_and(|pattern| {
+                    self.seed_closure_params_from_callable_pattern(pattern, arg)
+                });
+                if closure_params_ready {
+                    if let Some(pattern) = closure_pattern {
+                        inferred_from_closure |= self.infer_generics_from_closure_signature(
+                            pattern,
+                            arg,
+                            substitutions,
+                            arg.span,
+                        );
+                    }
                 }
-                if let Some(expected) =
+                let callable_pattern = param
+                    .and_then(|param| {
+                        self.static_callable_bound_from_predicates(
+                            param,
+                            where_predicates,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    })
+                    .map(|(params, return_type)| {
+                        self.interner.intern(TyKind::CallablePointee {
+                            params,
+                            return_type,
+                        })
+                    });
+                if let Some(expected) = callable_pattern {
+                    Some(self.check_expr_with_expected(arg, Some(expected)))
+                } else if let Some(expected) =
                     param.map(|param| self.substitute_generics(param, substitutions))
                 {
                     let expected = if self.type_contains_generic_param(expected) {
@@ -1872,13 +1940,22 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     Some(self.check_expr(arg))
                 }
+                .map(|actual| (actual, callable_pattern))
             })
             .collect::<Vec<_>>();
         for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
-            if let Some(actual) = actual
+            if let Some((actual, callable_pattern)) = actual.as_ref()
                 && (self.inferred_closure_signature(arg).is_none()
                     || self.generic_pattern_accepts_type_shape(*param, *actual))
             {
+                if let Some(callable_pattern) = callable_pattern {
+                    self.infer_generics_from_static_callable_shape(
+                        *callable_pattern,
+                        *actual,
+                        substitutions,
+                        arg.span,
+                    );
+                }
                 self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
             }
         }

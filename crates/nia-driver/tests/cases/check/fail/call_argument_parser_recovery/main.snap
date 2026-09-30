@@ -17,7 +17,7 @@ error[E0101]: expected expression
   --> fail/call_argument_parser_recovery/main.nia:2:13
   |
 2 |     consume(, 1,, true);
-  |             ^ expected expression
+  |             ^
 help: provide an expression here, such as a literal, name, or call
 
 root diagnostic:
@@ -25,7 +25,7 @@ error[E0101]: expected expression
   --> fail/call_argument_parser_recovery/main.nia:2:17
   |
 2 |     consume(, 1,, true);
-  |                 ^ expected expression
+  |                 ^
 help: provide an expression here, such as a literal, name, or call
 
 summary: 2 errors, 0 warnings

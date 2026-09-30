@@ -15,13 +15,13 @@ error[E0101]: expected `,` or `]` after generic parameter; found `U`
   --> fail/generic_parameter_delimiter_recovery/main.nia:1:15
   |
 1 | fn retained[T U, N: i32 M: bool]() () {}
-  |               ^ expected `,` or `]` after generic parameter; found `U`
+  |               ^
 
 root diagnostic:
 error[E0101]: expected `,` or `]` after generic parameter; found `M`
   --> fail/generic_parameter_delimiter_recovery/main.nia:1:25
   |
 1 | fn retained[T U, N: i32 M: bool]() () {}
-  |                         ^ expected `,` or `]` after generic parameter; found `M`
+  |                         ^
 
 summary: 2 errors, 0 warnings

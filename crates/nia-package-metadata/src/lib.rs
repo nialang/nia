@@ -171,7 +171,12 @@ pub enum StableTypeNode {
         length: StableArrayLength,
     },
     /// Function signature with parameter and result node references.
-    Function { parameters: Vec<u32>, result: u32 },
+    Function {
+        parameters: Vec<u32>,
+        result: u32,
+        /// Whether indirect calls use the target C calling convention.
+        is_extern: bool,
+    },
     /// Borrow/reference to an earlier node.
     Reference { target: u32, mutable: bool },
     /// Raw pointer to an earlier node.
@@ -299,7 +304,9 @@ impl StableTypeGraph {
                         // Generic parameter identities are self-contained.
                     }
                 }
-                StableTypeNode::Function { parameters, result } => {
+                StableTypeNode::Function {
+                    parameters, result, ..
+                } => {
                     references.extend(parameters);
                     references.push(result);
                 }
@@ -495,13 +502,18 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                     }
                 }
             }
-            StableTypeNode::Function { parameters, result } => {
+            StableTypeNode::Function {
+                parameters,
+                result,
+                is_extern,
+            } => {
                 output.push(7);
                 put_list_len(&mut output, parameters.len())?;
                 for parameter in parameters {
                     put_u32(&mut output, *parameter);
                 }
                 put_u32(&mut output, *result);
+                output.push(u8::from(*is_extern));
             }
             StableTypeNode::Reference { target, mutable } => {
                 output.push(8);
@@ -708,6 +720,11 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
             7 => StableTypeNode::Function {
                 parameters: read_refs(&mut cursor)?,
                 result: get_u32(&mut cursor)?,
+                is_extern: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
             },
             8 => StableTypeNode::Reference {
                 target: get_u32(&mut cursor)?,

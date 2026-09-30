@@ -237,14 +237,17 @@ impl Analyzer<'_> {
                     params: pattern_params,
                     return_type: pattern_return,
                     is_variadic: pattern_variadic,
+                    abi: pattern_abi,
                 },
                 TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
+                    abi: actual_abi,
                 },
             ) => {
-                pattern_variadic == actual_variadic
+                pattern_abi == actual_abi
+                    && pattern_variadic == actual_variadic
                     && pattern_params.len() == actual_params.len()
                     && pattern_params
                         .iter()
@@ -971,12 +974,15 @@ impl Analyzer<'_> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             } => {
                 if let Some(TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return_type,
                     is_variadic: actual_is_variadic,
+                    abi: actual_abi,
                 }) = self.ty_kind(actual_ty)
+                    && abi == actual_abi
                     && is_variadic == actual_is_variadic
                     && params.len() == actual_params.len()
                 {
@@ -1251,7 +1257,8 @@ impl Analyzer<'_> {
             | TyKind::ConstOnly
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
-            | TyKind::Vector { .. } => {}
+            | TyKind::Vector { .. }
+            | TyKind::FunctionItem { .. } => {}
         }
         Ok(())
     }
@@ -1456,13 +1463,16 @@ impl Analyzer<'_> {
                     params: pattern_params,
                     return_type: pattern_return,
                     is_variadic: pattern_variadic,
+                    abi: pattern_abi,
                 },
                 TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
+                    abi: actual_abi,
                 },
-            ) if pattern_variadic == actual_variadic
+            ) if pattern_abi == actual_abi
+                && pattern_variadic == actual_variadic
                 && pattern_params.len() == actual_params.len() =>
             {
                 for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {

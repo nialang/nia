@@ -43,19 +43,7 @@ impl BackendValidator<'_> {
             }
             FunctionCallee::ClosureEntry { closure_id, state } => {
                 self.validate_expr(state);
-                let Some(owner) = self.current_closure_owner.clone() else {
-                    self.invalid_call_contract(
-                        span,
-                        "closure-entry",
-                        "call has no enclosing closure owner",
-                    );
-                    return;
-                };
-                let key = nia_backend_ir::BackendClosureEntryKey {
-                    closure_id: *closure_id,
-                    owner,
-                };
-                let Some(entry) = self.index.closure_entry(&key) else {
+                let Some((_key, entry)) = self.closure_entry_for_call(*closure_id) else {
                     self.invalid_call_contract(
                         span,
                         "closure-entry",
@@ -336,12 +324,27 @@ impl BackendValidator<'_> {
             }
             FunctionCallee::FunctionPointer(expr) => {
                 self.validate_expr(expr);
-                let Some(TyKind::FunctionPointer {
-                    params,
-                    return_type,
-                    is_variadic,
-                }) = self.index.ty_kind(expr.ty).cloned()
-                else {
+                let signature = match self.index.ty_kind(expr.ty).cloned() {
+                    Some(TyKind::FunctionPointer {
+                        params,
+                        return_type,
+                        is_variadic,
+                        ..
+                    }) => Some((params, return_type, is_variadic)),
+                    Some(TyKind::FunctionItem {
+                        params,
+                        return_type,
+                        is_variadic,
+                        ..
+                    }) => Some((params, return_type, is_variadic)),
+                    Some(TyKind::ClosureState {
+                        params,
+                        return_type,
+                        ..
+                    }) => Some((params, return_type, false)),
+                    _ => None,
+                };
+                let Some((params, return_type, is_variadic)) = signature else {
                     self.invalid_call_contract(
                         span,
                         "function-pointer",
@@ -405,6 +408,27 @@ impl BackendValidator<'_> {
                 }
             }
         }
+    }
+
+    fn closure_entry_for_call(
+        &self,
+        closure_id: nia_ids::ClosureId,
+    ) -> Option<(
+        nia_backend_ir::BackendClosureEntryKey,
+        &nia_backend_ir::BackendClosureEntry,
+    )> {
+        let owner = self.current_closure_owner.clone()?;
+        let current = nia_backend_ir::BackendClosureEntryKey { closure_id, owner };
+        if let Some(entry) = self.index.closure_entry(&current) {
+            return Some((current, entry));
+        }
+        let source = nia_backend_ir::BackendClosureEntryKey {
+            closure_id,
+            owner: nia_backend_ir::BackendClosureEntryOwner::Source(closure_id.owner),
+        };
+        self.index
+            .closure_entry(&source)
+            .map(|entry| (source, entry))
     }
 
     fn validate_builtin_method_call(
@@ -652,12 +676,27 @@ impl BackendValidator<'_> {
         signature: &CallTargetSignature,
         span: Span,
     ) {
-        let Some(TyKind::FunctionPointer {
-            params,
-            return_type,
-            is_variadic,
-        }) = self.index.ty_kind(value_ty)
-        else {
+        let signature_types = match self.index.ty_kind(value_ty).cloned() {
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+                ..
+            }) => Some((params, return_type, is_variadic)),
+            Some(TyKind::FunctionItem {
+                params,
+                return_type,
+                is_variadic,
+                ..
+            }) => Some((params, return_type, is_variadic)),
+            Some(TyKind::ClosureState {
+                params,
+                return_type,
+                ..
+            }) => Some((params, return_type, false)),
+            _ => None,
+        };
+        let Some((params, return_type, is_variadic)) = signature_types else {
             self.invalid_function_value_contract(
                 span,
                 kind,
@@ -681,14 +720,14 @@ impl BackendValidator<'_> {
                 "parameter types do not match the published signature",
             );
         }
-        if !self.same_type(*return_type, signature.return_type) {
+        if !self.same_type(return_type, signature.return_type) {
             self.invalid_function_value_contract(
                 span,
                 kind,
                 "return type does not match the published signature",
             );
         }
-        if *is_variadic != signature.is_variadic {
+        if is_variadic != signature.is_variadic {
             self.invalid_function_value_contract(
                 span,
                 kind,

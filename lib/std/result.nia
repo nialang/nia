@@ -14,14 +14,18 @@ extend[Value, Source] Source!Value {
         if result is _! { true } else { false }
     }
 
-    pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) Source!Mapped {
+    pub fn map[Mapped, Mapper](self, mapper: Mapper) Source!Mapped
+    where Mapper: Fn(Value) Mapped
+    {
         match self {
             !value => !mapper(value),
             error! => error!,
         }
     }
 
-    pub fn andThen[Mapped](self, next: &Fn(Value) Source!Mapped) Source!Mapped {
+    pub fn andThen[Mapped, Next](self, next: Next) Source!Mapped
+    where Next: Fn(Value) Source!Mapped
+    {
         match self {
             !value => next(value),
             error! => error!,

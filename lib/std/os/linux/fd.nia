@@ -389,7 +389,7 @@ pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
 }
 
 pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
-    parseDirent(buffer, offset).map(&\parsed -> parsed.recordEnd)
+    parseDirent(buffer, offset).map[usize, _](\parsed: ParsedDirent -> parsed.recordEnd)
 }
 
 fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {

@@ -141,7 +141,7 @@ error[E0201]: unknown namespace `Ghost`
    --> fail/pattern_recovery/main.nia:49:9
    |
 49 |         Ghost::Variant => {}
-   |         ^^^^^ unknown namespace `Ghost`
+   |         ^^^^^
 help: check the path spelling and make sure the module or type is in scope
 
 root diagnostic:

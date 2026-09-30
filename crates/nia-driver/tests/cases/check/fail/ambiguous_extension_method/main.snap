@@ -29,7 +29,7 @@ error[E0301]: ambiguous method `associated_rank`
    --> fail/ambiguous_extension_method/main.nia:27:39
    |
 27 |     let associated_rank: &fn() i32 = &Pair[i32, i32]::associated_rank;
-   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `associated_rank`
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
   - Pair[T, i32]::associated_rank() -> i32
@@ -43,7 +43,7 @@ error[E0301]: ambiguous method `rank`
    --> fail/ambiguous_extension_method/main.nia:29:5
    |
 29 |     pair.rank()
-   |     ^^^^^^^^^^^ ambiguous method `rank`
+   |     ^^^^^^^^^^^
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
   - Pair[T, i32]::rank() -> i32

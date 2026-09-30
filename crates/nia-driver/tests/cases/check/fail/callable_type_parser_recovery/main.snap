@@ -17,7 +17,7 @@ error[E0101]: expected type
   --> fail/callable_type_parser_recovery/main.nia:1:26
   |
 1 | fn retained(pointer: &fn(, i32), callable: Fn(, bool)) () {}
-  |                          ^ expected type
+  |                          ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -25,7 +25,7 @@ error[E0101]: expected type
   --> fail/callable_type_parser_recovery/main.nia:1:47
   |
 1 | fn retained(pointer: &fn(, i32), callable: Fn(, bool)) () {}
-  |                                               ^ expected type
+  |                                               ^
 help: provide a type name or type expression here
 
 summary: 2 errors, 0 warnings

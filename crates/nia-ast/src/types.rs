@@ -111,6 +111,8 @@ pub enum TypeKind {
         return_type: Option<Box<TypeRef>>,
         /// Whether variadic arguments are accepted.
         is_variadic: bool,
+        /// Whether the pointer uses the target C calling convention.
+        is_extern: bool,
     },
     /// Callable interface type.
     Callable {
@@ -368,14 +370,17 @@ fn type_kind_decl_eq(lhs: &TypeKind, rhs: &TypeKind) -> bool {
                 params: lhs_params,
                 return_type: lhs_return,
                 is_variadic: lhs_variadic,
+                is_extern: lhs_extern,
             },
             TypeKind::FunctionPointer {
                 params: rhs_params,
                 return_type: rhs_return,
                 is_variadic: rhs_variadic,
+                is_extern: rhs_extern,
             },
         ) => {
-            lhs_variadic == rhs_variadic
+            lhs_extern == rhs_extern
+                && lhs_variadic == rhs_variadic
                 && type_refs_decl_eq(lhs_params, rhs_params)
                 && option_box_type_ref_decl_eq(lhs_return.as_deref(), rhs_return.as_deref())
         }
@@ -549,8 +554,19 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
             params,
             return_type,
             is_variadic,
+            is_extern,
         } => {
-            out.push_str(if *is_variadic { "fn_var(" } else { "fn(" });
+            out.push_str(if *is_extern {
+                if *is_variadic {
+                    "extern_fn_var("
+                } else {
+                    "extern_fn("
+                }
+            } else if *is_variadic {
+                "fn_var("
+            } else {
+                "fn("
+            });
             write_joined(out, params, write_type_ref_identity);
             out.push('|');
             write_optional_type_identity(out, return_type.as_deref());

@@ -678,11 +678,13 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let variadic_closure_fn_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: true,
+        abi: FunctionPointerAbi::Nia,
     });
     let integer = || FunctionExpr {
         span,

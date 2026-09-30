@@ -500,6 +500,22 @@ impl MonoCollector<'_> {
                     .any(|param| self.ty_contains_generic_param(*param))
                     || self.ty_contains_generic_param(return_type)
             }
+            TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            } => {
+                self_arg.is_some_and(|ty| self.ty_contains_generic_param(ty))
+                    || args.iter().any(|arg| self.ty_contains_generic_param(*arg))
+                    || self.const_args_contain_generic_param(&const_args)
+                    || params
+                        .iter()
+                        .any(|param| self.ty_contains_generic_param(*param))
+                    || self.ty_contains_generic_param(return_type)
+            }
             TyKind::Optional { elem } => self.ty_contains_generic_param(elem),
             TyKind::ErrorUnion { error, value } => {
                 self.ty_contains_generic_param(error) || self.ty_contains_generic_param(value)
@@ -779,6 +795,26 @@ impl MonoCollector<'_> {
                 params
                     .iter()
                     .any(|param| self.ty_exceeds_instance_depth(*param, next))
+                    || self.ty_exceeds_instance_depth(return_type, next)
+            }
+            TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            } => {
+                self_arg.is_some_and(|ty| self.ty_exceeds_instance_depth(ty, next))
+                    || args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                    || params
+                        .iter()
+                        .any(|param| self.ty_exceeds_instance_depth(*param, next))
                     || self.ty_exceeds_instance_depth(return_type, next)
             }
             TyKind::Optional { elem } => self.ty_exceeds_instance_depth(elem, next),
@@ -1180,6 +1216,7 @@ impl MonoCollector<'_> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             } => {
                 let params = params
                     .iter()
@@ -1201,6 +1238,66 @@ impl MonoCollector<'_> {
                 self.intern_working_ty(
                     module_id,
                     TyKind::FunctionPointer {
+                        params,
+                        return_type,
+                        is_variadic,
+                        abi,
+                    },
+                )
+            }
+            TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            } => {
+                let self_arg = self_arg.map(|ty| {
+                    self.instantiate_ty_inner(module_id, ty, substitutions, active_projections)
+                });
+                let args = args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_ty_inner(
+                            module_id,
+                            *arg,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let const_args = const_args
+                    .iter()
+                    .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
+                    .collect();
+                let params = params
+                    .iter()
+                    .map(|param| {
+                        self.instantiate_ty_inner(
+                            module_id,
+                            *param,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_inner(
+                    module_id,
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::FunctionItem {
+                        def_id,
+                        arg_module_id,
+                        self_arg,
+                        args,
+                        const_args,
                         params,
                         return_type,
                         is_variadic,

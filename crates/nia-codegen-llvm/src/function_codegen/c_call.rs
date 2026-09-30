@@ -13,14 +13,18 @@ use nia_abi_check::c_abi::{CAbiType, CArg, CFunctionAbi, CPass, CRet, CType};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_llvm::{
-    types::BasicTypeEnum,
-    values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue},
+    types::{BasicTypeEnum, FunctionType},
+    values::{BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
 };
 use nia_span::Span;
 
 /// The function a C call invokes.
 pub(super) enum CCallTarget<'ctx> {
     Direct(FunctionValue<'ctx>),
+    Indirect {
+        function_type: FunctionType<'ctx>,
+        pointer: PointerValue<'ctx>,
+    },
 }
 
 /// The C signature of an `extern` definition, fixed for its whole body.
@@ -217,6 +221,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         return_type: InternedTyId,
         args: Vec<(BasicValueEnum<'ctx>, InternedTyId)>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
+        self.emit_c_call_with_site(span, target, fixed, return_type, args)
+            .map(|(_, value)| value)
+    }
+
+    pub(super) fn emit_c_call_with_site(
+        &mut self,
+        span: Span,
+        target: CCallTarget<'ctx>,
+        fixed: &[InternedTyId],
+        return_type: InternedTyId,
+        args: Vec<(BasicValueEnum<'ctx>, InternedTyId)>,
+    ) -> Result<(CallSiteValue<'ctx>, Option<BasicValueEnum<'ctx>>), Diagnostic> {
         let mut params = Vec::with_capacity(args.len());
         let mut values = Vec::with_capacity(args.len());
         for (index, (value, ty)) in args.into_iter().enumerate() {
@@ -284,6 +300,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             CCallTarget::Direct(function) => {
                 self.builder.build_call(function, &llvm_args, "c.call")
             }
+            CCallTarget::Indirect {
+                function_type,
+                pointer,
+            } => self
+                .builder
+                .build_indirect_call(function_type, pointer, &llvm_args, "c.call"),
         }
         .map_err(|_| self.error(span, "failed to build C call"))?;
         for (loc, attribute) in self
@@ -294,15 +316,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
 
         match abi.ret {
-            CRet::Void => Ok(None),
+            CRet::Void => Ok((call, None)),
             CRet::SRet { .. } => {
                 let (Some(slot), Some(ty)) = (result_slot, result_type) else {
                     return Err(self.error(span, "C call lost its result storage"));
                 };
-                self.builder
+                let value = self
+                    .builder
                     .build_load(ty, slot, "c.result")
-                    .map(Some)
-                    .map_err(|_| self.error(span, "failed to load C result"))
+                    .map_err(|_| self.error(span, "failed to load C result"))?;
+                Ok((call, Some(value)))
             }
             CRet::Direct { pass, .. } => {
                 let value = call
@@ -310,10 +333,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .basic()
                     .ok_or_else(|| self.error(span, "C call did not produce a value"))??;
                 match pass {
-                    CPass::Natural => Ok(Some(value)),
-                    CPass::Coerced(abi) => {
-                        self.coerce_from_c(value, &abi, return_type, span).map(Some)
-                    }
+                    CPass::Natural => Ok((call, Some(value))),
+                    CPass::Coerced(abi) => self
+                        .coerce_from_c(value, &abi, return_type, span)
+                        .map(|value| (call, Some(value))),
                 }
             }
         }

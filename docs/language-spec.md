@@ -1225,23 +1225,43 @@ or passed to a retaining call. Ordinary raw-pointer flow is outside this rule;
 the restriction begins when the address becomes part of closure state. A
 longer-lived callable requires an explicit owner supplied by a library API.
 
-A function declaration name is a function item, not an ordinary runtime value.
-Function items cannot be used bare:
+A function declaration name is a statically-known function item. It has a
+zero-sized representation, retains the exact definition and generic instance,
+and calls directly when used as a callee. It can also be stored in ordinary
+zero-sized locals or passed through a concrete type context:
 
 ```nia
 fn add(a: i32, b: i32) i32 {
     a + b
 }
 
-let mut f = add; // error
+let mut f = add;
+f(1, 2);
+
+fn id[T](x: T) T { x }
+let mut typed = id[i32];
+typed(1);
 ```
 
-Addressing a function item with `&` creates a function pointer:
+Addressing a function item with `&` explicitly creates a thin runtime function
+pointer. This is the boundary between static dispatch and indirect calls:
 
 ```nia
 let mut f = & add;                  // &fn(i32, i32) i32
 let mut g: &fn(i32, i32) i32 = & add;   // allowed
 ```
+
+An `extern fn` declaration uses the target C calling convention when its
+address is taken. The expression syntax remains `&name`; the ABI is carried
+by the declared function and by the pointer type:
+
+```nia
+extern fn c_add(a: i32, b: i32) i32;
+let c: &extern fn(i32, i32) i32 = &c_add;
+```
+
+`&extern fn(...)` is a type annotation only. Writing `&extern c_add` is not
+part of the expression grammar.
 
 Generic functions must be explicitly instantiated before taking a function
 pointer:
@@ -1255,8 +1275,9 @@ let mut f = & id[i32]; // &fn(i32) i32
 let mut g = & id;      // error
 ```
 
-`& function_item` is a specific function-item address rule. It does not
-require the function item to be a place. `&function_item` is not allowed.
+`&function_item` is a specific function-item address rule. It does not
+require the function item to be a place; this is the same `&name` syntax shown
+above.
 
 ## 5. Declarations
 

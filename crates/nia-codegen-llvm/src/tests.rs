@@ -19,6 +19,82 @@ mod values_and_assignments;
 mod void_and_empty;
 
 #[test]
+fn callable_generic_codegen_keeps_function_items_and_closures_direct() {
+    let root = common::temp_dir("callable_generic_codegen_direct_dispatch");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn apply[F](callback: F, value: i32) i32
+where F: Fn(i32) i32
+{
+    callback(value)
+}
+
+fn increment(value: i32) i32 {
+    value + 1
+}
+
+fn main(base: i32) i32 {
+    apply(increment, 2) + apply(\[base] value: i32 -> { base + value }, 3)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    assert!(
+        ir.contains("call i32 @"),
+        "static callable calls were not emitted as direct LLVM calls: {ir}"
+    );
+    assert!(
+        !ir.contains("callable.function.call") && !ir.contains("callable.call"),
+        "callable generic unexpectedly lowered through dynamic dispatch: {ir}"
+    );
+}
+
+#[test]
+fn known_local_function_pointer_is_devirtualized() {
+    let root = common::temp_dir("known_local_function_pointer_devirtualized");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn increment(value: i32) i32 {
+    value + 1
+}
+
+fn main() i32 {
+    let pointer: &fn(i32) i32 = &increment;
+    pointer(41)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program_with_options(
+        main.to_string_lossy().into_owned(),
+        common::NiaOptimizationLevel::O2,
+    );
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    assert!(
+        ir.contains("call i32 @"),
+        "known function pointer was not devirtualized: {ir}"
+    );
+    assert!(
+        !ir.contains("call i32 %"),
+        "known function pointer remained indirect: {ir}"
+    );
+}
+
+#[test]
 fn missing_declaration_module_is_reported_as_backend_diagnostic() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let missing = module_ids.allocate().expect("allocate module ID");
@@ -64,7 +140,10 @@ pub struct Point {
 "#,
     )
     .expect("write geom source");
-    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    let codegen = common::codegen_program_with_options(
+        main.to_string_lossy().into_owned(),
+        common::NiaOptimizationLevel::O2,
+    );
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let main_id = codegen
         .backend_lowering
@@ -227,7 +306,7 @@ fn main(base: i32) i32 {
         "LLVM IR omitted callable entry metadata: {ir}"
     );
     assert!(
-        ir.contains("callable.call"),
+        ir.contains("callable.call") && !ir.contains("callable.is_function"),
         "LLVM IR omitted callable indirect dispatch: {ir}"
     );
 }
@@ -267,12 +346,9 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = common::source_module_ir(&output, "main.nia");
     assert!(
-        ir.contains("callable.is_function")
-            && ir.contains("callable.function:")
-            && ir.contains("callable.closure:")
-            && ir.contains("call void %callable.entry(i32")
+        !ir.contains("callable.is_function")
             && ir.contains("call void %callable.entry(ptr %callable.context, i32"),
-        "LLVM IR omitted effect-call dynamic dispatch: {ir}"
+        "LLVM IR omitted unified callable entry dispatch: {ir}"
     );
 }
 
@@ -299,12 +375,51 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = common::source_module_ir(&output, "main.nia");
     assert!(
-        ir.contains("callable.is_function"),
-        "LLVM IR omitted function branch: {ir}"
+        !ir.contains("callable.is_function")
+            && ir.contains("callable.fn.call")
+            && ir.contains("callable_adapter"),
+        "LLVM IR omitted unified callable adapter dispatch: {ir}"
     );
     assert!(
-        ir.contains("callable.function.call"),
-        "LLVM IR omitted function callable call: {ir}"
+        ir.contains("callable.call"),
+        "LLVM IR omitted callable entry call: {ir}"
+    );
+}
+
+#[test]
+fn function_pointer_callable_codegen_forwards_indirect_return_storage() {
+    let root = common::temp_dir("function_pointer_callable_codegen_indirect_return");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn produce(value: i32) bool!i32 {
+    if value == 1 {
+        !42
+    } else {
+        true!
+    }
+}
+
+fn main(flag: bool) bool!i32 {
+    let pointer: &fn(i32) bool!i32 = &produce;
+    let callable: &Fn(i32) bool!i32 = pointer;
+    callable(if flag { 1 } else { 0 })
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    assert!(
+        ir.contains("callable_adapter")
+            && ir.contains("call void %callable.entry")
+            && ir.contains("(ptr %0, ptr %callable.context"),
+        "LLVM IR omitted indirect-return callable thunk: {ir}"
     );
 }
 
@@ -337,10 +452,7 @@ fn main(flag: bool) bool!i32 {
     let ir = common::source_module_ir(&output, "main.nia");
 
     assert!(
-        ir.contains("callable.function:")
-            && ir.contains("callable.closure:")
-            && ir.contains("(ptr %0, i32")
-            && ir.contains("(ptr %0, ptr %callable.context, i32"),
+        ir.contains("callable.entry") && ir.contains("(ptr %0, ptr %callable.context, i32"),
         "LLVM IR omitted callable indirect return storage: {ir}"
     );
 }

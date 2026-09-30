@@ -12,6 +12,7 @@ use builtins::{BuiltinCallArguments, BuiltinCallTypeArgs};
 use nia_ast::{Expr, ExprKind};
 use nia_ids::{BuiltinFunction, InternedTyId};
 use nia_local_resolve::LocalUse;
+use nia_sema_ir::BracketSuffixResolution;
 use nia_symbol::known;
 use nia_value_resolve::ValueNameResolution;
 
@@ -56,6 +57,10 @@ impl<'a> BodyChecker<'a> {
             args: type_args,
         } = &callee.kind
         {
+            self.record_bracket_suffix_node_resolution(
+                callee,
+                BracketSuffixResolution::GenericCall,
+            );
             return self.check_explicit_generic_call(
                 expr,
                 callee,

@@ -29,7 +29,7 @@ error[E0101]: expected type; found `,`
   --> fail/tuple_payload_recovery/main.nia:1:13
   |
 1 | struct Pair(, i32)
-  |             ^ expected type; found `,`
+  |             ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -37,7 +37,7 @@ error[E0101]: expected type; found `,`
   --> fail/tuple_payload_recovery/main.nia:4:12
   |
 4 |     Broken(, bool),
-  |            ^ expected type; found `,`
+  |            ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -45,7 +45,7 @@ error[E0101]: expected type
   --> fail/tuple_payload_recovery/main.nia:8:23
   |
 8 | fn tuple_type(value: (, i32,, bool)) () {}
-  |                       ^ expected type
+  |                       ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -53,7 +53,7 @@ error[E0101]: expected type
   --> fail/tuple_payload_recovery/main.nia:8:29
   |
 8 | fn tuple_type(value: (, i32,, bool)) () {}
-  |                             ^ expected type
+  |                             ^
 help: provide a type name or type expression here
 
 summary: 4 errors, 0 warnings

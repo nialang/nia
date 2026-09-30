@@ -281,7 +281,7 @@ pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
     let status = platform::tryWait(pid.platform()).?;
-    !status.map(&\value -> WaitStatus::fromPlatform(value))
+    !status.map(\value: platform::WaitStatus -> WaitStatus::fromPlatform(value))
 }
 
 pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
@@ -417,9 +417,9 @@ extend platform::FileMetadata {
             self.size(),
             self.mode() & 0o7777,
             self.blockSize(),
-            self.atime().map(&\value -> value.asOsTimestamp()),
+            self.atime().map[Timestamp, _](\value: platform::Timestamp -> value.asOsTimestamp()),
             self.mtime().asOsTimestamp(),
-            self.ctime().map(&\value -> value.asOsTimestamp()),
+            self.ctime().map[Timestamp, _](\value: platform::Timestamp -> value.asOsTimestamp()),
         )
     }
 }
@@ -709,15 +709,15 @@ extend SpawnResult {
     }
 
     pub(pkg) fn stdin(&self) ?FileHandle {
-        self.platform().stdin().map(&\handle -> FileHandle::fromPlatform(handle))
+        self.platform().stdin().map[FileHandle, _](\handle: platform::FileDescriptor -> FileHandle::fromPlatform(handle))
     }
 
     pub(pkg) fn stdout(&self) ?FileHandle {
-        self.platform().stdout().map(&\handle -> FileHandle::fromPlatform(handle))
+        self.platform().stdout().map[FileHandle, _](\handle: platform::FileDescriptor -> FileHandle::fromPlatform(handle))
     }
 
     pub(pkg) fn stderr(&self) ?FileHandle {
-        self.platform().stderr().map(&\handle -> FileHandle::fromPlatform(handle))
+        self.platform().stderr().map[FileHandle, _](\handle: platform::FileDescriptor -> FileHandle::fromPlatform(handle))
     }
 }
 

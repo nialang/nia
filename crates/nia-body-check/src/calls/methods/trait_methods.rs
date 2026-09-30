@@ -82,7 +82,13 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         if call.type_args.is_none() {
-            self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            self.infer_method_generics_from_args(
+                call.args,
+                &params,
+                &mut substitutions,
+                &candidate.signature.where_predicates,
+                &const_substitutions,
+            );
             if !self.method_generics_are_complete_with_consts(
                 call.span,
                 &candidate.signature,
@@ -416,6 +422,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .into_iter()
@@ -427,6 +434,7 @@ impl<'a> BodyChecker<'a> {
                     params,
                     return_type,
                     is_variadic,
+                    abi,
                 })
             }
             Some(TyKind::Callable {
@@ -622,6 +630,7 @@ impl<'a> BodyChecker<'a> {
                     name,
                 })
             }
+            Some(TyKind::FunctionItem { .. }) => ty,
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly

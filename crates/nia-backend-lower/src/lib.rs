@@ -1831,6 +1831,28 @@ impl ReachableAggregateRoots {
                 }
                 self.add_ty(lowerer, return_type);
             }
+            Some(TyKind::FunctionItem {
+                args,
+                const_args,
+                params,
+                return_type,
+                self_arg,
+                ..
+            }) => {
+                if let Some(self_arg) = self_arg {
+                    self.add_ty(lowerer, self_arg);
+                }
+                for arg in args {
+                    self.add_ty(lowerer, arg);
+                }
+                for arg in const_args {
+                    self.add_ty(lowerer, arg.ty);
+                }
+                for param in params {
+                    self.add_ty(lowerer, param);
+                }
+                self.add_ty(lowerer, return_type);
+            }
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.add_ty(lowerer, error);
                 self.add_ty(lowerer, value);

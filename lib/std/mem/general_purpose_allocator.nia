@@ -754,7 +754,7 @@ fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
             return null;
         },
     };
-    addr.alignForward(align).map(&\value -> value as &mut u8)
+    addr.alignForward(align).map[&mut u8, _](\value: usize -> value as &mut u8)
 }
 
 fn smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
@@ -779,7 +779,7 @@ fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
     headerAddr
         .checkedAdd(pkg::builtin::size[LargeHeader]())
-        .map(&\value -> value as &mut u8)
+        .map[&mut u8, _](\value: usize -> value as &mut u8)
 }
 
 fn saturatingAdd(left: usize, right: usize) usize {

@@ -16,21 +16,25 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let wrong_function_params_ty = interner.test_intern(TyKind::FunctionPointer {
         params: Vec::new(),
         return_type: i32_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let wrong_function_return_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: bool_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let wrong_function_variadic_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: i32_ty,
         is_variadic: true,
+        abi: FunctionPointerAbi::Nia,
     });
     let callable_ty = interner.test_intern(TyKind::Callable {
         is_readonly: true,

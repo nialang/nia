@@ -236,6 +236,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .into_iter()
@@ -246,6 +247,7 @@ impl<'a> BodyChecker<'a> {
                     params,
                     return_type,
                     is_variadic,
+                    abi,
                 })
             }
             Some(TyKind::Callable {
@@ -471,7 +473,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
                 | TyKind::ClosureState { .. }
-                | TyKind::SelfParam,
+                | TyKind::SelfParam
+                | TyKind::FunctionItem { .. },
             )
             | None => ty,
         }
@@ -1273,6 +1276,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
+                | TyKind::FunctionItem { .. }
                 | TyKind::Error,
             )
             | None => false,
@@ -1542,14 +1546,17 @@ impl<'a> BodyChecker<'a> {
                     params: expected_params,
                     return_type: expected_return,
                     is_variadic: expected_variadic,
+                    abi: expected_abi,
                 }),
                 Some(TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
+                    abi: actual_abi,
                 }),
             ) => {
-                expected_variadic == actual_variadic
+                expected_abi == actual_abi
+                    && expected_variadic == actual_variadic
                     && expected_params.len() == actual_params.len()
                     && expected_params
                         .iter()
@@ -2037,6 +2044,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let mut params = params
                     .iter()
@@ -2050,7 +2058,12 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     format!(" {}", self.ty_name(*return_type))
                 };
-                format!("&fn({}){return_part}", params.join(", "))
+                let prefix = if matches!(abi, nia_ty::FunctionPointerAbi::C) {
+                    "&extern fn"
+                } else {
+                    "&fn"
+                };
+                format!("{prefix}({}){return_part}", params.join(", "))
             }
             Some(TyKind::Callable {
                 is_readonly,
@@ -2123,6 +2136,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::SelfParam) => "Self".to_string(),
             Some(TyKind::ConstOnly) => "<const-only value>".to_string(),
             Some(TyKind::Error) => "<error type>".to_string(),
+            Some(TyKind::FunctionItem { def_id, .. }) => format!("<function {}>", def_id.def_id.0),
             Some(TyKind::ClosureState { closure_id, .. }) => format!(
                 "<closure #{}:{}>",
                 closure_id.owner.def_id.0, closure_id.ordinal

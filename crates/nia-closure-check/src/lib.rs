@@ -1594,6 +1594,7 @@ impl<'a> Analyzer<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::FunctionPointer { .. }
+                | TyKind::FunctionItem { .. }
                 | TyKind::CallablePointee { .. }
                 | TyKind::SlicePointee { .. }
                 | TyKind::BuiltinType(_)

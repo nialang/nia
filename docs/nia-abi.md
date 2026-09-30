@@ -247,12 +247,16 @@ representation.
 
 ## 8. Function Pointer Representation
 
-Function pointers are scalar pointer-sized values.
+Function pointers are scalar pointer-sized values. The calling convention is
+part of their type identity: ordinary function items produce Nia pointers,
+while `extern fn` items produce C pointers when addressed with the same `&name`
+syntax.
 
 For LP64:
 
 ```text
-&fn(...)  size 8, align 8
+&fn(...)             size 8, align 8
+&extern fn(...)      size 8, align 8
 ```
 
 Function pointer type identity includes:
@@ -260,7 +264,7 @@ Function pointer type identity includes:
 - parameter types;
 - return type;
 - variadic marker;
-- let function pointer marker.
+- calling convention (`Nia` or target `C`).
 
 Variadic function pointers are not accepted at C ABI boundaries.
 
@@ -281,7 +285,9 @@ callable view = { state pointer, entry pointer }
 Both fields are pointer-sized. On the current LP64 target a callable view is
 therefore 16 bytes with 8-byte alignment. The state pointer identifies the
 concrete closure state and the entry pointer identifies the generated callable
-entry. The readonly bit belongs to the view type: a `&mut Fn(...)` view may
+entry. For a closure, the state pointer identifies concrete closure state; for
+a function pointer, it carries the thin Nia function pointer used by a private
+signature-specific adapter. The readonly bit belongs to the view type: a `&mut Fn(...)` view may
 invoke a writable state, while `&Fn(...)` may only use the readonly callable
 capability. Neither view owns, allocates, frees, or extends the lifetime of
 the state.
@@ -290,7 +296,7 @@ The generated entry has one hidden first parameter followed by the user
 parameters in source order:
 
 ```text
-entry(&ClosureState, Args...) -> Return
+entry(state, Args...) -> Return
 ```
 
 The hidden state parameter is always a readonly pointer. Entries are never
@@ -311,12 +317,12 @@ function or concrete generic instance. Direct closure calls pass the state
 pointer as the hidden first argument; callable-view calls load the view's state
 and entry fields and make an indirect call with that same ABI. This is an
 internal, unstable ABI: it does not imply an allocator-backed owner or
-destruction protocol. A no-capture closure-to-`&fn` conversion uses a
-separate zero-state adapter because the thin function-pointer ABI has no hidden
-state parameter. The adapter has the ordinary thin signature and creates a
-private non-null token for the empty closure state while it calls the generated
-entry. It forwards direct and indirect arguments and returns according to the
-same Nia ABI classification as an ordinary function.
+destruction protocol. A function-pointer-to-callable conversion uses the
+signature-specific adapter described above, so every callable view uses one
+`entry(state, args...)` dispatch shape without a null-state sentinel or a
+runtime function-versus-closure branch. A no-capture closure-to-`&fn`
+conversion still uses a separate thin adapter because the thin function-pointer
+ABI has no hidden state parameter.
 
 ## 8.2 Allocator-Backed Callable Owners
 

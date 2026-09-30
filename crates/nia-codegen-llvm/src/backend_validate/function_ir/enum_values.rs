@@ -111,6 +111,7 @@ impl BackendValidator<'_> {
             params,
             return_type,
             is_variadic,
+            ..
         }) = self.ty_kind(function_pointer_ty).cloned()
         else {
             self.invalid_enum(span, "constructor value is not a function pointer");

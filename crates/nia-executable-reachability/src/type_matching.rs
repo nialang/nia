@@ -498,12 +498,17 @@ fn match_type_pattern_inner<'a>(
             params,
             return_type,
             is_variadic,
+            abi,
         } => match actual.kind() {
             Some(TyKind::FunctionPointer {
                 params: actual_params,
                 return_type: actual_return,
                 is_variadic: actual_variadic,
-            }) if is_variadic == actual_variadic && params.len() == actual_params.len() => {
+                abi: actual_abi,
+            }) if abi == actual_abi
+                && is_variadic == actual_variadic
+                && params.len() == actual_params.len() =>
+            {
                 params
                     .iter()
                     .zip(actual_params)
@@ -531,6 +536,86 @@ fn match_type_pattern_inner<'a>(
                         },
                         substitutions,
                     )
+            }
+            _ => false,
+        },
+        TyKind::FunctionItem {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            is_variadic,
+        } => match actual.kind() {
+            Some(TyKind::FunctionItem {
+                def_id: actual_def,
+                arg_module_id: actual_module,
+                self_arg: actual_self,
+                args: actual_args,
+                const_args: actual_const_args,
+                params: actual_params,
+                return_type: actual_return,
+                is_variadic: actual_variadic,
+            }) if def_id == actual_def
+                && arg_module_id == actual_module
+                && is_variadic == actual_variadic
+                && args.len() == actual_args.len()
+                && const_args.len() == actual_const_args.len()
+                && params.len() == actual_params.len() =>
+            {
+                match (self_arg, actual_self) {
+                    (Some(left), Some(right))
+                        if match_type_pattern(
+                            TypedTyRef {
+                                store: pattern.store,
+                                ty: *left,
+                            },
+                            TypedTyRef {
+                                store: actual.store,
+                                ty: *right,
+                            },
+                            substitutions,
+                        ) => {}
+                    (None, None) => {}
+                    _ => return false,
+                }
+                args.iter().zip(actual_args).all(|(left, right)| {
+                    match_type_pattern(
+                        TypedTyRef {
+                            store: pattern.store,
+                            ty: *left,
+                        },
+                        TypedTyRef {
+                            store: actual.store,
+                            ty: *right,
+                        },
+                        substitutions,
+                    )
+                }) && params.iter().zip(actual_params).all(|(left, right)| {
+                    match_type_pattern(
+                        TypedTyRef {
+                            store: pattern.store,
+                            ty: *left,
+                        },
+                        TypedTyRef {
+                            store: actual.store,
+                            ty: *right,
+                        },
+                        substitutions,
+                    )
+                }) && match_type_pattern(
+                    TypedTyRef {
+                        store: pattern.store,
+                        ty: *return_type,
+                    },
+                    TypedTyRef {
+                        store: actual.store,
+                        ty: *actual_return,
+                    },
+                    substitutions,
+                )
             }
             _ => false,
         },
@@ -996,14 +1081,17 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
                 params: left_params,
                 return_type: left_return,
                 is_variadic: left_variadic,
+                abi: left_abi,
             }),
             Some(TyKind::FunctionPointer {
                 params: right_params,
                 return_type: right_return,
                 is_variadic: right_variadic,
+                abi: right_abi,
             }),
         ) => {
-            left_variadic == right_variadic
+            left_abi == right_abi
+                && left_variadic == right_variadic
                 && typed_ref_slices_equivalent(left.store, left_params, right.store, right_params)
                 && typed_refs_equivalent(
                     TypedTyRef {

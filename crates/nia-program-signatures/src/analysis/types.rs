@@ -341,6 +341,7 @@ pub(super) fn substitute_type(
         Some(TyKind::GenericParam(name)) => Ok(substitutions.get(name).copied().unwrap_or(ty)),
         Some(TyKind::SelfParam) => Ok(self_substitution.unwrap_or(ty)),
         Some(TyKind::Opaque) => Ok(ty),
+        Some(TyKind::FunctionItem { .. }) => Ok(ty),
         Some(TyKind::Tuple(elems)) => {
             let elems = elems
                 .iter()
@@ -551,6 +552,7 @@ pub(super) fn substitute_type(
             params,
             return_type,
             is_variadic,
+            abi,
         }) => {
             let params = params
                 .iter()
@@ -585,6 +587,7 @@ pub(super) fn substitute_type(
                 params,
                 return_type,
                 is_variadic: *is_variadic,
+                abi: *abi,
             })
         }
         Some(TyKind::Callable {

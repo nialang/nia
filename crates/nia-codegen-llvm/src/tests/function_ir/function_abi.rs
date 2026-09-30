@@ -710,6 +710,7 @@ fn validates_extern_abi_types_before_llvm() {
         params: vec![bool_ty],
         return_type: i32_ty,
         is_variadic: true,
+        abi: FunctionPointerAbi::Nia,
     });
     let span = Span::default();
     let param = |ty| BackendParam {

@@ -135,7 +135,7 @@ error[E0301]: unknown associated function `missing`
    --> fail/failed_callable_arguments/main.nia:18:5
    |
 18 |     Pair[i32, i32]::missing(need(true));
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unknown associated function `missing`
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: the target type is `Pair[i32, i32]`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Pair[i32, i32]`
 
@@ -144,7 +144,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:18:34
    |
 18 |     Pair[i32, i32]::missing(need(true));
-   |                                  ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                                  ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -153,7 +153,7 @@ error[E0301]: ambiguous method `make`
    --> fail/failed_callable_arguments/main.nia:19:5
    |
 19 |     Pair[i32, i32]::make(need(true));
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `make`
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
   - Pair[T, i32]::make(i32) -> i32
@@ -167,7 +167,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:19:31
    |
 19 |     Pair[i32, i32]::make(need(true));
-   |                               ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                               ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -176,7 +176,7 @@ error[E0301]: ambiguous method `make`
    --> fail/failed_callable_arguments/main.nia:20:5
    |
 20 |     Pair[i32, i32]::make[i32](need(true));
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ambiguous method `make`
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: the receiver has type `Pair[i32, i32]`; more than one candidate is equally specific for this receiver
 note: candidate methods:
   - Pair[T, i32]::make(i32) -> i32
@@ -190,7 +190,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:20:36
    |
 20 |     Pair[i32, i32]::make[i32](need(true));
-   |                                    ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                                    ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -208,7 +208,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:24:29
    |
 24 |     api::Point::hidden(need(true));
-   |                             ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                             ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -226,7 +226,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:25:30
    |
 25 |     point.hidden_method(need(true));
-   |                              ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                              ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -244,7 +244,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:26:23
    |
 26 |     true.missing(need(true));
-   |                       ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                       ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -253,7 +253,7 @@ error[E0301]: ambiguous trait method `rank`
    --> fail/failed_callable_arguments/main.nia:30:5
    |
 30 |     value.rank(need(true));
-   |     ^^^^^^^^^^^^^^^^^^^^^^ ambiguous trait method `rank`
+   |     ^^^^^^^^^^^^^^^^^^^^^^
 note: candidate methods:
   - Left::rank
   - Right::rank
@@ -266,7 +266,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:30:21
    |
 30 |     value.rank(need(true));
-   |                     ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                     ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -275,7 +275,7 @@ error[E0301]: ambiguous dynamic trait method `rank`
    --> fail/failed_callable_arguments/main.nia:34:5
    |
 34 |     value.rank(need(true));
-   |     ^^^^^^^^^^^^^^^^^^^^^^ ambiguous dynamic trait method `rank`
+   |     ^^^^^^^^^^^^^^^^^^^^^^
 note: candidate methods:
   - Left::rank
   - Right::rank
@@ -288,7 +288,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:34:21
    |
 34 |     value.rank(need(true));
-   |                     ^^^^ type mismatch in call argument 1: expected i32, got bool
+   |                     ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 

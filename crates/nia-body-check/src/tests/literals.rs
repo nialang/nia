@@ -506,8 +506,8 @@ fn main(ptr: & u8, other: & i32, flag: bool) i32 {
                 .summary
                 .contains("function values are not supported"))
             .count(),
-        1,
-        "{:?}",
+        0,
+        "function items are supported as static zero-sized values: {:?}",
         checked.diagnostics
     );
 }

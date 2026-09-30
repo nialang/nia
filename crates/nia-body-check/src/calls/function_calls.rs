@@ -5,6 +5,7 @@ use super::generic_args::GenericSubstitutions;
 use super::std_builtin_function;
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
+use nia_defs::WherePredicateSignature;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionAttribute, FunctionSignature, GenericParamSignatureKind};
@@ -13,8 +14,8 @@ use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{
-    ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy,
-    TyKind,
+    ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, FunctionPointerAbi,
+    IntConst, PrimitiveTy, TyKind,
 };
 use nia_value_resolve::ValueNameResolution;
 
@@ -34,6 +35,9 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Ident(_) = &base.kind else {
             return None;
         };
+        if matches!(self.local_use(base), Some(LocalUse::Local(_))) {
+            return None;
+        }
         let Some(ValueNameResolution::Def(def_id)) = self.value_name(base) else {
             return None;
         };
@@ -105,18 +109,17 @@ impl<'a> BodyChecker<'a> {
         let Some(item) = self.function_item_ref(expr, expected) else {
             return (self.diagnostics.len() != diagnostics_before).then_some(self.error());
         };
+        if !is_readonly {
+            // A bare function name is the statically-known function item. It
+            // is a zero-sized value and does not require a runtime pointer.
+            // Pointer formation is handled by the explicit unary-reference
+            // path below.
+            return self.function_item_type(expr, item);
+        }
         self.reject_const_operation(
             expr.span,
             "function pointer values are not available during const evaluation",
         );
-        if !is_readonly {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                "function pointers must be formed with `&fn(...)`",
-            ));
-            return Some(self.error());
-        }
         let signature = item.resolved.signature;
         if let Some(builtin) = builtin_function(&signature) {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -148,7 +151,7 @@ impl<'a> BodyChecker<'a> {
             &item.type_args,
             &item.const_args,
         )?;
-        let params = signature
+        let params: Vec<InternedTyId> = signature
             .params
             .iter()
             .enumerate()
@@ -174,11 +177,84 @@ impl<'a> BodyChecker<'a> {
         );
         let return_type = self.normalize_projection(return_type);
         let return_type = self.normalize_aliases_in_type(return_type);
+        // An explicit address operation always produces a runtime function
+        // pointer. The zero-sized FunctionItem is reserved for a bare
+        // function expression; retaining it here would make `&fn` become a
+        // pointer-to-function-item and would lose indirect-call semantics.
         Some(self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
             is_variadic: signature.is_variadic,
+            abi: if signature.is_extern {
+                FunctionPointerAbi::C
+            } else {
+                FunctionPointerAbi::Nia
+            },
         }))
+    }
+
+    fn function_item_type(&mut self, expr: &Expr, item: FunctionItemRef) -> Option<InternedTyId> {
+        let signature = item.resolved.signature;
+        if builtin_function(&signature).is_some()
+            || signature
+                .attributes
+                .iter()
+                .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
+        {
+            return Some(self.error());
+        }
+        let (substitutions, const_substitutions) = self.generic_substitutions_for_function_ref(
+            expr,
+            item.resolved.def_id,
+            &signature,
+            &item.type_args,
+            &item.const_args,
+        )?;
+        let params: Vec<InternedTyId> = signature
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                if index == 0
+                    && param.receiver.is_some()
+                    && let Some(receiver_ty) = item.receiver_ty
+                {
+                    receiver_ty
+                } else {
+                    self.substitute_generics_and_consts(
+                        param.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                }
+            })
+            .collect();
+        let substituted_return = self.substitute_generics_and_consts(
+            signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
+        let normalized_return = self.normalize_projection(substituted_return);
+        let return_type = self.normalize_aliases_in_type(normalized_return);
+        Some(self.interner.intern(TyKind::FunctionItem {
+            def_id: item.resolved.def_id,
+            arg_module_id: self.defs.module_id,
+            self_arg: item.receiver_ty,
+            args: item.type_args,
+            const_args: item.const_args,
+            params,
+            return_type,
+            is_variadic: signature.is_variadic,
+        }))
+    }
+
+    pub(crate) fn check_function_item_ref_for_type(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let item = self.function_item_ref(expr, expected)?;
+        self.function_item_type(expr, item)
     }
 
     fn function_item_ref(
@@ -417,6 +493,68 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        // A bracket suffix in callee position is a generic function
+        // instantiation. Resolve this before the general index-expression
+        // checker, which otherwise interprets `id[i32]` as `Index`.
+        // Build the function item reference from the generic callee itself;
+        // the bracket node is a call syntax node and does not necessarily
+        // have a function-reference fact yet.
+        let has_inferred_argument = type_args.iter().any(|arg| {
+            matches!(
+                arg.ty.as_ref().map(|ty| &ty.kind),
+                Some(nia_ast::TypeKind::Infer)
+            )
+        });
+        if !has_inferred_argument
+            && matches!(callee.kind, ExprKind::Ident(_))
+            && let Some(item) = self.function_item_ref(bracket_expr, expected)
+        {
+            if self
+                .lower_call_bracket_args_for_generic_params(
+                    bracket_expr.span,
+                    &item.resolved.signature.generic_params,
+                    type_args,
+                )
+                .is_some()
+            {
+                return self.check_instantiated_function_call(
+                    expr,
+                    item.resolved.def_id,
+                    &item.resolved.signature,
+                    type_args,
+                    args,
+                    expected,
+                );
+            }
+        }
+        if let Some(reference) = self.function_reference(bracket_expr).cloned() {
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
+                BracketSuffixResolution::GenericCall,
+            );
+            return self.check_instantiated_function_call_from_reference(
+                expr,
+                bracket_expr,
+                reference,
+                type_args,
+                args,
+                expected,
+            );
+        }
+        if let Some(resolved) = self.direct_callee_signature(callee) {
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
+                BracketSuffixResolution::GenericCall,
+            );
+            return self.check_instantiated_function_call(
+                expr,
+                resolved.def_id,
+                &resolved.signature,
+                type_args,
+                args,
+                expected,
+            );
+        }
         if let ExprKind::Field { lhs, name } = &callee.kind
             && let Some(return_type) = self.check_explicit_generic_field_method_call(
                 expr, lhs, name, type_args, args, expected,
@@ -514,6 +652,29 @@ impl<'a> BodyChecker<'a> {
         self.check_function_pointer_call_with_callee_ty(expr, callee_ty, args)
     }
 
+    fn check_instantiated_function_call_from_reference(
+        &mut self,
+        expr: &Expr,
+        bracket_expr: &Expr,
+        reference: FunctionReference,
+        type_args: &[BracketArg],
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let Some(resolved) = self.resolved_function_signature(reference.def_id) else {
+            return self.error();
+        };
+        let _ = (bracket_expr, reference);
+        self.check_instantiated_function_call(
+            expr,
+            resolved.def_id,
+            &resolved.signature,
+            type_args,
+            args,
+            expected,
+        )
+    }
+
     pub(super) fn check_function_pointer_call_with_callee_ty(
         &mut self,
         expr: &Expr,
@@ -522,13 +683,50 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let span = expr.span;
         let callee_ty = self.normalize_aliases_in_type(callee_ty);
+        // A callable shape bound keeps a generic callback statically known.
+        // The typed body retains the generic parameter; backend instantiation
+        // later selects the concrete function item or closure entry.
+        if let Some((params, return_type)) = self.static_callable_bound(callee_ty) {
+            self.check_direct_call_args(span, args, &params, false);
+            self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::FunctionPointer);
+            return return_type;
+        }
         match self.expect_ty_kind(callee_ty).clone() {
+            TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                args: type_args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+                ..
+            } => {
+                self.check_direct_call_args(span, args, &params, is_variadic);
+                let call = if type_args.is_empty() && const_args.is_empty() {
+                    ResolvedCall::Function(def_id)
+                } else {
+                    ResolvedCall::FunctionInstance {
+                        def_id,
+                        arg_module_id,
+                        args: type_args,
+                        const_args,
+                    }
+                };
+                self.record_resolved_node_call(span, &expr.node_key, call);
+                return_type
+            }
             TyKind::FunctionPointer {
                 params,
                 return_type,
                 is_variadic,
+                ..
             } => {
                 self.check_direct_call_args(span, args, &params, is_variadic);
+                self.reject_const_operation(
+                    span,
+                    "indirect function calls are not available during const evaluation",
+                );
                 self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::FunctionPointer);
                 return_type
             }
@@ -575,6 +773,169 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
         }
+    }
+
+    /// Returns the callable shape promised by a `where F: Fn(...) R` bound
+    /// when `ty` is the generic parameter `F` of the function being checked.
+    ///
+    /// `Fn(...) R` is represented by the existing unsized callable pointee in
+    /// signatures. It is deliberately kept separate from `&Fn(...) R`, which
+    /// is a runtime-erased callable view and must not satisfy this bound.
+    pub(crate) fn static_callable_bound(
+        &mut self,
+        ty: InternedTyId,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let current = self.current_def_id?;
+        let signature = self.resolved_function_signature(current)?.signature;
+        self.static_callable_bound_from_predicates(
+            ty,
+            &signature.where_predicates,
+            &SymbolMap::default(),
+            &SymbolMap::default(),
+        )
+    }
+
+    pub(crate) fn static_callable_bound_from_predicates(
+        &mut self,
+        ty: InternedTyId,
+        predicates: &[WherePredicateSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let ty = self.substitute_generics_and_consts(ty, substitutions, const_substitutions);
+        let ty = self.normalize_aliases_in_type(ty);
+        let Some(TyKind::GenericParam(name)) = self.interner.get(ty).cloned() else {
+            return None;
+        };
+        for predicate in predicates {
+            let predicate_ty = self.substitute_generics_and_consts(
+                predicate.ty,
+                substitutions,
+                const_substitutions,
+            );
+            let predicate_ty = self.normalize_aliases_in_type(predicate_ty);
+            if !matches!(self.interner.get(predicate_ty), Some(TyKind::GenericParam(candidate)) if *candidate == name)
+            {
+                continue;
+            }
+            for bound in &predicate.bounds {
+                let bound_ty = self.substitute_generics_and_consts(
+                    bound.trait_ty,
+                    substitutions,
+                    const_substitutions,
+                );
+                let bound_ty = self.normalize_aliases_in_type(bound_ty);
+                if let Some(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                }) = self.interner.get(bound_ty).cloned()
+                {
+                    return Some((params, return_type));
+                }
+            }
+        }
+        None
+    }
+
+    /// Checks a substituted callable-shape bound. `None` means the bound is
+    /// an ordinary trait bound and should continue through trait solving.
+    pub(crate) fn static_callable_bound_holds(
+        &mut self,
+        predicate_ty: InternedTyId,
+        bound_ty: InternedTyId,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> Option<bool> {
+        let bound_ty =
+            self.substitute_generics_and_consts(bound_ty, substitutions, const_substitutions);
+        let bound_ty = self.normalize_aliases_in_type(bound_ty);
+        let Some(TyKind::CallablePointee {
+            params,
+            return_type,
+        }) = self.interner.get(bound_ty).cloned()
+        else {
+            return None;
+        };
+        let actual =
+            self.substitute_generics_and_consts(predicate_ty, substitutions, const_substitutions);
+        Some(self.static_callable_type_matches(actual, &params, return_type))
+    }
+
+    fn static_callable_type_matches(
+        &mut self,
+        actual: InternedTyId,
+        params: &[InternedTyId],
+        return_type: InternedTyId,
+    ) -> bool {
+        let actual = self.normalize_aliases_in_type(actual);
+        let (actual_params, actual_return) = match self.interner.get(actual).cloned() {
+            Some(TyKind::FunctionItem {
+                params,
+                return_type,
+                is_variadic: false,
+                ..
+            })
+            | Some(TyKind::ClosureState {
+                params,
+                return_type,
+                ..
+            }) => (params, return_type),
+            _ => return false,
+        };
+        params.len() == actual_params.len()
+            && params
+                .iter()
+                .zip(actual_params)
+                .all(|(expected, actual)| self.types_match(*expected, actual))
+            && self.types_match(return_type, actual_return)
+    }
+
+    pub(crate) fn infer_generics_from_static_callable_shape(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        span: Span,
+    ) -> bool {
+        let pattern = self.normalize_aliases_in_type(pattern);
+        let Some(TyKind::CallablePointee {
+            params: pattern_params,
+            return_type: pattern_return,
+        }) = self.interner.get(pattern).cloned()
+        else {
+            return false;
+        };
+        let actual = self.normalize_aliases_in_type(actual);
+        let (actual_params, actual_return) = match self.interner.get(actual).cloned() {
+            Some(TyKind::FunctionItem {
+                params,
+                return_type,
+                is_variadic: false,
+                ..
+            })
+            | Some(TyKind::ClosureState {
+                params,
+                return_type,
+                ..
+            }) => (params, return_type),
+            _ => return false,
+        };
+        if pattern_params.len() != actual_params.len()
+            || !pattern_params
+                .iter()
+                .zip(&actual_params)
+                .all(|(pattern, actual)| self.generic_pattern_accepts_type_shape(*pattern, *actual))
+            || !self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+        {
+            return false;
+        }
+        let mut staged = substitutions.clone();
+        for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+            self.infer_generics_from_type(pattern, actual, &mut staged, span);
+        }
+        self.infer_generics_from_type(pattern_return, actual_return, &mut staged, span);
+        *substitutions = staged;
+        true
     }
 
     fn check_instantiated_function_call(
@@ -764,7 +1125,27 @@ impl<'a> BodyChecker<'a> {
             let inference_param = fixed.map_or(param, |fixed| {
                 self.substitute_generics_and_consts(param, &fixed.types, &fixed.consts)
             });
-            let mut inferred_from_closure = self.infer_generics_from_closure_signature(
+            let callable_pattern = self
+                .static_callable_bound_from_predicates(
+                    inference_param,
+                    &signature.where_predicates,
+                    &substitutions.types,
+                    &substitutions.consts,
+                )
+                .map(|(params, return_type)| {
+                    self.interner.intern(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                    })
+                });
+            let mut inferred_from_closure = callable_pattern.is_some_and(|pattern| {
+                self.infer_generics_from_closure_signature(
+                    pattern,
+                    arg,
+                    &mut substitutions.types,
+                    arg.span,
+                )
+            }) || self.infer_generics_from_closure_signature(
                 inference_param,
                 arg,
                 &mut substitutions.types,
@@ -775,11 +1156,12 @@ impl<'a> BodyChecker<'a> {
                 &substitutions.types,
                 &substitutions.consts,
             );
+            let closure_pattern = callable_pattern.unwrap_or(substituted_param);
             let closure_params_ready =
-                self.seed_closure_params_from_callable_pattern(substituted_param, arg);
+                self.seed_closure_params_from_callable_pattern(closure_pattern, arg);
             if closure_params_ready {
                 inferred_from_closure |= self.infer_generics_from_closure_signature(
-                    inference_param,
+                    closure_pattern,
                     arg,
                     &mut substitutions.types,
                     arg.span,
@@ -790,7 +1172,22 @@ impl<'a> BodyChecker<'a> {
                     &substitutions.consts,
                 );
             }
-            let expected = self.generic_call_expected(substituted_param);
+            let callable_pattern = self
+                .static_callable_bound_from_predicates(
+                    inference_param,
+                    &signature.where_predicates,
+                    &substitutions.types,
+                    &substitutions.consts,
+                )
+                .map(|(params, return_type)| {
+                    self.interner.intern(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                    })
+                });
+            let expected = self
+                .generic_call_expected(substituted_param)
+                .or(callable_pattern);
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
             } else if inferred_from_closure && !closure_params_ready {
@@ -806,6 +1203,14 @@ impl<'a> BodyChecker<'a> {
             let closure_shape_matches = self.inferred_closure_signature(arg).is_none()
                 || self.generic_pattern_accepts_type_shape(inference_param, actual);
             if closure_shape_matches {
+                if let Some(callable_pattern) = callable_pattern {
+                    self.infer_generics_from_static_callable_shape(
+                        callable_pattern,
+                        actual,
+                        &mut substitutions.types,
+                        arg.span,
+                    );
+                }
                 self.infer_generics_from_type(
                     inference_param,
                     actual,
@@ -878,6 +1283,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic: false,
+                ..
             }) => Some((params, return_type)),
             _ => None,
         }) else {
@@ -1028,6 +1434,7 @@ impl<'a> BodyChecker<'a> {
                     params,
                     return_type,
                     is_variadic: false,
+                    ..
                 }),
                 InferredType::Callable {
                     params: actual_params,
@@ -1192,11 +1599,13 @@ impl<'a> BodyChecker<'a> {
                     params: pattern_params,
                     return_type: pattern_return,
                     is_variadic: pattern_variadic,
+                    ..
                 },
                 Some(TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
+                    ..
                 }),
             ) => {
                 pattern_variadic == actual_variadic
@@ -1241,6 +1650,7 @@ impl<'a> BodyChecker<'a> {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: false,
+                    ..
                 }),
             ) => {
                 pattern_params.len() == actual_params.len()
@@ -1834,6 +2244,7 @@ impl<'a> BodyChecker<'a> {
                     params,
                     return_type,
                     is_variadic: false,
+                    ..
                 }),
                 InferredType::Callable {
                     params: actual_params,
@@ -2096,6 +2507,24 @@ impl<'a> BodyChecker<'a> {
                     .any(|param| self.type_contains_const_generic_param(*param))
                     || self.type_contains_const_generic_param(*return_type)
             }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                self_arg.is_some_and(|ty| self.type_contains_const_generic_param(ty))
+                    || args
+                        .iter()
+                        .any(|ty| self.type_contains_const_generic_param(*ty))
+                    || const_args.iter().any(const_arg_contains_param)
+                    || params
+                        .iter()
+                        .any(|ty| self.type_contains_const_generic_param(*ty))
+                    || self.type_contains_const_generic_param(*return_type)
+            }
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.type_contains_const_generic_param(*error)
                     || self.type_contains_const_generic_param(*value)
@@ -2182,6 +2611,24 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn type_contains_generic_param(&self, ty: InternedTyId) -> bool {
         match self.interner.get(self.normalization.normalize(ty)) {
             Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                self_arg.is_some_and(|ty| self.type_contains_generic_param(ty))
+                    || args.iter().any(|ty| self.type_contains_generic_param(*ty))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.type_contains_generic_param(arg.ty))
+                    || params
+                        .iter()
+                        .any(|ty| self.type_contains_generic_param(*ty))
+                    || self.type_contains_generic_param(*return_type)
+            }
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -2325,6 +2772,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::SelfParam) => {}
+            Some(TyKind::FunctionItem { .. }) => {}
             Some(TyKind::BuiltinType(_)) => {}
             Some(TyKind::Opaque) => {}
             Some(TyKind::Pointer {
@@ -2442,11 +2890,13 @@ impl<'a> BodyChecker<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
                 is_variadic: pattern_variadic,
+                ..
             }) => {
                 if let Some(TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
+                    ..
                 }) = self.interner.get(actual).cloned()
                     && pattern_params.len() == actual_params.len()
                     && pattern_variadic == actual_variadic
@@ -2487,6 +2937,7 @@ impl<'a> BodyChecker<'a> {
                         params,
                         return_type,
                         is_variadic: false,
+                        ..
                     }) if pattern_readonly => Some((true, params, return_type)),
                     _ => None,
                 };
@@ -2873,11 +3324,13 @@ impl<'a> BodyChecker<'a> {
                     params: pattern_params,
                     return_type: pattern_return,
                     is_variadic: pattern_variadic,
+                    ..
                 }),
                 Some(TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
+                    ..
                 }),
             ) if pattern_variadic == actual_variadic
                 && pattern_params.len() == actual_params.len() =>
@@ -2926,6 +3379,7 @@ impl<'a> BodyChecker<'a> {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: false,
+                    ..
                 }),
             ) if pattern_params.len() == actual_params.len() => {
                 for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {

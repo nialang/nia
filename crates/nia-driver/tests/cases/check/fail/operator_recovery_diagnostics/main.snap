@@ -38,6 +38,6 @@ error[E0301]: shift count must be an integer type, got bool
   --> fail/operator_recovery_diagnostics/main.nia:4:14
   |
 4 |     _ = 1 << true;
-  |              ^^^^ shift count must be an integer type, got bool
+  |              ^^^^
 
 summary: 3 errors, 0 warnings

@@ -890,9 +890,17 @@ impl Diagnostic {
         summary: impl Into<String>,
     ) -> Diagnostic {
         let summary = summary.into();
-        Self::internal_error(code, summary.clone())
-            .primary(span, summary)
-            .finish()
+        let builder = Self::internal_error(code, summary.clone());
+        // The default span is the conventional "no source location" value
+        // used by backend and infrastructure diagnostics. Keep it out of the
+        // source-label path so it cannot render as the user's first token.
+        if span == Span::default() {
+            builder
+                .primary_fallback(span, "compiler location unavailable")
+                .finish()
+        } else {
+            builder.primary(span, summary).finish()
+        }
     }
 
     /// Converts a structured compiler invariant failure into a reportable diagnostic.
@@ -1396,10 +1404,17 @@ pub fn render_diagnostic_with_sources<'a>(
     ));
 
     if diagnostic.labels.is_empty() {
-        output.push_str(&format!("  --> {path}:1:1\n"));
+        output.push_str(&format!("  --> {path}: no source location available\n"));
     } else {
         for (index, label) in diagnostic.labels.iter().enumerate() {
-            render_label(path, source, label, index == 0, &mut output);
+            render_label(
+                path,
+                source,
+                label,
+                index == 0,
+                &diagnostic.summary,
+                &mut output,
+            );
         }
     }
 
@@ -1416,11 +1431,23 @@ pub fn render_diagnostic_with_sources<'a>(
             suggestion.message
         ));
         for edit in suggestion.edits.iter() {
-            let line = line_info(source, edit.span.start);
-            output.push_str(&format!(
-                "  edit: {}:{}:{} replace {}..{} with {:?}\n",
-                path, line.number, line.column, edit.span.start, edit.span.end, edit.replacement
-            ));
+            if !source_covers_span(source, edit.span) {
+                output.push_str(&format!(
+                    "  edit: {}:bytes {}..{} replace with {:?}\n",
+                    path, edit.span.start, edit.span.end, edit.replacement
+                ));
+            } else {
+                let line = line_info(source, edit.span.start);
+                output.push_str(&format!(
+                    "  edit: {}:{}:{} replace {}..{} with {:?}\n",
+                    path,
+                    line.number,
+                    line.column,
+                    edit.span.start,
+                    edit.span.end,
+                    edit.replacement
+                ));
+            }
         }
     }
     for related in diagnostic.related.iter() {
@@ -1437,11 +1464,18 @@ pub fn render_diagnostic_with_sources<'a>(
             ));
             continue;
         };
-        let line = line_info(related_source, related.span.start);
-        output.push_str(&format!(
-            "related: {}:{}:{}: {}\n",
-            related_path, line.number, line.column, related.message
-        ));
+        if !source_covers_span(related_source, related.span) {
+            output.push_str(&format!(
+                "related: {}:bytes {}..{}: {}\n",
+                related_path, related.span.start, related.span.end, related.message
+            ));
+        } else {
+            let line = line_info(related_source, related.span.start);
+            output.push_str(&format!(
+                "related: {}:{}:{}: {}\n",
+                related_path, line.number, line.column, related.message
+            ));
+        }
     }
     if diagnostic.category == DiagnosticCategory::Internal {
         for field in diagnostic.debug.iter() {
@@ -1720,17 +1754,41 @@ fn render_label(
     source: &str,
     label: &DiagnosticLabel,
     first: bool,
+    summary: &str,
     output: &mut String,
 ) {
+    if label.span_source != SpanSource::Source {
+        let arrow = if first { "-->" } else { ":::" };
+        let location = match label.span_source {
+            SpanSource::Fallback => "no source location available",
+            SpanSource::Generated => "generated source location unavailable",
+            SpanSource::Source => unreachable!(),
+        };
+        output.push_str(&format!(" {arrow} {path}: {location}"));
+        if let Some(message) = &label.message {
+            if message == summary {
+                output.push('\n');
+                return;
+            }
+            output.push_str(&format!(": {message}"));
+        }
+        output.push('\n');
+        return;
+    }
+
     // Without text that covers the span, a line number would be a guess.
     // Report the stable byte range, as unavailable related locations do.
-    if label.span.end > source.len() {
+    if !source_covers_span(source, label.span) {
         let arrow = if first { "-->" } else { ":::" };
         output.push_str(&format!(
             " {arrow} {path}:bytes {}..{}",
             label.span.start, label.span.end
         ));
         if let Some(message) = &label.message {
+            if message == summary {
+                output.push('\n');
+                return;
+            }
             output.push_str(&format!(": {message}"));
         }
         output.push('\n');
@@ -1779,6 +1837,10 @@ fn render_label(
         width = gutter_width
     ));
     if let Some(message) = &label.message {
+        if message == summary {
+            output.push('\n');
+            return;
+        }
         output.push_str(&format!(" {message}"));
     }
     output.push('\n');
@@ -1815,6 +1877,10 @@ fn line_info(source: &str, offset: usize) -> LineInfo {
         end: line_end,
         column: source[line_start..offset].chars().count() + 1,
     }
+}
+
+fn source_covers_span(source: &str, span: Span) -> bool {
+    !source.is_empty() && span.start <= span.end && span.end <= source.len()
 }
 
 fn suggestion_applicability_name(applicability: SuggestionApplicability) -> &'static str {
@@ -1864,6 +1930,21 @@ mod tests {
         assert!(rendered.contains("| ^^^^^ statement starts here"));
         assert!(rendered.contains("note: parser was recovering after a missing token"));
         assert!(rendered.contains("help: insert `;` before this statement"));
+    }
+
+    #[test]
+    fn text_renderer_does_not_repeat_summary_as_label_text() {
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, "type mismatch")
+            .primary(Span::new(0, 1), "type mismatch")
+            .finish();
+        let rendered = render_diagnostic("main.nia", "x", &diagnostic);
+
+        assert!(
+            rendered.contains("error[E0301]: type mismatch"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("| ^"), "{rendered}");
+        assert!(!rendered.contains("| ^ type mismatch"), "{rendered}");
     }
 
     #[test]
@@ -1929,6 +2010,83 @@ mod tests {
         let rendered = render_diagnostic("main.nia", "abc", &diagnostic);
         assert!(rendered.contains("error internal[I0001]: missing definition"));
         assert!(rendered.contains("debug: node_key = \"n1\""));
+    }
+
+    #[test]
+    fn diagnostics_without_labels_do_not_invent_a_source_location() {
+        let diagnostic =
+            Diagnostic::internal_error(codes::ICE, "backend invariant failed").finish();
+        let rendered = render_diagnostic("main.nia", "let x = 1;\n", &diagnostic);
+
+        assert!(
+            rendered.contains("--> main.nia: no source location available"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains(":1:1"), "{rendered}");
+    }
+
+    #[test]
+    fn fallback_labels_do_not_render_fake_source_lines() {
+        let diagnostic = Diagnostic::internal_error(codes::ICE, "backend invariant failed")
+            .primary_fallback(Span::default(), "while lowering generated IR")
+            .finish();
+        let rendered = render_diagnostic("main.nia", "let x = 1;\n", &diagnostic);
+
+        assert!(
+            rendered.contains(
+                "--> main.nia: no source location available: while lowering generated IR"
+            ),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("1 | let x = 1;"), "{rendered}");
+        assert!(!rendered.contains(":1:1"), "{rendered}");
+    }
+
+    #[test]
+    fn empty_sources_use_byte_ranges_for_source_labels_and_edits() {
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, "cannot infer type")
+            .primary(Span::new(0, 0), "expression")
+            .suggestion(
+                Span::new(0, 0),
+                "i32",
+                "annotate the empty expression",
+                SuggestionApplicability::MaybeIncorrect,
+            )
+            .finish();
+        let rendered = render_diagnostic("empty.nia", "", &diagnostic);
+
+        assert!(
+            rendered.contains("--> empty.nia:bytes 0..0: expression"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("edit: empty.nia:bytes 0..0 replace with \"i32\""),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("1 |"), "{rendered}");
+        assert!(!rendered.contains(":1:1"), "{rendered}");
+    }
+
+    #[test]
+    fn invalid_source_ranges_are_reported_as_bytes() {
+        let diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, "invalid range")
+            .primary(Span::new(8, 3), "compiler produced an invalid span")
+            .finish();
+        let rendered = render_diagnostic("main.nia", "abc\n", &diagnostic);
+
+        assert!(
+            rendered.contains("--> main.nia:bytes 8..3: compiler produced an invalid span"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains(":1:1"), "{rendered}");
+    }
+
+    #[test]
+    fn default_internal_locations_are_marked_as_fallbacks() {
+        let diagnostic =
+            Diagnostic::internal_error_at(codes::ICE, Span::default(), "backend invariant failed");
+
+        assert_eq!(diagnostic.primary_span_source(), Some(SpanSource::Fallback));
     }
 
     #[test]

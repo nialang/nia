@@ -767,6 +767,7 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size,
                 align: self.target.pointer_align,
             }),
+            Some(TyKind::FunctionItem { .. }) => Some(TypeLayout { size: 0, align: 1 }),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. }) => {
                 fat_pointer_layout(self.target)
                     .or_else(|| self.layout_overflow(span, "fat pointer"))
@@ -896,6 +897,26 @@ impl<'a> LayoutComputer<'a> {
                 params
                     .iter()
                     .any(|param| self.is_open_generic_type_inner(*param, seen))
+                    || self.is_open_generic_type_inner(*return_type, seen)
+            }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                self_arg.is_some_and(|ty| self.is_open_generic_type_inner(ty, seen))
+                    || args
+                        .iter()
+                        .any(|arg| self.is_open_generic_type_inner(*arg, seen))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.is_open_generic_const_arg(arg, seen))
+                    || params
+                        .iter()
+                        .any(|param| self.is_open_generic_type_inner(*param, seen))
                     || self.is_open_generic_type_inner(*return_type, seen)
             }
             Some(TyKind::Nominal {

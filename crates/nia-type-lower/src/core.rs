@@ -127,6 +127,7 @@ impl TypeLowerer<'_, '_> {
                 params,
                 return_type,
                 is_variadic,
+                is_extern,
             } => {
                 let params = params
                     .iter()
@@ -142,6 +143,11 @@ impl TypeLowerer<'_, '_> {
                     params,
                     return_type,
                     is_variadic: *is_variadic,
+                    abi: if *is_extern {
+                        nia_ty::FunctionPointerAbi::C
+                    } else {
+                        nia_ty::FunctionPointerAbi::Nia
+                    },
                 })
             }
             TypeKind::Callable {

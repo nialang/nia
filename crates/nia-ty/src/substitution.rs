@@ -104,7 +104,39 @@ pub fn substitute_ty(
             params,
             return_type,
             is_variadic,
+            abi,
         }) => append.intern(TyKind::FunctionPointer {
+            params: params
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            return_type: substitute(*return_type)?,
+            is_variadic: *is_variadic,
+            abi: *abi,
+        }),
+        Some(TyKind::FunctionItem {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            is_variadic,
+        }) => append.intern(TyKind::FunctionItem {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            self_arg: self_arg.map(substitute).transpose()?,
+            args: args
+                .iter()
+                .copied()
+                .map(substitute)
+                .collect::<nia_ice::IceResult<_>>()?,
+            const_args: const_args
+                .iter()
+                .map(substitute_const_arg)
+                .collect::<nia_ice::IceResult<_>>()?,
             params: params
                 .iter()
                 .copied()

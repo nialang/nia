@@ -13,7 +13,7 @@ use nia_llvm::{
     values::{FunctionValue, GlobalValue},
 };
 use nia_span::Span;
-use nia_ty::{ConstGenericArg, TyKind};
+use nia_ty::{ConstGenericArg, FunctionPointerAbi, TyKind};
 
 enum AdapterFunction<'a> {
     Function(&'a BackendFunction),
@@ -87,6 +87,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             params,
             return_type,
             is_variadic: false,
+            ..
         }) = self.ty_kind(function_pointer_ty)
         else {
             return Err(self.error(span, "enum constructor is not a function pointer"));
@@ -118,7 +119,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .cloned()
             .ok_or_else(|| self.error(span, "missing enum constructor variant layout"))?;
 
-        let function_ty = self.function_pointer_type_in(params, *return_type, false, span)?;
+        let function_ty = self.function_pointer_type_in(
+            params,
+            *return_type,
+            false,
+            FunctionPointerAbi::Nia,
+            span,
+        )?;
         let name = nia_mangle::mangle_derived_symbol_canonical(
             self.symbol_package_identity(variant_id.module_id, span)?,
             self.mangle_module_id(variant_id.module_id),
@@ -295,6 +302,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             params,
             return_type,
             is_variadic: false,
+            ..
         }) = self.ty_kind(function_pointer_ty)
         else {
             return Err(self.error(span, "closure adapter target is not a function pointer"));
@@ -306,7 +314,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             ));
         }
 
-        let function_ty = self.function_pointer_type_in(params, *return_type, false, span)?;
+        let function_ty = self.function_pointer_type_in(
+            params,
+            *return_type,
+            false,
+            FunctionPointerAbi::Nia,
+            span,
+        )?;
         let name = format!("{}__fn_adapter", entry.symbol);
         let adapter = self.add_internal_helper_function(&name, function_ty)?;
         let builder = self
@@ -370,6 +384,111 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.closure_function_pointer_adapters
             .borrow_mut()
             .insert(key.clone(), adapter);
+        Ok(adapter)
+    }
+
+    /// Build the erased callable entry used when a thin Nia function pointer
+    /// is converted to `&Fn(...)`. The function pointer is carried in the
+    /// callable state slot; this keeps the callable ABI uniform with captured
+    /// closures and avoids a null-state dispatch branch at every call site.
+    pub(crate) fn function_pointer_callable_adapter(
+        &self,
+        function_pointer_ty: InternedTyId,
+        span: Span,
+    ) -> Result<FunctionValue<'ctx>, Diagnostic> {
+        if let Some(adapter) = self
+            .function_pointer_callable_adapters
+            .borrow()
+            .get(&function_pointer_ty)
+            .copied()
+        {
+            return Ok(adapter);
+        }
+        let Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic: false,
+            abi: FunctionPointerAbi::Nia,
+        }) = self.ty_kind(function_pointer_ty)
+        else {
+            return Err(self.error(
+                span,
+                "callable adapter target is not a non-variadic Nia function pointer",
+            ));
+        };
+        let entry_ty = self.callable_entry_function_type_in(params, *return_type, span)?;
+        let name = format!("{}__callable_adapter", self.mangle_ty(function_pointer_ty));
+        let adapter = self.add_internal_helper_function(&name, entry_ty)?;
+        let builder = self
+            .context
+            .create_builder()
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        let block = self.context.append_basic_block(adapter, "entry")?;
+        builder.position_at_end(block);
+
+        let mut param_index = 0;
+        let mut call_args = Vec::new();
+        if let AbiReturn::IndirectOut(_) = self.classify_function_return(*return_type) {
+            let out_ptr = adapter
+                .get_nth_param(param_index)
+                .ok_or_else(|| self.error(span, "missing callable adapter out pointer"))?
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            call_args.push(out_ptr);
+            param_index += 1;
+        }
+        let state = adapter
+            .get_nth_param(param_index)
+            .ok_or_else(|| self.error(span, "missing callable adapter state pointer"))?
+            .map_err(Self::diagnostic_from_llvm_error)?
+            .into_pointer_value()?;
+        param_index += 1;
+
+        for classification in self.classify_function_params(params.iter().copied()) {
+            match classification {
+                AbiParam::Direct(_) | AbiParam::IndirectReadonly(_) => {
+                    let arg = adapter
+                        .get_nth_param(param_index)
+                        .ok_or_else(|| self.error(span, "missing callable adapter argument"))?
+                        .map_err(Self::diagnostic_from_llvm_error)?;
+                    call_args.push(arg);
+                    param_index += 1;
+                }
+                AbiParam::Omit => {}
+            }
+        }
+        let function_ty = self.function_pointer_type_in(
+            params,
+            *return_type,
+            false,
+            FunctionPointerAbi::Nia,
+            span,
+        )?;
+        let call = builder
+            .build_indirect_call(function_ty, state, &call_args, "callable.fn.call")
+            .map_err(|_| self.error(span, "failed to build callable function adapter call"))?;
+        match self.classify_function_return(*return_type) {
+            AbiReturn::Direct(_) => {
+                let value = call.try_as_basic_value().unwrap_basic().map_err(|_| {
+                    self.error(span, "callable adapter call did not return a value")
+                })?;
+                builder
+                    .build_return(Some(&value))
+                    .map_err(|_| self.error(span, "failed to return callable adapter value"))?;
+            }
+            AbiReturn::Void | AbiReturn::IndirectOut(_) => {
+                builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to return from callable adapter"))?;
+            }
+            AbiReturn::Never => {
+                builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(span, "failed to terminate callable adapter"))?;
+            }
+        }
+        self.function_pointer_callable_adapters
+            .borrow_mut()
+            .insert(function_pointer_ty, adapter);
         Ok(adapter)
     }
 
@@ -771,7 +890,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .add_function(&entry.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
             hide_compiler_symbol(value.as_global_value());
-            self.closure_entries.insert(entry.key.clone(), value);
+            self.closure_entries
+                .borrow_mut()
+                .insert(entry.key.clone(), value);
         }
         Ok(())
     }

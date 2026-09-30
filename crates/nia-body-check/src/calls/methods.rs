@@ -552,9 +552,24 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect();
-        if call.type_args.is_none() {
+        let infer_method_args = call.type_args.is_none()
+            || call.type_args.is_some_and(|args| {
+                args.iter().any(|arg| {
+                    matches!(
+                        arg.ty.as_ref().map(|ty| &ty.kind),
+                        Some(nia_ast::TypeKind::Infer)
+                    )
+                })
+            });
+        if infer_method_args {
             self.profile_stage("body_check.profile.method.infer_args", |this| {
-                this.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+                this.infer_method_generics_from_args(
+                    call.args,
+                    &params,
+                    &mut substitutions,
+                    &signature.where_predicates,
+                    &const_substitutions,
+                );
             });
             if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
                 self.check_call_arg_count(call.span, call.args.len(), params.len(), false);

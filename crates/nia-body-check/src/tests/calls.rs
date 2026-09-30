@@ -13,18 +13,120 @@ fn main(base: i32) i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let body = checked
-        .ir
-        .function_bodies
-        .values()
-        .next()
-        .expect("main body");
-    let tail = body.tail.as_deref().expect("main tail");
-    let nia_body_ir::TypedExprKind::Call { callee, args } = &tail.kind else {
-        panic!("expected closure call");
-    };
-    assert!(matches!(callee, nia_body_ir::TypedCallee::Closure(_)));
-    assert_eq!(args.len(), 1);
+}
+
+#[test]
+fn statically_dispatches_function_item_through_callable_generic() {
+    let checked = pipeline(
+        r#"
+fn apply[F](callback: F, value: i32) i32
+where F: Fn(i32) i32
+{
+    callback(value)
+}
+
+fn increment(value: i32) i32 {
+    value + 1
+}
+
+fn main() i32 {
+    apply(increment, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn static_callable_generic_infers_unannotated_closure_parameter_and_return() {
+    let checked = pipeline(
+        r#"
+fn apply[Mapper, Output](callback: Mapper, value: i32) Output
+where Mapper: Fn(i32) Output
+{
+    callback(value)
+}
+
+fn main() i32 {
+    apply(\value -> value + 1, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn static_callable_generic_infers_output_from_function_item() {
+    let checked = pipeline(
+        r#"
+struct Target {
+    value: i32,
+}
+
+fn makeTarget(value: i32) Target {
+    Target { value }
+}
+
+fn apply[Mapper, Output](callback: Mapper, value: i32) Output
+where Mapper: Fn(i32) Output
+{
+    callback(value)
+}
+
+fn main() Target {
+    apply(makeTarget, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn callable_generic_rejects_runtime_function_pointer() {
+    let checked = pipeline(
+        r#"
+fn apply[F](callback: F, value: i32) i32
+where F: Fn(i32) i32
+{
+    callback(value)
+}
+
+fn increment(value: i32) i32 {
+    value + 1
+}
+
+fn main() i32 {
+    let pointer: &fn(i32) i32 = &increment;
+    apply(pointer, 2)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.summary.contains("trait bound not satisfied") }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn statically_dispatches_capturing_closure_through_callable_generic() {
+    let checked = pipeline(
+        r#"
+fn apply[F](callback: F, value: i32) i32
+where F: Fn(i32) i32
+{
+    callback(value)
+}
+
+fn main(base: i32) i32 {
+    apply(\[base] value: i32 -> { base + value }, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]
@@ -426,6 +528,65 @@ fn main() i32 {
 "#,
     );
 
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn map_error_infers_unannotated_closure_parameter_from_receiver() {
+    let checked = pipeline(
+        r#"
+enum TargetError {
+    Converted(i32),
+}
+
+extend[Value, Source, Target] Source!Value {
+    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fn map_error(source: i32!i32) TargetError!i32 {
+    source.mapError(&\cause -> TargetError::Converted(cause))
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn static_callable_method_infers_map_closure_parameter_and_output() {
+    let checked = pipeline(
+        r#"
+struct Source {
+    value: i32,
+}
+
+struct Target {
+    value: i32,
+}
+
+extend Source {
+    fn intoTarget(&self) Target {
+        Target { value: self.value }
+    }
+}
+
+extend[Value] ?Value {
+    fn map[Mapped, Mapper](self, mapper: Mapper) ?Mapped
+    where Mapper: Fn(Value) Mapped
+    {
+        if self is ?value { ?mapper(value) } else { null }
+    }
+}
+
+fn main(source: ?Source) ?Target {
+    source.map(\value -> value.intoTarget())
+}
+"#,
+    );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
@@ -1039,12 +1200,12 @@ fn main() i32 {
         checked.diagnostics
     );
     assert!(
-        checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
                 .summary
                 .contains("function values are not supported")
         }),
-        "{:?}",
+        "function items are valid zero-sized static values: {:?}",
         checked.diagnostics
     );
 }

@@ -1595,6 +1595,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             | FunctionExprKind::Try { expr } => self.emit_effect_expr(expr),
             FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::Function(_)
+            | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::Null
             | FunctionExprKind::StaticArrayPointer { .. } => Ok(()),
             _ => {

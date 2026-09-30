@@ -19,7 +19,7 @@ error[E0301]: range method `end` is unavailable because this range has no end bo
   --> fail/range_missing_bound_method/main.nia:4:9
   |
 4 |     _ = from.end();
-  |         ^^^^^^^^^^ range method `end` is unavailable because this range has no end bound
+  |         ^^^^^^^^^^
 note: the receiver has type `usize..`
 help: use `end()` only on ranges with an end bound
 
@@ -28,7 +28,7 @@ error[E0301]: range method `start` is unavailable because this range has no star
   --> fail/range_missing_bound_method/main.nia:5:9
   |
 5 |     _ = to.start();
-  |         ^^^^^^^^^^ range method `start` is unavailable because this range has no start bound
+  |         ^^^^^^^^^^
 note: the receiver has type `..usize`
 help: use `start()` only on ranges with a start bound
 

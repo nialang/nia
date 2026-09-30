@@ -72,6 +72,7 @@ impl BackendValidator<'_> {
             params,
             return_type,
             is_variadic: false,
+            abi: nia_ty::FunctionPointerAbi::Nia,
         }) = self.ty_kind(result_ty).cloned()
         else {
             self.invalid_callable_coercion(

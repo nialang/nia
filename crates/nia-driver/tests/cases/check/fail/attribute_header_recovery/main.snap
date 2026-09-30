@@ -23,7 +23,7 @@ error[E0101]: expected attribute path segment; found `]`
   --> fail/attribute_header_recovery/main.nia:1:10
   |
 1 | @[broken.]
-  |          ^ expected attribute path segment; found `]`
+  |          ^
 help: use an identifier in this position
 
 root diagnostic:
@@ -31,7 +31,7 @@ error[E0101]: expected attribute path segment; found `fn`
   --> fail/attribute_header_recovery/main.nia:7:1
   |
 7 | fn final() () {}
-  | ^^ expected attribute path segment; found `fn`
+  | ^^
 help: use an identifier in this position
 
 root diagnostic:
@@ -39,7 +39,7 @@ error[E0101]: expected attribute path segment; found `let`
    --> fail/attribute_header_recovery/main.nia:11:5
    |
 11 |     let kept = 1;
-   |     ^^^ expected attribute path segment; found `let`
+   |     ^^^
 help: use an identifier in this position
 
 summary: 3 errors, 0 warnings

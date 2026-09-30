@@ -1398,6 +1398,28 @@ impl Analyzer<'_> {
                 }
                 self.collect_array_len_const_exprs_in_ty_inner(return_type, out, seen);
             }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                if let Some(self_arg) = self_arg {
+                    self.collect_array_len_const_exprs_in_ty_inner(self_arg, out, seen);
+                }
+                for arg in args {
+                    self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+                for arg in const_args {
+                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                }
+                for param in params {
+                    self.collect_array_len_const_exprs_in_ty_inner(param, out, seen);
+                }
+                self.collect_array_len_const_exprs_in_ty_inner(return_type, out, seen);
+            }
             Some(TyKind::Nominal {
                 def_id,
                 args,

@@ -210,12 +210,17 @@ impl<'a> BodyChecker<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
                 is_variadic: pattern_variadic,
+                abi: pattern_abi,
             }) => match actual_kind {
                 Some(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
-                }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    abi,
+                }) if pattern_abi == abi
+                    && pattern_variadic == is_variadic
+                    && pattern_params.len() == params.len() =>
+                {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
                         self.match_type_pattern_with_consts(
                             *pattern,
@@ -508,6 +513,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::FunctionItem { .. }) => self.types_match(pattern, actual),
             Some(TyKind::Primitive(_) | TyKind::Vector { .. })
             | Some(TyKind::ConstOnly | TyKind::Error | TyKind::ClosureState { .. })
             | None => self.types_match(pattern, actual),
