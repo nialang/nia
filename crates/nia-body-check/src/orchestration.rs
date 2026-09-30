@@ -236,6 +236,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         timing_module_id: module_id,
         current_return: unit_ty,
         current_def_id: None,
+        current_naked: false,
         closure_ordinals: FastHashMap::default(),
         current_param_locals: Vec::new(),
         const_context_depth: 0,

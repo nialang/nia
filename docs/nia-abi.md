@@ -575,10 +575,13 @@ Nia-level root entry contract from runtime source. The i686
 runtime uses the Linux `int 0x80` syscall ABI and remains an experimental target
 until its complete executable matrix is accepted.
 
-`_start` is the runtime's sole external code-generation root. Startup helpers
-remain ordinary Nia functions: direct calls and function pointers carried by
-inline-assembly operands establish their reachability, so unused runtime code
-is pruned by the same query graph as user code.
+`_start` and the platform startup function it calls (`niaStartStack` on Linux,
+`niaWindowsStart` on Windows) are the runtime's external code-generation
+roots. The naked `_start` names its startup function directly in its assembly,
+so the runtime roots that function by module and definition, like native
+helpers. Everything else in startup remains ordinary Nia code whose
+reachability follows its calls, so unused runtime code is pruned by the same
+query graph as user code.
 
 ### 15.1 Nia Function Parameters
 

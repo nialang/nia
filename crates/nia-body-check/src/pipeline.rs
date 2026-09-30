@@ -739,11 +739,15 @@ impl<'a> BodyChecker<'a> {
         );
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
+        let previous_naked = self.current_naked;
         let previous_closure_ordinals = std::mem::take(&mut self.closure_ordinals);
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.swap_function_facts(global_def_id);
         self.current_return = signature.return_type;
         self.current_def_id = Some(global_def_id);
+        self.current_naked = signature
+            .attributes
+            .contains(&nia_item_signatures::FunctionAttribute::Naked);
         let self_ty = self.method_self_type(def_id, &signature);
         time_body_stage_if_slow(
             self.timing,
@@ -809,6 +813,7 @@ impl<'a> BodyChecker<'a> {
         self.store_function_facts(global_def_id);
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
+        self.current_naked = previous_naked;
         self.closure_ordinals = previous_closure_ordinals;
         self.current_param_locals = previous_param_locals;
     }

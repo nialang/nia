@@ -51,9 +51,10 @@ pub extern fn _start() () {
     std::builtin::asm(.{
         code:
             b"mov rdi, rsp\n"
-            b"call $0\n"
+            // A direct call is PC-relative: no GOT or register operand, so
+            // the naked function holds exactly this assembly.
+            b"call niaStartStack\n"
             b"ud2",
-        inputs: .{ reg: &niaStartStack },
         clobbers: [b"rdi", b"rax", b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
     });

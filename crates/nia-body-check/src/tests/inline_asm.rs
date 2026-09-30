@@ -237,3 +237,60 @@ fn main() () {
         "{summaries:?}"
     );
 }
+
+#[test]
+fn naked_function_assembly_takes_no_operands() {
+    let checked = asm_pipeline(
+        r#"
+extern fn helper() () {}
+
+@[naked]
+pub extern fn entry() () {
+    std::builtin::asm(.{
+        code: b"call helper",
+        inputs: .{},
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let bad = asm_pipeline(
+        r#"
+extern fn helper() () {}
+
+@[naked]
+pub extern fn entry() () {
+    let mut value: i64 = 0;
+    std::builtin::asm(.{
+        code: b"call $0",
+        inputs: .{ reg: &helper },
+        outputs: .{ rax: value },
+        options: [b"volatile"],
+    });
+    loop {}
+}
+
+fn ordinary() () {
+    std::builtin::asm(.{ code: b"nop", inputs: .{ reg: &helper } });
+}
+"#,
+    );
+    let messages = bad
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        messages,
+        [
+            "inline assembly in a `naked` function cannot have inputs",
+            "inline assembly in a `naked` function cannot have outputs",
+        ],
+        "{:?}",
+        bad.diagnostics
+    );
+}

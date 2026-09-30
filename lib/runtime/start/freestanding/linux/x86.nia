@@ -51,9 +51,10 @@ pub extern fn _start() () {
             b"and esp, -16\n"
             b"sub esp, 12\n"
             b"push eax\n"
-            b"call $0\n"
+            // A direct call is PC-relative: no GOT or register operand, so
+            // the naked function holds exactly this assembly.
+            b"call niaStartStack\n"
             b"ud2",
-        inputs: .{ reg: &niaStartStack },
         clobbers: [b"eax", b"ecx", b"edx", b"memory"],
         options: [b"volatile"],
     });

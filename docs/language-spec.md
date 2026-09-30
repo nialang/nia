@@ -1364,6 +1364,15 @@ It is const-capable, including calls through tracked `const fn` chains.
 Tracked functions cannot be converted to an ordinary `&fn(...)` or `&Fn(...)`
 value. Their caller metadata is part of the tracked call contract.
 
+`@[naked]` marks an `extern fn` definition whose body is exactly its inline
+assembly: the compiler emits no prologue, epilogue, stack frame, or spill code.
+Its `std::builtin::asm` calls may have no `inputs` or `outputs`, because every
+operand needs compiler-generated code to move a value into or out of a
+register. The assembly names other symbols directly, such as `call symbol`,
+and the function must never return into compiled code. Naked functions exist
+for process entry and native helpers whose register contract no function ABI
+describes.
+
 The parser accepts attributes on top-level items and on `struct`/`union` fields.
 An unknown attribute is reserved and has no language-defined effect until this
 specification assigns one. Unknown attributes do not change visibility, ABI,
