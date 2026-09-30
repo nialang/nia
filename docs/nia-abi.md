@@ -583,6 +583,18 @@ helpers. Everything else in startup remains ordinary Nia code whose
 reachability follows its calls, so unused runtime code is pruned by the same
 query graph as user code.
 
+A Linux executable is static-pie by default: position independent with no
+interpreter, so the kernel maps it at a random base and applies no
+relocations. `_start` passes the ELF header (`__ehdr_start`) and dynamic
+section (`_DYNAMIC`) to `niaStartStack`, whose first statement applies the
+image's RELATIVE relocations (REL, RELA, or RELR) before any code reads a
+relocated address. The relocator uses only locals, reads only the image, and
+calls only hidden functions, which are reached PC-relative. A `static`
+executable has no dynamic section and a `dynamic` one was relocated by its
+interpreter; the relocator returns without writing for both. The form is a
+link option (`--executable static-pie|static|dynamic`), not a code model:
+objects are identical for all three.
+
 ### 15.1 Nia Function Parameters
 
 The Nia function ABI classifies parameters as follows:

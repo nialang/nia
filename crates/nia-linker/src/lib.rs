@@ -267,34 +267,48 @@ impl std::fmt::Display for LinkerFlavor {
     }
 }
 
-/// Whether an executable link is fully static or permits dynamic dependencies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkMode {
-    /// Request a static executable.
+/// How an ELF executable is loaded. Each form carries only what it uses, so
+/// no option combination describes an executable that cannot exist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecutableForm {
+    /// Position independent with no interpreter: the kernel maps it at a
+    /// random base and its own startup applies the relocations. The default.
+    StaticPie,
+    /// Linked at a fixed address with no interpreter and no relocations.
     Static,
-    /// Request a dynamically loadable executable.
-    Dynamic,
+    /// Position independent and loaded by an interpreter, which relocates it
+    /// and resolves its shared libraries.
+    Dynamic(Interpreter),
 }
 
-/// Dynamic loader selection for a dynamic executable.
+impl ExecutableForm {
+    /// Stable user-facing spelling, accepted by `--executable`.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::StaticPie => "static-pie",
+            Self::Static => "static",
+            Self::Dynamic(_) => "dynamic",
+        }
+    }
+}
+
+/// Program interpreter of a dynamic executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DynamicLinker {
-    /// Derive the standard loader from the target or native executable metadata.
-    Auto,
-    /// Explicitly request no dynamic loader.
-    None,
-    /// Use the exact loader path.
+pub enum Interpreter {
+    /// The target's standard loader; a native link asks the host for its own.
+    Standard,
+    /// An exact loader path.
     Path(String),
 }
 
 /// Per-library override for static or dynamic search behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LibraryLinkMode {
-    /// Follow the enclosing executable link mode.
+    /// Follow the enclosing executable form.
     Default,
     /// Search only static libraries for this and following libraries.
     Static,
-    /// Search only dynamic libraries for this and following libraries.
+    /// Search only dynamic libraries; valid only for dynamic executables.
     Dynamic,
 }
 
@@ -726,10 +740,9 @@ pub struct LinkOptions {
     pub linker: ExecutableLinker,
     /// Optional entry symbol passed with `-e`.
     pub entry: Option<String>,
-    /// Static or dynamic executable mode.
-    pub mode: LinkMode,
-    /// Dynamic loader policy.
-    pub dynamic_linker: DynamicLinker,
+    /// ELF executable form, or `None` for the target's default. COFF and
+    /// Mach-O executables have one form each and reject an explicit choice.
+    pub form: Option<ExecutableForm>,
     /// Optional external sysroot.
     pub sysroot: Option<String>,
     /// Explicit native library search paths.
@@ -872,8 +885,7 @@ impl Default for LinkOptions {
         Self {
             linker: ExecutableLinker::default(),
             entry: Some("_start".to_string()),
-            mode: LinkMode::Static,
-            dynamic_linker: DynamicLinker::None,
+            form: None,
             sysroot: None,
             library_paths: Vec::new(),
             rpaths: Vec::new(),
@@ -974,7 +986,8 @@ impl LinkOptions {
         }
         let mut target_component = QueryFingerprintBuilder::new(LINK_RESULT_TARGET_DOMAIN);
         target_component.write_str(&target.name());
-        if self.mode == LinkMode::Dynamic && self.dynamic_linker == DynamicLinker::Auto {
+        let form = self.form_for(target)?;
+        if form == Some(ExecutableForm::Dynamic(Interpreter::Standard)) {
             write_optional_string(
                 &mut target_component,
                 dynamic_linker_for_target(target)?.as_deref(),
@@ -1002,8 +1015,7 @@ impl LinkOptions {
         let mut options = QueryFingerprintBuilder::new(LINK_RESULT_OPTIONS_DOMAIN);
         options.write_str(nia_compat::COMPILER_VERSION);
         write_optional_string(&mut options, self.entry.as_deref());
-        options.write_u8(link_mode_tag(self.mode));
-        write_dynamic_linker(&mut options, &self.dynamic_linker);
+        write_executable_form(&mut options, form.as_ref());
         write_strings(&mut options, &self.library_paths);
         write_strings(&mut options, &self.rpaths);
 
@@ -1027,19 +1039,50 @@ impl LinkOptions {
         self
     }
 
-    /// Overrides dynamic loader selection.
-    pub fn with_dynamic_linker(mut self, dynamic_linker: DynamicLinker) -> Self {
-        self.dynamic_linker = dynamic_linker;
+    /// Selects the ELF executable form.
+    pub fn with_form(mut self, form: ExecutableForm) -> Self {
+        self.form = Some(form);
         self
     }
 
-    /// Selects dynamic mode and defaults an absent loader to automatic selection.
-    pub fn with_dynamic_mode(mut self) -> Self {
-        self.mode = LinkMode::Dynamic;
-        if self.dynamic_linker == DynamicLinker::None {
-            self.dynamic_linker = DynamicLinker::Auto;
+    /// Resolves the executable form for `target` and checks that every option
+    /// is meaningful for it. ELF defaults to static-pie; other object formats
+    /// have one form each and return `None`.
+    pub fn form_for(
+        &self,
+        target: TargetConfig,
+    ) -> Result<Option<ExecutableForm>, LinkerConfigError> {
+        if target.object_format() != ObjectFormat::Elf {
+            return match &self.form {
+                None => Ok(None),
+                Some(form) => Err(LinkerConfigError::FormUnavailable {
+                    form: form.name(),
+                    target,
+                }),
+            };
         }
-        self
+        let form = self.form.clone().unwrap_or(ExecutableForm::StaticPie);
+        if !matches!(form, ExecutableForm::Dynamic(_)) {
+            // Shared libraries exist only for an executable an interpreter loads.
+            let dynamic_option = if !self.rpaths.is_empty() {
+                Some("--rpath")
+            } else if self
+                .libraries
+                .iter()
+                .any(|library| library.mode == LibraryLinkMode::Dynamic)
+            {
+                Some("a dynamic library")
+            } else {
+                None
+            };
+            if let Some(option) = dynamic_option {
+                return Err(LinkerConfigError::RequiresDynamicExecutable {
+                    option,
+                    form: form.name(),
+                });
+            }
+        }
+        Ok(Some(form))
     }
 
     /// Appends a native library search path.
@@ -1096,7 +1139,10 @@ impl LinkOptions {
             LinkerFlavor::Gnu | LinkerFlavor::Lld => {
                 self.gnu_like_invocation(target, &linker, inputs, output)?
             }
-            LinkerFlavor::LldLink => self.coff_invocation(target, &linker, inputs, output),
+            LinkerFlavor::LldLink => {
+                self.form_for(target)?;
+                self.coff_invocation(target, &linker, inputs, output)
+            }
             LinkerFlavor::Ld64Lld | LinkerFlavor::SelfHostedElf => {
                 return Err(LinkerConfigError::UnsupportedFlavor(linker.flavor));
             }
@@ -1112,6 +1158,8 @@ impl LinkOptions {
         inputs: &IncrementalLinkInputs<PathBuf>,
         output: PathBuf,
     ) -> Result<LinkerInvocation, LinkerConfigError> {
+        // `form_for` is `Some` for every ELF target.
+        let form = self.form_for(target)?.unwrap_or(ExecutableForm::StaticPie);
         let mut args = Vec::new();
         if let Some(sysroot) = &self.sysroot {
             args.push(format!("--sysroot={sysroot}"));
@@ -1135,12 +1183,20 @@ impl LinkOptions {
                 .iter()
                 .map(|archive| archive.path.to_string_lossy().into_owned()),
         );
-        match self.mode {
-            LinkMode::Static => {
-                args.push("-static".to_string());
+        match &form {
+            ExecutableForm::StaticPie => {
+                args.extend(["-static", "-pie", "--no-dynamic-linker"].map(str::to_string));
+                // Startup applies RELR as well as REL/RELA; only LLD's GNU
+                // flavor is known to support packing them.
+                if linker.flavor == LinkerFlavor::Lld {
+                    args.extend(["-z", "pack-relative-relocs"].map(str::to_string));
+                }
             }
-            LinkMode::Dynamic => {}
+            ExecutableForm::Static => args.push("-static".to_string()),
+            ExecutableForm::Dynamic(_) => args.push("-pie".to_string()),
         }
+        // Position-independent code never needs a writable text segment.
+        args.extend(["-z", "text"].map(str::to_string));
         for path in self.default_library_paths_for_linker(target, linker) {
             args.push("-L".to_string());
             args.push(path);
@@ -1153,26 +1209,16 @@ impl LinkOptions {
             args.push("-rpath".to_string());
             args.push(rpath.clone());
         }
-        self.push_gnu_like_libraries(&mut args);
-        match self.mode {
-            LinkMode::Static => {}
-            LinkMode::Dynamic => match &self.dynamic_linker {
-                DynamicLinker::Auto => {
-                    if let Some(path) = dynamic_linker_for_target(target)? {
-                        args.push("--dynamic-linker".to_string());
-                        args.push(path);
-                    } else {
-                        args.push("--no-dynamic-linker".to_string());
-                    }
-                }
-                DynamicLinker::None => {
-                    args.push("--no-dynamic-linker".to_string());
-                }
-                DynamicLinker::Path(path) => {
-                    args.push("--dynamic-linker".to_string());
-                    args.push(path.clone());
-                }
-            },
+        let dynamic = matches!(form, ExecutableForm::Dynamic(_));
+        self.push_gnu_like_libraries(dynamic, &mut args);
+        if let ExecutableForm::Dynamic(interpreter) = &form {
+            let path = match interpreter {
+                Interpreter::Standard => dynamic_linker_for_target(target)?
+                    .ok_or(LinkerConfigError::NoStandardInterpreter { target })?,
+                Interpreter::Path(path) => path.clone(),
+            };
+            args.push("--dynamic-linker".to_string());
+            args.push(path);
         }
         args.extend(self.raw_args.iter().cloned());
         args.push("-o".to_string());
@@ -1229,41 +1275,27 @@ impl LinkOptions {
         }
     }
 
-    fn push_gnu_like_libraries(&self, args: &mut Vec<String>) {
-        let mut current_mode = LibraryLinkMode::Default;
+    // Libraries follow the executable's search mode unless one selects its
+    // own; the mode is restored afterwards so trailing inputs are unaffected.
+    fn push_gnu_like_libraries(&self, dynamic: bool, args: &mut Vec<String>) {
+        let default_flag = if dynamic { "-Bdynamic" } else { "-Bstatic" };
+        let flag = |mode| match mode {
+            LibraryLinkMode::Default => default_flag,
+            LibraryLinkMode::Static => "-Bstatic",
+            LibraryLinkMode::Dynamic => "-Bdynamic",
+        };
+        let mut current = default_flag;
         for library in &self.libraries {
-            if library.mode != current_mode {
-                match library.mode {
-                    LibraryLinkMode::Default => {
-                        args.push(
-                            match self.mode {
-                                LinkMode::Static => "-Bstatic",
-                                LinkMode::Dynamic => "-Bdynamic",
-                            }
-                            .to_string(),
-                        );
-                    }
-                    LibraryLinkMode::Static => args.push("-Bstatic".to_string()),
-                    LibraryLinkMode::Dynamic => args.push("-Bdynamic".to_string()),
-                }
-                current_mode = library.mode;
+            let wanted = flag(library.mode);
+            if wanted != current {
+                args.push(wanted.to_string());
+                current = wanted;
             }
             args.push("-l".to_string());
             args.push(library.name.clone());
         }
-        if current_mode != LibraryLinkMode::Default {
-            let default_flag = match self.mode {
-                LinkMode::Static => "-Bstatic",
-                LinkMode::Dynamic => "-Bdynamic",
-            };
-            let current_flag = match current_mode {
-                LibraryLinkMode::Default => default_flag,
-                LibraryLinkMode::Static => "-Bstatic",
-                LibraryLinkMode::Dynamic => "-Bdynamic",
-            };
-            if current_flag != default_flag {
-                args.push(default_flag.to_string());
-            }
+        if current != default_flag {
+            args.push(default_flag.to_string());
         }
     }
 
@@ -1348,12 +1380,14 @@ fn write_strings(builder: &mut QueryFingerprintBuilder, values: &[String]) {
     }
 }
 
-fn write_dynamic_linker(builder: &mut QueryFingerprintBuilder, linker: &DynamicLinker) {
-    match linker {
-        DynamicLinker::Auto => builder.write_u8(0),
-        DynamicLinker::None => builder.write_u8(1),
-        DynamicLinker::Path(path) => {
-            builder.write_u8(2);
+fn write_executable_form(builder: &mut QueryFingerprintBuilder, form: Option<&ExecutableForm>) {
+    match form {
+        None => builder.write_u8(0),
+        Some(ExecutableForm::StaticPie) => builder.write_u8(1),
+        Some(ExecutableForm::Static) => builder.write_u8(2),
+        Some(ExecutableForm::Dynamic(Interpreter::Standard)) => builder.write_u8(3),
+        Some(ExecutableForm::Dynamic(Interpreter::Path(path))) => {
+            builder.write_u8(4);
             builder.write_str(path);
         }
     }
@@ -1366,13 +1400,6 @@ const fn linker_flavor_tag(flavor: LinkerFlavor) -> u8 {
         LinkerFlavor::SelfHostedElf => 2,
         LinkerFlavor::LldLink => 3,
         LinkerFlavor::Ld64Lld => 4,
-    }
-}
-
-const fn link_mode_tag(mode: LinkMode) -> u8 {
-    match mode {
-        LinkMode::Static => 0,
-        LinkMode::Dynamic => 1,
     }
 }
 
@@ -1460,6 +1487,25 @@ pub enum LinkerConfigError {
         /// Artifact target.
         target: TargetConfig,
     },
+    /// An executable form was selected for a target with only one form.
+    FormUnavailable {
+        /// Selected form.
+        form: &'static str,
+        /// Artifact target.
+        target: TargetConfig,
+    },
+    /// An option only a dynamic executable can use was given for another form.
+    RequiresDynamicExecutable {
+        /// Offending option.
+        option: &'static str,
+        /// Selected form.
+        form: &'static str,
+    },
+    /// The target defines no standard interpreter for a dynamic executable.
+    NoStandardInterpreter {
+        /// Artifact target.
+        target: TargetConfig,
+    },
 }
 
 impl std::fmt::Display for LinkerConfigError {
@@ -1483,6 +1529,18 @@ impl std::fmt::Display for LinkerConfigError {
                 "linker flavor `{flavor}` cannot link executables for target `{target}`; \
                  expected `{}`",
                 LinkerFlavor::for_target(*target)
+            ),
+            Self::FormUnavailable { form, target } => write!(
+                f,
+                "target `{target}` has one executable form; `{form}` cannot be selected"
+            ),
+            Self::RequiresDynamicExecutable { option, form } => write!(
+                f,
+                "{option} requires a dynamic executable, but the executable is `{form}`"
+            ),
+            Self::NoStandardInterpreter { target } => write!(
+                f,
+                "target `{target}` has no standard interpreter; select one with `--interpreter`"
             ),
         }
     }

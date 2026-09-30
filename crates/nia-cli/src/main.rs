@@ -822,7 +822,8 @@ fn emit_target_option_takes_value(arg: &str) -> bool {
             | "--runtime"
             | "--cache-dir"
             | "--link-arg"
-            | "--dynamic-linker"
+            | "--executable"
+            | "--interpreter"
             | "--library-path"
             | "-L"
             | "--library"
@@ -1310,8 +1311,8 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 || arg.starts_with("--cache-dir=")
                 || arg.starts_with("--lto=")
                 || arg.starts_with("--link-arg=")
-                || arg.starts_with("--dynamic-linker=")
-                || arg == "--no-dynamic-linker"
+                || arg.starts_with("--executable=")
+                || arg.starts_with("--interpreter=")
                 || arg.starts_with("--library-path=")
                 || arg.starts_with("-L")
                 || arg.starts_with("--library=")
@@ -2359,6 +2360,8 @@ fn parse_emit_exe_options(
     let mut link_options = nia_linker::LinkOptions::default();
     let mut link_time_optimization = nia_driver::LinkTimeOptimization::Off;
     let mut explicit_linker_program = false;
+    let mut form = None::<nia_linker::ExecutableForm>;
+    let mut interpreter = None::<String>;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--cache-dir=") {
@@ -2383,10 +2386,12 @@ fn parse_emit_exe_options(
             link_options.raw_args.push(value.to_string());
             continue;
         }
-        if let Some(value) = arg.strip_prefix("--dynamic-linker=") {
-            link_options = link_options
-                .with_dynamic_mode()
-                .with_dynamic_linker(parse_dynamic_linker(value));
+        if let Some(value) = arg.strip_prefix("--executable=") {
+            form = Some(parse_executable_form(value)?);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--interpreter=") {
+            interpreter = Some(value.to_string());
             continue;
         }
         if let Some(value) = arg.strip_prefix("--library-path=") {
@@ -2461,18 +2466,17 @@ fn parse_emit_exe_options(
                 };
                 link_options.raw_args.push(value);
             }
-            "--dynamic-linker" => {
+            "--executable" => {
                 let Some(value) = iter.next() else {
-                    return Err("missing path after `--dynamic-linker`".to_string());
+                    return Err("missing form after `--executable`".to_string());
                 };
-                link_options = link_options
-                    .with_dynamic_mode()
-                    .with_dynamic_linker(parse_dynamic_linker(&value));
+                form = Some(parse_executable_form(&value)?);
             }
-            "--no-dynamic-linker" => {
-                link_options = link_options
-                    .with_dynamic_mode()
-                    .with_dynamic_linker(nia_linker::DynamicLinker::None);
+            "--interpreter" => {
+                let Some(value) = iter.next() else {
+                    return Err("missing path after `--interpreter`".to_string());
+                };
+                interpreter = Some(value);
             }
             "--library-path" | "-L" => {
                 let Some(value) = iter.next() else {
@@ -2509,6 +2513,17 @@ fn parse_emit_exe_options(
             _ => return Err(format!("unknown `nia emit --exe` option `{arg}`")),
         }
     }
+    // An interpreter exists only for a dynamic executable, whatever the
+    // order in which the options appear.
+    link_options.form = match (form, interpreter) {
+        (Some(nia_linker::ExecutableForm::Dynamic(_)), Some(path)) => Some(
+            nia_linker::ExecutableForm::Dynamic(nia_linker::Interpreter::Path(path)),
+        ),
+        (_, Some(_)) => {
+            return Err("`--interpreter` requires `--executable dynamic`".to_string());
+        }
+        (form, None) => form,
+    };
     Ok(EmitExeOptions {
         output: output
             .unwrap_or_else(|| default_output_path(source, target.executable_extension())),
@@ -2557,11 +2572,17 @@ fn parse_linker_flavor(value: &str) -> Result<nia_linker::LinkerFlavor, String> 
     }
 }
 
-fn parse_dynamic_linker(value: &str) -> nia_linker::DynamicLinker {
+// The form alone; a dynamic interpreter is chosen separately.
+fn parse_executable_form(value: &str) -> Result<nia_linker::ExecutableForm, String> {
     match value {
-        "auto" => nia_linker::DynamicLinker::Auto,
-        "none" => nia_linker::DynamicLinker::None,
-        path => nia_linker::DynamicLinker::Path(path.to_string()),
+        "static-pie" => Ok(nia_linker::ExecutableForm::StaticPie),
+        "static" => Ok(nia_linker::ExecutableForm::Static),
+        "dynamic" => Ok(nia_linker::ExecutableForm::Dynamic(
+            nia_linker::Interpreter::Standard,
+        )),
+        _ => Err(format!(
+            "unknown executable form `{value}`; expected `static-pie`, `static`, or `dynamic`"
+        )),
     }
 }
 
@@ -2595,6 +2616,45 @@ mod tests {
 
     fn test_target() -> nia_target::TargetConfig {
         nia_target::TargetConfig::parse("x86_64-unknown-linux").unwrap()
+    }
+
+    #[test]
+    fn emit_exe_selects_executable_forms_and_interpreters() {
+        let parse = |args: &[&str]| {
+            parse_emit_exe_options(
+                "main.nia",
+                test_target(),
+                args.iter().map(|arg| (*arg).to_owned()).collect(),
+            )
+        };
+        assert_eq!(parse(&[]).unwrap().link_options.form, None);
+        assert_eq!(
+            parse(&["--executable", "static"])
+                .unwrap()
+                .link_options
+                .form,
+            Some(nia_linker::ExecutableForm::Static)
+        );
+        // The interpreter may precede the form it belongs to.
+        assert_eq!(
+            parse(&["--interpreter=/loader", "--executable=dynamic"])
+                .unwrap()
+                .link_options
+                .form,
+            Some(nia_linker::ExecutableForm::Dynamic(
+                nia_linker::Interpreter::Path("/loader".to_owned())
+            ))
+        );
+        for args in [
+            &["--interpreter", "/loader"][..],
+            &["--executable", "static-pie", "--interpreter", "/l"],
+        ] {
+            assert_eq!(
+                parse(args).err().as_deref(),
+                Some("`--interpreter` requires `--executable dynamic`")
+            );
+        }
+        assert!(parse(&["--executable", "pie"]).is_err());
     }
 
     #[test]

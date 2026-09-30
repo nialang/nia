@@ -1,0 +1,186 @@
+// Static-PIE self-relocation, applied by Linux startup before any other code.
+//
+// A static position-independent executable has no interpreter, so the kernel
+// maps it at a random base and applies nothing. Its dynamic section lists the
+// load-time fixups, all RELATIVE: add the load bias to one word. This code
+// runs before them, so it may not read any address they would fix. It reads
+// only the ELF image, through the two hidden symbols `_start` passes, calls
+// only hidden functions, and keeps its state in locals.
+
+const dtNull: usize = 0;
+const dtRela: usize = 7;
+const dtRelaSize: usize = 8;
+const dtRelaEntry: usize = 9;
+const dtRel: usize = 17;
+const dtRelSize: usize = 18;
+const dtRelEntry: usize = 19;
+const dtRelrSize: usize = 35;
+const dtRelr: usize = 36;
+const dtRelrEntry: usize = 37;
+const ptDynamic: u32 = 2;
+const ptInterp: u32 = 3;
+
+// R_X86_64_RELATIVE and R_386_RELATIVE.
+@[if arch == "x86_64" or arch == "x86"]
+const relativeType: usize = 8;
+
+// `header` is the runtime address of the ELF header (`__ehdr_start`), and
+// `dynamic` of the dynamic section (`_DYNAMIC`), or 0 for an image without
+// one. A fixed-address executable has no dynamic section; an executable with
+// an interpreter was relocated by it. Both return without writing.
+pub(pkg) fn relocate(header: usize, dynamic: usize) () {
+    if dynamic == 0 {
+        return;
+    }
+    let word = std::builtin::size[usize]();
+    let wide = word == 8;
+    // e_phoff, e_phentsize and e_phnum; p_vaddr in each program header.
+    let programHeaderOffset: usize = if wide { 32 } else { 28 };
+    let programHeaders = header + readWord(header + programHeaderOffset);
+    let entrySizeOffset: usize = if wide { 54 } else { 42 };
+    let entrySize = readU16(header + entrySizeOffset);
+    let count = readU16(header + entrySizeOffset + 2);
+    let vaddrOffset: usize = if wide { 16 } else { 8 };
+
+    let mut linkedDynamic: ?usize = null;
+    let mut index: usize = 0;
+    while index < count {
+        let programHeader = programHeaders + index * entrySize;
+        let kind = (programHeader as &u32).*;
+        if kind == ptInterp {
+            return;
+        }
+        if kind == ptDynamic {
+            linkedDynamic = ?readWord(programHeader + vaddrOffset);
+        }
+        index += 1;
+    }
+    let bias = match linkedDynamic {
+        ?address => dynamic - address,
+        null => std::builtin::trap(),
+    };
+    if bias == 0 {
+        return;
+    }
+
+    let mut rela: usize = 0;
+    let mut relaSize: usize = 0;
+    let mut relaEntry: usize = 0;
+    let mut rel: usize = 0;
+    let mut relSize: usize = 0;
+    let mut relEntry: usize = 0;
+    let mut relr: usize = 0;
+    let mut relrSize: usize = 0;
+    let mut relrEntry: usize = 0;
+    let mut cursor = dynamic;
+    loop {
+        let tag = readWord(cursor);
+        if tag == dtNull {
+            break;
+        }
+        let value = readWord(cursor + word);
+        if tag == dtRela {
+            rela = value;
+        } else if tag == dtRelaSize {
+            relaSize = value;
+        } else if tag == dtRelaEntry {
+            relaEntry = value;
+        } else if tag == dtRel {
+            rel = value;
+        } else if tag == dtRelSize {
+            relSize = value;
+        } else if tag == dtRelEntry {
+            relEntry = value;
+        } else if tag == dtRelr {
+            relr = value;
+        } else if tag == dtRelrSize {
+            relrSize = value;
+        } else if tag == dtRelrEntry {
+            relrEntry = value;
+        }
+        cursor += 2 * word;
+    }
+
+    // RELA entries are offset, info, and addend.
+    if relaSize != 0 {
+        if relaEntry != 3 * word {
+            std::builtin::trap();
+        }
+        let mut entry = bias + rela;
+        let end = entry + relaSize;
+        while entry < end {
+            requireRelative(readWord(entry + word), wide);
+            writeWord(bias + readWord(entry), bias + readWord(entry + 2 * word));
+            entry += relaEntry;
+        }
+    }
+    // REL entries are offset and info; the addend is the word being fixed.
+    if relSize != 0 {
+        if relEntry != 2 * word {
+            std::builtin::trap();
+        }
+        let mut entry = bias + rel;
+        let end = entry + relSize;
+        while entry < end {
+            requireRelative(readWord(entry + word), wide);
+            addBias(bias + readWord(entry), bias);
+            entry += relEntry;
+        }
+    }
+    // An even RELR entry is the address of a word to fix. An odd entry is a
+    // bitmap of the words after the previous address, one bit per word.
+    if relrSize != 0 {
+        if relrEntry != word {
+            std::builtin::trap();
+        }
+        let bitmapWords = word * 8 - 1;
+        let mut entry = bias + relr;
+        let end = entry + relrSize;
+        let mut next: usize = 0;
+        while entry < end {
+            let value = readWord(entry);
+            if (value & 1) == 0 {
+                let target = bias + value;
+                addBias(target, bias);
+                next = target + word;
+            } else {
+                let mut bitmap = value >> 1;
+                let mut target = next;
+                while bitmap != 0 {
+                    if (bitmap & 1) != 0 {
+                        addBias(target, bias);
+                    }
+                    bitmap >>= 1;
+                    target += word;
+                }
+                next += bitmapWords * word;
+            }
+            entry += word;
+        }
+    }
+}
+
+// Any other relocation type needs symbol resolution, which a static PIE never
+// requires; one would mean the image was linked wrongly.
+fn requireRelative(info: usize, wide: bool) () {
+    let kind = if wide { info & 0xffffffff } else { info & 0xff };
+    if kind != relativeType {
+        std::builtin::trap();
+    }
+}
+
+fn readWord(address: usize) usize {
+    (address as &usize).*
+}
+
+fn readU16(address: usize) usize {
+    (address as &u16).* as usize
+}
+
+fn writeWord(address: usize, value: usize) () {
+    (address as &mut usize).* = value;
+}
+
+fn addBias(address: usize, bias: usize) () {
+    writeWord(address, readWord(address) + bias);
+}

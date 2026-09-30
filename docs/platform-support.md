@@ -56,7 +56,7 @@ The stable boundary differs by platform, so the interface Nia binds differs too:
 
 | Platform | Stable boundary | Nia startup and system access | Not used by default |
 | --- | --- | --- | --- |
-| Linux | Kernel system-call ABI | `_start` from the kernel entry stack; direct system calls | libc, CRT objects |
+| Linux | Kernel system-call ABI | `_start` from the kernel entry stack; self-relocating static-pie; direct system calls | libc, CRT objects, an interpreter |
 | Windows | Documented Win32 API in system DLLs | Nia entry called by the loader; `kernel32` and `bcryptprimitives` | MSVC CRT, UCRT, undocumented exports |
 | Darwin | `libSystem` system interfaces | `main` entry called by `dyld` through `LC_MAIN`; `libSystem` system calls | `crt1.o`, C stdio and allocation |
 

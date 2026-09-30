@@ -142,6 +142,7 @@
     "runtime/start.nia",
     "runtime/start/freestanding.nia",
     "runtime/start/freestanding/linux.nia",
+    "runtime/start/freestanding/linux/relocate.nia",
     "runtime/start/freestanding/linux/x86.nia",
     "runtime/start/freestanding/linux/x86_64.nia",
     "runtime/start/freestanding/windows.nia",
