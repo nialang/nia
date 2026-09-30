@@ -16,7 +16,8 @@ use llvm_sys::core::{
     LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext, LLVMStructCreateNamed,
     LLVMStructTypeInContext, LLVMVoidTypeInContext,
 };
-use llvm_sys::prelude::LLVMContextRef;
+use llvm_sys::prelude::{LLVMContextRef, LLVMDiagnosticInfoRef};
+use std::sync::Mutex;
 
 use super::{
     AddressSpace, ArrayValue, AsTypeRef, AsValueRef, Attribute, BasicBlock, BasicTypeEnum, Builder,
@@ -42,15 +43,77 @@ pub struct InlineAsmOptions {
 /// Owned LLVM context and lifetime root for all typed wrapper handles.
 pub struct Context {
     pub(super) raw: LLVMContextRef,
+    // Owned; freed after the context that reports into it.
+    diagnostics: *mut DiagnosticSink,
+}
+
+/// Error diagnostics LLVM reported through a context, such as inline-assembly
+/// errors found while emitting code. Without a handler LLVM prints them and
+/// still reports success, so an invalid object would be emitted silently.
+#[derive(Debug, Default)]
+pub(super) struct DiagnosticSink {
+    errors: Mutex<Vec<String>>,
+}
+
+impl DiagnosticSink {
+    /// Returns and clears the errors reported since the previous call.
+    pub(super) fn take_errors(&self) -> Vec<String> {
+        std::mem::take(
+            &mut *self
+                .errors
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner()),
+        )
+    }
+
+    /// The sink of the context `raw`. Every context this crate hands out is
+    /// made by [`Context::create`], which always installs one.
+    pub(super) fn of(raw: LLVMContextRef) -> Option<&'static Self> {
+        // SAFETY: the diagnostic context of a `Context::create` context is its
+        // sink, which outlives every module the context owns.
+        unsafe {
+            llvm_sys::core::LLVMContextGetDiagnosticContext(raw)
+                .cast::<Self>()
+                .as_ref()
+        }
+    }
+}
+
+extern "C" fn collect_diagnostic(info: LLVMDiagnosticInfoRef, sink: *mut std::ffi::c_void) {
+    // SAFETY: LLVM passes the context registered with this handler, and the
+    // description is an owned message.
+    unsafe {
+        if llvm_sys::core::LLVMGetDiagInfoSeverity(info)
+            != llvm_sys::LLVMDiagnosticSeverity::LLVMDSError
+        {
+            return;
+        }
+        let description = llvm_sys::core::LLVMGetDiagInfoDescription(info);
+        let message = std::ffi::CStr::from_ptr(description)
+            .to_string_lossy()
+            .into_owned();
+        llvm_sys::core::LLVMDisposeMessage(description);
+        (*sink.cast::<DiagnosticSink>())
+            .errors
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .push(message);
+    }
 }
 
 impl Context {
-    /// Creates a fresh LLVM context.
+    /// Creates a fresh LLVM context that collects error diagnostics.
     pub fn create() -> LlvmResult<Self> {
-        let raw = unsafe { LLVMContextCreate() };
-        Ok(Self {
-            raw: require_handle(raw, "context")?,
-        })
+        let raw = require_handle(unsafe { LLVMContextCreate() }, "context")?;
+        let diagnostics = Box::into_raw(Box::<DiagnosticSink>::default());
+        unsafe {
+            llvm_sys::core::LLVMContextSetDiagnosticHandler(
+                raw,
+                Some(collect_diagnostic),
+                diagnostics.cast(),
+            );
+        }
+        Ok(Self { raw, diagnostics })
     }
 
     /// Creates an instruction builder owned by this context.
@@ -313,7 +376,10 @@ fn is_bitcode_header(bitcode: &[u8]) -> bool {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        unsafe { LLVMContextDispose(self.raw) };
+        unsafe {
+            LLVMContextDispose(self.raw);
+            drop(Box::from_raw(self.diagnostics));
+        }
     }
 }
 
