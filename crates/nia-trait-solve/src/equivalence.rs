@@ -208,14 +208,17 @@ impl TraitSolver<'_> {
                     params: left_params,
                     return_type: left_return,
                     is_variadic: left_variadic,
+                    abi: left_abi,
                 }),
                 Some(TyKind::FunctionPointer {
                     params: right_params,
                     return_type: right_return,
                     is_variadic: right_variadic,
+                    abi: right_abi,
                 }),
             ) => {
-                left_variadic == right_variadic
+                left_abi == right_abi
+                    && left_variadic == right_variadic
                     && left_params.len() == right_params.len()
                     && left_params.iter().zip(&right_params).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)

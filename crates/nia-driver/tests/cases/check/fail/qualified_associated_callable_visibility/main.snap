@@ -44,7 +44,7 @@ error[E0301]: unknown associated function `missing`
   --> fail/qualified_associated_callable_visibility/main.nia:7:38
   |
 7 |     let missing: &fn() api::Point = &api::Point::missing;
-  |                                      ^^^^^^^^^^^^^^^^^^^ unknown associated function `missing`
+  |                                      ^^^^^^^^^^^^^^^^^^^
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 

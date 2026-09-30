@@ -224,7 +224,13 @@ impl<'a> BodyChecker<'a> {
             args
         };
         if method_type_args.is_none() {
-            self.infer_method_generics_from_args(value_args, &params, &mut substitutions);
+            self.infer_method_generics_from_args(
+                value_args,
+                &params,
+                &mut substitutions,
+                &signature.where_predicates,
+                &const_substitutions,
+            );
             if !self.method_generics_are_complete_with_consts(
                 span,
                 &signature,
@@ -408,7 +414,13 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         if method_type_args.is_none() {
-            self.infer_method_generics_from_args(args, &params, &mut substitutions);
+            self.infer_method_generics_from_args(
+                args,
+                &params,
+                &mut substitutions,
+                &candidate.signature.where_predicates,
+                &const_substitutions,
+            );
             if !self.method_generics_are_complete_with_consts(
                 expr.span,
                 &candidate.signature,

@@ -66,6 +66,6 @@ error[E0301]: non-unit expression result is discarded; assign it to `_` explicit
   --> fail/structural_recovery_diagnostics/main.nia:8:5
   |
 8 |     2;
-  |     ^ non-unit expression result is discarded; assign it to `_` explicitly
+  |     ^
 
 summary: 5 errors, 0 warnings

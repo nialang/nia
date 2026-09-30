@@ -94,6 +94,7 @@ enum FunctionOptPass {
     RemovePureExprOps,
     RemoveZstLocalRuntimeOps,
     PropagateLocalCopies,
+    PropagateLocalFunctionPointers,
     PropagateLocalConstants,
     SimplifyConstantLogicalExprs,
     RemoveOverwrittenLocalStores,
@@ -117,6 +118,7 @@ impl FunctionOptPass {
             Self::RemovePureExprOps => "remove-pure-expr-ops",
             Self::RemoveZstLocalRuntimeOps => "remove-zst-local-runtime-ops",
             Self::PropagateLocalCopies => "propagate-local-copies",
+            Self::PropagateLocalFunctionPointers => "propagate-local-function-pointers",
             Self::PropagateLocalConstants => "propagate-local-constants",
             Self::SimplifyConstantLogicalExprs => "simplify-constant-logical-exprs",
             Self::RemoveOverwrittenLocalStores => "remove-overwritten-local-stores",
@@ -144,6 +146,7 @@ impl FunctionOptPass {
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
             Self::RemoveZstLocalRuntimeOps => remove_zst_local_runtime_ops(body, is_zero_sized),
             Self::PropagateLocalCopies => propagate_local_copies(body),
+            Self::PropagateLocalFunctionPointers => propagate_local_function_pointers(body),
             Self::PropagateLocalConstants => propagate_local_constants(body),
             Self::SimplifyConstantLogicalExprs => simplify_constant_logical_exprs(body),
             Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(body),
@@ -169,6 +172,11 @@ impl FunctionOptPass {
                 policy.dead_code_elim.at_least(OptimizationDepth::Cheap)
             }
             Self::PropagateLocalCopies => {
+                policy.local_copy_prop.at_least(OptimizationDepth::Full)
+                    || (policy.prefer_size
+                        && policy.local_copy_prop.at_least(OptimizationDepth::Cheap))
+            }
+            Self::PropagateLocalFunctionPointers => {
                 policy.local_copy_prop.at_least(OptimizationDepth::Full)
                     || (policy.prefer_size
                         && policy.local_copy_prop.at_least(OptimizationDepth::Cheap))
@@ -249,6 +257,7 @@ const ORDERED_FUNCTION_PASSES: &[FunctionOptPass] = &[
     FunctionOptPass::RemovePureExprOps,
     FunctionOptPass::RemoveZstLocalRuntimeOps,
     FunctionOptPass::PropagateLocalCopies,
+    FunctionOptPass::PropagateLocalFunctionPointers,
     FunctionOptPass::PropagateLocalConstants,
     FunctionOptPass::SimplifyConstantLogicalExprs,
     FunctionOptPass::RemoveOverwrittenLocalStores,
@@ -286,6 +295,7 @@ const O2_PASSES: &[FunctionOptPass] = &[
     FunctionOptPass::RemovePureExprOps,
     FunctionOptPass::RemoveZstLocalRuntimeOps,
     FunctionOptPass::PropagateLocalCopies,
+    FunctionOptPass::PropagateLocalFunctionPointers,
     FunctionOptPass::SimplifyConstantLogicalExprs,
     FunctionOptPass::RemoveOverwrittenLocalStores,
     FunctionOptPass::RemoveNeverReadLocalStores,
@@ -307,6 +317,7 @@ const O3_PASSES: &[FunctionOptPass] = &[
     FunctionOptPass::RemovePureExprOps,
     FunctionOptPass::RemoveZstLocalRuntimeOps,
     FunctionOptPass::PropagateLocalCopies,
+    FunctionOptPass::PropagateLocalFunctionPointers,
     FunctionOptPass::PropagateLocalConstants,
     FunctionOptPass::SimplifyConstantLogicalExprs,
     FunctionOptPass::RemoveOverwrittenLocalStores,

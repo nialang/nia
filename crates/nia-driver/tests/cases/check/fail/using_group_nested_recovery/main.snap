@@ -11,7 +11,7 @@ error[E0101]: expected name in `using`
   --> fail/using_group_nested_recovery/main.nia:1:8
   |
 1 | using {(bad, value), kept};
-  |        ^ expected name in `using`
+  |        ^
 help: use an identifier in this position
 
 summary: 1 error, 0 warnings

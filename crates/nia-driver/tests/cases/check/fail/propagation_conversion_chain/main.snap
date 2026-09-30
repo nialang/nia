@@ -15,7 +15,7 @@ error[E0301]: error propagation does not chain `IntoError` conversions from `Fir
    --> fail/propagation_conversion_chain/main.nia:29:7
    |
 29 |     !(produce().?)
-   |       ^^^^^^^^^^^ error propagation does not chain `IntoError` conversions from `First` to `Last`
+   |       ^^^^^^^^^^^
    ::: fail/propagation_conversion_chain/main.nia:29:7
    |
 29 |     !(produce().?)

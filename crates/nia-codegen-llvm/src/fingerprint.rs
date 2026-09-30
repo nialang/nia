@@ -1564,11 +1564,16 @@ impl<'a> Encoder<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             } => {
                 self.tag(10);
                 self.types(params);
                 self.ty(*return_type);
                 self.bool(*is_variadic);
+                self.tag(match abi {
+                    nia_ty::FunctionPointerAbi::Nia => 0,
+                    nia_ty::FunctionPointerAbi::C => 1,
+                });
             }
             TyKind::Optional { elem } => {
                 self.tag(11);
@@ -1682,6 +1687,26 @@ impl<'a> Encoder<'a> {
                 self.tag(25);
                 self.types(params);
                 self.ty(*return_type);
+            }
+            TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            } => {
+                self.tag(26);
+                self.global_def(*def_id);
+                self.module_id(*arg_module_id);
+                self.optional_ty(*self_arg);
+                self.types(args);
+                self.const_args(const_args);
+                self.types(params);
+                self.ty(*return_type);
+                self.bool(*is_variadic);
             }
         }
     }

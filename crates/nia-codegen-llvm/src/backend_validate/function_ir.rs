@@ -10,7 +10,7 @@ use nia_function_ir::{
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind};
+use nia_ty::{ConstGenericArg, ConstGenericValue, FunctionPointerAbi, PrimitiveTy, TyKind};
 
 use crate::literals::{
     assign_to_binary_op, decode_byte_char_literal, parse_float_literal, parse_int_literal,
@@ -679,6 +679,7 @@ impl BackendValidator<'_> {
                     self.ty_kind(function.ty),
                     Some(TyKind::FunctionPointer {
                         is_variadic: false,
+                        abi: FunctionPointerAbi::Nia,
                         ..
                     })
                 ) || !matches!(self.ty_kind(expr.ty), Some(TyKind::Callable { .. }))

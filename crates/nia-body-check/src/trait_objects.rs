@@ -1018,7 +1018,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
                 | TyKind::ClosureState { .. }
-                | TyKind::SelfParam,
+                | TyKind::SelfParam
+                | TyKind::FunctionItem { .. },
             )
             | None => {}
         }
@@ -1301,6 +1302,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .into_iter()
@@ -1311,6 +1313,7 @@ impl<'a> BodyChecker<'a> {
                     params,
                     return_type,
                     is_variadic,
+                    abi,
                 })
             }
             Some(TyKind::Callable {
@@ -1513,7 +1516,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
                 | TyKind::ClosureState { .. }
-                | TyKind::SelfParam,
+                | TyKind::SelfParam
+                | TyKind::FunctionItem { .. },
             )
             | None => ty,
         }
@@ -1635,7 +1639,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
                 | TyKind::ClosureState { .. }
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::FunctionItem { .. },
             )
             | None => false,
         }

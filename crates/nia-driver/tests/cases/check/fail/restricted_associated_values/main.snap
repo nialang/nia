@@ -26,7 +26,7 @@ error[E0201]: associated value `PRIVATE_LIMIT` is private
   --> fail/restricted_associated_values/main.nia:4:19
   |
 4 |     model::Value::PRIVATE_LIMIT
-  |                   ^^^^^^^^^^^^^ associated value `PRIVATE_LIMIT` is private
+  |                   ^^^^^^^^^^^^^
 help: make the associated value public or use it from an allowed scope
 related: fail/restricted_associated_values/dep/model.nia:4:5: the private associated value is declared here
 

@@ -7,12 +7,13 @@ use nia_backend_ir::{
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_llvm::{
+    module::Linkage,
     types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType},
     values::FunctionValue,
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
+use nia_ty::{ArrayLenTy, FunctionPointerAbi, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 
 #[cfg(test)]
 pub(super) fn const_args_match_semantic(
@@ -181,8 +182,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         params: &[InternedTyId],
         return_type: InternedTyId,
         is_variadic: bool,
+        abi_kind: FunctionPointerAbi,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        if matches!(abi_kind, FunctionPointerAbi::C) {
+            return self.c_function_type_in(
+                params.iter().copied().map(|ty| (ty, span)),
+                return_type,
+                is_variadic,
+                span,
+            );
+        }
         let abi = self.canonical_nia_abi_signature(params.iter().copied(), return_type, false);
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
         for hidden in &abi.hidden_parameters {
@@ -485,6 +495,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .map(Into::into)
                     .map_err(Self::diagnostic_from_llvm_error)
             }
+            Some(TyKind::FunctionItem { .. }) => self
+                .context
+                .struct_type(&[], false)
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
             Some(TyKind::Vector { elem, lanes }) => self.vector_type(*elem, *lanes, span),
             Some(
@@ -1211,13 +1226,40 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .closure_entries
             .iter()
             .find(|entry| entry.key == *key)
+            .or_else(|| self.program.closure_entry(key))
     }
 
     pub(crate) fn closure_entry_value(
         &self,
         key: &BackendClosureEntryKey,
     ) -> Option<FunctionValue<'ctx>> {
-        self.closure_entries.get(key).copied()
+        if let Some(value) = self.closure_entries.borrow().get(key).copied() {
+            return Some(value);
+        }
+        let entry = self.closure_entry_item(key)?;
+        let ty = self
+            .function_signature_type_in(FunctionSignature {
+                param_tys: std::iter::once((entry.abi.state_pointer_type, entry.span)).chain(
+                    entry
+                        .abi
+                        .params
+                        .iter()
+                        .copied()
+                        .map(|param| (param, entry.span)),
+                ),
+                return_type: entry.abi.return_type,
+                is_extern: false,
+                is_variadic: false,
+                tracks_caller: false,
+                span: entry.span,
+            })
+            .ok()?;
+        let value = self
+            .module
+            .add_function(&entry.symbol, ty, Some(Linkage::External))
+            .ok()?;
+        self.closure_entries.borrow_mut().insert(key.clone(), value);
+        Some(value)
     }
 
     pub(crate) fn function_item(&self, def_id: GlobalDefId) -> Option<&'a BackendFunction> {

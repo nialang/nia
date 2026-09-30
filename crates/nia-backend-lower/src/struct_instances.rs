@@ -755,6 +755,28 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instance_ty(return_type, seen, out);
             }
+            Some(TyKind::FunctionItem {
+                args,
+                const_args,
+                params,
+                return_type,
+                self_arg,
+                ..
+            }) => {
+                if let Some(self_arg) = self_arg {
+                    self.collect_struct_instance_ty(self_arg, seen, out);
+                }
+                for arg in args {
+                    self.collect_struct_instance_ty(arg, seen, out);
+                }
+                for arg in const_args {
+                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                }
+                for param in params {
+                    self.collect_struct_instance_ty(param, seen, out);
+                }
+                self.collect_struct_instance_ty(return_type, seen, out);
+            }
             Some(TyKind::Optional { elem }) => self.collect_struct_instance_ty(elem, seen, out),
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.collect_struct_instance_ty(error, seen, out);
@@ -1449,6 +1471,28 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
             }) => {
+                for param in params {
+                    self.collect_union_instance_ty(param, seen, out);
+                }
+                self.collect_union_instance_ty(return_type, seen, out);
+            }
+            Some(TyKind::FunctionItem {
+                args,
+                const_args,
+                params,
+                return_type,
+                self_arg,
+                ..
+            }) => {
+                if let Some(self_arg) = self_arg {
+                    self.collect_union_instance_ty(self_arg, seen, out);
+                }
+                for arg in args {
+                    self.collect_union_instance_ty(arg, seen, out);
+                }
+                for arg in const_args {
+                    self.collect_union_instance_ty(arg.ty, seen, out);
+                }
                 for param in params {
                     self.collect_union_instance_ty(param, seen, out);
                 }

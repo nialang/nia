@@ -117,6 +117,7 @@ impl Lower<'_> {
                     params,
                     return_type,
                     is_variadic: has_token(node, TokenKind::Ellipsis),
+                    is_extern: has_token(node, TokenKind::Extern),
                 }
             }
             SyntaxKind::CallableType => {

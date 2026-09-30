@@ -463,6 +463,23 @@ fn collect_ty_owner_modules<'a>(
             collect_const_arg_owner_modules(trait_const_args, type_modules);
         }
         TyKind::BuiltinTrait { args, .. } => type_ids.extend(args.iter().copied()),
+        TyKind::FunctionItem {
+            args,
+            const_args,
+            self_arg,
+            params,
+            return_type,
+            ..
+        } => {
+            type_ids.extend(args.iter().copied());
+            type_ids.extend(const_args.iter().map(|arg| arg.ty));
+            if let Some(self_arg) = self_arg {
+                type_ids.push_back(*self_arg);
+            }
+            type_ids.extend(params.iter().copied());
+            type_ids.push_back(*return_type);
+            collect_const_arg_owner_modules(const_args, type_modules);
+        }
         TyKind::Error
         | TyKind::ConstOnly
         | TyKind::Opaque

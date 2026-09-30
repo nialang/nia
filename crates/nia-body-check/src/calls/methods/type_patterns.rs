@@ -185,12 +185,15 @@ impl<'a> BodyChecker<'a> {
                 params: general_params,
                 return_type: general_return,
                 is_variadic: general_variadic,
+                abi: general_abi,
             }) => match self.interner.get(specific).cloned() {
                 Some(TyKind::FunctionPointer {
                     params: specific_params,
                     return_type: specific_return,
                     is_variadic: specific_variadic,
-                }) if general_variadic == specific_variadic
+                    abi: specific_abi,
+                }) if general_abi == specific_abi
+                    && general_variadic == specific_variadic
                     && general_params.len() == specific_params.len() =>
                 {
                     general_params
@@ -424,6 +427,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::FunctionItem { .. }) => self.types_match(general, specific),
             Some(TyKind::ConstOnly | TyKind::Error | TyKind::ClosureState { .. }) => false,
             None => false,
         }

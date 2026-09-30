@@ -10,6 +10,6 @@ error[E0101]: expected `,` or `)` after parameter; found `second`
   --> fail/trait_member_parameter_recovery/main.nia:2:23
   |
 2 |     fn bad(first: i32 second: bool) ();
-  |                       ^^^^^^ expected `,` or `)` after parameter; found `second`
+  |                       ^^^^^^
 
 summary: 1 error, 0 warnings

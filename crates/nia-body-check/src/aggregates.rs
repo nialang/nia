@@ -919,6 +919,7 @@ impl<'a> BodyChecker<'a> {
             params,
             return_type,
             is_variadic: false,
+            abi: nia_ty::FunctionPointerAbi::Nia,
         });
         self.record_expr_node_type(expr, ty);
         Some(ty)

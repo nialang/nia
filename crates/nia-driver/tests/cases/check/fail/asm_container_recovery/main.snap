@@ -48,7 +48,7 @@ error[E0301]: builtin `asm` requires a `code` byte string literal
   --> fail/asm_container_recovery/main.nia:3:5
   |
 3 |     std::builtin::asm(.{
-  |     ^^^^^^^^^^^^^^^^^ builtin `asm` requires a `code` byte string literal
+  |     ^^^^^^^^^^^^^^^^^
 
 root diagnostic:
 error[E0201]: unknown value `missing_inputs`

@@ -43,7 +43,7 @@ error[E0301]: `.?` requires optional or error union operand, found `i32`
   --> fail/propagation_diagnostics/main.nia:9:5
   |
 9 |     value.?
-  |     ^^^^^^^ `.?` requires optional or error union operand, found `i32`
+  |     ^^^^^^^
   ::: fail/propagation_diagnostics/main.nia:9:5
   |
 9 |     value.?
@@ -55,7 +55,7 @@ error[E0301]: error propagation requires `SourceError` to implement `IntoError[T
    --> fail/propagation_diagnostics/main.nia:13:5
    |
 13 |     value.?
-   |     ^^^^^^^ error propagation requires `SourceError` to implement `IntoError[TargetError]`
+   |     ^^^^^^^
    ::: fail/propagation_diagnostics/main.nia:13:5
    |
 13 |     value.?

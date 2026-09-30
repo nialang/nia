@@ -79,11 +79,11 @@ extend os::Timestamp {
 
 extend os::FileMetadata {
     pub(pkg) fn asFsMetadata(&self) Metadata {
-        let accessed = self.accessed().map(
-            &\value: os::Timestamp -> value.asFsTimestamp(),
+        let accessed = self.accessed().map[Timestamp, _](
+            \value: os::Timestamp -> value.asFsTimestamp(),
         );
-        let statusChanged = self.statusChanged().map(
-            &\value: os::Timestamp -> value.asFsTimestamp(),
+        let statusChanged = self.statusChanged().map[Timestamp, _](
+            \value: os::Timestamp -> value.asFsTimestamp(),
         );
         .init(
             self.kind().asFsFileKind(),

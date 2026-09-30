@@ -10,6 +10,6 @@ error[E0101]: expected associated type binding value
   --> fail/associated_type_argument_parser_recovery/main.nia:1:35
   |
 1 | fn retained(value: Wrapper[Item = , i32]) () {}
-  |                                   ^ expected associated type binding value
+  |                                   ^
 
 summary: 1 error, 0 warnings

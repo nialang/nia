@@ -15,13 +15,13 @@ error[E0101]: expected `,` or `}` after field; found `second`
   --> fail/field_delimiter_recovery/main.nia:1:31
   |
 1 | struct Recovered { first: i32 second: bool, third: u8 }
-  |                               ^^^^^^ expected `,` or `}` after field; found `second`
+  |                               ^^^^^^
 
 root diagnostic:
 error[E0101]: expected `,` or `}` after field; found `second`
   --> fail/field_delimiter_recovery/main.nia:2:34
   |
 2 | enum Payload { Item { first: i32 second: bool, third: u8 } }
-  |                                  ^^^^^^ expected `,` or `}` after field; found `second`
+  |                                  ^^^^^^
 
 summary: 2 errors, 0 warnings

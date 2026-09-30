@@ -23,7 +23,7 @@ impl<'a> BodyChecker<'a> {
             return self.lower_resolved_callee(call, callee, args, resolved);
         }
         if let Some(reference) = self.function_reference(callee) {
-            if reference.args.is_empty() {
+            if reference.args.is_empty() && reference.const_args.is_empty() {
                 return TypedCallee::Function(reference.def_id);
             }
             return TypedCallee::FunctionInstance {
@@ -186,6 +186,10 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::ClosureState { params, .. }
                 | TyKind::Callable { params, .. },
             ) => Some(params),
+            Some(TyKind::FunctionItem { params, .. }) => Some(params),
+            Some(TyKind::GenericParam(_)) => self
+                .static_callable_bound(callee_ty)
+                .map(|(params, _)| params),
             _ => None,
         }
     }

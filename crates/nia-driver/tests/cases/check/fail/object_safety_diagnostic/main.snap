@@ -10,6 +10,6 @@ error[E0303]: trait `Bad` is not object safe because method `id` has method gene
   --> fail/object_safety_diagnostic/main.nia:5:9
   |
 5 | fn read(bad: & Bad) i32 {
-  |         ^^^^^^^^^^ trait `Bad` is not object safe because method `id` has method generics
+  |         ^^^^^^^^^^
 
 summary: 1 error, 0 warnings

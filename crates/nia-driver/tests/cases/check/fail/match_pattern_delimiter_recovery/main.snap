@@ -10,6 +10,6 @@ error[E0101]: expected `,` or `=>` after match pattern; found `false`
   --> fail/match_pattern_delimiter_recovery/main.nia:3:14
   |
 3 |         true false => (),
-  |              ^^^^^ expected `,` or `=>` after match pattern; found `false`
+  |              ^^^^^
 
 summary: 1 error, 0 warnings

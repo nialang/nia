@@ -714,6 +714,35 @@ fn collect_array_len_const_exprs_in_ty(
             }
             collect_array_len_const_exprs_in_ty(type_store, *return_type, candidate_ids, out, seen);
         }
+        Some(TyKind::FunctionItem {
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            ..
+        }) => {
+            if let Some(self_arg) = self_arg {
+                collect_array_len_const_exprs_in_ty(
+                    type_store,
+                    *self_arg,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
+            }
+            for arg in args {
+                collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
+            }
+            for arg in const_args {
+                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+            }
+            for param in params {
+                collect_array_len_const_exprs_in_ty(type_store, *param, candidate_ids, out, seen);
+            }
+            collect_array_len_const_exprs_in_ty(type_store, *return_type, candidate_ids, out, seen);
+        }
         Some(TyKind::Nominal {
             args, const_args, ..
         }) => {

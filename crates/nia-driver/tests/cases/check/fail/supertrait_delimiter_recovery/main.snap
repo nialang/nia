@@ -21,21 +21,21 @@ error[E0101]: expected `+` after supertrait; found `Other`
   --> fail/supertrait_delimiter_recovery/main.nia:3:21
   |
 3 | trait Derived: Base Other {}
-  |                     ^^^^^ expected `+` after supertrait; found `Other`
+  |                     ^^^^^
 
 root diagnostic:
 error[E0101]: expected `+` after supertrait
   --> fail/supertrait_delimiter_recovery/main.nia:4:29
   |
 4 | trait CommaSeparated: Base, Other {}
-  |                             ^^^^^ expected `+` after supertrait
+  |                             ^^^^^
 
 root diagnostic:
 error[E0101]: expected type; found `,`
   --> fail/supertrait_delimiter_recovery/main.nia:5:21
   |
 5 | trait LeadingComma: , Base {}
-  |                     ^ expected type; found `,`
+  |                     ^
 help: provide a type name or type expression here
 
 summary: 3 errors, 0 warnings

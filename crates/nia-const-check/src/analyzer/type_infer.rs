@@ -1832,6 +1832,27 @@ impl Analyzer<'_> {
                     .any(|param| self.type_contains_generic_inner(param, seen))
                     || self.type_contains_generic_inner(return_type, seen)
             }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                self_arg.is_some_and(|ty| self.type_contains_generic_inner(ty, seen))
+                    || args
+                        .into_iter()
+                        .any(|ty| self.type_contains_generic_inner(ty, seen))
+                    || const_args.into_iter().any(|arg| {
+                        self.type_contains_generic_inner(arg.ty, seen)
+                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                    })
+                    || params
+                        .into_iter()
+                        .any(|ty| self.type_contains_generic_inner(ty, seen))
+                    || self.type_contains_generic_inner(return_type, seen)
+            }
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.type_contains_generic_inner(error, seen)
                     || self.type_contains_generic_inner(value, seen)

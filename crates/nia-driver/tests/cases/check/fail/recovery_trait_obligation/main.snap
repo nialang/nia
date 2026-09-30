@@ -46,7 +46,7 @@ error[E0301]: trait bound not satisfied: i32: Marker
    --> fail/recovery_trait_obligation/main.nia:12:5
    |
 12 |     require(1);
-   |     ^^^^^^^^^^ trait bound not satisfied: i32: Marker
+   |     ^^^^^^^^^^
 note: the compiler could not find a visible implementation of `Marker` for `i32`
 help: provide an implementation of `Marker` for `i32`, import the module that defines it, or use a type with a matching implementation
 

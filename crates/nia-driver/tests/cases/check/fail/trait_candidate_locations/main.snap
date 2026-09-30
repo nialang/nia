@@ -38,7 +38,7 @@ error[E0301]: ambiguous trait method `rank`
   --> fail/trait_candidate_locations/main.nia:4:9
   |
 4 |     _ = value.rank();
-  |         ^^^^^^^^^^^^ ambiguous trait method `rank`
+  |         ^^^^^^^^^^^^
 note: candidate methods:
   - Left::rank
   - Right::rank
@@ -51,7 +51,7 @@ error[E0301]: ambiguous dynamic trait method `rank`
   --> fail/trait_candidate_locations/main.nia:8:9
   |
 8 |     _ = value.rank();
-  |         ^^^^^^^^^^^^ ambiguous dynamic trait method `rank`
+  |         ^^^^^^^^^^^^
 note: candidate methods:
   - Left::rank
   - Right::rank
@@ -64,7 +64,7 @@ error[E0301]: ambiguous trait associated function `make`
    --> fail/trait_candidate_locations/main.nia:13:9
    |
 13 |     _ = [T]::make(1);
-   |         ^^^^^^^^^^^^ ambiguous trait associated function `make`
+   |         ^^^^^^^^^^^^
 note: candidate methods:
   - FactoryLeft::make
   - FactoryRight::make

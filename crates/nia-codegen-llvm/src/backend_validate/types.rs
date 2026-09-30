@@ -121,6 +121,28 @@ impl BackendValidator<'_> {
                 }
                 self.validate_runtime_type(return_type, span);
             }
+            TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            } => {
+                if let Some(self_arg) = self_arg {
+                    self.validate_type(self_arg, span);
+                }
+                for arg in args {
+                    self.validate_type(arg, span);
+                }
+                for arg in const_args {
+                    self.validate_const_arg(&arg, span);
+                }
+                for param in params {
+                    self.validate_runtime_type(param, span);
+                }
+                self.validate_runtime_type(return_type, span);
+            }
             TyKind::Nominal {
                 def_id,
                 args,
@@ -561,6 +583,7 @@ impl BackendValidator<'_> {
                         })
                 }
             }
+            TyKind::FunctionItem { .. } => Some(TypeLayout { size: 0, align: 1 }),
             TyKind::BuiltinTrait { .. } => None,
             TyKind::ConstOnly
             | TyKind::BuiltinType(_)

@@ -298,6 +298,7 @@ impl FunctionInference {
                 params,
                 return_type,
                 is_variadic: false,
+                ..
             })
             | Some(TyKind::Callable {
                 params,
@@ -979,6 +980,24 @@ impl FunctionInference {
                 union
             }
             ExprKind::Call { callee, args } => {
+                // A bracket suffix in callee position is resolved by the body
+                // checker as generic instantiation. Keep it out of the
+                // ordinary callable/index shape pass; treating `id[T]` as a
+                // value first loses the syntactic distinction before the
+                // call checker can record GenericCall.
+                if let ExprKind::BracketSuffix {
+                    callee: generic_callee,
+                    args: type_args,
+                } = &callee.kind
+                    && type_args.iter().all(|arg| arg.expr.is_none())
+                {
+                    let result = expected.unwrap_or_else(|| self.fresh());
+                    let _ = self.constrain_expr(checker, generic_callee, None);
+                    for arg in args {
+                        let _ = self.constrain_expr(checker, arg, None);
+                    }
+                    return result;
+                }
                 // Value resolution already distinguishes enum constructors
                 // from callable values. Their result type is known before
                 // body checking, while payloads may still contain constraints.

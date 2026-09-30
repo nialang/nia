@@ -481,6 +481,24 @@ impl<'a> BodyChecker<'a> {
             .collect::<Vec<_>>();
         for predicate in predicates {
             for bound in predicate.bounds {
+                if let Some(holds) = self.static_callable_bound_holds(
+                    predicate.ty,
+                    bound.trait_ty,
+                    &SymbolMap::default(),
+                    &SymbolMap::default(),
+                ) {
+                    if !holds
+                        && !self.is_error_recovery_ty(predicate.ty)
+                        && !self.is_error_recovery_ty(bound.trait_ty)
+                    {
+                        self.report_trait_bound_not_satisfied_named(
+                            span,
+                            predicate.ty,
+                            format!("Fn({})", self.ty_name(bound.trait_ty)),
+                        );
+                    }
+                    continue;
+                }
                 let Some((trait_id, trait_args, trait_const_args)) =
                     self.trait_id_and_args(bound.trait_ty)
                 else {
@@ -806,6 +824,7 @@ impl<'a> BodyChecker<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .into_iter()
@@ -816,6 +835,7 @@ impl<'a> BodyChecker<'a> {
                     params,
                     return_type,
                     is_variadic,
+                    abi,
                 })
             }
             Some(TyKind::Callable {
@@ -1017,7 +1037,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::ClosureState { .. }
-                | TyKind::SelfParam,
+                | TyKind::SelfParam
+                | TyKind::FunctionItem { .. },
             )
             | None => ty,
         }
@@ -1727,7 +1748,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
                 | TyKind::ClosureState { .. }
-                | TyKind::SelfParam,
+                | TyKind::SelfParam
+                | TyKind::FunctionItem { .. },
             )
             | None => {}
         }
@@ -2193,14 +2215,17 @@ impl<'a> BodyChecker<'a> {
                     params: left_params,
                     return_type: left_return,
                     is_variadic: left_variadic,
+                    abi: left_abi,
                 }),
                 Some(TyKind::FunctionPointer {
                     params: right_params,
                     return_type: right_return,
                     is_variadic: right_variadic,
+                    abi: right_abi,
                 }),
             ) => {
-                left_variadic == right_variadic
+                left_abi == right_abi
+                    && left_variadic == right_variadic
                     && left_params.len() == right_params.len()
                     && left_params.iter().zip(right_params).all(|(left, right)| {
                         self.types_equivalent_without_projection_resolution(*left, right)

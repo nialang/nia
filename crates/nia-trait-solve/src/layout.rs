@@ -187,11 +187,13 @@ impl TraitSolver<'_> {
                     params: left_params,
                     return_type: left_return,
                     is_variadic: left_variadic,
+                    ..
                 }),
                 Some(TyKind::FunctionPointer {
                     params: right_params,
                     return_type: right_return,
                     is_variadic: right_variadic,
+                    ..
                 }),
             ) => {
                 left_variadic == right_variadic

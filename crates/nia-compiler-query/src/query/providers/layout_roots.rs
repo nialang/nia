@@ -160,6 +160,28 @@ impl<'a> LayoutRootCollector<'a> {
                 }
                 self.add(return_type);
             }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                if let Some(self_arg) = self_arg {
+                    self.add(self_arg);
+                }
+                for arg in args {
+                    self.add(arg);
+                }
+                for arg in const_args {
+                    self.add(arg.ty);
+                }
+                for param in params {
+                    self.add(param);
+                }
+                self.add(return_type);
+            }
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.add(error);
                 self.add(value);

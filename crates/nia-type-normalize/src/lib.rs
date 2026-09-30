@@ -166,6 +166,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .into_iter()
@@ -173,6 +174,45 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let return_type = self.normalize_ty(return_type, stack);
                 self.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                    abi,
+                })
+            }
+            Some(TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let self_arg = self_arg.map(|ty| self.normalize_ty(ty, stack));
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty(arg.ty, stack);
+                        arg
+                    })
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty(param, stack))
+                    .collect();
+                let return_type = self.normalize_ty(return_type, stack);
+                self.intern(TyKind::FunctionItem {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
                     params,
                     return_type,
                     is_variadic,
@@ -501,6 +541,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .into_iter()
@@ -509,6 +550,47 @@ impl<'a> TypeNormalizer<'a, '_> {
                 let return_type =
                     self.normalize_ty_with_substitutions(return_type, substitutions, stack);
                 self.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                    abi,
+                })
+            }
+            Some(TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let self_arg = self_arg
+                    .map(|ty| self.normalize_ty_with_substitutions(ty, substitutions, stack));
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
+                        arg
+                    })
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_ty_with_substitutions(param, substitutions, stack))
+                    .collect();
+                let return_type =
+                    self.normalize_ty_with_substitutions(return_type, substitutions, stack);
+                self.intern(TyKind::FunctionItem {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
                     params,
                     return_type,
                     is_variadic,

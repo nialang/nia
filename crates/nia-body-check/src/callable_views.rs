@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ids::InternedTyId;
-use nia_ty::TyKind;
+use nia_ty::{FunctionPointerAbi, TyKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClosureFunctionPointerCoercion {
@@ -30,6 +30,7 @@ impl BodyChecker<'_> {
             params: actual_params,
             return_type: actual_return,
             is_variadic: false,
+            abi: FunctionPointerAbi::Nia,
         }) = self.interner.get(actual).cloned()
         else {
             return None;
@@ -101,6 +102,7 @@ impl BodyChecker<'_> {
             params: expected_params,
             return_type: expected_return,
             is_variadic: false,
+            abi: FunctionPointerAbi::Nia,
         }) = self.interner.get(expected).cloned()
         else {
             return ClosureFunctionPointerCoercion::Mismatch;

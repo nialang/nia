@@ -74,7 +74,7 @@ fn emits_variadic_function_pointer_tail_arguments() {
 extern fn log(first: i32, ...);
 
 fn main() i32 {
-    let callback: &fn(i32, ...) () = &log;
+    let callback: &extern fn(i32, ...) () = &log;
     callback(1, 2i32, 3i64);
     0
 }

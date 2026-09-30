@@ -686,6 +686,7 @@ where
             params,
             return_type,
             is_variadic,
+            abi,
         }) => {
             let param_count = params.len();
             let params = params
@@ -704,7 +705,55 @@ where
             if *is_variadic {
                 result.push_str("__variadic");
             }
+            if matches!(abi, nia_ty::FunctionPointerAbi::C) {
+                result.push_str("__c");
+            }
             result
+        }
+        Some(TyKind::FunctionItem {
+            def_id,
+            arg_module_id: _,
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            is_variadic,
+        }) => {
+            let base = mangle_source_def(*def_id, module_id, nominal_name);
+            let arg_count = args.len();
+            let const_arg_count = const_args.len();
+            let param_count = params.len();
+            let args = args
+                .iter()
+                .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
+                .collect::<Vec<_>>()
+                .join("__");
+            let const_args = const_args
+                .iter()
+                .map(|arg| {
+                    mangle_const_generic_arg(type_store, arg, module_id, nominal_name, array_len)
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            let params = params
+                .iter()
+                .map(|param| {
+                    mangle_type_inner(type_store, *param, module_id, nominal_name, array_len)
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            let self_arg = self_arg
+                .map(|arg| mangle_type_inner(type_store, arg, module_id, nominal_name, array_len))
+                .unwrap_or_else(|| "none".to_string());
+            format!(
+                "fnitem__{base}__self__{self_arg}__argc{}__{args}__cargc{}__{const_args}__pc{}__{params}__ret__{}{}",
+                arg_count,
+                const_arg_count,
+                param_count,
+                mangle_type_inner(type_store, *return_type, module_id, nominal_name, array_len),
+                if *is_variadic { "__variadic" } else { "" },
+            )
         }
         Some(TyKind::Callable {
             is_readonly,
@@ -1135,6 +1184,7 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
 mod tests {
     use super::*;
     use nia_ids::{BuiltinTrait, DefId, ModuleIdAllocator, TypeStoreIndex};
+    use nia_ty::FunctionPointerAbi;
 
     const TEST_PACKAGE: &str = "test/package@0";
 
@@ -1651,6 +1701,7 @@ mod tests {
                 params: Vec::new(),
                 return_type: i32_ty,
                 is_variadic: false,
+                abi: FunctionPointerAbi::Nia,
             },
         );
         let binary_function = intern(
@@ -1659,6 +1710,7 @@ mod tests {
                 params: vec![i32_ty, bool_ty],
                 return_type: i32_ty,
                 is_variadic: false,
+                abi: FunctionPointerAbi::Nia,
             },
         );
         let readonly = intern(

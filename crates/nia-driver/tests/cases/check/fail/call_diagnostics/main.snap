@@ -65,7 +65,7 @@ error[E0301]: argument count mismatch: expected 2, got 1
   --> fail/call_diagnostics/main.nia:8:5
   |
 8 |     add(true);
-  |     ^^^^^^^^^ argument count mismatch: expected 2, got 1
+  |     ^^^^^^^^^
 note: this call accepts 2 argument(s), but received 1
 help: add the missing arguments to match the call signature
 
@@ -74,7 +74,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
   --> fail/call_diagnostics/main.nia:8:9
   |
 8 |     add(true);
-  |         ^^^^ type mismatch in call argument 1: expected i32, got bool
+  |         ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -100,7 +100,7 @@ error[E0301]: type mismatch in call argument 2: expected i32, got bool
    --> fail/call_diagnostics/main.nia:11:18
    |
 11 |     add(missing, true);
-   |                  ^^^^ type mismatch in call argument 2: expected i32, got bool
+   |                  ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
@@ -109,7 +109,7 @@ error[E0301]: argument count mismatch: expected 2, got 1
    --> fail/call_diagnostics/main.nia:12:5
    |
 12 |     add(missing);
-   |     ^^^^^^^^^^^^ argument count mismatch: expected 2, got 1
+   |     ^^^^^^^^^^^^
 note: this call accepts 2 argument(s), but received 1
 help: add the missing arguments to match the call signature
 
@@ -134,7 +134,7 @@ error[E0301]: type mismatch in call argument 2: expected i32, got bool
    --> fail/call_diagnostics/main.nia:13:24
    |
 13 |     pair[i32](missing, true);
-   |                        ^^^^ type mismatch in call argument 2: expected i32, got bool
+   |                        ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 

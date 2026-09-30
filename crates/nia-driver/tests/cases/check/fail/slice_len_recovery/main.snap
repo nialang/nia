@@ -24,6 +24,6 @@ error[E0301]: builtin `sliceLen` requires a slice pointer
   --> fail/slice_len_recovery/main.nia:9:14
   |
 9 |     sliceLen(1usize)
-  |              ^^^^^^ builtin `sliceLen` requires a slice pointer
+  |              ^^^^^^
 
 summary: 2 errors, 0 warnings

@@ -11,7 +11,9 @@ extend[Value] ?Value {
         if value is null { true } else { false }
     }
 
-    pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
+    pub fn map[Mapped, Mapper](self, mapper: Mapper) ?Mapped
+    where Mapper: Fn(Value) Mapped
+    {
         if self is ?value {
             ?mapper(value)
         } else {
@@ -19,7 +21,9 @@ extend[Value] ?Value {
         }
     }
 
-    pub fn andThen[Mapped](self, next: &Fn(Value) ?Mapped) ?Mapped {
+    pub fn andThen[Mapped, Next](self, next: Next) ?Mapped
+    where Next: Fn(Value) ?Mapped
+    {
         if self is ?value {
             next(value)
         } else {

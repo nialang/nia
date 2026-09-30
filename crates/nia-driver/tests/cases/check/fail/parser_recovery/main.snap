@@ -64,7 +64,7 @@ error[E0101]: expected `)` after parameters; found `{`
   --> fail/parser_recovery/main.nia:1:25
   |
 1 | fn malformed(value: i32 {
-  |                         ^ expected `)` after parameters; found `{`
+  |                         ^
 help: check that the surrounding delimiters are balanced
 
 root diagnostic:
@@ -72,7 +72,7 @@ error[E0101]: expected `;` after binding; found `value`
   --> fail/parser_recovery/main.nia:6:17
   |
 6 |     let value = 1
-  |                 ^ expected `;` after binding; found `value`
+  |                 ^
 help: add the missing `;` to terminate this declaration or statement
 
 root diagnostic:
@@ -80,7 +80,7 @@ error[E0101]: expected expression
    --> fail/parser_recovery/main.nia:12:1
    |
 12 | }
-   | ^ expected expression
+   | ^
 help: provide an expression here, such as a literal, name, or call
 
 root diagnostic:
@@ -88,7 +88,7 @@ error[E0101]: expected type; found `)`
    --> fail/parser_recovery/main.nia:14:23
    |
 14 | fn missing_type(value:) () {}
-   |                       ^ expected type; found `)`
+   |                       ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -96,7 +96,7 @@ error[E0101]: expected binding pattern
    --> fail/parser_recovery/main.nia:17:9
    |
 17 |     let = 1;
-   |         ^ expected binding pattern
+   |         ^
 help: use a name, `_`, or a supported destructuring pattern
 
 root diagnostic:
@@ -104,7 +104,7 @@ error[E0101]: expected `)` after parameters; found `{`
    --> fail/parser_recovery/main.nia:20:33
    |
 20 | fn missing_delimiter(value: i32 {
-   |                                 ^ expected `)` after parameters; found `{`
+   |                                 ^
 help: check that the surrounding delimiters are balanced
 
 root diagnostic:
@@ -112,7 +112,7 @@ error[E0101]: expected type; found `,`
    --> fail/parser_recovery/main.nia:25:14
    |
 25 |     missing: ,
-   |              ^ expected type; found `,`
+   |              ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -120,7 +120,7 @@ error[E0101]: expected type; found `,`
    --> fail/parser_recovery/main.nia:31:18
    |
 31 |         missing: ,
-   |                  ^ expected type; found `,`
+   |                  ^
 help: provide a type name or type expression here
 
 root diagnostic:
@@ -128,7 +128,7 @@ error[E0101]: expected function name; found `(`
    --> fail/parser_recovery/main.nia:37:4
    |
 37 | fn () {}
-   |    ^ expected function name; found `(`
+   |    ^
 help: use an identifier in this position
 
 root diagnostic:
@@ -136,6 +136,6 @@ error[E0101]: lexical error: unexpected byte 0x24
    --> fail/parser_recovery/main.nia:40:19
    |
 40 |     let value = 1 $;
-   |                   ^ lexical error: unexpected byte 0x24
+   |                   ^
 
 summary: 10 errors, 0 warnings

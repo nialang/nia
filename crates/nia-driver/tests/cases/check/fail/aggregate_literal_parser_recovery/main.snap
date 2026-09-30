@@ -23,7 +23,7 @@ error[E0101]: expected expression
   --> fail/aggregate_literal_parser_recovery/main.nia:7:18
   |
 7 |     let array = [, 1,, true];
-  |                  ^ expected expression
+  |                  ^
 help: provide an expression here, such as a literal, name, or call
 
 root diagnostic:
@@ -31,7 +31,7 @@ error[E0101]: expected expression
   --> fail/aggregate_literal_parser_recovery/main.nia:7:22
   |
 7 |     let array = [, 1,, true];
-  |                      ^ expected expression
+  |                      ^
 help: provide an expression here, such as a literal, name, or call
 
 root diagnostic:
@@ -39,7 +39,7 @@ error[E0101]: expected expression
   --> fail/aggregate_literal_parser_recovery/main.nia:8:28
   |
 8 |     let point = Point { x: , y: true };
-  |                            ^ expected expression
+  |                            ^
 help: provide an expression here, such as a literal, name, or call
 
 summary: 3 errors, 0 warnings

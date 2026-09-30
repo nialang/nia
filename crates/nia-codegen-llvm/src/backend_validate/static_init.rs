@@ -387,6 +387,7 @@ impl BackendValidator<'_> {
             params: target_params,
             return_type: target_return,
             is_variadic: target_variadic,
+            ..
         }) = self.ty_kind(ty).cloned()
         else {
             self.invalid_static_address(

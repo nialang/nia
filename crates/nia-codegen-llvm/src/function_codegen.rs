@@ -620,9 +620,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_function_callable(expr.span, function)
             }
             FunctionExprKind::ClosureFunctionPointer { closure_id } => {
-                let key = nia_backend_ir::BackendClosureEntryKey {
-                    closure_id: *closure_id,
-                    owner: self.function.closure_owner.clone(),
+                let Some((key, _entry)) = self.closure_entry_for_call(*closure_id) else {
+                    return Err(self.error(expr.span, "missing generated closure entry ABI"));
                 };
                 Ok(self
                     .module
@@ -1008,9 +1007,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         closure_id: nia_ids::ClosureId,
         state: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let key = nia_backend_ir::BackendClosureEntryKey {
-            closure_id,
-            owner: self.function.closure_owner.clone(),
+        let Some((key, _entry)) = self.closure_entry_for_call(closure_id) else {
+            return Err(self.error(span, "missing generated closure entry function"));
         };
         let Some(function) = self.module.closure_entry_value(&key) else {
             return Err(self.error(span, "missing generated closure entry function"));
@@ -1038,22 +1036,29 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         function: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let function = match &function.kind {
+        let function_value = match &function.kind {
             FunctionExprKind::Unary { expr: inner, .. } => self
                 .emit_function_pointer(span, inner)?
                 .into_pointer_value()?,
             _ => self.emit_expr(function)?.into_pointer_value()?,
         };
-        let ptr_ty = self.module.context.ptr_type(Default::default());
+        let adapter = self
+            .module
+            .function_pointer_callable_adapter(function.ty, span)?;
         let result = self.module.callable_type()?.get_undef()?;
         let result = self
             .builder
-            .build_insert_value(result, ptr_ty.const_null()?, 0, "callable.context")
+            .build_insert_value(result, function_value, 0, "callable.context")
             .map_err(|_| self.error(span, "failed to build function callable"))?
             .into_struct_value()
             .map_err(|_| self.error(span, "failed to build function callable"))?;
         self.builder
-            .build_insert_value(result, function, 1, "callable.function")
+            .build_insert_value(
+                result,
+                adapter.as_global_value().as_pointer_value(),
+                1,
+                "callable.entry",
+            )
             .map_err(|_| self.error(span, "failed to build function callable"))
     }
 

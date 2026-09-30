@@ -208,12 +208,14 @@ impl StableTypeGraphEncoder<'_> {
                 params,
                 return_type,
                 is_variadic: false,
+                abi,
             } => StableTypeNode::Function {
                 parameters: params
                     .into_iter()
                     .map(|parameter| self.encode(parameter))
                     .collect::<QueryResult<Vec<_>>>()?,
                 result: self.encode(return_type)?,
+                is_extern: matches!(abi, nia_ty::FunctionPointerAbi::C),
             },
             nia_ty::TyKind::Nominal {
                 def_id,
@@ -494,8 +496,10 @@ impl StableTypeGraphEncoder<'_> {
                 params,
                 return_type,
                 is_variadic: false,
+                abi,
             } => {
                 key.push(6);
+                key.push(u8::from(matches!(abi, nia_ty::FunctionPointerAbi::C)));
                 append_len(&mut key, params.len());
                 for parameter in params {
                     append_bytes(&mut key, &self.canonical_key(parameter)?);
@@ -1120,13 +1124,20 @@ impl CompilerDatabase {
                         }
                     },
                 }),
-                StableTypeNode::Function { parameters, result } => {
-                    append.intern(nia_ty::TyKind::FunctionPointer {
-                        params: self.rehydrated_types(&types, parameters)?,
-                        return_type: self.rehydrated_type(&types, *result)?,
-                        is_variadic: false,
-                    })
-                }
+                StableTypeNode::Function {
+                    parameters,
+                    result,
+                    is_extern,
+                } => append.intern(nia_ty::TyKind::FunctionPointer {
+                    params: self.rehydrated_types(&types, parameters)?,
+                    return_type: self.rehydrated_type(&types, *result)?,
+                    is_variadic: false,
+                    abi: if *is_extern {
+                        nia_ty::FunctionPointerAbi::C
+                    } else {
+                        nia_ty::FunctionPointerAbi::Nia
+                    },
+                }),
                 StableTypeNode::Reference { target, mutable } => {
                     append.intern(nia_ty::TyKind::Pointer {
                         is_readonly: !*mutable,

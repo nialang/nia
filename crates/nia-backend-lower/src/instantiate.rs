@@ -1105,6 +1105,7 @@ impl<'a> ModuleLowerer<'a> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => {
                 let params = params
                     .iter()
@@ -1122,6 +1123,7 @@ impl<'a> ModuleLowerer<'a> {
                     params,
                     return_type,
                     is_variadic,
+                    abi,
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -1166,6 +1168,58 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = self.type_context.intern(TyKind::CallablePointee {
                     params,
                     return_type,
+                });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
+            Some(TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let self_arg = self_arg.map(|ty| {
+                    self.instantiate_ty_with_id_inner(ty, substitutions, active_projections)
+                });
+                let args = args
+                    .into_iter()
+                    .map(|ty| {
+                        self.instantiate_ty_with_id_inner(ty, substitutions, active_projections)
+                    })
+                    .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            &arg,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|ty| {
+                        self.instantiate_ty_with_id_inner(ty, substitutions, active_projections)
+                    })
+                    .collect();
+                let return_type = self.instantiate_ty_with_id_inner(
+                    return_type,
+                    substitutions,
+                    active_projections,
+                );
+                let instantiated = self.type_context.intern(TyKind::FunctionItem {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
+                    params,
+                    return_type,
+                    is_variadic,
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -1793,6 +1847,58 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::FunctionItem {
+                def_id: pattern_def,
+                arg_module_id: pattern_module,
+                self_arg: pattern_self,
+                args: pattern_args,
+                const_args: pattern_consts,
+                params: pattern_params,
+                return_type: pattern_return,
+                is_variadic: pattern_variadic,
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::FunctionItem {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
+                    params,
+                    return_type,
+                    is_variadic,
+                }) if pattern_def == def_id
+                    && pattern_module == arg_module_id
+                    && pattern_variadic == is_variadic
+                    && pattern_args.len() == args.len()
+                    && pattern_consts.len() == const_args.len()
+                    && pattern_params.len() == params.len()
+                    && self.const_generic_arg_patterns_match_semantic(
+                        &pattern_consts,
+                        &const_args,
+                    ) =>
+                {
+                    let self_matches = match (pattern_self, self_arg) {
+                        (Some(left), Some(right)) => {
+                            self.match_extension_type_pattern(left, right, substitutions)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    self_matches
+                        && pattern_args.iter().zip(args).all(|(left, right)| {
+                            self.match_extension_type_pattern(*left, right, substitutions)
+                        })
+                        && pattern_params.iter().zip(params).all(|(left, right)| {
+                            self.match_extension_type_pattern(*left, right, substitutions)
+                        })
+                        && self.match_extension_type_pattern(
+                            pattern_return,
+                            return_type,
+                            substitutions,
+                        )
+                }
+                _ => false,
+            },
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
@@ -1888,12 +1994,17 @@ impl<'a> ModuleLowerer<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
                 is_variadic: pattern_variadic,
+                abi: pattern_abi,
             }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
-                }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    abi,
+                }) if pattern_abi == abi
+                    && pattern_variadic == is_variadic
+                    && pattern_params.len() == params.len() =>
+                {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
                         self.match_extension_type_pattern(*pattern, actual, substitutions)
                     }) && self.match_extension_type_pattern(
@@ -2148,6 +2259,27 @@ impl<'a> ModuleLowerer<'a> {
                     .all(|param| self.extension_pattern_generics_are_bound(*param, substitutions))
                     && self.extension_pattern_generics_are_bound(*return_type, substitutions)
             }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                self_arg
+                    .is_none_or(|ty| self.extension_pattern_generics_are_bound(ty, substitutions))
+                    && args
+                        .iter()
+                        .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
+                    && const_args
+                        .iter()
+                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
+                    && params.iter().all(|param| {
+                        self.extension_pattern_generics_are_bound(*param, substitutions)
+                    })
+                    && self.extension_pattern_generics_are_bound(*return_type, substitutions)
+            }
             Some(TyKind::Optional { elem }) => {
                 self.extension_pattern_generics_are_bound(*elem, substitutions)
             }
@@ -2256,6 +2388,26 @@ impl<'a> ModuleLowerer<'a> {
                 params
                     .iter()
                     .any(|param| self.extension_pattern_contains_generic(*param))
+                    || self.extension_pattern_contains_generic(*return_type)
+            }
+            Some(TyKind::FunctionItem {
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                ..
+            }) => {
+                self_arg.is_some_and(|ty| self.extension_pattern_contains_generic(ty))
+                    || args
+                        .iter()
+                        .any(|arg| self.extension_pattern_contains_generic(*arg))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+                    || params
+                        .iter()
+                        .any(|param| self.extension_pattern_contains_generic(*param))
                     || self.extension_pattern_contains_generic(*return_type)
             }
             Some(TyKind::Optional { elem }) => self.extension_pattern_contains_generic(*elem),
@@ -2474,14 +2626,17 @@ impl<'a> ModuleLowerer<'a> {
                     params: left_params,
                     return_type: left_return,
                     is_variadic: left_variadic,
+                    abi: left_abi,
                 }),
                 Some(TyKind::FunctionPointer {
                     params: right_params,
                     return_type: right_return,
                     is_variadic: right_variadic,
+                    abi: right_abi,
                 }),
             ) => {
-                left_variadic == right_variadic
+                left_abi == right_abi
+                    && left_variadic == right_variadic
                     && left_params.len() == right_params.len()
                     && left_params
                         .iter()

@@ -239,6 +239,7 @@ impl<'a> BodyChecker<'a> {
                     format!("{context} cannot use aggregate type directly"),
                 ));
             }
+            Some(TyKind::FunctionItem { .. }) => {}
             Some(
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }

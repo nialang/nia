@@ -779,7 +779,7 @@ fn preserve(external: &Fn(i32) i32, base: i32) &Fn(i32) i32 {
 }
 
 #[test]
-fn expression_callee_is_analyzed_before_its_arguments() {
+fn expression_callee_callable_abi_is_rejected_before_escape_analysis() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
@@ -797,14 +797,12 @@ pub fn main(external: &Fn(i32) i32, base: i32) () {
 "#,
     );
     let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
-    let diagnostics = closure_diagnostics(&checked);
-
-    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
     assert!(
-        diagnostics[0]
+        checked.diagnostics[0]
             .diagnostic
             .summary
-            .contains("passed to a call that may retain it")
+            .contains("extern parameter cannot use nia callable view directly")
     );
 }
 

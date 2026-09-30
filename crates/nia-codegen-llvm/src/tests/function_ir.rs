@@ -8,7 +8,7 @@ pub(super) use nia_function_ir::{
     FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionSliceRange,
     FunctionSwitchArm,
 };
-pub(super) use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst};
+pub(super) use nia_ty::{ConstGenericArg, ConstGenericValue, FunctionPointerAbi, IntConst};
 
 pub(super) fn single_module_program(
     module_id: ModuleId,

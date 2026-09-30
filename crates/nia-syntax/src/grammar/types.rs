@@ -336,9 +336,10 @@ fn type_atom(p: &mut Parser<'_>, mode: TypeMode) -> Option<Parsed> {
 
 fn type_after_amp(p: &mut Parser<'_>, mode: TypeMode) -> Option<SyntaxKind> {
     let is_readonly = p.eat(TokenKind::Mut).is_none();
+    let is_extern = p.eat(TokenKind::Extern).is_some();
     if p.at(TokenKind::Fn) {
         if !is_readonly {
-            p.error_here("function pointer types must be written as `&fn(...)`");
+            p.error_here("function pointer types must use a read-only `&` pointer");
         }
         p.bump();
         p.expect(TokenKind::LParen, "expected `(` in function pointer type")?;
@@ -360,6 +361,10 @@ fn type_after_amp(p: &mut Parser<'_>, mode: TypeMode) -> Option<SyntaxKind> {
             type_with_mode(p, mode)?;
         }
         return Some(SyntaxKind::FnPointerType);
+    }
+    if is_extern {
+        p.error_here("`extern` is only valid in `&extern fn(...)` types");
+        return None;
     }
     let checkpoint = p.checkpoint();
     let errors = p.errors_len();

@@ -1269,7 +1269,7 @@ using std::option;
 fn main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     let value: ?i32 = ?1;
-    match value.map[i32](&callback) {
+    match value.map[i32, _](callback) {
         ?mapped => mapped,
         null => 0,
     }

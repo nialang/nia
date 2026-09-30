@@ -17,14 +17,14 @@ error[E0301]: generic function pointer requires explicit type arguments
   --> fail/qualified_callable/main.nia:4:34
   |
 4 |     let missing: &fn(i32) i32 = &api::identity;
-  |                                  ^^^^^^^^^^^^^ generic function pointer requires explicit type arguments
+  |                                  ^^^^^^^^^^^^^
 
 root diagnostic:
 error[E0201]: unknown value `comput`
   --> fail/qualified_callable/main.nia:8:10
   |
 8 |     api::comput()
-  |          ^^^^^^ unknown value `comput`
+  |          ^^^^^^
 help: check the module path, spelling, and whether the value is public
 help: did you mean `compute`?
 suggestion (maybe-incorrect): replace the unknown member with this spelling

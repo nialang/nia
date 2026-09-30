@@ -18,6 +18,19 @@ impl<'a> BodyChecker<'a> {
 
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = params.get(index).copied() {
+                // A static callable generic carries its callable shape in a
+                // `where F: Fn(...)` bound. Expose that shape while checking
+                // the argument so closure parameters can be inferred without
+                // requiring redundant annotations.
+                let expected = self
+                    .static_callable_bound(expected)
+                    .map(|(params, return_type)| {
+                        self.interner.intern(nia_ty::TyKind::CallablePointee {
+                            params,
+                            return_type,
+                        })
+                    })
+                    .unwrap_or(expected);
                 let arg_ty = self.check_expr_with_expected(arg, Some(expected));
                 self.expect_expr_type(
                     arg,

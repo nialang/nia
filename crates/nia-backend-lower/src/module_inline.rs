@@ -86,9 +86,7 @@ impl<'a> ModuleLowerer<'a> {
         functions: &mut [BackendFunction],
         function_instances: &mut [BackendFunctionInstance],
     ) {
-        if matches!(self.optimization.inline_threshold, InlineThreshold::Never) {
-            return;
-        }
+        let allow_inline = !matches!(self.optimization.inline_threshold, InlineThreshold::Never);
 
         let inline_threshold = self.optimization.inline_threshold;
         let instance_inline_threshold = generic_instance_inline_threshold(
@@ -96,61 +94,65 @@ impl<'a> ModuleLowerer<'a> {
             self.optimization.specialize_generics,
         );
         let allow_forwarding_wrapper = self.optimization.prefer_size;
-        let function_candidates = functions
-            .iter()
-            .filter_map(|function| {
-                leaf_inline_return(
-                    &function.function_body,
-                    &function.params,
-                    inline_threshold,
-                    allow_forwarding_wrapper,
-                )
-                .map(|body| {
-                    (
-                        function.def_id,
-                        InlineCandidate::Function {
-                            function: function.def_id,
-                            body,
-                            threshold: inline_threshold,
-                            allow_forwarding_wrapper,
-                        },
+        let function_candidates = if allow_inline {
+            functions
+                .iter()
+                .filter_map(|function| {
+                    leaf_inline_return(
+                        &function.function_body,
+                        &function.params,
+                        inline_threshold,
+                        allow_forwarding_wrapper,
                     )
+                    .map(|body| {
+                        (
+                            function.def_id,
+                            InlineCandidate::Function {
+                                function: function.def_id,
+                                body,
+                                threshold: inline_threshold,
+                                allow_forwarding_wrapper,
+                            },
+                        )
+                    })
                 })
-            })
-            .collect::<HashMap<_, _>>();
-        let instance_candidates = function_instances
-            .iter()
-            .filter_map(|instance| {
-                leaf_inline_return(
-                    &instance.function_body,
-                    &instance.params,
-                    instance_inline_threshold,
-                    allow_forwarding_wrapper,
-                )
-                .map(|body| {
-                    (
-                        FunctionInstanceKey {
-                            def_id: instance.def_id,
-                            arg_module_id: instance.arg_module_id,
-                            self_arg: instance.self_arg,
-                            args: instance.args.clone(),
-                            const_args: instance.const_args.clone(),
-                        },
-                        InlineCandidate::Instance {
-                            function: instance.def_id,
-                            type_arg_count: instance.args.len(),
-                            body,
-                            threshold: instance_inline_threshold,
-                            allow_forwarding_wrapper,
-                        },
+                .collect::<HashMap<_, _>>()
+        } else {
+            HashMap::new()
+        };
+        let instance_candidates = if allow_inline {
+            function_instances
+                .iter()
+                .filter_map(|instance| {
+                    leaf_inline_return(
+                        &instance.function_body,
+                        &instance.params,
+                        instance_inline_threshold,
+                        allow_forwarding_wrapper,
                     )
+                    .map(|body| {
+                        (
+                            FunctionInstanceKey {
+                                def_id: instance.def_id,
+                                arg_module_id: instance.arg_module_id,
+                                self_arg: instance.self_arg,
+                                args: instance.args.clone(),
+                                const_args: instance.const_args.clone(),
+                            },
+                            InlineCandidate::Instance {
+                                function: instance.def_id,
+                                type_arg_count: instance.args.len(),
+                                body,
+                                threshold: instance_inline_threshold,
+                                allow_forwarding_wrapper,
+                            },
+                        )
+                    })
                 })
-            })
-            .collect::<HashMap<_, _>>();
-        if function_candidates.is_empty() && instance_candidates.is_empty() {
-            return;
-        }
-
+                .collect::<HashMap<_, _>>()
+        } else {
+            HashMap::new()
+        };
         for function in functions {
             if let Some(body) = &mut function.function_body {
                 self.inline_leaf_calls_in_body(body, &function_candidates, &instance_candidates);
@@ -301,6 +303,7 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in args.iter_mut() {
                     self.inline_leaf_calls_in_expr(arg, function_candidates, instance_candidates);
                 }
+                self.devirtualize_known_function_pointer(callee);
                 if let Some(candidate) =
                     inline_candidate_for_callee(callee, function_candidates, instance_candidates)
                     && let Some(value) = inline_candidate_value(candidate, args)
@@ -466,6 +469,67 @@ impl<'a> ModuleLowerer<'a> {
                     );
                 }
             }
+        }
+    }
+
+    /// A function item lowered to a thin Nia pointer still carries its exact
+    /// target in the IR. Recover that target before the leaf-inline pass so a
+    /// call such as `let f = &add; f(x)` can use the same direct-call and
+    /// inlining path as `add(x)`. C pointers deliberately remain indirect.
+    fn devirtualize_known_function_pointer(&self, callee: &mut FunctionCallee) {
+        let FunctionCallee::FunctionPointer(pointer) = callee else {
+            return;
+        };
+        let is_nia = matches!(
+            self.type_store.get(pointer.ty),
+            Some(nia_ty::TyKind::FunctionPointer {
+                abi: nia_ty::FunctionPointerAbi::Nia,
+                ..
+            })
+        );
+        if !is_nia {
+            return;
+        }
+        let kind = match &pointer.kind {
+            FunctionExprKind::Unary {
+                op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
+                expr,
+            } => &expr.kind,
+            kind => kind,
+        };
+        match kind {
+            FunctionExprKind::Function(def_id)
+                if self
+                    .input
+                    .program
+                    .functions()
+                    .get(def_id)
+                    .is_some_and(|signature| !signature.signature.is_extern) =>
+            {
+                *callee = FunctionCallee::Function(*def_id);
+            }
+            FunctionExprKind::FunctionInstance {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+            } if self
+                .input
+                .program
+                .functions()
+                .get(def_id)
+                .is_some_and(|signature| !signature.signature.is_extern) =>
+            {
+                *callee = FunctionCallee::FunctionInstance {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
+                    args: args.clone(),
+                    const_args: const_args.clone(),
+                };
+            }
+            _ => {}
         }
     }
 

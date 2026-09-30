@@ -144,9 +144,10 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) function_instances: FunctionInstanceMap<'ctx>,
     pub(super) function_instances_by_def: FunctionInstancesByDef<'ctx>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
-    pub(super) closure_entries: HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>,
+    pub(super) closure_entries: RefCell<HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>>,
     closure_function_pointer_adapters:
         RefCell<HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>>,
+    function_pointer_callable_adapters: RefCell<HashMap<InternedTyId, FunctionValue<'ctx>>>,
     enum_constructor_functions: RefCell<HashMap<GlobalDefId, FunctionValue<'ctx>>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
@@ -198,8 +199,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
             function_instance_value_lookups: RefCell::new(HashMap::new()),
-            closure_entries: HashMap::new(),
+            closure_entries: RefCell::new(HashMap::new()),
             closure_function_pointer_adapters: RefCell::new(HashMap::new()),
+            function_pointer_callable_adapters: RefCell::new(HashMap::new()),
             enum_constructor_functions: RefCell::new(HashMap::new()),
             globals: HashMap::new(),
             global_instances: HashMap::new(),
@@ -631,6 +633,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 sequential_layout(&layouts)
             }
+            Some(TyKind::FunctionItem { .. }) => Some(TypeLayout { size: 0, align: 1 }),
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
             Some(
@@ -857,7 +860,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         for &index in self.partition.closure_entry_definitions() {
             let entry = &self.source.closure_entries[index];
-            let Some(llvm_function) = self.closure_entries.get(&entry.key).copied() else {
+            let Some(llvm_function) = self.closure_entries.borrow().get(&entry.key).copied() else {
                 return Err(self.error(entry.span, "missing generated closure entry"));
             };
             let mut params = Vec::with_capacity(entry.params.len() + 1);

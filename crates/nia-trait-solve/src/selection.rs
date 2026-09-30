@@ -296,6 +296,76 @@ impl TraitSolver<'_> {
                 }
             }
             Some(TyKind::SelfParam) => matches!(self.interner.get(actual), Some(TyKind::SelfParam)),
+            Some(TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::FunctionItem {
+                    def_id: actual_def,
+                    arg_module_id: actual_module,
+                    self_arg: actual_self,
+                    args: actual_args,
+                    const_args: actual_const_args,
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: actual_variadic,
+                }) if def_id == actual_def
+                    && arg_module_id == actual_module
+                    && is_variadic == actual_variadic
+                    && args.len() == actual_args.len()
+                    && const_args.len() == actual_const_args.len()
+                    && params.len() == actual_params.len() =>
+                {
+                    (match (self_arg, actual_self) {
+                        (Some(left), Some(right)) => self.match_impl_pattern_with_consts(
+                            left,
+                            right,
+                            substitutions,
+                            const_substitutions,
+                        ),
+                        (None, None) => true,
+                        _ => false,
+                    }) && args.iter().zip(actual_args).all(|(left, right)| {
+                        self.match_impl_pattern_with_consts(
+                            *left,
+                            right,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    }) && const_args
+                        .iter()
+                        .zip(actual_const_args)
+                        .all(|(left, right)| {
+                            self.match_const_impl_pattern(
+                                left,
+                                &right,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && params.iter().zip(actual_params).all(|(left, right)| {
+                            self.match_impl_pattern_with_consts(
+                                *left,
+                                right,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                        && self.match_impl_pattern_with_consts(
+                            return_type,
+                            actual_return,
+                            substitutions,
+                            const_substitutions,
+                        )
+                }
+                _ => false,
+            },
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
             }
@@ -463,12 +533,17 @@ impl TraitSolver<'_> {
                 params,
                 return_type,
                 is_variadic,
+                abi,
             }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::FunctionPointer {
                     params: actual_params,
                     return_type: actual_return,
                     is_variadic: actual_variadic,
-                }) if is_variadic == actual_variadic && params.len() == actual_params.len() => {
+                    abi: actual_abi,
+                }) if abi == actual_abi
+                    && is_variadic == actual_variadic
+                    && params.len() == actual_params.len() =>
+                {
                     params
                         .iter()
                         .zip(actual_params)

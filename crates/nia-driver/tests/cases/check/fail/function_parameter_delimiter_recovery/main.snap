@@ -10,6 +10,6 @@ error[E0101]: expected `,` or `)` after parameter; found `second`
   --> fail/function_parameter_delimiter_recovery/main.nia:1:24
   |
 1 | fn retained(first: i32 second: bool) () {
-  |                        ^^^^^^ expected `,` or `)` after parameter; found `second`
+  |                        ^^^^^^
 
 summary: 1 error, 0 warnings

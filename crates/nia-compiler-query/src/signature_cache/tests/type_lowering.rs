@@ -101,6 +101,7 @@ fn type_lowering_roundtrip_rehydrates_canonical_type_graph() {
         params: vec![projection, append.test_intern(TyKind::SelfParam)],
         return_type: append.test_intern(TyKind::Optional { elem: nominal }),
         is_variadic: true,
+        abi: nia_ty::FunctionPointerAbi::Nia,
     });
     let opaque = append.test_intern(TyKind::Opaque);
     let tuple = append.test_intern(TyKind::Tuple(vec![primitive, opaque, array]));

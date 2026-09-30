@@ -29,16 +29,19 @@ fn validates_enum_expression_contracts_before_llvm() {
         params: Vec::new(),
         return_type: enum_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let wrong_param_constructor_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![bool_ty],
         return_type: enum_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let wrong_return_constructor_ty = interner.test_intern(TyKind::FunctionPointer {
         params: vec![i32_ty],
         return_type: bool_ty,
         is_variadic: false,
+        abi: FunctionPointerAbi::Nia,
     });
     let span = Span::default();
     let value = |ty| FunctionExpr {
