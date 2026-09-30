@@ -243,6 +243,15 @@ impl TargetMachine {
             }
         };
         unsafe { LLVMDisposeMemoryBuffer(buffer) };
+        // Code generation reports some errors, such as invalid inline
+        // assembly, as context diagnostics while still emitting an object.
+        let context = unsafe { llvm_sys::core::LLVMGetModuleContext(module.as_mut_ptr()) };
+        if let Some(sink) = super::context::DiagnosticSink::of(context) {
+            let errors = sink.take_errors();
+            if !errors.is_empty() {
+                return Err(LlvmError::error(errors.join("\n")));
+            }
+        }
         Ok(bytes)
     }
 }
@@ -364,5 +373,42 @@ mod tests {
             !object.is_empty(),
             "native object buffer must contain bytes"
         );
+    }
+
+    // LLVM reports invalid assembly as a context diagnostic and still returns
+    // an object; emission must fail instead of publishing it.
+    #[test]
+    fn assembler_errors_fail_object_emission() {
+        let context = super::super::Context::create().expect("create LLVM context");
+        let module = context
+            .create_module("invalid-assembly")
+            .expect("create LLVM module");
+        let target = TargetMachine::for_identity(&test_host_identity(), OptimizationLevel::None)
+            .expect("create native target machine");
+        target
+            .configure_module(&module)
+            .expect("configure module target data and triple");
+        let assembly = "nia_not_an_instruction";
+        unsafe {
+            llvm_sys::core::LLVMSetModuleInlineAsm2(
+                module.as_mut_ptr(),
+                assembly.as_ptr().cast(),
+                assembly.len(),
+            );
+        }
+        let error = target
+            .emit_object(&module)
+            .expect_err("invalid assembly must fail emission");
+        assert!(
+            matches!(&error, LlvmError::Error(message) if message.contains("nia_not_an_instruction")),
+            "{error:?}"
+        );
+        // The error is reported once; a later emission starts clean.
+        unsafe {
+            llvm_sys::core::LLVMSetModuleInlineAsm2(module.as_mut_ptr(), "".as_ptr().cast(), 0);
+        }
+        target
+            .emit_object(&module)
+            .expect("valid module after an earlier error");
     }
 }
