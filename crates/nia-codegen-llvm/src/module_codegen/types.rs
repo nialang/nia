@@ -170,33 +170,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         is_variadic: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
-        let param_tys = param_tys.into_iter().collect::<Vec<_>>();
-        let abi = nia_abi_check::classify_c_signature(
-            self.source.layouts.target,
-            param_tys.iter().map(|(ty, _)| *ty),
-            return_type,
-            self.program.type_store(),
-        );
-        let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        for (param, (_, param_span)) in abi.parameters.into_iter().zip(param_tys) {
-            if let nia_abi_check::AbiParam::Direct { ty } = param {
-                llvm_params.push(self.llvm_basic_type_in(ty, param_span)?);
-            }
-        }
-        match abi.return_mode {
-            nia_abi_check::AbiReturn::IgnoreZst => self
-                .context
-                .void_type()
-                .fn_type(&llvm_params, is_variadic)
-                .map_err(Self::diagnostic_from_llvm_error),
-            nia_abi_check::AbiReturn::Direct { ty } => self
-                .llvm_basic_type_in(ty, span)?
-                .fn_type(&llvm_params, is_variadic)
-                .map_err(Self::diagnostic_from_llvm_error),
-            nia_abi_check::AbiReturn::SRet { .. } | nia_abi_check::AbiReturn::Never => {
-                Err(self.error(span, "invalid C ABI return classification"))
-            }
-        }
+        let params = self.c_params(param_tys)?;
+        let ret = self.c_return_type(return_type, span)?;
+        let abi = self.classify_c(&params, ret.as_ref());
+        self.c_abi_function_type(&abi, &params, return_type, is_variadic, span)
     }
 
     pub(crate) fn function_pointer_type_in(
@@ -1438,7 +1415,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 /// Layout products store field slots with a module-local [`DefId`]. Reattach
 /// the aggregate owner before comparing that slot with a program-wide field
 /// identity so equal local numbers from different modules cannot alias.
-fn layout_field_matches(
+pub(super) fn layout_field_matches(
     aggregate: GlobalDefId,
     local_field: nia_ids::DefId,
     requested: &GlobalDefId,

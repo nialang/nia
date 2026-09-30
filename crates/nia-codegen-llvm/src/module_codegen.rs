@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod c_abi;
 mod declarations;
 mod static_init;
 mod trait_objects;
@@ -8,6 +9,7 @@ pub(crate) use trait_objects::{
     checked_vtable_array_len, checked_vtable_index, checked_vtable_slot_array_len,
 };
 
+pub(crate) use c_abi::CParam;
 pub(crate) use types::{AbiParam, AbiReturn};
 
 use std::{cell::RefCell, collections::HashMap};
@@ -847,6 +849,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     tracks_caller: instance
                         .attributes
                         .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
+                    is_extern: instance.linkage.is_extern(),
                 },
                 llvm_function,
             )?;
@@ -885,6 +888,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     span: entry.span,
                     closure_owner: entry.key.owner.clone(),
                     tracks_caller: false,
+                    is_extern: false,
                 },
                 llvm_function,
             )?;

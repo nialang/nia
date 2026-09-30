@@ -130,7 +130,12 @@ fn main() i32 {
             program: nia_layout::ProgramLayoutContext::default(),
         })
         .expect("compute backend-lower test layouts");
-    let _abi = check_module_abi(&defs, &type_store, &signatures);
+    let _abi = check_module_abi(
+        &defs,
+        &type_store,
+        &signatures,
+        nia_target::TargetConfig::host().expect("tests run on a maintained host"),
+    );
     let _flow = check_module_flow(&module, &type_store, &signatures);
     let point_id = defs
         .module_scope

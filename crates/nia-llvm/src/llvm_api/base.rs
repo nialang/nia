@@ -11,22 +11,22 @@
 //! higher-level code must keep the originating `Context`/`Module` alive and must
 //! use the typed constructors instead of fabricating raw handles.
 
-use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
-    LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstBitCast,
-    LLVMConstGEP2, LLVMConstInBoundsGEP2, LLVMConstInt, LLVMConstIntOfArbitraryPrecision,
-    LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal,
-    LLVMConstVector, LLVMCountParamTypes, LLVMCountParams, LLVMCountStructElementTypes,
-    LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator,
-    LLVMGetCmpXchgFailureOrdering, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
-    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
-    LLVMGetInstructionParent, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
-    LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType,
-    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType,
-    LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsOpaqueStruct, LLVMIsPackedStruct,
-    LLVMMoveBasicBlockAfter, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
-    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVisibility, LLVMSetVolatile,
-    LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMAddAttributeAtIndex, LLVMAddCallSiteAttribute, LLVMAddIncoming, LLVMArrayType2,
+    LLVMConstArray2, LLVMConstBitCast, LLVMConstGEP2, LLVMConstInBoundsGEP2, LLVMConstInt,
+    LLVMConstIntOfArbitraryPrecision, LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull,
+    LLVMConstPointerNull, LLVMConstReal, LLVMConstVector, LLVMCountParamTypes, LLVMCountParams,
+    LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
+    LLVMGetBasicBlockTerminator, LLVMGetCmpXchgFailureOrdering, LLVMGetElementType,
+    LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
+    LLVMGetInstructionOpcode, LLVMGetInstructionParent, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock,
+    LLVMGetNextInstruction, LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace,
+    LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize,
+    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsOpaqueStruct,
+    LLVMIsPackedStruct, LLVMMoveBasicBlockAfter, LLVMSetAlignment, LLVMSetGlobalConstant,
+    LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVisibility,
+    LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
+    LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -34,6 +34,7 @@ use llvm_sys::{
     LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate, LLVMLinkage,
     LLVMOpcode, LLVMRealPredicate, LLVMTypeKind, LLVMVisibility,
 };
+use llvm_sys::{LLVMAttributeFunctionIndex, LLVMAttributeIndex, LLVMAttributeReturnIndex};
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::slice;
@@ -489,6 +490,20 @@ impl From<Visibility> for LLVMVisibility {
 pub enum AttributeLoc {
     /// Function-level attribute index.
     Function,
+    /// The return value.
+    Return,
+    /// The parameter at this zero-based index.
+    Param(u32),
+}
+
+impl AttributeLoc {
+    fn index(self) -> LLVMAttributeIndex {
+        match self {
+            Self::Function => LLVMAttributeFunctionIndex,
+            Self::Return => LLVMAttributeReturnIndex,
+            Self::Param(index) => index + 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2256,10 +2271,7 @@ impl<'ctx> FunctionValue<'ctx> {
 
     /// Attaches `attribute` at the selected function location.
     pub fn add_attribute(self, loc: AttributeLoc, attribute: Attribute<'ctx>) {
-        let index = match loc {
-            AttributeLoc::Function => LLVMAttributeFunctionIndex,
-        };
-        unsafe { LLVMAddAttributeAtIndex(self.raw, index, attribute.raw) };
+        unsafe { LLVMAddAttributeAtIndex(self.raw, loc.index(), attribute.raw) };
     }
 
     /// Views the function through LLVM's global-value API.
@@ -2644,6 +2656,11 @@ impl<'ctx> CallSiteValue<'ctx> {
             raw,
             _marker: PhantomData,
         }
+    }
+
+    /// Attaches `attribute` at the selected location of this call.
+    pub fn add_attribute(self, loc: AttributeLoc, attribute: Attribute<'ctx>) {
+        unsafe { LLVMAddCallSiteAttribute(self.raw, loc.index(), attribute.raw) };
     }
 
     /// Classifies this call as void or as a fallible first-class value.

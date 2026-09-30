@@ -2,6 +2,7 @@
 mod aggregate;
 mod asm;
 mod atomic;
+mod c_call;
 mod call;
 mod defer;
 mod function_body;
@@ -53,6 +54,7 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
         HashMap<(FunctionScopeId, usize, BasicBlock<'ctx>), BasicBlock<'ctx>>,
     function_return_cleanup_return: Option<BasicBlock<'ctx>>,
     pending_function_return_cleanups: Vec<FunctionReturnCleanup<'ctx>>,
+    c_definition: Option<std::rc::Rc<c_call::CDefinitionAbi>>,
 }
 
 struct FunctionReturnCleanup<'ctx> {
@@ -79,6 +81,8 @@ pub(super) struct FunctionCodegenInput<'a> {
     pub(super) span: Span,
     pub(super) closure_owner: BackendClosureEntryOwner,
     pub(super) tracks_caller: bool,
+    // Definitions with C linkage take and return values through the C ABI.
+    pub(super) is_extern: bool,
 }
 
 impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
@@ -92,6 +96,7 @@ impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
             tracks_caller: function
                 .attributes
                 .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
+            is_extern: function.linkage.is_extern(),
         }
     }
 }
@@ -107,7 +112,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .context
             .create_builder()
             .map_err(ModuleCodegen::diagnostic_from_llvm_error)?;
-        Ok(Self {
+        let mut codegen = Self {
             module,
             builder,
             function,
@@ -124,7 +129,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             function_return_cleanup_blocks: HashMap::new(),
             function_return_cleanup_return: None,
             pending_function_return_cleanups: Vec::new(),
-        })
+            c_definition: None,
+        };
+        codegen.c_definition = codegen.c_definition_abi()?.map(std::rc::Rc::new);
+        Ok(codegen)
     }
 
     fn alloc_function_locals(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
@@ -202,6 +210,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn store_params(&mut self) -> Result<(), Diagnostic> {
+        if let Some(definition) = self.c_definition.clone() {
+            return self.store_c_params(&definition);
+        }
         let classifications = self
             .module
             .classify_function_params(self.function.params.iter().map(|param| param.passing_ty));
@@ -260,11 +271,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn function_out_ptr(&self) -> Result<Option<PointerValue<'ctx>>, Diagnostic> {
-        if !matches!(
-            self.module
-                .classify_function_return(self.function.return_type),
-            AbiReturn::IndirectOut(_)
-        ) {
+        let returns_indirect = match &self.c_definition {
+            Some(definition) => {
+                matches!(definition.abi.ret, nia_abi_check::c_abi::CRet::SRet { .. })
+            }
+            None => matches!(
+                self.module
+                    .classify_function_return(self.function.return_type),
+                AbiReturn::IndirectOut(_)
+            ),
+        };
+        if !returns_indirect {
             return Ok(None);
         }
         let Some(value) = self.llvm_function.get_nth_param(0) else {
@@ -276,6 +293,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn function_caller_location(&self) -> Result<Option<PointerValue<'ctx>>, Diagnostic> {
         if !self.function.tracks_caller {
             return Ok(None);
+        }
+        if self.c_definition.is_some() {
+            return Err(self.error(
+                self.function.span,
+                "a C-ABI definition cannot receive a caller location",
+            ));
         }
         let direct_params = self
             .module
@@ -307,6 +330,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
+        if let Some(definition) = self.c_definition.clone() {
+            return self.emit_c_return(&definition.abi.ret, span, value);
+        }
         match self
             .module
             .classify_function_return(self.function.return_type)

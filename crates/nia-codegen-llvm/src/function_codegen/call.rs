@@ -11,6 +11,7 @@ use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::{TyKind, TypeEquivalence};
 
+use super::c_call::CCallTarget;
 use super::{FunctionCodegen, callee_is_extern, method_requires_instance_metadata};
 
 struct DynamicTraitMethodCall<'a, 'ctx> {
@@ -151,6 +152,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if matches!(callee, FunctionCallee::Callable(_)) {
             return self.emit_callable_value_call(expr, callee, args);
         }
+        if callee_is_extern(self, callee) {
+            return self
+                .emit_extern_call(expr, callee, args)?
+                .ok_or_else(|| self.error(expr.span, "unit call cannot be used as a value"));
+        }
         match self.module.classify_function_return(expr.ty) {
             AbiReturn::IndirectOut(ty) if !callee_is_extern(self, callee) => {
                 let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
@@ -175,6 +181,96 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "unit call cannot be used as a value"))
             }
         }
+    }
+
+    /// Calls a function with C linkage through the target C calling
+    /// convention and returns its result in memory form.
+    fn emit_extern_call(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+    ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
+        let (function, fixed, is_variadic) = match callee {
+            FunctionCallee::Function(def_id) => {
+                let function = self
+                    .module
+                    .function(*def_id)
+                    .ok_or_else(|| self.error(expr.span, "missing callee function"))?;
+                let item = self
+                    .module
+                    .function_item(*def_id)
+                    .ok_or_else(|| self.error(expr.span, "missing callee function metadata"))?;
+                (
+                    function,
+                    item.params
+                        .iter()
+                        .map(|param| param.passing_ty)
+                        .collect::<Vec<_>>(),
+                    item.is_variadic,
+                )
+            }
+            FunctionCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args: type_args,
+                const_args,
+            } => {
+                let instance = self
+                    .module
+                    .function_instance_item_with_arg_module(
+                        *def_id,
+                        *arg_module_id,
+                        *self_arg,
+                        type_args,
+                        const_args,
+                    )
+                    .ok_or_else(|| self.error(expr.span, "missing callee function instance"))?;
+                let function = self
+                    .module
+                    .function_instance_value(
+                        instance.def_id,
+                        instance.arg_module_id,
+                        instance.self_arg,
+                        &instance.args,
+                        &instance.const_args,
+                    )
+                    .ok_or_else(|| self.error(expr.span, "missing callee function instance"))?;
+                (
+                    function,
+                    instance
+                        .params
+                        .iter()
+                        .map(|param| param.passing_ty)
+                        .collect(),
+                    instance.is_variadic,
+                )
+            }
+            _ => return Err(self.error(expr.span, "unsupported C-ABI callee")),
+        };
+        if !call_arity_is_valid(args.len(), fixed.len(), is_variadic) {
+            return Err(self.error(
+                expr.span,
+                format!(
+                    "C call has {} arguments for {} declared parameters",
+                    args.len(),
+                    fixed.len()
+                ),
+            ));
+        }
+        let mut values = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let ty = fixed.get(index).copied().unwrap_or(arg.ty);
+            values.push((self.emit_expr(arg)?, ty));
+        }
+        self.emit_c_call(
+            expr.span,
+            CCallTarget::Direct(function),
+            &fixed,
+            expr.ty,
+            values,
+        )
     }
 
     fn emit_callable_value_call(
@@ -347,6 +443,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         if let FunctionCallee::Callable(receiver) = callee {
             let _ = self.emit_callable_dispatch(expr, receiver, args, destination, false)?;
+        } else if callee_is_extern(self, callee) {
+            let value = self.emit_extern_call(expr, callee, args)?;
+            if let (Some(destination), Some(value)) = (destination, value) {
+                self.builder
+                    .build_store(destination, value)
+                    .map_err(|_| self.error(expr.span, "failed to store C call result"))?;
+            }
         } else {
             let _ = self.emit_call_raw_with_out(expr, callee, args, destination)?;
         }
@@ -499,17 +602,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(function_item) = self.module.function_item(*def_id) else {
                     return Err(self.error(expr.span, "missing callee function metadata"));
                 };
-                let mut llvm_args = if function_item.linkage.is_extern() {
-                    self.emit_c_call_args(
-                        expr.span,
-                        args,
-                        function_item.params.len(),
-                        function_item.is_variadic,
-                    )?
-                } else {
-                    let param_tys = function_item.params.iter().map(|param| param.passing_ty);
-                    self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
-                };
+                if function_item.linkage.is_extern() {
+                    return Err(self.error(expr.span, "C call bypassed C ABI lowering"));
+                }
+                let param_tys = function_item.params.iter().map(|param| param.passing_ty);
+                let mut llvm_args =
+                    self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?;
                 if let Some(caller_location) = caller_location {
                     llvm_args.push(caller_location.into());
                 }
@@ -533,17 +631,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ) else {
                     return Err(self.error(expr.span, "missing callee function instance"));
                 };
-                let mut llvm_args = if instance.linkage.is_extern() {
-                    self.emit_c_call_args(
-                        expr.span,
-                        args,
-                        instance.params.len(),
-                        instance.is_variadic,
-                    )?
-                } else {
-                    let param_tys = instance.params.iter().map(|param| param.passing_ty);
-                    self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
-                };
+                if instance.linkage.is_extern() {
+                    return Err(self.error(expr.span, "C call bypassed C ABI lowering"));
+                }
+                let param_tys = instance.params.iter().map(|param| param.passing_ty);
+                let mut llvm_args =
+                    self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?;
                 if let Some(caller_location) = caller_location {
                     llvm_args.push(caller_location.into());
                 }
@@ -574,13 +667,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 receiver_kind,
                 receiver,
             } => {
-                let (function, is_extern, is_variadic, param_tys) =
+                let (function, is_extern, param_tys) =
                     if !method_requires_instance_metadata(*self_arg, type_args, const_args) {
                         let item = self.module.function_item(*def_id);
                         (
                             self.module.function(*def_id),
                             item.is_some_and(|item| item.linkage.is_extern()),
-                            item.is_some_and(|item| item.is_variadic),
                             item.map(|item| {
                                 item.params
                                     .iter()
@@ -598,7 +690,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         );
                         let is_extern =
                             instance.is_some_and(|instance| instance.linkage.is_extern());
-                        let is_variadic = instance.is_some_and(|instance| instance.is_variadic);
                         (
                             instance.and_then(|instance| {
                                 self.module.function_instance_value(
@@ -610,7 +701,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                                 )
                             }),
                             is_extern,
-                            is_variadic,
                             instance.map(|instance| {
                                 instance
                                     .params
@@ -632,55 +722,51 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(param_tys) = param_tys else {
                     return Err(self.error(expr.span, "missing method metadata"));
                 };
-                let mut llvm_args = if is_extern {
-                    let mut call_args = Vec::with_capacity(args.len() + 1);
-                    call_args.push(receiver.as_ref());
-                    call_args.extend(args.iter());
-                    self.emit_c_call_args_refs(expr.span, &call_args, param_tys.len(), is_variadic)?
-                } else {
-                    let mut llvm_args = Vec::new();
-                    if let Some(out_ptr) = out_ptr {
-                        llvm_args.push(out_ptr.into());
-                    }
-                    let receiver_ty = param_tys.first().copied().ok_or_else(|| {
-                        self.error(expr.span, "method metadata is missing receiver parameter")
+                // The ABI checker rejects `extern` methods.
+                if is_extern {
+                    return Err(self.error(expr.span, "C-ABI method call reached LLVM codegen"));
+                }
+                let mut llvm_args = Vec::new();
+                if let Some(out_ptr) = out_ptr {
+                    llvm_args.push(out_ptr.into());
+                }
+                let receiver_ty = param_tys.first().copied().ok_or_else(|| {
+                    self.error(expr.span, "method metadata is missing receiver parameter")
+                })?;
+                let receiver_abi = self
+                    .module
+                    .classify_function_params(std::iter::once(receiver_ty))
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        self.error(expr.span, "method receiver ABI classification is missing")
                     })?;
-                    let receiver_abi = self
-                        .module
-                        .classify_function_params(std::iter::once(receiver_ty))
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| {
-                            self.error(expr.span, "method receiver ABI classification is missing")
-                        })?;
-                    match receiver_abi {
-                        AbiParam::Direct(_) => llvm_args.push(self.emit_method_receiver_arg(
-                            *receiver_kind,
-                            receiver_ty,
-                            receiver,
-                        )?),
-                        AbiParam::IndirectReadonly(_) => {
-                            llvm_args.push(self.emit_arg_address(expr.span, receiver)?.into())
-                        }
-                        AbiParam::Omit => match receiver_kind {
-                            ReceiverKind::Value => self.emit_effect_expr(receiver)?,
-                            ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
-                                return Err(self.error(
-                                    expr.span,
-                                    "by-reference method receiver was omitted by ABI classification",
-                                ));
-                            }
-                        },
+                match receiver_abi {
+                    AbiParam::Direct(_) => llvm_args.push(self.emit_method_receiver_arg(
+                        *receiver_kind,
+                        receiver_ty,
+                        receiver,
+                    )?),
+                    AbiParam::IndirectReadonly(_) => {
+                        llvm_args.push(self.emit_arg_address(expr.span, receiver)?.into())
                     }
-                    llvm_args.extend(self.emit_call_args(
-                        expr.span,
-                        args,
-                        param_tys.into_iter().skip(1),
-                        None,
-                        false,
-                    )?);
-                    llvm_args
-                };
+                    AbiParam::Omit => match receiver_kind {
+                        ReceiverKind::Value => self.emit_effect_expr(receiver)?,
+                        ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
+                            return Err(self.error(
+                                expr.span,
+                                "by-reference method receiver was omitted by ABI classification",
+                            ));
+                        }
+                    },
+                }
+                llvm_args.extend(self.emit_call_args(
+                    expr.span,
+                    args,
+                    param_tys.into_iter().skip(1),
+                    None,
+                    false,
+                )?);
                 if let Some(caller_location) = caller_location {
                     llvm_args.push(caller_location.into());
                 }
@@ -1031,56 +1117,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.module.ty_kind(ty),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. })
         )
-    }
-
-    fn emit_c_call_args(
-        &mut self,
-        span: Span,
-        args: &[FunctionExpr],
-        fixed_arg_count: usize,
-        is_variadic: bool,
-    ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
-        if !call_arity_is_valid(args.len(), fixed_arg_count, is_variadic) {
-            return Err(self.error(
-                span,
-                format!(
-                    "C call has {} arguments but its ABI requires {}{}",
-                    args.len(),
-                    fixed_arg_count,
-                    if is_variadic {
-                        " fixed arguments"
-                    } else {
-                        " arguments"
-                    }
-                ),
-            ));
-        }
-        args.iter().map(|arg| self.emit_expr(arg)).collect()
-    }
-
-    fn emit_c_call_args_refs(
-        &mut self,
-        span: Span,
-        args: &[&FunctionExpr],
-        fixed_arg_count: usize,
-        is_variadic: bool,
-    ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
-        if !call_arity_is_valid(args.len(), fixed_arg_count, is_variadic) {
-            return Err(self.error(
-                span,
-                format!(
-                    "C call has {} arguments but its ABI requires {}{}",
-                    args.len(),
-                    fixed_arg_count,
-                    if is_variadic {
-                        " fixed arguments"
-                    } else {
-                        " arguments"
-                    }
-                ),
-            ));
-        }
-        args.iter().map(|arg| self.emit_expr(arg)).collect()
     }
 
     fn emit_arg_address(

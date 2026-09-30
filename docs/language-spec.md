@@ -1459,9 +1459,19 @@ symbol with `@[linkName("...")]`. Static definitions cannot use
 
 Extern functions default to return type `()` when no return type is written.
 Variadic functions are only allowed as body-less `extern fn` declarations.
+Arguments past a variadic declaration's fixed parameters receive C's default
+argument promotions: integers narrower than 32 bits widen to 32 bits, and
+`f32` widens to `f64`.
+
+In an executable, every top-level `pub extern fn` definition of the entry
+package is part of the program's external interface: it is compiled and
+exported even when no Nia code calls it, so linked foreign code can call it
+by name.
 
 Nia does not provide `extern { ... }` blocks or explicit ABI strings. All
-`extern` functions, globals, and structs use the C ABI.
+`extern` functions, globals, and structs use the C ABI of the artifact
+target; [`docs/nia-abi.md`](nia-abi.md#161-target-calling-conventions)
+defines how values cross it.
 
 ### 5.4 Type Aliases
 

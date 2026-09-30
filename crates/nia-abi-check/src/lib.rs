@@ -18,16 +18,10 @@ use nia_item_signatures::{
 };
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_span::Span;
+use nia_target::{Arch, TargetConfig};
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
 
-/// ABI domain used when producing a function signature.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AbiDomain {
-    /// Internal Nia calling convention.
-    Nia,
-    /// Explicit foreign/C calling convention.
-    C,
-}
+pub mod c_abi;
 
 /// Representation of one source parameter after ABI classification.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,7 +74,8 @@ pub enum AbiHiddenParam {
     CallerLocation { position: AbiHiddenParamPosition },
 }
 
-/// Complete, cacheable ABI product for one function signature.
+/// Complete, cacheable internal Nia ABI product for one function signature.
+/// C-ABI signatures are classified per target by [`c_abi`].
 ///
 /// This product is intentionally independent of LLVM handles. Consumers use
 /// the same classification for declarations, calls, function pointers,
@@ -88,7 +83,6 @@ pub enum AbiHiddenParam {
 /// inputs supplied by the demand-driven compiler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbiSignature {
-    pub domain: AbiDomain,
     pub target: TargetDataLayout,
     pub parameters: Vec<AbiParam>,
     pub return_mode: AbiReturn,
@@ -130,7 +124,6 @@ pub fn classify_nia_signature(
         });
     }
     AbiSignature {
-        domain: AbiDomain::Nia,
         target,
         parameters,
         return_mode,
@@ -156,39 +149,6 @@ pub fn classify_nia_return(
     mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
 ) -> AbiReturn {
     classify_return(type_store, ty, &mut layout_of, &mut payloadless_enum)
-}
-
-/// Produces the C-domain signature for an already validated extern function.
-/// C ABI legality remains the responsibility of [`check_module_abi`]; this
-/// product only records the machine-level direct/void shape consumed by LLVM.
-pub fn classify_c_signature(
-    target: TargetDataLayout,
-    params: impl IntoIterator<Item = nia_ids::InternedTyId>,
-    return_type: nia_ids::InternedTyId,
-    type_store: &TypeStore,
-) -> AbiSignature {
-    let parameters = params
-        .into_iter()
-        .map(|ty| {
-            if type_store.get(ty).is_some_and(TyKind::is_unit) {
-                AbiParam::IgnoreZst
-            } else {
-                AbiParam::Direct { ty }
-            }
-        })
-        .collect();
-    let return_mode = if type_store.get(return_type).is_some_and(TyKind::is_unit) {
-        AbiReturn::IgnoreZst
-    } else {
-        AbiReturn::Direct { ty: return_type }
-    };
-    AbiSignature {
-        domain: AbiDomain::C,
-        target,
-        parameters,
-        return_mode,
-        hidden_parameters: Vec::new(),
-    }
 }
 
 fn is_zst(
@@ -341,6 +301,7 @@ pub fn check_module_abi(
     defs: &DefCollection,
     type_store: &TypeStore,
     signatures: &ItemSignatures,
+    target: TargetConfig,
 ) -> nia_ice::IceResult<AbiCheck> {
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
@@ -356,6 +317,7 @@ pub fn check_module_abi(
             enums: &empty_enums,
             type_aliases: &empty_type_aliases,
         },
+        target,
     )
 }
 
@@ -365,6 +327,7 @@ pub fn check_module_abi_with_program_signatures(
     type_store: &TypeStore,
     signatures: &ItemSignatures,
     program_signatures: ProgramAbiSignatures<'_>,
+    target: TargetConfig,
 ) -> nia_ice::IceResult<AbiCheck> {
     check_module_abi_families_with_program_signatures(
         defs,
@@ -378,6 +341,7 @@ pub fn check_module_abi_with_program_signatures(
             globals: &signatures.globals,
         },
         program_signatures,
+        target,
     )
 }
 
@@ -387,12 +351,14 @@ pub fn check_module_abi_families_with_program_signatures(
     type_store: &TypeStore,
     signatures: ModuleAbiSignatures<'_>,
     program_signatures: ProgramAbiSignatures<'_>,
+    target: TargetConfig,
 ) -> nia_ice::IceResult<AbiCheck> {
     let mut checker = AbiChecker {
         defs,
         type_store,
         signatures,
         program_signatures,
+        target,
         diagnostics: Vec::new(),
         internal_error: None,
     };
@@ -413,6 +379,7 @@ struct AbiChecker<'a> {
     type_store: &'a TypeStore,
     signatures: ModuleAbiSignatures<'a>,
     program_signatures: ProgramAbiSignatures<'a>,
+    target: TargetConfig,
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
 }
@@ -611,6 +578,19 @@ impl AbiChecker<'_> {
                     format!("{context_desc} cannot use `never` directly"),
                     "a C function boundary must have a returning result type",
                     "use `()` for a returning function, or remove the foreign declaration for a diverging function",
+                ))
+            }
+            Some(TyKind::Primitive(PrimitiveTy::I128 | PrimitiveTy::U128))
+                if self.target.arch() == Arch::X86 =>
+            {
+                self.diagnostics.push(extern_type_diagnostic(
+                    span,
+                    format!(
+                        "{context_desc} cannot use a 128-bit integer on `{}`",
+                        self.target
+                    ),
+                    "the target's C ABI has no 128-bit integer type",
+                    "split the value into two 64-bit integers",
                 ))
             }
             Some(TyKind::Primitive(_))
@@ -952,6 +932,10 @@ impl AbiChecker<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn linux_x86_64() -> TargetConfig {
+        TargetConfig::parse("x86_64-unknown-linux").expect("maintained target")
+    }
     use nia_defs::collect_module_defs;
     use nia_ids::ModuleIdAllocator;
     use nia_item_signatures::{
@@ -1023,7 +1007,8 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
             symbols: None,
         })
         .expect("collect item signatures");
-        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
+        let checked = check_module_abi(&defs, &type_store, &signatures, linux_x86_64())
+            .expect("check module ABI");
         for expected in [
             "`bool`",
             "`char`",
@@ -1110,8 +1095,60 @@ extern fn consume(header: Header);
             symbols: None,
         })
         .expect("collect item signatures");
-        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
+        let checked = check_module_abi(&defs, &type_store, &signatures, linux_x86_64())
+            .expect("check module ABI");
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn rejects_128_bit_integers_where_the_c_abi_has_none() {
+        let (module, errors) = parse_module(
+            r#"
+extern struct Wide {
+    value: u128,
+}
+
+extern fn consume(value: i128, wide: Wide) i128;
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let defs = collect_module_defs(module_id, &module).expect("collect definitions");
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new().expect("create type store");
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        )
+        .expect("lower module types");
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        })
+        .expect("collect item signatures");
+        let check = |target: &str| {
+            let target = TargetConfig::parse(target).expect("maintained target");
+            check_module_abi(&defs, &type_store, &signatures, target)
+                .expect("check module ABI")
+                .diagnostics
+        };
+        assert!(check("x86_64-unknown-linux").is_empty());
+        assert!(check("aarch64-apple-macos").is_empty());
+        let rejected = check("x86-unknown-linux");
+        // The parameter, the return type, and the struct field.
+        assert_eq!(rejected.len(), 3, "{rejected:?}");
+        assert!(
+            rejected
+                .iter()
+                .all(|diagnostic| diagnostic.summary.contains("128-bit integer")),
+            "{rejected:?}"
+        );
     }
 
     #[test]
@@ -1144,7 +1181,8 @@ extern struct Header[N: usize] {
             symbols: None,
         })
         .expect("collect item signatures");
-        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
+        let checked = check_module_abi(&defs, &type_store, &signatures, linux_x86_64())
+            .expect("check module ABI");
         assert!(
             checked
                 .diagnostics
@@ -1268,6 +1306,7 @@ extern struct Header[N: usize] {
                 enums: &empty_enums,
                 type_aliases: &empty_aliases,
             },
+            linux_x86_64(),
         )
         .expect("check module ABI families");
         assert!(
@@ -1317,7 +1356,8 @@ extern fn effect() Unit;
             symbols: None,
         })
         .expect("collect item signatures");
-        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
+        let checked = check_module_abi(&defs, &type_store, &signatures, linux_x86_64())
+            .expect("check module ABI");
 
         assert_eq!(
             checked
@@ -1368,7 +1408,8 @@ extern struct Header { values: Repeat[bool, 4] }
             symbols: None,
         })
         .expect("collect item signatures");
-        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
+        let checked = check_module_abi(&defs, &type_store, &signatures, linux_x86_64())
+            .expect("check module ABI");
 
         assert!(
             checked
@@ -1418,7 +1459,8 @@ extern fn bad_return() (i32, bool);
             symbols: None,
         })
         .expect("collect item signatures");
-        let checked = check_module_abi(&defs, &type_store, &signatures).expect("check module ABI");
+        let checked = check_module_abi(&defs, &type_store, &signatures, linux_x86_64())
+            .expect("check module ABI");
         assert_eq!(
             checked
                 .diagnostics
@@ -1457,7 +1499,6 @@ extern fn bad_return() (i32, bool);
             },
             |_| false,
         );
-        assert_eq!(signature.domain, AbiDomain::Nia);
         assert_eq!(signature.parameters[0], AbiParam::IgnoreZst);
         assert!(matches!(signature.parameters[1], AbiParam::Direct { ty } if ty == i32_ty));
         assert_eq!(signature.return_mode, AbiReturn::IgnoreZst);
@@ -1511,27 +1552,5 @@ extern fn bad_return() (i32, bool);
                 position: AbiHiddenParamPosition::Prefix
             }]
         );
-    }
-
-    #[test]
-    fn c_signature_is_a_distinct_direct_domain() {
-        use nia_ids::ModuleIdAllocator;
-        use nia_layout::TargetDataLayout;
-        use nia_ty::PrimitiveTy;
-
-        let store = TypeStore::new().expect("create type store");
-        let module = ModuleIdAllocator::new()
-            .expect("create module ID allocator")
-            .allocate()
-            .expect("allocate module ID");
-        let append = store.append_for_module(module);
-        let unit = append.test_intern(TyKind::Tuple(Vec::new()));
-        let i32_ty = append.test_primitive(PrimitiveTy::I32);
-        let signature = classify_c_signature(TargetDataLayout::LP64, [i32_ty, unit], unit, &store);
-        assert_eq!(signature.domain, AbiDomain::C);
-        assert!(matches!(signature.parameters[0], AbiParam::Direct { ty } if ty == i32_ty));
-        assert_eq!(signature.parameters[1], AbiParam::IgnoreZst);
-        assert_eq!(signature.return_mode, AbiReturn::IgnoreZst);
-        assert!(signature.hidden_parameters.is_empty());
     }
 }

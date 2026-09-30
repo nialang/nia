@@ -1,0 +1,13 @@
+// 128-bit integers at the C boundary, for targets with `__int128`.
+extern struct Q { a: i128 }
+extern fn r_i128() i128;
+extern fn t_i128(v: i128) ();
+extern fn t_q(v: Q) ();
+extern fn r_q() Q;
+
+pub extern fn use_i128() () {
+    _ = r_i128();
+    t_i128(0);
+    t_q(Q { a: 0 });
+    _ = r_q();
+}

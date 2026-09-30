@@ -9,10 +9,10 @@ use llvm_sys::bit_reader::LLVMParseBitcodeInContext2;
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMConstStringInContext2, LLVMContextCreate,
     LLVMContextDispose, LLVMCreateBuilderInContext, LLVMCreateEnumAttribute,
-    LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMCreateStringAttribute, LLVMDisposeMemoryBuffer,
-    LLVMDisposeModule, LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm,
-    LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext,
-    LLVMInt64TypeInContext, LLVMInt128TypeInContext, LLVMIntTypeInContext,
+    LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMCreateStringAttribute, LLVMCreateTypeAttribute,
+    LLVMDisposeMemoryBuffer, LLVMDisposeModule, LLVMDoubleTypeInContext, LLVMFloatTypeInContext,
+    LLVMGetInlineAsm, LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext,
+    LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt128TypeInContext, LLVMIntTypeInContext,
     LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext, LLVMStructCreateNamed,
     LLVMStructTypeInContext, LLVMVoidTypeInContext,
 };
@@ -214,6 +214,15 @@ impl Context {
         val: u64,
     ) -> LlvmResult<Attribute<'ctx>> {
         Attribute::new(unsafe { LLVMCreateEnumAttribute(self.raw, kind_id, val) })
+    }
+
+    /// Creates a type attribute such as `byval(T)` or `sret(T)`.
+    pub fn create_type_attribute<'ctx>(
+        &'ctx self,
+        kind_id: u32,
+        ty: impl AsTypeRef,
+    ) -> LlvmResult<Attribute<'ctx>> {
+        Attribute::new(unsafe { LLVMCreateTypeAttribute(self.raw, kind_id, ty.as_type_ref()) })
     }
 
     /// Creates a string attribute and rejects a null LLVM result.
