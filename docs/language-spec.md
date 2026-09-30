@@ -2611,6 +2611,12 @@ Inline assembly is target-specific. Its semantics are supplied by the target
 assembler and the surrounding ABI; the assembly string itself is opaque to the
 Nia type system.
 
+`code` is passed unchanged to the target assembler, so every directive that
+assembler accepts is available. On x86 each `asm` call starts in Intel syntax
+without register prefixes; a block may switch with `.att_syntax prefix`, and
+the switch lasts only until the end of that block. Other architectures have a
+single syntax.
+
 Unknown `@...` forms are reserved.
 
 ## 9. Generics
