@@ -336,12 +336,12 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "gnu or lld for ELF, lld-link for COFF, ld64.lld for Mach-O",
                 },
                 HelpRow {
-                    left: "--dynamic-linker <auto|none|path>",
-                    right: "select the ELF interpreter",
+                    left: "--executable <static-pie|static|dynamic>",
+                    right: "select the ELF executable form (default: static-pie)",
                 },
                 HelpRow {
-                    left: "--no-dynamic-linker",
-                    right: "omit the ELF interpreter",
+                    left: "--interpreter <path>",
+                    right: "use this interpreter for a dynamic executable",
                 },
                 HelpRow {
                     left: "-L, --library-path <dir>",
@@ -353,7 +353,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "--rpath <path>",
-                    right: "add a runtime library search path",
+                    right: "add a runtime library search path (dynamic only)",
                 },
                 OPT_REPORT_ROW,
                 RUNTIME_EXE_ROW,

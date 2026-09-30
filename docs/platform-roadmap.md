@@ -20,6 +20,11 @@ in for target decisions, no fallback to the host when a target is unknown.
 
 - Target matrix: `x86_64-linux`, `x86-linux`, `aarch64-linux`,
   `x86_64-windows`, `x86_64-macos`, `aarch64-macos`.
+- Objects follow the platform C toolchain's code model (PIC on Linux and
+  macOS) and export only `extern` symbols, so any toolchain can link them.
+  Linux executables default to static-pie, as macOS executables are always
+  PIE and Windows executables always relocatable; Nia startup relocates the
+  image itself, since there is no interpreter.
 - Conditional compilation spells Darwin as `os == "macos"`.
 - macOS minimum deployment target is 15.0 for both architectures: the oldest
   release that hosted CI can execute, one Mach-O fixup format (chained fixups),
@@ -52,6 +57,7 @@ owner tests and end-to-end evidence for their stated boundary.
 | T3 | Active | Codegen follows the artifact target: `nia-llvm`, `nia-codegen-llvm` | Every target in the matrix initializes and creates its target machine from the artifact target, with a target-appropriate baseline CPU. No codegen call site reads the host triple, CPU or features. Host-`cfg!` decisions in compiler builtins become target decisions. |
 | T4 | Active | Linker flavor from the target: `nia-linker`, `nia-toolchain` | ELF, COFF and Mach-O flavors are chosen by the artifact target; bundled or overridden lld binaries resolve by flavor. Import descriptions replace SDK import libraries; `advapi32` is removed. |
 | T5 | Open | Cross-execution evidence | Linux and Windows hosts each build and run the other's executables where a runner exists; Linux runs i686 natively and aarch64 under QEMU. |
+| T6 | Active | Executable form: `nia-linker`, Linux runtime | ELF executables are static-pie by default and self-relocate in `_start` (REL, RELA, RELR); `--executable static-pie|static|dynamic` is the only form choice, and dynamic-only options are rejected for the others. Nia-mangled symbols are hidden, so objects link into a C toolchain's default PIE and export only `extern` symbols. Evidence: every Linux executable test runs static-pie, and randomized bases are observed on x86_64 and i686. |
 | A1 | Open | C ABI lowering: `nia-abi-check`, codegen | By-value `extern struct` arguments and returns, `sret`/`byval`, small-integer extension and variadic default promotion follow SysV x86_64, Win64 and AAPCS64 (including Apple arm64). Differential tests compare against Clang's IR for the same C declarations. |
 | R1 | Open | aarch64 Linux runtime and std | Startup, system calls and inline assembly dialect for aarch64 Linux; the executable test suite passes under QEMU. |
 | D1 | Open | Darwin link: `nia-linker` | Mach-O links with `-arch`, `-platform_version macos 15.0`, `-e _main` and the bundled `libSystem` stub; arm64 output is ad-hoc signed; every undefined symbol is satisfied by the stub. |

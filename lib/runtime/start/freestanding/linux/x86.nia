@@ -1,9 +1,13 @@
 using pkg::main::callUserMain;
+using pkg::start::freestanding::linux::relocate::relocate;
 using std::math;
 using std::os;
 using std::process;
 
-extern fn niaStartStack(stack: &usize) () {
+// `header` and `dynamic` locate this image for static-pie self-relocation,
+// which must precede every other statement.
+extern fn niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
+    relocate(header, dynamic);
     let argc = stack.*;
     let wordSize = std::builtin::size[usize]();
     let argvAddress = match startupAddress(stack, wordSize) {
@@ -47,9 +51,28 @@ fn startupAddress(stack: &usize, offset: usize) ?usize {
 pub extern fn _start() () {
     std::builtin::asm(.{
         code:
+            // See the x86_64 startup: `_DYNAMIC` is weak because only a
+            // position-independent image has one. i686 has no PC-relative
+            // data addressing, so the address of a local label anchors both
+            // symbol differences. LLVM's Intel syntax cannot spell a symbol
+            // difference, so these two instructions use AT&T syntax.
+            b".weak _DYNAMIC\n"
+            b".hidden _DYNAMIC\n"
+            b".hidden __ehdr_start\n"
             b"mov eax, esp\n"
             b"and esp, -16\n"
-            b"sub esp, 12\n"
+            b"sub esp, 4\n"
+            b"call .Lnia_start_pc\n"
+            b".Lnia_start_pc:\n"
+            b"pop ecx\n"
+            b".att_syntax prefix\n"
+            b"leal _DYNAMIC-.Lnia_start_pc(%ecx), %edx\n"
+            b"leal __ehdr_start-.Lnia_start_pc(%ecx), %ecx\n"
+            b".intel_syntax noprefix\n"
+            // cdecl arguments, pushed last to first, leave the stack 16-byte
+            // aligned at the call.
+            b"push edx\n"
+            b"push ecx\n"
             b"push eax\n"
             // A direct call is PC-relative: no GOT or register operand, so
             // the naked function holds exactly this assembly.

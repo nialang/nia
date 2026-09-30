@@ -1,3 +1,4 @@
+pub(pkg) module relocate;
 @[if arch == "x86_64"]
 pub(pkg) module x86_64;
 @[if arch == "x86"]

@@ -5,7 +5,7 @@ fn args(base: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn default_static_gnu_invocation_keeps_freestanding_shape() {
+fn default_gnu_invocation_is_a_static_pie() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld"),
         ..LinkOptions::default()
@@ -16,7 +16,55 @@ fn default_static_gnu_invocation_keeps_freestanding_shape() {
     assert_eq!(invocation.program, "ld");
     assert_eq!(
         invocation.args,
-        args(&["-e", "_start", "main.o", "-static", "-o", "main"])
+        args(&[
+            "-e",
+            "_start",
+            "main.o",
+            "-static",
+            "-pie",
+            "--no-dynamic-linker",
+            "-z",
+            "text",
+            "-o",
+            "main",
+        ])
+    );
+}
+
+#[test]
+fn static_form_links_at_a_fixed_address() {
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("ld"),
+        ..LinkOptions::default()
+    }
+    .with_form(ExecutableForm::Static);
+    let invocation = options
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
+        .expect("link invocation");
+    assert_eq!(
+        invocation.args,
+        args(&[
+            "-e", "_start", "main.o", "-static", "-z", "text", "-o", "main"
+        ])
+    );
+}
+
+#[test]
+fn lld_static_pie_packs_relative_relocations() {
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program_and_flavor("ld.lld", LinkerFlavor::Lld),
+        ..LinkOptions::default()
+    };
+    let invocation = options
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
+        .expect("link invocation");
+    assert!(
+        invocation
+            .args
+            .windows(2)
+            .any(|pair| pair == ["-z", "pack-relative-relocs"]),
+        "{:?}",
+        invocation.args
     );
 }
 
@@ -104,6 +152,10 @@ fn invocation_passes_exact_static_archive_paths_in_declaration_order() {
             "lib/first.a",
             "vendor/second.a",
             "-static",
+            "-pie",
+            "--no-dynamic-linker",
+            "-z",
+            "text",
             "-o",
             "main",
         ])
@@ -116,8 +168,9 @@ fn dynamic_gnu_invocation_accepts_structured_options() {
         linker: ExecutableLinker::with_program("ld"),
         ..LinkOptions::default()
     }
-    .with_dynamic_mode()
-    .with_dynamic_linker(DynamicLinker::Path("/loader".to_string()))
+    .with_form(ExecutableForm::Dynamic(Interpreter::Path(
+        "/loader".to_string(),
+    )))
     .add_library_path("/lib")
     .add_rpath("$ORIGIN")
     .add_library("native_api")
@@ -131,6 +184,9 @@ fn dynamic_gnu_invocation_accepts_structured_options() {
             "-e",
             "_start",
             "main.o",
+            "-pie",
+            "-z",
+            "text",
             "-L",
             "/lib",
             "-rpath",
@@ -181,7 +237,7 @@ fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
         linker: ExecutableLinker::with_program("ld"),
         ..LinkOptions::default()
     }
-    .with_dynamic_mode()
+    .with_form(ExecutableForm::Dynamic(Interpreter::Standard))
     .add_static_library("compiler_runtime")
     .add_dynamic_library("LLVM")
     .add_dynamic_library(":libgcc_s.so.1")
@@ -199,6 +255,9 @@ fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
             "-e",
             "_start",
             "main.o",
+            "-pie",
+            "-z",
+            "text",
             "-Bstatic",
             "-l",
             "compiler_runtime",
@@ -214,5 +273,55 @@ fn dynamic_gnu_invocation_can_mix_static_and_dynamic_libraries() {
             "-o",
             "main",
         ])
+    );
+}
+
+#[test]
+fn dynamic_only_options_require_a_dynamic_executable() {
+    for options in [
+        LinkOptions::default().add_rpath("$ORIGIN"),
+        LinkOptions::default().add_dynamic_library("c"),
+        LinkOptions::default()
+            .with_form(ExecutableForm::Static)
+            .add_rpath("$ORIGIN"),
+    ] {
+        let options = LinkOptions {
+            linker: ExecutableLinker::with_program("ld"),
+            ..options
+        };
+        assert!(matches!(
+            options.invocation(linux(), &link_inputs("main.o"), PathBuf::from("main")),
+            Err(LinkerConfigError::RequiresDynamicExecutable { .. })
+        ));
+    }
+    // A static library is valid in every form.
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("ld"),
+        ..LinkOptions::default()
+    }
+    .add_static_library("support");
+    options
+        .invocation(linux(), &link_inputs("main.o"), PathBuf::from("main"))
+        .expect("static library in a static-pie");
+}
+
+#[test]
+fn only_elf_targets_select_an_executable_form() {
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("lld-link"),
+        ..LinkOptions::default()
+    };
+    let windows = target("x86_64-pc-windows-msvc");
+    options
+        .invocation(windows, &link_inputs("main.obj"), PathBuf::from("main.exe"))
+        .expect("default Windows form");
+    let error = options
+        .clone()
+        .with_form(ExecutableForm::StaticPie)
+        .invocation(windows, &link_inputs("main.obj"), PathBuf::from("main.exe"))
+        .expect_err("Windows has one executable form");
+    assert_eq!(
+        error.to_string(),
+        "target `x86_64-pc-windows-msvc` has one executable form; `static-pie` cannot be selected"
     );
 }
