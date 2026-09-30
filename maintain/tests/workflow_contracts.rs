@@ -42,7 +42,8 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
     ] {
         assert!(workflow.contains(command), "missing command {command}");
     }
-    assert!(workflow.contains("llvm-23-dev libpolly-23-dev lld-23"));
+    // Clang is the reference for the target C calling conventions.
+    assert!(workflow.contains("llvm-23-dev libpolly-23-dev lld-23 clang-23"));
     // aarch64 Linux executables run under user-mode QEMU.
     assert!(workflow.contains("qemu-user-static"));
     // Executables link with LLD by default, so its drivers must be on PATH.

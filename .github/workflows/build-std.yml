@@ -73,7 +73,7 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
             | sudo tee /etc/apt/sources.list.d/llvm-23.list >/dev/null
           sudo apt-get update
-          sudo apt-get install --yes llvm-23-dev libpolly-23-dev lld-23
+          sudo apt-get install --yes llvm-23-dev libpolly-23-dev lld-23 clang-23
           /usr/lib/llvm-23/bin/llvm-config --version
           # Executables link with LLD by default; apt installs its drivers here.
           echo "/usr/lib/llvm-23/bin" >> "${GITHUB_PATH}"

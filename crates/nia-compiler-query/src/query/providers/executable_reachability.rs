@@ -1641,9 +1641,51 @@ fn executable_root_defs(
                     })?;
                 functions.push(definition);
             }
+            functions.extend(exported_extern_definitions(db, entry, parse_ok)?);
             Ok((functions, Vec::new()))
         }
     }
+}
+
+/// The C interface an executable exports: every top-level `pub extern fn`
+/// definition of the entry package. Foreign code linked into the executable
+/// may call them by name, so they are roots even when no Nia code does.
+fn exported_extern_definitions(
+    db: &QueryDb<CompilerContext>,
+    entry: ModuleId,
+    parse_ok: &[ModuleId],
+) -> QueryResult<Vec<GlobalDefId>> {
+    let graph = db.get(ModuleGraphQuery)?;
+    let package_root = graph.current_package_root(entry);
+    let mut functions = Vec::new();
+    for module_id in parse_ok.iter().copied() {
+        if graph.current_package_root(module_id) != package_root {
+            continue;
+        }
+        let defs = full_module_defs_semantic(db, module_id)?;
+        let signatures = db.get(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Functions,
+        ))?;
+        for (def_id, signature) in &signatures.semantic.functions {
+            let Some(definition) = defs.defs.get(*def_id) else {
+                continue;
+            };
+            if definition.kind == DefKind::Function
+                && definition.parent.is_none()
+                && definition.visibility == nia_ids::Visibility::Public
+                && signature.is_extern
+                && signature.has_body
+            {
+                functions.push(GlobalDefId {
+                    module_id,
+                    def_id: *def_id,
+                });
+            }
+        }
+    }
+    functions.sort_unstable();
+    Ok(functions)
 }
 
 fn package_root_defs(

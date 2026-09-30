@@ -670,6 +670,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .as_global_value()
                 .set_visibility(symbol_visibility(&function.linkage));
             self.apply_function_attributes(value, &function.attributes)?;
+            if function.linkage.is_extern() {
+                self.apply_c_declaration_attributes(
+                    value,
+                    function
+                        .params
+                        .iter()
+                        .map(|param| (param.passing_ty, param.span)),
+                    function.return_type,
+                    function.span,
+                )?;
+            }
             self.functions.insert(function.def_id, value);
         }
         for key in &self.declarations.function_instances {
@@ -704,6 +715,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .as_global_value()
                 .set_visibility(symbol_visibility(&instance.linkage));
             self.apply_function_attributes(value, &instance.attributes)?;
+            if instance.linkage.is_extern() {
+                self.apply_c_declaration_attributes(
+                    value,
+                    instance
+                        .params
+                        .iter()
+                        .map(|param| (param.passing_ty, param.span)),
+                    instance.return_type,
+                    instance.span,
+                )?;
+            }
             self.function_instances
                 .entry((instance.def_id, instance.arg_module_id))
                 .or_default()

@@ -182,6 +182,7 @@ dependencies = [
  "nia-parser",
  "nia-span",
  "nia-symbol",
+ "nia-target",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",

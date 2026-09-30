@@ -711,12 +711,58 @@ empty struct by value           rejected
 union by value                  rejected
 Nia enum by value               rejected; use the backing integer type
 variadic function pointer       rejected
+128-bit integer on x86          rejected; the i386 C ABI has no such type
 pointer values                  allowed when the pointee boundary is meaningful
 volatile pointer values         allowed with ordinary pointer representation
 ```
 
 `extern struct` is the C-layout aggregate form. Ordinary Nia structs are not
 C-layout types.
+
+### 16.1 Target Calling Conventions
+
+Every C boundary follows the C calling convention of the artifact target,
+as clang implements it for the same target:
+
+```text
+x86_64 Linux, x86_64 macOS   System V AMD64
+x86 Linux                    System V i386
+x86_64 Windows               Microsoft x64
+aarch64 Linux                AAPCS64
+aarch64 macOS                Apple arm64 (AAPCS64 variant)
+```
+
+The convention classifies each argument and the result from its C byte layout.
+An argument is passed directly in its own form, reinterpreted as other machine
+types (for example the eightbytes of a small System V aggregate, a
+homogeneous floating-point aggregate as an array of its element, or a Win64
+register-sized aggregate as an integer), expanded into several machine
+arguments, as a pointer to a copy the callee owns (`byval`), or as a pointer
+to a copy the caller owns. A result is returned directly, reinterpreted, or
+through a hidden leading pointer (`sret`). System V AMD64 counts the integer
+and SSE registers an aggregate needs and passes it in memory when they do not
+fit; an `sret` pointer takes the first integer register. Small integer
+arguments and results carry the sign or zero extension the convention
+requires.
+
+One classification serves the declaration, every call site, and the prologue
+and returns of an `extern` definition, so both sides of a boundary agree on
+one machine signature. The compiler's declarations are checked against
+clang's for every maintained target, and C and Nia code exchange each value
+form at run time on every Linux target.
+
+Arguments beyond the fixed parameters of a variadic declaration receive C's
+default argument promotions before classification: integers narrower than
+`int` widen to `int` with the extension of their own signedness, and `f32`
+widens to `f64`.
+
+### 16.2 Executable Exports
+
+An executable's C interface is every top-level `pub extern fn` definition of
+its entry package. Foreign code linked into the executable may call those
+definitions by name, so they are compiled and kept even when no Nia code
+calls them. Other functions, including non-`pub` `extern` definitions, remain
+demand-driven.
 
 ## 17. Static Data ABI
 

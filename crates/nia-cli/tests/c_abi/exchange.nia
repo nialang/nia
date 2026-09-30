@@ -1,0 +1,164 @@
+// Nia half of the value-exchange test; `exchange.c` is the other half.
+using std::process;
+using process::{Init, ExitCode};
+
+extern struct S3 { a: u8, b: u8, c: u8 }
+extern struct S6 { a: u16, b: u16, c: u16 }
+extern struct F3 { a: f32, b: f32, c: f32 }
+extern struct D2 { a: f64, b: f64 }
+extern struct D5 { a: f64, b: f64, c: f64, d: f64, e: f64 }
+extern struct FD { a: f32, b: f64 }
+extern struct IFF { c: i32, a: f32, b: f32 }
+extern struct P2 { a: &u8, b: &u8 }
+extern struct Pt { x: f32, y: f32 }
+extern struct NA { p: Pt, z: f32 }
+extern struct BQ { a: u8, b: i64 }
+extern struct W3 { a: i64, b: i64, c: i64 }
+
+extern fn c_s3(v: S3, k: i32) S3;
+extern fn c_s6(v: S6, k: i32) S6;
+extern fn c_f3(v: F3, k: i32) F3;
+extern fn c_d2(v: D2, k: i32) D2;
+extern fn c_d5(v: D5, k: i32) D5;
+extern fn c_fd(v: FD, k: i32) FD;
+extern fn c_iff(v: IFF, k: i32) IFF;
+extern fn c_na(v: NA, k: i32) NA;
+extern fn c_bq(v: BQ, k: i32) BQ;
+extern fn c_w3(v: W3, k: i32) W3;
+extern fn c_p2(v: P2) P2;
+extern fn c_ext(a: i8, b: u8, c: i16, d: u16) i32;
+extern fn c_ret_i8() i8;
+extern fn c_ret_u16() u16;
+extern fn c_many(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2, f: i64) i64;
+extern fn c_sse(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, v: D2, w: FD, h: f64) f64;
+extern fn c_sret_after(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2) W3;
+extern fn c_var(n: i32, ...) f64;
+extern fn c_calls_nia() i32;
+
+pub extern fn nia_s3(v: S3, k: i32) S3 {
+    let d = k as u8;
+    S3 { a: v.a + d, b: v.b + d, c: v.c + d }
+}
+
+pub extern fn nia_s6(v: S6, k: i32) S6 {
+    let d = k as u16;
+    S6 { a: v.a + d, b: v.b + d, c: v.c + d }
+}
+
+pub extern fn nia_f3(v: F3, k: i32) F3 {
+    let d = k as f32;
+    F3 { a: v.a + d, b: v.b + d, c: v.c + d }
+}
+
+pub extern fn nia_d2(v: D2, k: i32) D2 {
+    let d = k as f64;
+    D2 { a: v.a + d, b: v.b + d }
+}
+
+pub extern fn nia_d5(v: D5, k: i32) D5 {
+    let d = k as f64;
+    D5 { a: v.a + d, b: v.b + d, c: v.c + d, d: v.d + d, e: v.e + d }
+}
+
+pub extern fn nia_fd(v: FD, k: i32) FD {
+    FD { a: v.a + k as f32, b: v.b + k as f64 }
+}
+
+pub extern fn nia_iff(v: IFF, k: i32) IFF {
+    IFF { c: v.c + k, a: v.a + k as f32, b: v.b + k as f32 }
+}
+
+pub extern fn nia_na(v: NA, k: i32) NA {
+    let d = k as f32;
+    NA { p: Pt { x: v.p.x + d, y: v.p.y + d }, z: v.z + d }
+}
+
+pub extern fn nia_bq(v: BQ, k: i32) BQ {
+    BQ { a: v.a + k as u8, b: v.b + k as i64 }
+}
+
+pub extern fn nia_w3(v: W3, k: i32) W3 {
+    let d = k as i64;
+    W3 { a: v.a + d, b: v.b + d, c: v.c + d }
+}
+
+pub extern fn nia_ext(a: i8, b: u8, c: i16, d: u16) i32 {
+    a as i32 + b as i32 + c as i32 + d as i32
+}
+
+pub extern fn nia_ret_i8() i8 {
+    -7
+}
+
+fn distance(p: P2) i64 {
+    (p.b as usize - p.a as usize) as i64
+}
+
+pub extern fn nia_many(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2, f: i64) i64 {
+    a + b + c + d + e + f + distance(p)
+}
+
+pub extern fn nia_sret_after(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2) W3 {
+    W3 { a: a + b, b: c + d, c: e + distance(p) }
+}
+
+// Returns 0, or the number of the first check that failed.
+fn nia_calls_c() i32 {
+    let bytes: [u8; 4] = [0; 4];
+    let p = P2 { a: &bytes[0], b: &bytes[3] };
+    let s3 = c_s3(S3 { a: 1, b: 2, c: 3 }, 10);
+    if s3.a != 11 or s3.b != 12 or s3.c != 13 { return 1; }
+    let s6 = c_s6(S6 { a: 100, b: 200, c: 300 }, 5);
+    if s6.a != 105 or s6.b != 205 or s6.c != 305 { return 2; }
+    let f3 = c_f3(F3 { a: 1.5, b: 2.5, c: 3.5 }, 1);
+    if f3.a != 2.5 or f3.b != 3.5 or f3.c != 4.5 { return 3; }
+    let d2 = c_d2(D2 { a: 0.25, b: 0.5 }, 2);
+    if d2.a != 2.25 or d2.b != 2.5 { return 4; }
+    let d5 = c_d5(D5 { a: 1.0, b: 2.0, c: 3.0, d: 4.0, e: 5.0 }, 10);
+    if d5.a != 11.0 or d5.b != 12.0 or d5.c != 13.0 or d5.d != 14.0 or d5.e != 15.0 { return 5; }
+    let fd = c_fd(FD { a: 0.5, b: 0.75 }, 3);
+    if fd.a != 3.5 or fd.b != 3.75 { return 6; }
+    let iff = c_iff(IFF { c: 7, a: 0.5, b: 1.5 }, 1);
+    if iff.c != 8 or iff.a != 1.5 or iff.b != 2.5 { return 7; }
+    let na = c_na(NA { p: Pt { x: 1.0, y: 2.0 }, z: 3.0 }, 4);
+    if na.p.x != 5.0 or na.p.y != 6.0 or na.z != 7.0 { return 8; }
+    let bq = c_bq(BQ { a: 9, b: 1000000000000 }, 1);
+    if bq.a != 10 or bq.b != 1000000000001 { return 9; }
+    let w3 = c_w3(W3 { a: 1, b: 2, c: 3 }, 100);
+    if w3.a != 101 or w3.b != 102 or w3.c != 103 { return 10; }
+    let swapped = c_p2(p);
+    if swapped.a as usize != p.b as usize or swapped.b as usize != p.a as usize { return 11; }
+    if c_ext(-1, 255, -2, 65535) != 65787 { return 12; }
+    if c_ret_i8() != -3 { return 13; }
+    if c_ret_u16() != 65535 { return 14; }
+    if c_many(1, 2, 3, 4, 5, p, 6) != 24 { return 15; }
+    let sse = c_sse(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, D2 { a: 0.5, b: 0.25 }, FD { a: 0.125, b: 8.0 }, 9.0);
+    if sse != 45.875 { return 16; }
+    let after = c_sret_after(1, 2, 3, 4, 5, p);
+    if after.a != 3 or after.b != 7 or after.c != 8 { return 17; }
+    let var = c_var(
+        1,
+        -5i8,
+        60000u16,
+        1.5f32,
+        2.25f64,
+        S3 { a: 1, b: 2, c: 3 },
+        FD { a: 0.5, b: 4.0 },
+        D5 { a: 10.0, b: 0.0, c: 0.0, d: 0.0, e: 20.0 },
+    );
+    if var != 60040.25 { return 18; }
+    0
+}
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+    let nia_failure = nia_calls_c();
+    if nia_failure != 0 {
+        return ExitCode(nia_failure)!;
+    }
+    let c_failure = c_calls_nia();
+    if c_failure != 0 {
+        return ExitCode(100 + c_failure)!;
+    }
+    !()
+}

@@ -74,7 +74,9 @@ On Linux x86_64 the workspace tests also build and run executables for the
 other Linux targets: i686 natively, which needs a 32-bit C toolchain
 (`gcc-multilib`) for the C interoperability tests, and aarch64 under user-mode
 QEMU (`qemu-user-static`). Executables link with LLD, so `ld.lld` must be on
-`PATH`.
+`PATH`. The C ABI tests compare `extern` declarations with clang's for every
+target and compile their C halves with it, so `clang` 23 must be on `PATH`
+as well (`clang-23`).
 
 On Windows, use an LLVM prefix built with the static MSVC CRT (`/MT`, or
 `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`). The repository's MSVC target

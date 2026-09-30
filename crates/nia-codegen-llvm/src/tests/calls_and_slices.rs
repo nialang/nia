@@ -137,8 +137,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_extern_struct_return_calls_with_c_abi_direct_return() {
-    let root = temp_dir("emits_extern_struct_return_calls_with_c_abi_direct_return");
+fn emits_extern_struct_return_calls_in_c_abi_registers() {
+    let root = temp_dir("emits_extern_struct_return_calls_in_c_abi_registers");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -163,16 +163,12 @@ fn main() NiaString {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    // x86_64 System V returns the two INTEGER eightbytes in rax:rdx as a
+    // literal struct, which is then reread as the Nia struct.
     let nia_string = mangled_symbol(ir, '%', "NiaString");
-    assert!(
-        ir.contains(&format!("declare {nia_string} @make_string()")),
-        "{ir}"
-    );
-    assert!(
-        ir.contains(&format!("call {nia_string} @make_string()")),
-        "{ir}"
-    );
-    assert!(ir.contains(&format!("store {nia_string}")), "{ir}");
+    assert!(ir.contains("declare { ptr, i64 } @make_string()"), "{ir}");
+    assert!(ir.contains("call { ptr, i64 } @make_string()"), "{ir}");
+    assert!(ir.contains(&format!("load {nia_string}")), "{ir}");
     assert!(!ir.contains("call void @make_string"), "{ir}");
 }
 

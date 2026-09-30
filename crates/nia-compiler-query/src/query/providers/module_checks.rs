@@ -95,6 +95,7 @@ pub(super) fn provide_abi_check(
             enums: &program.enums,
             type_aliases: &program.type_aliases,
         },
+        *db.get(CompilerTargetQuery)?,
     )?;
     let diagnostics = std::mem::take(&mut abi_check.diagnostics);
     Ok(ModuleAbiCheck {
