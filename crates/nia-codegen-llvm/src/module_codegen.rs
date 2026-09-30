@@ -245,6 +245,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .add_global(file_ty, None, &symbol)
                     .map_err(Self::diagnostic_from_llvm_error)?;
                 global.set_linkage(Linkage::LinkOnceOdr);
+                declarations::hide_compiler_symbol(global);
                 global.set_constant(true);
                 global
                     .set_initializer(&initializer)
@@ -295,6 +296,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .add_global(location_ty.into(), None, &symbol)
             .map_err(Self::diagnostic_from_llvm_error)?;
         global.set_linkage(Linkage::LinkOnceOdr);
+        declarations::hide_compiler_symbol(global);
         global.set_constant(true);
         global
             .set_initializer(&initializer)
@@ -416,6 +418,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .add_global(storage_ty, None, &symbol)
             .map_err(Self::diagnostic_from_llvm_error)?;
         global.set_linkage(Linkage::LinkOnceOdr);
+        declarations::hide_compiler_symbol(global);
         global.set_constant(true);
         if let Some(layout) = layout {
             let align = u32::try_from(layout.align)

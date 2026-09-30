@@ -251,7 +251,7 @@ fn scopes_template_local_promotions_to_function_instances() {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_eq!(
-        ir.matches("linkonce_odr constant [1 x i64]").count(),
+        ir.matches("linkonce_odr hidden constant [1 x i64]").count(),
         2,
         "{ir}"
     );
@@ -261,11 +261,11 @@ fn scopes_template_local_promotions_to_function_instances() {
         "{ir}"
     );
     assert!(
-        ir.contains("linkonce_odr constant [1 x i64] [i64 1]"),
+        ir.contains("linkonce_odr hidden constant [1 x i64] [i64 1]"),
         "{ir}"
     );
     assert!(
-        ir.contains("linkonce_odr constant [1 x i64] [i64 2]"),
+        ir.contains("linkonce_odr hidden constant [1 x i64] [i64 2]"),
         "{ir}"
     );
 }

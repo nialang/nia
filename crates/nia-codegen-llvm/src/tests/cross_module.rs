@@ -39,7 +39,9 @@ fn main() i32 {
     assert!(ir.contains("[4 x i8] c\"zzzz\"") || ir.contains("[4 x i8] [i8 122"));
     let zeroes = mangled_symbol(ir, '@', "zeroes");
     assert!(
-        ir.contains(&format!("{zeroes} = constant [8 x i32] zeroinitializer")),
+        ir.contains(&format!(
+            "{zeroes} = hidden constant [8 x i32] zeroinitializer"
+        )),
         "{ir}"
     );
     let pair = mangled_symbol(ir, '%', "Pair");
@@ -75,10 +77,10 @@ fn main() i32 {
     let values = mangled_symbol(ir, '@', "values");
     let p = mangled_symbol(ir, '@', "p");
     let q = mangled_symbol(ir, '@', "q");
-    assert!(ir.contains(&format!("{target} = global i32 1")));
-    assert!(ir.contains(&format!("{p} = constant ptr {target}")));
+    assert!(ir.contains(&format!("{target} = hidden global i32 1")));
+    assert!(ir.contains(&format!("{p} = hidden constant ptr {target}")));
     assert!(ir.contains(&format!(
-        "{q} = constant ptr getelementptr inbounds ([4 x i32], ptr {values}, i64 0, i64 2)"
+        "{q} = hidden constant ptr getelementptr inbounds ([4 x i32], ptr {values}, i64 0, i64 2)"
     )));
 }
 
@@ -136,7 +138,7 @@ pub fn add(a: i32, b: i32) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("external global i32"));
+    assert!(main_ir.ir.contains("external hidden global i32"));
     let base = mangled_symbol(&main_ir.ir, '@', "base");
     let add = mangled_symbol(&main_ir.ir, '@', "add");
     assert!(main_ir.ir.contains(&format!("constant ptr {base}")));

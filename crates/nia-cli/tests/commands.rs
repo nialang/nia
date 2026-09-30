@@ -966,7 +966,7 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&llvm.stdout);
     let stderr = String::from_utf8_lossy(&llvm.stderr);
-    assert!(stdout.contains("define i32 @"), "{stdout}");
+    assert!(stdout.contains("define hidden i32 @"), "{stdout}");
     assert!(!stdout.contains("timing "), "{stdout}");
     assert!(
         !stderr.contains("timing summary stage codegen:"),

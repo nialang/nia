@@ -150,7 +150,7 @@ fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object
     assert_success(llvm_level, &llvm);
     assert_contains(
         &String::from_utf8_lossy(&llvm.stdout),
-        "define i32 @",
+        "define hidden i32 @",
         "LLVM stdout",
     );
     assert_report_on_stderr(

@@ -199,7 +199,7 @@ fn run_option_errors(source: &Path) {
 fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
     let before = command(["-O2", "emit", "--llvm"], source);
     assert_success(&before);
-    assert_contains(&before.stdout, &["define i32 @"]);
+    assert_contains(&before.stdout, &["define hidden i32 @"]);
 
     let mut trailing = support::nia_command();
     let trailing = trailing
@@ -243,7 +243,7 @@ fn run_inspection_contracts(source: &Path) {
         ("--ast", &["FunctionItem", "name: SymbolId"]),
         ("--checked", &["CheckedProgram", "modules"]),
         ("--backend", &["BackendProgram", "functions", "main"]),
-        ("--llvm", &["define i32 @", "ret i32"]),
+        ("--llvm", &["define hidden i32 @", "ret i32"]),
     ] {
         let output = command(["emit", target], source);
         assert_success(&output);

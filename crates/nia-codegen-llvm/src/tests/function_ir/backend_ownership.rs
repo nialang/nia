@@ -1412,6 +1412,9 @@ fn emits_const_only_extern_method_instances_with_c_abi() {
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("declare i32 @const_method_4(ptr)"), "{ir}");
+    assert!(
+        ir.contains("declare hidden i32 @const_method_4(ptr)"),
+        "{ir}"
+    );
     assert!(ir.contains("call i32 @const_method_4(ptr "), "{ir}");
 }

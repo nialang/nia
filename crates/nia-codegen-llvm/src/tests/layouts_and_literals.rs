@@ -41,7 +41,10 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     let score = mangled_symbol(ir, '@', "score");
     assert!(ir.contains("{ i8, [3 x i8], { i32, [4 x i8] } }"), "{ir}");
-    assert!(ir.contains(&format!("define i32 {score}(ptr %0)")), "{ir}");
+    assert!(
+        ir.contains(&format!("define hidden i32 {score}(ptr %0)")),
+        "{ir}"
+    );
     assert!(ir.contains("enum.tag"), "{ir}");
     assert!(ir.contains("enum.payload.field"), "{ir}");
     assert!(ir.contains("enumlit"), "{ir}");
@@ -84,7 +87,7 @@ fn main() i32 {
     );
     assert!(
         ir.contains(&format!(
-            "{mixed_global} = constant {mixed_ty} {{ i64 2, i8 1, i8 3 }}"
+            "{mixed_global} = hidden constant {mixed_ty} {{ i64 2, i8 1, i8 3 }}"
         )),
         "{ir}"
     );
@@ -134,10 +137,13 @@ fn main() i32 {
     let id = mangled_symbol(ir, '@', "id");
     let sum = mangled_symbol(ir, '@', "sum");
     assert!(
-        ir.contains(&format!("define void {id}(ptr %0, ptr %1)")),
+        ir.contains(&format!("define hidden void {id}(ptr %0, ptr %1)")),
         "{ir}"
     );
-    assert!(ir.contains(&format!("define i32 {sum}(ptr %0)")), "{ir}");
+    assert!(
+        ir.contains(&format!("define hidden i32 {sum}(ptr %0)")),
+        "{ir}"
+    );
     assert!(
         ir.contains(&format!("call void {id}(ptr %copied, ptr %arg.copy")),
         "{ir}"
@@ -552,7 +558,7 @@ fn main() i32 {
     assert_substrings_in_order(
         ir,
         &[
-            &format!("define void {forward_pair}(ptr %0)"),
+            &format!("define hidden void {forward_pair}(ptr %0)"),
             &format!("call void {make_pair}(ptr %0, i32 10, i32 20)"),
             "ret void",
         ],
@@ -611,7 +617,7 @@ fn main() i32 {
     assert_substrings_in_order(
         ir,
         &[
-            &format!("define void {forward_pair}(ptr %0)"),
+            &format!("define hidden void {forward_pair}(ptr %0)"),
             &format!("call void {make_pair}(ptr %call.out, i32 10, i32 20)"),
             &format!("store {pair} %call.result, ptr %return.cleanup"),
             &format!("{cleanup}(i32 1)"),
@@ -735,7 +741,7 @@ fn main() i32 {
 
         let bytes = mangled_symbol(ir, '@', "bytes");
         assert!(
-            ir.contains(&format!("{bytes} = constant [4 x i8] c\"aaaa\"")),
+            ir.contains(&format!("{bytes} = hidden constant [4 x i8] c\"aaaa\"")),
             "{level:?}\n{ir}"
         );
     }
@@ -767,8 +773,14 @@ fn main() i32 {
 
     let bytes = mangled_symbol(ir, '@', "bytes");
     let text = mangled_symbol(ir, '@', "text");
-    assert!(ir.contains(&format!("{bytes} = constant [3 x i8]")), "{ir}");
-    assert!(ir.contains(&format!("{text} = constant [2 x i32]")), "{ir}");
+    assert!(
+        ir.contains(&format!("{bytes} = hidden constant [3 x i8]")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&format!("{text} = hidden constant [2 x i32]")),
+        "{ir}"
+    );
 }
 
 #[test]

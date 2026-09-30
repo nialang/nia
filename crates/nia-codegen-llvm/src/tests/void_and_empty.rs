@@ -54,7 +54,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define void @"), "{ir}");
+    assert!(ir.contains("define hidden void @"), "{ir}");
     assert!(ir.contains("tuple.field"), "{ir}");
     assert!(ir.contains("tuple.place.field.ptr"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
@@ -88,7 +88,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define void @"));
+    assert!(ir.contains("define hidden void @"));
     assert!(ir.contains("call void @"));
     assert!(ir.contains("ret i32 0"));
 }
@@ -248,7 +248,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define void @"), "{ir}");
+    assert!(ir.contains("define hidden void @"), "{ir}");
     assert!(ir.contains("ret void"), "{ir}");
     assert!(!ir.contains("load %"), "{ir}");
 }

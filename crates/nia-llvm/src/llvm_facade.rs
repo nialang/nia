@@ -27,7 +27,7 @@ pub mod context {
 
 /// Module ownership, linking, and declaration APIs.
 pub mod module {
-    pub use crate::llvm_api::{Linkage, Module};
+    pub use crate::llvm_api::{Linkage, Module, Visibility};
 }
 
 /// Modern LLVM LTO input, coordination, diagnostics, and output APIs.

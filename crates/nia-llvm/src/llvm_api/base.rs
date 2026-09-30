@@ -25,14 +25,14 @@ use llvm_sys::core::{
     LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType,
     LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsOpaqueStruct, LLVMIsPackedStruct,
     LLVMMoveBasicBlockAfter, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
-    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMSetWeak,
-    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVisibility, LLVMSetVolatile,
+    LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
     LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate, LLVMLinkage,
-    LLVMOpcode, LLVMRealPredicate, LLVMTypeKind,
+    LLVMOpcode, LLVMRealPredicate, LLVMTypeKind, LLVMVisibility,
 };
 use std::ffi::CString;
 use std::marker::PhantomData;
@@ -462,6 +462,24 @@ impl From<Linkage> for LLVMLinkage {
             Linkage::LinkOnceOdr => LLVMLinkage::LLVMLinkOnceODRLinkage,
             Linkage::WeakOdr => LLVMLinkage::LLVMWeakODRLinkage,
             Linkage::Internal => LLVMLinkage::LLVMInternalLinkage,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Symbol visibility of a global outside its linked image.
+pub enum Visibility {
+    /// Exported from a shared object and preemptible by other images.
+    Default,
+    /// Bound within the linked image; LLVM also treats it as `dso_local`.
+    Hidden,
+}
+
+impl From<Visibility> for LLVMVisibility {
+    fn from(value: Visibility) -> Self {
+        match value {
+            Visibility::Default => LLVMVisibility::LLVMDefaultVisibility,
+            Visibility::Hidden => LLVMVisibility::LLVMHiddenVisibility,
         }
     }
 }
@@ -2320,6 +2338,11 @@ impl<'ctx> GlobalValue<'ctx> {
     /// Sets the global's linkage.
     pub fn set_linkage(self, linkage: Linkage) {
         unsafe { LLVMSetLinkage(self.raw, linkage.into()) };
+    }
+
+    /// Sets the global's visibility.
+    pub fn set_visibility(self, visibility: Visibility) {
+        unsafe { LLVMSetVisibility(self.raw, visibility.into()) };
     }
 
     /// Places the global in `section`, or clears the section when absent.
