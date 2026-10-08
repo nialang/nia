@@ -1137,6 +1137,12 @@ fn run_build_runner(
             match plan {
                 Ok(draft) => {
                     let plan = draft.plan;
+                    if !draft.observations.is_empty() {
+                        nia_timing::emit_counter(
+                            "build.configure_observations_bytes",
+                            draft.observations.len() as u64,
+                        );
+                    }
                     time_build_stage(invocation.timings, "build_runner_publish_plan", || {
                         publish_build_plan(&invocation.plan_path, &plan)
                             .map(|()| plan)
