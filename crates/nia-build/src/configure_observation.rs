@@ -143,6 +143,138 @@ impl ConfigureManifest {
         }
         *hasher.finalize().as_bytes()
     }
+
+    /// Encodes a bounded, versioned manifest record for the configure cache.
+    pub fn encode(&self) -> Result<Vec<u8>, ObservationCodecError> {
+        let mut payload = Vec::new();
+        payload.push(match self.policy {
+            ObservationPolicy::Disallow => 0,
+            ObservationPolicy::Poison => 1,
+            ObservationPolicy::Ignore => 2,
+        });
+        let count =
+            u32::try_from(self.observations.len()).map_err(|_| ObservationCodecError::TooLarge)?;
+        payload.extend_from_slice(&count.to_le_bytes());
+        for observation in &self.observations {
+            let path = observation.path.to_string_lossy();
+            let path_len =
+                u32::try_from(path.len()).map_err(|_| ObservationCodecError::TooLarge)?;
+            payload.extend_from_slice(&path_len.to_le_bytes());
+            payload.extend_from_slice(path.as_bytes());
+            payload.push(match observation.kind {
+                ObservationKind::FileContents => 0,
+                ObservationKind::FileMetadata => 1,
+                ObservationKind::DirectoryContents => 2,
+                ObservationKind::DirectoryMetadata => 3,
+            });
+            payload.extend_from_slice(&observation.fingerprint);
+        }
+        let mut encoded = Vec::with_capacity(8 + 4 + 4 + 32 + payload.len());
+        encoded.extend_from_slice(nia_compat::formats::CONFIGURE_MANIFEST.magic);
+        encoded.extend_from_slice(
+            &nia_compat::formats::CONFIGURE_MANIFEST
+                .release_compatibility
+                .to_le_bytes(),
+        );
+        encoded.extend_from_slice(
+            &u32::try_from(payload.len())
+                .map_err(|_| ObservationCodecError::TooLarge)?
+                .to_le_bytes(),
+        );
+        encoded.extend_from_slice(blake3::hash(&payload).as_bytes());
+        encoded.extend_from_slice(&payload);
+        Ok(encoded)
+    }
+}
+
+/// Failure decoding a persisted configure manifest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservationCodecError {
+    /// The payload exceeds the bounded cache record size.
+    TooLarge,
+    /// The payload does not match the registered format.
+    Invalid,
+}
+
+impl ConfigureManifest {
+    /// Decodes and validates a persisted configure manifest record.
+    pub fn decode(encoded: &[u8]) -> Result<Self, ObservationCodecError> {
+        const HEADER: usize = 8 + 4 + 4 + 32;
+        if encoded.len() < HEADER || encoded.len() > 16 * 1024 * 1024 {
+            return Err(ObservationCodecError::Invalid);
+        }
+        let format = nia_compat::formats::CONFIGURE_MANIFEST;
+        if encoded[..8] != *format.magic
+            || encoded[8..12] != format.release_compatibility.to_le_bytes()
+        {
+            return Err(ObservationCodecError::Invalid);
+        }
+        let length = u32::from_le_bytes(encoded[12..16].try_into().unwrap()) as usize;
+        if length != encoded.len() - HEADER
+            || encoded[16..48] != *blake3::hash(&encoded[HEADER..]).as_bytes()
+        {
+            return Err(ObservationCodecError::Invalid);
+        }
+        let payload = &encoded[HEADER..];
+        let policy = match payload.first().copied() {
+            Some(0) => ObservationPolicy::Disallow,
+            Some(1) => ObservationPolicy::Poison,
+            Some(2) => ObservationPolicy::Ignore,
+            _ => return Err(ObservationCodecError::Invalid),
+        };
+        let mut cursor = 1usize;
+        let count = read_u32(payload, &mut cursor)? as usize;
+        let mut manifest = ConfigureManifest::new(policy);
+        for _ in 0..count {
+            let path_len = read_u32(payload, &mut cursor)? as usize;
+            let path = std::str::from_utf8(
+                payload
+                    .get(
+                        cursor
+                            ..cursor
+                                .checked_add(path_len)
+                                .ok_or(ObservationCodecError::Invalid)?,
+                    )
+                    .ok_or(ObservationCodecError::Invalid)?,
+            )
+            .map_err(|_| ObservationCodecError::Invalid)?;
+            cursor += path_len;
+            let kind = match payload.get(cursor).copied() {
+                Some(0) => ObservationKind::FileContents,
+                Some(1) => ObservationKind::FileMetadata,
+                Some(2) => ObservationKind::DirectoryContents,
+                Some(3) => ObservationKind::DirectoryMetadata,
+                _ => return Err(ObservationCodecError::Invalid),
+            };
+            cursor += 1;
+            let fingerprint = payload
+                .get(cursor..cursor + 32)
+                .ok_or(ObservationCodecError::Invalid)?
+                .try_into()
+                .unwrap();
+            cursor += 32;
+            manifest.push(
+                ConfigureObservation::new(path, kind, fingerprint)
+                    .map_err(|_| ObservationCodecError::Invalid)?,
+            );
+        }
+        (cursor == payload.len())
+            .then_some(manifest)
+            .ok_or(ObservationCodecError::Invalid)
+    }
+}
+
+fn read_u32(payload: &[u8], cursor: &mut usize) -> Result<u32, ObservationCodecError> {
+    let bytes = payload
+        .get(
+            *cursor
+                ..cursor
+                    .checked_add(4)
+                    .ok_or(ObservationCodecError::Invalid)?,
+        )
+        .ok_or(ObservationCodecError::Invalid)?;
+    *cursor += 4;
+    Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
 }
 
 /// Rejection reason for a configure observation that cannot cross the cache boundary.
@@ -239,5 +371,22 @@ mod tests {
                 .unwrap(),
         );
         assert_ne!(first.fingerprint(), second.fingerprint());
+    }
+
+    #[test]
+    fn manifest_record_round_trips_and_rejects_damage() {
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        manifest.push(
+            ConfigureObservation::new("src/main.nia", ObservationKind::FileContents, [9; 32])
+                .unwrap(),
+        );
+        let encoded = manifest.encode().unwrap();
+        assert_eq!(ConfigureManifest::decode(&encoded).unwrap(), manifest);
+        let mut damaged = encoded.clone();
+        *damaged.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            ConfigureManifest::decode(&damaged),
+            Err(ObservationCodecError::Invalid)
+        );
     }
 }

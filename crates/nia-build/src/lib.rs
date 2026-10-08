@@ -57,7 +57,8 @@ pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
 pub use configure_observation::{
-    ConfigureManifest, ConfigureObservation, ObservationError, ObservationKind, ObservationPolicy,
+    ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,
+    ObservationKind, ObservationPolicy,
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
