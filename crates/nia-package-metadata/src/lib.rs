@@ -113,6 +113,7 @@ pub struct LocalPackageManifest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalPackageGraphNode {
     pub manifest: LocalPackageManifest,
+    /// Stable dependency-qualified node name, not a filesystem path.
     pub root: String,
     pub source_fingerprint: [u8; 32],
 }
@@ -123,6 +124,8 @@ pub struct LocalPackageGraph {
     /// Dependency-class policy used to produce this graph.
     pub options: LocalPackageGraphOptions,
     pub nodes: Vec<LocalPackageGraphNode>,
+    /// Declared edges and their actual resolver-selected targets.
+    pub dependencies: Vec<LocalPackageDependencyReport>,
 }
 
 /// A stable summary of package-graph selection decisions.
@@ -170,6 +173,17 @@ impl Default for LocalPackageGraphOptions {
     }
 }
 
+impl LocalPackageGraphOptions {
+    fn includes(self, class: DependencyClass) -> bool {
+        match class {
+            DependencyClass::TestOnly => self.include_tests,
+            DependencyClass::Optional => self.include_optional,
+            DependencyClass::Lazy => self.include_lazy,
+            DependencyClass::BuildOnly | DependencyClass::Runtime | DependencyClass::Development => true,
+        }
+    }
+}
+
 impl LocalPackageGraph {
     /// Discovers the root package and selected dependency classes.
     pub fn resolve(root: &Path, include_tests: bool) -> io::Result<Self> {
@@ -189,7 +203,8 @@ impl LocalPackageGraph {
     ) -> io::Result<Self> {
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
-        let mut seen = BTreeSet::new();
+        let mut seen = std::collections::BTreeMap::new();
+        let mut edges = Vec::new();
         while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
             let canonical = current.canonicalize()?;
             if ancestors.iter().any(|ancestor| ancestor == &canonical) {
@@ -198,9 +213,10 @@ impl LocalPackageGraph {
                     format!("package dependency cycle at `{}`", canonical.display()),
                 ));
             }
-            if !seen.insert(canonical.clone()) {
+            if seen.contains_key(&canonical) {
                 continue;
             }
+            seen.insert(canonical.clone(), logical_root.clone());
             let manifest = LocalPackageManifest::read(&canonical).or_else(|error| {
                 if error.kind() == io::ErrorKind::NotFound && is_root {
                     Ok(LocalPackageManifest::implicit(
@@ -217,21 +233,20 @@ impl LocalPackageGraph {
                 &manifest.source,
             )?;
             for dependency in &manifest.dependencies {
-                if !options.include_tests && matches!(dependency.class, DependencyClass::TestOnly) {
-                    continue;
-                }
-                if !options.include_lazy && matches!(dependency.class, DependencyClass::Lazy) {
-                    continue;
-                }
-                if !options.include_optional
-                    && matches!(dependency.class, DependencyClass::Optional)
-                {
+                if !options.includes(dependency.class) {
+                    edges.push((logical_root.clone(), dependency.clone(), None));
                     continue;
                 }
                 let path = canonical.join(&dependency.path).canonicalize()?;
+                edges.push((logical_root.clone(), dependency.clone(), Some(path.clone())));
                 let mut next_ancestors = ancestors.clone();
                 next_ancestors.push(canonical.clone());
-                pending.push((path, dependency.name.clone(), false, next_ancestors));
+                let child_root = if logical_root.is_empty() {
+                    dependency.name.clone()
+                } else {
+                    format!("{logical_root}/{}", dependency.name)
+                };
+                pending.push((path, child_root, false, next_ancestors));
             }
             nodes.push(LocalPackageGraphNode {
                 manifest,
@@ -243,7 +258,18 @@ impl LocalPackageGraph {
             }
         }
         nodes.sort_by(|left, right| left.root.cmp(&right.root));
-        Ok(Self { options, nodes })
+        let mut dependencies = edges
+            .into_iter()
+            .map(|(owner_root, dependency, target)| LocalPackageDependencyReport {
+                owner_root,
+                dependency,
+                resolved_root: target.and_then(|path| seen.get(&path).cloned()),
+            })
+            .collect::<Vec<_>>();
+        dependencies.sort_by(|left, right| {
+            (&left.owner_root, &left.dependency.name).cmp(&(&right.owner_root, &right.dependency.name))
+        });
+        Ok(Self { options, nodes, dependencies })
     }
 
     /// Returns the canonical content identity of all resolved package nodes.
@@ -273,49 +299,12 @@ impl LocalPackageGraph {
         *blake3::hash(&encoded).as_bytes()
     }
 
-    /// Returns a report with the default dependency selection policy.
+    /// Returns the resolver's actual dependency selection decisions.
     pub fn report(&self) -> LocalPackageGraphReport {
-        self.report_with_options(self.options)
-    }
-
-    /// Returns a report retaining declarations that were filtered out.
-    ///
-    /// Resolution itself remains the source of truth for `resolved`; this
-    /// method only annotates declarations against those canonical package
-    /// roots and never loads module source.
-    pub fn report_with_options(&self, options: LocalPackageGraphOptions) -> LocalPackageGraphReport {
-        let mut resolved_by_name = std::collections::BTreeMap::new();
-        for node in &self.nodes {
-            resolved_by_name.insert(node.manifest.package.name.clone(), node.root.clone());
-        }
-        let mut declared = Vec::new();
-        for node in &self.nodes {
-            for dependency in &node.manifest.dependencies {
-                let eligible = match dependency.class {
-                    DependencyClass::TestOnly => options.include_tests,
-                    DependencyClass::Optional => options.include_optional,
-                    DependencyClass::Lazy => options.include_lazy,
-                    _ => true,
-                };
-                declared.push(LocalPackageDependencyReport {
-                    owner_root: node.root.clone(),
-                    dependency: dependency.clone(),
-                    resolved_root: eligible
-                        .then(|| resolved_by_name.get(&dependency.name).cloned())
-                        .flatten(),
-                });
-            }
-        }
-        declared.sort_by(|left, right| {
-            left.owner_root
-                .cmp(&right.owner_root)
-                .then_with(|| left.dependency.name.cmp(&right.dependency.name))
-                .then_with(|| left.dependency.path.cmp(&right.dependency.path))
-        });
         LocalPackageGraphReport {
-            options,
+            options: self.options,
             resolved: self.nodes.clone(),
-            declared,
+            declared: self.dependencies.clone(),
         }
     }
 }
@@ -405,6 +394,16 @@ impl LocalPackageManifest {
             manifest.source.source_roots = source_roots;
         }
         manifest.source.excludes = excludes;
+        dependencies.sort_by(|left, right| left.name.cmp(&right.name));
+        let mut names = BTreeSet::new();
+        for dependency in &dependencies {
+            if dependency.name.len() > 128
+                || !dependency.name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                || !names.insert(&dependency.name)
+            {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid or duplicate dependency name"));
+            }
+        }
         manifest.dependencies = dependencies;
         validate_package_id(&manifest.package)?;
         Ok(manifest)
