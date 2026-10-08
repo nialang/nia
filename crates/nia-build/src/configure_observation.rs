@@ -42,6 +42,23 @@ pub struct ConfigureObservation {
     fingerprint: [u8; 32],
 }
 
+/// Result of comparing a persisted observation with the current filesystem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObservationValidation {
+    /// Every observed fact still has the recorded fingerprint.
+    Match,
+    /// An observed path exists but its fact changed.
+    Changed {
+        path: PathBuf,
+        kind: ObservationKind,
+    },
+    /// An observed path cannot be read in the current checkout.
+    Missing {
+        path: PathBuf,
+        kind: ObservationKind,
+    },
+}
+
 impl ConfigureObservation {
     /// Creates an observation with a non-empty, relative logical path.
     pub fn new(
@@ -89,6 +106,20 @@ impl ConfigureObservation {
     /// Returns the content-addressed fact fingerprint.
     pub fn fingerprint(&self) -> &[u8; 32] {
         &self.fingerprint
+    }
+
+    /// Recomputes this observation against a package root.
+    pub fn refresh(&self, root: &Path) -> io::Result<Self> {
+        match self.kind {
+            ObservationKind::FileContents => observe_file_contents(root, self.path.clone()),
+            ObservationKind::FileMetadata => observe_metadata(root, self.path.clone()),
+            ObservationKind::DirectoryContents => {
+                observe_directory_contents(root, self.path.clone())
+            }
+            ObservationKind::DirectoryMetadata => {
+                observe_directory_metadata(root, self.path.clone())
+            }
+        }
     }
 }
 
@@ -169,6 +200,39 @@ pub fn observe_metadata(
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
+/// Records portable metadata for a package-relative directory.
+pub fn observe_directory_metadata(
+    root: &Path,
+    relative: impl Into<PathBuf>,
+) -> io::Result<ConfigureObservation> {
+    let relative = relative.into();
+    let metadata = fs::metadata(root.join(&relative))?;
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "directory metadata observation requires a directory",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(24);
+    bytes.extend_from_slice(&metadata.len().to_le_bytes());
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+    bytes.extend_from_slice(&modified.map_or(0, |value| value.as_secs()).to_le_bytes());
+    bytes.extend_from_slice(
+        &modified
+            .map_or(0, |value| u64::from(value.subsec_nanos()))
+            .to_le_bytes(),
+    );
+    ConfigureObservation::new(
+        relative,
+        ObservationKind::DirectoryMetadata,
+        *blake3::hash(&bytes).as_bytes(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
 /// Adds a filesystem observation to a manifest, preserving canonical order.
 pub fn observe_into(manifest: &mut ConfigureManifest, observation: ConfigureObservation) {
     manifest.push(observation);
@@ -205,6 +269,28 @@ impl ConfigureManifest {
     /// Returns observations in deterministic path/kind order.
     pub fn observations(&self) -> &[ConfigureObservation] {
         &self.observations
+    }
+
+    /// Compares every persisted observation with the current package root.
+    pub fn validate(&self, root: &Path) -> ObservationValidation {
+        for observation in &self.observations {
+            match observation.refresh(root) {
+                Ok(current) if current.fingerprint() == observation.fingerprint() => {}
+                Ok(_) => {
+                    return ObservationValidation::Changed {
+                        path: observation.path.clone(),
+                        kind: observation.kind,
+                    };
+                }
+                Err(_) => {
+                    return ObservationValidation::Missing {
+                        path: observation.path.clone(),
+                        kind: observation.kind,
+                    };
+                }
+            }
+        }
+        ObservationValidation::Match
     }
 
     /// Returns a canonical fingerprint for this manifest.
@@ -498,6 +584,40 @@ mod tests {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
         observe_into(&mut manifest, first);
         assert!(!manifest.draft_payload().unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn persisted_observations_validate_current_filesystem_facts() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-observation-validation-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/input"), b"before").unwrap();
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        manifest.push(observe_file_contents(&root, "src/input").unwrap());
+        manifest.push(observe_directory_metadata(&root, "src").unwrap());
+        assert_eq!(manifest.validate(&root), ObservationValidation::Match);
+        std::fs::write(root.join("src/input"), b"after").unwrap();
+        assert!(matches!(
+            manifest.validate(&root),
+            ObservationValidation::Changed { ref path, kind: ObservationKind::FileContents }
+                if path == std::path::Path::new("src/input")
+        ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn directory_metadata_has_a_distinct_observation_kind() {
+        let root = std::env::temp_dir().join(format!("nia-observation-directory-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let observation = observe_directory_metadata(&root, "src").unwrap();
+        assert_eq!(observation.kind(), ObservationKind::DirectoryMetadata);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
