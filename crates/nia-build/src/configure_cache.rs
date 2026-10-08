@@ -227,9 +227,13 @@ impl ConfigureCache {
         identity: &ConfigureIdentity,
         draft: &nia_build_plan::BuildDraft,
     ) -> io::Result<()> {
-        let manifest = ConfigureManifest::decode(&draft.observations).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "invalid draft observations")
-        })?;
+        let manifest = if draft.observations.is_empty() {
+            ConfigureManifest::new(crate::ObservationPolicy::Poison)
+        } else {
+            ConfigureManifest::decode(&draft.observations).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "invalid draft observations")
+            })?
+        };
         self.publish_plan(identity, &draft.plan, &manifest)
     }
 

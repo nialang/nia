@@ -16,9 +16,9 @@ pub fn plan_checksum(bytes: &[u8]) -> [u8; 32] {
     *digest.as_bytes()
 }
 
-/// Computes the protocol checksum emitted by the language runner's portable
-/// standard-library implementation. It is kept separate from the host cache
-/// digest so the runner does not need a compiler-private cryptographic API.
+/// Computes the protocol checksum emitted by the language runner's standard
+/// library implementation. This is the public Wyhash protocol used by both
+/// sides of the draft envelope; the host cache digest remains BLAKE3.
 pub fn runner_plan_checksum(bytes: &[u8]) -> u64 {
     let mut first = 1u32;
     let mut second = 0u32;
