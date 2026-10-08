@@ -1600,8 +1600,18 @@ fn run_build_runner(
                 read_build_draft(&invocation.plan_draft)
             });
             match draft {
-                Ok(draft) => {
+                Ok(mut draft) => {
                     let plan = draft.plan.clone();
+                    if draft.observations.is_empty()
+                        && let Ok(observation) =
+                            observe_file_contents(&invocation.package_root, "build.nia")
+                    {
+                        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+                        manifest.push(observation);
+                        if let Ok(encoded) = manifest.encode() {
+                            draft.observations = encoded;
+                        }
+                    }
                     if !draft.observations.is_empty() {
                         nia_timing::emit_counter(
                             "build.configure_observations_bytes",
