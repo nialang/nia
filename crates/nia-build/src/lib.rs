@@ -38,6 +38,7 @@ fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
 }
 
 mod action_cache;
+mod configure_observation;
 mod coordinator;
 mod lock;
 mod output_recovery;
@@ -54,6 +55,9 @@ use process_output::{
 
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
+};
+pub use configure_observation::{
+    ConfigureManifest, ConfigureObservation, ObservationError, ObservationKind, ObservationPolicy,
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
