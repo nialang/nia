@@ -15,6 +15,7 @@ pub const RELEASE_COMPATIBILITY: u32 = NIA_RELEASE_COMPATIBILITY;
 pub const MAX_STABLE_METADATA_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
+const MAX_MANIFEST_ENTRIES: usize = 1024;
 const MAX_DEFINITION_DEPTH: usize = 256;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP\0\0";
 const TYPE_GRAPH_SCHEMA: u32 = RELEASE_COMPATIBILITY;
@@ -443,6 +444,15 @@ impl LocalPackageManifest {
                     ));
                 }
             }
+        }
+        if source_roots.len() > MAX_MANIFEST_ENTRIES
+            || excludes.len() > MAX_MANIFEST_ENTRIES
+            || dependencies.len() > MAX_MANIFEST_ENTRIES
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "package manifest has too many declarations",
+            ));
         }
         if !source_roots.is_empty() {
             manifest.source.source_roots = source_roots;
