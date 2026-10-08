@@ -256,6 +256,7 @@ mod tests {
         BuildInvocation {
             toolchain: Arc::clone(&toolchain),
             package_root: PathBuf::from("/workspace/package"),
+            package_source_fingerprint: [0; 32],
             build_script: PathBuf::from("/workspace/package/build.nia"),
             build_dir: PathBuf::from("/workspace/package/.nia-build"),
             cache_dir: PathBuf::from("/workspace/package/.nia-cache"),

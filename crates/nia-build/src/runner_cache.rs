@@ -342,6 +342,7 @@ mod tests {
         BuildInvocation {
             toolchain,
             package_root: package_root.clone(),
+            package_source_fingerprint: [0; 32],
             build_script,
             build_dir: package_root.join(".nia-build"),
             cache_dir: package_root.join(".nia-cache"),
