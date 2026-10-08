@@ -789,7 +789,11 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         &package_root,
         nia_package_metadata::PackageId {
             namespace: "local".into(),
-            name: "root".into(),
+            name: package_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("root")
+                .to_ascii_lowercase(),
             version: "0.0.0".into(),
         },
     )
