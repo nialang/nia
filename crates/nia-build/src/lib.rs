@@ -785,34 +785,9 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
-    let package_manifest = nia_package_metadata::LocalPackageManifest::read(&package_root)
-        .or_else(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                Ok(nia_package_metadata::LocalPackageManifest::implicit(
-                    package_root
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("root")
-                        .to_ascii_lowercase(),
-                ))
-            } else {
-                Err(error)
-            }
-        })
-        .map_err(|error| BuildError::CreateBuildDirectory {
-            path: package_root.clone(),
-            error,
-        })?;
-    package_manifest
-        .validate_compatibility()
-        .map_err(|error| BuildError::CreateBuildDirectory {
-            path: package_root.clone(),
-            error,
-        })?;
-    let package_source = nia_package_metadata::package_source_identity_with_selection(
+    let package_graph = nia_package_metadata::LocalPackageGraph::resolve(
         &package_root,
-        package_manifest.package,
-        &package_manifest.source,
+        request.test_mode,
     )
     .map_err(|error| BuildError::CreateBuildDirectory {
         path: package_root.clone(),
@@ -837,7 +812,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         runner_dir,
         build_dir,
         package_root,
-        package_source_fingerprint: package_source.source_fingerprint,
+        package_source_fingerprint: package_graph.fingerprint(),
         build_script,
         step: if request.test_mode {
             BuildStepSelection::Tests
