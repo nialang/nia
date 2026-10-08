@@ -57,7 +57,7 @@ impl ModuleIdAllocator {
     pub fn new() -> nia_ice::IceResult<Self> {
         static NEXT_OWNER: AtomicU32 = AtomicU32::new(1);
         let owner = NEXT_OWNER
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                 owner.checked_add(1)
             })
             .map_err(|_| nia_ice::Ice::new("module owner identity space exhausted"))?;
@@ -72,12 +72,12 @@ impl ModuleIdAllocator {
         static NEXT_GENERATION: AtomicU32 = AtomicU32::new(1);
         let index = self
             .next_index
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
                 index.checked_add(1)
             })
             .map_err(|_| nia_ice::Ice::new("module identity space exhausted"))?;
         let generation = NEXT_GENERATION
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
                 generation.checked_add(1)
             })
             .map_err(|_| nia_ice::Ice::new("module generation identity space exhausted"))?;
@@ -160,7 +160,7 @@ impl TypeStoreId {
 
         static NEXT_TYPE_STORE_ID: AtomicU32 = AtomicU32::new(1);
         let index = NEXT_TYPE_STORE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
                 index.checked_add(1)
             })
             .map_err(|_| nia_ice::Ice::new("type store identity space exhausted"))?;

@@ -508,24 +508,22 @@ impl<'a> BodyChecker<'a> {
         if !has_inferred_argument
             && matches!(callee.kind, ExprKind::Ident(_))
             && let Some(item) = self.function_item_ref(bracket_expr, expected)
-        {
-            if self
+            && self
                 .lower_call_bracket_args_for_generic_params(
                     bracket_expr.span,
                     &item.resolved.signature.generic_params,
                     type_args,
                 )
                 .is_some()
-            {
-                return self.check_instantiated_function_call(
-                    expr,
-                    item.resolved.def_id,
-                    &item.resolved.signature,
-                    type_args,
-                    args,
-                    expected,
-                );
-            }
+        {
+            return self.check_instantiated_function_call(
+                expr,
+                item.resolved.def_id,
+                &item.resolved.signature,
+                type_args,
+                args,
+                expected,
+            );
         }
         if let Some(reference) = self.function_reference(bracket_expr).cloned() {
             self.record_bracket_suffix_node_resolution(
