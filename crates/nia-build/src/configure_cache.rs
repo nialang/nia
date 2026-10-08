@@ -107,6 +107,8 @@ pub enum ConfigureCacheMissReason {
     ObservationChanged { path: PathBuf },
     /// A persisted observation path is unavailable.
     ObservationMissing { path: PathBuf },
+    /// The runner did not provide reusable, bounded observations.
+    Poisoned,
 }
 
 /// Validated configure-cache lookup result.
@@ -330,6 +332,89 @@ impl ConfigureCache {
         Ok(result)
     }
 
+    /// Finds a record for the runner/invocation domains and validates its
+    /// observations against the current package root.
+    ///
+    /// The observation fingerprint is not known before configuration, so this
+    /// scans only the bounded configure namespace and accepts an entry whose
+    /// manifest recomputes to the exact content-addressed key. Poisoned or
+    /// empty manifests never become alternate execution inputs.
+    pub fn lookup_reusable(
+        &self,
+        runner: &str,
+        invocation: &str,
+        root: &std::path::Path,
+    ) -> io::Result<ConfigureCacheLookup> {
+        let namespace_root = self.root.join(
+            formats::CONFIGURE_MANIFEST
+                .release_compatibility
+                .to_string(),
+        );
+        let entries = match fs::read_dir(&namespace_root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ConfigureCacheLookup::Miss(
+                    ConfigureCacheMissReason::NotFound,
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        let mut poisoned = false;
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("manifest") {
+                continue;
+            }
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let Some(record_view) = decode_record(&bytes) else {
+                continue;
+            };
+            let manifest = match ConfigureManifest::decode(record_view.manifest) {
+                Ok(manifest) => manifest,
+                Err(_) => continue,
+            };
+            if manifest.policy() == crate::ObservationPolicy::Poison
+                || manifest.observations().is_empty()
+            {
+                poisoned = true;
+                continue;
+            }
+            let candidate = ConfigureIdentity::new(runner, invocation, &manifest);
+            if candidate.key()
+                != path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("")
+            {
+                continue;
+            }
+            let Some(record) = self.lookup(&candidate)? else {
+                continue;
+            };
+            return Ok(match record.manifest.validate(root) {
+                crate::ObservationValidation::Match => ConfigureCacheLookup::Hit(record),
+                crate::ObservationValidation::Changed { path, .. } => {
+                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged {
+                        path,
+                    })
+                }
+                crate::ObservationValidation::Missing { path, .. } => {
+                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationMissing {
+                        path,
+                    })
+                }
+            });
+        }
+        Ok(ConfigureCacheLookup::Miss(if poisoned {
+            ConfigureCacheMissReason::Poisoned
+        } else {
+            ConfigureCacheMissReason::NotFound
+        }))
+    }
+
     /// Finds whether any valid record belongs to the same runner and
     /// invocation domains. Observation fingerprints remain the final lookup
     /// key and are never inferred from this candidate result.
@@ -520,5 +605,39 @@ mod tests {
             ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged { .. })
         ));
         std::fs::remove_dir_all(checkout).unwrap();
+    }
+
+    #[test]
+    fn reusable_lookup_rejects_poisoned_records() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-configure-poisoned-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cache = ConfigureCache {
+            root: root.join("cache"),
+        };
+        let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
+        let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
+        cache
+            .publish(
+                &identity,
+                &ConfigureRecord {
+                    plan: b"plan".to_vec(),
+                    manifest,
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            cache
+                .lookup_reusable("runner", "invocation", &root)
+                .unwrap(),
+            ConfigureCacheLookup::Miss(ConfigureCacheMissReason::Poisoned)
+        ));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
