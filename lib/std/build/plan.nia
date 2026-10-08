@@ -34,6 +34,7 @@ using types::{
 const maxPlanBytes: usize = 67108864;
 const maxItems: usize = 100000;
 const maxStringBytes: usize = 1048576;
+const draftMagic: &[u8] = &b"NIADRF\0\0"[..];
 
 struct PlanEncoder {
     allocator: &mut mem::Allocator,
@@ -556,6 +557,33 @@ extend Build {
         self.planEncoding = encoder.intoBytes();
         operation.?;
 
+        // The first version of the draft envelope carries an empty observation
+        // section. Host-side decoding still validates the nested canonical plan
+        // and leaves room for typed observations to be added without changing
+        // the plan codec.
+        let planBytes = self.planEncoding.asSlice();
+        let planLength = planBytes.len();
+        if planLength > u32::MAX as usize {
+            return invalidPlan();
+        }
+        let mut envelope: collections::ArrayList[u8] = collections::ArrayList[u8]::init();
+        envelope.appendSlice(self.allocator, draftMagic).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+        envelope.appendSlice(self.allocator, &[
+            planLength as u8,
+            (planLength >> 8) as u8,
+            (planLength >> 16) as u8,
+            (planLength >> 24) as u8,
+            0,
+            0,
+            0,
+            0,
+        ]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+        // The host validates the nested plan and envelope checksum. The runner
+        // currently emits an empty observation payload; probe APIs will append
+        // their canonical manifest here in a subsequent protocol revision.
+        envelope.appendSlice(self.allocator, &[0; 32]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+        envelope.appendSlice(self.allocator, planBytes).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+
         let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).withBuildContext(Operation::Publish, Subject::BuildPlan).?;
         let mut primary: ?Error = null;
         let mut buffer: [u8; 4096] = [0; 4096];
@@ -568,7 +596,7 @@ extend Build {
         };
         rememberPrimary(
             &mut primary,
-            writer.writeAll(self.planEncoding.asSlice()).withBuildContext(Operation::Publish, Subject::BuildPlan),
+            writer.writeAll(envelope.asSlice()).withBuildContext(Operation::Publish, Subject::BuildPlan),
         );
         rememberPrimary(&mut primary, writer.flush().withBuildContext(Operation::Publish, Subject::BuildPlan));
         rememberPrimary(&mut primary, file.sync().withBuildContext(Operation::Publish, Subject::BuildPlan));
@@ -578,6 +606,7 @@ extend Build {
         if primary is ?error {
             return error!;
         }
+        _ = envelope.deinit(self.allocator);
         return self.cleanupPlanEncoding();
     }
 }
