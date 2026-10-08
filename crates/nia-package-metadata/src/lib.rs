@@ -120,7 +120,36 @@ pub struct LocalPackageGraphNode {
 /// A bounded package graph assembled from local manifests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalPackageGraph {
+    /// Dependency-class policy used to produce this graph.
+    pub options: LocalPackageGraphOptions,
     pub nodes: Vec<LocalPackageGraphNode>,
+}
+
+/// A stable summary of package-graph selection decisions.
+///
+/// The package graph is intentionally resolved without loading source
+/// modules. This report lets callers explain which dependency classes were
+/// eligible and which package roots were actually selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPackageGraphReport {
+    /// Dependency classes enabled while resolving the graph.
+    pub options: LocalPackageGraphOptions,
+    /// Package nodes selected by the resolver, in canonical root order.
+    pub resolved: Vec<LocalPackageGraphNode>,
+    /// Declared dependencies from every resolved package, including classes
+    /// that were not selected by `options`.
+    pub declared: Vec<LocalPackageDependencyReport>,
+}
+
+/// One declared dependency and whether its target entered the selected graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPackageDependencyReport {
+    /// Package root that owns the declaration.
+    pub owner_root: String,
+    /// Original dependency declaration.
+    pub dependency: LocalPackageDependency,
+    /// Canonical package root selected for this dependency, when resolved.
+    pub resolved_root: Option<String>,
 }
 
 /// Selection policy for constructing a package graph.
@@ -214,7 +243,7 @@ impl LocalPackageGraph {
             }
         }
         nodes.sort_by(|left, right| left.root.cmp(&right.root));
-        Ok(Self { nodes })
+        Ok(Self { options, nodes })
     }
 
     /// Returns the canonical content identity of all resolved package nodes.
@@ -242,6 +271,52 @@ impl LocalPackageGraph {
             }
         }
         *blake3::hash(&encoded).as_bytes()
+    }
+
+    /// Returns a report with the default dependency selection policy.
+    pub fn report(&self) -> LocalPackageGraphReport {
+        self.report_with_options(self.options)
+    }
+
+    /// Returns a report retaining declarations that were filtered out.
+    ///
+    /// Resolution itself remains the source of truth for `resolved`; this
+    /// method only annotates declarations against those canonical package
+    /// roots and never loads module source.
+    pub fn report_with_options(&self, options: LocalPackageGraphOptions) -> LocalPackageGraphReport {
+        let mut resolved_by_name = std::collections::BTreeMap::new();
+        for node in &self.nodes {
+            resolved_by_name.insert(node.manifest.package.name.clone(), node.root.clone());
+        }
+        let mut declared = Vec::new();
+        for node in &self.nodes {
+            for dependency in &node.manifest.dependencies {
+                let eligible = match dependency.class {
+                    DependencyClass::TestOnly => options.include_tests,
+                    DependencyClass::Optional => options.include_optional,
+                    DependencyClass::Lazy => options.include_lazy,
+                    _ => true,
+                };
+                declared.push(LocalPackageDependencyReport {
+                    owner_root: node.root.clone(),
+                    dependency: dependency.clone(),
+                    resolved_root: eligible
+                        .then(|| resolved_by_name.get(&dependency.name).cloned())
+                        .flatten(),
+                });
+            }
+        }
+        declared.sort_by(|left, right| {
+            left.owner_root
+                .cmp(&right.owner_root)
+                .then_with(|| left.dependency.name.cmp(&right.dependency.name))
+                .then_with(|| left.dependency.path.cmp(&right.dependency.path))
+        });
+        LocalPackageGraphReport {
+            options,
+            resolved: self.nodes.clone(),
+            declared,
+        }
     }
 }
 
@@ -1989,6 +2064,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(selected.nodes.len(), 3);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn graph_report_preserves_filtered_dependency_decisions() {
+        let root = std::env::temp_dir().join(format!("nia-report-{}", std::process::id()));
+        let optional = root.join("optional");
+        std::fs::create_dir_all(&optional).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "dependency = optional:optional:optional\n",
+        )
+        .unwrap();
+        std::fs::write(optional.join("nia.package"), "name = \"optional\"\n").unwrap();
+        let graph = LocalPackageGraph::resolve(&root, false).unwrap();
+        let report = graph.report();
+        assert_eq!(report.resolved.len(), 1);
+        assert_eq!(report.declared.len(), 1);
+        assert_eq!(report.declared[0].dependency.class, DependencyClass::Optional);
+        assert_eq!(report.declared[0].resolved_root, None);
+        let selected = LocalPackageGraph::resolve_with_options(
+            &root,
+            LocalPackageGraphOptions {
+                include_optional: true,
+                ..LocalPackageGraphOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(selected.report().declared[0].resolved_root.as_deref(), Some("optional"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
