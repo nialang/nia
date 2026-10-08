@@ -390,10 +390,21 @@ impl LocalPackageManifest {
                 "source-root" => source_roots.push(value.to_string()),
                 "exclude" => excludes.push(value.to_string()),
                 "dependency" => {
-                    let mut fields = value.split(':');
-                    let name = fields.next().unwrap_or("").trim();
-                    let path = fields.next().unwrap_or("").trim();
-                    let class = match fields.next().unwrap_or("runtime").trim() {
+                    let (declaration, class_name) = value.rsplit_once(':').ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "dependency must be name:path:class",
+                        )
+                    })?;
+                    let (name, path) = declaration.split_once(':').ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "dependency must be name:path:class",
+                        )
+                    })?;
+                    let name = name.trim();
+                    let path = path.trim();
+                    let class = match class_name.trim() {
                         "build" | "build-only" => DependencyClass::BuildOnly,
                         "runtime" => DependencyClass::Runtime,
                         "test" | "test-only" => DependencyClass::TestOnly,
@@ -407,7 +418,13 @@ impl LocalPackageManifest {
                             ));
                         }
                     };
-                    if name.is_empty() || path.is_empty() || fields.next().is_some() {
+                    if name.is_empty()
+                        || path.is_empty()
+                        || Path::new(path).is_absolute()
+                        || path.starts_with('/')
+                        || path.starts_with('\\')
+                        || path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+                    {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "dependency must be name:path:class",
@@ -2056,6 +2073,27 @@ mod tests {
         assert_eq!(manifest.source.excludes, vec!["src/generated"]);
         assert_eq!(manifest.dependencies[0].class, DependencyClass::BuildOnly);
         manifest.validate_compatibility().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dependency_parser_keeps_colons_in_relative_paths_and_rejects_absolute_paths() {
+        let root = std::env::temp_dir().join(format!("nia-dependency-path-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "dependency = helper:../third:party:runtime\n",
+        )
+        .unwrap();
+        let manifest = LocalPackageManifest::read(&root).unwrap();
+        assert_eq!(manifest.dependencies[0].name, "helper");
+        assert_eq!(manifest.dependencies[0].path, "../third:party");
+        std::fs::write(
+            root.join("nia.package"),
+            "dependency = helper:/tmp/helper:runtime\n",
+        )
+        .unwrap();
+        assert!(LocalPackageManifest::read(&root).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 
