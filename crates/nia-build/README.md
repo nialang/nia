@@ -23,6 +23,12 @@ values and construct a graph through `std::build`; it cannot execute graph
 actions. The decoded immutable `BuildPlan` is the coordinator's only execution
 input.
 
+Package manifests are resolved before runner execution. The local package
+resolver fingerprints declared source content, applies explicit dependency
+classes, and keeps filtered optional, lazy, and test dependencies out of the
+selected graph. `LocalPackageGraph::report` exposes declared versus resolved
+edges without loading source modules.
+
 The runner wrapper remains owned by `nia-build`, rather than becoming part of
 the public `std::build` API, because it is a private protocol bootstrap: it
 binds runner-config and plan compatibility identities, cache inputs, and the
@@ -139,8 +145,18 @@ without mixing child bytes into the diagnostic envelope.
 The frozen plan's host and artifact targets must match the current invocation
 before action selection or output preparation. Mismatch reports identify the
 role and show the invocation target as expected and the plan target as found.
-The CLI freezes a new plan from each invocation; `build-plan.bin` is a durable
-observation, not an alternate execution input.
+The CLI freezes a new plan from each invocation. A validated configure record
+may be reused only when its non-poisoned observations recompute against the
+current package root and its plan decodes through semantic freeze; corrupt,
+missing, or changed observations fall back to normal runner configuration.
+`build-plan.bin` remains a durable observation, never an unchecked execution
+input.
+
+For maintenance and CI, `nia build --dry-run` validates the selected closure
+without executing coordinator actions. `--print-plan`, `--explain`,
+`--print-cache`, and `--print-observations` expose deterministic graph and
+cache evidence. `--diagnostics-format=json` switches these inspection products
+to newline-delimited stable JSON records.
 
 The runner receives the toolchain's complete maintained target matrix. An
 artifact without a target builds for the invocation artifact target;
