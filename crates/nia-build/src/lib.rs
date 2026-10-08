@@ -1132,10 +1132,11 @@ fn run_build_runner(
     }) {
         Ok(output) if output.status.success() => {
             let plan = time_build_stage(invocation.timings, "build_runner_read_plan", || {
-                read_build_plan(&invocation.plan_draft)
+                read_build_draft(&invocation.plan_draft)
             });
             match plan {
-                Ok(plan) => {
+                Ok(draft) => {
+                    let plan = draft.plan;
                     time_build_stage(invocation.timings, "build_runner_publish_plan", || {
                         publish_build_plan(&invocation.plan_path, &plan)
                             .map(|()| plan)
@@ -1145,10 +1146,7 @@ fn run_build_runner(
                             })
                     })
                 }
-                Err(error) => Err(BuildError::ReadPlanDraft {
-                    path: invocation.plan_draft.clone(),
-                    error,
-                }),
+                Err(error) => Err(error),
             }
         }
         Ok(output) => Err(BuildError::RunnerFailed {
@@ -1185,6 +1183,23 @@ fn run_build_runner(
         Ok(plan) => cleanup.map(|()| plan),
         Err(error) => Err(error),
     }
+}
+
+fn read_build_draft(path: &Path) -> Result<BuildDraft, BuildError> {
+    let bytes = fs::read(path).map_err(|error| BuildError::ReadPlanDraft {
+        path: path.to_path_buf(),
+        error: PlanHandoffError::Read {
+            path: path.to_path_buf(),
+            error,
+        },
+    })?;
+    BuildDraft::decode(&bytes).map_err(|_error| BuildError::ReadPlanDraft {
+        path: path.to_path_buf(),
+        error: PlanHandoffError::Decode {
+            path: path.to_path_buf(),
+            error: PlanCodecError::BadMagic,
+        },
+    })
 }
 
 struct RunnerProcessOutput {
