@@ -7,8 +7,8 @@ use nia_compat::formats::CONFIGURE_MANIFEST;
 
 use crate::{BuildPlan, PlanCodecError};
 
-const MAGIC: &[u8; 8] = b"NIADRAF\0";
-const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
+pub const BUILD_DRAFT_MAGIC: &[u8; 8] = b"NIADRF\0\0";
+pub const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
 
 /// Configuration evidence attached to a runner-produced plan draft.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl BuildDraft {
             return Err(BuildDraftError::TooLarge);
         }
         let mut encoded = Vec::with_capacity(total);
-        encoded.extend_from_slice(MAGIC);
+        encoded.extend_from_slice(BUILD_DRAFT_MAGIC);
         encoded.extend_from_slice(&plan_len.to_le_bytes());
         encoded.extend_from_slice(&observations_len.to_le_bytes());
         encoded.extend_from_slice(blake3::hash(&plan).as_bytes());
@@ -69,7 +69,7 @@ impl BuildDraft {
 
     /// Decodes the envelope and revalidates the nested plan through freeze.
     pub fn decode(bytes: &[u8]) -> Result<Self, BuildDraftError> {
-        if bytes.len() > MAX_DRAFT_BYTES || bytes.len() < 48 || bytes[..8] != *MAGIC {
+        if bytes.len() > MAX_DRAFT_BYTES || bytes.len() < 48 || bytes[..8] != *BUILD_DRAFT_MAGIC {
             return Err(BuildDraftError::InvalidEnvelope);
         }
         let plan_len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
