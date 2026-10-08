@@ -114,6 +114,8 @@ pub struct BuildRequest {
     pub print_observations: bool,
     /// Print cache decisions after configuration and action execution.
     pub print_cache: bool,
+    /// Render build inspection output as stable JSON.
+    pub output_json: bool,
     /// Forward child streams while retaining bounded tails for failure reports.
     pub forward_output: bool,
 }
@@ -142,6 +144,7 @@ impl BuildRequest {
             print_plan: false,
             print_observations: false,
             print_cache: false,
+            output_json: false,
             forward_output: true,
         }
     }
@@ -257,6 +260,12 @@ impl BuildRequest {
     /// Prints runner, configuration, and action-cache decisions.
     pub fn with_print_cache(mut self, enabled: bool) -> Self {
         self.print_cache = enabled;
+        self
+    }
+
+    /// Selects JSON for plan, cache, and observation inspection output.
+    pub fn with_output_json(mut self, enabled: bool) -> Self {
+        self.output_json = enabled;
         self
     }
 
@@ -623,6 +632,7 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     let print_plan = request.print_plan;
     let print_observations = request.print_observations;
     let print_cache = request.print_cache;
+    let output_json = request.output_json;
     nia_timing::collect_to_stderr(
         TimingOptions::new(request.timings).with_format(request.timing_format),
         || {
@@ -709,23 +719,53 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 }
             })?;
             if print_plan {
-                print!("{}", render_build_plan_summary(&plan));
+                if output_json {
+                    print!("{}", render_build_plan_json(&plan));
+                } else {
+                    print!("{}", render_build_plan_summary(&plan));
+                }
             }
             if explain {
-                print!(
-                    "{}",
-                    render_build_explanation(&plan, &invocation, configure_candidate, &preview)
-                );
+                if output_json {
+                    print!(
+                        "{}",
+                        render_build_explanation_json(
+                            &plan,
+                            &invocation,
+                            configure_candidate,
+                            &preview,
+                        )
+                    );
+                } else {
+                    print!(
+                        "{}",
+                        render_build_explanation(&plan, &invocation, configure_candidate, &preview)
+                    );
+                }
             }
             if print_observations {
-                print!("{}", render_configure_observations(&draft.observations));
+                if output_json {
+                    print!(
+                        "{}",
+                        render_configure_observations_json(&draft.observations)
+                    );
+                } else {
+                    print!("{}", render_configure_observations(&draft.observations));
+                }
             }
             if print_cache || explain {
-                println!(
-                    "configure cache: {:?}; runner {}",
-                    configure_candidate,
-                    if runner_reused { "reused" } else { "executed" }
-                );
+                if output_json {
+                    print!(
+                        "{}",
+                        render_configure_cache_json(configure_candidate, runner_reused)
+                    );
+                } else {
+                    println!(
+                        "configure cache: {:?}; runner {}",
+                        configure_candidate,
+                        if runner_reused { "reused" } else { "executed" }
+                    );
+                }
             }
             if invocation.test_list {
                 for name in test_step_names(&plan, invocation.test_filter.as_deref()) {
@@ -751,7 +791,11 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.actions_executed", report.actions.len() as u64);
                 emit_action_cache_counters(report);
                 if print_cache || explain {
-                    print!("{}", render_action_cache_summary(report));
+                    if output_json {
+                        print!("{}", render_action_cache_json(report));
+                    } else {
+                        print!("{}", render_action_cache_summary(report));
+                    }
                 }
             } else {
                 nia_timing::emit_counter("build.action_failures", 1);
@@ -914,6 +958,109 @@ fn render_action_cache_summary(report: &ExecutionReport) -> String {
         );
     }
     output
+}
+
+/// Renders a stable machine-readable plan summary.
+pub fn render_build_plan_json(plan: &BuildPlan) -> String {
+    let packages = plan
+        .package_usage()
+        .into_iter()
+        .map(|usage| {
+            serde_json::json!({
+                "package": usage.package.as_str(),
+                "loaded_modules": usage.loaded_modules,
+                "artifacts": usage.artifacts,
+                "actions": usage.actions,
+                "steps": usage.steps,
+                "loaded": usage.is_loaded(),
+                "used": usage.is_used(),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "kind": "build-plan",
+        "root_package": plan.root_package().as_str(),
+        "host_target": plan.host_target().name(),
+        "artifact_target": plan.artifact_target().name(),
+        "counts": {
+            "packages": plan.packages().len(),
+            "modules": plan.modules().len(),
+            "artifacts": plan.artifacts().len(),
+            "actions": plan.actions().len(),
+            "steps": plan.steps().len(),
+        },
+        "packages": packages,
+    })
+    .to_string()
+        + "\n"
+}
+
+/// Renders a stable machine-readable build explanation.
+pub fn render_build_explanation_json(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    configure_candidate: ConfigureCacheCandidate,
+    preview: &ExecutionReport,
+) -> String {
+    let actions = preview
+        .actions
+        .iter()
+        .map(|action| format!("{}::{}", action.package().as_str(), action.name()))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "kind": "build-explanation",
+        "package_root": invocation.package_root.to_string_lossy(),
+        "package_graph_fingerprint": hex_fingerprint(&invocation.package_source_fingerprint),
+        "configure_cache_candidate": format!("{configure_candidate:?}"),
+        "selected_step": plan.selected_step().or_else(|| plan.default_step()).map(StepKey::name),
+        "targets": { "host": plan.host_target().name(), "artifact": plan.artifact_target().name() },
+        "closure": { "steps": preview.steps.len(), "actions": actions },
+    })
+    .to_string()
+        + "\n"
+}
+
+fn render_configure_cache_json(candidate: ConfigureCacheCandidate, runner_reused: bool) -> String {
+    serde_json::json!({
+        "kind": "configure-cache",
+        "candidate": format!("{candidate:?}"),
+        "runner": if runner_reused { "reused" } else { "executed" },
+    })
+    .to_string()
+        + "\n"
+}
+
+fn render_configure_observations_json(bytes: &[u8]) -> String {
+    let value = match ConfigureManifest::decode(bytes) {
+        Ok(manifest) => serde_json::json!({
+            "kind": "configure-observations",
+            "policy": format!("{:?}", manifest.policy()),
+            "observations": manifest.observations().iter().map(|observation| serde_json::json!({
+                "path": observation.path().to_string_lossy(),
+                "kind": format!("{:?}", observation.kind()),
+                "fingerprint": hex_fingerprint(observation.fingerprint()),
+            })).collect::<Vec<_>>(),
+        }),
+        Err(_) => serde_json::json!({
+            "kind": "configure-observations",
+            "policy": "Poison",
+            "observations": [],
+            "valid": false,
+        }),
+    };
+    value.to_string() + "\n"
+}
+
+fn render_action_cache_json(report: &ExecutionReport) -> String {
+    serde_json::json!({
+        "kind": "action-cache",
+        "entries": report.action_cache.iter().map(|entry| serde_json::json!({
+            "action": format!("{}::{}", entry.action.package().as_str(), entry.action.name()),
+            "outcome": format!("{:?}", entry.outcome),
+        })).collect::<Vec<_>>(),
+    })
+    .to_string()
+        + "\n"
 }
 
 fn emit_action_cache_counters(report: &ExecutionReport) {

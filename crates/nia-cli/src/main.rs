@@ -1920,6 +1920,7 @@ fn run_build(context: BuildContext) -> ExitCode {
         .with_print_plan(print_plan)
         .with_print_cache(print_cache)
         .with_print_observations(print_observations)
+        .with_output_json(diagnostics_format == DiagnosticsFormat::Json)
         .with_timings(timings)
         .with_timing_format(timing_format);
     match nia_build::run_build(request) {
