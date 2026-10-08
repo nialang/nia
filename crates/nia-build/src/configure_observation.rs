@@ -129,7 +129,8 @@ pub fn observe_file_contents(
     relative: impl Into<PathBuf>,
 ) -> io::Result<ConfigureObservation> {
     let relative = relative.into();
-    let bytes = fs::read(root.join(&relative))?;
+    let path = resolve_observation_path(root, &relative)?;
+    let bytes = fs::read(path)?;
     ConfigureObservation::new(
         relative,
         ObservationKind::FileContents,
@@ -144,7 +145,7 @@ pub fn observe_directory_contents(
     relative: impl Into<PathBuf>,
 ) -> io::Result<ConfigureObservation> {
     let relative = relative.into();
-    let directory = root.join(&relative);
+    let directory = resolve_observation_path(root, &relative)?;
     let mut entries = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
@@ -176,7 +177,7 @@ pub fn observe_metadata(
     relative: impl Into<PathBuf>,
 ) -> io::Result<ConfigureObservation> {
     let relative = relative.into();
-    let metadata = fs::metadata(root.join(&relative))?;
+    let metadata = fs::metadata(resolve_observation_path(root, &relative)?)?;
     let mut bytes = Vec::with_capacity(24);
     bytes.extend_from_slice(&metadata.len().to_le_bytes());
     bytes.push(u8::from(metadata.is_dir()));
@@ -206,7 +207,7 @@ pub fn observe_directory_metadata(
     relative: impl Into<PathBuf>,
 ) -> io::Result<ConfigureObservation> {
     let relative = relative.into();
-    let metadata = fs::metadata(root.join(&relative))?;
+    let metadata = fs::metadata(resolve_observation_path(root, &relative)?)?;
     if !metadata.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -231,6 +232,24 @@ pub fn observe_directory_metadata(
         *blake3::hash(&bytes).as_bytes(),
     )
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+fn resolve_observation_path(root: &Path, relative: &Path) -> io::Result<PathBuf> {
+    ConfigureObservation::new(
+        relative.to_path_buf(),
+        ObservationKind::FileMetadata,
+        [0; 32],
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let canonical_root = root.canonicalize()?;
+    let candidate = root.join(relative).canonicalize()?;
+    if !candidate.starts_with(&canonical_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "configure observation path escapes the package root",
+        ));
+    }
+    Ok(candidate)
 }
 
 /// Adds a filesystem observation to a manifest, preserving canonical order.
@@ -619,6 +638,24 @@ mod tests {
         std::fs::create_dir_all(root.join("src")).unwrap();
         let observation = observe_directory_metadata(&root, "src").unwrap();
         assert_eq!(observation.kind(), ObservationKind::DirectoryMetadata);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn observations_reject_symlink_paths_outside_the_package_root() {
+        use std::os::unix::fs::symlink;
+        let root =
+            std::env::temp_dir().join(format!("nia-observation-symlink-{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("nia-observation-outside-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&outside, b"outside").unwrap();
+        symlink(&outside, root.join("input")).unwrap();
+        let error = observe_file_contents(&root, "input").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        std::fs::remove_file(root.join("input")).unwrap();
+        std::fs::remove_file(outside).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }
