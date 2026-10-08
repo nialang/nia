@@ -27,13 +27,13 @@ nia-source.workspace = true
 nia-target-config.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
 [dev-dependencies]
 nia-span.workspace = true
-serde_json.workspace = true
 
 [lib]
 path = "src/lib.rs"
