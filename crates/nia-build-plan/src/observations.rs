@@ -10,7 +10,8 @@ use crate::{BuildPlan, PlanCodecError};
 pub const BUILD_DRAFT_MAGIC: &[u8; 8] = b"NIADRF\0\0";
 pub const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
 
-fn plan_checksum(bytes: &[u8]) -> [u8; 32] {
+/// Computes the BLAKE3 plan checksum used by every draft producer.
+pub fn plan_checksum(bytes: &[u8]) -> [u8; 32] {
     let digest = blake3::hash(bytes);
     *digest.as_bytes()
 }
