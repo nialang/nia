@@ -38,6 +38,7 @@ fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
 }
 
 mod action_cache;
+mod configure_cache;
 mod configure_observation;
 mod coordinator;
 mod lock;
@@ -56,6 +57,7 @@ use process_output::{
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
+pub use configure_cache::{ConfigureCache, ConfigureIdentity};
 pub use configure_observation::{
     ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,
     ObservationKind, ObservationPolicy,
