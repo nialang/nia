@@ -134,6 +134,9 @@ impl BuildDraft {
         let end = plan_end
             .checked_add(observations_len)
             .ok_or(BuildDraftError::InvalidEnvelope)?;
+        if plan_start > bytes.len() || plan_end > bytes.len() || end > bytes.len() {
+            return Err(BuildDraftError::InvalidEnvelope);
+        }
         let plan_bytes = &bytes[plan_start..plan_end];
         let runner_checksum = runner_checksum_bytes(plan_bytes);
         if end != bytes.len()
@@ -179,5 +182,17 @@ mod tests {
         assert_eq!(runner_plan_checksum(b"nia"), runner_plan_checksum(b"nia"));
         assert_ne!(runner_plan_checksum(b"nia"), runner_plan_checksum(b"Nia"));
         assert_eq!(runner_checksum_bytes(b"nia")[8..], [0; 24]);
+    }
+
+    #[test]
+    fn draft_rejects_lengths_beyond_the_envelope_without_panicking() {
+        let mut bytes = vec![0; 48];
+        bytes[..8].copy_from_slice(BUILD_DRAFT_MAGIC);
+        bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+        bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(
+            BuildDraft::decode(&bytes),
+            Err(BuildDraftError::InvalidEnvelope)
+        );
     }
 }
