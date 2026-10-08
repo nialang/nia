@@ -22,6 +22,15 @@ pub struct ConfigureIdentity {
     pub observations: [u8; 32],
 }
 
+/// Result of consulting the configure cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigureCacheStatus {
+    /// No valid record exists for the requested identity.
+    Miss,
+    /// A valid record was found and can be used as an observation witness.
+    Hit,
+}
+
 impl ConfigureIdentity {
     /// Creates a content-addressed configure identity.
     pub fn new(
@@ -114,6 +123,16 @@ impl ConfigureCache {
             }
         }
     }
+
+    /// Returns whether a manifest record exists without exposing it as an
+    /// execution input. The caller must still configure and validate a plan.
+    pub fn status(&self, identity: &ConfigureIdentity) -> io::Result<ConfigureCacheStatus> {
+        Ok(if self.lookup(identity)?.is_some() {
+            ConfigureCacheStatus::Hit
+        } else {
+            ConfigureCacheStatus::Miss
+        })
+    }
 }
 
 #[cfg(test)]
@@ -163,6 +182,26 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         assert_eq!(cache.lookup(&identity).unwrap(), None);
         assert!(!path.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn status_distinguishes_a_valid_record_from_a_miss() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-configure-status-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cache = ConfigureCache { root: root.clone() };
+        let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
+        let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
+        assert_eq!(cache.status(&identity).unwrap(), ConfigureCacheStatus::Miss);
+        cache.publish(&identity, &manifest).unwrap();
+        assert_eq!(cache.status(&identity).unwrap(), ConfigureCacheStatus::Hit);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
