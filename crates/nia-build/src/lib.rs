@@ -369,6 +369,13 @@ pub enum BuildError {
         /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Resolving local package manifests and selected dependency classes failed.
+    ResolvePackageGraph {
+        /// Package root where graph resolution began.
+        path: PathBuf,
+        /// Underlying manifest, path, compatibility, or graph error.
+        error: io::Error,
+    },
     /// A path required by generated runner source is not valid UTF-8.
     NonUtf8Path {
         /// Semantic role of the path.
@@ -507,6 +514,11 @@ impl fmt::Display for BuildError {
                     path.display()
                 )
             }
+            Self::ResolvePackageGraph { path, error } => write!(
+                f,
+                "failed to resolve package graph at `{}`: {error}",
+                path.display()
+            ),
             Self::NonUtf8Path { role, path } => {
                 write!(
                     f,
@@ -1216,7 +1228,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
             include_lazy: request.include_lazy_dependencies,
         },
     )
-    .map_err(|error| BuildError::CreateBuildDirectory {
+    .map_err(|error| BuildError::ResolvePackageGraph {
         path: package_root.clone(),
         error,
     })?;
