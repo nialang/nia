@@ -10,6 +10,11 @@ use crate::{BuildPlan, PlanCodecError};
 pub const BUILD_DRAFT_MAGIC: &[u8; 8] = b"NIADRF\0\0";
 pub const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
 
+fn plan_checksum(bytes: &[u8]) -> [u8; 32] {
+    let digest = blake3::hash(bytes);
+    *digest.as_bytes()
+}
+
 /// Encodes a draft envelope from an already canonical plan and observation
 /// bytes without requiring the language runtime to implement hashing.
 pub fn encode_draft_envelope(plan: &[u8], observations: &[u8]) -> Result<Vec<u8>, BuildDraftError> {
@@ -87,7 +92,7 @@ impl BuildDraft {
         encoded.extend_from_slice(BUILD_DRAFT_MAGIC);
         encoded.extend_from_slice(&plan_len.to_le_bytes());
         encoded.extend_from_slice(&observations_len.to_le_bytes());
-        encoded.extend_from_slice(blake3::hash(&plan).as_bytes());
+        encoded.extend_from_slice(&plan_checksum(&plan));
         encoded.extend_from_slice(&plan);
         encoded.extend_from_slice(&self.observations);
         Ok(encoded)
@@ -107,9 +112,7 @@ impl BuildDraft {
         let end = plan_end
             .checked_add(observations_len)
             .ok_or(BuildDraftError::InvalidEnvelope)?;
-        if end != bytes.len()
-            || bytes[16..48] != *blake3::hash(&bytes[plan_start..plan_end]).as_bytes()
-        {
+        if end != bytes.len() || bytes[16..48] != plan_checksum(&bytes[plan_start..plan_end]) {
             return Err(BuildDraftError::InvalidEnvelope);
         }
         Ok(Self {
