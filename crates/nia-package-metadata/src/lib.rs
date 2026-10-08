@@ -114,6 +114,7 @@ pub struct LocalPackageManifest {
 pub struct LocalPackageGraphNode {
     pub manifest: LocalPackageManifest,
     pub root: String,
+    pub source_fingerprint: [u8; 32],
 }
 
 /// A bounded package graph assembled from local manifests.
@@ -143,6 +144,11 @@ impl LocalPackageGraph {
                 }
             })?;
             manifest.validate_compatibility()?;
+            let source = package_source_identity_with_selection(
+                &canonical,
+                manifest.package.clone(),
+                &manifest.source,
+            )?;
             for dependency in &manifest.dependencies {
                 if !include_tests && matches!(dependency.class, DependencyClass::TestOnly) {
                     continue;
@@ -158,6 +164,7 @@ impl LocalPackageGraph {
             nodes.push(LocalPackageGraphNode {
                 manifest,
                 root: logical_root,
+                source_fingerprint: source.source_fingerprint,
             });
             if nodes.len() > 1024 {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "package graph is too large"));
@@ -165,6 +172,33 @@ impl LocalPackageGraph {
         }
         nodes.sort_by(|left, right| left.root.cmp(&right.root));
         Ok(Self { nodes })
+    }
+
+    /// Returns the canonical content identity of all resolved package nodes.
+    pub fn fingerprint(&self) -> [u8; 32] {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(b"nia.package.graph\0\x01");
+        for node in &self.nodes {
+            encoded.extend_from_slice(&(node.root.len() as u64).to_le_bytes());
+            encoded.extend_from_slice(node.root.as_bytes());
+            encoded.extend_from_slice(node.manifest.package.canonical_text().as_bytes());
+            encoded.push(0);
+            encoded.extend_from_slice(&node.source_fingerprint);
+            for dependency in &node.manifest.dependencies {
+                encoded.extend_from_slice(dependency.name.as_bytes());
+                encoded.push(0);
+                encoded.extend_from_slice(dependency.path.as_bytes());
+                encoded.push(match dependency.class {
+                    DependencyClass::BuildOnly => 0,
+                    DependencyClass::Runtime => 1,
+                    DependencyClass::TestOnly => 2,
+                    DependencyClass::Development => 3,
+                    DependencyClass::Optional => 4,
+                    DependencyClass::Lazy => 5,
+                });
+            }
+        }
+        *blake3::hash(&encoded).as_bytes()
     }
 }
 
@@ -1867,6 +1901,10 @@ mod tests {
         let graph = LocalPackageGraph::resolve(&root, false).unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert!(graph.nodes.iter().any(|node| node.manifest.package.name == "dep"));
+        let first_fingerprint = graph.fingerprint();
+        std::fs::write(dep.join("src.nia"), "changed").unwrap();
+        let changed = LocalPackageGraph::resolve(&root, false).unwrap();
+        assert_ne!(first_fingerprint, changed.fingerprint());
         std::fs::remove_dir_all(root).unwrap();
     }
 }
