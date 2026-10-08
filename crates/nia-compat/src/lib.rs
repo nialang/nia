@@ -214,6 +214,9 @@ pub mod formats {
     /// Disposable generated host-runner executable cache record.
     pub const RUNNER_EXECUTABLE_CACHE: PersistedFormat =
         PersistedFormat::new("runner-executable-cache", b"NIARUN\0\0");
+    /// Versioned configure observation manifest used by the plan cache.
+    pub const CONFIGURE_MANIFEST: PersistedFormat =
+        PersistedFormat::new("configure-manifest", b"NIACFG\0\0");
 
     /// Shared namespace for persistent frontend products.
     pub const FRONTEND_CACHE: PersistedNamespace = PersistedNamespace::new("frontend-cache");
