@@ -5,7 +5,9 @@ use std::{fs, io, path::PathBuf};
 
 use nia_compat::formats;
 
-use crate::{BuildInvocation, ConfigureManifest, ObservationCodecError};
+use crate::{
+    BuildInvocation, ConfigureManifest, ObservationCodecError, ObservationValidation,
+};
 
 const MAGIC: &[u8; 8] = b"NIACREC\0";
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
@@ -87,6 +89,26 @@ pub enum ConfigureCacheStatus {
     Miss,
     /// A valid record was found and can be used as an observation witness.
     Hit,
+}
+
+/// Reason a configure-cache record cannot be reused for the current checkout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigureCacheMissReason {
+    /// No record exists for the exact runner/invocation/observation key.
+    NotFound,
+    /// A persisted observation no longer matches the filesystem.
+    ObservationChanged { path: PathBuf },
+    /// A persisted observation path is unavailable.
+    ObservationMissing { path: PathBuf },
+}
+
+/// Validated configure-cache lookup result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigureCacheLookup {
+    /// A record whose observations match the current package root.
+    Hit(ConfigureRecord),
+    /// The record cannot be used for this invocation.
+    Miss(ConfigureCacheMissReason),
 }
 
 /// Reports whether a cache record exists for the runner/invocation pair,
@@ -278,6 +300,27 @@ impl ConfigureCache {
         })
     }
 
+    /// Looks up a record and validates its observation facts against `root`.
+    pub fn lookup_validated(
+        &self,
+        identity: &ConfigureIdentity,
+        root: &std::path::Path,
+    ) -> io::Result<ConfigureCacheLookup> {
+        let Some(record) = self.lookup(identity)? else {
+            return Ok(ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound));
+        };
+        let result = match record.manifest.validate(root) {
+            ObservationValidation::Match => ConfigureCacheLookup::Hit(record),
+            ObservationValidation::Changed { path, .. } => {
+                ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged { path })
+            }
+            ObservationValidation::Missing { path, .. } => {
+                ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationMissing { path })
+            }
+        };
+        Ok(result)
+    }
+
     /// Finds whether any valid record belongs to the same runner and
     /// invocation domains. Observation fingerprints remain the final lookup
     /// key and are never inferred from this candidate result.
@@ -424,5 +467,46 @@ mod tests {
             .unwrap();
         assert_eq!(cache.status(&identity).unwrap(), ConfigureCacheStatus::Hit);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn validated_lookup_reports_observation_changes() {
+        let checkout = std::env::temp_dir().join(format!(
+            "nia-configure-validated-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&checkout).unwrap();
+        std::fs::write(checkout.join("input"), b"before").unwrap();
+        let observation = crate::observe_file_contents(&checkout, "input").unwrap();
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        manifest.push(observation);
+        let cache_root = checkout.join("cache");
+        let cache = ConfigureCache {
+            root: cache_root,
+        };
+        let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
+        cache
+            .publish(
+                &identity,
+                &ConfigureRecord {
+                    plan: b"plan".to_vec(),
+                    manifest,
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            cache.lookup_validated(&identity, &checkout).unwrap(),
+            ConfigureCacheLookup::Hit(_)
+        ));
+        std::fs::write(checkout.join("input"), b"after").unwrap();
+        assert!(matches!(
+            cache.lookup_validated(&identity, &checkout).unwrap(),
+            ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged { .. })
+        ));
+        std::fs::remove_dir_all(checkout).unwrap();
     }
 }
