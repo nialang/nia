@@ -126,7 +126,7 @@ impl ConfigureCache {
         let manifest_len = u32::try_from(manifest.len())
             .map_err(|_| io::Error::other("configure manifest too large"))?;
         let mut bytes = Vec::with_capacity(8 + 4 + 4 + 32 + 4 + record.plan.len() + manifest.len());
-        bytes.extend_from_slice(b"NIACREC\0");
+        bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&1u32.to_le_bytes());
         bytes.extend_from_slice(&plan_len.to_le_bytes());
         bytes.extend_from_slice(&manifest_len.to_le_bytes());
@@ -153,7 +153,11 @@ impl ConfigureCache {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
-        if bytes.len() > MAX_RECORD_BYTES || bytes.len() < HEADER_BYTES || &bytes[..8] != MAGIC {
+        if bytes.len() > MAX_RECORD_BYTES
+            || bytes.len() < HEADER_BYTES
+            || &bytes[..8] != MAGIC
+            || u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != 1
+        {
             let _ = fs::remove_file(&path);
             return Ok(None);
         }
