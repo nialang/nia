@@ -123,9 +123,41 @@ pub struct LocalPackageGraph {
     pub nodes: Vec<LocalPackageGraphNode>,
 }
 
+/// Selection policy for constructing a package graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalPackageGraphOptions {
+    pub include_tests: bool,
+    pub include_optional: bool,
+    pub include_lazy: bool,
+}
+
+impl Default for LocalPackageGraphOptions {
+    fn default() -> Self {
+        Self {
+            include_tests: false,
+            include_optional: false,
+            include_lazy: false,
+        }
+    }
+}
+
 impl LocalPackageGraph {
     /// Discovers the root package and selected dependency classes.
     pub fn resolve(root: &Path, include_tests: bool) -> io::Result<Self> {
+        Self::resolve_with_options(
+            root,
+            LocalPackageGraphOptions {
+                include_tests,
+                ..LocalPackageGraphOptions::default()
+            },
+        )
+    }
+
+    /// Discovers a package graph under an explicit dependency-class policy.
+    pub fn resolve_with_options(
+        root: &Path,
+        options: LocalPackageGraphOptions,
+    ) -> io::Result<Self> {
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
         let mut seen = BTreeSet::new();
@@ -156,11 +188,14 @@ impl LocalPackageGraph {
                 &manifest.source,
             )?;
             for dependency in &manifest.dependencies {
-                if !include_tests && matches!(dependency.class, DependencyClass::TestOnly) {
+                if !options.include_tests && matches!(dependency.class, DependencyClass::TestOnly) {
                     continue;
                 }
-                if matches!(dependency.class, DependencyClass::Lazy | DependencyClass::Optional)
-                    && !is_root
+                if !options.include_lazy && matches!(dependency.class, DependencyClass::Lazy) {
+                    continue;
+                }
+                if !options.include_optional
+                    && matches!(dependency.class, DependencyClass::Optional)
                 {
                     continue;
                 }
@@ -1925,6 +1960,35 @@ mod tests {
         std::fs::write(dep.join("nia.package"), "dependency = root:..:runtime\n").unwrap();
         let error = LocalPackageGraph::resolve(&root, false).unwrap_err();
         assert!(error.to_string().contains("dependency cycle"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn optional_and_lazy_dependencies_require_explicit_selection() {
+        let root = std::env::temp_dir().join(format!("nia-optional-{}", std::process::id()));
+        let optional = root.join("optional");
+        let lazy = root.join("lazy");
+        std::fs::create_dir_all(&optional).unwrap();
+        std::fs::create_dir_all(&lazy).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "dependency = optional:optional:optional\ndependency = lazy:lazy:lazy\n",
+        )
+        .unwrap();
+        std::fs::write(optional.join("nia.package"), "name = \"optional\"\n").unwrap();
+        std::fs::write(lazy.join("nia.package"), "name = \"lazy\"\n").unwrap();
+        let ordinary = LocalPackageGraph::resolve(&root, false).unwrap();
+        assert_eq!(ordinary.nodes.len(), 1);
+        let selected = LocalPackageGraph::resolve_with_options(
+            &root,
+            LocalPackageGraphOptions {
+                include_optional: true,
+                include_lazy: true,
+                ..LocalPackageGraphOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(selected.nodes.len(), 3);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
