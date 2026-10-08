@@ -184,6 +184,26 @@ impl ConfigureCache {
         }
     }
 
+    /// Publishes a plan/manifest witness only after the plan has been decoded
+    /// and semantically frozen by the caller.
+    pub fn publish_plan(
+        &self,
+        identity: &ConfigureIdentity,
+        plan: &nia_build_plan::BuildPlan,
+        manifest: &ConfigureManifest,
+    ) -> io::Result<()> {
+        let plan = plan
+            .encode()
+            .map_err(|_| io::Error::other("configure plan encoding failed"))?;
+        self.publish(
+            identity,
+            &ConfigureRecord {
+                plan,
+                manifest: manifest.clone(),
+            },
+        )
+    }
+
     /// Returns whether a manifest record exists without exposing it as an
     /// execution input. The caller must still configure and validate a plan.
     pub fn status(&self, identity: &ConfigureIdentity) -> io::Result<ConfigureCacheStatus> {
