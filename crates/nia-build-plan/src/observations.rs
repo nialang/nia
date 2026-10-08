@@ -10,6 +10,17 @@ use crate::{BuildPlan, PlanCodecError};
 pub const BUILD_DRAFT_MAGIC: &[u8; 8] = b"NIADRF\0\0";
 pub const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
 
+/// Encodes a draft envelope from an already canonical plan and observation
+/// bytes without requiring the language runtime to implement hashing.
+pub fn encode_draft_envelope(plan: &[u8], observations: &[u8]) -> Result<Vec<u8>, BuildDraftError> {
+    let plan = BuildPlan::decode(plan).map_err(BuildDraftError::Plan)?;
+    BuildDraft {
+        plan,
+        observations: observations.to_vec(),
+    }
+    .encode()
+}
+
 /// Constructs a draft envelope around already encoded plan bytes.
 pub fn encode_build_draft(plan: &[u8], observations: &[u8]) -> Result<Vec<u8>, BuildDraftError> {
     let plan = BuildPlan::decode(plan).map_err(BuildDraftError::Plan)?;
