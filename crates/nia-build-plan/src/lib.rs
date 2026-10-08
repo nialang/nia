@@ -22,12 +22,14 @@ mod actions;
 mod codec;
 mod dependencies;
 mod handoff;
+mod observations;
 #[cfg(test)]
 mod test_support;
 mod validation;
 
 pub use codec::*;
 pub use handoff::*;
+pub use observations::*;
 
 /// Error returned when a package, module, artifact, action, or step name is invalid.
 #[derive(Debug, Clone, PartialEq, Eq)]
