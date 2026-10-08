@@ -785,17 +785,28 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
-    let package_source = nia_package_metadata::package_source_identity(
+    let package_manifest = nia_package_metadata::LocalPackageManifest::read(&package_root)
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(nia_package_metadata::LocalPackageManifest::implicit(
+                    package_root
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("root")
+                        .to_ascii_lowercase(),
+                ))
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| BuildError::CreateBuildDirectory {
+            path: package_root.clone(),
+            error,
+        })?;
+    let package_source = nia_package_metadata::package_source_identity_with_selection(
         &package_root,
-        nia_package_metadata::PackageId {
-            namespace: "local".into(),
-            name: package_root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("root")
-                .to_ascii_lowercase(),
-            version: "0.0.0".into(),
-        },
+        package_manifest.package,
+        &package_manifest.source,
     )
     .map_err(|error| BuildError::CreateBuildDirectory {
         path: package_root.clone(),
