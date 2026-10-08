@@ -633,10 +633,13 @@ fn collect_source_files(
         {
             continue;
         }
-        let metadata = entry.metadata()?;
-        if metadata.is_dir() {
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
             collect_source_files(root, &path, excludes, files)?;
-        } else if metadata.is_file() {
+        } else if file_type.is_file() {
             let bytes = std::fs::read(&path)?;
             files.push(PackageSourceFile {
                 path: name,
@@ -2033,6 +2036,23 @@ mod tests {
         std::fs::write(root.join("src/main.nia"), "changed").unwrap();
         let changed = package_source_identity(&root, package.clone()).unwrap();
         assert_ne!(first.source_fingerprint, changed.source_fingerprint);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_source_identity_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("nia-package-symlink-{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("nia-package-outside-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&outside, b"outside").unwrap();
+        symlink(&outside, root.join("linked.nia")).unwrap();
+        let identity = package_source_identity(&root, package()).unwrap();
+        assert!(identity.files.iter().all(|file| file.path != "linked.nia"));
+        std::fs::remove_file(root.join("linked.nia")).unwrap();
+        std::fs::remove_file(outside).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
