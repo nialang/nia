@@ -208,6 +208,13 @@ impl ConfigureCache {
         )
     }
 
+    /// Decodes the cached plan through the registered semantic validator.
+    pub fn decode_plan(
+        record: &ConfigureRecord,
+    ) -> Result<nia_build_plan::BuildPlan, nia_build_plan::PlanCodecError> {
+        nia_build_plan::BuildPlan::decode(&record.plan)
+    }
+
     /// Returns whether a manifest record exists without exposing it as an
     /// execution input. The caller must still configure and validate a plan.
     pub fn status(&self, identity: &ConfigureIdentity) -> io::Result<ConfigureCacheStatus> {
