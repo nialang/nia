@@ -1897,15 +1897,13 @@ impl<'a> BodyChecker<'a> {
                 let closure_params_ready = closure_pattern.is_some_and(|pattern| {
                     self.seed_closure_params_from_callable_pattern(pattern, arg)
                 });
-                if closure_params_ready {
-                    if let Some(pattern) = closure_pattern {
-                        inferred_from_closure |= self.infer_generics_from_closure_signature(
-                            pattern,
-                            arg,
-                            substitutions,
-                            arg.span,
-                        );
-                    }
+                if closure_params_ready && let Some(pattern) = closure_pattern {
+                    inferred_from_closure |= self.infer_generics_from_closure_signature(
+                        pattern,
+                        arg,
+                        substitutions,
+                        arg.span,
+                    );
                 }
                 let callable_pattern = param
                     .and_then(|param| {
