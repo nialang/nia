@@ -152,6 +152,22 @@ impl LocalPackageManifest {
         validate_package_id(&manifest.package)?;
         Ok(manifest)
     }
+
+    /// Checks the manifest's minimum compiler compatibility against the
+    /// current registered release epoch.
+    pub fn validate_compatibility(&self) -> io::Result<()> {
+        if let Some(required) = self.minimum_release {
+            if required > RELEASE_COMPATIBILITY {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "package requires release compatibility {required}, current compiler provides {RELEASE_COMPATIBILITY}"
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn validate_package_id(package: &PackageId) -> io::Result<()> {
@@ -1711,6 +1727,23 @@ mod tests {
         let second = package_source_identity_with_selection(&root, package, &selection).unwrap();
         assert_eq!(first.source_fingerprint, second.source_fingerprint);
         assert_eq!(first.files.len(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_manifest_reads_identity_selection_and_compatibility() {
+        let root = std::env::temp_dir().join(format!("nia-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "namespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nsource-root = \"src\"\nexclude = \"src/generated\"\n",
+        )
+        .unwrap();
+        let manifest = LocalPackageManifest::read(&root).unwrap();
+        assert_eq!(manifest.package.canonical_text(), "acme/demo@1.2.3");
+        assert_eq!(manifest.source.source_roots, vec!["src"]);
+        assert_eq!(manifest.source.excludes, vec!["src/generated"]);
+        manifest.validate_compatibility().unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }

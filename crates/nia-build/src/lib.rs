@@ -803,6 +803,12 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
             path: package_root.clone(),
             error,
         })?;
+    package_manifest
+        .validate_compatibility()
+        .map_err(|error| BuildError::CreateBuildDirectory {
+            path: package_root.clone(),
+            error,
+        })?;
     let package_source = nia_package_metadata::package_source_identity_with_selection(
         &package_root,
         package_manifest.package,
