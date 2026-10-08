@@ -1782,13 +1782,14 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.package"),
-            "namespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nsource-root = \"src\"\nexclude = \"src/generated\"\n",
+            "namespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nsource-root = \"src\"\nexclude = \"src/generated\"\ndependency = helper:../helper:build-only\n",
         )
         .unwrap();
         let manifest = LocalPackageManifest::read(&root).unwrap();
         assert_eq!(manifest.package.canonical_text(), "acme/demo@1.2.3");
         assert_eq!(manifest.source.source_roots, vec!["src"]);
         assert_eq!(manifest.source.excludes, vec!["src/generated"]);
+        assert_eq!(manifest.dependencies[0].class, DependencyClass::BuildOnly);
         manifest.validate_compatibility().unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
