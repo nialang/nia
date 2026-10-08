@@ -121,6 +121,28 @@ impl ConfigureManifest {
     pub fn observations(&self) -> &[ConfigureObservation] {
         &self.observations
     }
+
+    /// Returns a canonical fingerprint for this manifest.
+    pub fn fingerprint(&self) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"nia.build.configure-manifest\0");
+        hasher.update(&[match self.policy {
+            ObservationPolicy::Disallow => 0,
+            ObservationPolicy::Poison => 1,
+            ObservationPolicy::Ignore => 2,
+        }]);
+        for observation in &self.observations {
+            hasher.update(observation.path.to_string_lossy().as_bytes());
+            hasher.update(&[match observation.kind {
+                ObservationKind::FileContents => 0,
+                ObservationKind::FileMetadata => 1,
+                ObservationKind::DirectoryContents => 2,
+                ObservationKind::DirectoryMetadata => 3,
+            }]);
+            hasher.update(&observation.fingerprint);
+        }
+        *hasher.finalize().as_bytes()
+    }
 }
 
 /// Rejection reason for a configure observation that cannot cross the cache boundary.
@@ -199,5 +221,23 @@ mod tests {
             ConfigureObservation::new("src/../input", ObservationKind::FileContents, fingerprint),
             Err(ObservationError::NonCanonicalPath(_))
         ));
+    }
+
+    #[test]
+    fn equivalent_manifests_have_stable_fingerprints() {
+        let fingerprint = [3; 32];
+        let mut first = ConfigureManifest::new(ObservationPolicy::Poison);
+        let mut second = ConfigureManifest::new(ObservationPolicy::Poison);
+        let observation =
+            ConfigureObservation::new("src/main.nia", ObservationKind::FileContents, fingerprint)
+                .unwrap();
+        first.push(observation.clone());
+        second.push(observation);
+        assert_eq!(first.fingerprint(), second.fingerprint());
+        second.push(
+            ConfigureObservation::new("options", ObservationKind::FileMetadata, fingerprint)
+                .unwrap(),
+        );
+        assert_ne!(first.fingerprint(), second.fingerprint());
     }
 }
