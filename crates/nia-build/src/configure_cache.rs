@@ -51,6 +51,12 @@ pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     )
 }
 
+/// Returns the canonical identity of a frozen plan for configure diagnostics.
+pub fn plan_identity(plan: &nia_build_plan::BuildPlan) -> String {
+    let bytes = plan.encode().unwrap_or_default();
+    blake3::hash(&bytes).to_hex().to_string()
+}
+
 /// Result of consulting the configure cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigureCacheStatus {
