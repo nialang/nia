@@ -582,7 +582,13 @@ extend Build {
         // Record the runner's package root as an initial typed observation.
         // This is deliberately metadata-only; future probe APIs append their
         // canonical records to the same bounded section.
-        let checksum = hash::Wyhash::hash(0u64, planBytes);
+        let mut checksumFirst: u32 = 1;
+        let mut checksumSecond: u32 = 0;
+        for &byte in planBytes.iter() {
+            checksumFirst = (checksumFirst + byte as u32) % 65521u32;
+            checksumSecond = (checksumSecond + checksumFirst) % 65521u32;
+        }
+        let checksum = ((checksumSecond as u64) << 32u64) | checksumFirst as u64;
         let checksumBytes: [u8; 32] = [
             checksum as u8,
             (checksum >> 8u64) as u8,

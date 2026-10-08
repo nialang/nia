@@ -564,16 +564,16 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 prepare_build_directories(&invocation)
             })?;
             nia_timing::emit_counter("build.runner_compilations", 1);
-            let runner_executable = time_summary_stage(timings, "build_compile_runner", || {
+            let runner = time_summary_stage(timings, "build_compile_runner", || {
                 compile_build_runner(&invocation)
             });
-            if runner_executable.is_err() {
+            if runner.is_err() {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
-            let runner_executable = runner_executable?;
+            let (runner_executable, runner_cache_key) = runner?;
             nia_timing::emit_counter("build.runner_executions", 1);
             let plan = time_summary_stage(timings, "build_run_runner", || {
-                run_and_cleanup_build_runner(&invocation, &runner_executable)
+                run_and_cleanup_build_runner(&invocation, &runner_executable, &runner_cache_key)
             });
             if plan.is_err() {
                 nia_timing::emit_counter("build.runner_failures", 1);
@@ -870,7 +870,7 @@ fn build_runner_source_for_path(
     Ok(BuildRunnerSource { path, source })
 }
 
-fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildError> {
+fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String), BuildError> {
     time_build_stage(invocation.timings, "build_runner_prepare_directory", || {
         fs::create_dir_all(&invocation.runner_dir).map_err(|error| {
             BuildError::CreateRunnerDirectory {
@@ -897,7 +897,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     });
     if restored {
         nia_timing::emit_counter("build.runner_cache_hits", 1);
-        return Ok(invocation.runner_executable.clone());
+        return Ok((invocation.runner_executable.clone(), cache_key));
     }
     nia_timing::emit_counter("build.runner_cache_misses", 1);
     if let Some(parent) = invocation.runner_executable.parent() {
@@ -998,7 +998,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     if publish_result.is_err() {
         nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
     }
-    Ok(invocation.runner_executable.clone())
+    Ok((invocation.runner_executable.clone(), cache_key))
 }
 
 fn focus_build_script_diagnostics(error: DriverError, runner: &SourcePath) -> DriverError {
@@ -1104,6 +1104,7 @@ fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildEr
 fn run_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
+    runner_cache_key: &str,
 ) -> Result<BuildPlan, BuildError> {
     match fs::remove_file(&invocation.plan_draft) {
         Ok(()) => {}
@@ -1137,7 +1138,7 @@ fn run_build_runner(
             });
             match plan {
                 Ok(draft) => {
-                    let plan = draft.plan;
+                    let plan = draft.plan.clone();
                     if !draft.observations.is_empty() {
                         nia_timing::emit_counter(
                             "build.configure_observations_bytes",
@@ -1146,7 +1147,29 @@ fn run_build_runner(
                     }
                     time_build_stage(invocation.timings, "build_runner_publish_plan", || {
                         publish_build_plan(&invocation.plan_path, &plan)
-                            .map(|()| plan)
+                            .map(|()| {
+                                let manifest = if draft.observations.is_empty() {
+                                    Some(ConfigureManifest::new(ObservationPolicy::Poison))
+                                } else {
+                                    ConfigureManifest::decode(&draft.observations).ok()
+                                };
+                                if let Some(manifest) = manifest {
+                                    let identity = ConfigureIdentity::new(
+                                        runner_cache_key,
+                                        invocation_identity(invocation),
+                                        &manifest,
+                                    );
+                                    if ConfigureCache::new(invocation)
+                                        .publish_draft(&identity, &draft)
+                                        .is_ok()
+                                    {
+                                        nia_timing::emit_counter("build.configure_cache_publications", 1);
+                                    } else {
+                                        nia_timing::emit_counter("build.configure_cache_failures", 1);
+                                    }
+                                }
+                                plan
+                            })
                             .map_err(|error| BuildError::PublishBuildPlan {
                                 path: invocation.plan_path.clone(),
                                 error,
@@ -1383,8 +1406,9 @@ fn prepare_runner_configuration(invocation: &BuildInvocation) -> Result<(), Buil
 fn run_and_cleanup_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
+    runner_cache_key: &str,
 ) -> Result<BuildPlan, BuildError> {
-    let result = run_build_runner(invocation, runner_executable);
+    let result = run_build_runner(invocation, runner_executable, runner_cache_key);
     let cleanup = match fs::remove_file(runner_executable) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -1773,7 +1797,8 @@ mod tests {
                 .unwrap();
         prepare_build_directories(&invocation).unwrap();
         let error =
-            run_and_cleanup_build_runner(&invocation, &invocation.runner_executable).unwrap_err();
+            run_and_cleanup_build_runner(&invocation, &invocation.runner_executable, "test-runner")
+                .unwrap_err();
         assert!(
             matches!(&error, BuildError::RunRunner { stdout, stderr, .. } if stdout.is_empty() && stderr.is_empty())
         );
@@ -1812,7 +1837,11 @@ mod tests {
         )
         .expect("make fake runner executable");
 
-        let error = run_and_cleanup_build_runner(&invocation, &invocation.runner_executable)
+        let error = run_and_cleanup_build_runner(
+            &invocation,
+            &invocation.runner_executable,
+            "test-runner",
+        )
             .expect_err("fake runner must fail");
         match error {
             BuildError::RunnerFailed {
