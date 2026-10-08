@@ -90,6 +90,15 @@ impl PackageKey {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns the canonical package identity used by build cache boundaries.
+    ///
+    /// This is intentionally separate from compiler-owned `PackageId`: a plan
+    /// key identifies a package in one build graph, while metadata identities
+    /// identify published compiler facts.
+    pub fn canonical_identity(&self) -> String {
+        format!("build-package/{}", self.0)
+    }
 }
 
 macro_rules! define_node_key {
@@ -120,6 +129,18 @@ macro_rules! define_node_key {
             /// Returns the validated local name.
             pub fn name(&self) -> &str {
                 &self.name
+            }
+
+            /// Returns the canonical package-qualified build identity.
+            pub fn canonical_identity(&self) -> String {
+                format!(
+                    "build-{}/{}:{}",
+                    stringify!($name)
+                        .strip_suffix("Key")
+                        .unwrap_or(stringify!($name)),
+                    self.package.as_str(),
+                    self.name
+                )
             }
         }
     };
