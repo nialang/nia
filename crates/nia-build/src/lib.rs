@@ -1193,11 +1193,16 @@ fn read_build_draft(path: &Path) -> Result<BuildDraft, BuildError> {
             error,
         },
     })?;
-    BuildDraft::decode(&bytes).map_err(|_error| BuildError::ReadPlanDraft {
+    BuildDraft::decode(&bytes).map_err(|error| BuildError::ReadPlanDraft {
         path: path.to_path_buf(),
         error: PlanHandoffError::Decode {
             path: path.to_path_buf(),
-            error: PlanCodecError::BadMagic,
+            error: match error {
+                BuildDraftError::Plan(error) => error,
+                BuildDraftError::TooLarge | BuildDraftError::InvalidEnvelope => {
+                    PlanCodecError::BadMagic
+                }
+            },
         },
     })
 }
