@@ -109,6 +109,65 @@ pub struct LocalPackageManifest {
     pub dependencies: Vec<LocalPackageDependency>,
 }
 
+/// Resolves local path dependencies without loading their source modules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPackageGraphNode {
+    pub manifest: LocalPackageManifest,
+    pub root: String,
+}
+
+/// A bounded package graph assembled from local manifests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPackageGraph {
+    pub nodes: Vec<LocalPackageGraphNode>,
+}
+
+impl LocalPackageGraph {
+    /// Discovers the root package and selected dependency classes.
+    pub fn resolve(root: &Path, include_tests: bool) -> io::Result<Self> {
+        let mut nodes = Vec::new();
+        let mut pending = vec![(root.to_path_buf(), String::new(), true)];
+        let mut seen = BTreeSet::new();
+        while let Some((current, logical_root, is_root)) = pending.pop() {
+            let canonical = current.canonicalize()?;
+            if !seen.insert(canonical.clone()) {
+                continue;
+            }
+            let manifest = LocalPackageManifest::read(&canonical).or_else(|error| {
+                if error.kind() == io::ErrorKind::NotFound && is_root {
+                    Ok(LocalPackageManifest::implicit(
+                        canonical.file_name().and_then(|v| v.to_str()).unwrap_or("root"),
+                    ))
+                } else {
+                    Err(error)
+                }
+            })?;
+            manifest.validate_compatibility()?;
+            for dependency in &manifest.dependencies {
+                if !include_tests && matches!(dependency.class, DependencyClass::TestOnly) {
+                    continue;
+                }
+                if matches!(dependency.class, DependencyClass::Lazy | DependencyClass::Optional)
+                    && !is_root
+                {
+                    continue;
+                }
+                let path = canonical.join(&dependency.path).canonicalize()?;
+                pending.push((path, dependency.name.clone(), false));
+            }
+            nodes.push(LocalPackageGraphNode {
+                manifest,
+                root: logical_root,
+            });
+            if nodes.len() > 1024 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "package graph is too large"));
+            }
+        }
+        nodes.sort_by(|left, right| left.root.cmp(&right.root));
+        Ok(Self { nodes })
+    }
+}
+
 impl LocalPackageManifest {
     /// Creates the implicit manifest used when no manifest file exists.
     pub fn implicit(root_name: impl Into<String>) -> Self {
@@ -1791,6 +1850,23 @@ mod tests {
         assert_eq!(manifest.source.excludes, vec!["src/generated"]);
         assert_eq!(manifest.dependencies[0].class, DependencyClass::BuildOnly);
         manifest.validate_compatibility().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_package_graph_resolves_without_loading_sources() {
+        let root = std::env::temp_dir().join(format!("nia-graph-{}", std::process::id()));
+        let dep = root.join("dep");
+        std::fs::create_dir_all(&dep).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "name = \"root\"\ndependency = dep:dep:runtime\n",
+        )
+        .unwrap();
+        std::fs::write(dep.join("nia.package"), "name = \"dep\"\n").unwrap();
+        let graph = LocalPackageGraph::resolve(&root, false).unwrap();
+        assert_eq!(graph.nodes.len(), 2);
+        assert!(graph.nodes.iter().any(|node| node.manifest.package.name == "dep"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
