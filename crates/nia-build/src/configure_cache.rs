@@ -39,10 +39,7 @@ pub struct ConfigureRecord {
 pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     let mut encoded = Vec::new();
     encoded.extend_from_slice(b"nia.build.invocation\0\x01");
-    // Physical checkout paths are not package identities. Keeping them here
-    // makes configure records miss after relocating an otherwise identical
-    // package tree.
-    write_identity_field(&mut encoded, b"build-package/root");
+    write_identity_field(&mut encoded, &invocation.package_source_fingerprint);
     write_identity_field(&mut encoded, invocation.toolchain.host_target().name().as_bytes());
     write_identity_field(
         &mut encoded,

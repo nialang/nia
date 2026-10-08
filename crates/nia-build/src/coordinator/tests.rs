@@ -60,6 +60,7 @@ fn test_invocation() -> BuildInvocation {
         plan_path: build_dir.join("build-plan.bin"),
         build_dir,
         package_root,
+        package_source_fingerprint: [0; 32],
         step: crate::BuildStepSelection::Default,
         test_filter: None,
         test_list: false,

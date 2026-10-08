@@ -211,6 +211,8 @@ pub struct BuildInvocation {
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
     /// Root directory of the package being built.
     pub package_root: PathBuf,
+    /// Relocation-independent local package source identity.
+    pub package_source_fingerprint: [u8; 32],
     /// Physical path to the package's `build.nia` source.
     pub build_script: PathBuf,
     /// Invocation-local build output directory.
@@ -783,6 +785,18 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
+    let package_source = nia_package_metadata::package_source_identity(
+        &package_root,
+        nia_package_metadata::PackageId {
+            namespace: "local".into(),
+            name: "root".into(),
+            version: "0.0.0".into(),
+        },
+    )
+    .map_err(|error| BuildError::CreateBuildDirectory {
+        path: package_root.clone(),
+        error,
+    })?;
     let build_script = package_root.join("build.nia");
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
@@ -802,6 +816,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         runner_dir,
         build_dir,
         package_root,
+        package_source_fingerprint: package_source.source_fingerprint,
         build_script,
         step: if request.test_mode {
             BuildStepSelection::Tests
