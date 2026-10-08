@@ -174,6 +174,15 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
         BuildError::CreateCacheDirectory { path, error } => {
             create_directory_diagnostic("build cache directory", path, error)
         }
+        BuildError::ResolvePackageGraph { path, error } => vec![
+            Diagnostic::user_error(
+                codes::BUILD_PLAN,
+                "could not resolve the local package graph",
+            )
+            .note(format!("package root `{}`: {error}", path.display()))
+            .help("check nia.package dependency paths, classes, cycles, and compatibility")
+            .finish(),
+        ],
         BuildError::CreateRunnerDirectory { path, error } => {
             create_directory_diagnostic("build runner directory", path, error)
         }
