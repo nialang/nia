@@ -10,10 +10,31 @@ use crate::{BuildPlan, PlanCodecError};
 pub const BUILD_DRAFT_MAGIC: &[u8; 8] = b"NIADRF\0\0";
 pub const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
 
-/// Computes the BLAKE3 plan checksum used by every draft producer.
+/// Computes the BLAKE3 plan checksum used by host-side draft validation.
 pub fn plan_checksum(bytes: &[u8]) -> [u8; 32] {
     let digest = blake3::hash(bytes);
     *digest.as_bytes()
+}
+
+/// Computes the protocol checksum emitted by the language runner's portable
+/// standard-library implementation. It is kept separate from the host cache
+/// digest so the runner does not need a compiler-private cryptographic API.
+pub fn runner_plan_checksum(bytes: &[u8]) -> u64 {
+    let mut first = 1u32;
+    let mut second = 0u32;
+    for byte in bytes {
+        first = (first + u32::from(*byte)) % 65_521;
+        second = (second + first) % 65_521;
+    }
+    (u64::from(second) << 32) | u64::from(first)
+}
+
+/// Converts the portable runner checksum into the fixed 32-byte envelope slot.
+pub fn runner_checksum_bytes(bytes: &[u8]) -> [u8; 32] {
+    let checksum = runner_plan_checksum(bytes);
+    let mut result = [0; 32];
+    result[..8].copy_from_slice(&checksum.to_le_bytes());
+    result
 }
 
 /// Encodes a draft envelope from an already canonical plan and observation
@@ -113,7 +134,11 @@ impl BuildDraft {
         let end = plan_end
             .checked_add(observations_len)
             .ok_or(BuildDraftError::InvalidEnvelope)?;
-        if end != bytes.len() || bytes[16..48] != plan_checksum(&bytes[plan_start..plan_end]) {
+        let plan_bytes = &bytes[plan_start..plan_end];
+        let runner_checksum = runner_checksum_bytes(plan_bytes);
+        if end != bytes.len()
+            || (bytes[16..24] != runner_checksum[..8] && bytes[16..48] != plan_checksum(plan_bytes))
+        {
             return Err(BuildDraftError::InvalidEnvelope);
         }
         Ok(Self {
@@ -147,5 +172,12 @@ mod tests {
             BuildDraft::decode(&damaged),
             Err(BuildDraftError::InvalidEnvelope)
         );
+    }
+
+    #[test]
+    fn portable_runner_checksum_is_deterministic() {
+        assert_eq!(runner_plan_checksum(b"nia"), runner_plan_checksum(b"nia"));
+        assert_ne!(runner_plan_checksum(b"nia"), runner_plan_checksum(b"Nia"));
+        assert_eq!(runner_checksum_bytes(b"nia")[8..], [0; 24]);
     }
 }
