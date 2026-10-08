@@ -94,6 +94,10 @@ pub struct BuildRequest {
     pub link_time_optimization: LinkTimeOptimization,
     /// Select test executable actions instead of the declared default step.
     pub test_mode: bool,
+    /// Include optional package dependencies in graph resolution.
+    pub include_optional_dependencies: bool,
+    /// Include lazy package dependencies in graph resolution.
+    pub include_lazy_dependencies: bool,
     /// Optional substring filter applied to test step names.
     pub test_filter: Option<String>,
     /// List matching test steps without executing them.
@@ -118,6 +122,8 @@ impl BuildRequest {
             profile: BuildProfile::Debug,
             link_time_optimization: LinkTimeOptimization::Off,
             test_mode: false,
+            include_optional_dependencies: false,
+            include_lazy_dependencies: false,
             test_filter: None,
             test_list: false,
             test_fail_fast: false,
@@ -176,6 +182,18 @@ impl BuildRequest {
     /// Selects the test action set for this invocation.
     pub fn with_test_mode(mut self, enabled: bool) -> Self {
         self.test_mode = enabled;
+        self
+    }
+
+    /// Includes optional package dependencies in the selected package graph.
+    pub fn with_optional_dependencies(mut self, enabled: bool) -> Self {
+        self.include_optional_dependencies = enabled;
+        self
+    }
+
+    /// Includes lazy package dependencies in the selected package graph.
+    pub fn with_lazy_dependencies(mut self, enabled: bool) -> Self {
+        self.include_lazy_dependencies = enabled;
         self
     }
 
@@ -785,9 +803,13 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
-    let package_graph = nia_package_metadata::LocalPackageGraph::resolve(
+    let package_graph = nia_package_metadata::LocalPackageGraph::resolve_with_options(
         &package_root,
-        request.test_mode,
+        nia_package_metadata::LocalPackageGraphOptions {
+            include_tests: request.test_mode,
+            include_optional: request.include_optional_dependencies,
+            include_lazy: request.include_lazy_dependencies,
+        },
     )
     .map_err(|error| BuildError::CreateBuildDirectory {
         path: package_root.clone(),
