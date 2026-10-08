@@ -169,6 +169,11 @@ pub fn observe_metadata(
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
+/// Adds a filesystem observation to a manifest, preserving canonical order.
+pub fn observe_into(manifest: &mut ConfigureManifest, observation: ConfigureObservation) {
+    manifest.push(observation);
+}
+
 /// A deterministic configuration observation manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigureManifest {
