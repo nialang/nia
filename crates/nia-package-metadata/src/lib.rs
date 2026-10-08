@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Relocation-independent package identities and stable compiler type graphs.
 
-use std::io::{self, Cursor, Read};
+use std::{
+    io::{self, Cursor, Read},
+    path::Path,
+};
 
 use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY as NIA_RELEASE_COMPATIBILITY, toolchain};
 
@@ -37,6 +40,97 @@ impl PackageId {
             version: format!("{}+std{}", COMPILER_VERSION, toolchain::STANDARD_LIBRARY),
         }
     }
+}
+
+/// Local package source identity used by build and package caches.
+///
+/// The identity covers only declared package content. Paths are stored as
+/// normalized relative names, so moving a checkout does not change it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageSourceIdentity {
+    /// Stable package identity independent of the checkout location.
+    pub package: PackageId,
+    /// BLAKE3 fingerprint of the canonical source manifest.
+    pub source_fingerprint: [u8; 32],
+    /// Files included in the source manifest, sorted by relative path.
+    pub files: Vec<PackageSourceFile>,
+}
+
+/// One regular file included in a package source identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageSourceFile {
+    /// Slash-separated path relative to the package root.
+    pub path: String,
+    /// File length in bytes.
+    pub byte_len: u64,
+    /// BLAKE3 content fingerprint.
+    pub fingerprint: [u8; 32],
+}
+
+/// Computes a deterministic source identity from a package directory.
+///
+/// `target`, cache, temporary, VCS, and installation directories are excluded
+/// by default. Symlinks and non-regular files are ignored rather than
+/// following host-specific targets into the package identity.
+pub fn package_source_identity(
+    root: &Path,
+    package: PackageId,
+) -> io::Result<PackageSourceIdentity> {
+    let mut files = Vec::new();
+    collect_source_files(root, root, &mut files)?;
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(b"nia.package.source\0\x01");
+    encoded.extend_from_slice(package.canonical_text().as_bytes());
+    encoded.push(0);
+    for file in &files {
+        encoded.extend_from_slice(&(file.path.len() as u64).to_le_bytes());
+        encoded.extend_from_slice(file.path.as_bytes());
+        encoded.extend_from_slice(&file.byte_len.to_le_bytes());
+        encoded.extend_from_slice(&file.fingerprint);
+    }
+    Ok(PackageSourceIdentity {
+        package,
+        source_fingerprint: *blake3::hash(&encoded).as_bytes(),
+        files,
+    })
+}
+
+fn collect_source_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<PackageSourceFile>,
+) -> io::Result<()> {
+    let mut entries = std::fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let relative = path.strip_prefix(root).expect("source path under root");
+        let name = relative.to_string_lossy().replace('\\', "/");
+        if excluded_source_component(relative) {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            collect_source_files(root, &path, files)?;
+        } else if metadata.is_file() {
+            let bytes = std::fs::read(&path)?;
+            files.push(PackageSourceFile {
+                path: name,
+                byte_len: bytes.len() as u64,
+                fingerprint: *blake3::hash(&bytes).as_bytes(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn excluded_source_component(path: &Path) -> bool {
+    static EXCLUDED: &[&str] = &[".git", ".nia-build", ".nia-cache", "target", "build", "dist"];
+    path.components().any(|component| {
+        let value = component.as_os_str().to_string_lossy();
+        EXCLUDED.iter().any(|excluded| value == *excluded)
+    })
 }
 
 /// Relocation-independent identity of one module within a package.
@@ -1379,5 +1473,36 @@ mod tests {
             decode_type_graph(&bytes),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn package_source_identity_is_stable_and_excludes_generated_trees() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-source-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src/nested")).unwrap();
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        std::fs::create_dir_all(root.join(".nia-cache")).unwrap();
+        std::fs::write(root.join("src/main.nia"), "main").unwrap();
+        std::fs::write(root.join("src/nested/lib.nia"), "lib").unwrap();
+        std::fs::write(root.join("target/generated"), "one").unwrap();
+        std::fs::write(root.join(".nia-cache/old"), "one").unwrap();
+        let package = package();
+        let first = package_source_identity(&root, package.clone()).unwrap();
+        std::fs::write(root.join("target/generated"), "two").unwrap();
+        std::fs::write(root.join(".nia-cache/old"), "two").unwrap();
+        let second = package_source_identity(&root, package.clone()).unwrap();
+        assert_eq!(first.source_fingerprint, second.source_fingerprint);
+        assert_eq!(first.files, second.files);
+        assert_eq!(first.files.len(), 2);
+        std::fs::write(root.join("src/main.nia"), "changed").unwrap();
+        let changed = package_source_identity(&root, package.clone()).unwrap();
+        assert_ne!(first.source_fingerprint, changed.source_fingerprint);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
