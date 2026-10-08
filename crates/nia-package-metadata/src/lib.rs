@@ -77,6 +77,25 @@ pub struct PackageSourceSelection {
     pub excludes: Vec<String>,
 }
 
+/// Dependency class used by local package graph resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DependencyClass {
+    BuildOnly,
+    Runtime,
+    TestOnly,
+    Development,
+    Optional,
+    Lazy,
+}
+
+/// A local path dependency declared by a package manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPackageDependency {
+    pub name: String,
+    pub path: String,
+    pub class: DependencyClass,
+}
+
 /// Declarative local package manifest used to name and select package content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalPackageManifest {
@@ -86,6 +105,8 @@ pub struct LocalPackageManifest {
     pub minimum_release: Option<u32>,
     /// Source selection rules.
     pub source: PackageSourceSelection,
+    /// Local path dependencies.
+    pub dependencies: Vec<LocalPackageDependency>,
 }
 
 impl LocalPackageManifest {
@@ -99,6 +120,7 @@ impl LocalPackageManifest {
             },
             minimum_release: None,
             source: PackageSourceSelection::default(),
+            dependencies: Vec::new(),
         }
     }
 
@@ -121,6 +143,7 @@ impl LocalPackageManifest {
         );
         let mut source_roots = Vec::new();
         let mut excludes = Vec::new();
+        let mut dependencies = Vec::new();
         for (line_number, line) in text.lines().enumerate() {
             let line = line.split('#').next().unwrap_or("").trim();
             if line.is_empty() {
@@ -142,6 +165,28 @@ impl LocalPackageManifest {
                 }
                 "source-root" => source_roots.push(value.to_string()),
                 "exclude" => excludes.push(value.to_string()),
+                "dependency" => {
+                    let mut fields = value.split(':');
+                    let name = fields.next().unwrap_or("").trim();
+                    let path = fields.next().unwrap_or("").trim();
+                    let class = match fields.next().unwrap_or("runtime").trim() {
+                        "build" | "build-only" => DependencyClass::BuildOnly,
+                        "runtime" => DependencyClass::Runtime,
+                        "test" | "test-only" => DependencyClass::TestOnly,
+                        "dev" | "development" => DependencyClass::Development,
+                        "optional" => DependencyClass::Optional,
+                        "lazy" => DependencyClass::Lazy,
+                        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid dependency class")),
+                    };
+                    if name.is_empty() || path.is_empty() || fields.next().is_some() {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, "dependency must be name:path:class"));
+                    }
+                    dependencies.push(LocalPackageDependency {
+                        name: name.to_string(),
+                        path: path.to_string(),
+                        class,
+                    });
+                }
                 _ => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown package manifest key `{key}`"))),
             }
         }
@@ -149,6 +194,7 @@ impl LocalPackageManifest {
             manifest.source.source_roots = source_roots;
         }
         manifest.source.excludes = excludes;
+        manifest.dependencies = dependencies;
         validate_package_id(&manifest.package)?;
         Ok(manifest)
     }
