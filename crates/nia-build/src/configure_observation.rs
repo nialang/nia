@@ -139,6 +139,36 @@ pub fn observe_directory_contents(
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
+/// Records portable metadata for a package-relative filesystem entry.
+pub fn observe_metadata(
+    root: &Path,
+    relative: impl Into<PathBuf>,
+) -> io::Result<ConfigureObservation> {
+    let relative = relative.into();
+    let metadata = fs::metadata(root.join(&relative))?;
+    let mut bytes = Vec::with_capacity(24);
+    bytes.extend_from_slice(&metadata.len().to_le_bytes());
+    bytes.push(u8::from(metadata.is_dir()));
+    bytes.push(u8::from(metadata.is_file()));
+    bytes.push(u8::from(metadata.is_symlink()));
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+    bytes.extend_from_slice(&modified.map_or(0, |value| value.as_secs()).to_le_bytes());
+    bytes.extend_from_slice(
+        &modified
+            .map_or(0, |value| u64::from(value.subsec_nanos()))
+            .to_le_bytes(),
+    );
+    ConfigureObservation::new(
+        relative,
+        ObservationKind::FileMetadata,
+        *blake3::hash(&bytes).as_bytes(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
 /// A deterministic configuration observation manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigureManifest {
