@@ -57,9 +57,9 @@ use process_output::{
 pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
-pub use configure_cache::invocation_identity;
 pub use configure_cache::{
-    ConfigureCache, ConfigureCacheStatus, ConfigureIdentity, ConfigureRecord,
+    ConfigureCache, ConfigureCacheStatus, ConfigureIdentity, ConfigureRecord, invocation_identity,
+    plan_identity,
 };
 pub use configure_observation::{
     ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,
