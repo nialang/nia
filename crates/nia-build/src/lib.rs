@@ -104,6 +104,16 @@ pub struct BuildRequest {
     pub test_list: bool,
     /// Stop scheduling later test actions after the first failure.
     pub test_fail_fast: bool,
+    /// Freeze and validate the plan without executing coordinator actions.
+    pub dry_run: bool,
+    /// Print the selected graph and cache explanation after configuration.
+    pub explain: bool,
+    /// Print the canonical plan summary after configuration.
+    pub print_plan: bool,
+    /// Print the typed configuration observations returned by the runner.
+    pub print_observations: bool,
+    /// Print cache decisions after configuration and action execution.
+    pub print_cache: bool,
     /// Forward child streams while retaining bounded tails for failure reports.
     pub forward_output: bool,
 }
@@ -127,6 +137,11 @@ impl BuildRequest {
             test_filter: None,
             test_list: false,
             test_fail_fast: false,
+            dry_run: false,
+            explain: false,
+            print_plan: false,
+            print_observations: false,
+            print_cache: false,
             forward_output: true,
         }
     }
@@ -212,6 +227,36 @@ impl BuildRequest {
     /// Stops test execution at the first failing action.
     pub fn with_test_fail_fast(mut self, enabled: bool) -> Self {
         self.test_fail_fast = enabled;
+        self
+    }
+
+    /// Freezes the build graph without executing compiler or process actions.
+    pub fn with_dry_run(mut self, enabled: bool) -> Self {
+        self.dry_run = enabled;
+        self
+    }
+
+    /// Prints the selected graph and cache explanation.
+    pub fn with_explain(mut self, enabled: bool) -> Self {
+        self.explain = enabled;
+        self
+    }
+
+    /// Prints a deterministic summary of the canonical plan.
+    pub fn with_print_plan(mut self, enabled: bool) -> Self {
+        self.print_plan = enabled;
+        self
+    }
+
+    /// Prints the runner's configuration observation manifest.
+    pub fn with_print_observations(mut self, enabled: bool) -> Self {
+        self.print_observations = enabled;
+        self
+    }
+
+    /// Prints runner, configuration, and action-cache decisions.
+    pub fn with_print_cache(mut self, enabled: bool) -> Self {
+        self.print_cache = enabled;
         self
     }
 
@@ -573,6 +618,11 @@ impl std::error::Error for BuildError {}
 
 /// Runs one build request from package discovery through action publication.
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
+    let dry_run = request.dry_run;
+    let explain = request.explain;
+    let print_plan = request.print_plan;
+    let print_observations = request.print_observations;
+    let print_cache = request.print_cache;
     nia_timing::collect_to_stderr(
         TimingOptions::new(request.timings).with_format(request.timing_format),
         || {
@@ -591,24 +641,58 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
             let (runner_executable, runner_cache_key) = runner?;
-            match configure_cache_candidate(&invocation, &runner_cache_key) {
-                Ok(ConfigureCacheCandidate::Present) => {
-                    nia_timing::emit_counter("build.configure_cache_candidates", 1);
-                }
-                Ok(ConfigureCacheCandidate::None) | Err(_) => {}
-            }
+            let configure_candidate =
+                match configure_cache_candidate(&invocation, &runner_cache_key) {
+                    Ok(ConfigureCacheCandidate::Present) => {
+                        nia_timing::emit_counter("build.configure_cache_candidates", 1);
+                        ConfigureCacheCandidate::Present
+                    }
+                    Ok(ConfigureCacheCandidate::None) => ConfigureCacheCandidate::None,
+                    Err(_) => ConfigureCacheCandidate::None,
+                };
             nia_timing::emit_counter("build.runner_executions", 1);
-            let plan = time_summary_stage(timings, "build_run_runner", || {
-                run_and_cleanup_build_runner(&invocation, &runner_executable, &runner_cache_key)
+            let draft = time_summary_stage(timings, "build_run_runner", || {
+                run_and_cleanup_build_runner_draft(
+                    &invocation,
+                    &runner_executable,
+                    &runner_cache_key,
+                )
             });
-            if plan.is_err() {
+            if draft.is_err() {
                 nia_timing::emit_counter("build.runner_failures", 1);
             }
-            let plan = plan?;
+            let draft = draft?;
+            let plan = draft.plan;
+            let preview = preview_build_plan(&plan, &invocation).map_err(|error| {
+                BuildError::ExecuteBuildPlan {
+                    error: Box::new(error),
+                }
+            })?;
+            if print_plan {
+                print!("{}", render_build_plan_summary(&plan));
+            }
+            if explain {
+                print!(
+                    "{}",
+                    render_build_explanation(&plan, &invocation, configure_candidate, &preview)
+                );
+            }
+            if print_observations {
+                print!("{}", render_configure_observations(&draft.observations));
+            }
+            if print_cache || explain {
+                println!(
+                    "configure cache: {:?}; runner executed",
+                    configure_candidate
+                );
+            }
             if invocation.test_list {
                 for name in test_step_names(&plan, invocation.test_filter.as_deref()) {
                     println!("{name}");
                 }
+                return Ok(());
+            }
+            if dry_run {
                 return Ok(());
             }
             if let Some(limit) = invocation.max_parallel_actions {
@@ -625,6 +709,9 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.steps_executed", report.steps.len() as u64);
                 nia_timing::emit_counter("build.actions_executed", report.actions.len() as u64);
                 emit_action_cache_counters(report);
+                if print_cache || explain {
+                    print!("{}", render_action_cache_summary(report));
+                }
             } else {
                 nia_timing::emit_counter("build.action_failures", 1);
             }
@@ -637,7 +724,8 @@ fn configure_cache_candidate(
     invocation: &BuildInvocation,
     runner_cache_key: &str,
 ) -> io::Result<ConfigureCacheCandidate> {
-    ConfigureCache::new(invocation).candidate_status(runner_cache_key, &invocation_identity(invocation))
+    ConfigureCache::new(invocation)
+        .candidate_status(runner_cache_key, &invocation_identity(invocation))
 }
 
 fn test_step_names(plan: &BuildPlan, filter: Option<&str>) -> Vec<String> {
@@ -656,6 +744,135 @@ fn test_step_names(plan: &BuildPlan, filter: Option<&str>) -> Vec<String> {
         .collect::<Vec<_>>();
     names.sort();
     names
+}
+
+/// Renders a deterministic human-readable summary of a frozen build plan.
+pub fn render_build_plan_summary(plan: &BuildPlan) -> String {
+    let mut output = String::new();
+    use std::fmt::Write as _;
+    let _ = writeln!(output, "build plan:");
+    let _ = writeln!(output, "  root package: {}", plan.root_package().as_str());
+    let _ = writeln!(output, "  host target: {}", plan.host_target().name());
+    let _ = writeln!(
+        output,
+        "  artifact target: {}",
+        plan.artifact_target().name()
+    );
+    let _ = writeln!(output, "  packages: {}", plan.packages().len());
+    let _ = writeln!(output, "  modules: {}", plan.modules().len());
+    let _ = writeln!(output, "  artifacts: {}", plan.artifacts().len());
+    let _ = writeln!(output, "  actions: {}", plan.actions().len());
+    let _ = writeln!(output, "  steps: {}", plan.steps().len());
+    for usage in plan.package_usage() {
+        let _ = writeln!(
+            output,
+            "  package {}: modules={}, artifacts={}, actions={}, steps={}, loaded={}, used={}",
+            usage.package.as_str(),
+            usage.loaded_modules,
+            usage.artifacts,
+            usage.actions,
+            usage.steps,
+            usage.is_loaded(),
+            usage.is_used(),
+        );
+    }
+    output
+}
+
+/// Renders the configuration inputs that explain the selected plan.
+pub fn render_build_explanation(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    configure_candidate: ConfigureCacheCandidate,
+    preview: &ExecutionReport,
+) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::new();
+    let _ = writeln!(output, "build explanation:");
+    let _ = writeln!(
+        output,
+        "  package root: {}",
+        invocation.package_root.display()
+    );
+    let _ = writeln!(
+        output,
+        "  package graph fingerprint: {}",
+        hex_fingerprint(&invocation.package_source_fingerprint)
+    );
+    let _ = writeln!(
+        output,
+        "  configure cache candidate: {:?}",
+        configure_candidate
+    );
+    let _ = writeln!(
+        output,
+        "  selected step: {}",
+        plan.selected_step()
+            .or_else(|| plan.default_step())
+            .map_or("<none>", StepKey::name)
+    );
+    let _ = writeln!(
+        output,
+        "  target: host={}, artifact={}",
+        plan.host_target().name(),
+        plan.artifact_target().name()
+    );
+    let _ = writeln!(
+        output,
+        "  action closure: {} actions across {} steps",
+        preview.actions.len(),
+        preview.steps.len()
+    );
+    for action in &preview.actions {
+        let _ = writeln!(
+            output,
+            "    {}::{}",
+            action.package().as_str(),
+            action.name()
+        );
+    }
+    output
+}
+
+fn hex_fingerprint(value: &[u8; 32]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn render_configure_observations(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::from("configure observations:\n");
+    if bytes.is_empty() {
+        output.push_str("  untracked configuration; reuse disabled\n");
+    } else if let Ok(manifest) = ConfigureManifest::decode(bytes) {
+        let _ = writeln!(output, "  policy: {:?}", manifest.policy());
+        for observation in manifest.observations() {
+            let _ = writeln!(
+                output,
+                "  {:?} {} {}",
+                observation.kind(),
+                observation.path().display(),
+                hex_fingerprint(observation.fingerprint())
+            );
+        }
+    } else {
+        output.push_str("  invalid observation manifest; reuse disabled\n");
+    }
+    output
+}
+
+fn render_action_cache_summary(report: &ExecutionReport) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::from("action cache:\n");
+    for entry in &report.action_cache {
+        let _ = writeln!(
+            output,
+            "  {}::{}: {:?}",
+            entry.action.package().as_str(),
+            entry.action.name(),
+            entry.outcome
+        );
+    }
+    output
 }
 
 fn emit_action_cache_counters(report: &ExecutionReport) {
@@ -1151,7 +1368,7 @@ fn run_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
     runner_cache_key: &str,
-) -> Result<BuildPlan, BuildError> {
+) -> Result<BuildDraft, BuildError> {
     match fs::remove_file(&invocation.plan_draft) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -1179,10 +1396,10 @@ fn run_build_runner(
         execute_runner_process(&mut command, invocation.forward_output)
     }) {
         Ok(output) if output.status.success() => {
-            let plan = time_build_stage(invocation.timings, "build_runner_read_plan", || {
+            let draft = time_build_stage(invocation.timings, "build_runner_read_plan", || {
                 read_build_draft(&invocation.plan_draft)
             });
-            match plan {
+            match draft {
                 Ok(draft) => {
                     let plan = draft.plan.clone();
                     if !draft.observations.is_empty() {
@@ -1209,12 +1426,18 @@ fn run_build_runner(
                                         .publish_draft(&identity, &draft)
                                         .is_ok()
                                     {
-                                        nia_timing::emit_counter("build.configure_cache_publications", 1);
+                                        nia_timing::emit_counter(
+                                            "build.configure_cache_publications",
+                                            1,
+                                        );
                                     } else {
-                                        nia_timing::emit_counter("build.configure_cache_failures", 1);
+                                        nia_timing::emit_counter(
+                                            "build.configure_cache_failures",
+                                            1,
+                                        );
                                     }
                                 }
-                                plan
+                                draft
                             })
                             .map_err(|error| BuildError::PublishBuildPlan {
                                 path: invocation.plan_path.clone(),
@@ -1449,11 +1672,21 @@ fn prepare_runner_configuration(invocation: &BuildInvocation) -> Result<(), Buil
     Ok(())
 }
 
+#[cfg(test)]
 fn run_and_cleanup_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
     runner_cache_key: &str,
 ) -> Result<BuildPlan, BuildError> {
+    run_and_cleanup_build_runner_draft(invocation, runner_executable, runner_cache_key)
+        .map(|draft| draft.plan)
+}
+
+fn run_and_cleanup_build_runner_draft(
+    invocation: &BuildInvocation,
+    runner_executable: &Path,
+    runner_cache_key: &str,
+) -> Result<BuildDraft, BuildError> {
     let result = run_build_runner(invocation, runner_executable, runner_cache_key);
     let cleanup = match fs::remove_file(runner_executable) {
         Ok(()) => Ok(()),
@@ -1464,7 +1697,7 @@ fn run_and_cleanup_build_runner(
         }),
     };
     match result {
-        Ok(plan) => cleanup.map(|()| plan),
+        Ok(draft) => cleanup.map(|()| draft),
         Err(error) => Err(error),
     }
 }
@@ -1883,12 +2116,9 @@ mod tests {
         )
         .expect("make fake runner executable");
 
-        let error = run_and_cleanup_build_runner(
-            &invocation,
-            &invocation.runner_executable,
-            "test-runner",
-        )
-            .expect_err("fake runner must fail");
+        let error =
+            run_and_cleanup_build_runner(&invocation, &invocation.runner_executable, "test-runner")
+                .expect_err("fake runner must fail");
         match error {
             BuildError::RunnerFailed {
                 status,

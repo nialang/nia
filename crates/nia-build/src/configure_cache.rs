@@ -5,9 +5,7 @@ use std::{fs, io, path::PathBuf};
 
 use nia_compat::formats;
 
-use crate::{
-    BuildInvocation, ConfigureManifest, ObservationCodecError, ObservationValidation,
-};
+use crate::{BuildInvocation, ConfigureManifest, ObservationCodecError, ObservationValidation};
 
 const MAGIC: &[u8; 8] = b"NIACREC\0";
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
@@ -42,18 +40,27 @@ pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     let mut encoded = Vec::new();
     encoded.extend_from_slice(b"nia.build.invocation\0\x01");
     write_identity_field(&mut encoded, &invocation.package_source_fingerprint);
-    write_identity_field(&mut encoded, invocation.toolchain.host_target().name().as_bytes());
+    write_identity_field(
+        &mut encoded,
+        invocation.toolchain.host_target().name().as_bytes(),
+    );
     write_identity_field(
         &mut encoded,
         invocation.toolchain.artifact_target().name().as_bytes(),
     );
     write_identity_field(&mut encoded, format!("{:?}", invocation.profile).as_bytes());
-    write_identity_field(&mut encoded, format!("{:?}", invocation.optimization).as_bytes());
+    write_identity_field(
+        &mut encoded,
+        format!("{:?}", invocation.optimization).as_bytes(),
+    );
     write_identity_field(
         &mut encoded,
         format!("{:?}", invocation.link_time_optimization).as_bytes(),
     );
-    write_identity_field(&mut encoded, format!("{:?}", invocation.compilation_mode).as_bytes());
+    write_identity_field(
+        &mut encoded,
+        format!("{:?}", invocation.compilation_mode).as_bytes(),
+    );
     write_identity_field(&mut encoded, format!("{:?}", invocation.step).as_bytes());
     write_optional_identity_field(&mut encoded, invocation.test_filter.as_deref());
     encoded.push(u8::from(invocation.test_list));
@@ -307,7 +314,9 @@ impl ConfigureCache {
         root: &std::path::Path,
     ) -> io::Result<ConfigureCacheLookup> {
         let Some(record) = self.lookup(identity)? else {
-            return Ok(ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound));
+            return Ok(ConfigureCacheLookup::Miss(
+                ConfigureCacheMissReason::NotFound,
+            ));
         };
         let result = match record.manifest.validate(root) {
             ObservationValidation::Match => ConfigureCacheLookup::Hit(record),
@@ -358,7 +367,12 @@ impl ConfigureCache {
                 Err(_) => continue,
             };
             let candidate = ConfigureIdentity::new(runner, invocation, &manifest);
-            if candidate.key() == path.file_stem().and_then(|value| value.to_str()).unwrap_or("") {
+            if candidate.key()
+                == path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("")
+            {
                 return Ok(ConfigureCacheCandidate::Present);
             }
         }
@@ -485,9 +499,7 @@ mod tests {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
         manifest.push(observation);
         let cache_root = checkout.join("cache");
-        let cache = ConfigureCache {
-            root: cache_root,
-        };
+        let cache = ConfigureCache { root: cache_root };
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
         cache
             .publish(

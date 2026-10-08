@@ -18,12 +18,12 @@ pub(crate) use helpers::display_duration;
 use helpers::*;
 use publication::*;
 use scheduling::ActionCancellation;
-pub use scheduling::execute_build_plan;
 #[cfg(test)]
 use scheduling::{
     ActionOutcome, action_resource_capacity, execute_selected_closure, execute_test_closure,
     run_action_tasks,
 };
+pub use scheduling::{execute_build_plan, preview_build_plan};
 
 use std::{
     collections::{BTreeMap, BTreeSet},

@@ -614,7 +614,8 @@ mod tests {
 
     #[test]
     fn directory_metadata_has_a_distinct_observation_kind() {
-        let root = std::env::temp_dir().join(format!("nia-observation-directory-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("nia-observation-directory-{}", std::process::id()));
         std::fs::create_dir_all(root.join("src")).unwrap();
         let observation = observe_directory_metadata(&root, "src").unwrap();
         assert_eq!(observation.kind(), ObservationKind::DirectoryMetadata);

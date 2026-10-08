@@ -4,6 +4,26 @@
 use super::*;
 use crate::BuildStepSelection;
 
+/// Validates targets and computes the selected closure without reading sources,
+/// restoring caches, recovering transactions, or executing actions.
+pub fn preview_build_plan(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+) -> Result<ExecutionReport, CoordinatorError> {
+    validate_invocation_targets(plan, invocation)?;
+    let preview = |actions: &[&PlanAction]| {
+        Ok(actions
+            .iter()
+            .map(|_| ActionOutcome::Succeeded(None))
+            .collect())
+    };
+    if matches!(invocation.step, BuildStepSelection::Tests) {
+        execute_test_closure(plan, invocation.test_filter.as_deref(), preview)
+    } else {
+        execute_selected_closure(plan, preview)
+    }
+}
+
 /// Validates invocation targets, recovers interrupted output transactions, and
 /// executes the selected dependency closure in deterministic readiness waves.
 pub fn execute_build_plan(
