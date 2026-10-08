@@ -579,9 +579,9 @@ extend Build {
             0,
             0,
         ]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
-        // The current observation section is empty. The host still requires a
-        // real checksum over the canonical plan, so an envelope cannot be
-        // mistaken for an unvalidated raw plan.
+        // Record the runner's package root as an initial typed observation.
+        // This is deliberately metadata-only; future probe APIs append their
+        // canonical records to the same bounded section.
         let checksum = hash::Wyhash::hash(0u64, planBytes);
         let checksumBytes: [u8; 32] = [
             checksum as u8,
