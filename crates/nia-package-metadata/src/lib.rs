@@ -2,6 +2,7 @@
 //! Relocation-independent package identities and stable compiler type graphs.
 
 use std::{
+    collections::BTreeSet,
     io::{self, Cursor, Read},
     path::Path,
 };
@@ -67,6 +68,24 @@ pub struct PackageSourceFile {
     pub fingerprint: [u8; 32],
 }
 
+/// Local package source-selection rules applied before fingerprinting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageSourceSelection {
+    /// Relative directories included in the package content identity.
+    pub source_roots: Vec<String>,
+    /// Relative paths excluded from the package content identity.
+    pub excludes: Vec<String>,
+}
+
+impl Default for PackageSourceSelection {
+    fn default() -> Self {
+        Self {
+            source_roots: vec![".".into()],
+            excludes: Vec::new(),
+        }
+    }
+}
+
 /// Computes a deterministic source identity from a package directory.
 ///
 /// `target`, cache, temporary, VCS, and installation directories are excluded
@@ -76,13 +95,61 @@ pub fn package_source_identity(
     root: &Path,
     package: PackageId,
 ) -> io::Result<PackageSourceIdentity> {
+    package_source_identity_with_selection(root, package, &PackageSourceSelection::default())
+}
+
+/// Computes a source identity using explicit relative roots and exclusions.
+pub fn package_source_identity_with_selection(
+    root: &Path,
+    package: PackageId,
+    selection: &PackageSourceSelection,
+) -> io::Result<PackageSourceIdentity> {
+    let root = root.canonicalize()?;
+    let mut selected_roots = selection
+        .source_roots
+        .iter()
+        .map(|value| validate_selection_path(value))
+        .collect::<io::Result<Vec<_>>>()?;
+    selected_roots.sort();
+    selected_roots.dedup();
+    if selected_roots.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "package has no source roots"));
+    }
+    let excludes = selection
+        .excludes
+        .iter()
+        .map(|value| validate_selection_path(value))
+        .collect::<io::Result<BTreeSet<_>>>()?;
     let mut files = Vec::new();
-    collect_source_files(root, root, &mut files)?;
+    for source_root in selected_roots {
+        let directory = if source_root == "." {
+            root.clone()
+        } else {
+            root.join(&source_root)
+        };
+        let canonical = directory.canonicalize()?;
+        if !canonical.starts_with(&root) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "package source root escapes the package directory",
+            ));
+        }
+        collect_source_files(&root, &directory, &excludes, &mut files)?;
+    }
     files.sort_by(|left, right| left.path.cmp(&right.path));
+    files.dedup_by(|left, right| left.path == right.path);
     let mut encoded = Vec::new();
     encoded.extend_from_slice(b"nia.package.source\0\x01");
     encoded.extend_from_slice(package.canonical_text().as_bytes());
     encoded.push(0);
+    for source_root in &selection.source_roots {
+        encoded.extend_from_slice(&(source_root.len() as u64).to_le_bytes());
+        encoded.extend_from_slice(source_root.as_bytes());
+    }
+    for exclude in &selection.excludes {
+        encoded.extend_from_slice(&(exclude.len() as u64).to_le_bytes());
+        encoded.extend_from_slice(exclude.as_bytes());
+    }
     for file in &files {
         encoded.extend_from_slice(&(file.path.len() as u64).to_le_bytes());
         encoded.extend_from_slice(file.path.as_bytes());
@@ -96,9 +163,30 @@ pub fn package_source_identity(
     })
 }
 
+fn validate_selection_path(value: &str) -> io::Result<String> {
+    let path = Path::new(value);
+    if value.is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+        || value.contains('\\')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "package source selection paths must be normalized relative paths",
+        ));
+    }
+    Ok(value.trim_end_matches('/').to_string())
+}
+
 fn collect_source_files(
     root: &Path,
     directory: &Path,
+    excludes: &BTreeSet<String>,
     files: &mut Vec<PackageSourceFile>,
 ) -> io::Result<()> {
     let mut entries = std::fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
@@ -107,12 +195,16 @@ fn collect_source_files(
         let path = entry.path();
         let relative = path.strip_prefix(root).expect("source path under root");
         let name = relative.to_string_lossy().replace('\\', "/");
-        if excluded_source_component(relative) {
+        if excluded_source_component(relative)
+            || excludes.iter().any(|exclude| {
+                name == *exclude || name.starts_with(&format!("{exclude}/"))
+            })
+        {
             continue;
         }
         let metadata = entry.metadata()?;
         if metadata.is_dir() {
-            collect_source_files(root, &path, files)?;
+            collect_source_files(root, &path, excludes, files)?;
         } else if metadata.is_file() {
             let bytes = std::fs::read(&path)?;
             files.push(PackageSourceFile {
@@ -1503,6 +1595,29 @@ mod tests {
         std::fs::write(root.join("src/main.nia"), "changed").unwrap();
         let changed = package_source_identity(&root, package.clone()).unwrap();
         assert_ne!(first.source_fingerprint, changed.source_fingerprint);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selected_source_roots_and_excludes_are_canonical_inputs() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-selection-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("examples")).unwrap();
+        std::fs::write(root.join("src/lib.nia"), "lib").unwrap();
+        std::fs::write(root.join("examples/demo.nia"), "demo").unwrap();
+        let package = package();
+        let selection = PackageSourceSelection {
+            source_roots: vec!["src".into()],
+            excludes: vec![],
+        };
+        let first = package_source_identity_with_selection(&root, package.clone(), &selection).unwrap();
+        std::fs::write(root.join("examples/demo.nia"), "changed").unwrap();
+        let second = package_source_identity_with_selection(&root, package, &selection).unwrap();
+        assert_eq!(first.source_fingerprint, second.source_fingerprint);
+        assert_eq!(first.files.len(), 1);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
