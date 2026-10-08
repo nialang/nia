@@ -270,6 +270,11 @@ impl ConfigureManifest {
         encoded.extend_from_slice(&payload);
         Ok(encoded)
     }
+
+    /// Encodes the manifest as the observation payload carried by a build draft.
+    pub fn draft_payload(&self) -> Result<Vec<u8>, ObservationCodecError> {
+        self.encode()
+    }
 }
 
 /// Failure decoding a persisted configure manifest.
@@ -473,5 +478,26 @@ mod tests {
             ConfigureManifest::decode(&damaged),
             Err(ObservationCodecError::Invalid)
         );
+    }
+
+    #[test]
+    fn filesystem_observations_are_stable() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-observation-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/input"), b"nia").unwrap();
+        let first = observe_file_contents(&root, "src/input").unwrap();
+        let second = observe_file_contents(&root, "src/input").unwrap();
+        assert_eq!(first, second);
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        observe_into(&mut manifest, first);
+        assert!(!manifest.draft_payload().unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
