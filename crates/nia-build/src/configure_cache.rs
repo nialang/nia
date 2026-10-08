@@ -66,6 +66,14 @@ pub enum ConfigureCacheStatus {
     Hit,
 }
 
+/// Reports whether a cache record exists for the runner/invocation pair,
+/// without treating an unknown observation set as a reusable plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigureCacheCandidate {
+    None,
+    Present,
+}
+
 impl ConfigureIdentity {
     /// Creates a content-addressed configure identity.
     pub fn new(
@@ -246,6 +254,70 @@ impl ConfigureCache {
             ConfigureCacheStatus::Miss
         })
     }
+
+    /// Finds whether any valid record belongs to the same runner and
+    /// invocation domains. Observation fingerprints remain the final lookup
+    /// key and are never inferred from this candidate result.
+    pub fn candidate_status(
+        &self,
+        runner: &str,
+        invocation: &str,
+    ) -> io::Result<ConfigureCacheCandidate> {
+        let root = self.root.join(
+            formats::CONFIGURE_MANIFEST
+                .release_compatibility
+                .to_string(),
+        );
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ConfigureCacheCandidate::None);
+            }
+            Err(error) => return Err(error),
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("manifest") {
+                continue;
+            }
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let Some(record) = decode_record(&bytes) else {
+                continue;
+            };
+            let manifest = match ConfigureManifest::decode(record.manifest) {
+                Ok(manifest) => manifest,
+                Err(_) => continue,
+            };
+            let candidate = ConfigureIdentity::new(runner, invocation, &manifest);
+            if candidate.key() == path.file_stem().and_then(|value| value.to_str()).unwrap_or("") {
+                return Ok(ConfigureCacheCandidate::Present);
+            }
+        }
+        Ok(ConfigureCacheCandidate::None)
+    }
+}
+
+fn decode_record(bytes: &[u8]) -> Option<ConfigureRecordView<'_>> {
+    if bytes.len() < HEADER_BYTES || &bytes[..8] != MAGIC {
+        return None;
+    }
+    let plan_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
+    let manifest_len = u32::from_le_bytes(bytes[16..20].try_into().ok()?) as usize;
+    let plan_end = 52usize.checked_add(plan_len)?;
+    let end = plan_end.checked_add(manifest_len)?;
+    if end != bytes.len() || bytes[20..52] != *blake3::hash(&bytes[52..plan_end]).as_bytes() {
+        return None;
+    }
+    Some(ConfigureRecordView {
+        manifest: &bytes[plan_end..end],
+    })
+}
+
+struct ConfigureRecordView<'a> {
+    manifest: &'a [u8],
 }
 
 #[cfg(test)]
