@@ -650,14 +650,54 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                     Ok(ConfigureCacheCandidate::None) => ConfigureCacheCandidate::None,
                     Err(_) => ConfigureCacheCandidate::None,
                 };
-            nia_timing::emit_counter("build.runner_executions", 1);
-            let draft = time_summary_stage(timings, "build_run_runner", || {
-                run_and_cleanup_build_runner_draft(
-                    &invocation,
-                    &runner_executable,
+            let reusable = ConfigureCache::new(&invocation)
+                .lookup_reusable(
                     &runner_cache_key,
+                    &invocation_identity(&invocation),
+                    &invocation.package_root,
                 )
-            });
+                .ok();
+            let mut runner_reused = false;
+            let draft = match reusable {
+                Some(ConfigureCacheLookup::Hit(record)) => {
+                    let manifest = record.manifest.encode().ok();
+                    match (ConfigureCache::decode_plan(&record).ok(), manifest) {
+                        (Some(plan), Some(observations)) => {
+                            runner_reused = true;
+                            nia_timing::emit_counter("build.configure_cache_hits", 1);
+                            let cleanup = fs::remove_file(&runner_executable);
+                            match cleanup {
+                                Ok(()) => Ok(BuildDraft { plan, observations }),
+                                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                                    Ok(BuildDraft { plan, observations })
+                                }
+                                Err(error) => Err(BuildError::CleanupRunnerExecutable {
+                                    path: runner_executable.clone(),
+                                    error,
+                                }),
+                            }
+                        }
+                        _ => {
+                            nia_timing::emit_counter("build.configure_cache_misses", 1);
+                            nia_timing::emit_counter("build.runner_executions", 1);
+                            run_and_cleanup_build_runner_draft(
+                                &invocation,
+                                &runner_executable,
+                                &runner_cache_key,
+                            )
+                        }
+                    }
+                }
+                _ => {
+                    nia_timing::emit_counter("build.configure_cache_misses", 1);
+                    nia_timing::emit_counter("build.runner_executions", 1);
+                    run_and_cleanup_build_runner_draft(
+                        &invocation,
+                        &runner_executable,
+                        &runner_cache_key,
+                    )
+                }
+            };
             if draft.is_err() {
                 nia_timing::emit_counter("build.runner_failures", 1);
             }
@@ -682,8 +722,9 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
             }
             if print_cache || explain {
                 println!(
-                    "configure cache: {:?}; runner executed",
-                    configure_candidate
+                    "configure cache: {:?}; runner {}",
+                    configure_candidate,
+                    if runner_reused { "reused" } else { "executed" }
                 );
             }
             if invocation.test_list {
