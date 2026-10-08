@@ -34,21 +34,47 @@ pub struct ConfigureRecord {
 }
 
 /// Builds the invocation portion of the configure identity from typed policy fields.
+/// Fields use length-prefixed UTF-8 values and explicit option tags, so display
+/// formatting and delimiter characters cannot change the identity contract.
 pub fn invocation_identity(invocation: &BuildInvocation) -> String {
-    format!(
-        "package={};host={};artifact={};profile={:?};optimization={:?};lto={:?};mode={:?};step={:?};test-filter={:?};test-list={};fail-fast={}",
-        invocation.package_root.display(),
-        invocation.toolchain.host_target().name(),
-        invocation.toolchain.artifact_target().name(),
-        invocation.profile,
-        invocation.optimization,
-        invocation.link_time_optimization,
-        invocation.compilation_mode,
-        invocation.step,
-        invocation.test_filter,
-        invocation.test_list,
-        invocation.test_fail_fast,
-    )
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(b"nia.build.invocation\0\x01");
+    // Physical checkout paths are not package identities. Keeping them here
+    // makes configure records miss after relocating an otherwise identical
+    // package tree.
+    write_identity_field(&mut encoded, b"build-package/root");
+    write_identity_field(&mut encoded, invocation.toolchain.host_target().name().as_bytes());
+    write_identity_field(
+        &mut encoded,
+        invocation.toolchain.artifact_target().name().as_bytes(),
+    );
+    write_identity_field(&mut encoded, format!("{:?}", invocation.profile).as_bytes());
+    write_identity_field(&mut encoded, format!("{:?}", invocation.optimization).as_bytes());
+    write_identity_field(
+        &mut encoded,
+        format!("{:?}", invocation.link_time_optimization).as_bytes(),
+    );
+    write_identity_field(&mut encoded, format!("{:?}", invocation.compilation_mode).as_bytes());
+    write_identity_field(&mut encoded, format!("{:?}", invocation.step).as_bytes());
+    write_optional_identity_field(&mut encoded, invocation.test_filter.as_deref());
+    encoded.push(u8::from(invocation.test_list));
+    encoded.push(u8::from(invocation.test_fail_fast));
+    blake3::hash(&encoded).to_hex().to_string()
+}
+
+fn write_identity_field(encoded: &mut Vec<u8>, value: &[u8]) {
+    encoded.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    encoded.extend_from_slice(value);
+}
+
+fn write_optional_identity_field(encoded: &mut Vec<u8>, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            encoded.push(1);
+            write_identity_field(encoded, value.as_bytes());
+        }
+        None => encoded.push(0),
+    }
 }
 
 /// Returns the canonical identity of a frozen plan for configure diagnostics.
@@ -324,6 +350,7 @@ struct ConfigureRecordView<'a> {
 mod tests {
     use super::*;
     use crate::{ConfigureObservation, ObservationKind, ObservationPolicy};
+
     #[test]
     fn identity_changes_with_invocation_and_observations() {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Poison);
