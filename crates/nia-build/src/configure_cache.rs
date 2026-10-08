@@ -221,6 +221,18 @@ impl ConfigureCache {
         nia_build_plan::decode_build_plan(&record.plan)
     }
 
+    /// Publishes a decoded runner draft as a configure witness.
+    pub fn publish_draft(
+        &self,
+        identity: &ConfigureIdentity,
+        draft: &nia_build_plan::BuildDraft,
+    ) -> io::Result<()> {
+        let manifest = ConfigureManifest::decode(&draft.observations).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "invalid draft observations")
+        })?;
+        self.publish_plan(identity, &draft.plan, &manifest)
+    }
+
     /// Returns whether a manifest record exists without exposing it as an
     /// execution input. The caller must still configure and validate a plan.
     pub fn status(&self, identity: &ConfigureIdentity) -> io::Result<ConfigureCacheStatus> {
