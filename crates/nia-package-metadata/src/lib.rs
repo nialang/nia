@@ -77,6 +77,99 @@ pub struct PackageSourceSelection {
     pub excludes: Vec<String>,
 }
 
+/// Declarative local package manifest used to name and select package content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPackageManifest {
+    /// Stable package namespace/name identity.
+    pub package: PackageId,
+    /// Minimum compiler release compatibility epoch.
+    pub minimum_release: Option<u32>,
+    /// Source selection rules.
+    pub source: PackageSourceSelection,
+}
+
+impl LocalPackageManifest {
+    /// Creates the implicit manifest used when no manifest file exists.
+    pub fn implicit(root_name: impl Into<String>) -> Self {
+        Self {
+            package: PackageId {
+                namespace: "local".into(),
+                name: root_name.into(),
+                version: "0.0.0".into(),
+            },
+            minimum_release: None,
+            source: PackageSourceSelection::default(),
+        }
+    }
+
+    /// Reads a bounded, line-oriented `nia.package` manifest.
+    ///
+    /// The format intentionally stays smaller than TOML until dependency
+    /// resolution has a defined owner. Supported keys are `namespace`,
+    /// `name`, `version`, `minimum-release`, `source-root`, and `exclude`.
+    pub fn read(root: &Path) -> io::Result<Self> {
+        let path = root.join("nia.package");
+        let text = std::fs::read_to_string(path)?;
+        if text.len() > 1024 * 1024 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "package manifest is too large"));
+        }
+        let mut manifest = Self::implicit(
+            root.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("root")
+                .to_ascii_lowercase(),
+        );
+        let mut source_roots = Vec::new();
+        let mut excludes = Vec::new();
+        for (line_number, line) in text.lines().enumerate() {
+            let line = line.split('#').next().unwrap_or("").trim();
+            if line.is_empty() {
+                continue;
+            }
+            let (key, value) = line.split_once('=').ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("invalid package manifest line {}", line_number + 1))
+            })?;
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+            match key {
+                "namespace" => manifest.package.namespace = value.to_string(),
+                "name" => manifest.package.name = value.to_string(),
+                "version" => manifest.package.version = value.to_string(),
+                "minimum-release" => {
+                    manifest.minimum_release = Some(value.parse().map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidData, "minimum-release must be an integer")
+                    })?);
+                }
+                "source-root" => source_roots.push(value.to_string()),
+                "exclude" => excludes.push(value.to_string()),
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown package manifest key `{key}`"))),
+            }
+        }
+        if !source_roots.is_empty() {
+            manifest.source.source_roots = source_roots;
+        }
+        manifest.source.excludes = excludes;
+        validate_package_id(&manifest.package)?;
+        Ok(manifest)
+    }
+}
+
+fn validate_package_id(package: &PackageId) -> io::Result<()> {
+    if package.namespace.is_empty()
+        || package.name.is_empty()
+        || package.version.is_empty()
+        || package.namespace.len() > 128
+        || package.name.len() > 128
+        || package.version.len() > 128
+        || package.namespace.contains('/')
+        || package.name.contains('/')
+        || package.version.contains('\n')
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid package identity"));
+    }
+    Ok(())
+}
+
 impl Default for PackageSourceSelection {
     fn default() -> Self {
         Self {
