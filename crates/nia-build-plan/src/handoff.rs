@@ -203,6 +203,12 @@ pub fn read_build_plan(path: &Path) -> Result<BuildPlan, PlanHandoffError> {
     })
 }
 
+/// Reads a canonical plan payload without changing the durable handoff path.
+/// The returned plan is always decoded through semantic freeze.
+pub fn decode_build_plan(bytes: &[u8]) -> Result<BuildPlan, PlanCodecError> {
+    BuildPlan::decode(bytes)
+}
+
 fn create_temporary(
     parent: &Path,
     destination: &Path,
