@@ -58,8 +58,8 @@ pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
 pub use configure_cache::{
-    ConfigureCache, ConfigureCacheStatus, ConfigureIdentity, ConfigureRecord, invocation_identity,
-    plan_identity,
+    ConfigureCache, ConfigureCacheCandidate, ConfigureCacheStatus, ConfigureIdentity,
+    ConfigureRecord, invocation_identity, plan_identity,
 };
 pub use configure_observation::{
     ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,
@@ -571,6 +571,12 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
             let (runner_executable, runner_cache_key) = runner?;
+            match configure_cache_candidate(&invocation, &runner_cache_key) {
+                Ok(ConfigureCacheCandidate::Present) => {
+                    nia_timing::emit_counter("build.configure_cache_candidates", 1);
+                }
+                Ok(ConfigureCacheCandidate::None) | Err(_) => {}
+            }
             nia_timing::emit_counter("build.runner_executions", 1);
             let plan = time_summary_stage(timings, "build_run_runner", || {
                 run_and_cleanup_build_runner(&invocation, &runner_executable, &runner_cache_key)
@@ -605,6 +611,13 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
             result.map(|_| ())
         },
     )
+}
+
+fn configure_cache_candidate(
+    invocation: &BuildInvocation,
+    runner_cache_key: &str,
+) -> io::Result<ConfigureCacheCandidate> {
+    ConfigureCache::new(invocation).candidate_status(runner_cache_key, &invocation_identity(invocation))
 }
 
 fn test_step_names(plan: &BuildPlan, filter: Option<&str>) -> Vec<String> {
