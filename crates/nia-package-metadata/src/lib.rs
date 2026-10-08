@@ -127,10 +127,16 @@ impl LocalPackageGraph {
     /// Discovers the root package and selected dependency classes.
     pub fn resolve(root: &Path, include_tests: bool) -> io::Result<Self> {
         let mut nodes = Vec::new();
-        let mut pending = vec![(root.to_path_buf(), String::new(), true)];
+        let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
         let mut seen = BTreeSet::new();
-        while let Some((current, logical_root, is_root)) = pending.pop() {
+        while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
             let canonical = current.canonicalize()?;
+            if ancestors.iter().any(|ancestor| ancestor == &canonical) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("package dependency cycle at `{}`", canonical.display()),
+                ));
+            }
             if !seen.insert(canonical.clone()) {
                 continue;
             }
@@ -159,7 +165,9 @@ impl LocalPackageGraph {
                     continue;
                 }
                 let path = canonical.join(&dependency.path).canonicalize()?;
-                pending.push((path, dependency.name.clone(), false));
+                let mut next_ancestors = ancestors.clone();
+                next_ancestors.push(canonical.clone());
+                pending.push((path, dependency.name.clone(), false, next_ancestors));
             }
             nodes.push(LocalPackageGraphNode {
                 manifest,
@@ -1905,6 +1913,18 @@ mod tests {
         std::fs::write(dep.join("src.nia"), "changed").unwrap();
         let changed = LocalPackageGraph::resolve(&root, false).unwrap();
         assert_ne!(first_fingerprint, changed.fingerprint());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_package_graph_reports_dependency_cycles() {
+        let root = std::env::temp_dir().join(format!("nia-cycle-{}", std::process::id()));
+        let dep = root.join("dep");
+        std::fs::create_dir_all(&dep).unwrap();
+        std::fs::write(root.join("nia.package"), "dependency = dep:dep:runtime\n").unwrap();
+        std::fs::write(dep.join("nia.package"), "dependency = root:..:runtime\n").unwrap();
+        let error = LocalPackageGraph::resolve(&root, false).unwrap_err();
+        assert!(error.to_string().contains("dependency cycle"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }
