@@ -22,6 +22,24 @@ pub struct ConfigureIdentity {
     pub observations: [u8; 32],
 }
 
+/// Builds the invocation portion of the configure identity from typed policy fields.
+pub fn invocation_identity(invocation: &BuildInvocation) -> String {
+    format!(
+        "package={};host={};artifact={};profile={:?};optimization={:?};lto={:?};mode={:?};step={:?};test-filter={:?};test-list={};fail-fast={}",
+        invocation.package_root.display(),
+        invocation.toolchain.host_target().name(),
+        invocation.toolchain.artifact_target().name(),
+        invocation.profile,
+        invocation.optimization,
+        invocation.link_time_optimization,
+        invocation.compilation_mode,
+        invocation.step,
+        invocation.test_filter,
+        invocation.test_list,
+        invocation.test_fail_fast,
+    )
+}
+
 /// Result of consulting the configure cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigureCacheStatus {
