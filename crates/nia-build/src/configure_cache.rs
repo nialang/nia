@@ -7,8 +7,8 @@ use nia_compat::formats;
 
 use crate::{BuildInvocation, ConfigureManifest, ObservationCodecError};
 
-const MAGIC: &[u8; 8] = formats::CONFIGURE_MANIFEST.magic;
-const HEADER_BYTES: usize = 8 + 4 + 4 + 32;
+const MAGIC: &[u8; 8] = b"NIACREC\0";
+const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
 
 /// Inputs that determine whether a configured plan may be reused.
@@ -20,6 +20,17 @@ pub struct ConfigureIdentity {
     pub invocation: String,
     /// Canonical observation manifest fingerprint.
     pub observations: [u8; 32],
+}
+
+/// A cached configuration witness containing the canonical frozen plan bytes
+/// and the observation manifest that produced them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigureRecord {
+    /// Canonical encoded `BuildPlan` bytes. These are decoded and frozen again
+    /// by the caller before execution.
+    pub plan: Vec<u8>,
+    /// Observations declared while configuring the plan.
+    pub manifest: ConfigureManifest,
 }
 
 /// Builds the invocation portion of the configure identity from typed policy fields.
@@ -104,11 +115,24 @@ impl ConfigureCache {
     pub fn publish(
         &self,
         identity: &ConfigureIdentity,
-        manifest: &ConfigureManifest,
+        record: &ConfigureRecord,
     ) -> io::Result<()> {
-        let bytes = manifest
+        let manifest = record
+            .manifest
             .encode()
             .map_err(|_| io::Error::other("configure manifest too large"))?;
+        let plan_len = u32::try_from(record.plan.len())
+            .map_err(|_| io::Error::other("configure plan too large"))?;
+        let manifest_len = u32::try_from(manifest.len())
+            .map_err(|_| io::Error::other("configure manifest too large"))?;
+        let mut bytes = Vec::with_capacity(8 + 4 + 4 + 32 + 4 + record.plan.len() + manifest.len());
+        bytes.extend_from_slice(b"NIACREC\0");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&plan_len.to_le_bytes());
+        bytes.extend_from_slice(&manifest_len.to_le_bytes());
+        bytes.extend_from_slice(&blake3::hash(&record.plan).as_bytes()[..]);
+        bytes.extend_from_slice(&record.plan);
+        bytes.extend_from_slice(&manifest);
         let path = self.path(identity);
         let parent = path.parent().expect("configure cache path has parent");
         fs::create_dir_all(parent)?;
@@ -122,7 +146,7 @@ impl ConfigureCache {
     }
 
     /// Reads and validates a manifest; corruption is reported as a cache miss.
-    pub fn lookup(&self, identity: &ConfigureIdentity) -> io::Result<Option<ConfigureManifest>> {
+    pub fn lookup(&self, identity: &ConfigureIdentity) -> io::Result<Option<ConfigureRecord>> {
         let path = self.path(identity);
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
@@ -133,8 +157,26 @@ impl ConfigureCache {
             let _ = fs::remove_file(&path);
             return Ok(None);
         }
-        match ConfigureManifest::decode(&bytes) {
-            Ok(manifest) => Ok(Some(manifest)),
+        let plan_len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+        let manifest_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+        let payload_start = 52usize;
+        let plan_end = payload_start
+            .checked_add(plan_len)
+            .ok_or_else(|| io::Error::other("configure record overflow"))?;
+        let manifest_end = plan_end
+            .checked_add(manifest_len)
+            .ok_or_else(|| io::Error::other("configure record overflow"))?;
+        if manifest_end != bytes.len()
+            || bytes[20..52] != *blake3::hash(&bytes[payload_start..plan_end]).as_bytes()
+        {
+            let _ = fs::remove_file(&path);
+            return Ok(None);
+        }
+        match ConfigureManifest::decode(&bytes[plan_end..manifest_end]) {
+            Ok(manifest) => Ok(Some(ConfigureRecord {
+                plan: bytes[payload_start..plan_end].to_vec(),
+                manifest,
+            })),
             Err(ObservationCodecError::Invalid | ObservationCodecError::TooLarge) => {
                 let _ = fs::remove_file(&path);
                 Ok(None)
@@ -192,8 +234,12 @@ mod tests {
             ConfigureObservation::new("build.nia", ObservationKind::FileContents, [4; 32]).unwrap(),
         );
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
-        cache.publish(&identity, &manifest).unwrap();
-        assert_eq!(cache.lookup(&identity).unwrap(), Some(manifest));
+        let record = ConfigureRecord {
+            plan: b"validated-plan".to_vec(),
+            manifest: manifest.clone(),
+        };
+        cache.publish(&identity, &record).unwrap();
+        assert_eq!(cache.lookup(&identity).unwrap(), Some(record));
         let path = cache.path(&identity);
         let mut bytes = std::fs::read(&path).unwrap();
         *bytes.last_mut().unwrap() ^= 1;
@@ -218,7 +264,15 @@ mod tests {
         let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
         assert_eq!(cache.status(&identity).unwrap(), ConfigureCacheStatus::Miss);
-        cache.publish(&identity, &manifest).unwrap();
+        cache
+            .publish(
+                &identity,
+                &ConfigureRecord {
+                    plan: b"validated-plan".to_vec(),
+                    manifest: manifest.clone(),
+                },
+            )
+            .unwrap();
         assert_eq!(cache.status(&identity).unwrap(), ConfigureCacheStatus::Hit);
         std::fs::remove_dir_all(root).unwrap();
     }
