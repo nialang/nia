@@ -218,7 +218,7 @@ impl ConfigureCache {
     pub fn decode_plan(
         record: &ConfigureRecord,
     ) -> Result<nia_build_plan::BuildPlan, nia_build_plan::PlanCodecError> {
-        nia_build_plan::BuildPlan::decode(&record.plan)
+        nia_build_plan::decode_build_plan(&record.plan)
     }
 
     /// Returns whether a manifest record exists without exposing it as an
