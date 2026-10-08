@@ -108,6 +108,26 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     left: "-j, --jobs <count>",
                     right: "limit concurrent build actions",
                 },
+                HelpRow {
+                    left: "--dry-run",
+                    right: "configure and freeze the plan without executing actions",
+                },
+                HelpRow {
+                    left: "--explain",
+                    right: "show selected graph and configure-cache inputs",
+                },
+                HelpRow {
+                    left: "--print-plan",
+                    right: "print a deterministic frozen-plan summary",
+                },
+                HelpRow {
+                    left: "--print-cache",
+                    right: "print runner, configure, and action cache decisions",
+                },
+                HelpRow {
+                    left: "--print-observations",
+                    right: "print configuration filesystem observations",
+                },
                 LTO_ROW,
                 OPTIMIZATION_ROW,
                 PROFILE_ROW,

@@ -179,7 +179,9 @@ impl LocalPackageGraphOptions {
             DependencyClass::TestOnly => self.include_tests,
             DependencyClass::Optional => self.include_optional,
             DependencyClass::Lazy => self.include_lazy,
-            DependencyClass::BuildOnly | DependencyClass::Runtime | DependencyClass::Development => true,
+            DependencyClass::BuildOnly
+            | DependencyClass::Runtime
+            | DependencyClass::Development => true,
         }
     }
 }
@@ -220,7 +222,10 @@ impl LocalPackageGraph {
             let manifest = LocalPackageManifest::read(&canonical).or_else(|error| {
                 if error.kind() == io::ErrorKind::NotFound && is_root {
                     Ok(LocalPackageManifest::implicit(
-                        canonical.file_name().and_then(|v| v.to_str()).unwrap_or("root"),
+                        canonical
+                            .file_name()
+                            .and_then(|v| v.to_str())
+                            .unwrap_or("root"),
                     ))
                 } else {
                     Err(error)
@@ -254,22 +259,32 @@ impl LocalPackageGraph {
                 source_fingerprint: source.source_fingerprint,
             });
             if nodes.len() > 1024 {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "package graph is too large"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "package graph is too large",
+                ));
             }
         }
         nodes.sort_by(|left, right| left.root.cmp(&right.root));
         let mut dependencies = edges
             .into_iter()
-            .map(|(owner_root, dependency, target)| LocalPackageDependencyReport {
-                owner_root,
-                dependency,
-                resolved_root: target.and_then(|path| seen.get(&path).cloned()),
-            })
+            .map(
+                |(owner_root, dependency, target)| LocalPackageDependencyReport {
+                    owner_root,
+                    dependency,
+                    resolved_root: target.and_then(|path| seen.get(&path).cloned()),
+                },
+            )
             .collect::<Vec<_>>();
         dependencies.sort_by(|left, right| {
-            (&left.owner_root, &left.dependency.name).cmp(&(&right.owner_root, &right.dependency.name))
+            (&left.owner_root, &left.dependency.name)
+                .cmp(&(&right.owner_root, &right.dependency.name))
         });
-        Ok(Self { options, nodes, dependencies })
+        Ok(Self {
+            options,
+            nodes,
+            dependencies,
+        })
     }
 
     /// Returns the canonical content identity of all resolved package nodes.
@@ -333,7 +348,10 @@ impl LocalPackageManifest {
         let path = root.join("nia.package");
         let text = std::fs::read_to_string(path)?;
         if text.len() > 1024 * 1024 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "package manifest is too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "package manifest is too large",
+            ));
         }
         let mut manifest = Self::implicit(
             root.file_name()
@@ -350,7 +368,10 @@ impl LocalPackageManifest {
                 continue;
             }
             let (key, value) = line.split_once('=').ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("invalid package manifest line {}", line_number + 1))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid package manifest line {}", line_number + 1),
+                )
             })?;
             let key = key.trim();
             let value = value.trim().trim_matches('"');
@@ -360,7 +381,10 @@ impl LocalPackageManifest {
                 "version" => manifest.package.version = value.to_string(),
                 "minimum-release" => {
                     manifest.minimum_release = Some(value.parse().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidData, "minimum-release must be an integer")
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "minimum-release must be an integer",
+                        )
                     })?);
                 }
                 "source-root" => source_roots.push(value.to_string()),
@@ -376,10 +400,18 @@ impl LocalPackageManifest {
                         "dev" | "development" => DependencyClass::Development,
                         "optional" => DependencyClass::Optional,
                         "lazy" => DependencyClass::Lazy,
-                        _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid dependency class")),
+                        _ => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "invalid dependency class",
+                            ));
+                        }
                     };
                     if name.is_empty() || path.is_empty() || fields.next().is_some() {
-                        return Err(io::Error::new(io::ErrorKind::InvalidData, "dependency must be name:path:class"));
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "dependency must be name:path:class",
+                        ));
                     }
                     dependencies.push(LocalPackageDependency {
                         name: name.to_string(),
@@ -387,7 +419,12 @@ impl LocalPackageManifest {
                         class,
                     });
                 }
-                _ => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown package manifest key `{key}`"))),
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("unknown package manifest key `{key}`"),
+                    ));
+                }
             }
         }
         if !source_roots.is_empty() {
@@ -398,10 +435,16 @@ impl LocalPackageManifest {
         let mut names = BTreeSet::new();
         for dependency in &dependencies {
             if dependency.name.len() > 128
-                || !dependency.name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                || !dependency
+                    .name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
                 || !names.insert(&dependency.name)
             {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid or duplicate dependency name"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid or duplicate dependency name",
+                ));
             }
         }
         manifest.dependencies = dependencies;
@@ -437,7 +480,10 @@ fn validate_package_id(package: &PackageId) -> io::Result<()> {
         || package.name.contains('/')
         || package.version.contains('\n')
     {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid package identity"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid package identity",
+        ));
     }
     Ok(())
 }
@@ -478,7 +524,10 @@ pub fn package_source_identity_with_selection(
     selected_roots.sort();
     selected_roots.dedup();
     if selected_roots.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "package has no source roots"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "package has no source roots",
+        ));
     }
     let excludes = selection
         .excludes
@@ -561,9 +610,9 @@ fn collect_source_files(
         let relative = path.strip_prefix(root).expect("source path under root");
         let name = relative.to_string_lossy().replace('\\', "/");
         if excluded_source_component(relative)
-            || excludes.iter().any(|exclude| {
-                name == *exclude || name.starts_with(&format!("{exclude}/"))
-            })
+            || excludes
+                .iter()
+                .any(|exclude| name == *exclude || name.starts_with(&format!("{exclude}/")))
         {
             continue;
         }
@@ -583,7 +632,14 @@ fn collect_source_files(
 }
 
 fn excluded_source_component(path: &Path) -> bool {
-    static EXCLUDED: &[&str] = &[".git", ".nia-build", ".nia-cache", "target", "build", "dist"];
+    static EXCLUDED: &[&str] = &[
+        ".git",
+        ".nia-build",
+        ".nia-cache",
+        "target",
+        "build",
+        "dist",
+    ];
     path.components().any(|component| {
         let value = component.as_os_str().to_string_lossy();
         EXCLUDED.iter().any(|excluded| value == *excluded)
@@ -1965,10 +2021,8 @@ mod tests {
 
     #[test]
     fn selected_source_roots_and_excludes_are_canonical_inputs() {
-        let root = std::env::temp_dir().join(format!(
-            "nia-package-selection-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("nia-package-selection-{}", std::process::id()));
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("examples")).unwrap();
         std::fs::write(root.join("src/lib.nia"), "lib").unwrap();
@@ -1978,7 +2032,8 @@ mod tests {
             source_roots: vec!["src".into()],
             excludes: vec![],
         };
-        let first = package_source_identity_with_selection(&root, package.clone(), &selection).unwrap();
+        let first =
+            package_source_identity_with_selection(&root, package.clone(), &selection).unwrap();
         std::fs::write(root.join("examples/demo.nia"), "changed").unwrap();
         let second = package_source_identity_with_selection(&root, package, &selection).unwrap();
         assert_eq!(first.source_fingerprint, second.source_fingerprint);
@@ -2017,7 +2072,12 @@ mod tests {
         std::fs::write(dep.join("nia.package"), "name = \"dep\"\n").unwrap();
         let graph = LocalPackageGraph::resolve(&root, false).unwrap();
         assert_eq!(graph.nodes.len(), 2);
-        assert!(graph.nodes.iter().any(|node| node.manifest.package.name == "dep"));
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.manifest.package.name == "dep")
+        );
         let first_fingerprint = graph.fingerprint();
         std::fs::write(dep.join("src.nia"), "changed").unwrap();
         let changed = LocalPackageGraph::resolve(&root, false).unwrap();
@@ -2081,7 +2141,10 @@ mod tests {
         let report = graph.report();
         assert_eq!(report.resolved.len(), 1);
         assert_eq!(report.declared.len(), 1);
-        assert_eq!(report.declared[0].dependency.class, DependencyClass::Optional);
+        assert_eq!(
+            report.declared[0].dependency.class,
+            DependencyClass::Optional
+        );
         assert_eq!(report.declared[0].resolved_root, None);
         let selected = LocalPackageGraph::resolve_with_options(
             &root,
@@ -2091,7 +2154,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(selected.report().declared[0].resolved_root.as_deref(), Some("optional"));
+        assert_eq!(
+            selected.report().declared[0].resolved_root.as_deref(),
+            Some("optional")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

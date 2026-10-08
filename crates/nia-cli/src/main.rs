@@ -228,6 +228,11 @@ enum CliCommand {
         step: Option<String>,
         jobs: Option<NonZeroUsize>,
         link_time_optimization: nia_driver::LinkTimeOptimization,
+        dry_run: bool,
+        explain: bool,
+        print_plan: bool,
+        print_cache: bool,
+        print_observations: bool,
     },
     Test {
         root: Option<PathBuf>,
@@ -349,11 +354,21 @@ fn run_cli(cli: Cli) -> ExitCode {
             step,
             jobs,
             link_time_optimization,
+            dry_run,
+            explain,
+            print_plan,
+            print_cache,
+            print_observations,
         } => run_build(BuildContext {
             root,
             step,
             jobs,
             link_time_optimization,
+            dry_run,
+            explain,
+            print_plan,
+            print_cache,
+            print_observations,
             optimization: cli.optimization,
             profile: cli.profile,
             timings: cli.timings,
@@ -999,6 +1014,11 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let mut step = None::<String>;
     let mut jobs = None::<NonZeroUsize>;
     let mut link_time_optimization = nia_driver::LinkTimeOptimization::Off;
+    let mut dry_run = false;
+    let mut explain = false;
+    let mut print_plan = false;
+    let mut print_cache = false;
+    let mut print_observations = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--root=") {
@@ -1022,6 +1042,11 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             continue;
         }
         match arg.as_str() {
+            "--dry-run" => dry_run = true,
+            "--explain" => explain = true,
+            "--print-plan" => print_plan = true,
+            "--print-cache" => print_cache = true,
+            "--print-observations" => print_observations = true,
             "--root" => {
                 let Some(value) = iter.next() else {
                     return Err(CliError::new(
@@ -1076,6 +1101,11 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         step,
         jobs,
         link_time_optimization,
+        dry_run,
+        explain,
+        print_plan,
+        print_cache,
+        print_observations,
     })
 }
 
@@ -1839,6 +1869,11 @@ struct BuildContext {
     step: Option<String>,
     jobs: Option<NonZeroUsize>,
     link_time_optimization: nia_driver::LinkTimeOptimization,
+    dry_run: bool,
+    explain: bool,
+    print_plan: bool,
+    print_cache: bool,
+    print_observations: bool,
     optimization: NiaOptimizationLevel,
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
@@ -1853,6 +1888,11 @@ fn run_build(context: BuildContext) -> ExitCode {
         step,
         jobs,
         link_time_optimization,
+        dry_run,
+        explain,
+        print_plan,
+        print_cache,
+        print_observations,
         optimization,
         profile,
         timings,
@@ -1875,6 +1915,11 @@ fn run_build(context: BuildContext) -> ExitCode {
         .with_optimization(build_optimization(optimization))
         .with_profile(profile)
         .with_link_time_optimization(link_time_optimization)
+        .with_dry_run(dry_run)
+        .with_explain(explain)
+        .with_print_plan(print_plan)
+        .with_print_cache(print_cache)
+        .with_print_observations(print_observations)
         .with_timings(timings)
         .with_timing_format(timing_format);
     match nia_build::run_build(request) {
@@ -2915,6 +2960,34 @@ mod tests {
             .expect_err("invalid build jobs must fail");
             assert!(error.message.contains(expected), "{}", error.message);
         }
+    }
+
+    #[test]
+    fn build_diagnostic_flags_are_typed() {
+        let command = parse_build_command(
+            [
+                "--dry-run",
+                "--explain",
+                "--print-plan",
+                "--print-cache",
+                "--print-observations",
+            ]
+            .into_iter()
+            .map(ToString::to_string)
+            .collect(),
+        )
+        .unwrap();
+        assert!(matches!(
+            command,
+            CliCommand::Build {
+                dry_run: true,
+                explain: true,
+                print_plan: true,
+                print_cache: true,
+                print_observations: true,
+                ..
+            }
+        ));
     }
 
     #[test]
