@@ -319,6 +319,38 @@ pub struct PlanPackage {
     pub root: String,
 }
 
+/// Usage summary for one package in a frozen plan.
+///
+/// Package declarations describe the selected package graph. Module and
+/// artifact/action counts describe the portions that were actually loaded
+/// into the executable plan, which keeps package resolution separate from
+/// source loading and product scheduling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanPackageUsage {
+    /// Package identity.
+    pub package: PackageKey,
+    /// Number of source modules loaded for this plan.
+    pub loaded_modules: usize,
+    /// Number of artifacts declared for this package.
+    pub artifacts: usize,
+    /// Number of actions owned by this package.
+    pub actions: usize,
+    /// Number of dependency steps owned by this package.
+    pub steps: usize,
+}
+
+impl PlanPackageUsage {
+    /// Whether at least one module from this package entered the module graph.
+    pub fn is_loaded(&self) -> bool {
+        self.loaded_modules != 0
+    }
+
+    /// Whether this package contributes executable work to the artifact graph.
+    pub fn is_used(&self) -> bool {
+        self.artifacts != 0 || self.actions != 0 || self.steps != 0
+    }
+}
+
 /// Rejection reason for a package root mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PackageRootError {
@@ -970,6 +1002,39 @@ impl BuildPlan {
     pub fn packages(&self) -> &[PlanPackage] {
         &self.packages
     }
+
+    /// Summarizes package declarations against loaded modules and actions.
+    ///
+    /// The result is canonical package order and is derived only from the
+    /// frozen plan, so it is deterministic and safe to include in diagnostics.
+    pub fn package_usage(&self) -> Vec<PlanPackageUsage> {
+        self.packages
+            .iter()
+            .map(|package| PlanPackageUsage {
+                package: package.key.clone(),
+                loaded_modules: self
+                    .modules
+                    .iter()
+                    .filter(|module| module.key.package() == &package.key)
+                    .count(),
+                artifacts: self
+                    .artifacts
+                    .iter()
+                    .filter(|artifact| artifact.key.package() == &package.key)
+                    .count(),
+                actions: self
+                    .actions
+                    .iter()
+                    .filter(|action| action.key.package() == &package.key)
+                    .count(),
+                steps: self
+                    .steps
+                    .iter()
+                    .filter(|step| step.key.package() == &package.key)
+                    .count(),
+            })
+            .collect()
+    }
     /// Returns the host compiler target.
     pub fn host_target(&self) -> &TargetConfig {
         &self.host_target
@@ -1038,6 +1103,19 @@ mod tests {
             BuildPlan::freeze(draft(false)).unwrap(),
             BuildPlan::freeze(draft(true)).unwrap()
         );
+    }
+
+    #[test]
+    fn package_usage_separates_loaded_modules_from_declared_packages() {
+        let plan = BuildPlan::freeze(draft(false)).unwrap();
+        let usage = plan.package_usage();
+        let root = usage
+            .iter()
+            .find(|usage| usage.package == PackageKey::root())
+            .unwrap();
+        assert!(root.is_loaded());
+        assert!(root.is_used());
+        assert_eq!(usage.len(), plan.packages().len());
     }
 
     #[test]
