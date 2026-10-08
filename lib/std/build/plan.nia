@@ -10,6 +10,7 @@ using pkg::mem;
 using pkg::string;
 using pkg::build::error;
 using pkg::build::types;
+using pkg::hash;
 
 using error::Error;
 using error::ErrorOperation as Operation;
@@ -578,10 +579,24 @@ extend Build {
             0,
             0,
         ]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
-        // The host validates the nested plan and envelope checksum. The runner
-        // currently emits an empty observation payload; probe APIs will append
-        // their canonical manifest here in a subsequent protocol revision.
-        envelope.appendSlice(self.allocator, &[0; 32]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+        // The current observation section is empty. The host still requires a
+        // real checksum over the canonical plan, so an envelope cannot be
+        // mistaken for an unvalidated raw plan.
+        let checksum = hash::Wyhash::hash(0u64, planBytes);
+        let checksumBytes: [u8; 32] = [
+            checksum as u8,
+            (checksum >> 8u64) as u8,
+            (checksum >> 16u64) as u8,
+            (checksum >> 24u64) as u8,
+            (checksum >> 32u64) as u8,
+            (checksum >> 40u64) as u8,
+            (checksum >> 48u64) as u8,
+            (checksum >> 56u64) as u8,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        envelope.appendSlice(self.allocator, &checksumBytes[..]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
         envelope.appendSlice(self.allocator, planBytes).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
 
         let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).withBuildContext(Operation::Publish, Subject::BuildPlan).?;
