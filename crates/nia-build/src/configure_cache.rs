@@ -48,20 +48,20 @@ pub fn invocation_identity(invocation: &BuildInvocation) -> String {
         &mut encoded,
         invocation.toolchain.artifact_target().name().as_bytes(),
     );
-    write_identity_field(&mut encoded, format!("{:?}", invocation.profile).as_bytes());
-    write_identity_field(
-        &mut encoded,
-        format!("{:?}", invocation.optimization).as_bytes(),
-    );
-    write_identity_field(
-        &mut encoded,
-        format!("{:?}", invocation.link_time_optimization).as_bytes(),
-    );
-    write_identity_field(
-        &mut encoded,
-        format!("{:?}", invocation.compilation_mode).as_bytes(),
-    );
-    write_identity_field(&mut encoded, format!("{:?}", invocation.step).as_bytes());
+    encoded.push(profile_tag(invocation.profile));
+    encoded.push(optimization_tag(invocation.optimization));
+    encoded.push(link_time_optimization_tag(
+        invocation.link_time_optimization,
+    ));
+    encoded.push(compilation_mode_tag(invocation.compilation_mode));
+    match &invocation.step {
+        crate::BuildStepSelection::Default => encoded.push(0),
+        crate::BuildStepSelection::Tests => encoded.push(1),
+        crate::BuildStepSelection::Named(name) => {
+            encoded.push(2);
+            write_identity_field(&mut encoded, name.as_bytes());
+        }
+    }
     write_optional_identity_field(&mut encoded, invocation.test_filter.as_deref());
     encoded.push(u8::from(invocation.test_list));
     encoded.push(u8::from(invocation.test_fail_fast));
@@ -80,6 +80,39 @@ fn write_optional_identity_field(encoded: &mut Vec<u8>, value: Option<&str>) {
             write_identity_field(encoded, value.as_bytes());
         }
         None => encoded.push(0),
+    }
+}
+
+fn profile_tag(profile: nia_target_config::BuildProfile) -> u8 {
+    match profile {
+        nia_target_config::BuildProfile::Debug => 0,
+        nia_target_config::BuildProfile::Release => 1,
+    }
+}
+
+fn compilation_mode_tag(mode: nia_target_config::CompilationMode) -> u8 {
+    match mode {
+        nia_target_config::CompilationMode::Normal => 0,
+        nia_target_config::CompilationMode::Test => 1,
+    }
+}
+
+fn optimization_tag(mode: nia_build_plan::OptimizationMode) -> u8 {
+    match mode {
+        nia_build_plan::OptimizationMode::O0 => 0,
+        nia_build_plan::OptimizationMode::O1 => 1,
+        nia_build_plan::OptimizationMode::O2 => 2,
+        nia_build_plan::OptimizationMode::O3 => 3,
+        nia_build_plan::OptimizationMode::Os => 4,
+        nia_build_plan::OptimizationMode::Oz => 5,
+    }
+}
+
+fn link_time_optimization_tag(mode: nia_driver::LinkTimeOptimization) -> u8 {
+    match mode {
+        nia_driver::LinkTimeOptimization::Off => 0,
+        nia_driver::LinkTimeOptimization::Thin => 1,
+        nia_driver::LinkTimeOptimization::Full => 2,
     }
 }
 
