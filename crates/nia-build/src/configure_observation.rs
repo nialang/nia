@@ -5,7 +5,10 @@
 //! describe what a build script was allowed to inspect before producing a
 //! `BuildPlan`, and therefore form the future configure-cache contract.
 
-use std::{fmt, path::PathBuf};
+use std::{
+    fmt, fs, io,
+    path::{Path, PathBuf},
+};
 
 /// Policy for host observations that are not explicitly declared by a build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,6 +90,53 @@ impl ConfigureObservation {
     pub fn fingerprint(&self) -> &[u8; 32] {
         &self.fingerprint
     }
+}
+
+/// Records the contents of a package-relative regular file.
+pub fn observe_file_contents(
+    root: &Path,
+    relative: impl Into<PathBuf>,
+) -> io::Result<ConfigureObservation> {
+    let relative = relative.into();
+    let bytes = fs::read(root.join(&relative))?;
+    ConfigureObservation::new(
+        relative,
+        ObservationKind::FileContents,
+        *blake3::hash(&bytes).as_bytes(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+/// Records deterministic direct-entry names and metadata for a package-relative directory.
+pub fn observe_directory_contents(
+    root: &Path,
+    relative: impl Into<PathBuf>,
+) -> io::Result<ConfigureObservation> {
+    let relative = relative.into();
+    let directory = root.join(&relative);
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        entries.push((
+            entry.file_name().to_string_lossy().into_owned(),
+            metadata.is_dir(),
+            metadata.len(),
+        ));
+    }
+    entries.sort();
+    let mut hasher = blake3::Hasher::new();
+    for (name, is_dir, len) in entries {
+        hasher.update(name.as_bytes());
+        hasher.update(&[u8::from(is_dir)]);
+        hasher.update(&len.to_le_bytes());
+    }
+    ConfigureObservation::new(
+        relative,
+        ObservationKind::DirectoryContents,
+        *hasher.finalize().as_bytes(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
 /// A deterministic configuration observation manifest.

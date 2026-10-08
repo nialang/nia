@@ -62,8 +62,8 @@ pub use configure_cache::{
     plan_identity,
 };
 pub use configure_observation::{
-    ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,
-    ObservationKind, ObservationPolicy,
+    observe_directory_contents, observe_file_contents, ConfigureManifest, ConfigureObservation,
+    ObservationCodecError, ObservationError, ObservationKind, ObservationPolicy,
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
