@@ -20,6 +20,11 @@ pub fn encode_build_draft(plan: &[u8], observations: &[u8]) -> Result<Vec<u8>, B
     .encode()
 }
 
+/// Wraps a canonical plan with an empty observation section.
+pub fn encode_empty_build_draft(plan: &[u8]) -> Result<Vec<u8>, BuildDraftError> {
+    encode_build_draft(plan, &[])
+}
+
 /// Configuration evidence attached to a runner-produced plan draft.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildDraft {
