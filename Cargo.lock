@@ -365,6 +365,7 @@ dependencies = [
 name = "nia-build-plan"
 version = "0.2.0-dev"
 dependencies = [
+ "blake3",
  "nia-compat",
  "nia-target",
 ]
