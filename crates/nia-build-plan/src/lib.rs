@@ -459,6 +459,8 @@ pub enum CommandCachePolicy {
     /// Cache by declared inputs, resolved tool identity, and a bounded
     /// snapshot of the effective inherited environment.
     FullDeclaredEnvironment,
+    /// Cache successful test suites, including runner, inputs, and environment.
+    SuccessfulTests,
 }
 
 /// Scheduling/resource class reserved by an action.
@@ -1759,7 +1761,7 @@ mod tests {
         assert!(matches!(
             BuildPlan::freeze(value),
             Err(PlanError::InvalidCommand {
-                reason: "test executable actions cannot be cached",
+                reason: "test executable actions require a test cache policy",
                 ..
             })
         ));

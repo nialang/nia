@@ -26,6 +26,7 @@ use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFi
 mod compiler_check;
 mod compiler_emit;
 mod external_command;
+mod test_suite;
 
 pub(crate) use compiler_check::{
     CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheIdentityInput,
@@ -39,6 +40,7 @@ pub(crate) use external_command::{
     ExternalCommandCache, ExternalCommandCacheHit, ExternalCommandCacheIdentity,
     ExternalCommandCacheLookup, ExternalCommandCacheOutput, ExternalCommandContentIdentity,
 };
+pub(crate) use test_suite::{TestSuiteCache, TestSuiteCacheIdentity, TestSuiteCacheLookup};
 
 static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// Compiler action-cache entries contain identities and typed references, not
