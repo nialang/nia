@@ -19,11 +19,11 @@ Formal releases are minor baselines named `0.x.0`. After a release, `main`
 advances to the next minor development identifier and keeps that version across
 ordinary feature and maintenance commits. Patch releases are reserved for
 important fixes to an already released minor line and are maintained from a
-dedicated release branch when needed. The unified protocol epoch tracks the
-latest public release and stays fixed throughout development. Internal format
-changes do not bump it or require compatibility with intermediate development
-builds. A formal release updates the public release baseline and the epoch
-together, then changes
+dedicated release branch when needed. The unified protocol epoch follows the
+release line under development, so `0.2.0-dev` uses epoch `2` throughout the
+0.2.x line. Internal format changes do not create additional development
+epochs or require compatibility with intermediate development builds. A formal
+release keeps the line's epoch, then changes
 the development identifier to its final `0.x.0` value and pushing the matching
 `vX.Y.0` tag; the release workflow rejects other tag shapes.
 
