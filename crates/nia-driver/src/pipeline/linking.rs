@@ -211,12 +211,17 @@ impl Driver {
             .toolchain
             .import_descriptions(self.config.artifact_target)
             .map_err(DriverError::SystemImports)?;
+        let extension = match self.config.artifact_target.object_format() {
+            nia_target::ObjectFormat::Coff => "lib",
+            nia_target::ObjectFormat::MachO => "tbd",
+            nia_target::ObjectFormat::Elf => "bin",
+        };
         link_options.system_imports = descriptions
             .iter()
             .map(|description| {
                 SystemImportLibrary::new(
                     description.library(),
-                    import_dir.join(format!("{}.lib", description.library())),
+                    import_dir.join(format!("{}.{}", description.library(), extension)),
                     description.contents(),
                 )
             })
@@ -489,8 +494,9 @@ impl Driver {
     }
 }
 
-// Writes each system import library at the path its link input names. Only
-// COFF targets have descriptions today; each becomes a short-import archive.
+// Writes each system import library at the path its link input names. COFF
+// descriptions become short-import archives; Mach-O descriptions are already
+// linker-readable text stubs and only need to be staged.
 fn write_system_imports(
     target: nia_target::TargetConfig,
     descriptions: &[nia_toolchain::ImportDescription],
@@ -500,6 +506,15 @@ fn write_system_imports(
         let machine = match (target.object_format(), target.arch()) {
             (nia_target::ObjectFormat::Coff, nia_target::Arch::X86_64) => {
                 nia_llvm::coff::CoffMachine::Amd64
+            }
+            (nia_target::ObjectFormat::MachO, _) => {
+                write_output_file(library.path(), description.contents()).map_err(|error| {
+                    DriverError::SystemImportLibrary {
+                        library: description.library().to_string(),
+                        message: error.to_string(),
+                    }
+                })?;
+                continue;
             }
             _ => {
                 return Err(DriverError::InternalDiagnostic(Diagnostic::from(
