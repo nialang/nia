@@ -1,0 +1,8 @@
+using pkg::start::freestanding::macos::startup::niaDarwinStart;
+
+// dyld enters the Nia runtime through LC_MAIN. This is the runtime entry,
+// despite using the conventional Mach-O `main` symbol name.
+pub extern fn main(argc: i32, argv: &&u8, envp: &&u8) i32 {
+    niaDarwinStart(argc, argv, envp);
+    loop {}
+}

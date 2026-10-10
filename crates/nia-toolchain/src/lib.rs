@@ -238,8 +238,8 @@ impl RuntimeSpec {
         package_root: impl Into<PathBuf>,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
-        // A naked `_start` calls its startup function by symbol name, so the
-        // function is rooted explicitly rather than through a code operand.
+        // Native entry points call their startup helper by symbol name, so the
+        // helper is rooted explicitly rather than through a code operand.
         let startup = match target.os() {
             Os::Linux => Some((
                 "toolchain:/runtime/start/freestanding/linux/startup.nia".to_string(),
@@ -249,7 +249,10 @@ impl RuntimeSpec {
                 "toolchain:/runtime/start/freestanding/windows/startup.nia".to_string(),
                 "niaWindowsStart",
             )),
-            Os::Macos => None,
+            Os::Macos => Some((
+                "toolchain:/runtime/start/freestanding/macos/startup.nia".to_string(),
+                "niaDarwinStart",
+            )),
         };
         let mut required_exports = startup
             .into_iter()
@@ -274,11 +277,17 @@ impl RuntimeSpec {
     ) -> Result<Self, RuntimeSpecError> {
         // The startup module is named by architecture below its OS directory.
         match (target.os(), target.arch()) {
-            (Os::Linux, Arch::X86_64 | Arch::X86 | Arch::Aarch64) | (Os::Windows, Arch::X86_64) => {
-            }
+            (Os::Linux, Arch::X86_64 | Arch::X86 | Arch::Aarch64)
+            | (Os::Windows, Arch::X86_64)
+            | (Os::Macos, Arch::X86_64 | Arch::Aarch64) => {}
             _ => return Err(RuntimeSpecError::UnsupportedTarget(*target)),
         }
         let implementation = target.arch().name();
+        let (definition_name, linker_symbol) = if target.os() == Os::Macos {
+            ("main", "main")
+        } else {
+            ("_start", "_start")
+        };
         Ok(Self::Source(Box::new(SourceRuntimeSpec {
             package_root: package_root.into(),
             package_root_identity: RUNTIME_PACKAGE_IDENTITY.to_string(),
@@ -292,8 +301,8 @@ impl RuntimeSpec {
                     "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
                     target.os().name()
                 ),
-                definition_name: "_start".to_string(),
-                linker_symbol: "_start".to_string(),
+                definition_name: definition_name.to_string(),
+                linker_symbol: linker_symbol.to_string(),
             },
             required_exports: required_exports.into_iter().collect(),
             target: *target,
@@ -1164,6 +1173,8 @@ mod tests {
             ("x86-unknown-linux", "x86"),
             ("aarch64-unknown-linux", "aarch64"),
             ("x86_64-pc-windows-msvc", "x86_64"),
+            ("x86_64-apple-macos", "x86_64"),
+            ("aarch64-apple-macos", "aarch64"),
         ] {
             let target = TargetConfig::parse(name).expect("maintained target");
             let runtime = RuntimeSpec::freestanding(&layout, &target).expect("runtime target");
@@ -1186,9 +1197,22 @@ mod tests {
                     target.os().name()
                 )
             );
-            assert_eq!(source.entry_point().definition_name(), "_start");
-            assert_eq!(source.entry_point().linker_symbol(), "_start");
-            if target.os() == Os::Windows {
+            let expected_entry = if target.os() == Os::Macos {
+                "main"
+            } else {
+                "_start"
+            };
+            assert_eq!(source.entry_point().definition_name(), expected_entry);
+            assert_eq!(source.entry_point().linker_symbol(), expected_entry);
+            if target.os() == Os::Macos {
+                assert_eq!(
+                    source.required_exports(),
+                    [RuntimeExport::new(
+                        "toolchain:/runtime/start/freestanding/macos/startup.nia",
+                        "niaDarwinStart",
+                    )]
+                );
+            } else if target.os() == Os::Windows {
                 assert_eq!(
                     source.required_exports(),
                     [
@@ -1225,8 +1249,7 @@ mod tests {
 
     #[test]
     fn runtime_selection_rejects_unsupported_and_mismatched_targets() {
-        // Darwin startup does not exist yet; its absence is a typed error.
-        let unsupported = TargetConfig::parse("aarch64-apple-macos").unwrap();
+        let unsupported = TargetConfig::parse("aarch64-pc-windows-msvc").unwrap();
         assert_eq!(
             RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &unsupported),
             Err(RuntimeSpecError::UnsupportedTarget(unsupported))
