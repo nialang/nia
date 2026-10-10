@@ -3159,6 +3159,10 @@ mod tests {
             relocation_model: nia_llvm::target::TargetRelocationModel::Static,
             ..target.clone()
         };
+        let changed_code_model = TargetMachineIdentity {
+            code_model: nia_llvm::target::TargetCodeModel::Small,
+            ..target.clone()
+        };
 
         let declarations = declarations(&fixture);
         let baseline = source_unit_fingerprint(
@@ -3243,6 +3247,22 @@ mod tests {
         assert_ne!(
             baseline.components.target,
             changed_relocation_fingerprint.components.target
+        );
+        let changed_code_model_fingerprint = source_unit_fingerprint(
+            &fixture.partition,
+            &declarations,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::NativeObject(&changed_code_model),
+        )
+        .expect("valid changed-code-model fingerprint fixture");
+        assert_ne!(
+            baseline.fingerprint,
+            changed_code_model_fingerprint.fingerprint
+        );
+        assert_ne!(
+            baseline.components.target,
+            changed_code_model_fingerprint.components.target
         );
 
         let changed_toolchain = source_unit_fingerprint(
