@@ -19,6 +19,8 @@ use nia_query::FingerprintDomain;
 const CONFIGURE_MANIFEST_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.configure-manifest");
 const MAX_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_FILE_CONTENT_BYTES: usize = 1024 * 1024;
+const FILE_CONTENT_STREAM_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_DIRECTORY_BYTES: usize = 1024 * 1024;
 const MAX_DIRECTORY_ENTRIES: usize = 16 * 1024;
 
@@ -223,11 +225,40 @@ pub fn observe_file_contents(
 ) -> io::Result<ConfigureObservation> {
     let relative = relative.into();
     let path = resolve_observation_path(root, &relative)?;
-    let bytes = fs::read(path)?;
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "file contents observation requires a regular file",
+        ));
+    }
+    if metadata.len() > MAX_FILE_CONTENT_BYTES as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "file contents observation is too large",
+        ));
+    }
+    let mut hasher = blake3::Hasher::new();
+    let mut remaining = metadata.len();
+    let mut buffer = [0; FILE_CONTENT_STREAM_BYTES];
+    while remaining != 0 {
+        let count = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        file.read_exact(&mut buffer[..count])?;
+        hasher.update(&buffer[..count]);
+        remaining -= count as u64;
+    }
+    let mut trailing = [0; 1];
+    if file.read(&mut trailing)? != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "file contents changed while it was observed",
+        ));
+    }
     ConfigureObservation::new(
         relative,
         ObservationKind::FileContents,
-        *blake3::hash(&bytes).as_bytes(),
+        *hasher.finalize().as_bytes(),
     )
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
@@ -1482,6 +1513,24 @@ mod tests {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
         observe_into(&mut manifest, first).unwrap();
         assert!(!manifest.draft_payload().unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn file_content_observations_reject_oversized_files() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-observation-oversized-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = std::fs::File::create(root.join("input")).unwrap();
+        file.set_len((MAX_FILE_CONTENT_BYTES + 1) as u64).unwrap();
+        let error = observe_file_contents(&root, "input").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         std::fs::remove_dir_all(root).unwrap();
     }
 

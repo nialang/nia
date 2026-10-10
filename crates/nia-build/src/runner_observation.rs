@@ -12,14 +12,14 @@ use nia_compat::formats::RUNNER_OBSERVATIONS;
 use crate::{
     ConfigureManifest, ConfigureObservation, ObservationKind, ObservationPolicy,
     configure_observation::{
-        MAX_DIRECTORY_BYTES, directory_observation, read_directory_facts, validate_probe_result,
+        MAX_DIRECTORY_BYTES, MAX_FILE_CONTENT_BYTES, directory_observation, read_directory_facts,
+        validate_probe_result,
     },
 };
 
 const MAGIC: &[u8; 8] = RUNNER_OBSERVATIONS.magic;
 const MAX_EVIDENCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RECORDS: usize = 16 * 1024;
-const MAX_FILE_BYTES: usize = 1024 * 1024;
 const MAX_ENV_BYTES: usize = 32 * 1024;
 
 /// Decodes runner facts and verifies that their source values remain current.
@@ -135,16 +135,16 @@ fn validate_file_contents(
     path: &str,
     bytes: &[u8],
 ) -> io::Result<ConfigureObservation> {
-    if bytes.len() > MAX_FILE_BYTES {
+    if bytes.len() > MAX_FILE_CONTENT_BYTES {
         return Err(invalid_evidence());
     }
     let relative = Path::new(path);
     let resolved = crate::configure_observation::resolve_observation_path(root, relative)?;
     let mut current = Vec::new();
     fs::File::open(resolved)?
-        .take((MAX_FILE_BYTES + 1) as u64)
+        .take((MAX_FILE_CONTENT_BYTES + 1) as u64)
         .read_to_end(&mut current)?;
-    if current.len() > MAX_FILE_BYTES || current != bytes {
+    if current.len() > MAX_FILE_CONTENT_BYTES || current != bytes {
         return Err(changed_evidence(path));
     }
     ConfigureObservation::new(
