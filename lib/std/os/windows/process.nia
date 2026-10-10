@@ -18,12 +18,6 @@ const signalTerm: i32 = 15;
 const signalKill: i32 = 9;
 
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
-    let mut appStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let application = match utf8ToWide(path, &mut appStorage[..]) {
-        !value => value,
-        error! => return .failure(.Setup(error)),
-    };
-
     let mut commandStorage: [u16; maxPathUnits] = [0; maxPathUnits];
     let mut commandLen: usize = 0;
     let pointerSize = pkg::builtin::size[&u8]();
@@ -113,7 +107,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAtte
     };
     let flags = createUnicodeEnvironment | if count == 0 { 0 } else { extendedStartupInfoPresent };
     if CreateProcessW(
-        application, &mut commandStorage[0], 0, 0, if count == 0 { 0 } else { 1 },
+        0usize as &u16, &mut commandStorage[0], 0, 0, if count == 0 { 0 } else { 1 },
         flags, environment.ptr(), cwd, &mut startup.base, &mut info,
     ) == 0 {
         return .failure(.Exec(lastError()));

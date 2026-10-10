@@ -76,8 +76,8 @@ fn spawnWithResources(
             reportSpawnError(&resources.error, .Cwd, error);
             exit(127);
         }
-        let execRet = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
-        reportSpawnError(&resources.error, .Exec, execRet.syscallError());
+        let execError = executePath(path, argv, envp);
+        reportSpawnError(&resources.error, .Exec, execError);
         exit(127);
         .failure(.Setup(.Io))
     } else {
@@ -111,6 +111,83 @@ fn spawnWithResources(
             },
         }
     }
+}
+
+// `execve` does not perform PATH lookup. Keep the typed process API's command
+// behavior consistent with the host shell by resolving bare names in the
+// child's inherited environment before the final exec.
+fn executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
+    let mut pathLen: usize = 0;
+    while path[pathLen] != 0 {
+        pathLen += 1;
+    }
+    let mut hasSeparator = false;
+    let mut index: usize = 0;
+    while index < pathLen {
+        if path[index] == b'/' {
+            hasSeparator = true;
+            break;
+        }
+        index += 1;
+    }
+    if hasSeparator {
+        return syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize)
+            .syscallError();
+    }
+
+    let pointerSize = pkg::builtin::size[&u8]();
+    let mut entry = envp;
+    while entry as usize != 0 and entry.* as usize != 0 {
+        let text = entry.*;
+        let mut textLen: usize = 0;
+        while text[textLen] != 0 {
+            textLen += 1;
+        }
+        if textLen >= 5 and text[0] == b'P' and text[1] == b'A' and text[2] == b'T' and text[3] == b'H' and text[4] == b'=' {
+            let valueEnd = textLen;
+            let mut segmentStart: usize = 5;
+            loop {
+                let mut segmentEnd = segmentStart;
+                while segmentEnd < valueEnd and text[segmentEnd] != b':' {
+                    segmentEnd += 1;
+                }
+                let mut candidate: [u8; types::maxPathBytes] = [0; types::maxPathBytes];
+                let mut cursor: usize = 0;
+                if segmentEnd == segmentStart {
+                    candidate[0] = b'.';
+                    cursor = 1;
+                } else {
+                    while segmentStart < segmentEnd {
+                        if cursor + 1 >= candidate.len() { return .TooLong; }
+                        candidate[cursor] = text[segmentStart];
+                        cursor += 1;
+                        segmentStart += 1;
+                    }
+                }
+                if cursor != 0 and candidate[cursor - 1] != b'/' {
+                    if cursor + 1 >= candidate.len() { return .TooLong; }
+                    candidate[cursor] = b'/';
+                    cursor += 1;
+                }
+                let mut commandIndex: usize = 0;
+                while commandIndex < pathLen {
+                    if cursor + 1 >= candidate.len() { return .TooLong; }
+                    candidate[cursor] = path[commandIndex];
+                    cursor += 1;
+                    commandIndex += 1;
+                }
+                candidate[cursor] = 0;
+                let result = syscall::syscall3(syscall::execve, (&candidate[0]) as usize, argv as usize, envp as usize);
+                let error = result.syscallError();
+                if error != .NoEntry { return error; }
+                if segmentEnd == valueEnd { break; }
+                segmentStart = segmentEnd + 1;
+            }
+            return .NoEntry;
+        }
+        entry = ((entry as usize) + pointerSize) as &&u8;
+    }
+    .NoEntry
 }
 
 fn failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
