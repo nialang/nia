@@ -140,10 +140,10 @@ The project does not claim support for:
 - macOS compiler hosts;
 - Windows release archives. Windows compilers are built from source; only the
   Linux x86_64 archive is packaged and published;
-- cross-linked macOS executables. `--target` selects any maintained target for
-  checking, IR, and object emission from every maintained host, and the linker
-  flavor follows the artifact target; Mach-O linking is not implemented until
-  the platform roadmap's D1 row closes;
+- complete cross-linked macOS executables. `--target` selects any maintained
+  target for checking, IR, object emission, and structured Mach-O linker
+  invocation from every maintained host; the bundled `libSystem` stub and
+  end-to-end Mach-O link remain open under the platform roadmap's D1 row;
 - complete freestanding executable startup outside Linux x86_64, Windows x86_64,
   and experimental i686 coverage;
 - a complete bare-metal build workflow;

@@ -734,7 +734,7 @@ pub struct ArchiveInvocation {
 ///
 /// The artifact target is not an option: the caller that owns it passes it to
 /// every operation, and it selects the default flavor and argument contract.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkOptions {
     /// Executable linker selection.
     pub linker: ExecutableLinker,
@@ -880,24 +880,17 @@ fn write_fingerprint_file(
     writer.finish()
 }
 
-impl Default for LinkOptions {
-    fn default() -> Self {
-        Self {
-            linker: ExecutableLinker::default(),
-            entry: Some("_start".to_string()),
-            form: None,
-            sysroot: None,
-            library_paths: Vec::new(),
-            rpaths: Vec::new(),
-            libraries: Vec::new(),
-            static_archives: Vec::new(),
-            system_imports: Vec::new(),
-            raw_args: Vec::new(),
-        }
-    }
-}
-
 impl LinkOptions {
+    fn effective_entry(&self, target: TargetConfig) -> &str {
+        self.entry.as_deref().unwrap_or_else(|| {
+            if target.object_format() == ObjectFormat::MachO {
+                "_main"
+            } else {
+                "_start"
+            }
+        })
+    }
+
     /// Computes complete executable-link identity when every external input is tracked.
     ///
     /// Returns `None` when a sysroot, native library, raw argument, unreadable
@@ -1014,7 +1007,7 @@ impl LinkOptions {
 
         let mut options = QueryFingerprintBuilder::new(LINK_RESULT_OPTIONS_DOMAIN);
         options.write_str(nia_compat::COMPILER_VERSION);
-        write_optional_string(&mut options, self.entry.as_deref());
+        write_optional_string(&mut options, Some(self.effective_entry(target)));
         write_executable_form(&mut options, form.as_ref());
         write_strings(&mut options, &self.library_paths);
         write_strings(&mut options, &self.rpaths);
@@ -1143,7 +1136,11 @@ impl LinkOptions {
                 self.form_for(target)?;
                 self.coff_invocation(target, &linker, inputs, output)
             }
-            LinkerFlavor::Ld64Lld | LinkerFlavor::SelfHostedElf => {
+            LinkerFlavor::Ld64Lld => {
+                self.form_for(target)?;
+                self.macho_invocation(target, &linker, inputs, output)
+            }
+            LinkerFlavor::SelfHostedElf => {
                 return Err(LinkerConfigError::UnsupportedFlavor(linker.flavor));
             }
         };
@@ -1164,10 +1161,8 @@ impl LinkOptions {
         if let Some(sysroot) = &self.sysroot {
             args.push(format!("--sysroot={sysroot}"));
         }
-        if let Some(entry) = &self.entry {
-            args.push("-e".to_string());
-            args.push(entry.clone());
-        }
+        args.push("-e".to_string());
+        args.push(self.effective_entry(target).to_string());
         if let Some(emulation) = gnu_emulation_for_target(target) {
             args.push("-m".to_string());
             args.push(emulation.to_string());
@@ -1238,9 +1233,7 @@ impl LinkOptions {
         output: PathBuf,
     ) -> LinkerInvocation {
         let mut args = vec!["/NOLOGO".to_string()];
-        if let Some(entry) = &self.entry {
-            args.push(format!("/ENTRY:{entry}"));
-        }
+        args.push(format!("/ENTRY:{}", self.effective_entry(target)));
         args.push("/SUBSYSTEM:CONSOLE".to_string());
         args.extend(
             inputs
@@ -1269,6 +1262,77 @@ impl LinkOptions {
         );
         args.extend(self.raw_args.iter().cloned());
         args.push(format!("/OUT:{}", output.to_string_lossy()));
+        LinkerInvocation {
+            program: linker.program.clone(),
+            args,
+        }
+    }
+
+    fn macho_invocation(
+        &self,
+        target: TargetConfig,
+        linker: &ResolvedLinker,
+        inputs: &IncrementalLinkInputs<PathBuf>,
+        output: PathBuf,
+    ) -> LinkerInvocation {
+        let arch = match target.arch() {
+            Arch::X86_64 => "x86_64",
+            Arch::Aarch64 => "arm64",
+            Arch::X86 => unreachable!("i686 is not a maintained Mach-O target"),
+        };
+        let version = target
+            .minimum_os_version()
+            .expect("maintained Mach-O targets have a minimum OS version")
+            .to_string();
+        let mut args = vec![
+            "-arch".to_string(),
+            arch.to_string(),
+            "-platform_version".to_string(),
+            "macos".to_string(),
+            version.clone(),
+            version,
+            "-e".to_string(),
+            self.effective_entry(target).to_string(),
+            "-pie".to_string(),
+        ];
+        args.extend(
+            inputs
+                .as_slice()
+                .iter()
+                .map(|input| input.object.to_string_lossy().into_owned()),
+        );
+        args.extend(
+            self.static_archives
+                .iter()
+                .map(|archive| archive.path.to_string_lossy().into_owned()),
+        );
+        args.extend(
+            self.system_imports
+                .iter()
+                .map(|import| import.path.to_string_lossy().into_owned()),
+        );
+        if let Some(sysroot) = &self.sysroot {
+            args.push("-syslibroot".to_string());
+            args.push(sysroot.clone());
+        }
+        for path in &self.library_paths {
+            args.push("-L".to_string());
+            args.push(path.clone());
+        }
+        for rpath in &self.rpaths {
+            args.push("-rpath".to_string());
+            args.push(rpath.clone());
+        }
+        for library in &self.libraries {
+            args.push("-l".to_string());
+            args.push(library.name.clone());
+        }
+        if target.arch() == Arch::Aarch64 {
+            args.push("-adhoc_codesign".to_string());
+        }
+        args.extend(self.raw_args.iter().cloned());
+        args.push("-o".to_string());
+        args.push(output.to_string_lossy().into_owned());
         LinkerInvocation {
             program: linker.program.clone(),
             args,
