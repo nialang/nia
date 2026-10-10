@@ -62,6 +62,7 @@ pub using types::{
     PackageHandle,
     PackageOptions,
     OptimizationMode,
+    Runtime,
     RunOptions,
     TargetView,
     StepHandle,
