@@ -41,26 +41,29 @@ use std::{
 
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, ExecutableCacheRestore,
-    LinkExecutableRequest, ModuleMap, NiaOptimizationLevel, ObjectOutput, RuntimeSpec, SourcePath,
+    LinkExecutableRequest, LinkTimeOptimization, ModuleMap, NiaOptimizationLevel, ObjectOutput,
+    RuntimeSpec, SourceInputContent, SourcePath,
 };
 use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
 use nia_package_metadata::DependencyClass;
 use nia_query::{QueryFingerprintBytesWriter, QuerySession};
 use nia_target::TargetConfig;
+use nia_target_config::{BuildProfile, CompilationMode};
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandAction, CommandArgument,
-    CommandCachePolicy, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot, ModuleKey,
-    OptimizationMode, OutputRecoveryError, PackageKey, PlanAction, PlanArtifact, PlanArtifactKind,
-    PlanModule, Runtime, StepKey,
+    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, EnvironmentInput, LogicalPath,
+    LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
+    PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
         CompilerEmitCacheLinkInput, CompilerEmitCacheLookup, ExternalCommandCache,
         ExternalCommandCacheHit, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,
         ExternalCommandCacheOutput, ExternalCommandContentIdentity, GeneratedFileCache,
-        GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
+        GeneratedFileCacheIdentity, GeneratedFileCacheLookup, TestSuiteCache,
+        TestSuiteCacheIdentity, TestSuiteCacheLookup,
     },
     lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
     output_recovery::{

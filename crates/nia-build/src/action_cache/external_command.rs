@@ -79,6 +79,15 @@ pub(crate) struct ExternalCommandContentIdentity {
 }
 
 impl ExternalCommandContentIdentity {
+    pub(crate) fn append_to(&self, encoded: &mut Vec<u8>) {
+        encoded.extend_from_slice(&self.length.to_le_bytes());
+        for part in self.fingerprint.parts() {
+            encoded.extend_from_slice(&part.to_le_bytes());
+        }
+    }
+}
+
+impl ExternalCommandContentIdentity {
     pub(crate) fn tool_from_reader(reader: &mut impl Read, length: u64) -> io::Result<Self> {
         Self::from_reader(EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN, reader, length)
     }

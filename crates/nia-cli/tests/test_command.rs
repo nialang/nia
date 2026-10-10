@@ -258,3 +258,90 @@ fn test_command(workspace: &std::path::Path) -> Command {
         .arg(relative_root);
     command
 }
+
+#[test]
+fn successful_suites_are_reused_independently_and_failures_are_never_cached() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("incremental-test-suites");
+    fs::create_dir_all(workspace.join("tests")).unwrap();
+    fs::write(
+        workspace.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let alpha = b.addModule(build::ModuleOptions::init(
+        &"alpha-module", fs::PathView::init(&"tests/alpha.nia"),
+    )).?;
+    let beta = b.addModule(build::ModuleOptions::init(
+        &"beta-module", fs::PathView::init(&"tests/beta.nia"),
+    )).?;
+    _ = b.addTestSuite(&"alpha", alpha).?;
+    _ = b.addTestSuite(&"beta", beta).?;
+    !()
+}
+"#,
+    )
+    .unwrap();
+    let suite = |marker: &str, status: i32| {
+        format!(
+            r#"using std::process;
+using std::io;
+
+pub fn main(init: process::Init) process::ExitCode!() {{
+    _ = init;
+    let mut buffer: [u8; 0] = [];
+    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
+    match stdout.writeAll(&b"{marker}\n") {{
+        !ok => {{ _ = ok; }},
+        error! => {{ _ = error; return process::ExitCode(9)!; }},
+    }}
+    process::ExitCode({status})!
+}}
+"#,
+        )
+    };
+    fs::write(workspace.join("tests/alpha.nia"), suite("alpha-ran", 0)).unwrap();
+    fs::write(workspace.join("tests/beta.nia"), suite("beta-ran", 0)).unwrap();
+    let run = || test_command(&workspace).output_timeout_in_session("run incremental suites");
+    let cold = run();
+    assert!(
+        cold.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cold.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&cold.stdout);
+    assert!(stdout.contains("alpha-ran"), "{stdout}");
+    assert!(stdout.contains("beta-ran"), "{stdout}");
+    let warm = run();
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    assert!(
+        warm.stdout.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&warm.stdout)
+    );
+
+    fs::write(workspace.join("tests/alpha.nia"), suite("alpha-edited", 0)).unwrap();
+    let edited = run();
+    assert!(
+        edited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&edited.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&edited.stdout);
+    assert!(stdout.contains("alpha-edited"), "{stdout}");
+    assert!(!stdout.contains("beta-ran"), "{stdout}");
+
+    fs::write(workspace.join("tests/alpha.nia"), suite("alpha-failed", 7)).unwrap();
+    for _ in 0..2 {
+        let failed = run();
+        assert!(!failed.status.success());
+        let stdout = String::from_utf8_lossy(&failed.stdout);
+        assert!(stdout.contains("alpha-failed"), "{stdout}");
+        assert!(!stdout.contains("beta-ran"), "{stdout}");
+    }
+}

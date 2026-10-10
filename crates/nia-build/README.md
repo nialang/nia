@@ -128,10 +128,10 @@ truncated count prefix cannot amplify a tiny draft into `count * size_of(T)` of
 host allocation.
 
 The registered protocol identities in `nia-compat` are the only schema and
-namespace authorities. Changing an encoded field or persistent cache input
-requires the corresponding registered schema or owner-local fingerprint domain
-to advance. The epoch identifies the current wire contracts; it does not promise
-to read or migrate data from an earlier Nia version.
+namespace authorities. The release-line epoch follows the latest public
+release, so internal `0.2.0-dev` changes keep the published `0.1.0` epoch.
+Changing an encoded field or persistent cache input must update its owning
+identity and is not a promise to read or migrate data from an earlier release.
 
 ## Execution And Publication
 
@@ -174,7 +174,10 @@ executable identity records. Host validation resolves the program through
 `PATH`, runs its canonical path, and fingerprints its contents, request, exit
 status, and bounded output.
 
-External-command results are cached only under an explicit policy. Both
+External-command results are cached only under an explicit policy. Successful
+test suites use a separate completion cache keyed by the executable, source
+manifest, declared inputs, environment, toolchain, and test action contract;
+failed or cancelled suites never publish records. Both
 `DeclaredInputs` and `ToolAndInputs` retain tool content identity and require a
 cleared environment with explicit declarations; the latter builder method also
 selects that environment policy. `FullDeclaredEnvironment` retains a bounded

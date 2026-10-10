@@ -91,8 +91,11 @@ impl DriverActionExecutor {
             } => {
                 return self.execute_compiler_emit(action, artifact, target, static_archives);
             }
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            ActionKind::ExternalCommand(command) => {
                 return self.execute_external_command_action(action, command, cancellation);
+            }
+            ActionKind::TestExecutable(command) => {
+                return self.execute_test_suite_action(action, command, cancellation);
             }
             ActionKind::GeneratedFile { output, contents } => {
                 return self.execute_generated_file(action, output, contents);
@@ -106,6 +109,198 @@ impl DriverActionExecutor {
             ActionKind::Uncacheable { .. } => Err(unsupported(action, "uncacheable")),
         };
         result.map(|()| None)
+    }
+
+    fn execute_test_suite_action(
+        &self,
+        action: &PlanAction,
+        command: &CommandAction,
+        cancellation: &ActionCancellation,
+    ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        if command.cache_policy != CommandCachePolicy::SuccessfulTests {
+            return self.execute_external_command_action(action, command, cancellation);
+        }
+        let Some(identity) = self.test_suite_cache_identity(action, command)? else {
+            return self.execute_external_command_action(action, command, cancellation);
+        };
+        let cache = TestSuiteCache::new(self.invocation.cache_dir.clone());
+        let _cache_lock =
+            match cache.acquire_interruptible(identity, || cancellation.is_cancelled()) {
+                Ok(Some(lock)) => lock,
+                Ok(None) => {
+                    return Err(CoordinatorError::Cancelled {
+                        action: action.key.clone(),
+                    });
+                }
+                Err(_) => {
+                    self.execute_external_command_action(action, command, cancellation)?;
+                    return Ok(Some(ActionCacheOutcome::Miss(
+                        ActionCacheMissReason::WriteError,
+                    )));
+                }
+            };
+        // Inputs can change while another invocation owns this identity's lock.
+        // Never accept its completion record using the pre-wait observation.
+        let Some(current_identity) = self.test_suite_cache_identity(action, command)? else {
+            return self.execute_external_command_action(action, command, cancellation);
+        };
+        if current_identity != identity {
+            return self.execute_external_command_action(action, command, cancellation);
+        }
+        if cancellation.is_cancelled() {
+            return Err(CoordinatorError::Cancelled {
+                action: action.key.clone(),
+            });
+        }
+        let miss_reason = match cache.lookup(identity) {
+            Ok(TestSuiteCacheLookup::Hit) => return Ok(Some(ActionCacheOutcome::Hit)),
+            Ok(TestSuiteCacheLookup::Miss(reason)) => reason,
+            Err(_) => ActionCacheMissReason::ReadError,
+        };
+        self.execute_external_command_action(action, command, cancellation)?;
+        if cancellation.is_cancelled() {
+            return Err(CoordinatorError::Cancelled {
+                action: action.key.clone(),
+            });
+        }
+        let Some(current_identity) = self.test_suite_cache_identity(action, command)? else {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        };
+        if current_identity != identity {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        }
+        let reason = match cache.publish(identity) {
+            Ok(()) => miss_reason,
+            Err(_) => ActionCacheMissReason::WriteError,
+        };
+        Ok(Some(ActionCacheOutcome::Miss(reason)))
+    }
+
+    fn test_suite_cache_identity(
+        &self,
+        action: &PlanAction,
+        command: &CommandAction,
+    ) -> Result<Option<TestSuiteCacheIdentity>, CoordinatorError> {
+        let CommandProgram::Path(program) = &command.program else {
+            return Ok(None);
+        };
+        let LogicalPathRoot::Artifact(artifact_key) = program.root() else {
+            return Ok(None);
+        };
+        let artifact = self.artifact(action, artifact_key)?;
+        let module = find_module(self.plan.modules(), &artifact.root_module).ok_or_else(|| {
+            inconsistent(
+                format!("action `{}`", action.key.name()),
+                "artifact root module".to_string(),
+            )
+        })?;
+        let program_path = self.resolve_path(action, program)?;
+        let tool = read_external_identity_file(action, &program_path, "read test executable")?;
+        let target = self.plan.host_target();
+        let request =
+            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
+        // A suite owns its source closure. Sharing the target's mutable driver
+        // lets concurrent suites replace each other's active loader entry.
+        let driver = Driver::with_config(
+            DriverConfig {
+                artifact_cache_dir: Some(self.invocation.cache_dir.clone()),
+                ..DriverConfig::new(Arc::clone(&self.invocation.toolchain))
+            }
+            .with_artifact_target(*target),
+        );
+        let manifest = driver
+            .source_input_manifest(&request)
+            .result
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            })?;
+        if manifest.fingerprint().is_none() {
+            return Ok(None);
+        }
+        let environment =
+            effective_test_suite_environment(command.environment_policy, &command.environment);
+        let Some(environment) = environment else {
+            return Ok(None);
+        };
+        let mut encoded = Vec::new();
+        append_test_suite_action_identity(&mut encoded, action, command, artifact);
+        append_test_suite_bytes(&mut encoded, target.name().as_bytes());
+        encoded.push(profile_tag(self.invocation.profile));
+        encoded.push(compilation_mode_tag(self.invocation.compilation_mode));
+        encoded.push(optimization_tag(module.optimization));
+        encoded.push(runtime_tag(artifact.runtime));
+        encoded.push(link_time_optimization_tag(
+            self.invocation.link_time_optimization,
+        ));
+        let mut package_paths = vec![
+            program,
+            &command.working_directory,
+            &artifact.output,
+            &module.root_source,
+        ];
+        package_paths.extend(
+            module
+                .imports
+                .iter()
+                .filter(|import| self.package_dependency_selected(import.path.root()))
+                .map(|import| &import.path),
+        );
+        package_paths.extend(command.inputs.iter());
+        for input in &command.inputs {
+            if let LogicalPathRoot::Artifact(key) = input.root() {
+                package_paths.push(&self.artifact(action, key)?.output);
+            }
+        }
+        let Some(package_roots) =
+            crate::action_cache::package_roots_identity(self.plan.packages(), package_paths)
+        else {
+            return Ok(None);
+        };
+        append_test_suite_bytes(&mut encoded, &package_roots);
+        append_test_suite_bytes(&mut encoded, &(command.inputs.len() as u64).to_le_bytes());
+        for input in &command.inputs {
+            append_test_suite_path(&mut encoded, input);
+            let resolved = self.resolve_path(action, input)?;
+            let contents = read_external_identity_input(action, &resolved, "read test input")?;
+            contents.append_to(&mut encoded);
+        }
+        let toolchain = self.invocation.toolchain.identity();
+        append_test_suite_bytes(&mut encoded, toolchain.compiler_version().as_bytes());
+        encoded.extend_from_slice(&toolchain.protocol_epoch().to_le_bytes());
+        tool.append_to(&mut encoded);
+        append_test_suite_bytes(&mut encoded, &(environment.len() as u64).to_le_bytes());
+        for (name, value) in environment {
+            append_test_suite_bytes(&mut encoded, &name);
+            append_test_suite_bytes(&mut encoded, &value);
+        }
+        append_test_suite_bytes(
+            &mut encoded,
+            &(manifest.sources().len() as u64).to_le_bytes(),
+        );
+        for source in manifest.sources() {
+            append_test_suite_bytes(
+                &mut encoded,
+                source.path.identity().normalized_path().as_bytes(),
+            );
+            match source.content {
+                SourceInputContent::Missing => return Ok(None),
+                SourceInputContent::Present {
+                    fingerprint,
+                    byte_len,
+                } => {
+                    for part in fingerprint.parts() {
+                        encoded.extend_from_slice(&part.to_le_bytes());
+                    }
+                    encoded.extend_from_slice(&(byte_len as u64).to_le_bytes());
+                }
+            }
+        }
+        Ok(Some(TestSuiteCacheIdentity::from_bytes(&encoded)))
     }
 
     fn execute_external_command_action(
@@ -135,7 +330,10 @@ impl DriverActionExecutor {
             .iter()
             .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
             .collect::<Result<Vec<_>, _>>()?;
-        let cacheable = cache_policy != CommandCachePolicy::Uncacheable;
+        let cacheable = !matches!(
+            cache_policy,
+            CommandCachePolicy::Uncacheable | CommandCachePolicy::SuccessfulTests
+        );
         let resolved_program = match program {
             CommandProgram::Path(path) => self.resolve_path(action, path)?,
             CommandProgram::Search(name) if cacheable => {
@@ -1007,10 +1205,173 @@ impl DriverActionExecutor {
     }
 }
 
+fn append_test_suite_bytes(encoded: &mut Vec<u8>, value: &[u8]) {
+    encoded.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    encoded.extend_from_slice(value);
+}
+
+fn append_test_suite_path(encoded: &mut Vec<u8>, path: &LogicalPath) {
+    match path.root() {
+        LogicalPathRoot::Package(package) => {
+            encoded.push(0);
+            append_test_suite_bytes(encoded, package.as_str().as_bytes());
+        }
+        LogicalPathRoot::Build => encoded.push(1),
+        LogicalPathRoot::Cache => encoded.push(2),
+        LogicalPathRoot::Toolchain => encoded.push(3),
+        LogicalPathRoot::Artifact(artifact) => {
+            encoded.push(4);
+            append_test_suite_bytes(encoded, artifact.package().as_str().as_bytes());
+            append_test_suite_bytes(encoded, artifact.name().as_bytes());
+        }
+    }
+    append_test_suite_bytes(encoded, path.protocol_path().as_bytes());
+}
+
+fn append_test_suite_action_identity(
+    encoded: &mut Vec<u8>,
+    action: &PlanAction,
+    command: &CommandAction,
+    artifact: &PlanArtifact,
+) {
+    append_test_suite_bytes(encoded, action.key.package().as_str().as_bytes());
+    append_test_suite_bytes(encoded, action.key.name().as_bytes());
+    append_test_suite_bytes(encoded, artifact.key.package().as_str().as_bytes());
+    append_test_suite_bytes(encoded, artifact.key.name().as_bytes());
+    append_test_suite_bytes(encoded, artifact.root_module.package().as_str().as_bytes());
+    append_test_suite_bytes(encoded, artifact.root_module.name().as_bytes());
+    append_test_suite_path(encoded, &artifact.output);
+    encoded.push(artifact_kind_tag(&artifact.kind));
+    append_test_suite_path(encoded, &command.working_directory);
+    match &command.program {
+        CommandProgram::Path(path) => {
+            encoded.push(0);
+            append_test_suite_path(encoded, path);
+        }
+        CommandProgram::Search(name) => {
+            encoded.push(1);
+            append_test_suite_bytes(encoded, name.as_bytes());
+        }
+    }
+    append_test_suite_bytes(encoded, &(command.arguments.len() as u64).to_le_bytes());
+    for argument in &command.arguments {
+        match argument {
+            CommandArgument::Literal(value) => {
+                encoded.push(0);
+                append_test_suite_bytes(encoded, value.as_bytes());
+            }
+            CommandArgument::InputPath(path) => {
+                encoded.push(1);
+                append_test_suite_path(encoded, path);
+            }
+            CommandArgument::OutputPath(path) => {
+                encoded.push(2);
+                append_test_suite_path(encoded, path);
+            }
+        }
+    }
+    append_test_suite_bytes(encoded, &(command.outputs.len() as u64).to_le_bytes());
+    for output in &command.outputs {
+        append_test_suite_path(encoded, output);
+    }
+    encoded.push(match command.environment_policy {
+        CommandEnvironmentPolicy::Inherit => 0,
+        CommandEnvironmentPolicy::Clear => 1,
+    });
+    append_test_suite_bytes(encoded, &(command.environment.len() as u64).to_le_bytes());
+    for input in &command.environment {
+        append_test_suite_bytes(encoded, input.name.as_bytes());
+        match &input.value {
+            Some(value) => {
+                encoded.push(1);
+                append_test_suite_bytes(encoded, value.as_bytes());
+            }
+            None => encoded.push(0),
+        }
+    }
+}
+
+fn artifact_kind_tag(kind: &PlanArtifactKind) -> u8 {
+    match kind {
+        PlanArtifactKind::Executable => 0,
+        PlanArtifactKind::ObjectSet => 1,
+        PlanArtifactKind::StaticArchive => 2,
+    }
+}
+
+fn profile_tag(profile: BuildProfile) -> u8 {
+    match profile {
+        BuildProfile::Debug => 0,
+        BuildProfile::Release => 1,
+    }
+}
+
+fn compilation_mode_tag(mode: CompilationMode) -> u8 {
+    match mode {
+        CompilationMode::Normal => 0,
+        CompilationMode::Test => 1,
+    }
+}
+
+fn optimization_tag(optimization: OptimizationMode) -> u8 {
+    match optimization {
+        OptimizationMode::O0 => 0,
+        OptimizationMode::O1 => 1,
+        OptimizationMode::O2 => 2,
+        OptimizationMode::O3 => 3,
+        OptimizationMode::Os => 4,
+        OptimizationMode::Oz => 5,
+    }
+}
+
+fn runtime_tag(runtime: Runtime) -> u8 {
+    match runtime {
+        Runtime::Bare => 0,
+        Runtime::Freestanding => 1,
+    }
+}
+
+fn link_time_optimization_tag(policy: LinkTimeOptimization) -> u8 {
+    match policy {
+        LinkTimeOptimization::Off => 0,
+        LinkTimeOptimization::Thin => 1,
+        LinkTimeOptimization::Full => 2,
+    }
+}
+
 const MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES: usize = 1024 * 1024;
 
 fn snapshot_process_environment() -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
     snapshot_environment(std::env::vars_os())
+}
+
+fn effective_test_suite_environment(
+    policy: CommandEnvironmentPolicy,
+    inputs: &[EnvironmentInput],
+) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut entries = match policy {
+        CommandEnvironmentPolicy::Inherit => snapshot_process_environment()?,
+        CommandEnvironmentPolicy::Clear => Vec::new(),
+    };
+    for input in inputs {
+        let name = environment_name_bytes(input.name.as_bytes())?;
+        entries.retain(|(existing, _)| existing.as_slice() != name.as_slice());
+        if let Some(value) = &input.value {
+            entries.push((name, value.as_bytes().to_vec()));
+        }
+    }
+    let mut size = 0usize;
+    for (name, value) in &entries {
+        size = size
+            .checked_add(16)?
+            .checked_add(name.len())?
+            .checked_add(value.len())?;
+        if size > MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES {
+            return None;
+        }
+    }
+    entries.sort();
+    Some(entries)
 }
 
 fn snapshot_environment(
@@ -1019,7 +1380,7 @@ fn snapshot_environment(
     let mut entries = Vec::new();
     let mut size = 0usize;
     for (name, value) in environment {
-        let name = name.as_encoded_bytes();
+        let name = environment_name_bytes(name.as_encoded_bytes())?;
         let value = value.as_encoded_bytes();
         size = size
             .checked_add(16)?
@@ -1028,10 +1389,27 @@ fn snapshot_environment(
         if size > MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES {
             return None;
         }
-        entries.push((name.to_vec(), value.to_vec()));
+        entries.push((name, value.to_vec()));
     }
     entries.sort();
     Some(entries)
+}
+
+fn environment_name_bytes(name: &[u8]) -> Option<Vec<u8>> {
+    #[cfg(windows)]
+    {
+        // Windows environment lookup is case-insensitive and OsString uses
+        // WTF-8 bytes, while plan declarations are UTF-8. Keep caching only
+        // for ASCII names where one canonical representation is unambiguous.
+        if !name.is_ascii() {
+            return None;
+        }
+        Some(name.to_ascii_uppercase())
+    }
+    #[cfg(not(windows))]
+    {
+        Some(name.to_vec())
+    }
 }
 
 #[cfg(test)]
@@ -1070,5 +1448,48 @@ mod environment_snapshot_tests {
                 panic!("must stop after exceeding the budget")
             }));
         assert!(snapshot_environment(entries).is_none());
+    }
+
+    #[test]
+    fn effective_environment_applies_overrides_and_removals() {
+        let inherited = effective_test_suite_environment(
+            CommandEnvironmentPolicy::Inherit,
+            &[
+                EnvironmentInput {
+                    name: "NIA_TEST_SUITE_OVERRIDE".to_string(),
+                    value: Some("override".to_string()),
+                },
+                EnvironmentInput {
+                    name: "NIA_TEST_SUITE_REMOVED".to_string(),
+                    value: None,
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            inherited
+                .iter()
+                .find(|(name, _)| name == b"NIA_TEST_SUITE_OVERRIDE")
+                .map(|(_, value)| value.as_slice()),
+            Some(b"override".as_slice())
+        );
+        assert!(
+            !inherited
+                .iter()
+                .any(|(name, _)| name == b"NIA_TEST_SUITE_REMOVED")
+        );
+
+        let cleared = effective_test_suite_environment(
+            CommandEnvironmentPolicy::Clear,
+            &[EnvironmentInput {
+                name: "NIA_TEST_SUITE_OVERRIDE".to_string(),
+                value: Some("value".to_string()),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            cleared,
+            vec![(b"NIA_TEST_SUITE_OVERRIDE".to_vec(), b"value".to_vec())]
+        );
     }
 }

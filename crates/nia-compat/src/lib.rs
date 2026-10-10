@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Current protocol registry for compiler ABIs and persisted data.
 //!
-//! Format magic identifies the payload kind. Protocol epoch identifies
-//! the complete compiler/toolchain contract; payloads do not carry independent
-//! hand-bumped schema counters.
+//! Format magic identifies the payload kind. The release-derived protocol
+//! epoch identifies the compiler/toolchain compatibility line; development
+//! changes and individual payloads do not carry hand-bumped schema counters.
 
 /// Version of the compiler crate set used in toolchain compatibility checks.
 pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -97,10 +97,15 @@ pub fn sync_file(path: &std::path::Path) -> std::io::Result<()> {
     }
 }
 
-/// Current contract shared by every persisted compiler product and ABI
-/// boundary. Advance this epoch when a representation changes. Decoders
-/// accept only this value; no earlier protocol is supported.
-pub const PROTOCOL_EPOCH: u32 = 3;
+/// Public release whose compatibility contract is currently supported.
+///
+/// This remains `0.1.0` while `main` develops the next release. Update it
+/// together with the formal release, not for intermediate development changes.
+pub const PUBLIC_RELEASE_VERSION: &str = "0.1.0";
+/// Release-line compatibility shared by every persisted compiler product and
+/// ABI boundary. Intermediate development formats are not compatibility
+/// targets and have no readers, migrations, or aliases.
+pub const PROTOCOL_EPOCH: u32 = release_compatibility(PUBLIC_RELEASE_VERSION);
 /// Stable directory component for persistent namespaces.
 ///
 /// Each payload must match the current protocol epoch. Keeping
@@ -108,6 +113,35 @@ pub const PROTOCOL_EPOCH: u32 = 3;
 /// incompatible entries are rejected by their owning decoder and naturally
 /// replaced under the same namespace.
 pub const PROTOCOL_NAMESPACE_PATH: &str = "protocol";
+
+const fn decimal_component(bytes: &[u8], start: usize, end: usize) -> u32 {
+    let mut value = 0;
+    let mut index = start;
+    while index < end {
+        value = value * 10 + (bytes[index] - b'0') as u32;
+        index += 1;
+    }
+    value
+}
+
+const fn release_compatibility(version: &str) -> u32 {
+    let bytes = version.as_bytes();
+    let mut first_dot = 0;
+    while first_dot < bytes.len() && bytes[first_dot] != b'.' {
+        first_dot += 1;
+    }
+    let mut second_dot = first_dot + 1;
+    while second_dot < bytes.len() && bytes[second_dot] != b'.' {
+        second_dot += 1;
+    }
+    let major = decimal_component(bytes, 0, first_dot);
+    let minor = decimal_component(bytes, first_dot + 1, second_dot);
+    if major == 0 {
+        minor
+    } else {
+        major * 1000 + minor
+    }
+}
 
 /// Current identities for generated ABI boundaries.
 pub mod abi {
@@ -128,7 +162,7 @@ pub mod toolchain {
 }
 
 /// Binary payload identity consisting of a diagnostic name, magic, and the
-/// protocol epoch. All payloads share the same current contract
+/// protocol epoch. All payloads share the same release-derived compatibility
 /// value; the magic only identifies the payload kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PersistedFormat {
@@ -254,6 +288,11 @@ pub mod formats {
     /// Cached external-command action result.
     pub const EXTERNAL_COMMAND_ENTRY: PersistedFormat =
         PersistedFormat::new("external-command-entry", b"NIACMD\0\0");
+    /// Build-action cache namespace for successful test suites.
+    pub const TEST_SUITE_CACHE: PersistedNamespace = PersistedNamespace::new("test-suite-cache");
+    /// Successful test-suite completion record.
+    pub const TEST_SUITE_ENTRY: PersistedFormat =
+        PersistedFormat::new("test-suite-entry", b"NIATST\0\0");
     /// Build-action cache namespace for compiler checks.
     pub const COMPILER_CHECK_CACHE: PersistedNamespace =
         PersistedNamespace::new("compiler-check-cache");
@@ -331,6 +370,7 @@ pub mod formats {
         STABLE_PROGRAM_DIAGNOSTIC_BUNDLE,
         GENERATED_FILE_ENTRY,
         EXTERNAL_COMMAND_ENTRY,
+        TEST_SUITE_ENTRY,
         COMPILER_CHECK_ENTRY,
         COMPILER_EMIT_ENTRY,
         OUTPUT_TRANSACTION_JOURNAL,
@@ -348,6 +388,7 @@ pub mod formats {
         FRONTEND_CACHE,
         RUNNER_CACHE,
         GENERATED_FILE_CACHE,
+        TEST_SUITE_CACHE,
         EXTERNAL_COMMAND_CACHE,
         COMPILER_CHECK_CACHE,
         COMPILER_EMIT_CACHE,
@@ -382,9 +423,25 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{PROTOCOL_EPOCH, formats, toolchain_manifest};
+    use super::{PROTOCOL_EPOCH, PUBLIC_RELEASE_VERSION, formats, toolchain_manifest};
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn protocol_epoch_follows_public_release_line() {
+        assert_eq!(super::release_compatibility("0.1.0"), 1);
+        assert_eq!(super::release_compatibility("0.2.0-dev"), 2);
+        assert_eq!(super::release_compatibility("0.2.0-dev.1"), 2);
+        assert_eq!(super::release_compatibility("0.2.0"), 2);
+        assert_eq!(super::release_compatibility("0.2.1"), 2);
+        assert_eq!(super::release_compatibility("0.3.0-dev"), 3);
+        assert_eq!(super::release_compatibility("1.0.0"), 1000);
+        assert_eq!(super::release_compatibility("2.3.7"), 2003);
+        assert_eq!(
+            super::release_compatibility(PUBLIC_RELEASE_VERSION),
+            PROTOCOL_EPOCH
+        );
+    }
 
     #[test]
     fn replace_path_replaces_an_existing_destination() {
@@ -408,6 +465,7 @@ mod tests {
         let mut names = BTreeSet::new();
         let mut magics = BTreeSet::new();
         for format in formats::ALL {
+            assert_eq!(format.protocol_epoch, PROTOCOL_EPOCH);
             assert!(
                 format.protocol_epoch > 0,
                 "{} has no protocol epoch",

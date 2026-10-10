@@ -52,11 +52,23 @@ pub(crate) fn canonicalize_actions(
     for action in actions {
         match &mut action.kind {
             ActionKind::TestExecutable(CommandAction { cache_policy, .. })
-                if *cache_policy != CommandCachePolicy::Uncacheable =>
+                if !matches!(
+                    cache_policy,
+                    CommandCachePolicy::Uncacheable | CommandCachePolicy::SuccessfulTests
+                ) =>
             {
                 return Err(PlanError::InvalidCommand {
                     action: action.key.clone(),
-                    reason: "test executable actions cannot be cached",
+                    reason: "test executable actions require a test cache policy",
+                });
+            }
+            ActionKind::ExternalCommand(CommandAction {
+                cache_policy: CommandCachePolicy::SuccessfulTests,
+                ..
+            }) => {
+                return Err(PlanError::InvalidCommand {
+                    action: action.key.clone(),
+                    reason: "successful test caching requires a test action",
                 });
             }
             ActionKind::CompilerCheck { module, .. } if !module_keys.contains(module) => {
@@ -222,10 +234,20 @@ pub(crate) fn canonicalize_actions(
                         reason: "cacheable command must clear inherited environment",
                     });
                 }
-                if *cache_policy != CommandCachePolicy::Uncacheable && outputs.is_empty() {
+                if !matches!(
+                    cache_policy,
+                    CommandCachePolicy::Uncacheable | CommandCachePolicy::SuccessfulTests
+                ) && outputs.is_empty()
+                {
                     return Err(PlanError::InvalidCommand {
                         action: action.key.clone(),
                         reason: "cacheable command must declare an output",
+                    });
+                }
+                if *cache_policy == CommandCachePolicy::SuccessfulTests && !outputs.is_empty() {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "cached test suites cannot declare outputs",
                     });
                 }
                 if *cache_policy == CommandCachePolicy::FullDeclaredEnvironment

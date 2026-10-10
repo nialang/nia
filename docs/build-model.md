@@ -42,6 +42,11 @@ the dependency closure.
 * Compiler and linker product caches remain owned by `nia-driver` and
   `nia-linker`. `nia-build` records the action contract that refers to those
   products, but does not duplicate their formats.
+* Successful test suites use an independent completion cache. Its identity
+  includes the test executable, source input manifest, declared inputs,
+  effective environment, toolchain, and action contract. It stores no output
+  payload; failed or cancelled suites never publish a record, and cache
+  failures fall back to running the suite.
 
 The configure cache stores a validated plan together with the observations that
 produced it. A later invocation may reuse that record only after its

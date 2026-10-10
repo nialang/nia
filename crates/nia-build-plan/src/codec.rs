@@ -531,6 +531,7 @@ impl Writer {
             CommandCachePolicy::DeclaredInputs => 1,
             CommandCachePolicy::ToolAndInputs => 2,
             CommandCachePolicy::FullDeclaredEnvironment => 3,
+            CommandCachePolicy::SuccessfulTests => 4,
         });
     }
 
@@ -928,6 +929,7 @@ impl<'a> Reader<'a> {
             1 => Ok(CommandCachePolicy::DeclaredInputs),
             2 => Ok(CommandCachePolicy::ToolAndInputs),
             3 => Ok(CommandCachePolicy::FullDeclaredEnvironment),
+            4 => Ok(CommandCachePolicy::SuccessfulTests),
             _ => Err(PlanCodecError::InvalidTag {
                 kind: "command cache policy",
                 tag,
@@ -1260,7 +1262,7 @@ mod tests {
             })
         ));
 
-        let mut cache = Reader::new(&[0, 1, 2, 3, 4]);
+        let mut cache = Reader::new(&[0, 1, 2, 3, 4, 5]);
         assert_eq!(
             cache.command_cache_policy().unwrap(),
             CommandCachePolicy::Uncacheable
@@ -1277,11 +1279,15 @@ mod tests {
             cache.command_cache_policy().unwrap(),
             CommandCachePolicy::FullDeclaredEnvironment
         );
+        assert_eq!(
+            cache.command_cache_policy().unwrap(),
+            CommandCachePolicy::SuccessfulTests
+        );
         assert!(matches!(
             cache.command_cache_policy(),
             Err(PlanCodecError::InvalidTag {
                 kind: "command cache policy",
-                tag: 4,
+                tag: 5,
                 ..
             })
         ));

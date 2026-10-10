@@ -40,13 +40,14 @@ Identity has two layers. Session-local handles may be compact and efficient,
 but anything persisted, compared across processes, or exposed in a stable
 artifact needs an explicit canonical representation. The registry's current
 protocol epoch is shared by compiler, toolchain, ABI, metadata, runner, and
-cache products. Representation changes advance that epoch independently of
-the public version. Decoders require an exact match; earlier protocols have
-no readers, migrations, or aliases. Payload magic identifies the payload kind;
-it is not
-an independently bumped version. The shared registry may retain owner-local
-fingerprint domains for dependency invalidation, but those fingerprints are
-implementation details and are never additional user-facing version tracks.
+cache products. It tracks the latest public release compatibility line. The
+current public line is `0.1.0`, so all `0.2.0-dev` work keeps the same epoch;
+update it only when preparing a formal release. Decoders require an exact
+match; earlier protocols have no readers, migrations, or aliases. Payload
+magic identifies the payload kind; it is not an independently bumped version.
+The shared registry may retain owner-local fingerprint domains for dependency
+invalidation, but those fingerprints are implementation details and are never
+additional user-facing version tracks.
 
 When a proposed aggregate, shared cache, or new crate boundary has no clear
 consumer or ownership authority, keep the narrower product and defer the
