@@ -375,7 +375,7 @@ fn assert_configured_build_success(
         asset_helper_import.path.root(),
         nia_build::LogicalPathRoot::Package(package) if package.as_str() == "assets"
     ));
-    assert_eq!(plan.artifacts().len(), 5);
+    assert_eq!(plan.artifacts().len(), 6);
     let app_artifact = plan
         .artifacts()
         .iter()
@@ -383,6 +383,14 @@ fn assert_configured_build_success(
         .expect("app artifact");
     assert_eq!(app_artifact.root_module.name(), "app");
     assert_eq!(app_artifact.output.protocol_path(), "custom-app");
+    assert_eq!(app_artifact.runtime, nia_build::Runtime::Freestanding);
+    let bare_artifact = plan
+        .artifacts()
+        .iter()
+        .find(|artifact| artifact.key.name() == "bare")
+        .expect("bare artifact");
+    assert_eq!(bare_artifact.root_module.name(), "app");
+    assert_eq!(bare_artifact.runtime, nia_build::Runtime::Bare);
     let host_artifact = plan
         .artifacts()
         .iter()

@@ -30,6 +30,7 @@ using types::{
     TargetStorage,
     TargetView,
     PackageHandle,
+    Runtime,
 };
 
 const maxPlanBytes: usize = 67108864;
@@ -194,6 +195,14 @@ extend PlanEncoder {
         })
     }
 
+    fn writeRuntime(&mut self, runtime: Runtime) Error!() {
+        self.writeU8(match runtime {
+            .Bare => 0,
+            .Freestanding => 1,
+            _ => return invalidPlan(),
+        })
+    }
+
     fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
         self.writeU8(match resourceClass {
             .Conservative => 0,
@@ -248,7 +257,7 @@ extend PlanEncoder {
         self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(0).?;
         self.writeBuildPath(target.outputName.text()).?;
-        self.writeU8(1)
+        self.writeRuntime(target.runtime)
     }
 
     fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {

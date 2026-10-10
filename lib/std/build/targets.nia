@@ -22,6 +22,7 @@ using types::{
     StaticArchiveTarget,
     TargetStorage,
     TargetView,
+    Runtime,
 };
 
 extend ExecutableTarget {
@@ -30,7 +31,7 @@ extend ExecutableTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) ExecutableTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init() }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding }
     }
 
     pub(pkg) fn initialize(
@@ -216,6 +217,7 @@ extend ExecutableOptions {
             outputName: null,
             target: null,
             staticArchives: null,
+            runtime: .Freestanding,
         }
     }
 
@@ -226,6 +228,7 @@ extend ExecutableOptions {
             outputName: ?outputName,
             target: self.target,
             staticArchives: self.staticArchives,
+            runtime: self.runtime,
         }
     }
 
@@ -236,6 +239,7 @@ extend ExecutableOptions {
             outputName: self.outputName,
             target: ?target,
             staticArchives: self.staticArchives,
+            runtime: self.runtime,
         }
     }
 
@@ -246,6 +250,19 @@ extend ExecutableOptions {
             outputName: self.outputName,
             target: self.target,
             staticArchives: ?staticArchives,
+            runtime: self.runtime,
+        }
+    }
+
+    // The default remains freestanding for existing build scripts.
+    pub fn withRuntime(self, runtime: Runtime) ExecutableOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            target: self.target,
+            staticArchives: self.staticArchives,
+            runtime,
         }
     }
 }

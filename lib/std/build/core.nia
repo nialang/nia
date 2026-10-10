@@ -720,6 +720,7 @@ extend Build {
             options.rootModule,
             targetIndex,
         );
+        self.pendingExecutable.runtime = options.runtime;
         self.hasPendingExecutable = true;
         if self.pendingExecutable.initialize(
             self.allocator,

@@ -34,6 +34,14 @@ pub enum OptimizationMode: i32 {
     _
 }
 
+// Runtime support linked into an executable artifact. Object and static
+// archive artifacts remain runtime-neutral and do not expose this option.
+pub enum Runtime: i32 {
+    Bare = 0,
+    Freestanding = 1,
+    _
+}
+
 pub(pkg) enum ModuleSourceRoot: i32 {
     Package = 1,
     Build = 2,
@@ -317,6 +325,7 @@ pub struct ExecutableOptions {
     outputName: ?&[char],
     target: ?TargetView,
     staticArchives: ?&[StaticArchiveHandle],
+    runtime: Runtime,
 }
 
 pub struct ExecutableTarget {
@@ -326,6 +335,7 @@ pub struct ExecutableTarget {
     outputName: string::String,
     targetIndex: usize,
     staticArchives: collections::ArrayList[StaticArchiveHandle],
+    runtime: Runtime,
 }
 
 pub struct ObjectOptions {

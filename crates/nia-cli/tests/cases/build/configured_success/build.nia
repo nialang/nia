@@ -12,6 +12,7 @@ fn configure(b: &mut build::Build) build::Error!() {
     let srcMain = "src/main.nia";
     let generatedWorker = "generated/worker.nia";
     let appName = "app";
+    let bareName = "bare";
     let workerName = "worker";
     let hostToolName = "host-tool";
     let objectName = "objects";
@@ -81,6 +82,10 @@ fn configure(b: &mut build::Build) build::Error!() {
         build::ExecutableOptions::init(&appName, rootModule)
             .withOutputName(&outputName)
             .withStaticArchives(&linkedArchives[..]),
+    ).?;
+    _ = b.addExecutable(
+        build::ExecutableOptions::init(&bareName, rootModule)
+            .withRuntime(build::Runtime::Bare),
     ).?;
     _ = b.addEmitExecutableStep(&buildStepName, app).?;
     _ = b.addEmitExecutableStep(&workerName, worker).?;
