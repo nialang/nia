@@ -48,6 +48,48 @@ pub struct TargetMachine {
     pub(super) raw: LLVMTargetMachineRef,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Relocation model used when LLVM emits target objects.
+pub enum TargetRelocationModel {
+    /// Position-independent code suitable for static-pie and dynamic links.
+    Pic,
+    /// Fixed-address code with static relocations.
+    Static,
+    /// Dynamically loaded code without position-independent code.
+    DynamicNoPic,
+}
+
+impl TargetRelocationModel {
+    fn llvm(self) -> LLVMRelocMode {
+        match self {
+            Self::Pic => LLVMRelocMode::LLVMRelocPIC,
+            Self::Static => LLVMRelocMode::LLVMRelocStatic,
+            Self::DynamicNoPic => LLVMRelocMode::LLVMRelocDynamicNoPic,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Code model used when LLVM emits target objects.
+pub enum TargetCodeModel {
+    /// Let LLVM select the target's normal code model.
+    Default,
+    /// Use the target's small code model.
+    Small,
+    /// Use the target's large code model.
+    Large,
+}
+
+impl TargetCodeModel {
+    fn llvm(self) -> LLVMCodeModel {
+        match self {
+            Self::Default => LLVMCodeModel::LLVMCodeModelDefault,
+            Self::Small => LLVMCodeModel::LLVMCodeModelSmall,
+            Self::Large => LLVMCodeModel::LLVMCodeModelLarge,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Stable inputs required to recreate a target machine for cached codegen.
 pub struct TargetMachineIdentity {
@@ -57,6 +99,10 @@ pub struct TargetMachineIdentity {
     pub cpu: String,
     /// LLVM feature string, including enabled and disabled target features.
     pub features: String,
+    /// Relocation model used for emitted objects.
+    pub relocation_model: TargetRelocationModel,
+    /// Code model used for emitted objects.
+    pub code_model: TargetCodeModel,
 }
 
 impl TargetMachine {
@@ -68,6 +114,8 @@ impl TargetMachine {
             triple: triple.to_string(),
             cpu: cpu.to_string(),
             features: String::new(),
+            relocation_model: TargetRelocationModel::Pic,
+            code_model: TargetCodeModel::Default,
         }
     }
 
@@ -76,20 +124,41 @@ impl TargetMachine {
         identity: &TargetMachineIdentity,
         opt_level: OptimizationLevel,
     ) -> LlvmResult<Self> {
-        Self::for_triple(
+        Self::for_triple_with_models(
             &identity.triple,
             &identity.cpu,
             &identity.features,
             opt_level,
+            identity.relocation_model,
+            identity.code_model,
         )
     }
 
-    /// Creates a target machine from explicit LLVM target inputs.
+    /// Creates a target machine from explicit LLVM target inputs using Nia's
+    /// default position-independent object contract.
     pub fn for_triple(
         triple: &str,
         cpu: &str,
         features: &str,
         opt_level: OptimizationLevel,
+    ) -> LlvmResult<Self> {
+        Self::for_triple_with_models(
+            triple,
+            cpu,
+            features,
+            opt_level,
+            TargetRelocationModel::Pic,
+            TargetCodeModel::Default,
+        )
+    }
+
+    fn for_triple_with_models(
+        triple: &str,
+        cpu: &str,
+        features: &str,
+        opt_level: OptimizationLevel,
+        relocation_model: TargetRelocationModel,
+        code_model: TargetCodeModel,
     ) -> LlvmResult<Self> {
         initialize_targets();
 
@@ -124,8 +193,8 @@ impl TargetMachine {
                 cpu_c.as_ptr(),
                 features_c.as_ptr(),
                 codegen_opt_level(opt_level),
-                LLVMRelocMode::LLVMRelocPIC,
-                LLVMCodeModel::LLVMCodeModelDefault,
+                relocation_model.llvm(),
+                code_model.llvm(),
             )
         };
         if machine.is_null() {
@@ -373,6 +442,22 @@ mod tests {
 
         assert!(matches!(error, LlvmError::Error(message) if
             message.contains("target") || message.contains("triple")));
+    }
+
+    #[test]
+    fn baseline_identity_declares_the_object_pic_contract() {
+        let identity = TargetMachine::baseline_identity("x86_64-unknown-linux-gnu", "generic");
+        assert_eq!(identity.relocation_model, TargetRelocationModel::Pic);
+        assert_eq!(identity.code_model, TargetCodeModel::Default);
+    }
+
+    #[test]
+    fn target_machine_recreates_explicit_relocation_and_code_models() {
+        let mut identity = test_host_identity();
+        identity.relocation_model = TargetRelocationModel::Static;
+        identity.code_model = TargetCodeModel::Small;
+        TargetMachine::for_identity(&identity, OptimizationLevel::None)
+            .expect("explicit target-machine models should be accepted");
     }
 
     #[test]

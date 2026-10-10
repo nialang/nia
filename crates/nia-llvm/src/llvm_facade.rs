@@ -47,7 +47,8 @@ pub mod coff {
 /// Native target discovery, configuration, and object emission.
 pub mod target {
     pub use crate::llvm_api::{
-        ModuleOptimization, TargetData, TargetMachine, TargetMachineIdentity,
+        ModuleOptimization, TargetCodeModel, TargetData, TargetMachine, TargetMachineIdentity,
+        TargetRelocationModel,
     };
 }
 
