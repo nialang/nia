@@ -3,6 +3,259 @@ mod support;
 
 use nia_test_support::{CommandExt, test_dir as temp_dir};
 
+fn probe_tool_fixture(
+    root: &std::path::Path,
+) -> (
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    usize,
+    &'static str,
+) {
+    let (tool_name, command_path, contents, argument_count, command_arguments) = if cfg!(windows) {
+        (
+            "nia-probe-tool.exe",
+            "tools/nia-probe-tool.exe",
+            None,
+            4,
+            "[&\"/d\"[..], &\"/c\"[..], &\"echo\"[..], &\"probe-one\"[..]]",
+        )
+    } else {
+        (
+            "nia-probe-tool",
+            "tools/nia-probe-tool",
+            Some(
+                "#!/bin/sh\nif [ \"$1\" = \"--probe\" ]; then printf 'probe-one\\n'; else printf 'version-one\\n'; fi\n",
+            ),
+            1,
+            "[&\"--probe\"[..]]",
+        )
+    };
+    std::fs::create_dir_all(root.join("tools")).expect("create probe tool directory");
+    if cfg!(windows) {
+        let system_root = std::env::var_os("SystemRoot").expect("Windows system root");
+        std::fs::copy(
+            std::path::PathBuf::from(system_root).join("System32/cmd.exe"),
+            root.join(command_path),
+        )
+        .expect("copy probe tool");
+    } else {
+        std::fs::write(root.join(command_path), contents.expect("Unix probe tool"))
+            .expect("write probe tool");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = root.join(command_path);
+        let mut permissions = std::fs::metadata(&path)
+            .expect("probe tool metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).expect("make probe tool executable");
+    }
+    (
+        tool_name,
+        command_path,
+        contents,
+        argument_count,
+        command_arguments,
+    )
+}
+
+fn probe_build_command(root: &std::path::Path) -> std::process::Command {
+    let tool_dir = root.join("tools");
+    let path = std::env::join_paths(std::iter::once(tool_dir).chain(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )))
+    .expect("probe PATH");
+    let mut command = support::nia_command();
+    command
+        .env("PATH", path)
+        .args(["build", "--root"])
+        .arg(root)
+        .arg("--print-cache");
+    command
+}
+
+#[test]
+fn command_and_tool_probes_reuse_and_invalidate_on_tool_change() {
+    let root = temp_dir("build_command_and_tool_probes");
+    let (_tool_name, command_path, _contents, argument_count, command_arguments) =
+        probe_tool_fixture(&root);
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::write(
+        root.join("nia.package"),
+        "name=probe\nversion=0.1.0\nsource-root=src\nexclude=tools\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n")
+        .expect("write package source");
+    std::fs::write(
+        root.join("build.nia"),
+        format!(
+            r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {{
+    let mut buffer: [u8; 4096] = [0; 4096];
+    let arguments: [&[char]; {argument_count}] = {command_arguments};
+    _ = b.probeCommand(fs::PathView::init(&"{command_path}"), &arguments[..], &mut buffer[..]).?;
+    _ = b.probeTool(fs::PathView::init(&"{command_path}"), &mut buffer[..]).?;
+    let step = b.addAggregateStep(&"default").?;
+    b.setDefaultStep(step)
+}}
+"#
+        ),
+    )
+    .expect("write command and tool probe build script");
+
+    let first = probe_build_command(&root)
+        .arg("--print-observations")
+        .output_timeout_for_build("run command and tool probes");
+    assert!(
+        first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let observations = String::from_utf8_lossy(&first.stdout);
+    assert!(observations.contains("command-result"), "{observations}");
+    assert!(observations.contains("tool-identity"), "{observations}");
+
+    let warm = probe_build_command(&root).output_timeout_for_build("reuse command probes");
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&warm.stdout).contains("runner reused"),
+        "{}",
+        String::from_utf8_lossy(&warm.stdout)
+    );
+
+    let changed_contents = if cfg!(windows) {
+        None
+    } else {
+        Some(
+            "#!/bin/sh\nif [ \"$1\" = \"--probe\" ]; then printf 'probe-two\\n'; else printf 'version-two\\n'; fi\n",
+        )
+    };
+    if let Some(contents) = changed_contents {
+        std::fs::write(root.join(command_path), contents).expect("change probe tool");
+    } else {
+        let system_root = std::env::var_os("SystemRoot").expect("Windows system root");
+        std::fs::copy(
+            std::path::PathBuf::from(system_root).join("System32/where.exe"),
+            root.join(command_path),
+        )
+        .expect("replace Windows probe tool");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = root.join(command_path);
+        let mut permissions = std::fs::metadata(&path)
+            .expect("changed probe metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).expect("retain probe tool executable bit");
+    }
+    let changed = probe_build_command(&root)
+        .output_timeout_for_build("invalidate changed command and tool probes");
+    assert!(
+        changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&changed.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&changed.stdout).contains("observation changed"),
+        "{}",
+        String::from_utf8_lossy(&changed.stdout)
+    );
+}
+
+#[test]
+fn git_state_probe_reuses_and_invalidates_when_repository_state_changes() {
+    let root = temp_dir("build_git_state_probe");
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::write(
+        root.join("nia.package"),
+        "name=probe\nversion=0.1.0\nsource-root=src\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(root.join(".gitignore"), ".nia-build\n.nia-cache\n").expect("write gitignore");
+    std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n")
+        .expect("write package source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let mut buffer: [u8; 4096] = [0; 4096];
+    _ = b.probeGitState(&mut buffer[..]).?;
+    let step = b.addAggregateStep(&"default").?;
+    b.setDefaultStep(step)
+}
+"#,
+    )
+    .expect("write Git probe build script");
+
+    let git = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git command failed: {args:?}");
+    };
+    git(&["init"]);
+    git(&["config", "user.email", "nia-tests@example.invalid"]);
+    git(&["config", "user.name", "Nia Tests"]);
+    git(&["add", "."]);
+    git(&["commit", "-m", "baseline"]);
+
+    let first = probe_build_command(&root)
+        .arg("--print-observations")
+        .output_timeout_for_build("run Git state probe");
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&first.stdout).contains("git-state"),
+        "{}",
+        String::from_utf8_lossy(&first.stdout)
+    );
+    let warm = probe_build_command(&root).output_timeout_for_build("reuse Git state probe");
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&warm.stdout).contains("runner reused"),
+        "{}",
+        String::from_utf8_lossy(&warm.stdout)
+    );
+
+    std::fs::write(root.join("git-state-marker"), "changed\n").expect("change Git state");
+    let changed = probe_build_command(&root).output_timeout_for_build("invalidate Git probe");
+    assert!(
+        changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&changed.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&changed.stdout).contains("observation changed"),
+        "{}",
+        String::from_utf8_lossy(&changed.stdout)
+    );
+}
+
 #[test]
 fn build_environment_probes_distinguish_absent_empty_and_changed_values() {
     let root = temp_dir("build_environment_probes_distinguish_states");

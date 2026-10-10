@@ -258,16 +258,16 @@ extend Build {
         for &argument in arguments {
             appendProbeText(&mut request, self.allocator, argument).?;
         }
-        self.runProbe(command, arguments, &request, 5, buffer).?
+        self.runProbe(command, arguments, &request, 5, buffer)
     }
 
     /// Records `git status --porcelain=v1 --branch` from the package root.
     pub fn probeGitState(&mut self, buffer: &mut [u8]) Error!&[u8] {
         let arguments: [&[char]; 3] = [&"status", &"--porcelain=v1", &"--branch"];
-        let request = collections::ArrayList[u8]::initCapacity(self.allocator, 0)
+        let mut request = collections::ArrayList[u8]::initCapacity(self.allocator, 0)
             .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
         defer request.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
-        self.runProbe(fs::PathView::init(probeGit), &arguments[..], &request, 6, buffer).?
+        self.runProbe(fs::PathView::init(probeGit), &arguments[..], &request, 6, buffer)
     }
 
     /// Resolves a tool through the host environment and records its version.
@@ -279,7 +279,7 @@ extend Build {
         for &character in name.text() {
             request.appendSlice(self.allocator, character.encodeUtf8().bytes()).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
         }
-        self.runProbe(name, &arguments[..], &request, 7, buffer).?
+        self.runProbe(name, &arguments[..], &request, 7, buffer)
     }
 
     fn runProbe(
@@ -327,7 +327,11 @@ extend Build {
         defer value.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
         appendProbeU32(&mut value, self.allocator, request.len() as u32).?;
         value.appendSlice(self.allocator, request.asSlice()).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
-        appendProbeU32(&mut value, self.allocator, term.exitCode() or -1).?;
+        let exitCode: i32 = match term.exitCode() {
+            ?code => code,
+            null => -1,
+        };
+        appendProbeU32(&mut value, self.allocator, exitCode as u32).?;
         appendProbeU32(&mut value, self.allocator, written as u32).?;
         value.appendSlice(self.allocator, &buffer[0..written]).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
         appendProbeU32(&mut value, self.allocator, 0).?;
