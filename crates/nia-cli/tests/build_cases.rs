@@ -238,10 +238,7 @@ fn assert_configured_build_success(
             "missing {expected:?} in {stdout}"
         );
     }
-    let compatibility = format!(
-        "\"release_compatibility\":{}",
-        nia_compat::RELEASE_COMPATIBILITY
-    );
+    let compatibility = format!("\"protocol_epoch\":{}", nia_compat::PROTOCOL_EPOCH);
     let json_lines = stderr
         .lines()
         .filter(|line| line.starts_with('{') && line.contains(&compatibility))
@@ -299,8 +296,8 @@ fn assert_configured_build_success(
     let plan_path = workspace.join(".nia-build/build-plan.bin");
     let plan = nia_build::read_build_plan(&plan_path).expect("decode published build plan");
     assert_eq!(
-        plan.release_compatibility(),
-        nia_compat::formats::BUILD_PLAN.release_compatibility
+        plan.protocol_epoch(),
+        nia_compat::formats::BUILD_PLAN.protocol_epoch
     );
     assert_eq!(plan.root_package().as_str(), "root");
     assert_eq!(plan.packages().len(), 2);

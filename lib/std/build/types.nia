@@ -1,6 +1,7 @@
 using pkg::collections;
 using pkg::fs;
 using pkg::mem;
+using pkg::process;
 using pkg::string;
 using pkg::build::error;
 
@@ -381,7 +382,7 @@ pub struct Build {
     hostTarget: usize,
     artifactTarget: usize,
     defaultOptimization: OptimizationMode,
-    planSchemaVersion: u32,
+    protocolEpoch: u32,
     requestedStep: string::String,
     hasRequestedStep: bool,
     defaultStep: ?StepHandle,
@@ -409,5 +410,8 @@ pub struct Build {
     hasPendingStaticArchive: bool,
     validationIndegree: collections::ArrayList[usize],
     validationReady: collections::ArrayList[usize],
+    configureObservationBytes: collections::ArrayList[u8],
+    configureObservationCount: usize,
+    environment: ?process::Env,
     planEncoding: collections::ArrayList[u8],
 }

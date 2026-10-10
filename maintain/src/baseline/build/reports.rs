@@ -35,7 +35,7 @@ fn json_lines(stderr: &str) -> Vec<Map<String, Value>> {
             {
                 // The compiler owns the protocol identity. Maintain consumes
                 // the timing payload but does not create a second version axis.
-                report.remove("release_compatibility");
+                report.remove("protocol_epoch");
                 Some(report)
             }
             _ => None,

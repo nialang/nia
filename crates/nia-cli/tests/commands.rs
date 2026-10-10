@@ -667,7 +667,7 @@ fn invalid_toolchain_layout_fails_before_source_loading() {
     std::fs::create_dir_all(&incompatible).expect("create incompatible resource root");
     std::fs::write(
         incompatible.join("toolchain.meta"),
-        "compiler-version=0.0.0\nrelease-compatibility=0\n",
+        "compiler-version=0.0.0\nprotocol-epoch=0\n",
     )
     .expect("write incompatible resource manifest");
     let output = Command::new(env!("CARGO_BIN_EXE_nia"))
@@ -1020,10 +1020,7 @@ fn main() i32 {
         String::from_utf8_lossy(&json.stderr)
     );
     let stderr = String::from_utf8_lossy(&json.stderr);
-    let prefix = format!(
-        "{{\"release_compatibility\":{},",
-        nia_compat::RELEASE_COMPATIBILITY
-    );
+    let prefix = format!("{{\"protocol_epoch\":{},", nia_compat::PROTOCOL_EPOCH);
     let report = stderr
         .lines()
         .find(|line| line.starts_with(&prefix))

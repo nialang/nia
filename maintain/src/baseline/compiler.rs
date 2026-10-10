@@ -303,7 +303,7 @@ fn timing_json(stderr: &str) -> MaintainResult<Map<String, Value>> {
         {
             // The compiler owns the protocol identity. Maintain records the
             // measured payload without adopting that identity as its schema.
-            report.remove("release_compatibility");
+            report.remove("protocol_epoch");
             return Ok(report);
         }
     }
@@ -766,13 +766,13 @@ mod tests {
     #[test]
     fn timing_json_discards_compiler_release_identity() {
         let report = json!({
-            "release_compatibility": 999,
+            "protocol_epoch": 999,
             "process": {},
             "timings": [],
             "counters": {}
         });
         let parsed = timing_json(&report.to_string()).unwrap();
-        assert!(parsed.get("release_compatibility").is_none());
+        assert!(parsed.get("protocol_epoch").is_none());
     }
 
     #[test]

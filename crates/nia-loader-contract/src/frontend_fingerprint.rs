@@ -487,7 +487,7 @@ impl FrontendCacheNamespace {
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
         let mut builder = QueryFingerprintBuilder::new(CACHE_NAMESPACE_DOMAIN);
-        builder.write_u64(u64::from(FRONTEND_CACHE.release_compatibility));
+        builder.write_u64(u64::from(FRONTEND_CACHE.protocol_epoch));
         for part in toolchain.parts() {
             builder.write_u64(part);
         }

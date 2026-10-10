@@ -227,8 +227,8 @@ pub(super) fn format_report_entry(entry: &TimingReportEntry) -> String {
 
 pub(super) fn format_json_report(report: &TimingReport, process: ProcessMeasurement) -> String {
     let mut output = String::new();
-    output.push_str("{\"release_compatibility\":");
-    output.push_str(&nia_compat::RELEASE_COMPATIBILITY.to_string());
+    output.push_str("{\"protocol_epoch\":");
+    output.push_str(&nia_compat::PROTOCOL_EPOCH.to_string());
     output.push_str(",\"process\":{");
     push_json_duration(&mut output, "wall_seconds", Some(process.wall));
     output.push(',');

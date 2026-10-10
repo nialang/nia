@@ -3,22 +3,14 @@
 
 use std::fmt;
 
-use nia_compat::formats::CONFIGURE_MANIFEST;
-
 use crate::{BuildPlan, PlanCodecError};
 
 pub const BUILD_DRAFT_MAGIC: &[u8; 8] = b"NIADRF\0\0";
 pub const MAX_DRAFT_BYTES: usize = 80 * 1024 * 1024;
 
-/// Computes the BLAKE3 plan checksum used by host-side draft validation.
-pub fn plan_checksum(bytes: &[u8]) -> [u8; 32] {
-    let digest = blake3::hash(bytes);
-    *digest.as_bytes()
-}
-
 /// Computes the protocol checksum emitted by the language runner's standard
-/// library implementation. This is the public Wyhash protocol used by both
-/// sides of the draft envelope; the host cache digest remains BLAKE3.
+/// library implementation. This is the sole checksum for the current draft
+/// envelope; persisted cache identities use their own registered digests.
 pub fn runner_plan_checksum(bytes: &[u8]) -> u64 {
     let mut first = 1u32;
     let mut second = 0u32;
@@ -114,7 +106,7 @@ impl BuildDraft {
         encoded.extend_from_slice(BUILD_DRAFT_MAGIC);
         encoded.extend_from_slice(&plan_len.to_le_bytes());
         encoded.extend_from_slice(&observations_len.to_le_bytes());
-        encoded.extend_from_slice(&plan_checksum(&plan));
+        encoded.extend_from_slice(&runner_checksum_bytes(&plan));
         encoded.extend_from_slice(&plan);
         encoded.extend_from_slice(&self.observations);
         Ok(encoded)
@@ -138,10 +130,7 @@ impl BuildDraft {
             return Err(BuildDraftError::InvalidEnvelope);
         }
         let plan_bytes = &bytes[plan_start..plan_end];
-        let runner_checksum = runner_checksum_bytes(plan_bytes);
-        if end != bytes.len()
-            || (bytes[16..24] != runner_checksum[..8] && bytes[16..48] != plan_checksum(plan_bytes))
-        {
+        if end != bytes.len() || bytes[16..48] != runner_checksum_bytes(plan_bytes) {
             return Err(BuildDraftError::InvalidEnvelope);
         }
         Ok(Self {
@@ -149,11 +138,6 @@ impl BuildDraft {
             observations: bytes[plan_end..end].to_vec(),
         })
     }
-}
-
-/// Returns the registered observation format identity used by the envelope.
-pub const fn observation_format() -> &'static str {
-    CONFIGURE_MANIFEST.name
 }
 
 #[cfg(test)]
@@ -178,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn portable_runner_checksum_is_deterministic() {
+    fn runner_checksum_is_deterministic() {
         assert_eq!(runner_plan_checksum(b"nia"), runner_plan_checksum(b"nia"));
         assert_ne!(runner_plan_checksum(b"nia"), runner_plan_checksum(b"Nia"));
         assert_eq!(runner_checksum_bytes(b"nia")[8..], [0; 24]);

@@ -50,7 +50,7 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     }
     let mut encoded = Vec::with_capacity(24 + payload.len());
     encoded.extend_from_slice(RUNNER_CONFIG.magic);
-    write_u32(&mut encoded, RUNNER_CONFIG.release_compatibility);
+    write_u32(&mut encoded, RUNNER_CONFIG.protocol_epoch);
     write_u32(&mut encoded, payload.len() as u32);
     write_u64(&mut encoded, payload_checksum(&payload));
     encoded.extend_from_slice(&payload);
@@ -211,8 +211,7 @@ mod tests {
         assert_eq!(decode(&bad_magic), Err(DecodeError::Magic));
 
         let mut bad_version = baseline.clone();
-        bad_version[8..12]
-            .copy_from_slice(&(RUNNER_CONFIG.release_compatibility + 1).to_le_bytes());
+        bad_version[8..12].copy_from_slice(&(RUNNER_CONFIG.protocol_epoch + 1).to_le_bytes());
         assert_eq!(decode(&bad_version), Err(DecodeError::Version));
 
         let mut bad_length = baseline.clone();
@@ -257,6 +256,11 @@ mod tests {
             toolchain: Arc::clone(&toolchain),
             package_root: PathBuf::from("/workspace/package"),
             package_source_fingerprint: [0; 32],
+            package_graph_report: nia_package_metadata::LocalPackageGraphReport {
+                options: nia_package_metadata::LocalPackageGraphOptions::default(),
+                resolved: Vec::new(),
+                declared: Vec::new(),
+            },
             build_script: PathBuf::from("/workspace/package/build.nia"),
             build_dir: PathBuf::from("/workspace/package/.nia-build"),
             cache_dir: PathBuf::from("/workspace/package/.nia-cache"),
@@ -304,7 +308,7 @@ mod tests {
             return Err(DecodeError::Magic);
         }
         let version = u32::from_le_bytes(encoded[8..12].try_into().unwrap());
-        if version != RUNNER_CONFIG.release_compatibility {
+        if version != RUNNER_CONFIG.protocol_epoch {
             return Err(DecodeError::Version);
         }
         let payload_len = u32::from_le_bytes(encoded[12..16].try_into().unwrap()) as usize;

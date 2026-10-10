@@ -34,6 +34,7 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 nia-span.workspace = true
+nia-test-support.workspace = true
 
 [lib]
 path = "src/lib.rs"

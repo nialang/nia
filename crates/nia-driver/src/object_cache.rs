@@ -350,10 +350,10 @@ fn read_work_product_header(
     if magic != *kind.format.magic {
         return Ok(None);
     }
-    let Some(release_compatibility) = read_u32(file)? else {
+    let Some(protocol_epoch) = read_u32(file)? else {
         return Ok(None);
     };
-    if release_compatibility != kind.format.release_compatibility {
+    if protocol_epoch != kind.format.protocol_epoch {
         return Ok(None);
     }
     let Some(fingerprint) = read_fingerprint(file)? else {
@@ -513,7 +513,7 @@ fn write_work_product(
 ) -> io::Result<()> {
     let key = encode_unit_key(key);
     output.write_all(kind.format.magic)?;
-    output.write_all(&kind.format.release_compatibility.to_le_bytes())?;
+    output.write_all(&kind.format.protocol_epoch.to_le_bytes())?;
     write_fingerprint(output, fingerprints.fingerprint)?;
     for component in [
         fingerprints.components.policy,

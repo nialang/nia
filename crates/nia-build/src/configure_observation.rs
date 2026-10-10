@@ -8,7 +8,17 @@
 use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
+    time::{Duration, Instant},
 };
+
+use nia_query::FingerprintDomain;
+
+const CONFIGURE_MANIFEST_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.configure-manifest");
+const MAX_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_DIRECTORY_BYTES: usize = 1024 * 1024;
+const MAX_DIRECTORY_ENTRIES: usize = 16 * 1024;
 
 /// Policy for host observations that are not explicitly declared by a build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,6 +42,39 @@ pub enum ObservationKind {
     DirectoryContents,
     /// Directory metadata without enumerating children.
     DirectoryMetadata,
+    /// Whether a package-relative file-system entry exists and its entry kind.
+    ///
+    /// This is the explicit absent-value observation used by configuration
+    /// probes that intentionally branch on an optional file.
+    FilePresence,
+    /// Whether a package-relative directory exists.
+    DirectoryPresence,
+    /// The UTF-8 value of a named host environment variable, including an
+    /// explicit fingerprint for an absent variable.
+    EnvironmentValue,
+    /// A bounded command result with its explicit argument request.
+    CommandResult,
+    /// The repository state reported by Git.
+    GitState,
+    /// A resolved tool executable identity and version output.
+    ToolIdentity,
+}
+
+impl fmt::Display for ObservationKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::FileContents => "file-contents",
+            Self::FileMetadata => "file-metadata",
+            Self::DirectoryContents => "directory-contents",
+            Self::DirectoryMetadata => "directory-metadata",
+            Self::FilePresence => "file-presence",
+            Self::DirectoryPresence => "directory-presence",
+            Self::EnvironmentValue => "environment-value",
+            Self::CommandResult => "command-result",
+            Self::GitState => "git-state",
+            Self::ToolIdentity => "tool-identity",
+        })
+    }
 }
 
 /// A normalized filesystem observation recorded by a build runner.
@@ -40,6 +83,7 @@ pub struct ConfigureObservation {
     path: PathBuf,
     kind: ObservationKind,
     fingerprint: [u8; 32],
+    request: Vec<u8>,
 }
 
 /// Result of comparing a persisted observation with the current filesystem.
@@ -70,7 +114,20 @@ impl ConfigureObservation {
         if path.as_os_str().is_empty() {
             return Err(ObservationError::EmptyPath);
         }
-        let text = path.to_string_lossy();
+        let text = path
+            .to_str()
+            .ok_or_else(|| ObservationError::NonUtf8Path(path.clone()))?;
+        if kind == ObservationKind::EnvironmentValue {
+            if text.contains('\0') || text.contains('=') {
+                return Err(ObservationError::InvalidEnvironmentName(path));
+            }
+            return Ok(Self {
+                path,
+                kind,
+                fingerprint,
+                request: Vec::new(),
+            });
+        }
         if path.is_absolute()
             || text.starts_with('/')
             || text.starts_with('\\')
@@ -90,7 +147,28 @@ impl ConfigureObservation {
             path,
             kind,
             fingerprint,
+            request: Vec::new(),
         })
+    }
+
+    /// Creates an observation carrying an explicit host request.
+    pub fn new_with_request(
+        path: impl Into<PathBuf>,
+        kind: ObservationKind,
+        fingerprint: [u8; 32],
+        request: Vec<u8>,
+    ) -> Result<Self, ObservationError> {
+        let mut observation = Self::new(path, kind, fingerprint)?;
+        if !matches!(
+            kind,
+            ObservationKind::CommandResult
+                | ObservationKind::GitState
+                | ObservationKind::ToolIdentity
+        ) {
+            return Err(ObservationError::InvalidRequest);
+        }
+        observation.request = request;
+        Ok(observation)
     }
 
     /// Returns the normalized relative path.
@@ -108,6 +186,11 @@ impl ConfigureObservation {
         &self.fingerprint
     }
 
+    /// Returns the explicit host request carried by command-like observations.
+    pub fn request(&self) -> &[u8] {
+        &self.request
+    }
+
     /// Recomputes this observation against a package root.
     pub fn refresh(&self, root: &Path) -> io::Result<Self> {
         match self.kind {
@@ -119,6 +202,14 @@ impl ConfigureObservation {
             ObservationKind::DirectoryMetadata => {
                 observe_directory_metadata(root, self.path.clone())
             }
+            ObservationKind::FilePresence => observe_file_presence(root, self.path.clone()),
+            ObservationKind::DirectoryPresence => {
+                observe_directory_presence(root, self.path.clone())
+            }
+            ObservationKind::EnvironmentValue => observe_environment(self.path.clone()),
+            ObservationKind::CommandResult => observe_command(&self.path, &self.request, root),
+            ObservationKind::GitState => observe_git_state(root, &self.request),
+            ObservationKind::ToolIdentity => observe_tool(&self.path, &self.request, root),
         }
     }
 }
@@ -145,22 +236,100 @@ pub fn observe_directory_contents(
     relative: impl Into<PathBuf>,
 ) -> io::Result<ConfigureObservation> {
     let relative = relative.into();
-    let directory = resolve_observation_path(root, &relative)?;
+    let entries = read_directory_facts(root, &relative)?;
+    directory_observation(relative, &entries)
+}
+
+pub(crate) type DirectoryFact = (Vec<u8>, u8, u64);
+
+pub(crate) fn read_directory_facts(root: &Path, relative: &Path) -> io::Result<Vec<DirectoryFact>> {
+    let directory = resolve_observation_path(root, relative)?;
     let mut entries = Vec::new();
+    let mut size = 4usize;
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
-        let metadata = entry.metadata()?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        let name = entry.file_name();
+        #[cfg(unix)]
+        let name = {
+            use std::os::unix::ffi::OsStrExt;
+            name.as_bytes().to_vec()
+        };
+        #[cfg(not(unix))]
+        let name = name
+            .to_str()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "directory entry name is not UTF-8",
+                )
+            })?
+            .as_bytes()
+            .to_vec();
+        size = size
+            .checked_add(13 + name.len())
+            .filter(|size| *size <= MAX_DIRECTORY_BYTES)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "directory observation is too large",
+                )
+            })?;
+        if entries.len() >= MAX_DIRECTORY_ENTRIES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory observation has too many entries",
+            ));
+        }
         entries.push((
-            entry.file_name().to_string_lossy().into_owned(),
-            metadata.is_dir(),
+            name,
+            directory_entry_kind(metadata.file_type()),
             metadata.len(),
         ));
     }
     entries.sort();
+    Ok(entries)
+}
+
+fn directory_entry_kind(kind: fs::FileType) -> u8 {
+    if kind.is_symlink() {
+        return 5;
+    }
+    if kind.is_dir() {
+        return 3;
+    }
+    if kind.is_file() {
+        return 6;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        if kind.is_block_device() {
+            return 1;
+        }
+        if kind.is_char_device() {
+            return 2;
+        }
+        if kind.is_fifo() {
+            return 4;
+        }
+        if kind.is_socket() {
+            return 7;
+        }
+    }
+    255
+}
+
+pub(crate) fn directory_observation(
+    relative: PathBuf,
+    entries: &[DirectoryFact],
+) -> io::Result<ConfigureObservation> {
     let mut hasher = blake3::Hasher::new();
-    for (name, is_dir, len) in entries {
-        hasher.update(name.as_bytes());
-        hasher.update(&[u8::from(is_dir)]);
+    hasher.update(&(entries.len() as u32).to_le_bytes());
+    for (name, kind, len) in entries {
+        hasher.update(&(name.len() as u32).to_le_bytes());
+        hasher.update(name);
+        hasher.update(&[*kind]);
         hasher.update(&len.to_le_bytes());
     }
     ConfigureObservation::new(
@@ -234,7 +403,365 @@ pub fn observe_directory_metadata(
     .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
 }
 
-fn resolve_observation_path(root: &Path, relative: &Path) -> io::Result<PathBuf> {
+/// Records whether a package-relative entry exists and, when present, its
+/// filesystem kind. Missing entries are a valid observation rather than an
+/// I/O failure, so callers can safely configure optional inputs.
+pub fn observe_file_presence(
+    root: &Path,
+    relative: impl Into<PathBuf>,
+) -> io::Result<ConfigureObservation> {
+    observe_presence(root, relative.into(), ObservationKind::FilePresence)
+}
+
+/// Records whether a package-relative directory exists. A present non-directory
+/// entry is recorded as a distinct state and therefore invalidates the probe.
+pub fn observe_directory_presence(
+    root: &Path,
+    relative: impl Into<PathBuf>,
+) -> io::Result<ConfigureObservation> {
+    observe_presence(root, relative.into(), ObservationKind::DirectoryPresence)
+}
+
+/// Records a UTF-8 environment value. An absent variable is a valid fact and
+/// receives a distinct fingerprint from an empty value.
+pub fn observe_environment(name: impl Into<PathBuf>) -> io::Result<ConfigureObservation> {
+    let name = name.into();
+    ConfigureObservation::new(name.clone(), ObservationKind::EnvironmentValue, [0; 32])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let value = std::env::var(name.as_os_str());
+    observe_environment_value(name, value)
+}
+
+fn observe_environment_value(
+    name: PathBuf,
+    value: Result<String, std::env::VarError>,
+) -> io::Result<ConfigureObservation> {
+    let value = match value {
+        Ok(value) => {
+            let mut bytes = Vec::with_capacity(1 + value.len());
+            bytes.push(1);
+            bytes.extend_from_slice(value.as_bytes());
+            bytes
+        }
+        Err(std::env::VarError::NotPresent) => vec![0],
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "configure environment observation is not valid UTF-8",
+            ));
+        }
+    };
+    let fingerprint = *blake3::hash(&value).as_bytes();
+    ConfigureObservation::new(name, ObservationKind::EnvironmentValue, fingerprint)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+const MAX_PROBE_OUTPUT: usize = 64 * 1024;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn observe_command(path: &Path, request: &[u8], root: &Path) -> io::Result<ConfigureObservation> {
+    let (program, arguments) = decode_command_request(request)?;
+    let result = run_probe_process(&program, &arguments, root)?;
+    let fingerprint = probe_fingerprint(request, &result);
+    ConfigureObservation::new_with_request(
+        path.to_path_buf(),
+        ObservationKind::CommandResult,
+        fingerprint,
+        request.to_vec(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+fn observe_git_state(root: &Path, request: &[u8]) -> io::Result<ConfigureObservation> {
+    if !request.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Git probe request is not empty",
+        ));
+    }
+    let result = run_probe_process(
+        "git",
+        &["status".into(), "--porcelain=v1".into(), "--branch".into()],
+        root,
+    )?;
+    let fingerprint = probe_fingerprint(request, &result);
+    ConfigureObservation::new_with_request(
+        "git-state",
+        ObservationKind::GitState,
+        fingerprint,
+        Vec::new(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+fn observe_tool(path: &Path, request: &[u8], root: &Path) -> io::Result<ConfigureObservation> {
+    let program = std::str::from_utf8(request)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "tool probe name is not UTF-8"))?;
+    if program.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "tool probe name is empty",
+        ));
+    }
+    let result = run_probe_process(program, &["--version".into()], root)?;
+    let fingerprint = probe_fingerprint(request, &result);
+    ConfigureObservation::new_with_request(
+        path.to_path_buf(),
+        ObservationKind::ToolIdentity,
+        fingerprint,
+        request.to_vec(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+struct ProbeProcessResult {
+    executable: Vec<u8>,
+    status: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn probe_fingerprint(request: &[u8], result: &ProbeProcessResult) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(request);
+    hasher.update(&result.executable);
+    hasher.update(&result.status.to_le_bytes());
+    hasher.update(&(result.stdout.len() as u32).to_le_bytes());
+    hasher.update(&result.stdout);
+    hasher.update(&(result.stderr.len() as u32).to_le_bytes());
+    hasher.update(&result.stderr);
+    *hasher.finalize().as_bytes()
+}
+
+fn decode_command_request(request: &[u8]) -> io::Result<(String, Vec<String>)> {
+    let mut cursor = 0usize;
+    let program = read_probe_text(request, &mut cursor)?;
+    let count = read_probe_u32(request, &mut cursor)? as usize;
+    if count > 256 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "too many command arguments",
+        ));
+    }
+    let mut arguments = Vec::with_capacity(count);
+    for _ in 0..count {
+        arguments.push(read_probe_text(request, &mut cursor)?);
+    }
+    if cursor != request.len() || program.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid command probe request",
+        ));
+    }
+    Ok((program, arguments))
+}
+
+fn read_probe_u32(bytes: &[u8], cursor: &mut usize) -> io::Result<u32> {
+    let end = cursor.checked_add(4).ok_or_else(invalid_probe_request)?;
+    let value = u32::from_le_bytes(
+        bytes
+            .get(*cursor..end)
+            .ok_or_else(invalid_probe_request)?
+            .try_into()
+            .unwrap(),
+    );
+    *cursor = end;
+    Ok(value)
+}
+
+fn read_probe_text(bytes: &[u8], cursor: &mut usize) -> io::Result<String> {
+    let len = read_probe_u32(bytes, cursor)? as usize;
+    let end = cursor.checked_add(len).ok_or_else(invalid_probe_request)?;
+    let text = std::str::from_utf8(bytes.get(*cursor..end).ok_or_else(invalid_probe_request)?)
+        .map_err(|_| invalid_probe_request())?
+        .to_owned();
+    *cursor = end;
+    Ok(text)
+}
+
+fn invalid_probe_request() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, "invalid probe request")
+}
+
+fn run_probe_process(
+    program: &str,
+    arguments: &[String],
+    root: &Path,
+) -> io::Result<ProbeProcessResult> {
+    let mut command = Command::new(program);
+    command
+        .args(arguments)
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    crate::process_output::prepare_process_group(&mut command);
+    let mut child = command.spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("probe stdout pipe missing"))?;
+    let stdout_thread = std::thread::spawn(|| bounded_probe_reader(stdout));
+    let deadline = Instant::now() + PROBE_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            crate::process_output::terminate_process_tree(&mut child);
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "configuration probe timed out",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = stdout_thread
+        .join()
+        .map_err(|_| io::Error::other("probe stdout reader failed"))??;
+    let executable = fs::canonicalize(program)
+        .or_else(|_| fs::canonicalize(root.join(program)))
+        .and_then(fs::read)
+        .unwrap_or_default();
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    let status = status.code().unwrap_or({
+        #[cfg(unix)]
+        {
+            -status.signal().unwrap_or(1)
+        }
+        #[cfg(not(unix))]
+        {
+            -1
+        }
+    });
+    Ok(ProbeProcessResult {
+        executable,
+        status,
+        stdout,
+        stderr: Vec::new(),
+    })
+}
+
+fn bounded_probe_reader(mut reader: impl io::Read) -> io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    let mut buffer = [0u8; 4096];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        if output.len().saturating_add(count) > MAX_PROBE_OUTPUT {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "configuration probe output is too large",
+            ));
+        }
+        output.extend_from_slice(&buffer[..count]);
+    }
+    Ok(output)
+}
+
+pub(crate) fn validate_probe_result(
+    kind: ObservationKind,
+    path: &str,
+    evidence: &[u8],
+    root: &Path,
+) -> io::Result<ConfigureObservation> {
+    let mut cursor = 0usize;
+    let request_len = read_probe_u32(evidence, &mut cursor)? as usize;
+    let request_end = cursor
+        .checked_add(request_len)
+        .ok_or_else(invalid_probe_request)?;
+    let request = evidence
+        .get(cursor..request_end)
+        .ok_or_else(invalid_probe_request)?;
+    cursor = request_end;
+    let status_bytes = evidence
+        .get(cursor..cursor + 4)
+        .ok_or_else(invalid_probe_request)?;
+    let expected_status = i32::from_le_bytes(status_bytes.try_into().unwrap());
+    cursor += 4;
+    let stdout_len = read_probe_u32(evidence, &mut cursor)? as usize;
+    let stdout_end = cursor
+        .checked_add(stdout_len)
+        .ok_or_else(invalid_probe_request)?;
+    let expected_stdout = evidence
+        .get(cursor..stdout_end)
+        .ok_or_else(invalid_probe_request)?;
+    cursor = stdout_end;
+    let stderr_len = read_probe_u32(evidence, &mut cursor)? as usize;
+    let stderr_end = cursor
+        .checked_add(stderr_len)
+        .ok_or_else(invalid_probe_request)?;
+    let expected_stderr = evidence
+        .get(cursor..stderr_end)
+        .ok_or_else(invalid_probe_request)?;
+    if cursor != evidence.len() || stdout_len > MAX_PROBE_OUTPUT || stderr_len > MAX_PROBE_OUTPUT {
+        return Err(invalid_probe_request());
+    }
+    let (program, arguments) = match kind {
+        ObservationKind::CommandResult => decode_command_request(request)?,
+        ObservationKind::GitState => {
+            if !request.is_empty() {
+                return Err(invalid_probe_request());
+            }
+            (
+                "git".to_owned(),
+                vec!["status".into(), "--porcelain=v1".into(), "--branch".into()],
+            )
+        }
+        ObservationKind::ToolIdentity => {
+            let program = std::str::from_utf8(request).map_err(|_| invalid_probe_request())?;
+            (program.to_owned(), vec!["--version".into()])
+        }
+        _ => return Err(invalid_probe_request()),
+    };
+    let actual = run_probe_process(&program, &arguments, root)?;
+    if actual.status != expected_status
+        || actual.stdout != expected_stdout
+        || actual.stderr != expected_stderr
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("runner probe changed before validation: {path}"),
+        ));
+    }
+    ConfigureObservation::new_with_request(
+        path,
+        kind,
+        probe_fingerprint(request, &actual),
+        request.to_vec(),
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+pub(crate) fn observe_presence(
+    root: &Path,
+    relative: PathBuf,
+    kind: ObservationKind,
+) -> io::Result<ConfigureObservation> {
+    let path = resolve_observation_candidate(root, &relative)?;
+    let state = match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                2
+            } else if metadata.is_file() {
+                1
+            } else {
+                3
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error),
+    };
+    let bytes = [state, u8::from(kind == ObservationKind::DirectoryPresence)];
+    ConfigureObservation::new(relative, kind, *blake3::hash(&bytes).as_bytes())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+pub(crate) fn resolve_observation_path(root: &Path, relative: &Path) -> io::Result<PathBuf> {
     ConfigureObservation::new(
         relative.to_path_buf(),
         ObservationKind::FileMetadata,
@@ -252,9 +779,64 @@ fn resolve_observation_path(root: &Path, relative: &Path) -> io::Result<PathBuf>
     Ok(candidate)
 }
 
+/// Resolves an observation candidate while allowing missing components.
+/// Every existing parent is canonicalized before the candidate is
+/// accepted, so a symlinked parent cannot escape the package root.
+fn resolve_observation_candidate(root: &Path, relative: &Path) -> io::Result<PathBuf> {
+    ConfigureObservation::new(
+        relative.to_path_buf(),
+        ObservationKind::FileMetadata,
+        [0; 32],
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let canonical_root = root.canonicalize()?;
+    let candidate = root.join(relative);
+    let mut existing = candidate.clone();
+    let mut missing = Vec::new();
+    let canonical_existing = loop {
+        match existing.canonicalize() {
+            Ok(path) => break path,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // A dangling symlink is not an absent input: its target may
+                // escape the root even though canonicalization cannot find it.
+                match fs::symlink_metadata(&existing) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "configure observation cannot resolve a dangling symlink",
+                        ));
+                    }
+                    Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                    _ => {}
+                }
+                let name = existing.file_name().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "observation path has no name")
+                })?;
+                missing.push(name.to_os_string());
+                existing.pop();
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    if !canonical_existing.starts_with(&canonical_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "configure observation path escapes the package root",
+        ));
+    }
+    let mut resolved = canonical_existing;
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
+}
+
 /// Adds a filesystem observation to a manifest, preserving canonical order.
-pub fn observe_into(manifest: &mut ConfigureManifest, observation: ConfigureObservation) {
-    manifest.push(observation);
+pub fn observe_into(
+    manifest: &mut ConfigureManifest,
+    observation: ConfigureObservation,
+) -> Result<(), ObservationCodecError> {
+    manifest.push(observation)
 }
 
 /// A deterministic configuration observation manifest.
@@ -274,10 +856,17 @@ impl ConfigureManifest {
     }
 
     /// Adds an observation and keeps the manifest in canonical order.
-    pub fn push(&mut self, observation: ConfigureObservation) {
-        self.observations.push(observation);
-        self.observations.sort();
-        self.observations.dedup();
+    pub fn push(&mut self, observation: ConfigureObservation) -> Result<(), ObservationCodecError> {
+        let key = (&observation.path, observation.kind);
+        let index = match self
+            .observations
+            .binary_search_by(|previous| (&previous.path, previous.kind).cmp(&key))
+        {
+            Ok(_) => return Err(ObservationCodecError::Invalid),
+            Err(index) => index,
+        };
+        self.observations.insert(index, observation);
+        Ok(())
     }
 
     /// Returns the policy applied to undeclared observations.
@@ -315,20 +904,35 @@ impl ConfigureManifest {
     /// Returns a canonical fingerprint for this manifest.
     pub fn fingerprint(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"nia.build.configure-manifest\0");
+        hasher.update(CONFIGURE_MANIFEST_DOMAIN.as_str().as_bytes());
+        hasher.update(b"\0");
         hasher.update(&[match self.policy {
             ObservationPolicy::Disallow => 0,
             ObservationPolicy::Poison => 1,
             ObservationPolicy::Ignore => 2,
         }]);
+        hasher.update(&(self.observations.len() as u32).to_le_bytes());
         for observation in &self.observations {
-            hasher.update(observation.path.to_string_lossy().as_bytes());
+            let path = observation
+                .path
+                .to_str()
+                .expect("validated UTF-8 observation path");
+            hasher.update(&(path.len() as u32).to_le_bytes());
+            hasher.update(path.as_bytes());
             hasher.update(&[match observation.kind {
                 ObservationKind::FileContents => 0,
                 ObservationKind::FileMetadata => 1,
                 ObservationKind::DirectoryContents => 2,
                 ObservationKind::DirectoryMetadata => 3,
+                ObservationKind::FilePresence => 4,
+                ObservationKind::DirectoryPresence => 5,
+                ObservationKind::EnvironmentValue => 6,
+                ObservationKind::CommandResult => 7,
+                ObservationKind::GitState => 8,
+                ObservationKind::ToolIdentity => 9,
             }]);
+            hasher.update(&(observation.request.len() as u32).to_le_bytes());
+            hasher.update(&observation.request);
             hasher.update(&observation.fingerprint);
         }
         *hasher.finalize().as_bytes()
@@ -336,7 +940,18 @@ impl ConfigureManifest {
 
     /// Encodes a bounded, versioned manifest record for the configure cache.
     pub fn encode(&self) -> Result<Vec<u8>, ObservationCodecError> {
-        let mut payload = Vec::new();
+        let total = self
+            .observations
+            .iter()
+            .try_fold(48usize + 5, |total, observation| {
+                total
+                    .checked_add(4 + 1 + 4 + 32)
+                    .and_then(|total| total.checked_add(observation.path.as_os_str().len()))
+                    .and_then(|total| total.checked_add(observation.request.len()))
+                    .filter(|total| *total <= MAX_MANIFEST_BYTES)
+                    .ok_or(ObservationCodecError::TooLarge)
+            })?;
+        let mut payload = Vec::with_capacity(total - 48);
         payload.push(match self.policy {
             ObservationPolicy::Disallow => 0,
             ObservationPolicy::Poison => 1,
@@ -346,7 +961,10 @@ impl ConfigureManifest {
             u32::try_from(self.observations.len()).map_err(|_| ObservationCodecError::TooLarge)?;
         payload.extend_from_slice(&count.to_le_bytes());
         for observation in &self.observations {
-            let path = observation.path.to_string_lossy();
+            let path = observation
+                .path
+                .to_str()
+                .ok_or(ObservationCodecError::Invalid)?;
             let path_len =
                 u32::try_from(path.len()).map_err(|_| ObservationCodecError::TooLarge)?;
             payload.extend_from_slice(&path_len.to_le_bytes());
@@ -356,14 +974,24 @@ impl ConfigureManifest {
                 ObservationKind::FileMetadata => 1,
                 ObservationKind::DirectoryContents => 2,
                 ObservationKind::DirectoryMetadata => 3,
+                ObservationKind::FilePresence => 4,
+                ObservationKind::DirectoryPresence => 5,
+                ObservationKind::EnvironmentValue => 6,
+                ObservationKind::CommandResult => 7,
+                ObservationKind::GitState => 8,
+                ObservationKind::ToolIdentity => 9,
             });
+            let request_len = u32::try_from(observation.request.len())
+                .map_err(|_| ObservationCodecError::TooLarge)?;
+            payload.extend_from_slice(&request_len.to_le_bytes());
+            payload.extend_from_slice(&observation.request);
             payload.extend_from_slice(&observation.fingerprint);
         }
         let mut encoded = Vec::with_capacity(8 + 4 + 4 + 32 + payload.len());
         encoded.extend_from_slice(nia_compat::formats::CONFIGURE_MANIFEST.magic);
         encoded.extend_from_slice(
             &nia_compat::formats::CONFIGURE_MANIFEST
-                .release_compatibility
+                .protocol_epoch
                 .to_le_bytes(),
         );
         encoded.extend_from_slice(
@@ -395,13 +1023,11 @@ impl ConfigureManifest {
     /// Decodes and validates a persisted configure manifest record.
     pub fn decode(encoded: &[u8]) -> Result<Self, ObservationCodecError> {
         const HEADER: usize = 8 + 4 + 4 + 32;
-        if encoded.len() < HEADER || encoded.len() > 16 * 1024 * 1024 {
+        if encoded.len() < HEADER || encoded.len() > MAX_MANIFEST_BYTES {
             return Err(ObservationCodecError::Invalid);
         }
         let format = nia_compat::formats::CONFIGURE_MANIFEST;
-        if encoded[..8] != *format.magic
-            || encoded[8..12] != format.release_compatibility.to_le_bytes()
-        {
+        if encoded[..8] != *format.magic || encoded[8..12] != format.protocol_epoch.to_le_bytes() {
             return Err(ObservationCodecError::Invalid);
         }
         let length = u32::from_le_bytes(encoded[12..16].try_into().unwrap()) as usize;
@@ -439,19 +1065,49 @@ impl ConfigureManifest {
                 Some(1) => ObservationKind::FileMetadata,
                 Some(2) => ObservationKind::DirectoryContents,
                 Some(3) => ObservationKind::DirectoryMetadata,
+                Some(4) => ObservationKind::FilePresence,
+                Some(5) => ObservationKind::DirectoryPresence,
+                Some(6) => ObservationKind::EnvironmentValue,
+                Some(7) => ObservationKind::CommandResult,
+                Some(8) => ObservationKind::GitState,
+                Some(9) => ObservationKind::ToolIdentity,
                 _ => return Err(ObservationCodecError::Invalid),
             };
             cursor += 1;
+            let request_len = read_u32(payload, &mut cursor)? as usize;
+            let request_end = cursor
+                .checked_add(request_len)
+                .ok_or(ObservationCodecError::Invalid)?;
+            let request = payload
+                .get(cursor..request_end)
+                .ok_or(ObservationCodecError::Invalid)?
+                .to_vec();
+            cursor = request_end;
             let fingerprint = payload
                 .get(cursor..cursor + 32)
                 .ok_or(ObservationCodecError::Invalid)?
                 .try_into()
                 .unwrap();
             cursor += 32;
-            manifest.push(
+            let observation = if request.is_empty()
+                && !matches!(
+                    kind,
+                    ObservationKind::CommandResult
+                        | ObservationKind::GitState
+                        | ObservationKind::ToolIdentity
+                ) {
                 ConfigureObservation::new(path, kind, fingerprint)
-                    .map_err(|_| ObservationCodecError::Invalid)?,
-            );
+            } else {
+                ConfigureObservation::new_with_request(path, kind, fingerprint, request)
+            }
+            .map_err(|_| ObservationCodecError::Invalid)?;
+            if manifest.observations.last().is_some_and(|previous| {
+                previous >= &observation
+                    || (previous.path == observation.path && previous.kind == observation.kind)
+            }) {
+                return Err(ObservationCodecError::Invalid);
+            }
+            manifest.observations.push(observation);
         }
         (cursor == payload.len())
             .then_some(manifest)
@@ -477,16 +1133,27 @@ fn read_u32(payload: &[u8], cursor: &mut usize) -> Result<u32, ObservationCodecE
 pub enum ObservationError {
     /// The observation path was empty.
     EmptyPath,
+    /// Persisted logical names must round-trip through UTF-8.
+    NonUtf8Path(PathBuf),
     /// Absolute host paths cannot become portable configure identities.
     AbsolutePath(PathBuf),
     /// `.` and `..` components are not canonical identities.
     NonCanonicalPath(PathBuf),
+    /// Environment names cannot contain NUL or `=` separators.
+    InvalidEnvironmentName(PathBuf),
+    /// A request payload is valid only for command-like observations.
+    InvalidRequest,
 }
 
 impl fmt::Display for ObservationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyPath => f.write_str("configure observation path is empty"),
+            Self::NonUtf8Path(path) => write!(
+                f,
+                "configure observation name `{}` is not valid UTF-8",
+                path.display()
+            ),
             Self::AbsolutePath(path) => write!(
                 f,
                 "configure observation path `{}` must be relative",
@@ -497,6 +1164,12 @@ impl fmt::Display for ObservationError {
                 "configure observation path `{}` is not canonical",
                 path.display()
             ),
+            Self::InvalidEnvironmentName(name) => write!(
+                f,
+                "configure environment name `{}` contains NUL or `=`",
+                name.display()
+            ),
+            Self::InvalidRequest => f.write_str("configure observation request is invalid"),
         }
     }
 }
@@ -511,17 +1184,24 @@ mod tests {
     fn manifest_is_sorted_and_deduplicated() {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Poison);
         let fingerprint = [7; 32];
-        manifest.push(
-            ConfigureObservation::new("src/b.nia", ObservationKind::FileContents, fingerprint)
-                .unwrap(),
-        );
-        manifest.push(
-            ConfigureObservation::new("src/a.nia", ObservationKind::FileContents, fingerprint)
-                .unwrap(),
-        );
-        manifest.push(
-            ConfigureObservation::new("src/b.nia", ObservationKind::FileContents, fingerprint)
-                .unwrap(),
+        manifest
+            .push(
+                ConfigureObservation::new("src/b.nia", ObservationKind::FileContents, fingerprint)
+                    .unwrap(),
+            )
+            .unwrap();
+        manifest
+            .push(
+                ConfigureObservation::new("src/a.nia", ObservationKind::FileContents, fingerprint)
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            manifest.push(
+                ConfigureObservation::new("src/b.nia", ObservationKind::FileContents, fingerprint)
+                    .unwrap(),
+            ),
+            Err(ObservationCodecError::Invalid)
         );
         assert_eq!(
             manifest
@@ -558,29 +1238,47 @@ mod tests {
         let observation =
             ConfigureObservation::new("src/main.nia", ObservationKind::FileContents, fingerprint)
                 .unwrap();
-        first.push(observation.clone());
-        second.push(observation);
+        first.push(observation.clone()).unwrap();
+        second.push(observation).unwrap();
         assert_eq!(first.fingerprint(), second.fingerprint());
-        second.push(
-            ConfigureObservation::new("options", ObservationKind::FileMetadata, fingerprint)
-                .unwrap(),
-        );
+        second
+            .push(
+                ConfigureObservation::new("options", ObservationKind::FileMetadata, fingerprint)
+                    .unwrap(),
+            )
+            .unwrap();
         assert_ne!(first.fingerprint(), second.fingerprint());
     }
 
     #[test]
     fn manifest_record_round_trips_and_rejects_damage() {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
-        manifest.push(
-            ConfigureObservation::new("src/main.nia", ObservationKind::FileContents, [9; 32])
-                .unwrap(),
-        );
+        manifest
+            .push(
+                ConfigureObservation::new("src/main.nia", ObservationKind::FileContents, [9; 32])
+                    .unwrap(),
+            )
+            .unwrap();
         let encoded = manifest.encode().unwrap();
         assert_eq!(ConfigureManifest::decode(&encoded).unwrap(), manifest);
         let mut damaged = encoded.clone();
         *damaged.last_mut().unwrap() ^= 1;
         assert_eq!(
             ConfigureManifest::decode(&damaged),
+            Err(ObservationCodecError::Invalid)
+        );
+
+        let record = &encoded[53..];
+        let mut payload = encoded[48..53].to_vec();
+        payload[..4].copy_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(record);
+        payload.extend_from_slice(record);
+        let mut duplicate = encoded[..16].to_vec();
+        duplicate[12..16].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        duplicate.extend_from_slice(blake3::hash(&payload).as_bytes());
+        duplicate.extend_from_slice(&payload);
+        assert_eq!(
+            ConfigureManifest::decode(&duplicate),
             Err(ObservationCodecError::Invalid)
         );
     }
@@ -601,7 +1299,7 @@ mod tests {
         let second = observe_file_contents(&root, "src/input").unwrap();
         assert_eq!(first, second);
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
-        observe_into(&mut manifest, first);
+        observe_into(&mut manifest, first).unwrap();
         assert!(!manifest.draft_payload().unwrap().is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -619,8 +1317,12 @@ mod tests {
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/input"), b"before").unwrap();
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
-        manifest.push(observe_file_contents(&root, "src/input").unwrap());
-        manifest.push(observe_directory_metadata(&root, "src").unwrap());
+        manifest
+            .push(observe_file_contents(&root, "src/input").unwrap())
+            .unwrap();
+        manifest
+            .push(observe_directory_metadata(&root, "src").unwrap())
+            .unwrap();
         assert_eq!(manifest.validate(&root), ObservationValidation::Match);
         std::fs::write(root.join("src/input"), b"after").unwrap();
         assert!(matches!(
@@ -639,6 +1341,68 @@ mod tests {
         let observation = observe_directory_metadata(&root, "src").unwrap();
         assert_eq!(observation.kind(), ObservationKind::DirectoryMetadata);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn presence_observations_record_absence_and_invalidate_when_created() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-observation-presence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("inputs")).unwrap();
+        let absent = observe_file_presence(&root, "inputs/options").unwrap();
+        assert_eq!(absent.kind(), ObservationKind::FilePresence);
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        manifest.push(absent).unwrap();
+        assert_eq!(manifest.validate(&root), ObservationValidation::Match);
+        std::fs::write(root.join("inputs/options"), b"enabled").unwrap();
+        assert!(matches!(
+            manifest.validate(&root),
+            ObservationValidation::Changed { ref path, kind: ObservationKind::FilePresence }
+                if path == std::path::Path::new("inputs/options")
+        ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn directory_presence_distinguishes_file_from_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-observation-directory-presence-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        manifest
+            .push(observe_directory_presence(&root, "optional").unwrap())
+            .unwrap();
+        assert_eq!(manifest.validate(&root), ObservationValidation::Match);
+        std::fs::write(root.join("optional"), b"file").unwrap();
+        assert!(matches!(
+            manifest.validate(&root),
+            ObservationValidation::Changed {
+                kind: ObservationKind::DirectoryPresence,
+                ..
+            }
+        ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn environment_observations_distinguish_absent_empty_and_changed_values() {
+        let name = format!("NIA_CONFIGURE_ENV_{}", std::process::id());
+        let absent =
+            observe_environment_value(PathBuf::from(&name), Err(std::env::VarError::NotPresent))
+                .unwrap();
+        let empty = observe_environment_value(PathBuf::from(&name), Ok(String::new())).unwrap();
+        let value =
+            observe_environment_value(PathBuf::from(&name), Ok(String::from("enabled"))).unwrap();
+        assert_ne!(absent.fingerprint(), empty.fingerprint());
+        assert_ne!(empty.fingerprint(), value.fingerprint());
+        assert_eq!(absent.kind(), ObservationKind::EnvironmentValue);
     }
 
     #[cfg(unix)]

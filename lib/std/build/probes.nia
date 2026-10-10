@@ -1,0 +1,425 @@
+// Bounded observations made while the host runner configures a build plan.
+
+using pkg::collections;
+using pkg::fs;
+using pkg::io::traits::Reader;
+using pkg::mem;
+using pkg::process;
+using pkg::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
+using pkg::build::types::Build;
+
+const maxObservationRecords: usize = 16384;
+const maxObservationBytes: usize = 16777216;
+const maxProbeFileBytes: usize = 1048576;
+const maxProbeDirectoryBytes: usize = 1048576;
+const maxProbeCommandBytes: usize = 65536;
+const maxProbeArguments: usize = 256;
+const probeGit: &[char] = &"git";
+
+extend Build {
+    pub fn attachEnvironment(&mut self, environment: process::Env) () {
+        self.environment = ?environment;
+    }
+
+    /// Reads and records a package-relative file using caller-owned bounded
+    /// storage. The probe fails when the file does not fit in `buffer`.
+    pub fn probeFile(&mut self, path: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
+        if buffer.len() > maxProbeFileBytes or self.configureObservationCount >= maxObservationRecords {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let relative = match path.relative() {
+            !value => value,
+            error! => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
+        };
+        let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
+        defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
+        let mut file = root.openFile(relative, fs::OpenOptions::readOnly()).withBuildContext(
+            Operation::Initialize,
+            Subject::BuildPlan,
+        ).?;
+        defer file.close().withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        let length = file.len().withBuildContext(Operation::Validate, Subject::BuildPlan).?;
+        if length > buffer.len() as u64 or length > maxProbeFileBytes as u64 {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let byteLength = length as usize;
+        let mut readBuffer: [u8; 4096] = [0; 4096];
+        let mut reader = file.reader(&mut readBuffer).withBuildContext(Operation::Initialize, Subject::BuildPlan).?;
+        reader.readExact(&mut buffer[0..byteLength]).withBuildContext(Operation::ExecuteCommand, Subject::BuildPlan).?;
+
+        let mut record = collections::ArrayList[u8]::initCapacity(self.allocator, 9 + path.text().len() * 4 + byteLength)
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer record.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        record.appendAssumeCapacity(0);
+        appendProbeU32(&mut record, self.allocator, pathUtf8Length(path.text()).? as u32).?;
+        appendProbeU32(&mut record, self.allocator, byteLength as u32).?;
+        appendProbePath(&mut record, self.allocator, path.text()).?;
+        record.appendSlice(self.allocator, &buffer[0..byteLength]).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        appendObservationRecord(self, &record).?;
+        !&buffer[0..byteLength]
+    }
+
+    /// Records whether a package-relative file path currently exists.
+    pub fn probeFilePresence(&mut self, path: fs::PathView) Error!bool {
+        if self.configureObservationCount >= maxObservationRecords {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let relative = match path.relative() {
+            !value => value,
+            error! => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
+        };
+        let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
+        defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
+        let state = match root.metadata(relative, fs::MetadataOptions::noFollow()) {
+            !metadata => if metadata.kind() == fs::FileKind::Directory { 2 } else if metadata.kind() == fs::FileKind::File { 1 } else { 3 },
+            .System { cause: .NotFound, operation: _ }! => 0,
+            error! => return error!.withBuildContext(Operation::Validate, Subject::BuildPlan)!,
+        };
+
+        let mut record = collections::ArrayList[u8]::initCapacity(self.allocator, 10 + path.text().len() * 4)
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer record.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        record.appendAssumeCapacity(1);
+        appendProbeU32(&mut record, self.allocator, pathUtf8Length(path.text()).? as u32).?;
+        appendProbeU32(&mut record, self.allocator, 1).?;
+        appendProbePath(&mut record, self.allocator, path.text()).?;
+        record.append(self.allocator, state).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        appendObservationRecord(self, &record).?;
+        !state == 1
+    }
+
+    /// Records the bounded direct entries of a package-relative directory.
+    /// Entry order is normalized by the host validator; names, file kinds,
+    /// and sizes are retained so the host can re-read the same fact.
+    pub fn probeDirectory(&mut self, path: fs::PathView, buffer: &mut [u8]) Error!() {
+        if buffer.len() > maxProbeDirectoryBytes
+            or self.configureObservationCount >= maxObservationRecords
+        {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let relative = match path.relative() {
+            !value => value,
+            error! => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
+        };
+        let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
+        defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
+        let mut directory = root.openDir(relative, fs::OpenDirOptions::noFollow()).withBuildContext(
+            Operation::Initialize,
+            Subject::BuildPlan,
+        ).?;
+        defer directory.close().withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        let mut entries = directory.entries(buffer).withBuildContext(Operation::Initialize, Subject::BuildPlan).?;
+        defer entries.close().withBuildContext(Operation::Release, Subject::BuildPlan).?;
+
+        let mut record = collections::ArrayList[u8]::initCapacity(
+            self.allocator,
+            13 + path.text().len() * 4,
+        ).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer record.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        appendProbeU32(&mut record, self.allocator, 0).?;
+        let countPosition = 0usize;
+        let mut count: usize = 0;
+        loop {
+            let entry = match entries.next() {
+                ?result => result.withBuildContext(Operation::Validate, Subject::BuildPlan).?,
+                null => break,
+            };
+            if entry.isDot() or entry.isDotDot() {
+                continue;
+            }
+            let name = entry.name();
+            if count >= maxObservationRecords or name.len() > maxProbeDirectoryBytes - 13
+                or record.len() > maxProbeDirectoryBytes - 13 - name.len()
+            {
+                return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+            }
+            let mut hasNul = false;
+            for &byte in name {
+                if byte == 0 {
+                    hasNul = true;
+                    break;
+                }
+            }
+            if name.len() == 0 or name.len() > maxProbeDirectoryBytes or hasNul {
+                return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+            }
+            count = match count.checkedAdd(1) {
+                ?value => value,
+                null => return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!,
+            };
+            appendProbeU32(&mut record, self.allocator, name.len() as u32).?;
+            record.appendSlice(self.allocator, name).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+            record.push(self.allocator, entry.kind() as u8)
+                .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+            appendProbeU64(&mut record, self.allocator, entry.size()).?;
+            if record.len() > maxProbeDirectoryBytes {
+                return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!;
+            }
+        }
+        if count > maxObservationRecords {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let countBytes: [u8; 4] = [count as u8, (count >> 8) as u8, (count >> 16) as u8, (count >> 24) as u8];
+        _ = (&mut record.asMutSlice()[countPosition..(countPosition + 4)]).copyFrom(&countBytes[..]);
+        let value = record.asSlice();
+        let mut envelope = collections::ArrayList[u8]::initCapacity(self.allocator, 9 + pathUtf8Length(path.text()).? + value.len())
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer envelope.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        envelope.appendAssumeCapacity(2);
+        appendProbeU32(&mut envelope, self.allocator, pathUtf8Length(path.text()).? as u32).?;
+        appendProbeU32(&mut envelope, self.allocator, value.len() as u32).?;
+        appendProbePath(&mut envelope, self.allocator, path.text()).?;
+        envelope.appendSlice(self.allocator, value).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        appendObservationRecord(self, &envelope).?;
+        !()
+    }
+
+    /// Records a UTF-8 environment value. Missing variables return `null` and
+    /// are still recorded as an explicit absent fact.
+    pub fn probeEnv(&mut self, name: &[char]) Error!?&[u8] {
+        if self.configureObservationCount >= maxObservationRecords {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let nameLength = pathUtf8Length(name).?;
+        if nameLength == 0 or nameLength > 32768 {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let mut nameBytes: [u8; 32768] = [0; 32768];
+        let mut nameCursor: usize = 0;
+        for &character in name {
+            if character.codepoint() == 0 or character == '=' {
+                return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+            }
+            for &byte in character.encodeUtf8().bytes() {
+                nameBytes[nameCursor] = byte;
+                nameCursor += 1;
+            }
+        }
+        let value = if self.environment is ?environment {
+            environment.find(&nameBytes[0..nameLength]).map[&[u8], _](
+                \entry: process::EnvVar -> entry.valueBytes(),
+            )
+        } else {
+            null
+        };
+        let present = if value is ?_ { true } else { false };
+        let valueBytes = match value {
+            ?bytes => bytes,
+            null => &nameBytes[0..0],
+        };
+        if valueBytes.len() >= 32768 {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let mut record = collections::ArrayList[u8]::initCapacity(
+            self.allocator,
+            9 + nameLength + valueBytes.len(),
+        ).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer record.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        record.appendAssumeCapacity(4);
+        appendProbeU32(&mut record, self.allocator, nameLength as u32).?;
+        appendProbeU32(
+            &mut record,
+            self.allocator,
+            (valueBytes.len() + 1) as u32,
+        ).?;
+        record.appendSlice(self.allocator, &nameBytes[0..nameLength]).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        record.push(self.allocator, if present { 1 } else { 0 }).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        if present {
+            match value {
+                ?bytes => record.appendSlice(self.allocator, bytes).withBuildContext(Operation::Retain, Subject::BuildPlan).?,
+                null => return .Internal(Operation::Encode)!,
+            }
+        }
+        appendObservationRecord(self, &record).?;
+        !value
+    }
+
+    /// Executes a bounded host command in the package root. Only stdout and
+    /// the exit status become evidence; stderr is intentionally discarded.
+    pub fn probeCommand(
+        &mut self,
+        command: fs::PathView,
+        arguments: &[&[char]],
+        buffer: &mut [u8],
+    ) Error!&[u8] {
+        if buffer.len() > maxProbeCommandBytes
+            or arguments.len() > maxProbeArguments
+            or self.configureObservationCount >= maxObservationRecords
+        {
+            return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+        }
+        let mut request = collections::ArrayList[u8]::initCapacity(
+            self.allocator,
+            4 + command.text().len() * 4 + arguments.len() * 8,
+        ).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer request.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        appendProbeText(&mut request, self.allocator, command.text()).?;
+        appendProbeU32(&mut request, self.allocator, arguments.len() as u32).?;
+        for &argument in arguments {
+            appendProbeText(&mut request, self.allocator, argument).?;
+        }
+        self.runProbe(command, arguments, &request, 5, buffer).?
+    }
+
+    /// Records `git status --porcelain=v1 --branch` from the package root.
+    pub fn probeGitState(&mut self, buffer: &mut [u8]) Error!&[u8] {
+        let arguments: [&[char]; 3] = [&"status", &"--porcelain=v1", &"--branch"];
+        let request = collections::ArrayList[u8]::initCapacity(self.allocator, 0)
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer request.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        self.runProbe(fs::PathView::init(probeGit), &arguments[..], &request, 6, buffer).?
+    }
+
+    /// Resolves a tool through the host environment and records its version.
+    pub fn probeTool(&mut self, name: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
+        let arguments: [&[char]; 1] = [&"--version"];
+        let mut request = collections::ArrayList[u8]::initCapacity(self.allocator, name.text().len() * 4)
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer request.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        for &character in name.text() {
+            request.appendSlice(self.allocator, character.encodeUtf8().bytes()).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        }
+        self.runProbe(name, &arguments[..], &request, 7, buffer).?
+    }
+
+    fn runProbe(
+        &mut self,
+        command: fs::PathView,
+        arguments: &[&[char]],
+        request: &collections::ArrayList[u8],
+        recordKind: u8,
+        buffer: &mut [u8],
+    ) Error!&[u8] {
+        let environment = match self.environment {
+            ?value => value,
+            null => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
+        };
+        let process = process::Command::init(command, environment)
+            .withArguments(arguments)
+            .withStdin(process::StdIo::Ignore)
+            .withStdout(process::StdIo::Pipe)
+            .withStderr(process::StdIo::Ignore);
+        let mut spawn = process.spawn();
+        let mut child = spawn.finish().withBuildContext(Operation::ExecuteCommand, Subject::BuildPlan).?;
+        let mut stdout = match child.takeStdout() {
+            ?value => value,
+            null => return .Invalid { operation: .ExecuteCommand, subject: Subject::BuildPlan }!,
+        };
+        let mut readerBuffer: [u8; 4096] = [0; 4096];
+        let mut reader = stdout.buffered(&mut readerBuffer);
+        let mut written: usize = 0;
+        loop {
+            if written == buffer.len() {
+                let mut one: [u8; 1] = [0; 1];
+                if reader.read(&mut one[..]).withBuildContext(Operation::ExecuteCommand, Subject::BuildPlan).? != 0 {
+                    return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+                }
+                break;
+            }
+            let count = reader.read(&mut buffer[written..]).withBuildContext(Operation::ExecuteCommand, Subject::BuildPlan).?;
+            if count == 0 { break; }
+            written += count;
+        }
+        stdout.close().withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        let term = child.wait().withBuildContext(Operation::ExecuteCommand, Subject::BuildPlan).?;
+        let mut value = collections::ArrayList[u8]::initCapacity(self.allocator, 16 + request.len() + written)
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer value.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        appendProbeU32(&mut value, self.allocator, request.len() as u32).?;
+        value.appendSlice(self.allocator, request.asSlice()).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        appendProbeU32(&mut value, self.allocator, term.exitCode() or -1).?;
+        appendProbeU32(&mut value, self.allocator, written as u32).?;
+        value.appendSlice(self.allocator, &buffer[0..written]).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        appendProbeU32(&mut value, self.allocator, 0).?;
+        let mut record = collections::ArrayList[u8]::initCapacity(self.allocator, 9 + command.text().len() * 4 + value.len())
+            .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        defer record.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        record.appendAssumeCapacity(recordKind);
+        appendProbeU32(&mut record, self.allocator, pathUtf8Length(command.text()).? as u32).?;
+        appendProbeU32(&mut record, self.allocator, value.len() as u32).?;
+        appendProbePath(&mut record, self.allocator, command.text()).?;
+        record.appendSlice(self.allocator, value.asSlice()).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        appendObservationRecord(self, &record).?;
+        !&buffer[0..written]
+    }
+}
+
+fn pathUtf8Length(text: &[char]) Error!usize {
+    let mut length: usize = 0;
+    for &ch in text {
+        length = match length.checkedAdd(ch.encodeUtf8().byteLen()) {
+            ?value => value,
+            null => return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!,
+        };
+    }
+    !length
+}
+
+fn appendProbePath(
+    bytes: &mut collections::ArrayList[u8],
+    allocator: &mut mem::Allocator,
+    text: &[char],
+) Error!() {
+    for &ch in text {
+        bytes.appendSlice(allocator, ch.encodeUtf8().bytes()).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+    }
+    !()
+}
+
+fn appendProbeText(
+    bytes: &mut collections::ArrayList[u8],
+    allocator: &mut mem::Allocator,
+    text: &[char],
+) Error!() {
+    let length = pathUtf8Length(text).?;
+    appendProbeU32(bytes, allocator, length as u32).?;
+    appendProbePath(bytes, allocator, text)
+}
+
+fn appendProbeU32(
+    bytes: &mut collections::ArrayList[u8],
+    allocator: &mut mem::Allocator,
+    value: u32,
+) Error!() {
+    let encoded: [u8; 4] = [
+        value as u8,
+        (value >> 8u32) as u8,
+        (value >> 16u32) as u8,
+        (value >> 24u32) as u8,
+    ];
+    bytes.appendSlice(allocator, &encoded[..]).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+    !()
+}
+
+fn appendProbeU64(
+    bytes: &mut collections::ArrayList[u8],
+    allocator: &mut mem::Allocator,
+    value: u64,
+) Error!() {
+    let encoded: [u8; 8] = [
+        value as u8,
+        (value >> 8u32) as u8,
+        (value >> 16u32) as u8,
+        (value >> 24u32) as u8,
+        (value >> 32u32) as u8,
+        (value >> 40u32) as u8,
+        (value >> 48u32) as u8,
+        (value >> 56u32) as u8,
+    ];
+    bytes.appendSlice(allocator, &encoded[..]).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+    !()
+}
+
+fn appendObservationRecord(build: &mut Build, record: &collections::ArrayList[u8]) Error!() {
+    let needed = match build.configureObservationBytes.len().checkedAdd(record.len()) {
+        ?value => value,
+        null => return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!,
+    };
+    if needed > maxObservationBytes - 16 {
+        return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!;
+    }
+    build.configureObservationBytes.appendSlice(build.allocator, record.asSlice())
+        .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+    build.configureObservationCount += 1;
+    !()
+}

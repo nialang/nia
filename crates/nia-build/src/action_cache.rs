@@ -253,15 +253,15 @@ impl GeneratedFileToolchainComponents {
             compiler: text_component(GENERATED_FILE_COMPILER_DOMAIN, identity.compiler_version()),
             resource_layout: integer_component(
                 GENERATED_FILE_RESOURCE_LAYOUT_DOMAIN,
-                identity.release_compatibility(),
+                identity.protocol_epoch(),
             ),
             standard_library: integer_component(
                 GENERATED_FILE_STANDARD_LIBRARY_DOMAIN,
-                identity.release_compatibility(),
+                identity.protocol_epoch(),
             ),
             build_protocol: integer_component(
                 GENERATED_FILE_BUILD_PROTOCOL_DOMAIN,
-                identity.release_compatibility(),
+                identity.protocol_epoch(),
             ),
         }
     }

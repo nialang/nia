@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Persistent cache records for validated configuration identities.
 
-use std::{fs, io, path::PathBuf};
+use std::{
+    fs,
+    io::{self, Read},
+    path::{Path, PathBuf},
+};
 
 use nia_compat::formats;
+use nia_query::FingerprintDomain;
 
-use crate::{BuildInvocation, ConfigureManifest, ObservationCodecError, ObservationValidation};
+use crate::{BuildInvocation, ConfigureManifest, ObservationValidation};
 
-const MAGIC: &[u8; 8] = b"NIACREC\0";
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+const INVOCATION_IDENTITY_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.invocation");
+const CONFIGURE_CACHE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.configure-cache");
 
 /// Inputs that determine whether a configured plan may be reused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +46,8 @@ pub struct ConfigureRecord {
 /// formatting and delimiter characters cannot change the identity contract.
 pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(b"nia.build.invocation\0\x01");
+    encoded.extend_from_slice(INVOCATION_IDENTITY_DOMAIN.as_str().as_bytes());
+    encoded.extend_from_slice(b"\0\x01");
     write_identity_field(&mut encoded, &invocation.package_source_fingerprint);
     write_identity_field(
         &mut encoded,
@@ -144,6 +153,21 @@ pub enum ConfigureCacheMissReason {
     Poisoned,
 }
 
+impl std::fmt::Display for ConfigureCacheMissReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => formatter.write_str("not found"),
+            Self::ObservationChanged { path } => {
+                write!(formatter, "observation changed: {}", path.display())
+            }
+            Self::ObservationMissing { path } => {
+                write!(formatter, "observation missing: {}", path.display())
+            }
+            Self::Poisoned => formatter.write_str("poisoned observation policy"),
+        }
+    }
+}
+
 /// Validated configure-cache lookup result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigureCacheLookup {
@@ -155,10 +179,24 @@ pub enum ConfigureCacheLookup {
 
 /// Reports whether a cache record exists for the runner/invocation pair,
 /// without treating an unknown observation set as a reusable plan.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigureCacheCandidate {
+    /// No matching record was found for the runner and invocation identity.
     None,
+    /// At least one record matched the runner and invocation identity.
     Present,
+    /// A matching record was found but could not be reused.
+    Miss(ConfigureCacheMissReason),
+}
+
+impl std::fmt::Display for ConfigureCacheCandidate {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => formatter.write_str("none"),
+            Self::Present => formatter.write_str("present"),
+            Self::Miss(reason) => write!(formatter, "miss: {reason}"),
+        }
+    }
 }
 
 impl ConfigureIdentity {
@@ -178,7 +216,8 @@ impl ConfigureIdentity {
     /// Returns the canonical cache key.
     pub fn key(&self) -> String {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"nia.build.configure-cache\0");
+        hasher.update(CONFIGURE_CACHE_DOMAIN.as_str().as_bytes());
+        hasher.update(b"\0");
         hasher.update(self.runner.as_bytes());
         hasher.update(&[0]);
         hasher.update(self.invocation.as_bytes());
@@ -204,11 +243,7 @@ impl ConfigureCache {
 
     fn path(&self, identity: &ConfigureIdentity) -> PathBuf {
         self.root
-            .join(
-                formats::CONFIGURE_MANIFEST
-                    .release_compatibility
-                    .to_string(),
-            )
+            .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string())
             .join(format!("{}.manifest", identity.key()))
     }
 
@@ -226,9 +261,14 @@ impl ConfigureCache {
             .map_err(|_| io::Error::other("configure plan too large"))?;
         let manifest_len = u32::try_from(manifest.len())
             .map_err(|_| io::Error::other("configure manifest too large"))?;
-        let mut bytes = Vec::with_capacity(8 + 4 + 4 + 32 + 4 + record.plan.len() + manifest.len());
-        bytes.extend_from_slice(MAGIC);
-        bytes.extend_from_slice(&1u32.to_le_bytes());
+        let total = HEADER_BYTES
+            .checked_add(record.plan.len())
+            .and_then(|size| size.checked_add(manifest.len()))
+            .filter(|size| *size <= MAX_RECORD_BYTES)
+            .ok_or_else(|| io::Error::other("configure record too large"))?;
+        let mut bytes = Vec::with_capacity(total);
+        bytes.extend_from_slice(formats::CONFIGURE_RECORD.magic);
+        bytes.extend_from_slice(&formats::CONFIGURE_RECORD.protocol_epoch.to_le_bytes());
         bytes.extend_from_slice(&plan_len.to_le_bytes());
         bytes.extend_from_slice(&manifest_len.to_le_bytes());
         bytes.extend_from_slice(&blake3::hash(&record.plan).as_bytes()[..]);
@@ -249,44 +289,7 @@ impl ConfigureCache {
     /// Reads and validates a manifest; corruption is reported as a cache miss.
     pub fn lookup(&self, identity: &ConfigureIdentity) -> io::Result<Option<ConfigureRecord>> {
         let path = self.path(identity);
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        if bytes.len() > MAX_RECORD_BYTES
-            || bytes.len() < HEADER_BYTES
-            || &bytes[..8] != MAGIC
-            || u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != 1
-        {
-            let _ = fs::remove_file(&path);
-            return Ok(None);
-        }
-        let plan_len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
-        let manifest_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
-        let payload_start = 52usize;
-        let plan_end = payload_start
-            .checked_add(plan_len)
-            .ok_or_else(|| io::Error::other("configure record overflow"))?;
-        let manifest_end = plan_end
-            .checked_add(manifest_len)
-            .ok_or_else(|| io::Error::other("configure record overflow"))?;
-        if manifest_end != bytes.len()
-            || bytes[20..52] != *blake3::hash(&bytes[payload_start..plan_end]).as_bytes()
-        {
-            let _ = fs::remove_file(&path);
-            return Ok(None);
-        }
-        match ConfigureManifest::decode(&bytes[plan_end..manifest_end]) {
-            Ok(manifest) => Ok(Some(ConfigureRecord {
-                plan: bytes[payload_start..plan_end].to_vec(),
-                manifest,
-            })),
-            Err(ObservationCodecError::Invalid | ObservationCodecError::TooLarge) => {
-                let _ = fs::remove_file(&path);
-                Ok(None)
-            }
-        }
+        read_record(&path)
     }
 
     /// Publishes a plan/manifest witness only after the plan has been decoded
@@ -378,12 +381,10 @@ impl ConfigureCache {
         invocation: &str,
         root: &std::path::Path,
     ) -> io::Result<ConfigureCacheLookup> {
-        let namespace_root = self.root.join(
-            formats::CONFIGURE_MANIFEST
-                .release_compatibility
-                .to_string(),
-        );
-        let entries = match fs::read_dir(&namespace_root) {
+        let namespace_root = self
+            .root
+            .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string());
+        let entries = match record_paths(&namespace_root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok(ConfigureCacheLookup::Miss(
@@ -393,29 +394,14 @@ impl ConfigureCache {
             Err(error) => return Err(error),
         };
         let mut poisoned = false;
-        for entry in entries {
-            let path = entry?.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("manifest") {
-                continue;
-            }
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
+        let mut changed = None;
+        let mut missing = None;
+        for path in entries {
+            let record = match read_record(&path) {
+                Ok(Some(record)) => record,
+                _ => continue,
             };
-            let Some(record_view) = decode_record(&bytes) else {
-                continue;
-            };
-            let manifest = match ConfigureManifest::decode(record_view.manifest) {
-                Ok(manifest) => manifest,
-                Err(_) => continue,
-            };
-            if manifest.policy() == crate::ObservationPolicy::Poison
-                || manifest.observations().is_empty()
-            {
-                poisoned = true;
-                continue;
-            }
-            let candidate = ConfigureIdentity::new(runner, invocation, &manifest);
+            let candidate = ConfigureIdentity::new(runner, invocation, &record.manifest);
             if candidate.key()
                 != path
                     .file_stem()
@@ -424,24 +410,29 @@ impl ConfigureCache {
             {
                 continue;
             }
-            let Some(record) = self.lookup(&candidate)? else {
+            if record.manifest.policy() == crate::ObservationPolicy::Poison
+                || record.manifest.observations().is_empty()
+            {
+                poisoned = true;
                 continue;
-            };
-            return Ok(match record.manifest.validate(root) {
-                crate::ObservationValidation::Match => ConfigureCacheLookup::Hit(record),
+            }
+            match record.manifest.validate(root) {
+                crate::ObservationValidation::Match => {
+                    return Ok(ConfigureCacheLookup::Hit(record));
+                }
                 crate::ObservationValidation::Changed { path, .. } => {
-                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged {
-                        path,
-                    })
+                    changed.get_or_insert(path);
                 }
                 crate::ObservationValidation::Missing { path, .. } => {
-                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationMissing {
-                        path,
-                    })
+                    missing.get_or_insert(path);
                 }
-            });
+            }
         }
-        Ok(ConfigureCacheLookup::Miss(if poisoned {
+        Ok(ConfigureCacheLookup::Miss(if let Some(path) = changed {
+            ConfigureCacheMissReason::ObservationChanged { path }
+        } else if let Some(path) = missing {
+            ConfigureCacheMissReason::ObservationMissing { path }
+        } else if poisoned {
             ConfigureCacheMissReason::Poisoned
         } else {
             ConfigureCacheMissReason::NotFound
@@ -456,35 +447,22 @@ impl ConfigureCache {
         runner: &str,
         invocation: &str,
     ) -> io::Result<ConfigureCacheCandidate> {
-        let root = self.root.join(
-            formats::CONFIGURE_MANIFEST
-                .release_compatibility
-                .to_string(),
-        );
-        let entries = match fs::read_dir(root) {
+        let root = self
+            .root
+            .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string());
+        let entries = match record_paths(&root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok(ConfigureCacheCandidate::None);
             }
             Err(error) => return Err(error),
         };
-        for entry in entries {
-            let path = entry?.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("manifest") {
-                continue;
-            }
-            let bytes = match fs::read(&path) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
+        for path in entries {
+            let record = match read_record(&path) {
+                Ok(Some(record)) => record,
+                _ => continue,
             };
-            let Some(record) = decode_record(&bytes) else {
-                continue;
-            };
-            let manifest = match ConfigureManifest::decode(record.manifest) {
-                Ok(manifest) => manifest,
-                Err(_) => continue,
-            };
-            let candidate = ConfigureIdentity::new(runner, invocation, &manifest);
+            let candidate = ConfigureIdentity::new(runner, invocation, &record.manifest);
             if candidate.key()
                 == path
                     .file_stem()
@@ -498,24 +476,62 @@ impl ConfigureCache {
     }
 }
 
-fn decode_record(bytes: &[u8]) -> Option<ConfigureRecordView<'_>> {
-    if bytes.len() < HEADER_BYTES || &bytes[..8] != MAGIC {
+fn record_paths(root: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file()
+            && entry.path().extension().and_then(|value| value.to_str()) == Some("manifest")
+        {
+            paths.push(entry.path());
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+fn read_record(path: &Path) -> io::Result<Option<ConfigureRecord>> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > MAX_RECORD_BYTES as u64 {
+        let _ = fs::remove_file(path);
+        return Ok(None);
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_RECORD_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    let record = decode_record(&bytes);
+    if record.is_none() {
+        let _ = fs::remove_file(path);
+    }
+    Ok(record)
+}
+
+fn decode_record(bytes: &[u8]) -> Option<ConfigureRecord> {
+    if bytes.len() < HEADER_BYTES
+        || bytes.len() > MAX_RECORD_BYTES
+        || &bytes[..8] != formats::CONFIGURE_RECORD.magic
+        || bytes[8..12] != formats::CONFIGURE_RECORD.protocol_epoch.to_le_bytes()
+    {
         return None;
     }
     let plan_len = u32::from_le_bytes(bytes[12..16].try_into().ok()?) as usize;
     let manifest_len = u32::from_le_bytes(bytes[16..20].try_into().ok()?) as usize;
-    let plan_end = 52usize.checked_add(plan_len)?;
+    let plan_end = HEADER_BYTES.checked_add(plan_len)?;
     let end = plan_end.checked_add(manifest_len)?;
-    if end != bytes.len() || bytes[20..52] != *blake3::hash(&bytes[52..plan_end]).as_bytes() {
+    if end != bytes.len()
+        || bytes[20..HEADER_BYTES] != *blake3::hash(bytes.get(HEADER_BYTES..plan_end)?).as_bytes()
+    {
         return None;
     }
-    Some(ConfigureRecordView {
-        manifest: &bytes[plan_end..end],
+    Some(ConfigureRecord {
+        plan: bytes[HEADER_BYTES..plan_end].to_vec(),
+        manifest: ConfigureManifest::decode(&bytes[plan_end..end]).ok()?,
     })
-}
-
-struct ConfigureRecordView<'a> {
-    manifest: &'a [u8],
 }
 
 #[cfg(test)]
@@ -526,15 +542,19 @@ mod tests {
     #[test]
     fn identity_changes_with_invocation_and_observations() {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Poison);
-        manifest.push(
-            ConfigureObservation::new("input", ObservationKind::FileContents, [1; 32]).unwrap(),
-        );
+        manifest
+            .push(
+                ConfigureObservation::new("input", ObservationKind::FileContents, [1; 32]).unwrap(),
+            )
+            .unwrap();
         let first = ConfigureIdentity::new("runner-a", "target-a", &manifest).key();
         let second = ConfigureIdentity::new("runner-a", "target-b", &manifest).key();
         assert_ne!(first, second);
-        manifest.push(
-            ConfigureObservation::new("other", ObservationKind::FileContents, [1; 32]).unwrap(),
-        );
+        manifest
+            .push(
+                ConfigureObservation::new("other", ObservationKind::FileContents, [1; 32]).unwrap(),
+            )
+            .unwrap();
         assert_ne!(
             first,
             ConfigureIdentity::new("runner-a", "target-a", &manifest).key()
@@ -554,9 +574,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let cache = ConfigureCache { root: root.clone() };
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Poison);
-        manifest.push(
-            ConfigureObservation::new("build.nia", ObservationKind::FileContents, [4; 32]).unwrap(),
-        );
+        manifest
+            .push(
+                ConfigureObservation::new("build.nia", ObservationKind::FileContents, [4; 32])
+                    .unwrap(),
+            )
+            .unwrap();
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
         let record = ConfigureRecord {
             plan: b"validated-plan".to_vec(),
@@ -615,7 +638,7 @@ mod tests {
         std::fs::write(checkout.join("input"), b"before").unwrap();
         let observation = crate::observe_file_contents(&checkout, "input").unwrap();
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
-        manifest.push(observation);
+        manifest.push(observation).unwrap();
         let cache_root = checkout.join("cache");
         let cache = ConfigureCache { root: cache_root };
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
@@ -638,6 +661,203 @@ mod tests {
             ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged { .. })
         ));
         std::fs::remove_dir_all(checkout).unwrap();
+    }
+
+    #[test]
+    fn presence_observations_invalidate_create_and_remove_transitions() {
+        let checkout = std::env::temp_dir().join(format!(
+            "nia-configure-presence-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&checkout).unwrap();
+        let cache = ConfigureCache {
+            root: checkout.join("cache"),
+        };
+
+        let absent = crate::observe_file_presence(&checkout, "optional/input").unwrap();
+        let mut absent_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        absent_manifest.push(absent).unwrap();
+        let absent_identity = ConfigureIdentity::new("runner", "invocation", &absent_manifest);
+        cache
+            .publish(
+                &absent_identity,
+                &ConfigureRecord {
+                    plan: b"absent".to_vec(),
+                    manifest: absent_manifest,
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            cache.lookup_validated(&absent_identity, &checkout).unwrap(),
+            ConfigureCacheLookup::Hit(_)
+        ));
+
+        std::fs::create_dir_all(checkout.join("optional")).unwrap();
+        std::fs::write(checkout.join("optional/input"), b"present").unwrap();
+        assert!(matches!(
+            cache.lookup_validated(&absent_identity, &checkout).unwrap(),
+            ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged { .. })
+        ));
+        std::fs::remove_file(checkout.join("optional/input")).unwrap();
+        assert!(matches!(
+            cache.lookup_validated(&absent_identity, &checkout).unwrap(),
+            ConfigureCacheLookup::Hit(_)
+        ));
+
+        std::fs::write(checkout.join("optional/input"), b"present").unwrap();
+        let present = crate::observe_file_presence(&checkout, "optional/input").unwrap();
+        let mut present_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        present_manifest.push(present).unwrap();
+        let present_identity = ConfigureIdentity::new("runner", "invocation", &present_manifest);
+        cache
+            .publish(
+                &present_identity,
+                &ConfigureRecord {
+                    plan: b"present".to_vec(),
+                    manifest: present_manifest,
+                },
+            )
+            .unwrap();
+        std::fs::remove_file(checkout.join("optional/input")).unwrap();
+        assert!(matches!(
+            cache
+                .lookup_validated(&present_identity, &checkout)
+                .unwrap(),
+            ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged { .. })
+        ));
+        std::fs::remove_dir_all(checkout).unwrap();
+    }
+
+    #[test]
+    fn reusable_lookup_skips_changed_history_and_finds_valid_candidate() {
+        let checkout = std::env::temp_dir().join(format!(
+            "nia-configure-candidates-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&checkout).unwrap();
+        std::fs::create_dir_all(checkout.join("inputs")).unwrap();
+        std::fs::write(checkout.join("inputs/changed"), b"before").unwrap();
+        std::fs::write(checkout.join("inputs/valid"), b"stable").unwrap();
+        let cache = ConfigureCache {
+            root: checkout.join("cache"),
+        };
+
+        let changed_observation =
+            crate::observe_file_contents(&checkout, "inputs/changed").unwrap();
+        let mut changed_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        changed_manifest.push(changed_observation).unwrap();
+        let changed_identity = ConfigureIdentity::new("runner", "invocation", &changed_manifest);
+        cache
+            .publish(
+                &changed_identity,
+                &ConfigureRecord {
+                    plan: b"changed".to_vec(),
+                    manifest: changed_manifest,
+                },
+            )
+            .unwrap();
+
+        let valid_observation = crate::observe_file_contents(&checkout, "inputs/valid").unwrap();
+        let mut valid_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        valid_manifest.push(valid_observation).unwrap();
+        let valid_identity = ConfigureIdentity::new("runner", "invocation", &valid_manifest);
+        cache
+            .publish(
+                &valid_identity,
+                &ConfigureRecord {
+                    plan: b"valid".to_vec(),
+                    manifest: valid_manifest,
+                },
+            )
+            .unwrap();
+
+        std::fs::write(checkout.join("inputs/changed"), b"after").unwrap();
+        let lookup = cache
+            .lookup_reusable("runner", "invocation", &checkout)
+            .unwrap();
+        assert!(matches!(
+            lookup,
+            ConfigureCacheLookup::Hit(ConfigureRecord { plan, .. }) if plan == b"valid"
+        ));
+        std::fs::remove_dir_all(checkout).unwrap();
+    }
+
+    #[test]
+    fn environment_observations_invalidate_absent_empty_and_changed_values() {
+        use nia_test_support::CommandExt;
+
+        let checkout = nia_test_support::test_dir("configure-environment");
+        for value in [None, Some(""), Some("enabled"), Some("changed"), None] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "configure_cache::tests::environment_cache_worker",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("NIA_TEST_CONFIGURE_ENV_ROOT", checkout.as_ref() as &Path);
+            match value {
+                Some(value) => {
+                    command.env("NIA_TEST_CONFIGURE_ENV", value);
+                }
+                None => {
+                    command.env_remove("NIA_TEST_CONFIGURE_ENV");
+                }
+            }
+            let output = command.output_timeout_for_runtime("configure environment cache worker");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "spawned with isolated environment by the cache test"]
+    fn environment_cache_worker() {
+        let checkout = PathBuf::from(std::env::var_os("NIA_TEST_CONFIGURE_ENV_ROOT").unwrap());
+        let cache = ConfigureCache {
+            root: checkout.join("cache"),
+        };
+        let name = "NIA_TEST_CONFIGURE_ENV";
+        let current = crate::observe_environment(name).unwrap();
+        if let Some(previous) = read_record(&checkout.join("previous.manifest")).unwrap() {
+            let identity = ConfigureIdentity::new("runner", "invocation", &previous.manifest);
+            let expected = if previous.manifest.observations()[0] == current {
+                ConfigureCacheLookup::Hit(previous.clone())
+            } else {
+                ConfigureCacheLookup::Miss(ConfigureCacheMissReason::ObservationChanged {
+                    path: PathBuf::from(name),
+                })
+            };
+            assert_eq!(
+                cache.lookup_validated(&identity, &checkout).unwrap(),
+                expected
+            );
+        }
+        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        manifest.push(current).unwrap();
+        let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
+        let record = ConfigureRecord {
+            plan: b"plan".to_vec(),
+            manifest,
+        };
+        cache.publish(&identity, &record).unwrap();
+        assert_eq!(
+            cache.lookup_validated(&identity, &checkout).unwrap(),
+            ConfigureCacheLookup::Hit(record)
+        );
+        fs::copy(cache.path(&identity), checkout.join("previous.manifest")).unwrap();
     }
 
     #[test]
@@ -672,5 +892,27 @@ mod tests {
             ConfigureCacheLookup::Miss(ConfigureCacheMissReason::Poisoned)
         ));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn configure_miss_reasons_have_stable_text() {
+        assert_eq!(
+            ConfigureCacheMissReason::ObservationChanged {
+                path: PathBuf::from("inputs/options"),
+            }
+            .to_string(),
+            "observation changed: inputs/options"
+        );
+        assert_eq!(
+            ConfigureCacheMissReason::Poisoned.to_string(),
+            "poisoned observation policy"
+        );
+        assert_eq!(
+            ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::ObservationMissing {
+                path: PathBuf::from("inputs/options"),
+            })
+            .to_string(),
+            "miss: observation missing: inputs/options"
+        );
     }
 }

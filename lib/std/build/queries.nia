@@ -1,7 +1,6 @@
 // Read-only lookups over retained build records.
 //
-// Build keeps the receiver methods as a small compatibility surface, while
-// the record scans live here so query policy is independent from mutation.
+// Record scans live here so query policy stays independent from mutation.
 
 using pkg::build::types;
 

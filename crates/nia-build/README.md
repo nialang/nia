@@ -31,7 +31,7 @@ edges without loading source modules.
 
 The runner wrapper remains owned by `nia-build`, rather than becoming part of
 the public `std::build` API, because it is a private protocol bootstrap: it
-binds runner-config and plan compatibility identities, cache inputs, and the
+binds runner-config and plan protocol identities, cache inputs, and the
 host invocation lifecycle. Build scripts need only the stable graph-building
 types and operations exposed by `std::build`; exposing the wrapper would make
 compiler/build transport details part of the language-visible API.
@@ -127,10 +127,11 @@ It grows a list only after each item has consumed and validated its bytes, so a
 truncated count prefix cannot amplify a tiny draft into `count * size_of(T)` of
 host allocation.
 
-The registered compatibility identities in `nia-compat` are the only schema
-and namespace authorities. Changing an encoded field or persistent cache input
+The registered protocol identities in `nia-compat` are the only schema and
+namespace authorities. Changing an encoded field or persistent cache input
 requires the corresponding registered schema or owner-local fingerprint domain
-to advance.
+to advance. The epoch identifies the current wire contracts; it does not promise
+to read or migrate data from an earlier Nia version.
 
 ## Execution And Publication
 
@@ -151,6 +152,26 @@ current package root and its plan decodes through semantic freeze; corrupt,
 missing, or changed observations fall back to normal runner configuration.
 `build-plan.bin` remains a durable observation, never an unchecked execution
 input.
+
+Filesystem observation records distinguish content, metadata, directory
+entries, and presence. Presence observations preserve an absent optional path
+as a cacheable fact; creating, removing, or changing its entry kind invalidates
+the configuration. Existing ancestors must resolve inside the package root,
+including when several trailing path components are absent. Unresolvable
+symlinks and unreadable paths remain errors rather than recorded absence.
+Environment observations use the same explicit-absence rule and reject
+non-UTF-8 values instead of silently changing the cache identity.
+The runner now transports bounded file-content, file-presence, directory, and
+environment evidence in
+the draft envelope. `Build::probeFile` requires caller-owned bounded storage;
+the host re-reads the reported bytes under the package-root boundary before
+canonicalizing them into the BLAKE3 manifest. `Build::probeFilePresence`
+records absent, file, directory, and other-entry states. Environment records
+distinguish absent and empty values. Malformed records, path escapes, oversized
+values, duplicate facts, and read-after-run changes are rejected and cannot
+enter the configure cache. Command, Git, and tool probes are reserved for the
+next protocol addition because they require a separate executable identity
+record rather than being smuggled into filesystem observations.
 
 For maintenance and CI, `nia build --dry-run` validates the selected closure
 without executing coordinator actions. `--print-plan`, `--explain`,

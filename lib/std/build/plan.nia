@@ -496,7 +496,7 @@ extend PlanEncoder {
 
     fn writeBuild(&mut self, build: &Build) Error!() {
         self.writeBytes(&b"NIA-PLN\0"[..]).?;
-        self.writeU32(build.planSchemaVersion).?;
+        self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;
         self.writeCount(packageCount).?;
@@ -558,30 +558,37 @@ extend Build {
         self.planEncoding = encoder.intoBytes();
         operation.?;
 
-        // The first version of the draft envelope carries an empty observation
-        // section. Host-side decoding still validates the nested canonical plan
-        // and leaves room for typed observations to be added without changing
-        // the plan codec.
+        // Runner evidence stays opaque to the plan protocol. The host validates
+        // every bounded fact before it can participate in configure reuse.
         let planBytes = self.planEncoding.asSlice();
         let planLength = planBytes.len();
         if planLength > u32::MAX as usize {
             return invalidPlan();
         }
+        let mut observations: collections::ArrayList[u8] = collections::ArrayList[u8]::init();
+        defer observations.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
+        observations.appendSlice(self.allocator, &b"NIAOBS\0\0"[..]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+        appendDraftU32(&mut observations, self.allocator, self.protocolEpoch).?;
+        appendDraftU32(&mut observations, self.allocator, self.configureObservationCount as u32).?;
+        observations.appendSlice(self.allocator, self.configureObservationBytes.asSlice()).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+        let observationLength = observations.len();
+        if observationLength > u32::MAX as usize {
+            return invalidPlan();
+        }
         let mut envelope: collections::ArrayList[u8] = collections::ArrayList[u8]::init();
+        defer envelope.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
         envelope.appendSlice(self.allocator, draftMagic).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
         envelope.appendSlice(self.allocator, &[
             planLength as u8,
             (planLength >> 8) as u8,
             (planLength >> 16) as u8,
             (planLength >> 24) as u8,
-            0,
-            0,
-            0,
-            0,
+            observationLength as u8,
+            (observationLength >> 8) as u8,
+            (observationLength >> 16) as u8,
+            (observationLength >> 24) as u8,
         ]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
-        // Record the runner's package root as an initial typed observation.
-        // This is deliberately metadata-only; future probe APIs append their
-        // canonical records to the same bounded section.
+        // The host checks the draft checksum before validating runner evidence.
         let mut checksumFirst: u32 = 1;
         let mut checksumSecond: u32 = 0;
         for &byte in planBytes.iter() {
@@ -605,6 +612,8 @@ extend Build {
         envelope.appendSlice(self.allocator, &checksumBytes[..]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
         envelope.appendSlice(self.allocator, planBytes).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
 
+        envelope.appendSlice(self.allocator, observations.asSlice()).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+
         let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).withBuildContext(Operation::Publish, Subject::BuildPlan).?;
         let mut primary: ?Error = null;
         let mut buffer: [u8; 4096] = [0; 4096];
@@ -627,9 +636,23 @@ extend Build {
         if primary is ?error {
             return error!;
         }
-        _ = envelope.deinit(self.allocator);
         return self.cleanupPlanEncoding();
     }
+}
+
+fn appendDraftU32(
+    bytes: &mut collections::ArrayList[u8],
+    allocator: &mut mem::Allocator,
+    value: u32,
+) Error!() {
+    let encoded: [u8; 4] = [
+        value as u8,
+        (value >> 8u32) as u8,
+        (value >> 16u32) as u8,
+        (value >> 24u32) as u8,
+    ];
+    bytes.appendSlice(allocator, &encoded[..]).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
+    !()
 }
 
 fn utf8Length(text: &[char]) Error!usize {

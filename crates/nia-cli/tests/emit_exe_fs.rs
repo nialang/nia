@@ -2440,6 +2440,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::ExitCode(3)!;
         },
     }
+    first.truncate(3u64).?;
     match first.close() {
         !ok => {
             _ = ok;
@@ -2458,6 +2459,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             return process::ExitCode(5)!;
         },
     }
+    second.truncate(4294967303u64).?;
     match second.close() {
         !ok => {
             _ = ok;
@@ -2506,8 +2508,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 return process::ExitCode(9)!;
             }
             if bytes_equal(value.name(), &b"alpha.txt") {
+                if value.size() != 3u64 {
+                    return process::ExitCode(18)!;
+                }
                 saw_alpha = true;
             } else if bytes_equal(value.name(), &b"beta.txt") {
+                if value.size() != 4294967303u64 {
+                    return process::ExitCode(19)!;
+                }
                 saw_beta = true;
             }
         }

@@ -65,7 +65,7 @@ pub struct FileMetadata {
     mtime: Timestamp,
     ctime: ?Timestamp,
 }
-pub struct DirectoryEntry { kind: FileKind, name: &[u8] }
+pub struct DirectoryEntry { kind: FileKind, name: &[u8], size: u64 }
 
 // A Windows HANDLE is pointer-sized. Keeping it opaque prevents accidental
 // arithmetic in the facade while retaining a stable raw value for the ABI.
@@ -117,12 +117,13 @@ extend FileMetadata {
 }
 
 extend DirectoryEntry {
-    pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
-        .{ kind, name }
+    pub fn init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry {
+        .{ kind, name, size }
     }
 
     pub fn kind(&self) FileKind { self.kind }
     pub fn name(&self) &[u8] { self.name }
+    pub fn size(&self) u64 { self.size }
 }
 
 extend ProcessId {

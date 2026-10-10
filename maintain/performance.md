@@ -299,7 +299,7 @@ default. Raw evidence is retained under
 `target/nia-perf/lto-formal-20260921-7f36ss/`.
 
 Generated build runners use content-addressed
-`.nia-cache/runner/release/<key>.cache` records. The release namespace and
+`.nia-cache/runner/protocol/<key>.cache` records. The protocol namespace and
 registered payload identity are owned by `nia-compat`; there is no
 runner-local schema version. The key includes the generated source, build-script bytes, standard
 library source tree, toolchain identity, host target, profile, test mode, and

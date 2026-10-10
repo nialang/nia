@@ -48,6 +48,7 @@ mod report;
 mod resources;
 mod runner_cache;
 mod runner_config;
+mod runner_observation;
 
 use process_output::{
     CaptureFailure, CapturedStream, StreamCapture, capture_stream, join_capture_tail,
@@ -64,12 +65,14 @@ pub use configure_cache::{
 pub use configure_observation::{
     ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,
     ObservationKind, ObservationPolicy, ObservationValidation, observe_directory_contents,
-    observe_directory_metadata, observe_file_contents, observe_into, observe_metadata,
+    observe_directory_metadata, observe_directory_presence, observe_environment,
+    observe_file_contents, observe_file_presence, observe_into, observe_metadata,
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
 pub use output_recovery::OutputRecoveryError;
 pub use report::{render_build_error, render_build_error_json};
+pub(crate) use runner_observation::decode_and_validate_runner_observations;
 
 /// Inputs and policy knobs for resolving and running one build invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,6 +288,8 @@ pub struct BuildInvocation {
     pub package_root: PathBuf,
     /// Relocation-independent local package source identity.
     pub package_source_fingerprint: [u8; 32],
+    /// Package selection report shown by build inspection.
+    pub package_graph_report: nia_package_metadata::LocalPackageGraphReport,
     /// Physical path to the package's `build.nia` source.
     pub build_script: PathBuf,
     /// Invocation-local build output directory.
@@ -373,7 +378,7 @@ pub enum BuildError {
     ResolvePackageGraph {
         /// Package root where graph resolution began.
         path: PathBuf,
-        /// Underlying manifest, path, compatibility, or graph error.
+        /// Underlying manifest, path, protocol identity, or graph error.
         error: io::Error,
     },
     /// A path required by generated runner source is not valid UTF-8.
@@ -449,6 +454,14 @@ pub enum BuildError {
         path: PathBuf,
         /// Underlying bounded handoff error.
         error: PlanHandoffError,
+    },
+    /// Runner configuration evidence was malformed or did not match the
+    /// package and environment values observed during configuration.
+    RunnerObservations {
+        /// Build-plan draft carrying the evidence.
+        path: PathBuf,
+        /// Evidence validation failure.
+        error: io::Error,
     },
     /// Durably publishing the canonical frozen plan failed.
     PublishBuildPlan {
@@ -586,6 +599,11 @@ impl fmt::Display for BuildError {
                 "failed to read build-plan draft `{}`: {error}",
                 path.display()
             ),
+            Self::RunnerObservations { path, error } => write!(
+                f,
+                "failed to validate runner observations in `{}`: {error}",
+                path.display()
+            ),
             Self::PublishBuildPlan { path, error } => write!(
                 f,
                 "failed to publish canonical build plan `{}`: {error}",
@@ -663,13 +681,14 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
             let (runner_executable, runner_cache_key) = runner?;
-            let configure_candidate =
+            let mut configure_candidate =
                 match configure_cache_candidate(&invocation, &runner_cache_key) {
                     Ok(ConfigureCacheCandidate::Present) => {
                         nia_timing::emit_counter("build.configure_cache_candidates", 1);
                         ConfigureCacheCandidate::Present
                     }
                     Ok(ConfigureCacheCandidate::None) => ConfigureCacheCandidate::None,
+                    Ok(candidate @ ConfigureCacheCandidate::Miss(_)) => candidate,
                     Err(_) => ConfigureCacheCandidate::None,
                 };
             let reusable = ConfigureCache::new(&invocation)
@@ -678,6 +697,13 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                     &invocation_identity(&invocation),
                     &invocation.package_root,
                 )
+                .inspect(|lookup| {
+                    if let ConfigureCacheLookup::Miss(reason) = lookup
+                        && !matches!(reason, ConfigureCacheMissReason::NotFound)
+                    {
+                        configure_candidate = ConfigureCacheCandidate::Miss(reason.clone());
+                    }
+                })
                 .ok();
             let mut runner_reused = false;
             let draft = match reusable {
@@ -744,14 +770,19 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                         render_build_explanation_json(
                             &plan,
                             &invocation,
-                            configure_candidate,
+                            configure_candidate.clone(),
                             &preview,
                         )
                     );
                 } else {
                     print!(
                         "{}",
-                        render_build_explanation(&plan, &invocation, configure_candidate, &preview)
+                        render_build_explanation(
+                            &plan,
+                            &invocation,
+                            configure_candidate.clone(),
+                            &preview,
+                        )
                     );
                 }
             }
@@ -773,8 +804,8 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                     );
                 } else {
                     println!(
-                        "configure cache: {:?}; runner {}",
-                        configure_candidate,
+                        "configure cache: {}; runner {}",
+                        configure_candidate.clone(),
                         if runner_reused { "reused" } else { "executed" }
                     );
                 }
@@ -896,9 +927,31 @@ pub fn render_build_explanation(
         "  package graph fingerprint: {}",
         hex_fingerprint(&invocation.package_source_fingerprint)
     );
+    let graph = &invocation.package_graph_report;
     let _ = writeln!(
         output,
-        "  configure cache candidate: {:?}",
+        "  package graph selection: tests={}, optional={}, lazy={}",
+        graph.options.include_tests, graph.options.include_optional, graph.options.include_lazy
+    );
+    let _ = writeln!(
+        output,
+        "  package graph: declared={}, resolved={}",
+        graph.declared.len(),
+        graph.resolved.len()
+    );
+    for dependency in &graph.declared {
+        let _ = writeln!(
+            output,
+            "    {}::{} ({:?}) -> {}",
+            dependency.owner_root,
+            dependency.dependency.name,
+            dependency.dependency.class,
+            dependency.resolved_root.as_deref().unwrap_or("filtered")
+        );
+    }
+    let _ = writeln!(
+        output,
+        "  configure cache candidate: {}",
         configure_candidate
     );
     let _ = writeln!(
@@ -945,7 +998,7 @@ fn render_configure_observations(bytes: &[u8]) -> String {
         for observation in manifest.observations() {
             let _ = writeln!(
                 output,
-                "  {:?} {} {}",
+                "  {} {} {}",
                 observation.kind(),
                 observation.path().display(),
                 hex_fingerprint(observation.fingerprint())
@@ -1023,7 +1076,21 @@ pub fn render_build_explanation_json(
         "kind": "build-explanation",
         "package_root": invocation.package_root.to_string_lossy(),
         "package_graph_fingerprint": hex_fingerprint(&invocation.package_source_fingerprint),
-        "configure_cache_candidate": format!("{configure_candidate:?}"),
+        "package_graph": {
+            "selection": {
+                "tests": invocation.package_graph_report.options.include_tests,
+                "optional": invocation.package_graph_report.options.include_optional,
+                "lazy": invocation.package_graph_report.options.include_lazy,
+            },
+            "declared": invocation.package_graph_report.declared.iter().map(|dependency| serde_json::json!({
+                "owner": &dependency.owner_root,
+                "name": &dependency.dependency.name,
+                "class": format!("{:?}", dependency.dependency.class),
+                "resolved_root": dependency.resolved_root.as_deref(),
+            })).collect::<Vec<_>>(),
+            "resolved_count": invocation.package_graph_report.resolved.len(),
+        },
+        "configure_cache_candidate": configure_candidate.to_string(),
         "selected_step": plan.selected_step().or_else(|| plan.default_step()).map(StepKey::name),
         "targets": { "host": plan.host_target().name(), "artifact": plan.artifact_target().name() },
         "closure": { "steps": preview.steps.len(), "actions": actions },
@@ -1035,7 +1102,7 @@ pub fn render_build_explanation_json(
 fn render_configure_cache_json(candidate: ConfigureCacheCandidate, runner_reused: bool) -> String {
     serde_json::json!({
         "kind": "configure-cache",
-        "candidate": format!("{candidate:?}"),
+        "candidate": candidate.to_string(),
         "runner": if runner_reused { "reused" } else { "executed" },
     })
     .to_string()
@@ -1049,7 +1116,7 @@ fn render_configure_observations_json(bytes: &[u8]) -> String {
             "policy": format!("{:?}", manifest.policy()),
             "observations": manifest.observations().iter().map(|observation| serde_json::json!({
                 "path": observation.path().to_string_lossy(),
-                "kind": format!("{:?}", observation.kind()),
+                "kind": observation.kind().to_string(),
                 "fingerprint": hex_fingerprint(observation.fingerprint()),
             })).collect::<Vec<_>>(),
         }),
@@ -1252,6 +1319,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         build_dir,
         package_root,
         package_source_fingerprint: package_graph.fingerprint(),
+        package_graph_report: package_graph.report(),
         build_script,
         step: if request.test_mode {
             BuildStepSelection::Tests
@@ -1301,14 +1369,12 @@ fn build_runner_source_for_path(
     let source = BUILD_RUNNER_TEMPLATE.to_owned();
     let source = source
         .replace(
-            "__NIA_RUNNER_CONFIG_COMPATIBILITY__",
-            &RUNNER_CONFIG.release_compatibility.to_string(),
+            "__NIA_RUNNER_CONFIG_PROTOCOL_EPOCH__",
+            &RUNNER_CONFIG.protocol_epoch.to_string(),
         )
         .replace(
-            "__NIA_BUILD_PLAN_COMPATIBILITY__",
-            &nia_compat::formats::BUILD_PLAN
-                .release_compatibility
-                .to_string(),
+            "__NIA_BUILD_PROTOCOL_EPOCH__",
+            &nia_compat::formats::BUILD_PLAN.protocol_epoch.to_string(),
         )
         .replace(
             "__NIA_RUNNER_CONFIG_MAX_BYTES__",
@@ -1392,6 +1458,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String
     })?;
     let check = CheckRequest::new(runner.path.clone())
         .with_module_map(module_map)
+        .with_package_graph_options(invocation.package_graph_report.options)
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
         .with_optimization(BUILD_RUNNER_OPTIMIZATION)
@@ -1602,16 +1669,44 @@ fn run_build_runner(
             match draft {
                 Ok(mut draft) => {
                     let plan = draft.plan.clone();
-                    if draft.observations.is_empty()
+                    let mut manifest = if draft.observations.is_empty() {
+                        ConfigureManifest::new(ObservationPolicy::Disallow)
+                    } else {
+                        decode_and_validate_runner_observations(
+                            &invocation.package_root,
+                            &draft.observations,
+                        )
+                        .map_err(|error| {
+                            BuildError::RunnerObservations {
+                                path: invocation.plan_draft.clone(),
+                                error,
+                            }
+                        })?
+                    };
+                    if manifest.observations().is_empty()
                         && let Ok(observation) =
                             observe_file_contents(&invocation.package_root, "build.nia")
                     {
-                        let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
-                        manifest.push(observation);
-                        if let Ok(encoded) = manifest.encode() {
-                            draft.observations = encoded;
-                        }
+                        manifest
+                            .push(observation)
+                            .map_err(|_| BuildError::RunnerObservations {
+                                path: invocation.plan_draft.clone(),
+                                error: io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "duplicate configure observation",
+                                ),
+                            })?;
                     }
+                    draft.observations =
+                        manifest
+                            .encode()
+                            .map_err(|error| BuildError::RunnerObservations {
+                                path: invocation.plan_draft.clone(),
+                                error: io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!("observation manifest encoding failed: {error:?}"),
+                                ),
+                            })?;
                     if !draft.observations.is_empty() {
                         nia_timing::emit_counter(
                             "build.configure_observations_bytes",
@@ -2372,7 +2467,7 @@ mod tests {
         assert!(runner.source.contains("runnerConfigChecksum(payload)"));
         assert!(runner.source.contains(&format!(
             "envelope.u32().reportAndExit(init).? != {}u32",
-            RUNNER_CONFIG.release_compatibility
+            RUNNER_CONFIG.protocol_epoch
         )));
         assert!(runner.source.contains(&format!(
             "configLen64 > {}u64",
@@ -2408,12 +2503,12 @@ mod tests {
                 .source
                 .contains("let defaultOptimization = readOptimization(&mut config)")
         );
-        assert!(!runner.source.contains("__NIA_BUILD_PLAN_COMPATIBILITY__"));
+        assert!(!runner.source.contains("__NIA_BUILD_PROTOCOL_EPOCH__"));
         assert!(!runner.source.contains("__NIA_TARGET_COUNT__"));
         assert!(runner.source.contains("defaultOptimization,"));
         assert!(runner.source.contains(&format!(
             "{}u32,",
-            nia_compat::formats::BUILD_PLAN.release_compatibility
+            nia_compat::formats::BUILD_PLAN.protocol_epoch
         )));
         assert!(runner.source.contains("        requestedStep,"));
         assert!(!runner.source.contains("pathArg("));
@@ -2455,7 +2550,7 @@ mod tests {
         assert_eq!(&encoded[..8], RUNNER_CONFIG.magic);
         assert_eq!(
             u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
-            RUNNER_CONFIG.release_compatibility
+            RUNNER_CONFIG.protocol_epoch
         );
         let artifact_name = artifact_target.name();
         assert!(
