@@ -17,6 +17,7 @@ pub(super) struct DriverActionExecutor {
     plan: Arc<BuildPlan>,
     invocation: Arc<BuildInvocation>,
     drivers: Arc<BTreeMap<TargetConfig, Arc<Driver>>>,
+    package_dependency_selection: Arc<BTreeMap<PackageKey, bool>>,
 }
 
 impl DriverActionExecutor {
@@ -40,10 +41,40 @@ impl DriverActionExecutor {
                 ))
             });
         }
+        let package_dependency_selection = plan
+            .packages()
+            .iter()
+            .filter(|package| package.key != *plan.root_package())
+            .map(|package| {
+                let mut package_root = invocation.package_root.clone();
+                package_root.extend(package.root.split('/'));
+                let classes = package_root.canonicalize().ok().map(|package_root| {
+                    invocation
+                        .package_graph_report
+                        .declared
+                        .iter()
+                        .filter(|dependency| {
+                            dependency.source_root.as_deref() == Some(&package_root)
+                        })
+                        .map(|dependency| dependency.dependency.class)
+                        .collect::<BTreeSet<_>>()
+                });
+                let selected = classes
+                    .filter(|classes| !classes.is_empty())
+                    .map(|classes| {
+                        classes
+                            .iter()
+                            .any(|class| dependency_class_selected(&invocation, *class))
+                    })
+                    .unwrap_or(true);
+                (package.key.clone(), selected)
+            })
+            .collect();
         Self {
             plan,
             invocation,
             drivers: Arc::new(drivers),
+            package_dependency_selection: Arc::new(package_dependency_selection),
         }
     }
 
@@ -849,6 +880,9 @@ impl DriverActionExecutor {
         let entry = self.resolve_source_path(action, &module.root_source)?;
         let mut module_map = ModuleMap::new();
         for import in &module.imports {
+            if !self.package_dependency_selected(import.path.root()) {
+                continue;
+            }
             let path = self.resolve_source_path(action, &import.path)?;
             module_map
                 .try_insert(&import.name, path)
@@ -877,6 +911,19 @@ impl DriverActionExecutor {
             .with_compilation_mode(self.invocation.compilation_mode)
             .with_timings(self.invocation.timings)
             .with_runtime(runtime))
+    }
+
+    fn package_dependency_selected(&self, root: &LogicalPathRoot) -> bool {
+        let LogicalPathRoot::Package(package_key) = root else {
+            return true;
+        };
+        if package_key == self.plan.root_package() {
+            return true;
+        }
+        self.package_dependency_selection
+            .get(package_key)
+            .copied()
+            .unwrap_or(true)
     }
 
     fn artifact(
@@ -972,5 +1019,19 @@ impl DriverActionExecutor {
             path.push(component);
         }
         Ok(path)
+    }
+}
+
+fn dependency_class_selected(invocation: &BuildInvocation, class: DependencyClass) -> bool {
+    let options = invocation.package_graph_report.options;
+    match class {
+        DependencyClass::BuildOnly => false,
+        DependencyClass::Runtime => true,
+        DependencyClass::TestOnly | DependencyClass::Development => {
+            options.include_tests
+                && invocation.compilation_mode == nia_target_config::CompilationMode::Test
+        }
+        DependencyClass::Optional => options.include_optional,
+        DependencyClass::Lazy => options.include_lazy,
     }
 }

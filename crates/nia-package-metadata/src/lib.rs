@@ -157,6 +157,12 @@ pub struct LocalPackageDependencyReport {
     pub dependency: LocalPackageDependency,
     /// Canonical package root selected for this dependency, when resolved.
     pub resolved_root: Option<String>,
+    /// Canonical checkout path when the declared target currently exists.
+    ///
+    /// This is invocation-local evidence used to match build-plan package
+    /// roots back to manifest dependency classes. It is not part of package
+    /// identity and may be present even when the dependency was filtered.
+    pub source_root: Option<std::path::PathBuf>,
 }
 
 /// Selection policy for constructing a package graph.
@@ -171,11 +177,10 @@ impl LocalPackageGraphOptions {
     fn includes(self, class: DependencyClass) -> bool {
         match class {
             DependencyClass::TestOnly => self.include_tests,
+            DependencyClass::Development => self.include_tests,
             DependencyClass::Optional => self.include_optional,
             DependencyClass::Lazy => self.include_lazy,
-            DependencyClass::BuildOnly
-            | DependencyClass::Runtime
-            | DependencyClass::Development => true,
+            DependencyClass::BuildOnly | DependencyClass::Runtime => true,
         }
     }
 }
@@ -233,11 +238,21 @@ impl LocalPackageGraph {
             )?;
             for dependency in &manifest.dependencies {
                 if !options.includes(dependency.class) {
-                    edges.push((logical_root.clone(), dependency.clone(), None));
+                    edges.push((
+                        logical_root.clone(),
+                        dependency.clone(),
+                        None,
+                        canonical.join(&dependency.path).canonicalize().ok(),
+                    ));
                     continue;
                 }
                 let path = canonical.join(&dependency.path).canonicalize()?;
-                edges.push((logical_root.clone(), dependency.clone(), Some(path.clone())));
+                edges.push((
+                    logical_root.clone(),
+                    dependency.clone(),
+                    Some(path.clone()),
+                    Some(path.clone()),
+                ));
                 let mut next_ancestors = ancestors.clone();
                 next_ancestors.push(canonical.clone());
                 let child_root = if logical_root.is_empty() {
@@ -263,10 +278,11 @@ impl LocalPackageGraph {
         let mut dependencies = edges
             .into_iter()
             .map(
-                |(owner_root, dependency, target)| LocalPackageDependencyReport {
+                |(owner_root, dependency, target, source_root)| LocalPackageDependencyReport {
                     owner_root,
                     dependency,
                     resolved_root: target.and_then(|path| seen.get(&path).cloned()),
+                    source_root,
                 },
             )
             .collect::<Vec<_>>();
@@ -2179,27 +2195,37 @@ mod tests {
         let root = std::env::temp_dir().join(format!("nia-optional-{}", std::process::id()));
         let optional = root.join("optional");
         let lazy = root.join("lazy");
+        let test = root.join("test");
+        let development = root.join("development");
         std::fs::create_dir_all(&optional).unwrap();
         std::fs::create_dir_all(&lazy).unwrap();
+        std::fs::create_dir_all(&test).unwrap();
+        std::fs::create_dir_all(&development).unwrap();
         std::fs::write(
             root.join("nia.package"),
-            "dependency = optional:optional:optional\ndependency = lazy:lazy:lazy\n",
+            "dependency = optional:optional:optional\ndependency = lazy:lazy:lazy\ndependency = test:test:test-only\ndependency = development:development:development\n",
         )
         .unwrap();
         std::fs::write(optional.join("nia.package"), "name = \"optional\"\n").unwrap();
         std::fs::write(lazy.join("nia.package"), "name = \"lazy\"\n").unwrap();
+        std::fs::write(test.join("nia.package"), "name = \"test\"\n").unwrap();
+        std::fs::write(development.join("nia.package"), "name = \"development\"\n").unwrap();
         let ordinary = LocalPackageGraph::resolve(&root, false).unwrap();
         assert_eq!(ordinary.nodes.len(), 1);
+        let tests = LocalPackageGraph::resolve(&root, true).unwrap();
+        assert_eq!(tests.nodes.len(), 3);
+        assert!(tests.nodes.iter().any(|node| node.root == "test"));
+        assert!(tests.nodes.iter().any(|node| node.root == "development"));
         let selected = LocalPackageGraph::resolve_with_options(
             &root,
             LocalPackageGraphOptions {
+                include_tests: true,
                 include_optional: true,
                 include_lazy: true,
-                ..LocalPackageGraphOptions::default()
             },
         )
         .unwrap();
-        assert_eq!(selected.nodes.len(), 3);
+        assert_eq!(selected.nodes.len(), 5);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2223,6 +2249,10 @@ mod tests {
             DependencyClass::Optional
         );
         assert_eq!(report.declared[0].resolved_root, None);
+        assert_eq!(
+            report.declared[0].source_root,
+            Some(optional.canonicalize().unwrap())
+        );
         let selected = LocalPackageGraph::resolve_with_options(
             &root,
             LocalPackageGraphOptions {

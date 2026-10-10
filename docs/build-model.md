@@ -60,6 +60,16 @@ artifact targets are checked before scheduling. Outputs are declared and
 published transactionally, with cross-process locking for equal logical
 destinations and recoverable staged state.
 
+Package metadata resolution records each existing dependency checkout root,
+including roots whose edge was filtered from the selected package graph. When
+the coordinator constructs a compiler request, it matches build-plan package
+roots to those manifest edges and filters module-map roots by dependency
+class. Runtime dependencies are available to ordinary artifact checks;
+test-only and development dependencies require test mode; optional and lazy
+dependencies require their explicit build selections; build-only dependencies
+are not exposed to artifact compilation. Generated build roots and package
+roots not declared in `nia.package` retain their existing plan behavior.
+
 The runner draft carries bounded file-content, file-presence, directory, and
 environment evidence. The host rechecks each reported value under the
 package-root boundary before publishing a configure-cache record. Command,
