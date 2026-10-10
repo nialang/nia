@@ -79,6 +79,52 @@ const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 const EXTERNAL_WAIT_POLL: Duration = Duration::from_millis(10);
 
+pub(crate) fn package_dependency_selection(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+) -> BTreeMap<PackageKey, bool> {
+    plan.packages()
+        .iter()
+        .filter(|package| package.key != *plan.root_package())
+        .map(|package| {
+            let mut package_root = invocation.package_root.clone();
+            package_root.extend(package.root.split('/'));
+            let classes = package_root.canonicalize().ok().map(|package_root| {
+                invocation
+                    .package_graph_report
+                    .declared
+                    .iter()
+                    .filter(|dependency| dependency.source_root.as_deref() == Some(&package_root))
+                    .map(|dependency| dependency.dependency.class)
+                    .collect::<BTreeSet<_>>()
+            });
+            let selected = classes
+                .filter(|classes| !classes.is_empty())
+                .map(|classes| {
+                    classes
+                        .iter()
+                        .any(|class| dependency_class_selected(invocation, *class))
+                })
+                .unwrap_or(true);
+            (package.key.clone(), selected)
+        })
+        .collect()
+}
+
+fn dependency_class_selected(invocation: &BuildInvocation, class: DependencyClass) -> bool {
+    let options = invocation.package_graph_report.options;
+    match class {
+        DependencyClass::BuildOnly => false,
+        DependencyClass::Runtime => true,
+        DependencyClass::TestOnly | DependencyClass::Development => {
+            options.include_tests
+                && invocation.compilation_mode == nia_target_config::CompilationMode::Test
+        }
+        DependencyClass::Optional => options.include_optional,
+        DependencyClass::Lazy => options.include_lazy,
+    }
+}
+
 /// Deterministic visible result of executing a selected plan closure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionReport {

@@ -70,6 +70,17 @@ dependencies require their explicit build selections; build-only dependencies
 are not exposed to artifact compilation. Generated build roots and package
 roots not declared in `nia.package` retain their existing plan behavior.
 
+`nia build --explain` reports each declared dependency's selected-graph
+resolution, the number of its modules represented in the frozen plan, and
+whether the selected action closure owns or references that package. Module
+counts describe plan declarations; closure use follows action and step package
+ownership plus typed module, artifact, and package-path references. Canonical
+checkout paths used to join metadata edges to plan roots remain invocation-local
+and are not serialized in dependency entries. JSON dependency entries expose
+these states as `resolved`, `loaded_modules`, and `used`;
+`resolved_dependency_count` counts selected dependency edges, while
+`resolved_count` counts selected package nodes including the root.
+
 The runner draft carries bounded file-content, file-presence, directory, and
 environment evidence. The host rechecks each reported value under the
 package-root boundary before publishing a configure-cache record. Command,

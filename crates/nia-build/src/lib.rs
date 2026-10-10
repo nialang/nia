@@ -9,6 +9,7 @@
 //! See the crate README for the source ownership and persistence boundaries.
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     env, fmt, fs, io,
     io::Write,
     num::NonZeroUsize,
@@ -935,18 +936,32 @@ pub fn render_build_explanation(
     );
     let _ = writeln!(
         output,
-        "  package graph: declared={}, resolved={}",
+        "  package graph: declared_dependencies={}, resolved_dependencies={}, selected_packages={}",
         graph.declared.len(),
+        graph
+            .declared
+            .iter()
+            .filter(|dependency| dependency.resolved_root.is_some())
+            .count(),
         graph.resolved.len()
     );
-    for dependency in &graph.declared {
+    for usage in build_explanation_dependency_usage(plan, invocation, preview) {
+        let dependency = usage.dependency;
+        let owner = if dependency.owner_root.is_empty() {
+            plan.root_package().as_str()
+        } else {
+            dependency.owner_root.as_str()
+        };
         let _ = writeln!(
             output,
-            "    {}::{} ({:?}) -> {}",
-            dependency.owner_root,
+            "    {}::{} ({:?}) -> {} [resolved={}, loaded_modules={}, used={}]",
+            owner,
             dependency.dependency.name,
             dependency.dependency.class,
-            dependency.resolved_root.as_deref().unwrap_or("filtered")
+            dependency.resolved_root.as_deref().unwrap_or("filtered"),
+            usage.resolved,
+            usage.loaded_modules,
+            usage.used,
         );
     }
     let _ = writeln!(
@@ -982,6 +997,250 @@ pub fn render_build_explanation(
         );
     }
     output
+}
+
+struct BuildExplanationDependencyUsage<'a> {
+    dependency: &'a nia_package_metadata::LocalPackageDependencyReport,
+    resolved: bool,
+    loaded_modules: usize,
+    used: bool,
+}
+
+fn build_explanation_dependency_usage<'a>(
+    plan: &BuildPlan,
+    invocation: &'a BuildInvocation,
+    preview: &ExecutionReport,
+) -> Vec<BuildExplanationDependencyUsage<'a>> {
+    let mut packages_by_source_root: BTreeMap<PathBuf, Vec<&PlanPackage>> = BTreeMap::new();
+    for package in plan.packages() {
+        let mut source_root = invocation.package_root.clone();
+        for component in package.root.split('/') {
+            if !component.is_empty() {
+                source_root.push(component);
+            }
+        }
+        if let Ok(source_root) = source_root.canonicalize() {
+            packages_by_source_root
+                .entry(source_root)
+                .or_default()
+                .push(package);
+        }
+    }
+
+    let loaded_modules = plan
+        .package_usage()
+        .into_iter()
+        .map(|usage| (usage.package, usage.loaded_modules))
+        .collect::<BTreeMap<_, _>>();
+    let used_packages = build_explanation_closure_packages(plan, invocation, preview);
+
+    invocation
+        .package_graph_report
+        .declared
+        .iter()
+        .map(|dependency| {
+            let packages = dependency
+                .source_root
+                .as_ref()
+                .and_then(|root| packages_by_source_root.get(root));
+            BuildExplanationDependencyUsage {
+                dependency,
+                resolved: dependency.resolved_root.is_some(),
+                loaded_modules: packages.map_or(0, |packages| {
+                    packages
+                        .iter()
+                        .map(|package| loaded_modules.get(&package.key).copied().unwrap_or(0))
+                        .sum()
+                }),
+                used: packages.is_some_and(|packages| {
+                    packages
+                        .iter()
+                        .any(|package| used_packages.contains(&package.key))
+                }),
+            }
+        })
+        .collect()
+}
+
+fn build_explanation_closure_packages(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    preview: &ExecutionReport,
+) -> BTreeSet<PackageKey> {
+    let package_dependency_selection = coordinator::package_dependency_selection(plan, invocation);
+    let actions = plan
+        .actions()
+        .iter()
+        .map(|action| (action.key.clone(), action))
+        .collect::<BTreeMap<_, _>>();
+    let artifacts = plan
+        .artifacts()
+        .iter()
+        .map(|artifact| (artifact.key.clone(), artifact))
+        .collect::<BTreeMap<_, _>>();
+    let modules = plan
+        .modules()
+        .iter()
+        .map(|module| (module.key.clone(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut modules_by_source = BTreeMap::<LogicalPath, Vec<ModuleKey>>::new();
+    for module in plan.modules() {
+        modules_by_source
+            .entry(module.root_source.clone())
+            .or_default()
+            .push(module.key.clone());
+    }
+
+    let mut packages = BTreeSet::new();
+    let mut visited_modules = BTreeSet::new();
+    for step in &preview.steps {
+        packages.insert(step.package().clone());
+    }
+    for action_key in &preview.actions {
+        packages.insert(action_key.package().clone());
+        let Some(action) = actions.get(action_key) else {
+            continue;
+        };
+        match &action.kind {
+            ActionKind::CompilerCheck { module, .. } => include_build_explanation_modules(
+                module,
+                &modules,
+                &modules_by_source,
+                &package_dependency_selection,
+                &mut visited_modules,
+                &mut packages,
+            ),
+            ActionKind::CompilerEmit {
+                artifact,
+                static_archives,
+                ..
+            } => {
+                include_build_explanation_artifact(
+                    artifact,
+                    &artifacts,
+                    &modules,
+                    &modules_by_source,
+                    &package_dependency_selection,
+                    &mut visited_modules,
+                    &mut packages,
+                );
+                for archive in static_archives {
+                    include_build_explanation_artifact(
+                        archive,
+                        &artifacts,
+                        &modules,
+                        &modules_by_source,
+                        &package_dependency_selection,
+                        &mut visited_modules,
+                        &mut packages,
+                    );
+                }
+            }
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+                if let CommandProgram::Path(path) = &command.program {
+                    include_build_explanation_path(path, &mut packages);
+                }
+                include_build_explanation_path(&command.working_directory, &mut packages);
+                for path in command.inputs.iter().chain(&command.outputs) {
+                    include_build_explanation_path(path, &mut packages);
+                }
+                for argument in &command.arguments {
+                    match argument {
+                        CommandArgument::InputPath(path) | CommandArgument::OutputPath(path) => {
+                            include_build_explanation_path(path, &mut packages);
+                        }
+                        CommandArgument::Literal(_) => {}
+                    }
+                }
+            }
+            ActionKind::GeneratedFile { output, .. } => {
+                include_build_explanation_path(output, &mut packages);
+            }
+            ActionKind::InstallArtifact { artifact, .. } => {
+                include_build_explanation_artifact(
+                    artifact,
+                    &artifacts,
+                    &modules,
+                    &modules_by_source,
+                    &package_dependency_selection,
+                    &mut visited_modules,
+                    &mut packages,
+                );
+            }
+            ActionKind::Aggregate | ActionKind::Uncacheable { .. } => {}
+        }
+    }
+    packages
+}
+
+fn include_build_explanation_artifact(
+    artifact_key: &ArtifactKey,
+    artifacts: &BTreeMap<ArtifactKey, &PlanArtifact>,
+    modules: &BTreeMap<ModuleKey, &PlanModule>,
+    modules_by_source: &BTreeMap<LogicalPath, Vec<ModuleKey>>,
+    package_dependency_selection: &BTreeMap<PackageKey, bool>,
+    visited_modules: &mut BTreeSet<ModuleKey>,
+    packages: &mut BTreeSet<PackageKey>,
+) {
+    packages.insert(artifact_key.package().clone());
+    if let Some(artifact) = artifacts.get(artifact_key) {
+        include_build_explanation_modules(
+            &artifact.root_module,
+            modules,
+            modules_by_source,
+            package_dependency_selection,
+            visited_modules,
+            packages,
+        );
+    }
+}
+
+fn include_build_explanation_modules(
+    module_key: &ModuleKey,
+    modules: &BTreeMap<ModuleKey, &PlanModule>,
+    modules_by_source: &BTreeMap<LogicalPath, Vec<ModuleKey>>,
+    package_dependency_selection: &BTreeMap<PackageKey, bool>,
+    visited_modules: &mut BTreeSet<ModuleKey>,
+    packages: &mut BTreeSet<PackageKey>,
+) {
+    let mut pending = vec![module_key.clone()];
+    while let Some(module_key) = pending.pop() {
+        if !visited_modules.insert(module_key.clone()) {
+            continue;
+        }
+        let Some(module) = modules.get(&module_key) else {
+            continue;
+        };
+        packages.insert(module.key.package().clone());
+        for import in &module.imports {
+            let selected = match import.path.root() {
+                LogicalPathRoot::Package(package) => package_dependency_selection
+                    .get(package)
+                    .copied()
+                    .unwrap_or(true),
+                _ => true,
+            };
+            if !selected {
+                continue;
+            }
+            include_build_explanation_path(&import.path, packages);
+            if let Some(imported_modules) = modules_by_source.get(&import.path) {
+                pending.extend(imported_modules.iter().cloned());
+            }
+        }
+    }
+}
+
+fn include_build_explanation_path(path: &LogicalPath, packages: &mut BTreeSet<PackageKey>) {
+    match path.root() {
+        LogicalPathRoot::Package(package) => {
+            packages.insert(package.clone());
+        }
+        LogicalPathRoot::Artifact(artifact) => {
+            packages.insert(artifact.package().clone());
+        }
+        LogicalPathRoot::Build | LogicalPathRoot::Cache | LogicalPathRoot::Toolchain => {}
+    }
 }
 
 fn hex_fingerprint(value: &[u8; 32]) -> String {
@@ -1072,6 +1331,21 @@ pub fn render_build_explanation_json(
         .iter()
         .map(|action| format!("{}::{}", action.package().as_str(), action.name()))
         .collect::<Vec<_>>();
+    let dependencies = build_explanation_dependency_usage(plan, invocation, preview)
+        .into_iter()
+        .map(|usage| {
+            let dependency = usage.dependency;
+            serde_json::json!({
+                "owner": &dependency.owner_root,
+                "name": &dependency.dependency.name,
+                "class": format!("{:?}", dependency.dependency.class),
+                "resolved_root": dependency.resolved_root.as_deref(),
+                "resolved": usage.resolved,
+                "loaded_modules": usage.loaded_modules,
+                "used": usage.used,
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::json!({
         "kind": "build-explanation",
         "package_root": invocation.package_root.to_string_lossy(),
@@ -1082,13 +1356,14 @@ pub fn render_build_explanation_json(
                 "optional": invocation.package_graph_report.options.include_optional,
                 "lazy": invocation.package_graph_report.options.include_lazy,
             },
-            "declared": invocation.package_graph_report.declared.iter().map(|dependency| serde_json::json!({
-                "owner": &dependency.owner_root,
-                "name": &dependency.dependency.name,
-                "class": format!("{:?}", dependency.dependency.class),
-                "resolved_root": dependency.resolved_root.as_deref(),
-            })).collect::<Vec<_>>(),
+            "declared": dependencies,
             "resolved_count": invocation.package_graph_report.resolved.len(),
+            "resolved_dependency_count": invocation
+                .package_graph_report
+                .declared
+                .iter()
+                .filter(|dependency| dependency.resolved_root.is_some())
+                .count(),
         },
         "configure_cache_candidate": configure_candidate.to_string(),
         "selected_step": plan.selected_step().or_else(|| plan.default_step()).map(StepKey::name),
@@ -2682,6 +2957,211 @@ mod tests {
                 .contains(&package_root.to_string_lossy().to_string())
         );
         assert!(!runner.source.contains("quote\\\"slash"));
+    }
+
+    #[test]
+    fn build_explanation_distinguishes_dependency_resolution_loading_and_use() {
+        use nia_package_metadata::{
+            DependencyClass, LocalPackageDependency, LocalPackageDependencyReport,
+            LocalPackageGraphNode, LocalPackageGraphOptions, LocalPackageGraphReport,
+            LocalPackageManifest,
+        };
+
+        let root = temp_root("build_explanation_dependency_usage");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        for name in ["runtime", "cold", "lazy", "orphan"] {
+            std::fs::create_dir_all(root.join(name)).expect("create dependency root");
+        }
+        let mut invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
+
+        let dependency = |name: &str, class: DependencyClass, resolved_root: Option<&str>| {
+            LocalPackageDependencyReport {
+                owner_root: String::new(),
+                dependency: LocalPackageDependency {
+                    name: name.to_string(),
+                    path: name.to_string(),
+                    class,
+                },
+                resolved_root: resolved_root.map(str::to_string),
+                source_root: Some(
+                    root.join(name)
+                        .canonicalize()
+                        .expect("canonical dependency root"),
+                ),
+            }
+        };
+        let graph_node = |name: &str, graph_root: &str| LocalPackageGraphNode {
+            manifest: LocalPackageManifest::implicit(name),
+            root: graph_root.to_string(),
+            source_fingerprint: [0; 32],
+        };
+        invocation.package_graph_report = LocalPackageGraphReport {
+            options: LocalPackageGraphOptions {
+                include_tests: false,
+                include_optional: true,
+                include_lazy: false,
+            },
+            resolved: vec![
+                graph_node("root", ""),
+                graph_node("runtime", "runtime"),
+                graph_node("cold", "cold"),
+                graph_node("orphan", "orphan"),
+            ],
+            declared: vec![
+                dependency("runtime", DependencyClass::Runtime, Some("runtime")),
+                dependency("cold", DependencyClass::Optional, Some("cold")),
+                dependency("lazy", DependencyClass::Lazy, None),
+                dependency("orphan", DependencyClass::Optional, Some("orphan")),
+            ],
+        };
+
+        let root_package = PackageKey::root();
+        let runtime_package = PackageKey::new("runtime").unwrap();
+        let cold_package = PackageKey::new("cold").unwrap();
+        let lazy_package = PackageKey::new("lazy").unwrap();
+        let root_module = ModuleKey::new(root_package.clone(), "main").unwrap();
+        let runtime_module = ModuleKey::new(runtime_package.clone(), "lib").unwrap();
+        let cold_module = ModuleKey::new(cold_package.clone(), "lib").unwrap();
+        let lazy_module = ModuleKey::new(lazy_package.clone(), "lib").unwrap();
+        let check_action = ActionKey::new(root_package.clone(), "check").unwrap();
+        let check_step = StepKey::new(root_package.clone(), "check").unwrap();
+        let target = *invocation.toolchain.host_target();
+        let package_path = |package: PackageKey, path: &str| {
+            LogicalPath::new(LogicalPathRoot::Package(package), path).unwrap()
+        };
+        let plan = BuildPlan::freeze(BuildPlanDraft {
+            root_package: root_package.clone(),
+            packages: vec![
+                PlanPackage {
+                    key: root_package.clone(),
+                    root: String::new(),
+                },
+                PlanPackage {
+                    key: runtime_package.clone(),
+                    root: "runtime".to_string(),
+                },
+                PlanPackage {
+                    key: cold_package.clone(),
+                    root: "cold".to_string(),
+                },
+                PlanPackage {
+                    key: lazy_package.clone(),
+                    root: "lazy".to_string(),
+                },
+            ],
+            host_target: target,
+            artifact_target: target,
+            modules: vec![
+                PlanModule {
+                    key: root_module.clone(),
+                    root_source: package_path(root_package.clone(), "src/main.nia"),
+                    optimization: OptimizationMode::O0,
+                    imports: vec![
+                        ModuleImport {
+                            name: "runtime".to_string(),
+                            path: package_path(runtime_package.clone(), "src/lib.nia"),
+                        },
+                        ModuleImport {
+                            name: "lazy".to_string(),
+                            path: package_path(lazy_package.clone(), "src/lib.nia"),
+                        },
+                    ],
+                },
+                PlanModule {
+                    key: runtime_module,
+                    root_source: package_path(runtime_package, "src/lib.nia"),
+                    optimization: OptimizationMode::O0,
+                    imports: Vec::new(),
+                },
+                PlanModule {
+                    key: cold_module,
+                    root_source: package_path(cold_package, "src/lib.nia"),
+                    optimization: OptimizationMode::O0,
+                    imports: Vec::new(),
+                },
+                PlanModule {
+                    key: lazy_module,
+                    root_source: package_path(lazy_package, "src/lib.nia"),
+                    optimization: OptimizationMode::O0,
+                    imports: Vec::new(),
+                },
+            ],
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: check_action.clone(),
+                kind: ActionKind::CompilerCheck {
+                    module: root_module,
+                    target,
+                    runtime: Runtime::Freestanding,
+                },
+            }],
+            steps: vec![PlanStep {
+                key: check_step.clone(),
+                action: check_action.clone(),
+                dependencies: Vec::new(),
+            }],
+            default_step: Some(check_step.clone()),
+            selected_step: None,
+        })
+        .expect("freeze build plan");
+        let preview = ExecutionReport {
+            steps: vec![check_step],
+            actions: vec![check_action],
+            action_cache: Vec::new(),
+        };
+
+        let text =
+            render_build_explanation(&plan, &invocation, ConfigureCacheCandidate::None, &preview);
+        assert!(text.contains(
+            "package graph: declared_dependencies=4, resolved_dependencies=3, selected_packages=4"
+        ));
+        assert!(text.contains(
+            "root::runtime (Runtime) -> runtime [resolved=true, loaded_modules=1, used=true]"
+        ));
+        assert!(text.contains(
+            "root::cold (Optional) -> cold [resolved=true, loaded_modules=1, used=false]"
+        ));
+        assert!(text.contains(
+            "root::lazy (Lazy) -> filtered [resolved=false, loaded_modules=1, used=false]"
+        ));
+        assert!(text.contains(
+            "root::orphan (Optional) -> orphan [resolved=true, loaded_modules=0, used=false]"
+        ));
+
+        let json: serde_json::Value = serde_json::from_str(&render_build_explanation_json(
+            &plan,
+            &invocation,
+            ConfigureCacheCandidate::None,
+            &preview,
+        ))
+        .expect("parse build explanation JSON");
+        let dependencies = json["package_graph"]["declared"]
+            .as_array()
+            .expect("declared dependency list");
+        assert_eq!(json["package_graph"]["resolved_count"], 4);
+        assert_eq!(json["package_graph"]["resolved_dependency_count"], 3);
+        let dependency = |name: &str| {
+            dependencies
+                .iter()
+                .find(|dependency| dependency["name"] == name)
+                .expect("dependency entry")
+        };
+        assert_eq!(dependency("runtime")["loaded_modules"], 1);
+        assert_eq!(dependency("runtime")["used"], true);
+        assert_eq!(dependency("cold")["resolved"], true);
+        assert_eq!(dependency("cold")["used"], false);
+        assert_eq!(dependency("lazy")["resolved"], false);
+        assert_eq!(dependency("lazy")["loaded_modules"], 1);
+        assert_eq!(dependency("orphan")["loaded_modules"], 0);
+        assert!(
+            dependencies
+                .iter()
+                .all(|dependency| dependency.get("source_root").is_none())
+        );
+
+        std::fs::remove_dir_all(root).expect("remove test package root");
     }
 
     fn temp_root(name: &str) -> PathBuf {
