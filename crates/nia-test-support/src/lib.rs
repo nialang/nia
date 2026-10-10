@@ -140,7 +140,12 @@ pub fn linux_target_command(target: &str, exe: &Path) -> Command {
     }
     let qemu = ["qemu-aarch64-static", "qemu-aarch64"]
         .into_iter()
-        .find(|program| Command::new(program).arg("--version").output().is_ok())
+        .find(|program| {
+            Command::new(program)
+                .arg("--version")
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
         .expect("aarch64 Linux executables run under user-mode QEMU; install qemu-user-static");
     let mut command = Command::new(qemu);
     command.arg(exe);

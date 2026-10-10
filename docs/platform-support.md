@@ -142,10 +142,10 @@ The project does not claim support for:
   Linux x86_64 archive is packaged and published;
 - complete cross-linked macOS executables. `--target` selects any maintained
   target for checking, IR, object emission, and structured Mach-O linker
-  invocation from every maintained host; the bundled `libSystem` stub and
-  end-to-end Mach-O link remain open under the platform roadmap's D1 row;
-- complete freestanding executable startup outside Linux x86_64, Windows x86_64,
-  and experimental i686 coverage;
+  invocation from every maintained host; executable Darwin startup and runtime
+  execution remain open under the platform roadmap's D2 and D3 rows;
+- complete freestanding executable startup for Darwin targets and any target
+  without the roadmap's verified runtime evidence;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or executable runtime support. The pure-Rust
   frontend, semantic, query, and maintenance owners are checked for wasm32,
