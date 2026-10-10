@@ -528,7 +528,8 @@ impl ToolchainLayout {
     ) -> Result<Vec<ImportDescription>, ToolchainLayoutError> {
         let (directory, libraries, extension): (&str, &[&str], &str) = match target.os() {
             Os::Windows => ("windows", &["kernel32", "bcryptprimitives"], "def"),
-            Os::Linux | Os::Macos => return Ok(Vec::new()),
+            Os::Linux => return Ok(Vec::new()),
+            Os::Macos => ("macos", &["libSystem"], "tbd"),
         };
         libraries
             .iter()
@@ -556,7 +557,7 @@ impl ToolchainLayout {
 }
 
 /// A system library's import description shipped with the toolchain, such as
-/// `imports/windows/kernel32.def`.
+/// `imports/windows/kernel32.def` or `imports/macos/libSystem.tbd`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDescription {
     library: String,
@@ -1097,7 +1098,27 @@ mod tests {
                 ("bcryptprimitives", &b"LIBRARY bcryptprimitives.dll\n"[..]),
             ]
         );
-        for name in ["x86_64-unknown-linux", "aarch64-apple-macos"] {
+        let mac_imports = root.join("lib/imports/macos");
+        fs::create_dir_all(&mac_imports).expect("create Darwin import descriptions");
+        fs::write(
+            mac_imports.join("libSystem.tbd"),
+            b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _write ]\n...\n",
+        )
+        .expect("write Darwin import description");
+        let descriptions = layout
+            .import_descriptions(TargetConfig::parse("aarch64-apple-macos").unwrap())
+            .expect("Darwin descriptions");
+        assert_eq!(
+            descriptions
+                .iter()
+                .map(|description| (description.library(), description.contents()))
+                .collect::<Vec<_>>(),
+            [(
+                "libSystem",
+                &b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _write ]\n...\n"[..]
+            )]
+        );
+        for name in ["x86_64-unknown-linux"] {
             let target = TargetConfig::parse(name).unwrap();
             assert!(
                 layout.import_descriptions(target).unwrap().is_empty(),

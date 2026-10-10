@@ -1,4 +1,5 @@
 use super::*;
+use std::process::Command;
 
 #[test]
 fn lld_invocation_uses_gnu_like_arguments() {
@@ -347,7 +348,12 @@ fn mach_o_invocation_uses_darwin_arguments() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld64.lld"),
         ..LinkOptions::default()
-    };
+    }
+    .with_system_imports(vec![SystemImportLibrary::new(
+        "libSystem",
+        "imports/libSystem.tbd",
+        b"--- !tapi-tbd\ntbd-version: 4\n",
+    )]);
     let invocation = options
         .invocation(
             target("aarch64-apple-macos"),
@@ -380,7 +386,89 @@ fn mach_o_invocation_uses_darwin_arguments() {
     assert!(
         invocation
             .args
+            .iter()
+            .any(|arg| arg == "imports/libSystem.tbd")
+    );
+    assert!(
+        invocation
+            .args
             .windows(2)
             .any(|args| args == ["-o", "main"])
     );
+}
+
+#[test]
+fn darwin_tbd_stub_satisfies_an_undefined_symbol_link() {
+    let clang = if Command::new("clang")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        "clang"
+    } else {
+        return;
+    };
+    if !Command::new("ld64.lld")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        return;
+    }
+
+    let root = env::temp_dir().join(format!("nia-linker-darwin-tbd-{}", std::process::id()));
+    fs::create_dir_all(&root).expect("create Darwin link test directory");
+    let source = root.join("main.c");
+    let object = root.join("main.o");
+    let stub = root.join("libSystem.tbd");
+    let output = root.join("main");
+    fs::write(
+        &source,
+        b"extern long write(int, const void *, unsigned long); int main(void) { return (int)write(1, 0, 0); }\n",
+    )
+    .expect("write Darwin link source");
+    fs::write(
+        &stub,
+        b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _write ]\n...\n",
+    )
+    .expect("write Darwin import stub");
+    let compile = Command::new(clang)
+        .args(["-target", "x86_64-apple-macosx15.0", "-ffreestanding", "-c"])
+        .arg(&source)
+        .args(["-o"])
+        .arg(&object)
+        .output()
+        .expect("run clang for Darwin link test");
+    assert!(
+        compile.status.success(),
+        "clang failed: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("ld64.lld"),
+        ..LinkOptions::default()
+    }
+    .with_system_imports(vec![SystemImportLibrary::new(
+        "libSystem",
+        &stub,
+        b"darwin-tbd-v4",
+    )]);
+    let invocation = options
+        .invocation(
+            target("x86_64-apple-macos"),
+            &link_inputs(&object.to_string_lossy()),
+            output.clone(),
+        )
+        .expect("Darwin link invocation");
+    let link = Command::new(&invocation.program)
+        .args(&invocation.args)
+        .output()
+        .expect("run ld64.lld for Darwin link test");
+    assert!(
+        link.status.success(),
+        "ld64.lld failed: {}",
+        String::from_utf8_lossy(&link.stderr)
+    );
+    assert!(output.is_file(), "ld64.lld did not produce an executable");
 }
