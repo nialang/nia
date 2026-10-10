@@ -124,6 +124,7 @@ fn registered_test_plan() -> BuildPlan {
             resource_class: ActionResourceClass::Cpu,
             environment_policy: CommandEnvironmentPolicy::Inherit,
             cache_policy: CommandCachePolicy::Uncacheable,
+            stdin: CommandStdin::Null,
             program: CommandProgram::Search("test-suite".into()),
             arguments: Vec::new(),
             working_directory: LogicalPath::new(LogicalPathRoot::Package(package.clone()), "")
@@ -1100,6 +1101,7 @@ fn external_spawn_failure_reports_operation_and_program() {
             working_directory: &invocation.package_root,
             environment_policy: CommandEnvironmentPolicy::Inherit,
             environment: &[],
+            stdin: None,
         },
         ExternalExecutionPolicy {
             timeout: Duration::from_secs(5),
@@ -2322,6 +2324,7 @@ fn external_action() -> PlanAction {
             resource_class: ActionResourceClass::Conservative,
             environment_policy: crate::CommandEnvironmentPolicy::Inherit,
             cache_policy: crate::CommandCachePolicy::Uncacheable,
+            stdin: crate::CommandStdin::Null,
             program: CommandProgram::Search("sh".to_string()),
             arguments: Vec::new(),
             working_directory: LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "")
@@ -2368,6 +2371,7 @@ fn staged_command_plan_outputs(
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: crate::CommandEnvironmentPolicy::Inherit,
                 cache_policy: crate::CommandCachePolicy::Uncacheable,
+                stdin: crate::CommandStdin::Null,
                 program: CommandProgram::Search("sh".to_string()),
                 arguments,
                 working_directory: LogicalPath::new(
@@ -2397,7 +2401,7 @@ fn cacheable_command_plan(invocation: &BuildInvocation, mode: &str) -> BuildPlan
         "tool-input.txt",
     )
     .unwrap();
-    cacheable_command_plan_with_input(invocation, mode, input)
+    cacheable_command_plan_with_input_and_stdin(invocation, mode, input, CommandStdin::Null)
 }
 
 fn cacheable_directory_command_plan(invocation: &BuildInvocation, mode: &str) -> BuildPlan {
@@ -2411,58 +2415,94 @@ fn cacheable_command_plan_with_input(
     mode: &str,
     input: LogicalPath,
 ) -> BuildPlan {
+    cacheable_command_plan_with_input_and_stdin(invocation, mode, input, CommandStdin::Null)
+}
+
+#[cfg(unix)]
+fn cacheable_stdin_command_plan(invocation: &BuildInvocation, mode: &str) -> BuildPlan {
+    let input = LogicalPath::new(
+        LogicalPathRoot::Package(PackageKey::root()),
+        "tool-input.txt",
+    )
+    .unwrap();
+    cacheable_command_plan_with_input_and_stdin(
+        invocation,
+        mode,
+        input.clone(),
+        CommandStdin::InputPath(input),
+    )
+}
+
+fn cacheable_command_plan_with_input_and_stdin(
+    invocation: &BuildInvocation,
+    mode: &str,
+    input: LogicalPath,
+    stdin: CommandStdin,
+) -> BuildPlan {
     let first = LogicalPath::new(LogicalPathRoot::Build, "tool/first.txt").unwrap();
     let second = LogicalPath::new(LogicalPathRoot::Build, "tool/second.txt").unwrap();
+    let arguments = if matches!(&stdin, CommandStdin::InputPath(_)) {
+        vec![
+            CommandArgument::Literal("-c".to_string()),
+            CommandArgument::Literal("tr a-z A-Z > \"$1\"; printf meta > \"$2\"".to_string()),
+            CommandArgument::Literal("nia-stdin-tool".to_string()),
+            CommandArgument::OutputPath(first.clone()),
+            CommandArgument::OutputPath(second.clone()),
+        ]
+    } else {
+        vec![
+            CommandArgument::Literal("-c".to_string()),
+            CommandArgument::Literal(
+                "if test -d \"$1\"; then printf '%s:DIRECTORY' \"$MODE\" > \"$2\"; else printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; fi; printf meta > \"$3\""
+                    .to_string(),
+            ),
+            CommandArgument::Literal("nia-cached-tool".to_string()),
+            CommandArgument::InputPath(input.clone()),
+            CommandArgument::OutputPath(first.clone()),
+            CommandArgument::OutputPath(second.clone()),
+        ]
+    };
     BuildPlan::freeze(BuildPlanDraft {
-            root_package: PackageKey::root(),
-            packages: vec![PlanPackage {
-                key: PackageKey::root(),
-                root: String::new(),
-            }],
-            host_target: *invocation.toolchain.host_target(),
-            artifact_target: *invocation.toolchain.artifact_target(),
-            modules: Vec::new(),
-            artifacts: Vec::new(),
-            actions: vec![PlanAction {
-                key: action("cached-tool"),
-                kind: ActionKind::ExternalCommand(CommandAction {
-                    resource_class: ActionResourceClass::Io,
-                    environment_policy: CommandEnvironmentPolicy::Clear,
-                    cache_policy: CommandCachePolicy::DeclaredInputs,
-                    program: CommandProgram::Search("sh".to_string()),
-                    arguments: vec![
-                        CommandArgument::Literal("-c".to_string()),
-                        CommandArgument::Literal(
-                            "if test -d \"$1\"; then printf '%s:DIRECTORY' \"$MODE\" > \"$2\"; else printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; fi; printf meta > \"$3\""
-                                .to_string(),
-                        ),
-                        CommandArgument::Literal("nia-cached-tool".to_string()),
-                        CommandArgument::InputPath(input.clone()),
-                        CommandArgument::OutputPath(first.clone()),
-                        CommandArgument::OutputPath(second.clone()),
-                    ],
-                    working_directory: LogicalPath::new(
-                        LogicalPathRoot::Package(PackageKey::root()),
-                        "",
-                    )
-                    .unwrap(),
-                    environment: vec![EnvironmentInput {
-                        name: "MODE".to_string(),
-                        value: Some(mode.to_string()),
-                    }],
-                    inputs: vec![input],
-                    outputs: vec![first, second],
-                }),
-            }],
-            steps: vec![PlanStep {
-                key: step("cached-tool"),
-                action: action("cached-tool"),
-                dependencies: Vec::new(),
-            }],
-            default_step: Some(step("cached-tool")),
-            selected_step: None,
-        })
-        .unwrap()
+        root_package: PackageKey::root(),
+        packages: vec![PlanPackage {
+            key: PackageKey::root(),
+            root: String::new(),
+        }],
+        host_target: *invocation.toolchain.host_target(),
+        artifact_target: *invocation.toolchain.artifact_target(),
+        modules: Vec::new(),
+        artifacts: Vec::new(),
+        actions: vec![PlanAction {
+            key: action("cached-tool"),
+            kind: ActionKind::ExternalCommand(CommandAction {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy: CommandCachePolicy::DeclaredInputs,
+                stdin,
+                program: CommandProgram::Search("sh".to_string()),
+                arguments,
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: vec![EnvironmentInput {
+                    name: "MODE".to_string(),
+                    value: Some(mode.to_string()),
+                }],
+                inputs: vec![input],
+                outputs: vec![first, second],
+            }),
+        }],
+        steps: vec![PlanStep {
+            key: step("cached-tool"),
+            action: action("cached-tool"),
+            dependencies: Vec::new(),
+        }],
+        default_step: Some(step("cached-tool")),
+        selected_step: None,
+    })
+    .unwrap()
 }
 
 #[cfg(unix)]
@@ -2609,6 +2649,47 @@ fn external_command_cache_classifies_input_and_environment_changes() {
     assert_eq!(
         fs::read(invocation.build_dir.join("tool/first.txt")).unwrap(),
         b"two:SECOND"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(windows, ignore = "requires a POSIX shell fixture")]
+fn external_command_reads_declared_stdin_and_invalidates_on_content_change() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let input = invocation.package_root.join("tool-input.txt");
+    fs::write(&input, b"first").unwrap();
+    let plan = cacheable_stdin_command_plan(&invocation, "stdin");
+
+    let cold = execute_build_plan(&plan, &invocation).unwrap();
+    assert!(matches!(
+        only_external_cache_outcome(&cold),
+        ActionCacheOutcome::Miss(_)
+    ));
+    assert_eq!(
+        fs::read(invocation.build_dir.join("tool/first.txt")).unwrap(),
+        b"FIRST"
+    );
+    assert_eq!(
+        fs::read(invocation.build_dir.join("tool/second.txt")).unwrap(),
+        b"meta"
+    );
+
+    let warm = execute_build_plan(&plan, &invocation).unwrap();
+    assert_eq!(only_external_cache_outcome(&warm), &ActionCacheOutcome::Hit);
+
+    fs::write(&input, b"second").unwrap();
+    let changed = execute_build_plan(&plan, &invocation).unwrap();
+    assert_eq!(
+        only_external_cache_outcome(&changed),
+        &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+            crate::ActionCacheInvalidation::Inputs,
+        ]))
+    );
+    assert_eq!(
+        fs::read(invocation.build_dir.join("tool/first.txt")).unwrap(),
+        b"SECOND"
     );
 }
 
@@ -3239,6 +3320,7 @@ fn execute_test_command(
             working_directory,
             environment_policy: crate::CommandEnvironmentPolicy::Inherit,
             environment: &[],
+            stdin: None,
         },
         ExternalExecutionPolicy {
             timeout,
@@ -3306,6 +3388,7 @@ fn external_command_clear_environment_keeps_only_declared_values() {
             working_directory: &invocation.package_root,
             environment_policy: crate::CommandEnvironmentPolicy::Clear,
             environment: &environment,
+            stdin: None,
         },
         ExternalExecutionPolicy {
             timeout: Duration::from_secs(5),
@@ -3403,6 +3486,7 @@ fn external_command_cancellation_terminates_owned_process_group() {
                 working_directory: &working_directory,
                 environment_policy: crate::CommandEnvironmentPolicy::Inherit,
                 environment: &[],
+                stdin: None,
             },
             ExternalExecutionPolicy {
                 timeout: Duration::from_secs(30),

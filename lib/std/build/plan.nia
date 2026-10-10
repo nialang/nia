@@ -342,6 +342,7 @@ extend PlanEncoder {
                 self.writeCommandEnvironmentPolicy(.Inherit).?;
                 self.writeCommandCachePolicy(.Uncacheable).?;
                 self.writeU8(0).?;
+                self.writeU8(0).?;
                 self.writeArtifactPath(target.name.text()).?;
                 self.writeCount(run.arguments.len()).?;
                 for &argument in run.arguments.iter() {
@@ -360,6 +361,7 @@ extend PlanEncoder {
                 self.writeResourceClass(.Cpu).?;
                 self.writeCommandEnvironmentPolicy(.Inherit).?;
                 self.writeCommandCachePolicy(.SuccessfulTests).?;
+                self.writeU8(0).?;
                 self.writeU8(0).?;
                 self.writeArtifactPath(target.name.text()).?;
                 self.writeCount(run.arguments.len()).?;
@@ -392,6 +394,31 @@ extend PlanEncoder {
                 self.writeResourceClass(command.resourceClass).?;
                 self.writeCommandEnvironmentPolicy(command.environmentPolicy).?;
                 self.writeCommandCachePolicy(command.cachePolicy).?;
+                if command.stdin is ?stdin {
+                    if stdin.kind is (.PackageInput) {
+                        self.writeU8(1).?;
+                        self.writePackagePath(stdin.package, .init(stdin.payload.value.text()), packages).?;
+                    } else if stdin.kind is (.BuildInput) {
+                        self.writeU8(1).?;
+                        self.writeBuildPath(stdin.payload.value.text()).?;
+                    } else if stdin.kind is (.ArtifactInput) {
+                        let target = executables[stdin.payload.artifact.index];
+                        self.writeU8(1).?;
+                        self.writeArtifactPath(target.name.text()).?;
+                    } else if stdin.kind is (.ObjectInput) {
+                        let target = objects[stdin.payload.object.index];
+                        self.writeU8(1).?;
+                        self.writeArtifactPath(target.name.text()).?;
+                    } else if stdin.kind is (.StaticArchiveInput) {
+                        let target = staticArchives[stdin.payload.staticArchive.index];
+                        self.writeU8(1).?;
+                        self.writeArtifactPath(target.name.text()).?;
+                    } else {
+                        return invalidPlan();
+                    }
+                } else {
+                    self.writeU8(0).?;
+                }
                 self.writeU8(1).?;
                 self.writeString(command.program.text()).?;
                 self.writeCount(command.arguments.len()).?;
@@ -442,7 +469,26 @@ extend PlanEncoder {
                         inputCount = PlanEncoder::addCount(inputCount, 1).?;
                     }
                 }
+                if command.stdin is ?stdin {
+                    inputCount = PlanEncoder::addCount(inputCount, 1).?;
+                }
                 self.writeCount(inputCount).?;
+                if command.stdin is ?stdin {
+                    if stdin.kind is (.PackageInput) {
+                        self.writePackagePath(stdin.package, .init(stdin.payload.value.text()), packages).?;
+                    } else if stdin.kind is (.BuildInput) {
+                        self.writeBuildPath(stdin.payload.value.text()).?;
+                    } else if stdin.kind is (.ArtifactInput) {
+                        let target = executables[stdin.payload.artifact.index];
+                        self.writeArtifactPath(target.name.text()).?;
+                    } else if stdin.kind is (.ObjectInput) {
+                        let target = objects[stdin.payload.object.index];
+                        self.writeArtifactPath(target.name.text()).?;
+                    } else if stdin.kind is (.StaticArchiveInput) {
+                        let target = staticArchives[stdin.payload.staticArchive.index];
+                        self.writeArtifactPath(target.name.text()).?;
+                    }
+                }
                 for &argument in command.arguments.iter() {
                     if argument.kind is (.PackageInput) {
                         self.writePackagePath(argument.package, .init(argument.payload.value.text()), packages).?;

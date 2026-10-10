@@ -164,6 +164,23 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
             }
         }
     }
+    if options.stdin is ?stdin {
+        if stdin.kind == CommandArgumentKind::Literal
+            or stdin.kind == CommandArgumentKind::BuildOutput
+        {
+            return invalidStep(index);
+        }
+        if stdin.kind == CommandArgumentKind::PackageInput
+            and not isValidPackagePath(stdin.payload.value, false)
+        {
+            return invalidStep(index);
+        }
+        if stdin.kind == CommandArgumentKind::BuildInput
+            and not isValidBuildPath(stdin.payload.value)
+        {
+            return invalidStep(index);
+        }
+    }
     if options.cachePolicy != CommandCachePolicy::Uncacheable and not hasOutput {
         return invalidStep(index);
     }
@@ -212,6 +229,7 @@ extend ExternalCommandOptions {
             environmentPolicy: .Inherit,
             cachePolicy: .Uncacheable,
             environment: null,
+            stdin: null,
         }
     }
 
@@ -224,6 +242,7 @@ extend ExternalCommandOptions {
             environmentPolicy: self.environmentPolicy,
             cachePolicy: self.cachePolicy,
             environment: self.environment,
+            stdin: self.stdin,
         }
     }
 
@@ -236,6 +255,7 @@ extend ExternalCommandOptions {
             environmentPolicy: self.environmentPolicy,
             cachePolicy: self.cachePolicy,
             environment: self.environment,
+            stdin: self.stdin,
         }
     }
 
@@ -248,6 +268,7 @@ extend ExternalCommandOptions {
             environmentPolicy: self.environmentPolicy,
             cachePolicy: self.cachePolicy,
             environment: self.environment,
+            stdin: self.stdin,
         }
     }
 
@@ -260,6 +281,7 @@ extend ExternalCommandOptions {
             environmentPolicy: self.environmentPolicy,
             cachePolicy: self.cachePolicy,
             environment: ?environment,
+            stdin: self.stdin,
         }
     }
 
@@ -272,6 +294,7 @@ extend ExternalCommandOptions {
             environmentPolicy: .Clear,
             cachePolicy: self.cachePolicy,
             environment: self.environment,
+            stdin: self.stdin,
         }
     }
 
@@ -284,6 +307,7 @@ extend ExternalCommandOptions {
             environmentPolicy: self.environmentPolicy,
             cachePolicy: .DeclaredInputs,
             environment: self.environment,
+            stdin: self.stdin,
         }
     }
 
@@ -296,6 +320,7 @@ extend ExternalCommandOptions {
             environmentPolicy: .Clear,
             cachePolicy: .ToolAndInputs,
             environment: self.environment,
+            stdin: self.stdin,
         }
     }
 
@@ -310,6 +335,20 @@ extend ExternalCommandOptions {
             environmentPolicy: .Inherit,
             cachePolicy: .FullDeclaredEnvironment,
             environment: self.environment,
+            stdin: self.stdin,
+        }
+    }
+
+    pub fn withStdin(self, stdin: CommandArgument) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+            stdin: ?stdin,
         }
     }
 }
@@ -414,6 +453,7 @@ extend ExternalCommandStep {
             environmentPolicy: options.environmentPolicy,
             cachePolicy: options.cachePolicy,
             environment: .init(),
+            stdin: null,
         }
     }
 
@@ -448,6 +488,21 @@ extend ExternalCommandStep {
                 }
             }
         }
+        if options.stdin is ?stdin {
+            self.stdin = ?.init(stdin);
+            if stdin.kind != CommandArgumentKind::ArtifactInput
+                and stdin.kind != CommandArgumentKind::ObjectInput
+                and stdin.kind != CommandArgumentKind::StaticArchiveInput
+            {
+                if self.stdin is ?mut owned {
+                    owned.initialize(
+                        allocator,
+                        stdin.payload.value,
+                        index,
+                    ).?;
+                }
+            }
+        }
         if options.environment is ?environment {
             self.environment.reserve(allocator, environment.len()).withBuildContext(.Retain, .Step(index)).?;
             for &input in environment.iter() {
@@ -461,6 +516,9 @@ extend ExternalCommandStep {
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
+        if self.stdin is ?mut stdin {
+            cleanup.attempt(stdin.deinit(allocator, index));
+        }
         let mut environmentElements: CleanupAccumulator[Error] = .init();
         let mut environmentIndex = self.environment.len();
         while environmentIndex != 0 {

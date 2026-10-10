@@ -32,8 +32,8 @@ use super::{
 #[cfg(test)]
 use super::{read_bytes, read_fingerprint, read_u64};
 use crate::{
-    ActionKey, CommandAction, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath,
-    LogicalPathRoot, PlanPackage, lock::ScopedFileLock,
+    ActionKey, CommandAction, CommandArgument, CommandProgram, CommandStdin, EnvironmentInput,
+    LogicalPath, LogicalPathRoot, PlanPackage, lock::ScopedFileLock,
 };
 
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
@@ -240,13 +240,14 @@ impl ExternalCommandCacheIdentity {
         let CommandAction {
             program,
             arguments,
+            stdin,
             working_directory,
             environment,
             outputs,
             ..
         } = command;
         let action_identity = action_identity(action);
-        let command = command_identity(program, arguments);
+        let command = command_identity(program, arguments, stdin);
         let tool = tool_identity(program, tool_contents);
         let environment = environment_identity(environment, environment_snapshot);
         let regular_inputs = inputs
@@ -1361,9 +1362,20 @@ fn bytes_fingerprint(domain: FingerprintDomain, value: &[u8]) -> QueryFingerprin
     builder.finish()
 }
 
-fn command_identity(program: &CommandProgram, arguments: &[CommandArgument]) -> Vec<u8> {
+fn command_identity(
+    program: &CommandProgram,
+    arguments: &[CommandArgument],
+    stdin: &CommandStdin,
+) -> Vec<u8> {
     let mut encoded = Vec::new();
     encode_program(&mut encoded, program);
+    match stdin {
+        CommandStdin::Null => encoded.push(0),
+        CommandStdin::InputPath(path) => {
+            encoded.push(1);
+            write_bytes(&mut encoded, &logical_path_identity(path));
+        }
+    }
     encoded.extend_from_slice(&(arguments.len() as u64).to_le_bytes());
     for argument in arguments {
         match argument {
@@ -1463,6 +1475,7 @@ fn identity_count(identity: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PackageKey;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -1503,6 +1516,25 @@ mod tests {
             encoded_identity,
             ExternalCommandContentIdentity::input_from_bytes(encoded)
         );
+    }
+
+    #[test]
+    fn command_identity_includes_declared_stdin() {
+        let program = CommandProgram::Search("tool".to_string());
+        let arguments = [CommandArgument::Literal("--read".to_string())];
+        let null = command_identity(&program, &arguments, &CommandStdin::Null);
+        let input =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "stdin.txt").unwrap();
+        let path = command_identity(
+            &program,
+            &arguments,
+            &CommandStdin::InputPath(input.clone()),
+        );
+        let other =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "other.txt").unwrap();
+        let other_path = command_identity(&program, &arguments, &CommandStdin::InputPath(other));
+        assert_ne!(null, path);
+        assert_ne!(path, other_path);
     }
 
     fn identity() -> ExternalCommandCacheIdentity {

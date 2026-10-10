@@ -407,6 +407,7 @@ impl Writer {
                     environment,
                     inputs,
                     outputs,
+                    stdin,
                 } = command;
                 self.u8(
                     if matches!(
@@ -421,6 +422,13 @@ impl Writer {
                 self.resource_class(*resource_class);
                 self.command_environment_policy(*environment_policy);
                 self.command_cache_policy(*cache_policy);
+                match stdin {
+                    CommandStdin::Null => self.u8(0),
+                    CommandStdin::InputPath(path) => {
+                        self.u8(1);
+                        self.logical_path(path)?;
+                    }
+                }
                 match program {
                     CommandProgram::Path(path) => {
                         self.u8(0);
@@ -782,6 +790,18 @@ impl<'a> Reader<'a> {
                 let resource_class = self.resource_class()?;
                 let environment_policy = self.command_environment_policy()?;
                 let cache_policy = self.command_cache_policy()?;
+                let stdin_offset = self.offset;
+                let stdin = match self.u8()? {
+                    0 => CommandStdin::Null,
+                    1 => CommandStdin::InputPath(self.logical_path()?),
+                    tag => {
+                        return Err(PlanCodecError::InvalidTag {
+                            kind: "command stdin",
+                            tag,
+                            offset: stdin_offset,
+                        });
+                    }
+                };
                 let program_offset = self.offset;
                 let program_tag = self.u8()?;
                 let program = match program_tag {
@@ -829,6 +849,7 @@ impl<'a> Reader<'a> {
                         environment,
                         inputs,
                         outputs,
+                        stdin,
                     })
                 } else {
                     ActionKind::ExternalCommand(CommandAction {
@@ -841,6 +862,7 @@ impl<'a> Reader<'a> {
                         environment,
                         inputs,
                         outputs,
+                        stdin,
                     })
                 }
             }
@@ -1021,6 +1043,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![CommandArgument::Literal("--version".to_string())],
                 working_directory: LogicalPath::new(
@@ -1060,6 +1083,46 @@ mod tests {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
         let bytes = plan.encode().unwrap();
         assert_eq!(BuildPlan::decode(&bytes).unwrap(), plan);
+    }
+
+    #[test]
+    fn command_stdin_input_round_trips() {
+        let mut value = draft(false);
+        let input =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "src/a.nia").unwrap();
+        value.actions.push(PlanAction {
+            key: ActionKey::new(PackageKey::root(), "stdin").unwrap(),
+            kind: ActionKind::ExternalCommand(CommandAction {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::InputPath(input.clone()),
+                program: CommandProgram::Search("tool".into()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: vec![input.clone()],
+                outputs: Vec::new(),
+            }),
+        });
+        let plan = BuildPlan::freeze(value).unwrap();
+        let decoded = BuildPlan::decode(&plan.encode().unwrap()).unwrap();
+        let command = decoded
+            .actions()
+            .iter()
+            .find_map(|action| match &action.kind {
+                ActionKind::ExternalCommand(command) => Some(command),
+                _ => None,
+            })
+            .unwrap();
+        assert!(matches!(
+            &command.stdin,
+            CommandStdin::InputPath(path) if path.protocol_path() == "src/a.nia"
+        ));
     }
 
     #[test]
@@ -1118,6 +1181,7 @@ mod tests {
                     resource_class: ActionResourceClass::Cpu,
                     environment_policy: CommandEnvironmentPolicy::Clear,
                     cache_policy: CommandCachePolicy::DeclaredInputs,
+                    stdin: CommandStdin::Null,
                     program: CommandProgram::Search("cc".into()),
                     arguments: vec![
                         CommandArgument::Literal("-v".into()),
@@ -1203,6 +1267,7 @@ mod tests {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("test-runner".into()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(LogicalPathRoot::Package(package.clone()), "")

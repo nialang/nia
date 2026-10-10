@@ -41,10 +41,10 @@ the dependency closure.
   tool-and-input, and bounded full-environment modes. Full-environment mode
   rejects explicit overrides and skips publication when the inherited snapshot
   exceeds its size bound.
-  External commands run with their standard input closed; the current command
-  plan has no inherited-stdin escape hatch. A future file-backed stdin input
-  must be added as a typed plan field and included in command identity before
-  interactive or streamed command input can be supported.
+  External commands run with their standard input closed by default. A command
+  may opt into a declared file-backed stdin input; that path is part of the
+  declared input set, command identity, and dependency closure. There is no
+  inherited coordinator stdin or interactive input channel.
 * Compiler and linker product caches remain owned by `nia-driver` and
   `nia-linker`. `nia-build` records the action contract that refers to those
   products, but does not duplicate their formats.

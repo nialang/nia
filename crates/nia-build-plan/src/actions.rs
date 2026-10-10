@@ -169,6 +169,7 @@ pub(crate) fn canonicalize_actions(
                     environment,
                     inputs,
                     outputs,
+                    stdin,
                     ..
                 } = command;
                 validate_external_command_artifacts(
@@ -283,6 +284,23 @@ pub(crate) fn canonicalize_actions(
                             reason,
                         });
                     }
+                }
+                if let CommandStdin::InputPath(path) = stdin {
+                    if inputs.binary_search(path).is_err() {
+                        return Err(PlanError::InvalidCommand {
+                            action: action.key.clone(),
+                            reason: "stdin input path is not declared as an input",
+                        });
+                    }
+                    validate_external_command_artifacts(
+                        &action.key,
+                        &CommandProgram::Search(String::new()),
+                        working_directory,
+                        std::slice::from_ref(path),
+                        &artifacts_by_key,
+                        &emit_targets,
+                        host_target,
+                    )?;
                 }
                 if outputs.iter().any(|output| {
                     !arguments.iter().any(
