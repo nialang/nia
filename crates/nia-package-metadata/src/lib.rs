@@ -571,11 +571,11 @@ pub fn package_source_identity_with_selection(
         .map(|value| validate_selection_path(value))
         .collect::<io::Result<BTreeSet<_>>>()?;
     let mut files = Vec::new();
-    for source_root in selected_roots {
+    for source_root in &selected_roots {
         let directory = if source_root == "." {
             root.clone()
         } else {
-            root.join(&source_root)
+            root.join(source_root)
         };
         let canonical = directory.canonicalize()?;
         if !canonical.starts_with(&root) {
@@ -593,11 +593,11 @@ pub fn package_source_identity_with_selection(
     encoded.extend_from_slice(b"\0\x01");
     encoded.extend_from_slice(package.canonical_text().as_bytes());
     encoded.push(0);
-    for source_root in &selection.source_roots {
+    for source_root in &selected_roots {
         encoded.extend_from_slice(&(source_root.len() as u64).to_le_bytes());
         encoded.extend_from_slice(source_root.as_bytes());
     }
-    for exclude in &selection.excludes {
+    for exclude in &excludes {
         encoded.extend_from_slice(&(exclude.len() as u64).to_le_bytes());
         encoded.extend_from_slice(exclude.as_bytes());
     }
@@ -2086,15 +2086,22 @@ mod tests {
         std::fs::write(root.join("examples/demo.nia"), "demo").unwrap();
         let package = package();
         let selection = PackageSourceSelection {
-            source_roots: vec!["src".into()],
-            excludes: vec![],
+            source_roots: vec!["examples".into(), "src/".into(), "src".into()],
+            excludes: vec!["src/generated/".into(), "src/generated".into()],
+        };
+        let equivalent = PackageSourceSelection {
+            source_roots: vec!["src".into(), "examples".into()],
+            excludes: vec!["src/generated".into()],
         };
         let first =
             package_source_identity_with_selection(&root, package.clone(), &selection).unwrap();
-        std::fs::write(root.join("examples/demo.nia"), "changed").unwrap();
-        let second = package_source_identity_with_selection(&root, package, &selection).unwrap();
+        let second =
+            package_source_identity_with_selection(&root, package.clone(), &equivalent).unwrap();
         assert_eq!(first.source_fingerprint, second.source_fingerprint);
-        assert_eq!(first.files.len(), 1);
+        assert_eq!(first.files.len(), 2);
+        std::fs::write(root.join("examples/demo.nia"), "changed").unwrap();
+        let changed = package_source_identity_with_selection(&root, package, &equivalent).unwrap();
+        assert_ne!(first.source_fingerprint, changed.source_fingerprint);
         std::fs::remove_dir_all(root).unwrap();
     }
 
