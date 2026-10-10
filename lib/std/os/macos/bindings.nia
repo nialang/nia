@@ -1,0 +1,21 @@
+// POSIX symbols exported by Darwin's libSystem. The platform facade keeps
+// these declarations private so callers cannot depend on C layout details.
+pub(pkg) extern fn read(fd: i32, buffer: &mut u8, length: usize) i64;
+pub(pkg) extern fn write(fd: i32, buffer: &u8, length: usize) i64;
+pub(pkg) extern fn close(fd: i32) i32;
+pub(pkg) extern fn lseek(fd: i32, offset: i64, whence: i32) i64;
+pub(pkg) extern fn ftruncate(fd: i32, length: i64) i32;
+pub(pkg) extern fn fchmod(fd: i32, mode: u16) i32;
+pub(pkg) extern fn fsync(fd: i32) i32;
+pub(pkg) extern fn fdatasync(fd: i32) i32;
+pub(pkg) extern fn getcwd(buffer: &mut u8, length: usize) &mut u8;
+pub(pkg) extern fn mmap(address: usize, length: usize, protection: i32, flags: i32, fd: i32, offset: i64) &mut u8;
+pub(pkg) extern fn munmap(address: &mut u8, length: usize) i32;
+pub(pkg) extern fn getentropy(buffer: &mut u8, length: usize) i32;
+pub(pkg) extern fn __error() &mut i32;
+pub(pkg) extern fn exit(code: i32) ();
+
+pub(pkg) const protRead: i32 = 1;
+pub(pkg) const protWrite: i32 = 2;
+pub(pkg) const mapPrivate: i32 = 2;
+pub(pkg) const mapAnonymous: i32 = 0x1000;
