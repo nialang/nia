@@ -286,6 +286,137 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
 }
 
 #[test]
+fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
+    use nia_package_metadata::{DependencyClass, LocalPackageGraph, LocalPackageGraphOptions};
+
+    let root = std::env::temp_dir().join(format!(
+        "nia-build-package-selection-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("test clock must follow the Unix epoch")
+            .as_nanos()
+    ));
+    let dependency_classes = [
+        ("build", DependencyClass::BuildOnly),
+        ("corelib", DependencyClass::Runtime),
+        ("test", DependencyClass::TestOnly),
+        ("development", DependencyClass::Development),
+        ("optional", DependencyClass::Optional),
+        ("lazy", DependencyClass::Lazy),
+    ];
+    for (name, _) in dependency_classes {
+        std::fs::create_dir_all(root.join(name)).expect("create dependency root");
+        std::fs::write(root.join(name).join("nia.package"), "").expect("write dependency manifest");
+    }
+    let manifest = dependency_classes
+        .iter()
+        .map(|(name, class)| {
+            let class = match class {
+                DependencyClass::BuildOnly => "build-only",
+                DependencyClass::Runtime => "runtime",
+                DependencyClass::TestOnly => "test-only",
+                DependencyClass::Development => "development",
+                DependencyClass::Optional => "optional",
+                DependencyClass::Lazy => "lazy",
+            };
+            format!("dependency = {name}:{name}:{class}\n")
+        })
+        .collect::<String>();
+    std::fs::create_dir_all(&root).expect("create package root");
+    std::fs::write(root.join("nia.package"), manifest).expect("write root manifest");
+
+    let compile_request = |test_mode: bool, include_optional: bool, include_lazy: bool| {
+        let options = LocalPackageGraphOptions {
+            include_tests: test_mode,
+            include_optional,
+            include_lazy,
+        };
+        let graph =
+            LocalPackageGraph::resolve_with_options(&root, options).expect("resolve package graph");
+        let root_package = PackageKey::root();
+        let module_key = ModuleKey::new(root_package.clone(), "app").unwrap();
+        let mut packages = vec![PlanPackage {
+            key: root_package.clone(),
+            root: String::new(),
+        }];
+        let mut imports = Vec::new();
+        for (name, _) in dependency_classes {
+            let package = PackageKey::new(name).unwrap();
+            packages.push(PlanPackage {
+                key: package.clone(),
+                root: name.to_string(),
+            });
+            imports.push(ModuleImport {
+                name: name.to_string(),
+                path: LogicalPath::new(LogicalPathRoot::Package(package), "src/lib.nia").unwrap(),
+            });
+        }
+        let check = ActionKey::new(root_package.clone(), "check").unwrap();
+        let plan = BuildPlan::freeze(BuildPlanDraft {
+            root_package: root_package.clone(),
+            packages,
+            host_target: target(),
+            artifact_target: target(),
+            modules: vec![PlanModule {
+                key: module_key.clone(),
+                root_source: LogicalPath::new(
+                    LogicalPathRoot::Package(root_package),
+                    "src/main.nia",
+                )
+                .unwrap(),
+                optimization: OptimizationMode::O0,
+                imports,
+            }],
+            artifacts: Vec::new(),
+            actions: vec![PlanAction {
+                key: check,
+                kind: ActionKind::CompilerCheck {
+                    module: module_key.clone(),
+                    target: target(),
+                    runtime: Runtime::Bare,
+                },
+            }],
+            steps: Vec::new(),
+            default_step: None,
+            selected_step: None,
+        })
+        .expect("freeze package-selection plan");
+        let mut invocation = test_invocation();
+        invocation.package_root = root.clone();
+        invocation.package_graph_report = graph.report();
+        invocation.compilation_mode = if test_mode {
+            nia_target_config::CompilationMode::Test
+        } else {
+            nia_target_config::CompilationMode::Normal
+        };
+        let executor = DriverActionExecutor::new(plan.clone(), invocation);
+        executor
+            .check_request(&plan.actions()[0], &module_key, &target(), Runtime::Bare)
+            .expect("construct selected check request")
+    };
+
+    let ordinary = compile_request(false, false, false);
+    assert!(ordinary.module_map.get("corelib").is_some());
+    for filtered in ["build", "test", "development", "optional", "lazy"] {
+        assert!(
+            ordinary.module_map.get(filtered).is_none(),
+            "ordinary compile unexpectedly mapped {filtered} dependency"
+        );
+    }
+
+    let selected = compile_request(true, true, true);
+    for included in ["corelib", "test", "development", "optional", "lazy"] {
+        assert!(
+            selected.module_map.get(included).is_some(),
+            "selected compile did not map {included} dependency"
+        );
+    }
+    assert!(selected.module_map.get("build").is_none());
+    std::fs::remove_dir_all(root).expect("remove package-selection fixture");
+}
+
+#[test]
 fn selected_closure_is_iterative_deterministic_and_excludes_unselected_steps() {
     let plan = aggregate_plan(
         &["shared", "left", "right", "final", "unused"],
