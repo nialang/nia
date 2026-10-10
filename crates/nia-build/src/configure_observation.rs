@@ -6,7 +6,9 @@
 //! `BuildPlan`, and therefore form the future configure-cache contract.
 
 use std::{
+    ffi::OsStr,
     fmt, fs, io,
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -588,7 +590,9 @@ fn run_probe_process(
     arguments: &[String],
     root: &Path,
 ) -> io::Result<ProbeProcessResult> {
-    let mut command = Command::new(program);
+    let executable_path = resolve_probe_executable(program, root)?;
+    let executable = probe_executable_identity(&executable_path)?;
+    let mut command = Command::new(&executable_path);
     command
         .args(arguments)
         .current_dir(root)
@@ -620,10 +624,6 @@ fn run_probe_process(
     let stdout = stdout_thread
         .join()
         .map_err(|_| io::Error::other("probe stdout reader failed"))??;
-    let executable = fs::canonicalize(program)
-        .or_else(|_| fs::canonicalize(root.join(program)))
-        .and_then(fs::read)
-        .unwrap_or_default();
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
     let status = status.code().unwrap_or({
@@ -642,6 +642,132 @@ fn run_probe_process(
         stdout,
         stderr: Vec::new(),
     })
+}
+
+fn resolve_probe_executable(program: &str, root: &Path) -> io::Result<PathBuf> {
+    let search_path = std::env::var_os("PATH").unwrap_or_default();
+    resolve_probe_executable_in_path(program, root, &search_path)
+}
+
+fn resolve_probe_executable_in_path(
+    program: &str,
+    root: &Path,
+    search_path: &OsStr,
+) -> io::Result<PathBuf> {
+    let program_path = Path::new(program);
+    if program_path.is_absolute() || program_path.components().count() > 1 {
+        let candidate = if program_path.is_absolute() {
+            program_path.to_path_buf()
+        } else {
+            root.join(program_path)
+        };
+        return executable_probe_candidate(&candidate);
+    }
+
+    for directory in std::env::split_paths(search_path) {
+        let directory = if directory.as_os_str().is_empty() {
+            root.to_path_buf()
+        } else if directory.is_absolute() {
+            directory
+        } else {
+            root.join(directory)
+        };
+        #[cfg(windows)]
+        let candidates = probe_windows_candidates(&directory, program_path);
+        #[cfg(not(windows))]
+        let candidates = vec![directory.join(program_path)];
+        for candidate in candidates {
+            if let Ok(path) = executable_probe_candidate(&candidate) {
+                return Ok(path);
+            }
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("configuration probe program `{program}` was not found in PATH"),
+    ))
+}
+
+fn executable_probe_candidate(path: &Path) -> io::Result<PathBuf> {
+    let canonical = path.canonicalize()?;
+    let metadata = fs::metadata(&canonical)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "configuration probe program is not a file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "configuration probe program is not executable",
+            ));
+        }
+    }
+    Ok(canonical)
+}
+
+#[cfg(windows)]
+fn probe_windows_candidates(directory: &Path, program: &Path) -> Vec<PathBuf> {
+    if program.extension().is_some() {
+        return vec![directory.join(program)];
+    }
+    let extensions = std::env::var_os("PATHEXT").unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
+    let mut candidates = vec![directory.join(program)];
+    candidates.extend(
+        extensions
+            .to_string_lossy()
+            .split(';')
+            .filter(|extension| !extension.is_empty())
+            .map(|extension| {
+                directory
+                    .join(program)
+                    .with_extension(extension.trim_start_matches('.'))
+            }),
+    );
+    candidates
+}
+
+fn probe_executable_identity(path: &Path) -> io::Result<Vec<u8>> {
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "configuration probe executable changed type",
+        ));
+    }
+    let mut hasher = blake3::Hasher::new();
+    let mut remaining = metadata.len();
+    let mut buffer = [0u8; 64 * 1024];
+    while remaining != 0 {
+        let count = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        file.read_exact(&mut buffer[..count])?;
+        hasher.update(&buffer[..count]);
+        remaining -= count as u64;
+    }
+    let mut trailing = [0u8; 1];
+    if file.read(&mut trailing)? != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "configuration probe executable changed while it was read",
+        ));
+    }
+    let path = path.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "configuration probe executable path is not UTF-8",
+        )
+    })?;
+    let mut identity = Vec::with_capacity(path.len() + 40);
+    identity.extend_from_slice(&(path.len() as u32).to_le_bytes());
+    identity.extend_from_slice(path.as_bytes());
+    identity.extend_from_slice(&metadata.len().to_le_bytes());
+    identity.extend_from_slice(hasher.finalize().as_bytes());
+    Ok(identity)
 }
 
 fn bounded_probe_reader(mut reader: impl io::Read) -> io::Result<Vec<u8>> {
@@ -1228,6 +1354,61 @@ mod tests {
             ConfigureObservation::new("src/../input", ObservationKind::FileContents, fingerprint),
             Err(ObservationError::NonCanonicalPath(_))
         ));
+    }
+
+    #[test]
+    fn command_probe_resolves_and_fingerprints_the_path_executable() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-probe-path-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let name = if cfg!(windows) {
+            "nia-probe-test.exe"
+        } else {
+            "nia-probe-test"
+        };
+        let executable = bin.join(name);
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mut permissions = fs::metadata(&executable).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&executable, permissions).unwrap();
+        }
+        let search_path = std::env::join_paths([&bin]).unwrap();
+        let resolved =
+            resolve_probe_executable_in_path("nia-probe-test", &root, &search_path).unwrap();
+        assert_eq!(resolved, executable.canonicalize().unwrap());
+        let first_identity = probe_executable_identity(&resolved).unwrap();
+        let first_fingerprint = probe_fingerprint(
+            b"probe-request",
+            &ProbeProcessResult {
+                executable: first_identity,
+                status: 0,
+                stdout: b"same version".to_vec(),
+                stderr: Vec::new(),
+            },
+        );
+        fs::write(&executable, b"changed executable identity").unwrap();
+        let second_identity = probe_executable_identity(&resolved).unwrap();
+        let second_fingerprint = probe_fingerprint(
+            b"probe-request",
+            &ProbeProcessResult {
+                executable: second_identity,
+                status: 0,
+                stdout: b"same version".to_vec(),
+                stderr: Vec::new(),
+            },
+        );
+        assert_ne!(first_fingerprint, second_fingerprint);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
