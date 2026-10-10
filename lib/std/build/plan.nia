@@ -215,6 +215,8 @@ extend PlanEncoder {
         self.writeU8(match policy {
             .Uncacheable => 0,
             .DeclaredInputs => 1,
+            .ToolAndInputs => 2,
+            .FullDeclaredEnvironment => 3,
             _ => return invalidPlan(),
         })
     }

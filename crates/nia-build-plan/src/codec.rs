@@ -529,6 +529,8 @@ impl Writer {
         self.u8(match value {
             CommandCachePolicy::Uncacheable => 0,
             CommandCachePolicy::DeclaredInputs => 1,
+            CommandCachePolicy::ToolAndInputs => 2,
+            CommandCachePolicy::FullDeclaredEnvironment => 3,
         });
     }
 
@@ -924,6 +926,8 @@ impl<'a> Reader<'a> {
         match tag {
             0 => Ok(CommandCachePolicy::Uncacheable),
             1 => Ok(CommandCachePolicy::DeclaredInputs),
+            2 => Ok(CommandCachePolicy::ToolAndInputs),
+            3 => Ok(CommandCachePolicy::FullDeclaredEnvironment),
             _ => Err(PlanCodecError::InvalidTag {
                 kind: "command cache policy",
                 tag,
@@ -1256,7 +1260,7 @@ mod tests {
             })
         ));
 
-        let mut cache = Reader::new(&[0, 1, 2]);
+        let mut cache = Reader::new(&[0, 1, 2, 3, 4]);
         assert_eq!(
             cache.command_cache_policy().unwrap(),
             CommandCachePolicy::Uncacheable
@@ -1265,11 +1269,19 @@ mod tests {
             cache.command_cache_policy().unwrap(),
             CommandCachePolicy::DeclaredInputs
         );
+        assert_eq!(
+            cache.command_cache_policy().unwrap(),
+            CommandCachePolicy::ToolAndInputs
+        );
+        assert_eq!(
+            cache.command_cache_policy().unwrap(),
+            CommandCachePolicy::FullDeclaredEnvironment
+        );
         assert!(matches!(
             cache.command_cache_policy(),
             Err(PlanCodecError::InvalidTag {
                 kind: "command cache policy",
-                tag: 2,
+                tag: 4,
                 ..
             })
         ));

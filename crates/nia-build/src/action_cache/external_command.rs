@@ -225,6 +225,7 @@ impl ExternalCommandCacheIdentity {
         packages: &[PlanPackage],
         tool_contents: ExternalCommandContentIdentity,
         toolchain: &ToolchainIdentity,
+        environment_snapshot: Option<&[(Vec<u8>, Vec<u8>)]>,
     ) -> Option<Self> {
         let CommandAction {
             program,
@@ -237,7 +238,7 @@ impl ExternalCommandCacheIdentity {
         let action_identity = action_identity(action);
         let command = command_identity(program, arguments);
         let tool = tool_identity(program, tool_contents);
-        let environment = environment_identity(environment);
+        let environment = environment_identity(environment, environment_snapshot);
         let regular_inputs = inputs
             .iter()
             .filter(|(path, _)| !matches!(path.root(), LogicalPathRoot::Artifact(_)))
@@ -1394,8 +1395,21 @@ fn tool_identity(program: &CommandProgram, contents: ExternalCommandContentIdent
     encoded
 }
 
-fn environment_identity(environment: &[EnvironmentInput]) -> Vec<u8> {
+fn environment_identity(
+    environment: &[EnvironmentInput],
+    snapshot: Option<&[(Vec<u8>, Vec<u8>)]>,
+) -> Vec<u8> {
     let mut encoded = Vec::new();
+    if let Some(snapshot) = snapshot {
+        encoded.push(1);
+        encoded.extend_from_slice(&(snapshot.len() as u64).to_le_bytes());
+        for (name, value) in snapshot {
+            write_bytes(&mut encoded, name);
+            write_bytes(&mut encoded, value);
+        }
+        return encoded;
+    }
+    encoded.push(0);
     encoded.extend_from_slice(&(environment.len() as u64).to_le_bytes());
     for input in environment {
         write_bytes(&mut encoded, input.name.as_bytes());

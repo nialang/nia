@@ -35,6 +35,10 @@ the dependency closure.
 * The action cache stores validated generated files and eligible external
   command results, plus references to compiler-owned products. Cache failures
   are explicit misses and cannot replace the ordinary execution path.
+  External command policies distinguish uncacheable, declared-input,
+  tool-and-input, and bounded full-environment modes. Full-environment mode
+  rejects explicit overrides and skips publication when the inherited snapshot
+  exceeds its size bound.
 * Compiler and linker product caches remain owned by `nia-driver` and
   `nia-linker`. `nia-build` records the action contract that refers to those
   products, but does not duplicate their formats.
