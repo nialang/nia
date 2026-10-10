@@ -1111,7 +1111,7 @@ mod tests {
         fs::create_dir_all(&mac_imports).expect("create Darwin import descriptions");
         fs::write(
             mac_imports.join("libSystem.tbd"),
-            b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _write ]\n...\n",
+            b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _exit, _write ]\n...\n",
         )
         .expect("write Darwin import description");
         let descriptions = layout
@@ -1124,7 +1124,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(
                 "libSystem",
-                &b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _write ]\n...\n"[..]
+                &b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _exit, _write ]\n...\n"[..]
             )]
         );
         for name in ["x86_64-unknown-linux"] {
@@ -1248,12 +1248,9 @@ mod tests {
     }
 
     #[test]
-    fn runtime_selection_rejects_unsupported_and_mismatched_targets() {
-        let unsupported = TargetConfig::parse("aarch64-pc-windows-msvc").unwrap();
-        assert_eq!(
-            RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &unsupported),
-            Err(RuntimeSpecError::UnsupportedTarget(unsupported))
-        );
+    fn runtime_selection_rejects_unknown_and_mismatched_targets() {
+        let unsupported = TargetConfig::parse("aarch64-pc-windows-msvc").unwrap_err();
+        assert_eq!(unsupported.name, "aarch64-pc-windows-msvc");
 
         let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let runtime =
