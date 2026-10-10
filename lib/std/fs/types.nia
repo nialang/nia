@@ -104,6 +104,7 @@ pub struct RelativeNativePathView {
 pub struct DirEntry {
     kind: FileKind,
     name: &[u8],
+    size: u64,
 }
 
 // DirIterator borrows the directory owner and caller-provided buffer.
@@ -204,8 +205,8 @@ extend File {
 }
 
 extend DirEntry {
-    pub fn init(kind: FileKind, name: &[u8]) DirEntry {
-        .{ kind, name }
+    pub fn init(kind: FileKind, name: &[u8], size: u64) DirEntry {
+        .{ kind, name, size }
     }
 
     pub fn kind(&self) FileKind {
@@ -214,6 +215,10 @@ extend DirEntry {
 
     pub fn name(&self) &[u8] {
         self.name
+    }
+
+    pub fn size(&self) u64 {
+        self.size
     }
 
     pub fn isDot(&self) bool {

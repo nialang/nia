@@ -19,6 +19,7 @@
     "std/build/ownership.nia",
     "std/build/paths.nia",
     "std/build/plan.nia",
+    "std/build/probes.nia",
     "std/build/queries.nia",
     "std/build/records_cleanup.nia",
     "std/build/steps.nia",

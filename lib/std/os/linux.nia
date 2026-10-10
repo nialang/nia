@@ -152,8 +152,8 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     stat::metadataAtBeneath(dir, path, followSymlinks)
 }
 
-pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
-    fd::dirEntryAt(buffer, offset)
+pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
+    fd::dirEntryAt(handle, buffer, offset)
 }
 
 pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {

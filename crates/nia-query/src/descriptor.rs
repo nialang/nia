@@ -93,7 +93,7 @@ impl FingerprintDomain {
     ///
     /// Segments contain lowercase ASCII letters or digits and may be separated
     /// by `.` or `-`. Numeric version suffixes are intentionally rejected;
-    /// release compatibility is owned by the persisted payload contract.
+    /// protocol epoch is owned by the persisted payload contract.
     /// This function panics in const evaluation when `domain` is invalid.
     pub const fn new(domain: &'static str) -> Self {
         assert!(

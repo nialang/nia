@@ -180,7 +180,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 "could not resolve the local package graph",
             )
             .note(format!("package root `{}`: {error}", path.display()))
-            .help("check nia.package dependency paths, classes, cycles, and compatibility")
+            .help("check nia.package dependency paths, classes, and protocol epoch")
             .finish(),
         ],
         BuildError::CreateRunnerDirectory { path, error } => {
@@ -212,6 +212,15 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
         }
         BuildError::ReadPlanDraft { path, error }
         | BuildError::PublishBuildPlan { path, error } => plan_handoff_diagnostic(path, error),
+        BuildError::RunnerObservations { path, error } => vec![
+            Diagnostic::user_error(
+                codes::BUILD_PLAN,
+                "runner configuration observations are invalid",
+            )
+            .note(format!("draft `{}`: {error}", path.display()))
+            .help("rerun the build after checking the build script's bounded probes")
+            .finish(),
+        ],
         BuildError::RunnerConfigurationFieldTooLarge { role, len } => vec![
             Diagnostic::user_error(codes::BUILD_PLAN, "build-runner configuration is too large")
                 .note(format!(

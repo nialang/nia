@@ -184,7 +184,7 @@ fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads a bounded plan payload and revalidates its canonical semantic form.
+/// Reads a bounded canonical build-plan payload and revalidates its semantic form.
 pub fn read_build_plan(path: &Path) -> Result<BuildPlan, PlanHandoffError> {
     let file = fs::File::open(path).map_err(|error| PlanHandoffError::Open {
         path: path.to_path_buf(),

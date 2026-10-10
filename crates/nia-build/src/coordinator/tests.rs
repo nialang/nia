@@ -61,6 +61,11 @@ fn test_invocation() -> BuildInvocation {
         build_dir,
         package_root,
         package_source_fingerprint: [0; 32],
+        package_graph_report: nia_package_metadata::LocalPackageGraphReport {
+            options: nia_package_metadata::LocalPackageGraphOptions::default(),
+            resolved: Vec::new(),
+            declared: Vec::new(),
+        },
         step: crate::BuildStepSelection::Default,
         test_filter: None,
         test_list: false,
@@ -1671,7 +1676,9 @@ fn compiler_check_cache_retires_corruption_and_recompiles() {
     write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
     let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
     execute_build_plan(&plan, &invocation).unwrap();
-    let namespace = invocation.cache_dir.join("actions/compiler-checks/release");
+    let namespace = invocation
+        .cache_dir
+        .join("actions/compiler-checks/protocol");
     let key_dir = fs::read_dir(namespace)
         .unwrap()
         .next()
@@ -1710,7 +1717,7 @@ fn compiler_check_cache_never_publishes_missing_sources() {
     assert!(
         !invocation
             .cache_dir
-            .join("actions/compiler-checks/release")
+            .join("actions/compiler-checks/protocol")
             .exists()
     );
 }
@@ -2019,7 +2026,7 @@ fn compiler_emit_cache_retires_corrupt_records_and_driver_references() {
     execute_build_plan(&plan, &invocation).unwrap();
 
     let action_entry = only_nested_cache_entry(
-        &invocation.cache_dir.join("actions/compiler-emits/release"),
+        &invocation.cache_dir.join("actions/compiler-emits/protocol"),
         "entry",
     );
     fs::write(&action_entry, b"corrupt").expect("corrupt compiler emit action entry");
@@ -2034,7 +2041,7 @@ fn compiler_emit_cache_retires_corrupt_records_and_driver_references() {
     );
 
     let link_entry = only_nested_cache_entry(
-        &invocation.cache_dir.join("artifacts/links/release"),
+        &invocation.cache_dir.join("artifacts/links/protocol"),
         "link",
     );
     fs::write(&link_entry, b"corrupt").expect("corrupt Driver link entry");
@@ -2049,7 +2056,7 @@ fn compiler_emit_cache_retires_corrupt_records_and_driver_references() {
     );
 
     let link_entry = only_nested_cache_entry(
-        &invocation.cache_dir.join("artifacts/links/release"),
+        &invocation.cache_dir.join("artifacts/links/protocol"),
         "link",
     );
     fs::remove_file(link_entry).expect("remove Driver link entry");
@@ -2128,7 +2135,7 @@ fn compiler_emit_cache_does_not_publish_warnings() {
     assert!(
         !invocation
             .cache_dir
-            .join("actions/compiler-emits/release")
+            .join("actions/compiler-emits/protocol")
             .exists()
     );
 }
@@ -2579,7 +2586,7 @@ fn corrupt_external_command_record_is_retired_and_rebuilt() {
     execute_build_plan(&plan, &invocation).unwrap();
     let namespace = invocation
         .cache_dir
-        .join("actions/external-commands/release");
+        .join("actions/external-commands/protocol");
     let key_directory = fs::read_dir(namespace)
         .unwrap()
         .next()
@@ -2643,7 +2650,7 @@ fn assert_no_staged_command_directories(parent: &Path) {
 }
 
 fn assert_no_output_transaction_journals(invocation: &BuildInvocation) {
-    let root = invocation.build_dir.join(".nia-transactions/release");
+    let root = invocation.build_dir.join(".nia-transactions/protocol");
     if root.is_dir() {
         assert!(fs::read_dir(root).unwrap().next().is_none());
     }

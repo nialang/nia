@@ -199,7 +199,7 @@ struct FfiThinConfig {
     freestanding: u8,
     cache_directory: FfiByteSlice,
     cache_magic: FfiByteSlice,
-    cache_release_compatibility: u32,
+    cache_protocol_epoch: u32,
 }
 
 #[repr(C)]
@@ -453,7 +453,7 @@ pub fn run_thin_lto(
         freestanding: u8::from(config.freestanding),
         cache_directory: FfiByteSlice::new(cache_directory.as_bytes()),
         cache_magic: FfiByteSlice::new(cache_format.magic),
-        cache_release_compatibility: cache_format.release_compatibility,
+        cache_protocol_epoch: cache_format.protocol_epoch,
     };
     let result =
         unsafe { nia_llvm_run_thin_lto(ffi_inputs.as_ptr(), ffi_inputs.len(), &ffi_config) };

@@ -1188,8 +1188,8 @@ mod tests {
 
         assert!(
             json.starts_with(&format!(
-                "{{\"release_compatibility\":{},",
-                nia_compat::RELEASE_COMPATIBILITY
+                "{{\"protocol_epoch\":{},",
+                nia_compat::PROTOCOL_EPOCH
             )),
             "{json}"
         );

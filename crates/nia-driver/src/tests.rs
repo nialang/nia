@@ -211,7 +211,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     };
 
     let first = build("thin-first", crate::LinkTimeOptimization::Thin);
-    let thin_cache = cache_root.join("artifacts/thin-lto-modules/release");
+    let thin_cache = cache_root.join("artifacts/thin-lto-modules/protocol");
     let thin_modules = files_under(&thin_cache)
         .into_iter()
         .filter(|path| path.extension().is_some_and(|extension| extension == "bc"))
@@ -258,7 +258,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .code(),
         Some(0)
     );
-    let full_cache = cache_root.join("artifacts/full-lto-modules/release");
+    let full_cache = cache_root.join("artifacts/full-lto-modules/protocol");
     assert!(
         files_under(&full_cache)
             .iter()

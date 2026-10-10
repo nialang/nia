@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Central compatibility registry for compiler ABIs and persisted data.
+//! Current protocol registry for compiler ABIs and persisted data.
 //!
-//! Format magic identifies the payload kind. Release compatibility identifies
+//! Format magic identifies the payload kind. Protocol epoch identifies
 //! the complete compiler/toolchain contract; payloads do not carry independent
 //! hand-bumped schema counters.
 
@@ -97,68 +97,38 @@ pub fn sync_file(path: &std::path::Path) -> std::io::Result<()> {
     }
 }
 
-/// Release-scoped compatibility epoch shared by every persisted compiler
-/// product and ABI boundary. The epoch is derived from the public release
-/// line (`0.1.x` => 1, `0.2.x` => 2, `1.0.x` => 1000) rather than from the
-/// number of implementation changes made during development.
-pub const RELEASE_COMPATIBILITY: u32 = release_compatibility(COMPILER_VERSION);
+/// Current contract shared by every persisted compiler product and ABI
+/// boundary. Advance this epoch when a representation changes. Decoders
+/// accept only this value; no earlier protocol is supported.
+pub const PROTOCOL_EPOCH: u32 = 3;
 /// Stable directory component for persistent namespaces.
 ///
-/// Compatibility is validated from each payload's release identity. Keeping
+/// Each payload must match the current protocol epoch. Keeping
 /// the directory spelling stable avoids another manually bumped version track;
 /// incompatible entries are rejected by their owning decoder and naturally
 /// replaced under the same namespace.
-pub const RELEASE_NAMESPACE_PATH: &str = "release";
+pub const PROTOCOL_NAMESPACE_PATH: &str = "protocol";
 
-const fn decimal_component(bytes: &[u8], start: usize, end: usize) -> u32 {
-    let mut value = 0;
-    let mut index = start;
-    while index < end {
-        value = value * 10 + (bytes[index] - b'0') as u32;
-        index += 1;
-    }
-    value
-}
-
-const fn release_compatibility(version: &str) -> u32 {
-    let bytes = version.as_bytes();
-    let mut first_dot = 0;
-    while first_dot < bytes.len() && bytes[first_dot] != b'.' {
-        first_dot += 1;
-    }
-    let mut second_dot = first_dot + 1;
-    while second_dot < bytes.len() && bytes[second_dot] != b'.' {
-        second_dot += 1;
-    }
-    let major = decimal_component(bytes, 0, first_dot);
-    let minor = decimal_component(bytes, first_dot + 1, second_dot);
-    if major == 0 {
-        minor
-    } else {
-        major * 1000 + minor
-    }
-}
-
-/// Release-scoped identities for generated ABI boundaries.
+/// Current identities for generated ABI boundaries.
 pub mod abi {
-    /// Symbol mangling compatibility epoch.
-    pub const MANGLE: u64 = super::RELEASE_COMPATIBILITY as u64;
-    /// LLVM code-generation compatibility epoch.
-    pub const LLVM_CODEGEN: u64 = super::RELEASE_COMPATIBILITY as u64;
+    /// Symbol mangling protocol epoch.
+    pub const MANGLE: u64 = super::PROTOCOL_EPOCH as u64;
+    /// LLVM code-generation protocol epoch.
+    pub const LLVM_CODEGEN: u64 = super::PROTOCOL_EPOCH as u64;
 }
 
 /// Versions coupling the compiler to installed resources and build runners.
 pub mod toolchain {
-    /// Installed toolchain resource compatibility epoch.
-    pub const RESOURCE_LAYOUT: u32 = super::RELEASE_COMPATIBILITY;
-    /// Standard-library compatibility epoch.
-    pub const STANDARD_LIBRARY: u32 = super::RELEASE_COMPATIBILITY;
-    /// Build protocol compatibility epoch shared with compiled runners.
-    pub const BUILD_PROTOCOL: u32 = super::RELEASE_COMPATIBILITY;
+    /// Installed toolchain resource protocol epoch.
+    pub const RESOURCE_LAYOUT: u32 = super::PROTOCOL_EPOCH;
+    /// Standard-library protocol epoch.
+    pub const STANDARD_LIBRARY: u32 = super::PROTOCOL_EPOCH;
+    /// Protocol epoch shared with compiled build runners.
+    pub const BUILD_PROTOCOL: u32 = super::PROTOCOL_EPOCH;
 }
 
 /// Binary payload identity consisting of a diagnostic name, magic, and the
-/// release compatibility epoch. All payloads share the same release-derived
+/// protocol epoch. All payloads share the same current contract
 /// value; the magic only identifies the payload kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PersistedFormat {
@@ -166,8 +136,8 @@ pub struct PersistedFormat {
     pub name: &'static str,
     /// Exact eight-byte prefix distinguishing this payload kind and generation.
     pub magic: &'static [u8; 8],
-    /// Release compatibility epoch.
-    pub release_compatibility: u32,
+    /// Protocol epoch.
+    pub protocol_epoch: u32,
 }
 
 impl PersistedFormat {
@@ -176,19 +146,19 @@ impl PersistedFormat {
         Self {
             name,
             magic,
-            release_compatibility: RELEASE_COMPATIBILITY,
+            protocol_epoch: PROTOCOL_EPOCH,
         }
     }
 }
 
-/// Release-scoped directory namespace isolating incompatible persisted entries.
+/// Directory namespace for current compiler products.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PersistedNamespace {
     /// Human-readable registry identity.
     pub name: &'static str,
-    /// Release compatibility epoch.
-    pub release_compatibility: u32,
-    /// Directory component for this release line.
+    /// Protocol epoch.
+    pub protocol_epoch: u32,
+    /// Directory component for the current protocol namespace.
     pub path_component: &'static str,
 }
 
@@ -197,8 +167,8 @@ impl PersistedNamespace {
     pub const fn new(name: &'static str) -> Self {
         Self {
             name,
-            release_compatibility: RELEASE_COMPATIBILITY,
-            path_component: RELEASE_NAMESPACE_PATH,
+            protocol_epoch: PROTOCOL_EPOCH,
+            path_component: PROTOCOL_NAMESPACE_PATH,
         }
     }
 }
@@ -211,12 +181,18 @@ pub mod formats {
     pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\0");
     /// Invocation-private configuration consumed by a compiled build runner.
     pub const RUNNER_CONFIG: PersistedFormat = PersistedFormat::new("runner-config", b"NIARUNCF");
+    /// Bounded observations emitted by a host build runner.
+    pub const RUNNER_OBSERVATIONS: PersistedFormat =
+        PersistedFormat::new("runner-observations", b"NIAOBS\0\0");
     /// Disposable generated host-runner executable cache record.
     pub const RUNNER_EXECUTABLE_CACHE: PersistedFormat =
         PersistedFormat::new("runner-executable-cache", b"NIARUN\0\0");
     /// Versioned configure observation manifest used by the plan cache.
     pub const CONFIGURE_MANIFEST: PersistedFormat =
         PersistedFormat::new("configure-manifest", b"NIACFG\0\0");
+    /// Frozen configure plan paired with its observation manifest.
+    pub const CONFIGURE_RECORD: PersistedFormat =
+        PersistedFormat::new("configure-record", b"NIACREC\0");
 
     /// Shared namespace for persistent frontend products.
     pub const FRONTEND_CACHE: PersistedNamespace = PersistedNamespace::new("frontend-cache");
@@ -335,8 +311,10 @@ pub mod formats {
     pub const ALL: &[PersistedFormat] = &[
         BUILD_PLAN,
         RUNNER_CONFIG,
+        RUNNER_OBSERVATIONS,
         RUNNER_EXECUTABLE_CACHE,
         CONFIGURE_MANIFEST,
+        CONFIGURE_RECORD,
         FRONTEND_DEPENDENCY_MANIFEST,
         FRONTEND_FACADE_FACTS,
         FRONTEND_MODULE_DEPENDENCIES,
@@ -385,12 +363,12 @@ pub mod formats {
 /// Renders the canonical installed-resource manifest for this compiler build.
 pub fn toolchain_manifest() -> String {
     let mut manifest = String::new();
-    manifest.push_str("# Nia toolchain resource compatibility identity.\n");
+    manifest.push_str("# Nia toolchain resource protocol identity.\n");
     manifest.push_str("compiler-version=");
     manifest.push_str(COMPILER_VERSION);
     manifest.push('\n');
-    manifest.push_str("release-compatibility=");
-    manifest.push_str(&RELEASE_COMPATIBILITY.to_string());
+    manifest.push_str("protocol-epoch=");
+    manifest.push_str(&PROTOCOL_EPOCH.to_string());
     manifest.push('\n');
     manifest
 }
@@ -404,7 +382,7 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{COMPILER_VERSION, RELEASE_COMPATIBILITY, formats, toolchain_manifest};
+    use super::{PROTOCOL_EPOCH, formats, toolchain_manifest};
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -426,25 +404,13 @@ mod tests {
     }
 
     #[test]
-    fn release_compatibility_follows_public_release_line() {
-        assert_eq!(super::release_compatibility("0.1.0"), 1);
-        assert_eq!(super::release_compatibility("0.7.0-dev"), 7);
-        assert_eq!(
-            super::release_compatibility(COMPILER_VERSION),
-            RELEASE_COMPATIBILITY
-        );
-        assert_eq!(super::release_compatibility("1.0.0"), 1000);
-        assert_eq!(super::release_compatibility("2.3.7"), 2003);
-    }
-
-    #[test]
     fn persisted_identity_names_and_magics_are_unique() {
         let mut names = BTreeSet::new();
         let mut magics = BTreeSet::new();
         for format in formats::ALL {
             assert!(
-                format.release_compatibility > 0,
-                "{} has no release compatibility",
+                format.protocol_epoch > 0,
+                "{} has no protocol epoch",
                 format.name
             );
             assert!(
@@ -469,8 +435,8 @@ mod tests {
                 "duplicate namespace name {}",
                 namespace.name
             );
-            assert_eq!(namespace.release_compatibility, RELEASE_COMPATIBILITY);
-            assert_eq!(namespace.path_component, super::RELEASE_NAMESPACE_PATH);
+            assert_eq!(namespace.protocol_epoch, PROTOCOL_EPOCH);
+            assert_eq!(namespace.path_component, super::PROTOCOL_NAMESPACE_PATH);
         }
     }
 

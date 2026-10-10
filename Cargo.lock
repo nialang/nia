@@ -355,6 +355,7 @@ dependencies = [
  "nia-span",
  "nia-target",
  "nia-target-config",
+ "nia-test-support",
  "nia-timing",
  "nia-toolchain",
  "serde_json",
@@ -920,6 +921,7 @@ dependencies = [
  "nia-loader-contract",
  "nia-node-id",
  "nia-opt",
+ "nia-package-metadata",
  "nia-parser",
  "nia-provider-summary",
  "nia-query",
@@ -1023,6 +1025,7 @@ dependencies = [
  "blake3",
  "nia-compat",
  "nia-ids",
+ "nia-query",
 ]
 
 [[package]]

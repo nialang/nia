@@ -20,6 +20,7 @@ pub(pkg) module modules;
 pub(pkg) module ownership;
 pub(pkg) module paths;
 pub(pkg) module plan;
+pub module probes;
 pub(pkg) module queries;
 pub(pkg) module records_cleanup;
 pub(pkg) module steps;
@@ -30,6 +31,7 @@ pub(pkg) module validation;
 using pkg::build::core;
 using pkg::build::lifecycle;
 using pkg::build::plan;
+using pkg::build::probes;
 using pkg::build::targets;
 
 pub using error::{

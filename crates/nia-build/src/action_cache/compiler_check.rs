@@ -72,15 +72,15 @@ impl ToolchainComponents {
             compiler: text_fingerprint(COMPILER_CHECK_COMPILER_DOMAIN, identity.compiler_version()),
             resource_layout: integer_fingerprint(
                 COMPILER_CHECK_RESOURCE_LAYOUT_DOMAIN,
-                u64::from(identity.release_compatibility()),
+                u64::from(identity.protocol_epoch()),
             ),
             standard_library: integer_fingerprint(
                 COMPILER_CHECK_STANDARD_LIBRARY_DOMAIN,
-                u64::from(identity.release_compatibility()),
+                u64::from(identity.protocol_epoch()),
             ),
             build_protocol: integer_fingerprint(
                 COMPILER_CHECK_BUILD_PROTOCOL_DOMAIN,
-                u64::from(identity.release_compatibility()),
+                u64::from(identity.protocol_epoch()),
             ),
         }
     }

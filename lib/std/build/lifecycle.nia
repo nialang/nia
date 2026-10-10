@@ -51,7 +51,7 @@ extend Build {
         hostTarget: usize,
         artifactTarget: usize,
         defaultOptimization: OptimizationMode,
-        planSchemaVersion: u32,
+        protocolEpoch: u32,
         requestedStep: ?&[char],
         testMode: bool,
     ) BuildInitAttempt {
@@ -64,7 +64,7 @@ extend Build {
             hostTarget: hostTarget,
             artifactTarget: artifactTarget,
             defaultOptimization: defaultOptimization,
-            planSchemaVersion: planSchemaVersion,
+            protocolEpoch: protocolEpoch,
             requestedStep: .init(),
             hasRequestedStep: false,
             defaultStep: null,
@@ -109,6 +109,9 @@ extend Build {
             hasPendingStaticArchive: false,
             validationIndegree: .init(),
             validationReady: .init(),
+            configureObservationBytes: .init(),
+            configureObservationCount: 0,
+            environment: null,
             planEncoding: .init(),
         };
         let mut attempt = BuildInitAttempt::init(build);
@@ -189,6 +192,7 @@ extend Build {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
         cleanup.attempt(self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
+        cleanup.attempt(self.configureObservationBytes.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));
         cleanup.attempt(self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));
         cleanup.attempt(self.cleanupPendingPackage());
         cleanup.attempt(self.cleanupPendingModule());

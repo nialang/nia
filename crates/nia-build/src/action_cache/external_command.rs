@@ -3,7 +3,7 @@
 //!
 //! Eligibility requires a cleared environment, declared semantic inputs, and
 //! declared outputs. Tool bytes, logical inputs, explicit environment, package
-//! roots, dependencies, and compatibility components form identity; a hit
+//! roots, dependencies, and protocol components form identity; a hit
 //! restores the complete checksummed output set through output recovery.
 
 #[cfg(test)]
@@ -284,15 +284,15 @@ impl ExternalCommandCacheIdentity {
             ),
             resource_layout: integer_component(
                 EXTERNAL_COMMAND_RESOURCE_LAYOUT_DOMAIN,
-                toolchain.release_compatibility(),
+                toolchain.protocol_epoch(),
             ),
             standard_library: integer_component(
                 EXTERNAL_COMMAND_STANDARD_LIBRARY_DOMAIN,
-                toolchain.release_compatibility(),
+                toolchain.protocol_epoch(),
             ),
             build_protocol: integer_component(
                 EXTERNAL_COMMAND_BUILD_PROTOCOL_DOMAIN,
-                toolchain.release_compatibility(),
+                toolchain.protocol_epoch(),
             ),
         };
         Some(Self {

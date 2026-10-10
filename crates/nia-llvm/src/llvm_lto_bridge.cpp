@@ -78,7 +78,7 @@ struct ThinConfig {
   uint8_t Freestanding;
   ByteSlice CacheDirectory;
   ByteSlice CacheMagic;
-  uint32_t CacheReleaseCompatibility;
+  uint32_t CacheProtocolEpoch;
 };
 
 struct OwnedBuffer {
@@ -273,7 +273,7 @@ SmallString<256> cacheEntryPath(StringRef Directory, StringRef Key) {
 }
 
 CacheReadResult readCacheEntry(StringRef Path, ArrayRef<uint8_t> Magic,
-                               uint32_t ReleaseCompatibility) {
+                               uint32_t ProtocolEpoch) {
   ErrorOr<std::unique_ptr<MemoryBuffer>> Buffer =
       MemoryBuffer::getFile(Path, /*IsText=*/false,
                             /*RequiresNullTerminator=*/false);
@@ -287,7 +287,7 @@ CacheReadResult readCacheEntry(StringRef Path, ArrayRef<uint8_t> Magic,
       !std::equal(Magic.begin(), Magic.end(),
                   reinterpret_cast<const uint8_t *>(Record.data())) ||
       support::endian::read32le(Record.data() + CacheMagicSize) !=
-          ReleaseCompatibility) {
+          ProtocolEpoch) {
     return {CacheRead::Corrupt, {}};
   }
   uint64_t PayloadLength = support::endian::read64le(
@@ -309,7 +309,7 @@ CacheReadResult readCacheEntry(StringRef Path, ArrayRef<uint8_t> Magic,
 
 bool writeCacheEntry(StringRef Directory, StringRef Path,
                      ArrayRef<uint8_t> Magic,
-                     uint32_t ReleaseCompatibility, StringRef Payload) {
+                     uint32_t ProtocolEpoch, StringRef Payload) {
   if (Magic.size() != CacheMagicSize)
     return false;
   if (std::error_code EC =
@@ -323,7 +323,7 @@ bool writeCacheEntry(StringRef Directory, StringRef Path,
     return false;
 
   std::array<char, sizeof(uint32_t) + sizeof(uint64_t)> Lengths{};
-  support::endian::write32le(Lengths.data(), ReleaseCompatibility);
+  support::endian::write32le(Lengths.data(), ProtocolEpoch);
   support::endian::write64le(Lengths.data() + sizeof(uint32_t), Payload.size());
   ArrayRef<uint8_t> PayloadBytes(
       reinterpret_cast<const uint8_t *>(Payload.data()), Payload.size());
@@ -353,11 +353,11 @@ public:
          std::mutex &ResultMutex, StageRecorder &Stages,
          std::string CacheDirectory, std::string CachePath,
          std::array<uint8_t, CacheMagicSize> CacheMagic,
-         uint32_t CacheReleaseCompatibility) {
+         uint32_t CacheProtocolEpoch) {
     return std::unique_ptr<ResultStream>(new ResultStream(
         Task, std::move(ModuleName), Result, ResultMutex, Stages,
         std::move(CacheDirectory), std::move(CachePath), CacheMagic,
-        CacheReleaseCompatibility,
+        CacheProtocolEpoch,
         std::make_shared<SmallVector<char, 0>>()));
   }
 
@@ -368,7 +368,7 @@ public:
     bool CacheWriteFailed =
         !CachePath.empty() &&
         !writeCacheEntry(CacheDirectory, CachePath, CacheMagic,
-                         CacheReleaseCompatibility, Bytes);
+                         CacheProtocolEpoch, Bytes);
     {
       std::lock_guard<std::mutex> Lock(ResultMutex);
       Result.Cache.WriteErrors += CacheWriteFailed;
@@ -385,7 +385,7 @@ private:
                std::mutex &ResultMutex, StageRecorder &Stages,
                std::string CacheDirectory, std::string CachePath,
                std::array<uint8_t, CacheMagicSize> CacheMagic,
-               uint32_t CacheReleaseCompatibility,
+               uint32_t CacheProtocolEpoch,
                std::shared_ptr<SmallVector<char, 0>> Storage)
       : CachedFileStream(std::make_unique<raw_svector_ostream>(*Storage)),
         Storage(std::move(Storage)), Task(Task),
@@ -393,7 +393,7 @@ private:
         ResultMutex(ResultMutex), Stages(Stages),
         CacheDirectory(std::move(CacheDirectory)),
         CachePath(std::move(CachePath)), CacheMagic(CacheMagic),
-        CacheReleaseCompatibility(CacheReleaseCompatibility) {}
+        CacheProtocolEpoch(CacheProtocolEpoch) {}
 
   std::shared_ptr<SmallVector<char, 0>> Storage;
   unsigned Task;
@@ -404,7 +404,7 @@ private:
   std::string CacheDirectory;
   std::string CachePath;
   std::array<uint8_t, CacheMagicSize> CacheMagic;
-  uint32_t CacheReleaseCompatibility;
+  uint32_t CacheProtocolEpoch;
 };
 
 class FullResultStream final : public CachedFileStream {
@@ -762,7 +762,7 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
         if (!CacheDirectory.empty()) {
           SmallString<256> Path = cacheEntryPath(CacheDirectory, Key);
           CacheReadResult Cached = readCacheEntry(
-              Path, CacheMagic, InputConfig->CacheReleaseCompatibility);
+              Path, CacheMagic, InputConfig->CacheProtocolEpoch);
           if (Cached.Status == CacheRead::Hit) {
             std::lock_guard<std::mutex> Lock(ResultMutex);
             ++Result->Cache.Hits;
@@ -782,15 +782,15 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
           std::string OwnedPath = Path.str().str();
           return [&, OwnedDirectory = std::move(OwnedDirectory),
                   OwnedPath = std::move(OwnedPath), CacheMagic,
-                  ReleaseCompatibility =
-                      InputConfig->CacheReleaseCompatibility](
+                  ProtocolEpoch =
+                      InputConfig->CacheProtocolEpoch](
                      unsigned StreamTask,
                      const Twine &StreamModuleName)
                      -> Expected<std::unique_ptr<CachedFileStream>> {
             return ResultStream::create(
                 StreamTask, StreamModuleName.str(), *Result, ResultMutex,
                 Stages, OwnedDirectory, OwnedPath, CacheMagic,
-                ReleaseCompatibility);
+                ProtocolEpoch);
           };
         }
         return AddStream;

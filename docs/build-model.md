@@ -1,8 +1,8 @@
 # Nia Build Model
 
 This document records the maintained ownership and correctness boundaries of
-the build system. It is a tracked contract document; experimental migration
-plans remain local in `docs/build-roadmap.md`.
+the build system. Experimental sequencing belongs in bounded project notes or
+Git history, while this file records only the active contract.
 
 ## Invocation boundaries
 
@@ -16,13 +16,22 @@ semantic freeze and validation as an in-process plan. The selected, validated
 `BuildPlan` is then passed to the coordinator, which schedules and executes
 the dependency closure.
 
-## Three current cache layers
+## Current cache layers
 
 * The runner cache stores a checked host executable. Its identity includes the
   generated runner source, build script, standard-library source tree,
   toolchain identity, host target, runner profile/mode, link-time policy, and
   build protocol. Artifact optimization is intentionally excluded because it
   belongs to artifact actions.
+* The configure cache stores a frozen plan with its bounded observation
+  manifest. Reuse requires the runner and invocation identities to match,
+  every non-poisoned observation to recompute, and the plan to pass semantic
+  decode validation again.
+  Filesystem observations include content, metadata, directory entries, and
+  explicit presence facts. A missing optional path is a stable `absent` fact,
+  so creating or removing that path invalidates the configure record.
+  Environment observations likewise distinguish an absent variable from an
+  explicitly empty value and from each UTF-8 value.
 * The action cache stores validated generated files and eligible external
   command results, plus references to compiler-owned products. Cache failures
   are explicit misses and cannot replace the ordinary execution path.
@@ -30,10 +39,13 @@ the dependency closure.
   `nia-linker`. `nia-build` records the action contract that refers to those
   products, but does not duplicate their formats.
 
-The durable `build-plan.bin` handoff is an observation of the last completed
-configuration. It is atomically published and decoded through semantic
-validation, but every invocation configures and freezes a fresh plan. It is
-never accepted as an execution shortcut.
+The configure cache stores a validated plan together with the observations that
+produced it. A later invocation may reuse that record only after its
+observations match the current package root and the plan is decoded through
+semantic validation. A missing, changed, poisoned, or corrupt record falls
+back to runner configuration. The durable `build-plan.bin` handoff remains an
+observation of the last completed configuration: it is atomically published
+and never accepted as an unchecked execution shortcut.
 
 ## Plan invariants
 
@@ -47,6 +59,12 @@ The coordinator executes only the validated selected closure. Host and
 artifact targets are checked before scheduling. Outputs are declared and
 published transactionally, with cross-process locking for equal logical
 destinations and recoverable staged state.
+
+The runner draft carries bounded file-content, file-presence, directory, and
+environment evidence. The host rechecks each reported value under the
+package-root boundary before publishing a configure-cache record. Command,
+Git, and tool probes remain a separate executable-identity protocol addition;
+they are not represented as filesystem facts.
 
 ## Evolution rule
 

@@ -381,7 +381,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut envelope = ConfigCursor::init(configBytes.asSlice());
     if not envelope.take(8).reportAndExit(init).?.equals(&b"__NIA_RUNNER_CONFIG_MAGIC__")
-        or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_COMPATIBILITY__u32
+        or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_PROTOCOL_EPOCH__u32
     {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
@@ -470,12 +470,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         hostTarget,
         artifactTarget,
         defaultOptimization,
-        __NIA_BUILD_PLAN_COMPATIBILITY__u32,
+        __NIA_BUILD_PROTOCOL_EPOCH__u32,
         requestedStep,
         testMode,
     );
     let mut api = initialization.finish().reportAndExit(init).?;
     defer api.deinit().reportAndExit(init).?;
+    api.attachEnvironment(init.env());
 
     match buildScript::build(&mut api) {
         !ok => {

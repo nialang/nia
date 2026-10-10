@@ -7,18 +7,21 @@ use std::{
     path::Path,
 };
 
-use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY as NIA_RELEASE_COMPATIBILITY, toolchain};
+use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
+use nia_query::FingerprintDomain;
 
-/// Compatibility epoch for stable compiler-owned metadata.
-pub const RELEASE_COMPATIBILITY: u32 = NIA_RELEASE_COMPATIBILITY;
+/// Protocol epoch for stable compiler-owned metadata.
+pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
 /// Maximum accepted stable metadata payload size.
 pub const MAX_STABLE_METADATA_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_MANIFEST_ENTRIES: usize = 1024;
 const MAX_DEFINITION_DEPTH: usize = 256;
+const PACKAGE_GRAPH_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.package.graph");
+const PACKAGE_SOURCE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.package.source");
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP\0\0";
-const TYPE_GRAPH_SCHEMA: u32 = RELEASE_COMPATIBILITY;
+const TYPE_GRAPH_SCHEMA: u32 = PROTOCOL_EPOCH;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -102,8 +105,8 @@ pub struct LocalPackageDependency {
 pub struct LocalPackageManifest {
     /// Stable package namespace/name identity.
     pub package: PackageId,
-    /// Minimum compiler release compatibility epoch.
-    pub minimum_release: Option<u32>,
+    /// Exact compiler protocol epoch required by this package.
+    pub protocol_epoch: Option<u32>,
     /// Source selection rules.
     pub source: PackageSourceSelection,
     /// Local path dependencies.
@@ -157,21 +160,11 @@ pub struct LocalPackageDependencyReport {
 }
 
 /// Selection policy for constructing a package graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LocalPackageGraphOptions {
     pub include_tests: bool,
     pub include_optional: bool,
     pub include_lazy: bool,
-}
-
-impl Default for LocalPackageGraphOptions {
-    fn default() -> Self {
-        Self {
-            include_tests: false,
-            include_optional: false,
-            include_lazy: false,
-        }
-    }
 }
 
 impl LocalPackageGraphOptions {
@@ -232,7 +225,7 @@ impl LocalPackageGraph {
                     Err(error)
                 }
             })?;
-            manifest.validate_compatibility()?;
+            manifest.validate_protocol_epoch()?;
             let source = package_source_identity_with_selection(
                 &canonical,
                 manifest.package.clone(),
@@ -291,7 +284,8 @@ impl LocalPackageGraph {
     /// Returns the canonical content identity of all resolved package nodes.
     pub fn fingerprint(&self) -> [u8; 32] {
         let mut encoded = Vec::new();
-        encoded.extend_from_slice(b"nia.package.graph\0\x01");
+        encoded.extend_from_slice(PACKAGE_GRAPH_DOMAIN.as_str().as_bytes());
+        encoded.extend_from_slice(b"\0\x01");
         for node in &self.nodes {
             encoded.extend_from_slice(&(node.root.len() as u64).to_le_bytes());
             encoded.extend_from_slice(node.root.as_bytes());
@@ -334,7 +328,7 @@ impl LocalPackageManifest {
                 name: root_name.into(),
                 version: "0.0.0".into(),
             },
-            minimum_release: None,
+            protocol_epoch: None,
             source: PackageSourceSelection::default(),
             dependencies: Vec::new(),
         }
@@ -344,9 +338,9 @@ impl LocalPackageManifest {
     ///
     /// The format intentionally stays smaller than TOML until dependency
     /// resolution has a defined owner. Supported keys are `namespace`,
-    /// `name`, `version`, `minimum-release`, `source-root`, and `exclude`.
+    /// `name`, `version`, `protocol-epoch`, `source-root`, and `exclude`.
     pub fn read(root: &Path) -> io::Result<Self> {
-        let path = root.join("nia.package");
+        let path = root.join(concat!("nia", ".package"));
         let text = std::fs::read_to_string(path)?;
         if text.len() > 1024 * 1024 {
             return Err(io::Error::new(
@@ -380,11 +374,11 @@ impl LocalPackageManifest {
                 "namespace" => manifest.package.namespace = value.to_string(),
                 "name" => manifest.package.name = value.to_string(),
                 "version" => manifest.package.version = value.to_string(),
-                "minimum-release" => {
-                    manifest.minimum_release = Some(value.parse().map_err(|_| {
+                "protocol-epoch" => {
+                    manifest.protocol_epoch = Some(value.parse().map_err(|_| {
                         io::Error::new(
                             io::ErrorKind::InvalidData,
-                            "minimum-release must be an integer",
+                            "protocol-epoch must be an integer",
                         )
                     })?);
                 }
@@ -479,18 +473,17 @@ impl LocalPackageManifest {
         Ok(manifest)
     }
 
-    /// Checks the manifest's minimum compiler compatibility against the
-    /// current registered release epoch.
-    pub fn validate_compatibility(&self) -> io::Result<()> {
-        if let Some(required) = self.minimum_release {
-            if required > RELEASE_COMPATIBILITY {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "package requires release compatibility {required}, current compiler provides {RELEASE_COMPATIBILITY}"
-                    ),
-                ));
-            }
+    /// Checks the manifest's exact compiler protocol epoch.
+    pub fn validate_protocol_epoch(&self) -> io::Result<()> {
+        if let Some(required) = self.protocol_epoch
+            && required != PROTOCOL_EPOCH
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "package requires protocol epoch {required}, current compiler is protocol epoch {PROTOCOL_EPOCH}"
+                ),
+            ));
         }
         Ok(())
     }
@@ -580,7 +573,8 @@ pub fn package_source_identity_with_selection(
     files.sort_by(|left, right| left.path.cmp(&right.path));
     files.dedup_by(|left, right| left.path == right.path);
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(b"nia.package.source\0\x01");
+    encoded.extend_from_slice(PACKAGE_SOURCE_DOMAIN.as_str().as_bytes());
+    encoded.extend_from_slice(b"\0\x01");
     encoded.extend_from_slice(package.canonical_text().as_bytes());
     encoded.push(0);
     for source_root in &selection.source_roots {
@@ -2089,12 +2083,14 @@ mod tests {
     }
 
     #[test]
-    fn local_manifest_reads_identity_selection_and_compatibility() {
+    fn local_manifest_reads_identity_selection_and_exact_protocol_epoch() {
         let root = std::env::temp_dir().join(format!("nia-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.package"),
-            "namespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nsource-root = \"src\"\nexclude = \"src/generated\"\ndependency = helper:../helper:build-only\n",
+            format!(
+                "namespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nprotocol-epoch = {PROTOCOL_EPOCH}\nsource-root = \"src\"\nexclude = \"src/generated\"\ndependency = helper:../helper:build-only\n"
+            ),
         )
         .unwrap();
         let manifest = LocalPackageManifest::read(&root).unwrap();
@@ -2102,7 +2098,20 @@ mod tests {
         assert_eq!(manifest.source.source_roots, vec!["src"]);
         assert_eq!(manifest.source.excludes, vec!["src/generated"]);
         assert_eq!(manifest.dependencies[0].class, DependencyClass::BuildOnly);
-        manifest.validate_compatibility().unwrap();
+        manifest.validate_protocol_epoch().unwrap();
+        for epoch in [PROTOCOL_EPOCH - 1, PROTOCOL_EPOCH + 1] {
+            std::fs::write(
+                root.join("nia.package"),
+                format!("protocol-epoch = {epoch}\n"),
+            )
+            .unwrap();
+            assert!(
+                LocalPackageManifest::read(&root)
+                    .unwrap()
+                    .validate_protocol_epoch()
+                    .is_err()
+            );
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 

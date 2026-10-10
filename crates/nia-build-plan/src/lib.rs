@@ -623,7 +623,7 @@ pub struct BuildPlanDraft {
 /// Canonical immutable plan accepted by the coordinator and codec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlan {
-    release_compatibility: u32,
+    protocol_epoch: u32,
     root_package: PackageKey,
     packages: Vec<PlanPackage>,
     host_target: TargetConfig,
@@ -976,7 +976,7 @@ impl BuildPlan {
         validation::validate_generated_source_dependencies(&draft)?;
 
         Ok(Self {
-            release_compatibility: BUILD_PLAN.release_compatibility,
+            protocol_epoch: BUILD_PLAN.protocol_epoch,
             root_package: draft.root_package,
             packages: draft.packages,
             host_target: draft.host_target,
@@ -990,9 +990,9 @@ impl BuildPlan {
         })
     }
 
-    /// Returns the release compatibility required by the binary protocol.
-    pub fn release_compatibility(&self) -> u32 {
-        self.release_compatibility
+    /// Returns the protocol epoch required by the binary protocol.
+    pub fn protocol_epoch(&self) -> u32 {
+        self.protocol_epoch
     }
     /// Returns the root package identity.
     pub fn root_package(&self) -> &PackageKey {

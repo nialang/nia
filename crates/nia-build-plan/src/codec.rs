@@ -25,7 +25,7 @@ pub enum PlanCodecError {
     },
     /// Payload magic does not match the registered format.
     BadMagic,
-    /// Payload uses an unsupported release compatibility.
+    /// Payload uses an unsupported protocol epoch.
     UnsupportedCompatibility(u32),
     /// Payload ended before the required field at this offset.
     Truncated {
@@ -111,7 +111,7 @@ impl BuildPlan {
     pub fn encode(&self) -> Result<Vec<u8>, PlanCodecError> {
         let mut writer = Writer::new();
         writer.bytes(BUILD_PLAN.magic);
-        writer.u32(self.release_compatibility);
+        writer.u32(self.protocol_epoch);
         writer.package_key(&self.root_package)?;
         writer.count(self.packages.len())?;
         for package in &self.packages {
@@ -154,7 +154,7 @@ impl BuildPlan {
             return Err(PlanCodecError::BadMagic);
         }
         let version = reader.u32()?;
-        if version != BUILD_PLAN.release_compatibility {
+        if version != BUILD_PLAN.protocol_epoch {
             return Err(PlanCodecError::UnsupportedCompatibility(version));
         }
         let root_package = reader.package_key()?;
@@ -975,7 +975,7 @@ mod tests {
     fn encode_draft_without_freeze(draft: &BuildPlanDraft) -> Vec<u8> {
         let mut writer = Writer::new();
         writer.bytes(BUILD_PLAN.magic);
-        writer.u32(BUILD_PLAN.release_compatibility);
+        writer.u32(BUILD_PLAN.protocol_epoch);
         writer.package_key(&draft.root_package).unwrap();
         writer.count(draft.packages.len()).unwrap();
         for package in &draft.packages {
@@ -1332,11 +1332,11 @@ mod tests {
         let plan = BuildPlan::freeze(draft(false)).unwrap();
         let bytes = plan.encode().unwrap();
         let mut unknown = bytes.clone();
-        unknown[8..12].copy_from_slice(&(BUILD_PLAN.release_compatibility + 1).to_le_bytes());
+        unknown[8..12].copy_from_slice(&(BUILD_PLAN.protocol_epoch + 1).to_le_bytes());
         assert_eq!(
             BuildPlan::decode(&unknown),
             Err(PlanCodecError::UnsupportedCompatibility(
-                BUILD_PLAN.release_compatibility + 1
+                BUILD_PLAN.protocol_epoch + 1
             ))
         );
         assert!(matches!(

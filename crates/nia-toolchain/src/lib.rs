@@ -10,7 +10,7 @@
 //! Compatibility identity deliberately excludes filesystem paths so an intact
 //! installation can be relocated without invalidating compiler caches.
 
-use nia_compat::{COMPILER_VERSION, RELEASE_COMPATIBILITY};
+use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target::{Arch, Os, TargetConfig};
 use std::{fmt, fs, io, io::Read, path::PathBuf};
@@ -30,7 +30,7 @@ pub fn runtime_symbol_package_identity() -> String {
     nia_package_metadata::PackageId {
         namespace: "nia".to_string(),
         name: "runtime".to_string(),
-        version: format!("{}+runtime{}", COMPILER_VERSION, RELEASE_COMPATIBILITY),
+        version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH),
     }
     .canonical_text()
 }
@@ -42,7 +42,7 @@ pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolchainIdentity {
     compiler_version: String,
-    release_compatibility: u32,
+    protocol_epoch: u32,
 }
 
 /// Stable fingerprint of all fields in [`ToolchainIdentity`].
@@ -54,7 +54,7 @@ impl ToolchainIdentityFingerprint {
     pub fn current() -> Self {
         ToolchainIdentity {
             compiler_version: COMPILER_VERSION.to_string(),
-            release_compatibility: RELEASE_COMPATIBILITY,
+            protocol_epoch: PROTOCOL_EPOCH,
         }
         .fingerprint()
     }
@@ -76,17 +76,17 @@ impl ToolchainIdentity {
         &self.compiler_version
     }
 
-    /// Returns the release-scoped compatibility epoch shared by all
+    /// Returns the current protocol epoch shared by all
     /// toolchain resources, persisted artifacts, and ABI boundaries.
-    pub const fn release_compatibility(&self) -> u32 {
-        self.release_compatibility
+    pub const fn protocol_epoch(&self) -> u32 {
+        self.protocol_epoch
     }
 
     /// Computes a deterministic fingerprint over every compatibility field.
     pub fn fingerprint(&self) -> ToolchainIdentityFingerprint {
         let mut builder = QueryFingerprintBuilder::new(COMPATIBILITY_IDENTITY_DOMAIN);
         builder.write_str(&self.compiler_version);
-        builder.write_u64(u64::from(self.release_compatibility));
+        builder.write_u64(u64::from(self.protocol_epoch));
         ToolchainIdentityFingerprint(builder.finish())
     }
 }
@@ -285,7 +285,7 @@ impl RuntimeSpec {
             package: nia_package_metadata::PackageId {
                 namespace: "nia".to_string(),
                 name: "runtime".to_string(),
-                version: format!("{}+runtime{}", COMPILER_VERSION, RELEASE_COMPATIBILITY),
+                version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH),
             },
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(
@@ -393,7 +393,7 @@ impl ToolchainLayout {
     /// Resolves and validates every resource named by `request`.
     ///
     /// The resource root is canonicalized before exposure. The manifest must
-    /// exactly match this compiler's release compatibility and compiler
+    /// exactly match this compiler's protocol epoch and compiler
     /// version; required standard-library and runtime files must
     /// be regular files.
     pub fn resolve(request: ToolchainLayoutRequest) -> Result<Self, ToolchainLayoutError> {
@@ -898,7 +898,7 @@ fn validate_optional_file(
 #[derive(Default)]
 struct ManifestFields {
     compiler_version: Option<ManifestValue>,
-    release_compatibility: Option<ManifestValue>,
+    protocol_epoch: Option<ManifestValue>,
 }
 
 struct ManifestValue {
@@ -926,7 +926,7 @@ fn parse_manifest(
         }
         let slot = match name {
             "compiler-version" => &mut fields.compiler_version,
-            "release-compatibility" => &mut fields.release_compatibility,
+            "protocol-epoch" => &mut fields.protocol_epoch,
             _ => {
                 return Err(malformed(path, index, format!("unknown field `{name}`")));
             }
@@ -944,10 +944,10 @@ fn parse_manifest(
 
     Ok(ToolchainIdentity {
         compiler_version: required(path, "compiler-version", fields.compiler_version)?.text,
-        release_compatibility: parse_u32(
+        protocol_epoch: parse_u32(
             path,
-            "release-compatibility",
-            required(path, "release-compatibility", fields.release_compatibility)?,
+            "protocol-epoch",
+            required(path, "protocol-epoch", fields.protocol_epoch)?,
         )?,
     })
 }
@@ -1005,9 +1005,9 @@ fn validate_identity(
     )?;
     validate_field(
         path,
-        "release-compatibility",
-        RELEASE_COMPATIBILITY.to_string(),
-        identity.release_compatibility.to_string(),
+        "protocol-epoch",
+        PROTOCOL_EPOCH.to_string(),
+        identity.protocol_epoch.to_string(),
     )
 }
 
@@ -1240,7 +1240,7 @@ mod tests {
         let executable = write_layout(&root);
         fs::write(
             root.join("lib/toolchain.meta"),
-            "release-compatibility=1\ncompiler-version=incompatible\n",
+            "protocol-epoch=1\ncompiler-version=incompatible\n",
         )
         .expect("replace manifest");
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
@@ -1256,9 +1256,8 @@ mod tests {
     #[test]
     fn malformed_numeric_manifest_field_reports_its_source_line() {
         let path = PathBuf::from("toolchain.meta");
-        let manifest = format!(
-            "# identity\ncompiler-version={COMPILER_VERSION}\nrelease-compatibility=invalid\n"
-        );
+        let manifest =
+            format!("# identity\ncompiler-version={COMPILER_VERSION}\nprotocol-epoch=invalid\n");
         let error = parse_manifest(&path, &manifest).expect_err("invalid numeric schema");
 
         assert!(
@@ -1300,7 +1299,7 @@ mod tests {
     fn compatibility_fingerprint_is_path_independent_and_tracks_every_identity_field() {
         let baseline = ToolchainIdentity {
             compiler_version: "compiler".to_string(),
-            release_compatibility: 1,
+            protocol_epoch: 1,
         };
         let baseline_fingerprint = baseline.fingerprint();
         for changed in [
@@ -1309,7 +1308,7 @@ mod tests {
                 ..baseline.clone()
             },
             ToolchainIdentity {
-                release_compatibility: 9,
+                protocol_epoch: 9,
                 ..baseline.clone()
             },
         ] {
@@ -1320,7 +1319,7 @@ mod tests {
             ToolchainIdentityFingerprint::current(),
             ToolchainIdentity {
                 compiler_version: COMPILER_VERSION.to_string(),
-                release_compatibility: RELEASE_COMPATIBILITY,
+                protocol_epoch: PROTOCOL_EPOCH,
             }
             .fingerprint()
         );

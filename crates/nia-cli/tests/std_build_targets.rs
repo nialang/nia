@@ -47,7 +47,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
         3usize,
         5usize,
         build::OptimizationMode::O0,
-        __NIA_BUILD_PLAN_COMPATIBILITY__u32,
+        __NIA_BUILD_PROTOCOL_EPOCH__u32,
         null,
         false,
     );
@@ -730,9 +730,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 "#
     .replace(
-        "__NIA_BUILD_PLAN_COMPATIBILITY__",
+        "__NIA_BUILD_PROTOCOL_EPOCH__",
         &nia_compat::formats::BUILD_PLAN
-            .release_compatibility
+            .protocol_epoch
             .to_string(),
     )
     .as_bytes(),
@@ -759,8 +759,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .code(),
         Some(0)
     );
-    let plan = nia_build::read_build_plan(&root.join("plan.draft"))
-        .expect("decode target conformance plan");
+    let draft = nia_build::BuildDraft::decode(
+        &std::fs::read(root.join("plan.draft")).expect("read target conformance draft"),
+    )
+    .expect("decode target conformance draft");
+    let plan = draft.plan;
     let artifact_emit = plan
         .actions()
         .iter()

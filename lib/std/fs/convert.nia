@@ -101,6 +101,6 @@ extend os::FileMetadata {
 
 extend os::DirectoryEntry {
     pub(pkg) fn asFsDirEntry(&self) DirEntry {
-        .init(self.kind().asFsFileKind(), self.name())
+        .init(self.kind().asFsFileKind(), self.name(), self.size())
     }
 }

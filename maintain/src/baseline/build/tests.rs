@@ -256,10 +256,10 @@ fn parsed_measurement_does_not_retain_compiler_release_identity() {
     report
         .as_object_mut()
         .expect("timing report object")
-        .insert("release_compatibility".to_owned(), json!(999));
+        .insert("protocol_epoch".to_owned(), json!(999));
 
     let parsed = parse_build_reports(&report.to_string(), true).unwrap();
-    assert!(parsed.outer_timing.get("release_compatibility").is_none());
+    assert!(parsed.outer_timing.get("protocol_epoch").is_none());
 }
 
 #[test]

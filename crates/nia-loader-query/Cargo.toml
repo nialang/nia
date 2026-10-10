@@ -18,6 +18,7 @@ nia-imports.workspace = true
 nia-item-tree.workspace = true
 nia-loader-contract.workspace = true
 nia-node-id.workspace = true
+nia-package-metadata.workspace = true
 nia-parser.workspace = true
 nia-provider-summary.workspace = true
 nia-query.workspace = true

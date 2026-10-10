@@ -6,6 +6,7 @@ using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 using types::OpenHow;
 
 const atEmptyPath: usize = 0x1000;
+const atSymlinkNoFollow: usize = 0x100;
 const statxType: u32 = 0x00000001;
 const statxMode: u32 = 0x00000002;
 const statxNlink: u32 = 0x00000004;
@@ -72,6 +73,11 @@ pub extern struct Statx {
 pub fn metadataFd(fd: FileDescriptor) Errno!FileMetadata {
     let empty = b"\0";
     statxAt(fd, &empty[0], atEmptyPath, statxRequestBasic)
+}
+
+// Enumeration supplies one NUL-terminated direct entry name, including dot entries.
+pub(pkg) fn directoryEntryMetadata(dir: FileDescriptor, name: &u8) Errno!FileMetadata {
+    statxAt(dir, name, atSymlinkNoFollow, statxRequestBasic)
 }
 
 pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {

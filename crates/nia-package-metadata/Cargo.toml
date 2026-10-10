@@ -9,6 +9,7 @@ license.workspace = true
 blake3.workspace = true
 nia-compat = { workspace = true }
 nia-ids = { workspace = true }
+nia-query = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

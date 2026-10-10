@@ -121,7 +121,7 @@ sanitization.
 
 The record does not contain release versions, layout hashes, calling
 conventions, or target details. Those facts belong to the program's ABI
-metadata and the unified release compatibility identity.
+metadata and the unified protocol epoch identity.
 
 Backend IR represents symbol linkage as a closed contract:
 
