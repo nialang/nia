@@ -299,21 +299,25 @@ impl LocalPackageGraph {
         })
     }
 
-    /// Returns the canonical content identity of all resolved package nodes.
+    /// Returns the canonical identity of the resolved nodes and selection policy.
     pub fn fingerprint(&self) -> [u8; 32] {
         let mut encoded = Vec::new();
         encoded.extend_from_slice(PACKAGE_GRAPH_DOMAIN.as_str().as_bytes());
         encoded.extend_from_slice(b"\0\x01");
+        encoded.push(u8::from(self.options.include_tests));
+        encoded.push(u8::from(self.options.include_optional));
+        encoded.push(u8::from(self.options.include_lazy));
         for node in &self.nodes {
-            encoded.extend_from_slice(&(node.root.len() as u64).to_le_bytes());
-            encoded.extend_from_slice(node.root.as_bytes());
-            encoded.extend_from_slice(node.manifest.package.canonical_text().as_bytes());
-            encoded.push(0);
+            write_fingerprint_field(&mut encoded, node.root.as_bytes());
+            write_fingerprint_field(
+                &mut encoded,
+                node.manifest.package.canonical_text().as_bytes(),
+            );
             encoded.extend_from_slice(&node.source_fingerprint);
+            encoded.extend_from_slice(&(node.manifest.dependencies.len() as u64).to_le_bytes());
             for dependency in &node.manifest.dependencies {
-                encoded.extend_from_slice(dependency.name.as_bytes());
-                encoded.push(0);
-                encoded.extend_from_slice(dependency.path.as_bytes());
+                write_fingerprint_field(&mut encoded, dependency.name.as_bytes());
+                write_fingerprint_field(&mut encoded, dependency.path.as_bytes());
                 encoded.push(match dependency.class {
                     DependencyClass::BuildOnly => 0,
                     DependencyClass::Runtime => 1,
@@ -335,6 +339,11 @@ impl LocalPackageGraph {
             declared: self.dependencies.clone(),
         }
     }
+}
+
+fn write_fingerprint_field(encoded: &mut Vec<u8>, value: &[u8]) {
+    encoded.extend_from_slice(&(value.len() as u64).to_le_bytes());
+    encoded.extend_from_slice(value);
 }
 
 impl LocalPackageManifest {
@@ -2331,6 +2340,41 @@ mod tests {
             selected.report().declared[0].resolved_root.as_deref(),
             Some("optional")
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_fingerprint_includes_selection_policy() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-graph-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "dependency = optional:optional:optional\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("optional")).unwrap();
+        std::fs::write(root.join("optional/nia.package"), "name = \"optional\"\n").unwrap();
+
+        let ordinary =
+            LocalPackageGraph::resolve_with_options(&root, LocalPackageGraphOptions::default())
+                .unwrap();
+        let selected = LocalPackageGraph::resolve_with_options(
+            &root,
+            LocalPackageGraphOptions {
+                include_optional: true,
+                ..LocalPackageGraphOptions::default()
+            },
+        )
+        .unwrap();
+        assert_ne!(ordinary.fingerprint(), selected.fingerprint());
+
         std::fs::remove_dir_all(root).unwrap();
     }
 }
