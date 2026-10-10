@@ -90,6 +90,15 @@ these states as `resolved`, `loaded_modules`, and `used`;
 `resolved_dependency_count` counts selected dependency edges, while
 `resolved_count` counts selected package nodes including the root.
 
+JSON inspection records are newline-delimited and deterministic. `build-plan`
+contains canonical package, module, artifact, action, and step nodes with
+targets and protocol epoch. `build-explanation` embeds that plan, configuration
+observations, declared tools, package-graph decisions, and selected closure.
+`action-cache` reports a stable decision object with status, miss reason,
+component invalidations, declared outputs, and publication state. Dry runs emit
+the same action records with `not_consulted` and `not_attempted` states and do
+not consult or publish any action cache.
+
 The runner draft carries bounded file-content, file-presence, directory,
 environment, command, Git, and tool evidence. The host rechecks each reported
 value before publishing a configure-cache record. Command-like observations
