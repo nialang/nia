@@ -2,6 +2,7 @@
 // operations without an implementation still return Unsupported explicitly.
 pub(pkg) module bindings;
 using pkg::os::macos::bindings;
+using pkg::error;
 using pkg::math;
 
 pub const maxPathBytes: usize = 1024;
@@ -34,7 +35,7 @@ pub struct FileMetadata {
     blockSize: u32, atime: ?Timestamp, mtime: Timestamp, ctime: ?Timestamp,
 }
 pub struct DirectoryEntry { kind: FileKind, name: &[u8], size: u64 }
-pub struct DirectoryReader {}
+pub struct DirectoryReader { base: i64 }
 pub struct FileDescriptor { fd: i32 }
 pub struct ProcessId { pid: i32 }
 pub struct WaitStatus { raw: i32 }
@@ -155,14 +156,37 @@ extend FileDescriptor {
     }
     pub fn sync(&self) Errno!() { checkZero(bindings::fsync(self.fd)) }
     pub fn syncData(&self) Errno!() { checkZero(bindings::fdatasync(self.fd)) }
-    pub fn metadata(&self) Errno!FileMetadata { .Unsupported! }
+    pub fn metadata(&self) Errno!FileMetadata {
+        let mut stat: bindings::DarwinStat;
+        if bindings::fstat(self.fd, &mut stat) != 0 { return errno()!; }
+        stat.asMetadata()
+    }
 }
 
-pub fn initDirectoryReader() DirectoryReader { .{} }
+pub fn initDirectoryReader() DirectoryReader { .{ base: 0 } }
 pub fn closeDirectoryReader(reader: &mut DirectoryReader) Errno!() { _ = reader; !() }
-pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize { _ = reader; _ = handle; _ = buffer; .Unsupported! }
-pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry { _ = handle; _ = buffer; _ = offset; .Unsupported! }
-pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { _ = buffer; _ = offset; null }
+pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
+    if buffer.len() == 0 { return .Invalid!; }
+    let ret = bindings::getdirentries64(handle.fd, buffer.ptrMut(), buffer.len(), &mut reader.base);
+    if ret < 0 { return errno()!; }
+    let amount = ret as usize;
+    if amount > buffer.len() { return .Io!; }
+    !amount
+}
+pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
+    if parseDirent(buffer, offset) is ?parsed {
+        let metadata = metadataAtDirent(handle, &buffer[parsed.nameStart]).?;
+        return !DirectoryEntry::init(
+            metadata.kind(),
+            &buffer[parsed.nameStart..parsed.nameEnd],
+            metadata.size(),
+        );
+    }
+    .Invalid!
+}
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
+    parseDirent(buffer, offset).map[usize, _](\parsed: ParsedDirent -> parsed.recordEnd)
+}
 pub fn cwd() FileDescriptor { .init(-2) }
 pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0 { return .Invalid!; }
@@ -214,17 +238,236 @@ pub fn random(bytes: &mut [u8]) Errno!() {
     }
     !()
 }
-pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor { _ = dir; _ = path; _ = mode; _ = create; _ = truncate; _ = exclusive; _ = permissions; .Unsupported! }
-pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor { _ = dir; _ = path; _ = mode; _ = directory; _ = create; _ = truncate; _ = exclusive; _ = permissions; _ = followSymlinks; .Unsupported! }
-pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() { _ = dir; _ = parent; _ = name; _ = permissions; .Unsupported! }
-pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() { _ = dir; _ = parent; _ = name; _ = directory; .Unsupported! }
-pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() { _ = oldDir; _ = oldParent; _ = oldName; _ = newDir; _ = newParent; _ = newName; .Unsupported! }
-pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata { _ = dir; _ = path; _ = followSymlinks; .Unsupported! }
+pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
+    let flags = openFlags(mode, false, create, truncate, exclusive, true);
+    let ret = bindings::openat(dir.fd, path, flags, permissions);
+    if ret < 0 { return errno()!; }
+    !FileDescriptor::init(ret)
+}
+pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
+    let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let length = copyAndValidateRelative(path, &mut storage[..]).?;
+    let mut current = dir;
+    let mut ownsCurrent = false;
+    let mut cursor: usize = 0;
+    while cursor < length {
+        while cursor < length and storage[cursor] == b'/' { cursor += 1; }
+        if cursor == length { break; }
+        let componentStart = cursor;
+        while cursor < length and storage[cursor] != b'/' { cursor += 1; }
+        let componentEnd = cursor;
+        while cursor < length and storage[cursor] == b'/' { cursor += 1; }
+        let isFinal = cursor == length;
+        storage[componentEnd] = 0;
+        if isFinal {
+            let flags = openFlags(mode, directory, create, truncate, exclusive, followSymlinks);
+            let ret = bindings::openat(current.fd, &storage[componentStart], flags, permissions);
+            if ret < 0 {
+                if ownsCurrent { _ = current.close(); }
+                return errno()!;
+            }
+            if ownsCurrent { _ = current.close(); }
+            return !FileDescriptor::init(ret);
+        }
+        let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
+        if ret < 0 {
+            if ownsCurrent { _ = current.close(); }
+            return errno()!;
+        }
+        if ownsCurrent { _ = current.close(); }
+        current = FileDescriptor::init(ret);
+        ownsCurrent = true;
+    }
+    if ownsCurrent { _ = current.close(); }
+    .Invalid!
+}
+pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
+    let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, true).?;
+    let result = bindings::mkdirat(parentHandle.fd, name, permissions);
+    let operation = checkZero(result);
+    operation.cleanupAfter(parentHandle.close())
+}
+pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
+    let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, true).?;
+    let flags = if directory { bindings::atRemoveDir } else { 0 };
+    let result = bindings::unlinkat(parentHandle.fd, name, flags);
+    let operation = checkZero(result);
+    operation.cleanupAfter(parentHandle.close())
+}
+pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
+    let oldHandle = openAtBeneath(oldDir, oldParent, .ReadOnly, true, false, false, false, 0, true).?;
+    let newHandle = match openAtBeneath(newDir, newParent, .ReadOnly, true, false, false, false, 0, true) {
+        !handle => handle,
+        error! => { _ = oldHandle.close(); return error!; },
+    };
+    let result = bindings::renameat(oldHandle.fd, oldName, newHandle.fd, newName);
+    let operation = checkZero(result);
+    operation.cleanupAfter(oldHandle.close()).cleanupAfter(newHandle.close())
+}
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+    if followSymlinks {
+        let handle = openAtBeneath(dir, path, .ReadOnly, false, false, false, false, 0, true).?;
+        let result = handle.metadata();
+        return result.cleanupAfter(handle.close());
+    }
+    let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
+    let length = copyAndValidateRelative(path, &mut storage[..]).?;
+    let finalStart = finalComponentStart(&storage[..], length);
+    let mut current = dir;
+    let mut ownsCurrent = false;
+    let mut cursor: usize = 0;
+    while cursor < finalStart {
+        while cursor < finalStart and storage[cursor] == b'/' { cursor += 1; }
+        if cursor == finalStart { break; }
+        let componentStart = cursor;
+        while cursor < finalStart and storage[cursor] != b'/' { cursor += 1; }
+        let componentEnd = cursor;
+        while cursor < finalStart and storage[cursor] == b'/' { cursor += 1; }
+        storage[componentEnd] = 0;
+        let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
+        if ret < 0 {
+            if ownsCurrent { _ = current.close(); }
+            return errno()!;
+        }
+        if ownsCurrent { _ = current.close(); }
+        current = FileDescriptor::init(ret);
+        ownsCurrent = true;
+        while cursor < finalStart and storage[cursor] == b'/' { cursor += 1; }
+    }
+    let result = metadataAtDirent(current, &storage[finalStart]);
+    if ownsCurrent { result.cleanupAfter(current.close()) } else { result }
+}
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt { _ = path; _ = argv; _ = envp; _ = options; .failure(.Setup(.Unsupported)) }
 pub fn wait(pid: ProcessId) Errno!WaitStatus { _ = pid; .Unsupported! }
 pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus { _ = pid; .Unsupported! }
 pub fn killWith(pid: ProcessId, signal: i32) Errno!() { _ = pid; _ = signal; .Unsupported! }
 pub fn exit(code: i32) () { bindings::exit(code); loop {} }
+
+const statTypeMask: u16 = 0o170000;
+const statFifo: u16 = 0o010000;
+const statCharacter: u16 = 0o020000;
+const statDirectory: u16 = 0o040000;
+const statBlock: u16 = 0o060000;
+const statRegular: u16 = 0o100000;
+const statSymlink: u16 = 0o120000;
+const statSocket: u16 = 0o140000;
+const nanosPerSecond: i64 = 1000000000;
+
+struct ParsedDirent {
+    recordEnd: usize,
+    nameStart: usize,
+    nameEnd: usize,
+}
+
+fn openFlags(mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, followSymlinks: bool) i32 {
+    let mut flags = mode as i32;
+    if directory { flags = flags | bindings::openDirectory; }
+    if create { flags = flags | bindings::openCreate; }
+    if truncate { flags = flags | bindings::openTruncate; }
+    if exclusive { flags = flags | bindings::openExclusive; }
+    if not followSymlinks { flags = flags | bindings::openNoFollow; }
+    flags
+}
+
+fn copyAndValidateRelative(path: &u8, storage: &mut [u8]) Errno!usize {
+    let mut length: usize = 0;
+    while length < storage.len() and path[length] != 0 {
+        storage[length] = path[length];
+        length += 1;
+    }
+    if length == storage.len() { return .TooLong!; }
+    if length == 0 or storage[0] == b'/' { return .Invalid!; }
+    storage[length] = 0;
+    let mut componentStart: usize = 0;
+    let mut index: usize = 0;
+    while index <= length {
+        if index == length or storage[index] == b'/' {
+            if index - componentStart == 2
+                and storage[componentStart] == b'.'
+                and storage[componentStart + 1] == b'.'
+            { return .Invalid!; }
+            componentStart = index + 1;
+        }
+        index += 1;
+    }
+    !length
+}
+
+fn finalComponentStart(storage: &[u8], length: usize) usize {
+    let mut end = length;
+    while end != 0 and storage[end - 1] == b'/' { end -= 1; }
+    let mut index = end;
+    while index != 0 {
+        index -= 1;
+        if storage[index] == b'/' { return index + 1; }
+    }
+    0
+}
+
+fn metadataAtDirent(handle: FileDescriptor, path: &u8) Errno!FileMetadata {
+    let mut stat: bindings::DarwinStat;
+    if bindings::fstatat(handle.fd, path, &mut stat, bindings::atSymlinkNoFollow) != 0 { return errno()!; }
+    stat.asMetadata()
+}
+
+fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
+    const reclenOffset: usize = 16;
+    const namlenOffset: usize = 18;
+    const nameOffset: usize = 21;
+    if offset >= buffer.len() or buffer.len() - offset < nameOffset + 1 { return null; }
+    let reclen = readU16(buffer, offset + reclenOffset);
+    let namlen = readU16(buffer, offset + namlenOffset);
+    let reclenSize = reclen as usize;
+    let namlenSize = namlen as usize;
+    if reclenSize < nameOffset + 1 or reclenSize > buffer.len() - offset { return null; }
+    if namlenSize == 0 or namlenSize >= reclenSize - nameOffset { return null; }
+    let nameStart = offset + nameOffset;
+    let nameEnd = nameStart + namlenSize;
+    let recordEnd = offset + reclenSize;
+    if nameEnd >= recordEnd or buffer[nameEnd] != 0 { return null; }
+    ?.{ recordEnd: recordEnd, nameStart: nameStart, nameEnd: nameEnd }
+}
+
+fn readU16(buffer: &[u8], offset: usize) u16 {
+    (buffer[offset] as u16) | ((buffer[offset + 1] as u16) << 8)
+}
+
+extend bindings::DarwinTimespec {
+    fn asTimestamp(&self) Errno!Timestamp {
+        if self.nanos < 0 or self.nanos >= nanosPerSecond { return .Invalid!; }
+        !Timestamp::init(self.seconds, self.nanos as u32)
+    }
+}
+
+extend bindings::DarwinStat {
+    fn kind(&self) FileKind {
+        match self.mode & statTypeMask {
+            (statDirectory) => .Directory,
+            (statCharacter) => .CharacterDevice,
+            (statBlock) => .BlockDevice,
+            (statRegular) => .File,
+            (statFifo) => .NamedPipe,
+            (statSymlink) => .Symlink,
+            (statSocket) => .UnixSocket,
+            _ => .Unknown,
+        }
+    }
+
+    fn asMetadata(&self) Errno!FileMetadata {
+        if self.size < 0 or self.blockSize <= 0 { return .OutOfRange!; }
+        !FileMetadata::init(
+            self.kind(),
+            self.inode,
+            self.links as u32,
+            self.size as u64,
+            self.mode as u32,
+            self.blockSize as u32,
+            ?self.atime.asTimestamp().?,
+            self.mtime.asTimestamp().?,
+            ?self.ctime.asTimestamp().?,
+        )
+    }
+}
 
 fn errno() Errno {
     let value = bindings::__error().*;

@@ -8,6 +8,11 @@ compatibility-version: 0
 exports:
   - targets:         [ arm64-macos, x86_64-macos ]
     symbols:        [ ___error, _close, _exit, _fdatasync, _fchmod, _fsync,
-                      _ftruncate, _getcwd, _getentropy, _lseek, _mmap, _munmap,
-                      _read, _write ]
+                      _ftruncate, _getcwd, _getdirentries64, _getentropy,
+                      _lseek, _mkdirat, _mmap, _munmap, _openat, _read,
+                      _renameat, _unlinkat, _write ]
+  - targets:         [ arm64-macos ]
+    symbols:        [ _fstat, _fstatat ]
+  - targets:         [ x86_64-macos ]
+    symbols:        [ '_fstat$INODE64', '_fstatat$INODE64' ]
 ...

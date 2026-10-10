@@ -71,23 +71,25 @@ fn main() () {}
 "#,
     );
 
-    let target =
-        nia_target::TargetConfig::parse("aarch64-apple-macos").expect("maintained Darwin target");
-    let driver = crate::Driver::with_config(
-        crate::DriverConfig::new(common::test_toolchain_layout()).with_artifact_target(target),
-    );
-    let checked = driver.analyze_all_modules(crate::CheckRequest::new(
-        source.to_string_lossy().into_owned(),
-    ));
+    for target_name in ["aarch64-apple-macos", "x86_64-apple-macos"] {
+        let target =
+            nia_target::TargetConfig::parse(target_name).expect("maintained Darwin target");
+        let driver = crate::Driver::with_config(
+            crate::DriverConfig::new(common::test_toolchain_layout()).with_artifact_target(target),
+        );
+        let checked = driver.analyze_all_modules(crate::CheckRequest::new(
+            source.to_string_lossy().into_owned(),
+        ));
 
-    common::assert_no_error_diagnostics(&checked.diagnostics);
-    assert!(
-        checked
-            .modules
-            .iter()
-            .any(|module| module.path.as_str().ends_with("lib/std/os/macos.nia")),
-        "Darwin standard-library facade was not selected"
-    );
+        common::assert_no_error_diagnostics(&checked.diagnostics);
+        assert!(
+            checked
+                .modules
+                .iter()
+                .any(|module| module.path.as_str().ends_with("lib/std/os/macos.nia")),
+            "Darwin standard-library facade was not selected for {target_name}"
+        );
+    }
 }
 
 #[test]
