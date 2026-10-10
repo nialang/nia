@@ -183,7 +183,9 @@ cleared environment with explicit declarations; the latter builder method also
 selects that environment policy. `FullDeclaredEnvironment` retains a bounded
 inherited environment snapshot and rejects explicit overrides. Oversized
 snapshots execute normally and report an uncacheable miss without publishing
-an external-command entry.
+an external-command entry. Declared directory inputs use a deterministic
+streamed identity with bounded encoded size, depth, and entry count; oversized
+or excessively nested trees fail as typed input errors.
 
 For maintenance and CI, `nia build --dry-run` validates the selected closure
 without executing coordinator actions. `--print-plan`, `--explain`,

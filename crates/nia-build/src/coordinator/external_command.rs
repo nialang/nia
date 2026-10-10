@@ -15,6 +15,9 @@ enum ExternalIdentityKind {
 
 const EXTERNAL_DIRECTORY_IDENTITY_STREAM_BYTES: usize = 64 * 1024;
 const EXTERNAL_DIRECTORY_IDENTITY_MAGIC: &[u8] = b"NIA-DIR1\0";
+const MAX_EXTERNAL_DIRECTORY_IDENTITY_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_EXTERNAL_DIRECTORY_DEPTH: usize = 256;
+const MAX_EXTERNAL_DIRECTORY_ENTRIES: usize = 1_000_000;
 
 struct ExternalDirectoryIdentityPlan {
     path: PathBuf,
@@ -199,7 +202,7 @@ fn read_external_identity_directory(
     operation: &'static str,
 ) -> Result<ExternalCommandContentIdentity, CoordinatorError> {
     let result = (|| -> io::Result<ExternalCommandContentIdentity> {
-        let plan = plan_external_identity_directory(path)?;
+        let plan = plan_external_identity_directory(path, 0)?;
         ExternalCommandContentIdentity::input_from_encoder(plan.encoded_len, |writer| {
             let mut buffer = [0; EXTERNAL_DIRECTORY_IDENTITY_STREAM_BYTES];
             stream_external_identity_directory(&plan, writer, &mut buffer)
@@ -216,7 +219,16 @@ fn read_external_identity_directory(
 /// Plans the exact legacy directory encoding without retaining file payloads.
 /// The second pass can therefore stream the same bytes into the fingerprint
 /// while using memory proportional to directory metadata rather than tree data.
-fn plan_external_identity_directory(path: &Path) -> io::Result<ExternalDirectoryIdentityPlan> {
+fn plan_external_identity_directory(
+    path: &Path,
+    depth: usize,
+) -> io::Result<ExternalDirectoryIdentityPlan> {
+    if depth >= MAX_EXTERNAL_DIRECTORY_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cache input directory is nested too deeply",
+        ));
+    }
     if !fs::symlink_metadata(path)?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -226,7 +238,16 @@ fn plan_external_identity_directory(path: &Path) -> io::Result<ExternalDirectory
     // Sort traversal so identity is independent of filesystem enumeration
     // order. Symlinks are rejected because their targets escape the declared
     // input tree and can change without changing the logical input path.
-    let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(path)? {
+        if entries.len() >= MAX_EXTERNAL_DIRECTORY_ENTRIES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input directory has too many entries",
+            ));
+        }
+        entries.push(entry?);
+    }
     entries.sort_by(|left, right| {
         left.file_name()
             .as_encoded_bytes()
@@ -260,7 +281,7 @@ fn plan_external_identity_directory(path: &Path) -> io::Result<ExternalDirectory
                 },
             });
         } else if metadata.is_dir() {
-            let nested = plan_external_identity_directory(&child)?;
+            let nested = plan_external_identity_directory(&child, depth + 1)?;
             encoded_len = checked_directory_identity_len(encoded_len, 8)?;
             encoded_len = checked_directory_identity_len(encoded_len, nested.encoded_len)?;
             planned.push(ExternalDirectoryIdentityEntry {
@@ -285,12 +306,19 @@ fn plan_external_identity_directory(path: &Path) -> io::Result<ExternalDirectory
 }
 
 fn checked_directory_identity_len(current: u64, added: u64) -> io::Result<u64> {
-    current.checked_add(added).ok_or_else(|| {
+    let length = current.checked_add(added).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             "cache input directory identity is too large",
         )
-    })
+    })?;
+    if length > MAX_EXTERNAL_DIRECTORY_IDENTITY_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cache input directory identity is too large",
+        ));
+    }
+    Ok(length)
 }
 
 fn stream_external_identity_directory(
@@ -340,9 +368,16 @@ fn sorted_external_directory_names(path: &Path) -> io::Result<Vec<Vec<u8>>> {
             format!("cache input directory `{}` changed type", path.display()),
         ));
     }
-    let mut names = fs::read_dir(path)?
-        .map(|entry| entry.map(|entry| entry.file_name().as_encoded_bytes().to_vec()))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut names = Vec::new();
+    for entry in fs::read_dir(path)? {
+        if names.len() >= MAX_EXTERNAL_DIRECTORY_ENTRIES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input directory has too many entries",
+            ));
+        }
+        names.push(entry?.file_name().as_encoded_bytes().to_vec());
+    }
     names.sort();
     Ok(names)
 }
@@ -875,5 +910,15 @@ mod tests {
                 other => panic!("unexpected result: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn directory_identity_length_has_a_hard_bound() {
+        assert!(
+            checked_directory_identity_len(MAX_EXTERNAL_DIRECTORY_IDENTITY_BYTES - 1, 1).is_ok()
+        );
+        let error = checked_directory_identity_len(MAX_EXTERNAL_DIRECTORY_IDENTITY_BYTES, 1)
+            .expect_err("directory identity must be bounded");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }
