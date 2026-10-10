@@ -164,6 +164,28 @@ impl TargetConfig {
         Self { arch, os }
     }
 
+    #[cfg(all(target_arch = "x86", target_os = "linux"))]
+    const COMPILED_HOST: Option<Self> = Some(Self::new_unchecked(Arch::X86, Os::Linux));
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    const COMPILED_HOST: Option<Self> = Some(Self::new_unchecked(Arch::X86_64, Os::Linux));
+    #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+    const COMPILED_HOST: Option<Self> = Some(Self::new_unchecked(Arch::Aarch64, Os::Linux));
+    #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+    const COMPILED_HOST: Option<Self> = Some(Self::new_unchecked(Arch::X86_64, Os::Windows));
+    #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+    const COMPILED_HOST: Option<Self> = Some(Self::new_unchecked(Arch::X86_64, Os::Macos));
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    const COMPILED_HOST: Option<Self> = Some(Self::new_unchecked(Arch::Aarch64, Os::Macos));
+    #[cfg(not(any(
+        all(target_arch = "x86", target_os = "linux"),
+        all(target_arch = "x86_64", target_os = "linux"),
+        all(target_arch = "aarch64", target_os = "linux"),
+        all(target_arch = "x86_64", target_os = "windows"),
+        all(target_arch = "x86_64", target_os = "macos"),
+        all(target_arch = "aarch64", target_os = "macos")
+    )))]
+    const COMPILED_HOST: Option<Self> = None;
+
     /// Selects a maintained target, or `None` for a combination outside it.
     pub fn new(arch: Arch, os: Os) -> Option<Self> {
         let target = Self { arch, os };
@@ -186,19 +208,9 @@ impl TargetConfig {
     /// A compiler may run on a host it cannot target; such hosts must select
     /// an artifact target explicitly.
     pub fn host() -> Option<Self> {
-        let arch = match std::env::consts::ARCH {
-            "x86" => Arch::X86,
-            "x86_64" => Arch::X86_64,
-            "aarch64" => Arch::Aarch64,
-            _ => return None,
-        };
-        let os = match std::env::consts::OS {
-            "linux" => Os::Linux,
-            "windows" => Os::Windows,
-            "macos" => Os::Macos,
-            _ => return None,
-        };
-        Self::new(arch, os)
+        // Resolve the compiler host through Rust's target configuration so
+        // host selection remains typed and cannot drift through string names.
+        Self::COMPILED_HOST
     }
 
     /// Position of this target in [`SUPPORTED_TARGETS`], for protocols that
@@ -376,5 +388,32 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("`x86_64-unknown-linux-gnu`"), "{message}");
         assert!(message.contains("`aarch64-apple-macos`"), "{message}");
+    }
+
+    #[test]
+    fn host_is_derived_from_the_compiler_target() {
+        #[cfg(all(target_arch = "x86", target_os = "linux"))]
+        let expected = Some(TargetConfig::new_unchecked(Arch::X86, Os::Linux));
+        #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+        let expected = Some(TargetConfig::new_unchecked(Arch::X86_64, Os::Linux));
+        #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+        let expected = Some(TargetConfig::new_unchecked(Arch::Aarch64, Os::Linux));
+        #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+        let expected = Some(TargetConfig::new_unchecked(Arch::X86_64, Os::Windows));
+        #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+        let expected = Some(TargetConfig::new_unchecked(Arch::X86_64, Os::Macos));
+        #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+        let expected = Some(TargetConfig::new_unchecked(Arch::Aarch64, Os::Macos));
+        #[cfg(not(any(
+            all(target_arch = "x86", target_os = "linux"),
+            all(target_arch = "x86_64", target_os = "linux"),
+            all(target_arch = "aarch64", target_os = "linux"),
+            all(target_arch = "x86_64", target_os = "windows"),
+            all(target_arch = "x86_64", target_os = "macos"),
+            all(target_arch = "aarch64", target_os = "macos")
+        )))]
+        let expected = None;
+
+        assert_eq!(TargetConfig::host(), expected);
     }
 }
