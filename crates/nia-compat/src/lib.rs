@@ -97,15 +97,11 @@ pub fn sync_file(path: &std::path::Path) -> std::io::Result<()> {
     }
 }
 
-/// Public release whose compatibility contract is currently supported.
-///
-/// This remains `0.1.0` while `main` develops the next release. Update it
-/// together with the formal release, not for intermediate development changes.
-pub const PUBLIC_RELEASE_VERSION: &str = "0.1.0";
 /// Release-line compatibility shared by every persisted compiler product and
-/// ABI boundary. Intermediate development formats are not compatibility
-/// targets and have no readers, migrations, or aliases.
-pub const PROTOCOL_EPOCH: u32 = release_compatibility(PUBLIC_RELEASE_VERSION);
+/// ABI boundary. The active development line has the compatibility of the
+/// release it is preparing (`0.2.0-dev` therefore uses epoch 2); a formal
+/// release keeps that epoch for its patch line.
+pub const PROTOCOL_EPOCH: u32 = release_compatibility(COMPILER_VERSION);
 /// Stable directory component for persistent namespaces.
 ///
 /// Each payload must match the current protocol epoch. Keeping
@@ -423,25 +419,19 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{
-        COMPILER_VERSION, PROTOCOL_EPOCH, PUBLIC_RELEASE_VERSION, formats, toolchain_manifest,
-    };
+    use super::{COMPILER_VERSION, PROTOCOL_EPOCH, formats, toolchain_manifest};
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     #[test]
-    fn protocol_epoch_tracks_only_the_public_release() {
-        assert_eq!(PUBLIC_RELEASE_VERSION, "0.1.0");
-        assert_ne!(COMPILER_VERSION, PUBLIC_RELEASE_VERSION);
-        assert_ne!(
-            super::release_compatibility(COMPILER_VERSION),
-            PROTOCOL_EPOCH
-        );
-        assert_eq!(PROTOCOL_EPOCH, 1);
-        assert_eq!(
-            super::release_compatibility(PUBLIC_RELEASE_VERSION),
-            PROTOCOL_EPOCH
-        );
+    fn protocol_epoch_tracks_the_active_release_line() {
+        assert_eq!(super::release_compatibility("0.1.0"), 1);
+        assert_eq!(super::release_compatibility("0.2.0-dev"), 2);
+        assert_eq!(super::release_compatibility("0.2.0-dev.1"), 2);
+        assert_eq!(super::release_compatibility("0.2.0"), 2);
+        assert_eq!(super::release_compatibility("0.2.1"), 2);
+        assert_eq!(super::release_compatibility(COMPILER_VERSION), PROTOCOL_EPOCH);
+        assert_eq!(PROTOCOL_EPOCH, 2);
     }
 
     #[test]

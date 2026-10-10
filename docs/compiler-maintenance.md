@@ -40,9 +40,9 @@ Identity has two layers. Session-local handles may be compact and efficient,
 but anything persisted, compared across processes, or exposed in a stable
 artifact needs an explicit canonical representation. The registry's current
 protocol epoch is shared by compiler, toolchain, ABI, metadata, runner, and
-cache products. It tracks the latest public release compatibility line. The
-current public line is `0.1.0`, so all `0.2.0-dev` work keeps the same epoch;
-update it only when preparing a formal release. Decoders require an exact
+cache products. The active `0.2.0-dev` line uses epoch `2`, matching the
+release it is preparing; the published `0.1.0` line used epoch `1`. Update the
+epoch only when advancing to a new release line. Decoders require an exact
 match; earlier protocols have no readers, migrations, or aliases. Payload
 magic identifies the payload kind; it is not an independently bumped version.
 The shared registry may retain owner-local fingerprint domains for dependency
