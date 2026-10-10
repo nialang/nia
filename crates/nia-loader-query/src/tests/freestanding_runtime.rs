@@ -1,4 +1,5 @@
 use super::*;
+use nia_toolchain::RuntimeExport;
 
 #[test]
 fn windows_startup_loads_separate_entry_and_native_support_only_when_selected() {
@@ -41,6 +42,48 @@ fn windows_startup_loads_separate_entry_and_native_support_only_when_selected() 
             .iter()
             .all(|module| !module.path.as_str().contains("lib/runtime/"))
     );
+}
+
+#[test]
+fn darwin_startup_selects_main_entry_and_libsystem_runtime_modules() {
+    let root = temp_dir("darwin_startup_module_boundaries");
+    let main = root.join("main.nia");
+    write(
+        &main,
+        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+    );
+    let target = TargetConfig::parse("aarch64-apple-macos").unwrap();
+    let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &target)
+        .expect("Darwin freestanding startup");
+    let source = runtime.source().expect("source runtime");
+    assert_eq!(source.entry_point().definition_name(), "main");
+    assert_eq!(source.entry_point().linker_symbol(), "main");
+    assert_eq!(
+        source.required_exports(),
+        [RuntimeExport::new(
+            "toolchain:/runtime/start/freestanding/macos/startup.nia",
+            "niaDarwinStart",
+        )]
+    );
+
+    let program = load_program_request(
+        LoadRequest::new(main.to_string_lossy().into_owned())
+            .with_target(target)
+            .with_runtime(runtime)
+            .with_toolchain_layout(test_toolchain_layout()),
+    )
+    .expect("Darwin program load");
+    assert_no_error_diagnostics(&program);
+    for module in [
+        "lib/runtime/main.nia",
+        "lib/runtime/start/freestanding/macos/aarch64.nia",
+        "lib/runtime/start/freestanding/macos/startup.nia",
+        "lib/std/os.nia",
+        "lib/std/os/macos.nia",
+    ] {
+        assert_module_loaded(&program, module);
+    }
+    assert_module_not_loaded(&program, "lib/runtime/start/freestanding/linux/aarch64.nia");
 }
 
 fn host_freestanding_start_module() -> &'static str {

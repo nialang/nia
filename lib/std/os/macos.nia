@@ -1,0 +1,40 @@
+// Darwin's process boundary is libSystem. The full filesystem/process
+// contract is staged behind this facade; the runtime entry only needs the
+// documented non-returning exit primitive at this layer.
+
+pub(pkg) enum Errno: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    NoChild = 10,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    Unsupported = 38,
+    SymlinkLoop = 40,
+    NotEmpty = 39,
+    _,
+}
+
+// `_exit` bypasses C runtime teardown and is the stable libSystem primitive
+// needed after Nia has finished dispatching the user's entry function.
+extern fn _exit(code: i32) ();
+
+pub fn exit(code: i32) () {
+    _exit(code);
+    loop {}
+}

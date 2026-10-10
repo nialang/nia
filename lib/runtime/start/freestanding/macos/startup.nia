@@ -1,0 +1,15 @@
+using pkg::main::callUserMain;
+using std::os;
+using std::process;
+
+// The Mach-O LC_MAIN ABI passes argc, argv, and envp to the runtime entry.
+// Rejecting a negative argc keeps the conversion to usize defined if a caller
+// reaches this symbol with a malformed value.
+pub extern fn niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () {
+    if argc < 0 {
+        os::exit(127);
+    }
+    let init = process::Init::init(argc as usize, argv, envp);
+    os::exit(callUserMain(init).0);
+    loop {}
+}
