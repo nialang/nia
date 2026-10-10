@@ -41,35 +41,7 @@ impl DriverActionExecutor {
                 ))
             });
         }
-        let package_dependency_selection = plan
-            .packages()
-            .iter()
-            .filter(|package| package.key != *plan.root_package())
-            .map(|package| {
-                let mut package_root = invocation.package_root.clone();
-                package_root.extend(package.root.split('/'));
-                let classes = package_root.canonicalize().ok().map(|package_root| {
-                    invocation
-                        .package_graph_report
-                        .declared
-                        .iter()
-                        .filter(|dependency| {
-                            dependency.source_root.as_deref() == Some(&package_root)
-                        })
-                        .map(|dependency| dependency.dependency.class)
-                        .collect::<BTreeSet<_>>()
-                });
-                let selected = classes
-                    .filter(|classes| !classes.is_empty())
-                    .map(|classes| {
-                        classes
-                            .iter()
-                            .any(|class| dependency_class_selected(&invocation, *class))
-                    })
-                    .unwrap_or(true);
-                (package.key.clone(), selected)
-            })
-            .collect();
+        let package_dependency_selection = super::package_dependency_selection(&plan, &invocation);
         Self {
             plan,
             invocation,
@@ -1019,19 +991,5 @@ impl DriverActionExecutor {
             path.push(component);
         }
         Ok(path)
-    }
-}
-
-fn dependency_class_selected(invocation: &BuildInvocation, class: DependencyClass) -> bool {
-    let options = invocation.package_graph_report.options;
-    match class {
-        DependencyClass::BuildOnly => false,
-        DependencyClass::Runtime => true,
-        DependencyClass::TestOnly | DependencyClass::Development => {
-            options.include_tests
-                && invocation.compilation_mode == nia_target_config::CompilationMode::Test
-        }
-        DependencyClass::Optional => options.include_optional,
-        DependencyClass::Lazy => options.include_lazy,
     }
 }
