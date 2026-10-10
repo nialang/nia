@@ -423,20 +423,21 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{PROTOCOL_EPOCH, PUBLIC_RELEASE_VERSION, formats, toolchain_manifest};
+    use super::{
+        COMPILER_VERSION, PROTOCOL_EPOCH, PUBLIC_RELEASE_VERSION, formats, toolchain_manifest,
+    };
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     #[test]
-    fn protocol_epoch_follows_public_release_line() {
-        assert_eq!(super::release_compatibility("0.1.0"), 1);
-        assert_eq!(super::release_compatibility("0.2.0-dev"), 2);
-        assert_eq!(super::release_compatibility("0.2.0-dev.1"), 2);
-        assert_eq!(super::release_compatibility("0.2.0"), 2);
-        assert_eq!(super::release_compatibility("0.2.1"), 2);
-        assert_eq!(super::release_compatibility("0.3.0-dev"), 3);
-        assert_eq!(super::release_compatibility("1.0.0"), 1000);
-        assert_eq!(super::release_compatibility("2.3.7"), 2003);
+    fn protocol_epoch_tracks_only_the_public_release() {
+        assert_eq!(PUBLIC_RELEASE_VERSION, "0.1.0");
+        assert_ne!(COMPILER_VERSION, PUBLIC_RELEASE_VERSION);
+        assert_ne!(
+            super::release_compatibility(COMPILER_VERSION),
+            PROTOCOL_EPOCH
+        );
+        assert_eq!(PROTOCOL_EPOCH, 1);
         assert_eq!(
             super::release_compatibility(PUBLIC_RELEASE_VERSION),
             PROTOCOL_EPOCH

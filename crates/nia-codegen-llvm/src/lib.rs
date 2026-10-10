@@ -1030,9 +1030,7 @@ fn full_lto_backend_fingerprint(
             builder.write_u64(part);
         }
     }
-    builder.write_str(&target.triple);
-    builder.write_str(&target.cpu);
-    builder.write_str(&target.features);
+    fingerprint::write_target_identity(&mut builder, target);
     fingerprint::write_toolchain_identity(&mut builder, options.toolchain_identity);
     fingerprint::write_optimization(&mut builder, options.optimization);
     builder.write_u64(parallelism as u64);
@@ -1714,6 +1712,35 @@ mod tests;
 #[cfg(test)]
 mod optimization_tests {
     use super::*;
+
+    #[test]
+    fn full_lto_backend_fingerprint_tracks_target_models() {
+        let target = TargetMachineIdentity {
+            triple: "x86_64-unknown-linux-gnu".to_string(),
+            cpu: "generic".to_string(),
+            features: String::new(),
+            relocation_model: nia_llvm::target::TargetRelocationModel::Pic,
+            code_model: nia_llvm::target::TargetCodeModel::Default,
+        };
+        let changed_relocation = TargetMachineIdentity {
+            relocation_model: nia_llvm::target::TargetRelocationModel::Static,
+            ..target.clone()
+        };
+        let changed_code_model = TargetMachineIdentity {
+            code_model: nia_llvm::target::TargetCodeModel::Small,
+            ..target.clone()
+        };
+        let options = LlvmCodegenOptions::default();
+        let baseline = full_lto_backend_fingerprint(&[], &target, options, 1, false, &[], 0);
+        assert_ne!(
+            baseline,
+            full_lto_backend_fingerprint(&[], &changed_relocation, options, 1, false, &[], 0)
+        );
+        assert_ne!(
+            baseline,
+            full_lto_backend_fingerprint(&[], &changed_code_model, options, 1, false, &[], 0)
+        );
+    }
 
     #[test]
     fn maps_nia_optimization_levels_to_llvm_codegen_levels() {

@@ -192,6 +192,8 @@ struct FfiThinInput {
 struct FfiThinConfig {
     cpu: FfiByteSlice,
     features: FfiByteSlice,
+    relocation_model: u32,
+    code_model: u32,
     preserved_symbols: *const FfiByteSlice,
     preserved_symbol_count: usize,
     optimization: u32,
@@ -206,6 +208,8 @@ struct FfiThinConfig {
 struct FfiFullConfig {
     cpu: FfiByteSlice,
     features: FfiByteSlice,
+    relocation_model: u32,
+    code_model: u32,
     preserved_symbols: *const FfiByteSlice,
     preserved_symbol_count: usize,
     optimization: u32,
@@ -446,6 +450,8 @@ pub fn run_thin_lto(
     let ffi_config = FfiThinConfig {
         cpu: FfiByteSlice::new(config.target.cpu.as_bytes()),
         features: FfiByteSlice::new(config.target.features.as_bytes()),
+        relocation_model: config.target.relocation_model.lto_tag(),
+        code_model: config.target.code_model.lto_tag(),
         preserved_symbols: preserved.as_ptr(),
         preserved_symbol_count: preserved.len(),
         optimization: optimization_tag(config.optimization),
@@ -578,6 +584,8 @@ pub fn run_full_lto(
     let ffi_config = FfiFullConfig {
         cpu: FfiByteSlice::new(config.target.cpu.as_bytes()),
         features: FfiByteSlice::new(config.target.features.as_bytes()),
+        relocation_model: config.target.relocation_model.lto_tag(),
+        code_model: config.target.code_model.lto_tag(),
         preserved_symbols: preserved.as_ptr(),
         preserved_symbol_count: preserved.len(),
         optimization: optimization_tag(config.optimization),
@@ -687,41 +695,12 @@ mod tests {
         name: &str,
         freestanding: bool,
     ) -> (TargetMachineIdentity, Vec<u8>) {
-        let context = Context::create().expect("create context");
-        let module = context.create_module(name).expect("create module");
-        module.set_identifier(name);
-        let ty = context
-            .i32_type()
-            .fn_type(&[], false)
-            .expect("create function type");
-        let function = module
-            .add_function("entry", ty, Some(Linkage::External))
-            .expect("add entry function");
-        let block = context
-            .append_basic_block(function, "entry")
-            .expect("append block");
-        let builder = context.create_builder().expect("create builder");
-        builder.position_at_end(block);
-        let value = context.i32_type().const_int(42, false).expect("constant");
-        builder.build_return(Some(&value)).expect("return value");
-        module.verify().expect("verify source module");
-
-        let identity = crate::llvm_api::test_host_identity();
-        let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
-            .expect("target machine");
-        target.configure_module(&module).expect("configure module");
-        let bitcode =
-            emit_thin_lto_bitcode(&module, &target, OptimizationLevel::Default, freestanding)
-                .expect("emit summary-bearing bitcode");
-        (identity, bitcode)
+        summary_bitcode_for_identity(name, crate::llvm_api::test_host_identity(), freestanding)
     }
 
-    fn summary_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
-        summary_bitcode_with_policy(name, false)
-    }
-
-    fn full_bitcode_with_policy(
+    fn summary_bitcode_for_identity(
         name: &str,
+        identity: TargetMachineIdentity,
         freestanding: bool,
     ) -> (TargetMachineIdentity, Vec<u8>) {
         let context = Context::create().expect("create context");
@@ -743,7 +722,50 @@ mod tests {
         builder.build_return(Some(&value)).expect("return value");
         module.verify().expect("verify source module");
 
-        let identity = crate::llvm_api::test_host_identity();
+        let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
+            .expect("target machine");
+        target.configure_module(&module).expect("configure module");
+        let bitcode =
+            emit_thin_lto_bitcode(&module, &target, OptimizationLevel::Default, freestanding)
+                .expect("emit summary-bearing bitcode");
+        (identity, bitcode)
+    }
+
+    fn summary_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
+        summary_bitcode_with_policy(name, false)
+    }
+
+    fn full_bitcode_with_policy(
+        name: &str,
+        freestanding: bool,
+    ) -> (TargetMachineIdentity, Vec<u8>) {
+        full_bitcode_for_identity(name, crate::llvm_api::test_host_identity(), freestanding)
+    }
+
+    fn full_bitcode_for_identity(
+        name: &str,
+        identity: TargetMachineIdentity,
+        freestanding: bool,
+    ) -> (TargetMachineIdentity, Vec<u8>) {
+        let context = Context::create().expect("create context");
+        let module = context.create_module(name).expect("create module");
+        module.set_identifier(name);
+        let ty = context
+            .i32_type()
+            .fn_type(&[], false)
+            .expect("create function type");
+        let function = module
+            .add_function("entry", ty, Some(Linkage::External))
+            .expect("add entry function");
+        let block = context
+            .append_basic_block(function, "entry")
+            .expect("append block");
+        let builder = context.create_builder().expect("create builder");
+        builder.position_at_end(block);
+        let value = context.i32_type().const_int(42, false).expect("constant");
+        builder.build_return(Some(&value)).expect("return value");
+        module.verify().expect("verify source module");
+
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
         target.configure_module(&module).expect("configure module");
@@ -804,6 +826,31 @@ mod tests {
     }
 
     #[test]
+    fn modern_full_lto_accepts_explicit_target_models() {
+        let mut identity = crate::llvm_api::test_host_identity();
+        identity.relocation_model = crate::target::TargetRelocationModel::Static;
+        identity.code_model = crate::target::TargetCodeModel::Small;
+        let (target, bitcode) = full_bitcode_for_identity("full-explicit-models", identity, true);
+        let output = run_full_lto(
+            &[FullLtoInput {
+                name: "full-explicit-models",
+                bitcode: &bitcode,
+            }],
+            FullLtoConfig {
+                target: &target,
+                optimization: OptimizationLevel::Default,
+                parallelism: 1,
+                freestanding: true,
+                preserved_symbols: &["entry"],
+            },
+        )
+        .expect("run full LTO with explicit target models");
+
+        assert_eq!(output.objects.len(), 1);
+        assert!(!output.objects[0].bytes.is_empty());
+    }
+
+    #[test]
     fn modern_thin_lto_emits_native_object_from_summary_bitcode() {
         let (target, bitcode) = summary_bitcode("thin-unit");
         let output = run_thin_lto(
@@ -831,6 +878,33 @@ mod tests {
                 .iter()
                 .all(|diagnostic| { diagnostic.severity != ThinLtoDiagnosticSeverity::Error })
         );
+    }
+
+    #[test]
+    fn modern_thin_lto_accepts_explicit_target_models() {
+        let mut identity = crate::llvm_api::test_host_identity();
+        identity.relocation_model = crate::target::TargetRelocationModel::Static;
+        identity.code_model = crate::target::TargetCodeModel::Small;
+        let (target, bitcode) =
+            summary_bitcode_for_identity("thin-explicit-models", identity, true);
+        let output = run_thin_lto(
+            &[ThinLtoInput {
+                name: "thin-explicit-models",
+                bitcode: &bitcode,
+            }],
+            ThinLtoConfig {
+                target: &target,
+                optimization: OptimizationLevel::Default,
+                parallelism: 1,
+                freestanding: true,
+                preserved_symbols: &["entry"],
+                backend_cache_directory: None,
+            },
+        )
+        .expect("run ThinLTO with explicit target models");
+
+        assert_eq!(output.objects.len(), 1);
+        assert!(!output.objects[0].bytes.is_empty());
     }
 
     #[test]

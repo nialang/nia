@@ -67,6 +67,14 @@ impl TargetRelocationModel {
             Self::DynamicNoPic => LLVMRelocMode::LLVMRelocDynamicNoPic,
         }
     }
+
+    pub(crate) fn lto_tag(self) -> u32 {
+        match self {
+            Self::Static => 0,
+            Self::Pic => 1,
+            Self::DynamicNoPic => 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +94,14 @@ impl TargetCodeModel {
             Self::Default => LLVMCodeModel::LLVMCodeModelDefault,
             Self::Small => LLVMCodeModel::LLVMCodeModelSmall,
             Self::Large => LLVMCodeModel::LLVMCodeModelLarge,
+        }
+    }
+
+    pub(crate) fn lto_tag(self) -> u32 {
+        match self {
+            Self::Default => u32::MAX,
+            Self::Small => 1,
+            Self::Large => 4,
         }
     }
 }

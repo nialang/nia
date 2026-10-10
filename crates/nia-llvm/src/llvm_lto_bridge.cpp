@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -61,6 +62,8 @@ struct ThinInput {
 struct FullConfig {
   ByteSlice CPU;
   ByteSlice Features;
+  uint32_t RelocationModel;
+  uint32_t CodeModel;
   const ByteSlice *PreservedSymbols;
   size_t PreservedSymbolCount;
   uint32_t Optimization;
@@ -71,6 +74,8 @@ struct FullConfig {
 struct ThinConfig {
   ByteSlice CPU;
   ByteSlice Features;
+  uint32_t RelocationModel;
+  uint32_t CodeModel;
   const ByteSlice *PreservedSymbols;
   size_t PreservedSymbolCount;
   uint32_t Optimization;
@@ -146,6 +151,42 @@ StringRef asStringRef(ByteSlice Slice) {
   if (Slice.Len == 0)
     return {};
   return StringRef(reinterpret_cast<const char *>(Slice.Data), Slice.Len);
+}
+
+constexpr uint32_t DefaultCodeModel = std::numeric_limits<uint32_t>::max();
+
+bool configureTargetModels(lto::Config &Config, uint32_t RelocationModel,
+                           uint32_t CodeModelTag, std::string &Error) {
+  switch (RelocationModel) {
+  case 0:
+    Config.RelocModel = Reloc::Static;
+    break;
+  case 1:
+    Config.RelocModel = Reloc::PIC_;
+    break;
+  case 2:
+    Config.RelocModel = Reloc::DynamicNoPIC;
+    break;
+  default:
+    Error = "LLVM LTO received an invalid relocation model";
+    return false;
+  }
+
+  switch (CodeModelTag) {
+  case DefaultCodeModel:
+    Config.CodeModel.reset();
+    break;
+  case 1:
+    Config.CodeModel = CodeModel::Small;
+    break;
+  case 4:
+    Config.CodeModel = CodeModel::Large;
+    break;
+  default:
+    Error = "LLVM LTO received an invalid code model";
+    return false;
+  }
+  return true;
 }
 
 std::string errorText(Error Err) {
@@ -664,6 +705,9 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
   Config.OptLevel = InputConfig->Optimization;
   Config.CGOptLevel = codegenOptimizationLevel(InputConfig->Optimization);
   Config.Freestanding = InputConfig->Freestanding != 0;
+  if (!configureTargetModels(Config, InputConfig->RelocationModel,
+                             InputConfig->CodeModel, Result->Error))
+    return Result.release();
   Config.PTO.LoopVectorization = Config.OptLevel > 1;
   Config.PTO.SLPVectorization = Config.OptLevel > 1;
 
@@ -897,6 +941,9 @@ FullResult *nia_llvm_run_full_lto(const ThinInput *Inputs, size_t InputCount,
   Config.OptLevel = InputConfig->Optimization;
   Config.CGOptLevel = codegenOptimizationLevel(InputConfig->Optimization);
   Config.Freestanding = InputConfig->Freestanding != 0;
+  if (!configureTargetModels(Config, InputConfig->RelocationModel,
+                             InputConfig->CodeModel, Result->Error))
+    return Result.release();
   Config.PTO.LoopVectorization = Config.OptLevel > 1;
   Config.PTO.SLPVectorization = Config.OptLevel > 1;
 
