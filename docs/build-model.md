@@ -27,6 +27,8 @@ the dependency closure.
   manifest. Reuse requires the runner and invocation identities to match,
   every non-poisoned observation to recompute, and the plan to pass semantic
   decode validation again.
+  Candidate scans are bounded; an oversized configure namespace is treated as
+  a cache miss and falls back to runner configuration.
   Filesystem observations include content, metadata, directory entries, and
   explicit presence facts. A missing optional path is a stable `absent` fact,
   so creating or removing that path invalidates the configure record.
