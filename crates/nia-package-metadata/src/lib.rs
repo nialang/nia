@@ -3,6 +3,7 @@
 
 use std::{
     collections::BTreeSet,
+    fs::File,
     io::{self, Cursor, Read},
     path::Path,
 };
@@ -16,6 +17,7 @@ pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
 pub const MAX_STABLE_METADATA_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
+const MAX_SOURCE_FILES: usize = MAX_ITEMS;
 const MAX_MANIFEST_ENTRIES: usize = 1024;
 const MAX_DEFINITION_DEPTH: usize = 256;
 const PACKAGE_GRAPH_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.package.graph");
@@ -571,6 +573,7 @@ pub fn package_source_identity_with_selection(
         .map(|value| validate_selection_path(value))
         .collect::<io::Result<BTreeSet<_>>>()?;
     let mut files = Vec::new();
+    let mut seen_files = BTreeSet::new();
     for source_root in &selected_roots {
         let directory = if source_root == "." {
             root.clone()
@@ -584,7 +587,7 @@ pub fn package_source_identity_with_selection(
                 "package source root escapes the package directory",
             ));
         }
-        collect_source_files(&root, &directory, &excludes, &mut files)?;
+        collect_source_files(&root, &directory, &excludes, &mut files, &mut seen_files)?;
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     files.dedup_by(|left, right| left.path == right.path);
@@ -639,36 +642,66 @@ fn collect_source_files(
     directory: &Path,
     excludes: &BTreeSet<String>,
     files: &mut Vec<PackageSourceFile>,
+    seen_files: &mut BTreeSet<String>,
 ) -> io::Result<()> {
-    let mut entries = std::fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
-        let path = entry.path();
-        let relative = path.strip_prefix(root).expect("source path under root");
-        let name = relative.to_string_lossy().replace('\\', "/");
-        if excluded_source_component(relative)
-            || excludes
-                .iter()
-                .any(|exclude| name == *exclude || name.starts_with(&format!("{exclude}/")))
-        {
-            continue;
-        }
-        let file_type = entry.file_type()?;
-        if file_type.is_symlink() {
-            continue;
-        }
-        if file_type.is_dir() {
-            collect_source_files(root, &path, excludes, files)?;
-        } else if file_type.is_file() {
-            let bytes = std::fs::read(&path)?;
-            files.push(PackageSourceFile {
-                path: name,
-                byte_len: bytes.len() as u64,
-                fingerprint: *blake3::hash(&bytes).as_bytes(),
-            });
+    let mut pending = vec![directory.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let path = entry.path();
+            let relative = path.strip_prefix(root).expect("source path under root");
+            let name = relative.to_string_lossy().replace('\\', "/");
+            if excluded_source_component(relative)
+                || excludes
+                    .iter()
+                    .any(|exclude| name == *exclude || name.starts_with(&format!("{exclude}/")))
+            {
+                continue;
+            }
+            let file_type = entry.file_type()?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file() {
+                if !seen_files.insert(name.clone()) {
+                    continue;
+                }
+                if files.len() >= MAX_SOURCE_FILES {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "package source contains too many files",
+                    ));
+                }
+                let (byte_len, fingerprint) = fingerprint_source_file(&path)?;
+                files.push(PackageSourceFile {
+                    path: name,
+                    byte_len,
+                    fingerprint,
+                });
+            }
         }
     }
     Ok(())
+}
+
+fn fingerprint_source_file(path: &Path) -> io::Result<(u64, [u8; 32])> {
+    let mut file = File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0; 64 * 1024];
+    let mut byte_len = 0u64;
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        byte_len = byte_len.checked_add(read as u64).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "source file is too large")
+        })?;
+        hasher.update(&buffer[..read]);
+    }
+    Ok((byte_len, *hasher.finalize().as_bytes()))
 }
 
 fn excluded_source_component(path: &Path) -> bool {
@@ -2059,6 +2092,32 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn package_source_identity_streams_large_files() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-source-large-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contents = vec![b'x'; 128 * 1024 + 17];
+        let path = root.join("large.nia");
+        std::fs::write(&path, &contents).unwrap();
+
+        let identity = package_source_identity(&root, package()).unwrap();
+
+        assert_eq!(identity.files.len(), 1);
+        assert_eq!(identity.files[0].byte_len, contents.len() as u64);
+        assert_eq!(
+            identity.files[0].fingerprint,
+            *blake3::hash(&contents).as_bytes()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn package_source_identity_does_not_follow_symlinks() {
@@ -2086,11 +2145,11 @@ mod tests {
         std::fs::write(root.join("examples/demo.nia"), "demo").unwrap();
         let package = package();
         let selection = PackageSourceSelection {
-            source_roots: vec!["examples".into(), "src/".into(), "src".into()],
+            source_roots: vec![".".into(), "examples".into(), "src/".into(), "src".into()],
             excludes: vec!["src/generated/".into(), "src/generated".into()],
         };
         let equivalent = PackageSourceSelection {
-            source_roots: vec!["src".into(), "examples".into()],
+            source_roots: vec![".".into(), "src".into(), "examples".into()],
             excludes: vec!["src/generated".into()],
         };
         let first =

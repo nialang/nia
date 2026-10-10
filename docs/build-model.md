@@ -81,6 +81,11 @@ dependencies require their explicit build selections; build-only dependencies
 are not exposed to artifact compilation. Generated build roots and package
 roots not declared in `nia.package` retain their existing plan behavior.
 
+Package source identities walk only the selected roots, skip excluded and
+symlinked entries, and stream file contents into their BLAKE3 fingerprints.
+The walk is iterative and rejects source trees with more than one million
+regular files before publishing an identity.
+
 `nia build --explain` reports each declared dependency's selected-graph
 resolution, the number of its modules represented in the frozen plan, and
 whether the selected action closure owns or references that package. Module
