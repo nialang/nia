@@ -115,6 +115,10 @@ fn command_cache_outcome(mut command: Command) -> String {
         .find(|value| value["kind"] == "action-cache")
         .unwrap_or_else(|| panic!("missing action cache report: {stdout}"));
     assert_eq!(report["entries"].as_array().unwrap().len(), 1, "{report}");
+    assert!(
+        report["entries"][0]["decision"]["status"].is_string(),
+        "{report}"
+    );
     report["entries"][0]["outcome"].as_str().unwrap().to_owned()
 }
 

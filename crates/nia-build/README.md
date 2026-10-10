@@ -189,7 +189,10 @@ For maintenance and CI, `nia build --dry-run` validates the selected closure
 without executing coordinator actions. `--print-plan`, `--explain`,
 `--print-cache`, and `--print-observations` expose deterministic graph and
 cache evidence. `--diagnostics-format=json` switches these inspection products
-to newline-delimited stable JSON records.
+to newline-delimited stable JSON records: plan records include all canonical
+graph nodes, explanation records include observations and tools, and action
+cache records include typed decisions and publication state. Dry-run cache
+records explicitly report that lookup and publication were not attempted.
 
 The runner receives the toolchain's complete maintained target matrix. An
 artifact without a target builds for the invocation artifact target;

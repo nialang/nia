@@ -768,21 +768,23 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 if output_json {
                     print!(
                         "{}",
-                        render_build_explanation_json(
+                        render_build_explanation_json_with_observations(
                             &plan,
                             &invocation,
                             configure_candidate.clone(),
                             &preview,
+                            &draft.observations,
                         )
                     );
                 } else {
                     print!(
                         "{}",
-                        render_build_explanation(
+                        render_build_explanation_with_observations(
                             &plan,
                             &invocation,
                             configure_candidate.clone(),
                             &preview,
+                            &draft.observations,
                         )
                     );
                 }
@@ -818,6 +820,13 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 return Ok(());
             }
             if dry_run {
+                if print_cache || explain {
+                    if output_json {
+                        print!("{}", render_action_cache_preview_json(&plan, &preview));
+                    } else {
+                        print!("{}", render_action_cache_preview_summary(&plan, &preview));
+                    }
+                }
                 return Ok(());
             }
             if let Some(limit) = invocation.max_parallel_actions {
@@ -836,7 +845,7 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 emit_action_cache_counters(report);
                 if print_cache || explain {
                     if output_json {
-                        print!("{}", render_action_cache_json(report));
+                        print!("{}", render_action_cache_json(report, &plan));
                     } else {
                         print!("{}", render_action_cache_summary(report));
                     }
@@ -892,6 +901,46 @@ pub fn render_build_plan_summary(plan: &BuildPlan) -> String {
     let _ = writeln!(output, "  artifacts: {}", plan.artifacts().len());
     let _ = writeln!(output, "  actions: {}", plan.actions().len());
     let _ = writeln!(output, "  steps: {}", plan.steps().len());
+    for module in plan.modules() {
+        let _ = writeln!(
+            output,
+            "  module {}::{}: source={}, optimization={}",
+            module.key.package().as_str(),
+            module.key.name(),
+            module.root_source.protocol_path(),
+            optimization_name(module.optimization),
+        );
+    }
+    for artifact in plan.artifacts() {
+        let _ = writeln!(
+            output,
+            "  artifact {}::{}: kind={}, output={}",
+            artifact.key.package().as_str(),
+            artifact.key.name(),
+            artifact_kind_name(&artifact.kind),
+            artifact.output.protocol_path(),
+        );
+    }
+    for action in plan.actions() {
+        let _ = writeln!(
+            output,
+            "  action {}::{}: kind={}, outputs={}",
+            action.key.package().as_str(),
+            action.key.name(),
+            action_kind_name(action),
+            action_outputs_json(plan, action).len(),
+        );
+    }
+    for step in plan.steps() {
+        let _ = writeln!(
+            output,
+            "  step {}::{}: action={}, dependencies={}",
+            step.key.package().as_str(),
+            step.key.name(),
+            format_args!("{}::{}", step.action.package().as_str(), step.action.name()),
+            step.dependencies.len(),
+        );
+    }
     for usage in plan.package_usage() {
         let _ = writeln!(
             output,
@@ -914,6 +963,17 @@ pub fn render_build_explanation(
     invocation: &BuildInvocation,
     configure_candidate: ConfigureCacheCandidate,
     preview: &ExecutionReport,
+) -> String {
+    render_build_explanation_with_observations(plan, invocation, configure_candidate, preview, &[])
+}
+
+/// Renders a deterministic explanation with the runner observation manifest.
+pub fn render_build_explanation_with_observations(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    configure_candidate: ConfigureCacheCandidate,
+    preview: &ExecutionReport,
+    observations: &[u8],
 ) -> String {
     use std::fmt::Write as _;
     let mut output = String::new();
@@ -995,6 +1055,15 @@ pub fn render_build_explanation(
             action.package().as_str(),
             action.name()
         );
+    }
+    let observation_count = ConfigureManifest::decode(observations)
+        .map(|manifest| manifest.observations().len())
+        .unwrap_or(0);
+    let _ = writeln!(output, "  observations: {observation_count}");
+    let tools = plan_tool_declarations(plan);
+    let _ = writeln!(output, "  tools: {}", tools.len());
+    for tool in tools {
+        let _ = writeln!(output, "    {}", tool);
     }
     output
 }
@@ -1286,12 +1355,22 @@ fn render_action_cache_summary(report: &ExecutionReport) -> String {
 
 /// Renders a stable machine-readable plan summary.
 pub fn render_build_plan_json(plan: &BuildPlan) -> String {
+    build_plan_json_value(plan).to_string() + "\n"
+}
+
+fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
     let packages = plan
         .package_usage()
         .into_iter()
         .map(|usage| {
+            let package = plan
+                .packages()
+                .iter()
+                .find(|package| package.key == usage.package)
+                .expect("package usage must have a declaration");
             serde_json::json!({
                 "package": usage.package.as_str(),
+                "root": package.root,
                 "loaded_modules": usage.loaded_modules,
                 "artifacts": usage.artifacts,
                 "actions": usage.actions,
@@ -1301,11 +1380,69 @@ pub fn render_build_plan_json(plan: &BuildPlan) -> String {
             })
         })
         .collect::<Vec<_>>();
+    let modules = plan
+        .modules()
+        .iter()
+        .map(|module| {
+            serde_json::json!({
+                "key": format!("{}::{}", module.key.package().as_str(), module.key.name()),
+                "package": module.key.package().as_str(),
+                "name": module.key.name(),
+                "root_source": logical_path_json(&module.root_source),
+                "optimization": optimization_name(module.optimization),
+                "imports": module.imports.iter().map(|import| serde_json::json!({
+                    "name": import.name,
+                    "path": logical_path_json(&import.path),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let artifacts = plan
+        .artifacts()
+        .iter()
+        .map(|artifact| {
+            serde_json::json!({
+                "key": format!("{}::{}", artifact.key.package().as_str(), artifact.key.name()),
+                "package": artifact.key.package().as_str(),
+                "name": artifact.key.name(),
+                "root_module": format!("{}::{}", artifact.root_module.package().as_str(), artifact.root_module.name()),
+                "kind": artifact_kind_name(&artifact.kind),
+                "output": logical_path_json(&artifact.output),
+                "runtime": runtime_name(artifact.runtime),
+            })
+        })
+        .collect::<Vec<_>>();
+    let actions = plan
+        .actions()
+        .iter()
+        .map(|action| action_json_value(plan, action))
+        .collect::<Vec<_>>();
+    let steps = plan
+        .steps()
+        .iter()
+        .map(|step| {
+            serde_json::json!({
+                "key": format!("{}::{}", step.key.package().as_str(), step.key.name()),
+                "package": step.key.package().as_str(),
+                "name": step.key.name(),
+                "action": format!("{}::{}", step.action.package().as_str(), step.action.name()),
+                "dependencies": step.dependencies.iter().map(|dependency| format!("{}::{}", dependency.package().as_str(), dependency.name())).collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::json!({
         "kind": "build-plan",
+        "protocol_epoch": plan.protocol_epoch(),
         "root_package": plan.root_package().as_str(),
-        "host_target": plan.host_target().name(),
-        "artifact_target": plan.artifact_target().name(),
+        "selection": {
+            "selected_step": plan.selected_step().or_else(|| plan.default_step()).map(|step| format!("{}::{}", step.package().as_str(), step.name())),
+            "explicit_step": plan.selected_step().map(|step| format!("{}::{}", step.package().as_str(), step.name())),
+            "default_step": plan.default_step().map(|step| format!("{}::{}", step.package().as_str(), step.name())),
+        },
+        "targets": {
+            "host": plan.host_target().name(),
+            "artifact": plan.artifact_target().name(),
+        },
         "counts": {
             "packages": plan.packages().len(),
             "modules": plan.modules().len(),
@@ -1314,9 +1451,11 @@ pub fn render_build_plan_json(plan: &BuildPlan) -> String {
             "steps": plan.steps().len(),
         },
         "packages": packages,
+        "modules": modules,
+        "artifacts": artifacts,
+        "actions": actions,
+        "steps": steps,
     })
-    .to_string()
-        + "\n"
 }
 
 /// Renders a stable machine-readable build explanation.
@@ -1325,6 +1464,23 @@ pub fn render_build_explanation_json(
     invocation: &BuildInvocation,
     configure_candidate: ConfigureCacheCandidate,
     preview: &ExecutionReport,
+) -> String {
+    render_build_explanation_json_with_observations(
+        plan,
+        invocation,
+        configure_candidate,
+        preview,
+        &[],
+    )
+}
+
+/// Renders a stable explanation JSON record with runner observations.
+pub fn render_build_explanation_json_with_observations(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    configure_candidate: ConfigureCacheCandidate,
+    preview: &ExecutionReport,
+    observations: &[u8],
 ) -> String {
     let actions = preview
         .actions
@@ -1348,6 +1504,7 @@ pub fn render_build_explanation_json(
         .collect::<Vec<_>>();
     serde_json::json!({
         "kind": "build-explanation",
+        "plan": build_plan_json_value(plan),
         "package_root": invocation.package_root.to_string_lossy(),
         "package_graph_fingerprint": hex_fingerprint(&invocation.package_source_fingerprint),
         "package_graph": {
@@ -1366,9 +1523,14 @@ pub fn render_build_explanation_json(
                 .count(),
         },
         "configure_cache_candidate": configure_candidate.to_string(),
+        "observations": configure_observations_json_value(observations),
+        "tools": plan_tool_json_values(plan),
         "selected_step": plan.selected_step().or_else(|| plan.default_step()).map(StepKey::name),
         "targets": { "host": plan.host_target().name(), "artifact": plan.artifact_target().name() },
-        "closure": { "steps": preview.steps.len(), "actions": actions },
+        "closure": {
+            "steps": preview.steps.iter().map(|step| format!("{}::{}", step.package().as_str(), step.name())).collect::<Vec<_>>(),
+            "actions": actions,
+        },
     })
     .to_string()
         + "\n"
@@ -1385,36 +1547,398 @@ fn render_configure_cache_json(candidate: ConfigureCacheCandidate, runner_reused
 }
 
 fn render_configure_observations_json(bytes: &[u8]) -> String {
-    let value = match ConfigureManifest::decode(bytes) {
+    let mut value = configure_observations_json_value(bytes);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "kind".to_string(),
+            serde_json::Value::String("configure-observations".to_string()),
+        );
+    }
+    value.to_string() + "\n"
+}
+
+fn configure_observations_json_value(bytes: &[u8]) -> serde_json::Value {
+    match ConfigureManifest::decode(bytes) {
         Ok(manifest) => serde_json::json!({
-            "kind": "configure-observations",
             "policy": format!("{:?}", manifest.policy()),
             "observations": manifest.observations().iter().map(|observation| serde_json::json!({
                 "path": observation.path().to_string_lossy(),
                 "kind": observation.kind().to_string(),
                 "fingerprint": hex_fingerprint(observation.fingerprint()),
             })).collect::<Vec<_>>(),
+            "valid": true,
         }),
         Err(_) => serde_json::json!({
-            "kind": "configure-observations",
             "policy": "Poison",
             "observations": [],
             "valid": false,
         }),
-    };
-    value.to_string() + "\n"
+    }
 }
 
-fn render_action_cache_json(report: &ExecutionReport) -> String {
+fn action_kind_name(action: &PlanAction) -> &'static str {
+    match action.kind {
+        ActionKind::CompilerCheck { .. } => "compiler-check",
+        ActionKind::CompilerEmit { .. } => "compiler-emit",
+        ActionKind::ExternalCommand(_) => "external-command",
+        ActionKind::TestExecutable(_) => "test-executable",
+        ActionKind::GeneratedFile { .. } => "generated-file",
+        ActionKind::InstallArtifact { .. } => "install-artifact",
+        ActionKind::Aggregate => "aggregate",
+        ActionKind::Uncacheable { .. } => "uncacheable",
+    }
+}
+
+fn plan_tool_declarations(plan: &BuildPlan) -> Vec<String> {
+    let mut tools = plan_tool_json_values(plan)
+        .into_iter()
+        .filter_map(|tool| tool["display"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    tools.sort();
+    tools.dedup();
+    tools
+}
+
+fn plan_tool_json_values(plan: &BuildPlan) -> Vec<serde_json::Value> {
+    let mut tools = Vec::new();
+    for action in plan.actions() {
+        let command = match &action.kind {
+            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => command,
+            _ => continue,
+        };
+        let value = match &command.program {
+            CommandProgram::Path(path) => serde_json::json!({
+                "kind": "path",
+                "display": path.protocol_path(),
+                "path": logical_path_json(path),
+            }),
+            CommandProgram::Search(name) => serde_json::json!({
+                "kind": "search",
+                "display": name,
+                "name": name,
+            }),
+        };
+        if !tools.iter().any(|existing| existing == &value) {
+            tools.push(value);
+        }
+    }
+    tools.sort_by(|left, right| left["display"].as_str().cmp(&right["display"].as_str()));
+    tools
+}
+
+fn render_action_cache_json(report: &ExecutionReport, plan: &BuildPlan) -> String {
     serde_json::json!({
         "kind": "action-cache",
+        "mode": "execution",
         "entries": report.action_cache.iter().map(|entry| serde_json::json!({
             "action": format!("{}::{}", entry.action.package().as_str(), entry.action.name()),
+            "outputs": plan
+                .actions()
+                .iter()
+                .find(|action| action.key == entry.action)
+                .map(|action| action_outputs_json(plan, action))
+                .unwrap_or_default(),
+            // Keep the original compact field for existing consumers. The
+            // structured decision is the stable machine-readable contract.
             "outcome": format!("{:?}", entry.outcome),
+            "decision": action_cache_outcome_json(&entry.outcome),
         })).collect::<Vec<_>>(),
     })
     .to_string()
         + "\n"
+}
+
+fn render_action_cache_preview_json(plan: &BuildPlan, preview: &ExecutionReport) -> String {
+    serde_json::json!({
+        "kind": "action-cache",
+        "mode": "dry_run",
+        "entries": preview.actions.iter().map(|key| {
+            let outputs = plan
+                .actions()
+                .iter()
+                .find(|action| action.key == *key)
+                .map(|action| action_outputs_json(plan, action))
+                .unwrap_or_default();
+            serde_json::json!({
+                "action": format!("{}::{}", key.package().as_str(), key.name()),
+                "outputs": outputs,
+                "outcome": {
+                    "status": "not_consulted",
+                    "reason": "dry_run",
+                    "invalidations": [],
+                    "publication": "not_attempted",
+                },
+            })
+        }).collect::<Vec<_>>(),
+    })
+    .to_string()
+        + "\n"
+}
+
+fn render_action_cache_preview_summary(plan: &BuildPlan, preview: &ExecutionReport) -> String {
+    use std::fmt::Write as _;
+    let mut output = String::from("action cache (dry run):\n");
+    for key in &preview.actions {
+        let outputs = plan
+            .actions()
+            .iter()
+            .find(|action| action.key == *key)
+            .map(|action| action_outputs_json(plan, action).len())
+            .unwrap_or(0);
+        let _ = writeln!(
+            output,
+            "  {}::{}: not consulted ({} declared output path(s))",
+            key.package().as_str(),
+            key.name(),
+            outputs
+        );
+    }
+    output
+}
+
+fn logical_path_json(path: &LogicalPath) -> serde_json::Value {
+    let root = match path.root() {
+        LogicalPathRoot::Package(package) => {
+            serde_json::json!({ "kind": "package", "package": package.as_str() })
+        }
+        LogicalPathRoot::Build => serde_json::json!({ "kind": "build" }),
+        LogicalPathRoot::Cache => serde_json::json!({ "kind": "cache" }),
+        LogicalPathRoot::Toolchain => serde_json::json!({ "kind": "toolchain" }),
+        LogicalPathRoot::Artifact(artifact) => serde_json::json!({
+            "kind": "artifact",
+            "package": artifact.package().as_str(),
+            "artifact": artifact.name(),
+        }),
+    };
+    serde_json::json!({ "root": root, "path": path.protocol_path() })
+}
+
+fn action_json_value(plan: &BuildPlan, action: &PlanAction) -> serde_json::Value {
+    let key = format!("{}::{}", action.key.package().as_str(), action.key.name());
+    let base = |kind: &'static str, details: serde_json::Value| {
+        serde_json::json!({
+            "key": key,
+            "package": action.key.package().as_str(),
+            "name": action.key.name(),
+            "kind": kind,
+            "resource_class": resource_class_name(action.resource_class()),
+            "details": details,
+            "outputs": action_outputs_json(plan, action),
+        })
+    };
+    match &action.kind {
+        ActionKind::CompilerCheck {
+            module,
+            target,
+            runtime,
+        } => base(
+            "compiler-check",
+            serde_json::json!({
+                "module": format!("{}::{}", module.package().as_str(), module.name()),
+                "target": target.name(),
+                "runtime": runtime_name(*runtime),
+            }),
+        ),
+        ActionKind::CompilerEmit {
+            artifact,
+            target,
+            static_archives,
+        } => base(
+            "compiler-emit",
+            serde_json::json!({
+                "artifact": format!("{}::{}", artifact.package().as_str(), artifact.name()),
+                "target": target.name(),
+                "static_archives": static_archives.iter().map(|archive| format!("{}::{}", archive.package().as_str(), archive.name())).collect::<Vec<_>>(),
+            }),
+        ),
+        ActionKind::ExternalCommand(command) => {
+            base("external-command", command_json_value(command))
+        }
+        ActionKind::TestExecutable(command) => base("test-executable", command_json_value(command)),
+        ActionKind::GeneratedFile { output, contents } => base(
+            "generated-file",
+            serde_json::json!({ "output": logical_path_json(output), "content_bytes": contents.len() }),
+        ),
+        ActionKind::InstallArtifact {
+            artifact,
+            destination,
+        } => base(
+            "install-artifact",
+            serde_json::json!({
+                "artifact": format!("{}::{}", artifact.package().as_str(), artifact.name()),
+                "destination": logical_path_json(destination),
+            }),
+        ),
+        ActionKind::Aggregate => base("aggregate", serde_json::json!({})),
+        ActionKind::Uncacheable { description } => base(
+            "uncacheable",
+            serde_json::json!({ "description": description }),
+        ),
+    }
+}
+
+fn command_json_value(command: &CommandAction) -> serde_json::Value {
+    let program = match &command.program {
+        CommandProgram::Path(path) => {
+            serde_json::json!({ "kind": "path", "path": logical_path_json(path) })
+        }
+        CommandProgram::Search(name) => serde_json::json!({ "kind": "search", "name": name }),
+    };
+    serde_json::json!({
+        "program": program,
+        "arguments": command.arguments.iter().map(|argument| match argument {
+            CommandArgument::Literal(value) => serde_json::json!({ "kind": "literal", "value": value }),
+            CommandArgument::InputPath(path) => serde_json::json!({ "kind": "input", "path": logical_path_json(path) }),
+            CommandArgument::OutputPath(path) => serde_json::json!({ "kind": "output", "path": logical_path_json(path) }),
+        }).collect::<Vec<_>>(),
+        "working_directory": logical_path_json(&command.working_directory),
+        "environment_policy": environment_policy_name(command.environment_policy),
+        "cache_policy": cache_policy_name(command.cache_policy),
+        "environment": command.environment.iter().map(|input| serde_json::json!({ "name": input.name, "value": input.value })).collect::<Vec<_>>(),
+        "inputs": command.inputs.iter().map(logical_path_json).collect::<Vec<_>>(),
+        "outputs": command.outputs.iter().map(logical_path_json).collect::<Vec<_>>(),
+    })
+}
+
+fn action_outputs_json(plan: &BuildPlan, action: &PlanAction) -> Vec<serde_json::Value> {
+    match &action.kind {
+        ActionKind::CompilerEmit { artifact, .. } => plan
+            .artifacts()
+            .iter()
+            .find(|candidate| candidate.key == *artifact)
+            .map(|artifact| vec![logical_path_json(&artifact.output)])
+            .unwrap_or_default(),
+        ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            command.outputs.iter().map(logical_path_json).collect()
+        }
+        ActionKind::GeneratedFile { output, .. } => vec![logical_path_json(output)],
+        ActionKind::InstallArtifact { destination, .. } => vec![logical_path_json(destination)],
+        ActionKind::CompilerCheck { .. }
+        | ActionKind::Aggregate
+        | ActionKind::Uncacheable { .. } => Vec::new(),
+    }
+}
+
+fn action_cache_outcome_json(outcome: &ActionCacheOutcome) -> serde_json::Value {
+    match outcome {
+        ActionCacheOutcome::Hit => serde_json::json!({
+            "status": "hit",
+            "reason": serde_json::Value::Null,
+            "invalidations": [],
+            "publication": "restored",
+        }),
+        ActionCacheOutcome::Miss(reason) => {
+            let publication = match reason {
+                ActionCacheMissReason::Uncacheable => "not_applicable",
+                ActionCacheMissReason::WriteError => "failed",
+                _ => "published",
+            };
+            serde_json::json!({
+                "status": "miss",
+                "reason": action_cache_miss_reason_name(reason),
+                "invalidations": action_cache_invalidations_json(reason),
+                "publication": publication,
+            })
+        }
+    }
+}
+
+fn action_cache_miss_reason_name(reason: &ActionCacheMissReason) -> &'static str {
+    match reason {
+        ActionCacheMissReason::NotFound => "not_found",
+        ActionCacheMissReason::Invalidated(_) => "invalidated",
+        ActionCacheMissReason::Uncacheable => "uncacheable",
+        ActionCacheMissReason::Corrupt => "corrupt",
+        ActionCacheMissReason::ReadError => "read_error",
+        ActionCacheMissReason::WriteError => "write_error",
+    }
+}
+
+fn action_cache_invalidations_json(reason: &ActionCacheMissReason) -> Vec<&'static str> {
+    match reason {
+        ActionCacheMissReason::Invalidated(reasons) => {
+            reasons.iter().map(action_cache_invalidation_name).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn action_cache_invalidation_name(reason: &ActionCacheInvalidation) -> &'static str {
+    match reason {
+        ActionCacheInvalidation::Command => "command",
+        ActionCacheInvalidation::ExternalTool => "external_tool",
+        ActionCacheInvalidation::Environment => "environment",
+        ActionCacheInvalidation::Inputs => "inputs",
+        ActionCacheInvalidation::Dependencies => "dependencies",
+        ActionCacheInvalidation::WorkingDirectory => "working_directory",
+        ActionCacheInvalidation::PackageRoots => "package_roots",
+        ActionCacheInvalidation::Contents => "contents",
+        ActionCacheInvalidation::Artifact => "artifact",
+        ActionCacheInvalidation::Sources => "sources",
+        ActionCacheInvalidation::Module => "module",
+        ActionCacheInvalidation::Target => "target",
+        ActionCacheInvalidation::Profile => "profile",
+        ActionCacheInvalidation::CompilationMode => "compilation_mode",
+        ActionCacheInvalidation::Optimization => "optimization",
+        ActionCacheInvalidation::Runtime => "runtime",
+        ActionCacheInvalidation::Linker => "linker",
+        ActionCacheInvalidation::Output => "output",
+        ActionCacheInvalidation::Compiler => "compiler",
+        ActionCacheInvalidation::ResourceLayout => "resource_layout",
+        ActionCacheInvalidation::StandardLibrary => "standard_library",
+        ActionCacheInvalidation::BuildProtocol => "build_protocol",
+    }
+}
+
+fn optimization_name(value: OptimizationMode) -> &'static str {
+    match value {
+        OptimizationMode::O0 => "O0",
+        OptimizationMode::O1 => "O1",
+        OptimizationMode::O2 => "O2",
+        OptimizationMode::O3 => "O3",
+        OptimizationMode::Os => "Os",
+        OptimizationMode::Oz => "Oz",
+    }
+}
+
+fn runtime_name(value: Runtime) -> &'static str {
+    match value {
+        Runtime::Bare => "bare",
+        Runtime::Freestanding => "freestanding",
+    }
+}
+
+fn artifact_kind_name(value: &PlanArtifactKind) -> &'static str {
+    match value {
+        PlanArtifactKind::Executable => "executable",
+        PlanArtifactKind::ObjectSet => "object_set",
+        PlanArtifactKind::StaticArchive => "static_archive",
+    }
+}
+
+fn resource_class_name(value: ActionResourceClass) -> &'static str {
+    match value {
+        ActionResourceClass::Conservative => "conservative",
+        ActionResourceClass::Cpu => "cpu",
+        ActionResourceClass::Io => "io",
+    }
+}
+
+fn environment_policy_name(value: CommandEnvironmentPolicy) -> &'static str {
+    match value {
+        CommandEnvironmentPolicy::Inherit => "inherit",
+        CommandEnvironmentPolicy::Clear => "clear",
+    }
+}
+
+fn cache_policy_name(value: CommandCachePolicy) -> &'static str {
+    match value {
+        CommandCachePolicy::Uncacheable => "uncacheable",
+        CommandCachePolicy::DeclaredInputs => "declared_inputs",
+        CommandCachePolicy::ToolAndInputs => "tool_and_inputs",
+        CommandCachePolicy::FullDeclaredEnvironment => "full_declared_environment",
+        CommandCachePolicy::SuccessfulTests => "successful_tests",
+    }
 }
 
 fn emit_action_cache_counters(report: &ExecutionReport) {
@@ -3159,6 +3683,55 @@ mod tests {
             dependencies
                 .iter()
                 .all(|dependency| dependency.get("source_root").is_none())
+        );
+
+        let plan_json: serde_json::Value =
+            serde_json::from_str(&render_build_plan_json(&plan)).expect("parse plan JSON");
+        assert_eq!(plan_json["kind"], "build-plan");
+        assert_eq!(plan_json["protocol_epoch"], plan.protocol_epoch());
+        assert_eq!(
+            plan_json["modules"].as_array().unwrap().len(),
+            plan.modules().len()
+        );
+        assert_eq!(
+            plan_json["actions"].as_array().unwrap().len(),
+            plan.actions().len()
+        );
+        assert_eq!(
+            plan_json["steps"].as_array().unwrap().len(),
+            plan.steps().len()
+        );
+        assert!(plan_json["actions"][0].get("resource_class").is_some());
+        assert_eq!(json["plan"]["kind"], "build-plan");
+        assert!(json["observations"].get("valid").is_some());
+        assert!(json["tools"].as_array().is_some());
+
+        let cache_report = ExecutionReport {
+            steps: Vec::new(),
+            actions: Vec::new(),
+            action_cache: vec![ActionCacheReport {
+                action: plan.actions()[0].key.clone(),
+                outcome: ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+                    ActionCacheInvalidation::Inputs,
+                ])),
+            }],
+        };
+        let cache_json: serde_json::Value =
+            serde_json::from_str(&render_action_cache_json(&cache_report, &plan))
+                .expect("parse action cache JSON");
+        assert_eq!(cache_json["mode"], "execution");
+        assert_eq!(
+            cache_json["entries"][0]["outcome"],
+            "Miss(Invalidated([Inputs]))"
+        );
+        assert_eq!(cache_json["entries"][0]["decision"]["status"], "miss");
+        assert_eq!(
+            cache_json["entries"][0]["decision"]["reason"],
+            "invalidated"
+        );
+        assert_eq!(
+            cache_json["entries"][0]["decision"]["invalidations"][0],
+            "inputs"
         );
 
         std::fs::remove_dir_all(root).expect("remove test package root");

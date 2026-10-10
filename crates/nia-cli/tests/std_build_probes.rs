@@ -78,6 +78,113 @@ fn probe_build_command(root: &std::path::Path) -> std::process::Command {
 }
 
 #[test]
+fn structured_build_inspection_reports_nodes_tools_observations_and_dry_run() {
+    let root = temp_dir("structured_build_inspection");
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n").expect("write source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let mut buffer: [u8; 64] = [0; 64];
+    _ = b.probeFile(fs::PathView::init(&"src/main.nia"), &mut buffer[..]).?;
+    let rootModule = b.addModule(build::ModuleOptions::init(
+        &"main", fs::PathView::init(&"src/main.nia"),
+    )).?;
+    let executable = b.addExecutable(build::ExecutableOptions::init(&"app", rootModule)).?;
+    let emit = b.addEmitExecutableStep(&"emit", executable).?;
+    b.setDefaultStep(emit)
+}
+"#,
+    )
+    .expect("write build script");
+
+    let output = support::nia_command()
+        .args([
+            "build",
+            "--root",
+            root.to_str().unwrap(),
+            "--dry-run",
+            "--explain",
+            "--print-plan",
+            "--print-cache",
+            "--print-observations",
+            "--diagnostics-format=json",
+        ])
+        .output_timeout_for_build("render structured build inspection");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let records = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).expect("JSON inspection record")
+        })
+        .collect::<Vec<_>>();
+    let plan = records
+        .iter()
+        .find(|record| record["kind"] == "build-plan")
+        .unwrap();
+    assert!(
+        plan["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|module| module["name"] == "main")
+    );
+    assert!(
+        plan["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|artifact| artifact["name"] == "app")
+    );
+    assert!(
+        plan["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action["kind"] == "compiler-emit")
+    );
+    assert!(
+        plan["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| step["name"] == "emit")
+    );
+
+    let explanation = records
+        .iter()
+        .find(|record| record["kind"] == "build-explanation")
+        .unwrap();
+    assert!(explanation["observations"]["valid"].as_bool().unwrap());
+    assert!(
+        !explanation["observations"]["observations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(explanation["tools"].as_array().is_some());
+
+    let cache = records
+        .iter()
+        .find(|record| record["kind"] == "action-cache" && record["mode"] == "dry_run")
+        .unwrap();
+    assert_eq!(cache["entries"][0]["outcome"]["status"], "not_consulted");
+    assert_eq!(
+        cache["entries"][0]["outcome"]["publication"],
+        "not_attempted"
+    );
+    assert!(!root.join(".nia-build/app").exists());
+}
+
+#[test]
 fn command_and_tool_probes_reuse_and_invalidate_on_tool_change() {
     let root = temp_dir("build_command_and_tool_probes");
     let (_tool_name, command_path, _contents, argument_count, command_arguments) =
