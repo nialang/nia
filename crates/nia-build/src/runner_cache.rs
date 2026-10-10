@@ -2,7 +2,7 @@
 //! Content-addressed cache for generated host build runners.
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -14,6 +14,8 @@ use crate::{BuildError, BuildInvocation, BuildRunnerSource};
 const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
 const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3::OUT_LEN;
 const MAX_RUNNER_BYTES: usize = 256 * 1024 * 1024;
+const MAX_RUNNER_INPUT_BYTES: usize = 16 * 1024 * 1024;
+const STREAM_BYTES: usize = 64 * 1024;
 const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache");
 static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(0);
 
@@ -50,7 +52,7 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
         retire(&cached);
         return Ok(false);
     }
-    let bytes = match fs::read(&cached) {
+    let bytes = match read_bounded_file(&cached, CACHE_HEADER_BYTES + MAX_RUNNER_BYTES) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
@@ -65,13 +67,7 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
 
 /// Publishes the linked runner executable as a disposable private cache record.
 pub(super) fn publish_executable(invocation: &BuildInvocation, key: &str) -> io::Result<()> {
-    let executable = fs::read(&invocation.runner_executable)?;
-    if executable.len() > MAX_RUNNER_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "build runner executable exceeds cache size limit",
-        ));
-    }
+    let executable = read_bounded_file(&invocation.runner_executable, MAX_RUNNER_BYTES)?;
     let mut record = Vec::with_capacity(CACHE_HEADER_BYTES + executable.len());
     record.extend_from_slice(CACHE_MAGIC);
     record.extend_from_slice(&(executable.len() as u64).to_le_bytes());
@@ -158,6 +154,61 @@ fn retire(path: &std::path::Path) {
     let _ = fs::remove_file(path);
 }
 
+fn read_bounded_file(path: &std::path::Path, maximum: usize) -> io::Result<Vec<u8>> {
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > maximum as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "runner cache file exceeds its size limit or is not a regular file",
+        ));
+    }
+    let expected = usize::try_from(metadata.len()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "runner cache file length does not fit in memory",
+        )
+    })?;
+    let mut bytes = Vec::with_capacity(expected);
+    Read::by_ref(&mut file)
+        .take(maximum as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > maximum || file.metadata()?.len() != metadata.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "runner cache file changed while it was read",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn hash_bounded_file(hasher: &mut blake3::Hasher, path: &std::path::Path) -> io::Result<()> {
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > MAX_RUNNER_INPUT_BYTES as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "runner cache input exceeds its size limit or is not a regular file",
+        ));
+    }
+    let mut remaining = metadata.len();
+    let mut buffer = [0; STREAM_BYTES];
+    while remaining != 0 {
+        let count = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        file.read_exact(&mut buffer[..count])?;
+        hasher.update(&buffer[..count]);
+        remaining -= count as u64;
+    }
+    let mut trailing = [0; 1];
+    if file.read(&mut trailing)? != 0 || file.metadata()?.len() != metadata.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "runner cache input changed while it was read",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn cache_key(
     invocation: &BuildInvocation,
     runner: &BuildRunnerSource,
@@ -192,7 +243,13 @@ fn hash_file(
     path: &std::path::Path,
     runner: &BuildRunnerSource,
 ) -> Result<(), BuildError> {
-    let bytes = fs::read(path).map_err(|error| BuildError::CompileRunner {
+    hasher.update(
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    hash_bounded_file(hasher, path).map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
         error: Box::new(crate::DriverError::Io {
@@ -201,13 +258,6 @@ fn hash_file(
             error,
         }),
     })?;
-    hasher.update(
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .as_bytes(),
-    );
-    hasher.update(&bytes);
     Ok(())
 }
 
@@ -222,7 +272,7 @@ fn hash_directory(
     for path in entries {
         let relative = path.strip_prefix(&root).unwrap_or(&path);
         hasher.update(relative.to_string_lossy().as_bytes());
-        let bytes = fs::read(&path).map_err(|error| BuildError::CompileRunner {
+        hash_bounded_file(hasher, &path).map_err(|error| BuildError::CompileRunner {
             path: runner.path.clone(),
             source: runner.source.clone(),
             error: Box::new(crate::DriverError::Io {
@@ -231,7 +281,6 @@ fn hash_directory(
                 error,
             }),
         })?;
-        hasher.update(&bytes);
     }
     Ok(())
 }
@@ -459,5 +508,40 @@ mod tests {
         fs::write(&cache, corrupt).unwrap();
         assert!(!restore_executable(&invocation, key).expect("reject corrupt runner cache"));
         assert!(!cache.exists());
+    }
+
+    #[test]
+    fn runner_cache_rejects_oversized_inputs_before_reading_them() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-bounds-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+
+        let file = OpenOptions::new()
+            .write(true)
+            .open(&invocation.build_script)
+            .unwrap();
+        file.set_len((MAX_RUNNER_INPUT_BYTES + 1) as u64).unwrap();
+        let error = cache_key(&invocation, &runner).unwrap_err();
+        assert!(error.to_string().contains("size limit"), "{error}");
+
+        fs::write(&invocation.build_script, b"build").unwrap();
+        fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
+        let executable = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&invocation.runner_executable)
+            .unwrap();
+        executable.set_len((MAX_RUNNER_BYTES + 1) as u64).unwrap();
+        let error = publish_executable(&invocation, "oversized").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }
