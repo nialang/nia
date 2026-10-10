@@ -214,9 +214,12 @@ A lock is stale only when no live owner holds it: Unix reclaimers take the
 owner's `flock`, and Windows reclaimers need an exclusive open that deletes the
 same file object on close. Neither platform reclaims a live lock by age.
 File and directory outputs use staged same-filesystem transactions. The
-versioned journal and prepared marker make interrupted publication recoverable
+checksummed journal and prepared marker make interrupted publication recoverable
 without guessing which partial destination is valid. Corrupt or contradictory
-recovery state is a typed failure.
+recovery state is a typed failure. Recovery rejects a journal namespace that
+exceeds its bounded entry budget, and validates directory outputs with a
+streaming traversal so malformed state cannot force an unbounded per-directory
+allocation.
 
 Generated-file and eligible external-command entries store complete validated
 payloads. Compiler-check entries record only a prior successful zero-diagnostic
