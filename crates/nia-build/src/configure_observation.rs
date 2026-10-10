@@ -687,12 +687,29 @@ fn resolve_probe_executable_in_path(
 ) -> io::Result<PathBuf> {
     let program_path = Path::new(program);
     if program_path.is_absolute() || program_path.components().count() > 1 {
+        if !program_path.is_absolute()
+            && program_path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "configuration probe program escapes the package root",
+            ));
+        }
         let candidate = if program_path.is_absolute() {
             program_path.to_path_buf()
         } else {
             root.join(program_path)
         };
-        return executable_probe_candidate(&candidate);
+        let resolved = executable_probe_candidate(&candidate)?;
+        if !program_path.is_absolute() && !resolved.starts_with(root.canonicalize()?) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "configuration probe program escapes the package root",
+            ));
+        }
+        return Ok(resolved);
     }
 
     for directory in std::env::split_paths(search_path) {
@@ -1439,6 +1456,69 @@ mod tests {
             },
         );
         assert_ne!(first_fingerprint, second_fingerprint);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicit_relative_probe_paths_cannot_escape_the_package_root() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-probe-boundary-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let outside = root
+            .parent()
+            .unwrap()
+            .join(format!("nia-probe-outside-{}", std::process::id()));
+        fs::copy(std::env::current_exe().unwrap(), &outside).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mut permissions = fs::metadata(&outside).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&outside, permissions).unwrap();
+        }
+        let program = format!("../{}", outside.file_name().unwrap().to_string_lossy());
+        let error = resolve_probe_executable_in_path(&program, &root, &OsStr::new(""))
+            .expect_err("parent traversal must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        fs::remove_file(outside).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_relative_probe_paths_cannot_follow_symlinks_outside_the_package_root() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = std::env::temp_dir().join(format!(
+            "nia-probe-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.with_file_name(format!(
+            "{}-outside",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let executable = outside.join("tool");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).unwrap();
+        symlink(&outside, root.join("linked")).unwrap();
+        let error = resolve_probe_executable_in_path("linked/tool", &root, &OsStr::new(""))
+            .expect_err("symlink escape must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        fs::remove_file(root.join("linked")).unwrap();
+        fs::remove_dir_all(outside).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
