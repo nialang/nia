@@ -161,17 +161,26 @@ including when several trailing path components are absent. Unresolvable
 symlinks and unreadable paths remain errors rather than recorded absence.
 Environment observations use the same explicit-absence rule and reject
 non-UTF-8 values instead of silently changing the cache identity.
-The runner now transports bounded file-content, file-presence, directory, and
-environment evidence in
-the draft envelope. `Build::probeFile` requires caller-owned bounded storage;
+The runner transports bounded file-content, file-presence, directory,
+environment, command, Git, and tool evidence in the draft envelope.
+`Build::probeFile` requires caller-owned bounded storage;
 the host re-reads the reported bytes under the package-root boundary before
 canonicalizing them into the BLAKE3 manifest. `Build::probeFilePresence`
 records absent, file, directory, and other-entry states. Environment records
 distinguish absent and empty values. Malformed records, path escapes, oversized
 values, duplicate facts, and read-after-run changes are rejected and cannot
-enter the configure cache. Command, Git, and tool probes are reserved for the
-next protocol addition because they require a separate executable identity
-record rather than being smuggled into filesystem observations.
+enter the configure cache. Command, Git, and tool probes use separate
+executable identity records. Host validation resolves the program through
+`PATH`, runs its canonical path, and fingerprints its contents, request, exit
+status, and bounded output.
+
+External-command results are cached only under an explicit policy. Both
+`DeclaredInputs` and `ToolAndInputs` retain tool content identity and require a
+cleared environment with explicit declarations; the latter builder method also
+selects that environment policy. `FullDeclaredEnvironment` retains a bounded
+inherited environment snapshot and rejects explicit overrides. Oversized
+snapshots execute normally and report an uncacheable miss without publishing
+an external-command entry.
 
 For maintenance and CI, `nia build --dry-run` validates the selected closure
 without executing coordinator actions. `--print-plan`, `--explain`,

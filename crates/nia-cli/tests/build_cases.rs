@@ -508,7 +508,7 @@ fn assert_configured_build_success(
                 *environment_policy,
                 nia_build::CommandEnvironmentPolicy::Clear
             );
-            assert_eq!(*cache_policy, nia_build::CommandCachePolicy::DeclaredInputs);
+            assert_eq!(*cache_policy, nia_build::CommandCachePolicy::ToolAndInputs);
             if cfg!(windows) {
                 assert_eq!(
                     program,

@@ -100,8 +100,10 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
             }
         },
         .FullDeclaredEnvironment => {
-            if options.environmentPolicy != CommandEnvironmentPolicy::Inherit or
-                (options.environment is ?declared and declared.len() != 0) {
+            if options.environmentPolicy != CommandEnvironmentPolicy::Inherit {
+                return invalidStep(index);
+            }
+            if options.environment is ?declared and declared.len() != 0 {
                 return invalidStep(index);
             }
         },
@@ -297,6 +299,8 @@ extend ExternalCommandOptions {
         }
     }
 
+    // Full-environment mode uses the inherited environment as its entire
+    // contract. Existing explicit overrides remain visible to validation.
     pub fn withFullEnvironmentCache(self) ExternalCommandOptions {
         .{
             program: self.program,

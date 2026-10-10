@@ -291,7 +291,8 @@ impl DriverActionExecutor {
             publish_staged_outputs(action, staged)?;
         }
         let Some(identity) = cache_identity.take() else {
-            return Ok(None);
+            return Ok((cache_policy != CommandCachePolicy::Uncacheable)
+                .then_some(ActionCacheOutcome::Miss(ActionCacheMissReason::Uncacheable)));
         };
         let current_identity = match self.external_command_cache_identity(
             action,
@@ -1009,17 +1010,65 @@ impl DriverActionExecutor {
 const MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES: usize = 1024 * 1024;
 
 fn snapshot_process_environment() -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-    let mut entries = std::env::vars_os()
-        .map(|(name, value)| {
-            (
-                name.as_encoded_bytes().to_vec(),
-                value.as_encoded_bytes().to_vec(),
-            )
-        })
-        .collect::<Vec<_>>();
+    snapshot_environment(std::env::vars_os())
+}
+
+fn snapshot_environment(
+    environment: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut entries = Vec::new();
+    let mut size = 0usize;
+    for (name, value) in environment {
+        let name = name.as_encoded_bytes();
+        let value = value.as_encoded_bytes();
+        size = size
+            .checked_add(16)?
+            .checked_add(name.len())?
+            .checked_add(value.len())?;
+        if size > MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES {
+            return None;
+        }
+        entries.push((name.to_vec(), value.to_vec()));
+    }
     entries.sort();
-    let size = entries.iter().try_fold(0usize, |size, (name, value)| {
-        size.checked_add(8 + name.len() + value.len())
-    })?;
-    (size <= MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES).then_some(entries)
+    Some(entries)
+}
+
+#[cfg(test)]
+mod environment_snapshot_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn snapshot_sorts_entries_and_distinguishes_absent_from_empty() {
+        let snapshot = snapshot_environment([
+            (OsString::from("Z"), OsString::from("last")),
+            (OsString::from("A"), OsString::new()),
+        ])
+        .unwrap();
+        assert_eq!(
+            snapshot,
+            vec![
+                (b"A".to_vec(), Vec::new()),
+                (b"Z".to_vec(), b"last".to_vec())
+            ]
+        );
+        assert_ne!(
+            snapshot_environment([]),
+            snapshot_environment([(OsString::from("A"), OsString::new())])
+        );
+    }
+
+    #[test]
+    fn snapshot_enforces_the_encoded_budget_and_stops_at_overflow() {
+        let value = OsString::from("x".repeat(MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES - 17));
+        assert!(snapshot_environment([(OsString::from("A"), value.clone())]).is_some());
+        let mut value = value;
+        value.push("x");
+        let entries =
+            std::iter::once((OsString::from("A"), value)).chain(std::iter::from_fn(|| {
+                panic!("must stop after exceeding the budget")
+            }));
+        assert!(snapshot_environment(entries).is_none());
+    }
 }
