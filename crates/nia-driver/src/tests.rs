@@ -54,6 +54,43 @@ fn main() i32 {{ selected() }}
 }
 
 #[test]
+fn darwin_std_facade_checks_against_the_artifact_target() {
+    let root = common::temp_dir("darwin_std_facade_checks_against_the_artifact_target");
+    let source = root.join("main.nia");
+    common::write(
+        &source,
+        r#"
+using std::fs;
+
+fn inspect(dir: &fs::Dir, path: fs::RelativePathView) fs::OperationError!() {
+    _ = dir.metadata(path, fs::MetadataOptions::init()).?;
+    !()
+}
+
+fn main() () {}
+"#,
+    );
+
+    let target =
+        nia_target::TargetConfig::parse("aarch64-apple-macos").expect("maintained Darwin target");
+    let driver = crate::Driver::with_config(
+        crate::DriverConfig::new(common::test_toolchain_layout()).with_artifact_target(target),
+    );
+    let checked = driver.analyze_all_modules(crate::CheckRequest::new(
+        source.to_string_lossy().into_owned(),
+    ));
+
+    common::assert_no_error_diagnostics(&checked.diagnostics);
+    assert!(
+        checked
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().ends_with("lib/std/os/macos.nia")),
+        "Darwin standard-library facade was not selected"
+    );
+}
+
+#[test]
 fn driver_exposes_loader_owned_recursive_source_manifest() {
     let root = common::temp_dir("recursive-source-manifest");
     let source_dir = root.join("src");

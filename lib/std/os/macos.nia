@@ -1,40 +1,165 @@
-// Darwin's process boundary is libSystem. The full filesystem/process
-// contract is staged behind this facade; the runtime entry only needs the
-// documented non-returning exit primitive at this layer.
+// Darwin platform contract. The type and method surface is intentionally kept
+// parallel to the other facades while native libSystem implementations land.
+// Operations that are not implemented yet return Unsupported rather than
+// silently using host behavior.
+pub const maxPathBytes: usize = 1024;
 
-pub(pkg) enum Errno: i32 {
-    PermissionDenied = 1,
-    NotFound = 2,
-    Interrupted = 4,
-    Io = 5,
-    BadFd = 9,
-    NoChild = 10,
-    Again = 11,
-    OutOfMemory = 12,
-    Access = 13,
-    Fault = 14,
-    Busy = 16,
-    AlreadyExists = 17,
-    CrossDevice = 18,
-    NotDir = 20,
-    IsDir = 21,
-    Invalid = 22,
-    NoSpace = 28,
-    ReadOnly = 30,
-    BrokenPipe = 32,
-    OutOfRange = 34,
-    TooLong = 36,
-    Unsupported = 38,
-    SymlinkLoop = 40,
-    NotEmpty = 39,
-    _,
+pub enum Errno: i32 {
+    PermissionDenied = 1, NoEntry = 2, Interrupted = 4, Io = 5,
+    BadFd = 9, NoChild = 10, Again = 11, NoMemory = 12, Access = 13,
+    Fault = 14, Busy = 16, Exists = 17, CrossDevice = 18, NotDir = 20,
+    IsDir = 21, Invalid = 22, NoSpace = 28, ReadOnly = 30, BrokenPipe = 32,
+    OutOfRange = 34, TooLong = 36, Unsupported = 38, SymlinkLoop = 40,
+    NotEmpty = 39, _,
 }
 
-// `_exit` bypasses C runtime teardown and is the stable libSystem primitive
-// needed after Nia has finished dispatching the user's entry function.
-extern fn _exit(code: i32) ();
-
-pub fn exit(code: i32) () {
-    _exit(code);
-    loop {}
+pub enum SpawnStage: i32 { Setup = 1, Stdio = 2, Cwd = 3, Exec = 4, _ }
+pub enum SpawnError {
+    Setup(Errno), Stdio(Errno), Cwd(Errno), Exec(Errno),
+    Reap { stage: SpawnStage, primary: Errno, cause: Errno, pid: ProcessId },
 }
+pub enum OpenMode: i32 { ReadOnly = 0, WriteOnly = 1, ReadWrite = 2, _ }
+pub enum SeekWhence: usize { Start = 0, Current = 1, End = 2, _ }
+pub enum StdIo: i32 { Inherit = 1, Ignore = 2, Pipe = 3 }
+pub enum FileKind: i32 {
+    BlockDevice = 1, CharacterDevice = 2, Directory = 3, NamedPipe = 4,
+    Symlink = 5, File = 6, UnixSocket = 7, Unknown = 255, _
+}
+
+pub struct Timestamp { seconds: i64, nanos: u32 }
+pub struct FileMetadata {
+    kind: FileKind, inode: u64, nlink: u32, size: u64, mode: u32,
+    blockSize: u32, atime: ?Timestamp, mtime: Timestamp, ctime: ?Timestamp,
+}
+pub struct DirectoryEntry { kind: FileKind, name: &[u8], size: u64 }
+pub struct DirectoryReader {}
+pub struct FileDescriptor { fd: i32 }
+pub struct ProcessId { pid: i32 }
+pub struct WaitStatus { raw: i32 }
+pub struct SpawnResult {
+    pid: ProcessId, stdin: ?FileDescriptor, stdout: ?FileDescriptor, stderr: ?FileDescriptor,
+}
+pub struct SpawnAttempt { result: ?SpawnResult, error: ?SpawnError }
+pub struct SpawnOptions { stdin: StdIo, stdout: StdIo, stderr: StdIo, cwd: ?&u8 }
+pub struct MappedPages { ptr: &mut u8, releasePtr: &mut u8, releaseSize: usize }
+
+extend Timestamp {
+    pub fn init(seconds: i64, nanos: u32) Timestamp { .{ seconds, nanos } }
+    pub fn seconds(&self) i64 { self.seconds }
+    pub fn nanos(&self) u32 { self.nanos }
+}
+extend FileMetadata {
+    pub fn init(kind: FileKind, inode: u64, nlink: u32, size: u64, mode: u32, blockSize: u32, atime: ?Timestamp, mtime: Timestamp, ctime: ?Timestamp) FileMetadata {
+        .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
+    }
+    pub fn kind(&self) FileKind { self.kind }
+    pub fn inode(&self) u64 { self.inode }
+    pub fn nlink(&self) u32 { self.nlink }
+    pub fn size(&self) u64 { self.size }
+    pub fn mode(&self) u32 { self.mode }
+    pub fn blockSize(&self) u32 { self.blockSize }
+    pub fn atime(&self) ?Timestamp { self.atime }
+    pub fn mtime(&self) Timestamp { self.mtime }
+    pub fn ctime(&self) ?Timestamp { self.ctime }
+}
+extend DirectoryEntry {
+    pub fn init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry { .{ kind, name, size } }
+    pub fn kind(&self) FileKind { self.kind }
+    pub fn name(&self) &[u8] { self.name }
+    pub fn size(&self) u64 { self.size }
+}
+extend ProcessId {
+    pub const fn init(pid: i32) ProcessId { .{ pid } }
+    pub const fn raw(&self) i32 { self.pid }
+}
+extend WaitStatus {
+    pub fn init(raw: i32) WaitStatus { .{ raw } }
+    pub fn raw(&self) i32 { self.raw }
+    pub fn exited(&self) bool { (self.raw & 0x7f) == 0 }
+    pub fn signaled(&self) bool { let signal = self.raw & 0x7f; signal != 0 and signal != 0x7f }
+    pub fn stopped(&self) bool { (self.raw & 0xff) == 0x7f }
+    pub fn exitCode(&self) ?i32 { if self.exited() { ?((self.raw >> 8) & 0xff) } else { null } }
+    pub fn signal(&self) ?i32 { if self.signaled() { ?(self.raw & 0x7f) } else { null } }
+    pub fn stopSignal(&self) ?i32 { if self.stopped() { ?((self.raw >> 8) & 0xff) } else { null } }
+}
+extend SpawnResult {
+    pub fn init(pid: ProcessId, stdin: ?FileDescriptor, stdout: ?FileDescriptor, stderr: ?FileDescriptor) SpawnResult { .{ pid, stdin, stdout, stderr } }
+    pub fn pid(&self) ProcessId { self.pid }
+    pub fn stdin(&self) ?FileDescriptor { self.stdin }
+    pub fn stdout(&self) ?FileDescriptor { self.stdout }
+    pub fn stderr(&self) ?FileDescriptor { self.stderr }
+}
+extend SpawnAttempt {
+    pub fn success(result: SpawnResult) SpawnAttempt { .{ result: ?result, error: null } }
+    pub fn failure(error: SpawnError) SpawnAttempt { .{ result: null, error: ?error } }
+    pub fn finish(&mut self) SpawnError!SpawnResult {
+        match self.result {
+            ?value => { self.result = null; !value },
+            null => match self.error { ?value => { self.error = null; value! }, null => .Setup(.Io)! },
+        }
+    }
+}
+extend SpawnError {
+    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
+        match stage { .Setup => .Setup(errno), .Stdio => .Stdio(errno), .Cwd => .Cwd(errno), .Exec => .Exec(errno), _ => .Setup(errno) }
+    }
+    pub fn stage(&self) SpawnStage { match self.* { .Setup(_) => .Setup, .Stdio(_) => .Stdio, .Cwd(_) => .Cwd, .Exec(_) => .Exec, .Reap { stage, primary: _, cause: _, pid: _ } => stage } }
+    pub fn primary(&self) Errno { match self.* { .Setup(value) => value, .Stdio(value) => value, .Cwd(value) => value, .Exec(value) => value, .Reap { stage: _, primary, cause: _, pid: _ } => primary } }
+}
+extend SpawnOptions {
+    pub fn init() SpawnOptions { .{ stdin: .Inherit, stdout: .Inherit, stderr: .Inherit, cwd: null } }
+    pub fn stdin(&self) StdIo { self.stdin }
+    pub fn stdout(&self) StdIo { self.stdout }
+    pub fn stderr(&self) StdIo { self.stderr }
+    pub fn cwd(&self) ?&u8 { self.cwd }
+    pub fn setStdin(&mut self, value: StdIo) () { self.stdin = value }
+    pub fn setStdout(&mut self, value: StdIo) () { self.stdout = value }
+    pub fn setStderr(&mut self, value: StdIo) () { self.stderr = value }
+    pub fn setCwd(&mut self, value: &u8) () { self.cwd = ?value }
+}
+extend MappedPages {
+    pub fn ptr(&self) &mut u8 { self.ptr }
+    pub fn releasePtr(&self) &mut u8 { self.releasePtr }
+    pub fn releaseSize(&self) usize { self.releaseSize }
+}
+
+extend FileDescriptor {
+    pub fn init(fd: i32) FileDescriptor { .{ fd } }
+    pub fn stdin() FileDescriptor { .init(0) }
+    pub fn stdout() FileDescriptor { .init(1) }
+    pub fn stderr() FileDescriptor { .init(2) }
+    pub fn raw(&self) i32 { self.fd }
+    pub fn writeSome(&self, bytes: &[u8]) Errno!usize { _ = bytes; .Unsupported! }
+    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize { _ = bytes; .Unsupported! }
+    pub fn close(&self) Errno!() { .Unsupported! }
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 { _ = offset; _ = whence; .Unsupported! }
+    pub fn truncate(&self, len: u64) Errno!() { _ = len; .Unsupported! }
+    pub fn setPermissions(&self, permissions: u32) Errno!() { _ = permissions; .Unsupported! }
+    pub fn sync(&self) Errno!() { .Unsupported! }
+    pub fn syncData(&self) Errno!() { .Unsupported! }
+    pub fn metadata(&self) Errno!FileMetadata { .Unsupported! }
+}
+
+pub fn initDirectoryReader() DirectoryReader { .{} }
+pub fn closeDirectoryReader(reader: &mut DirectoryReader) Errno!() { _ = reader; !() }
+pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize { _ = reader; _ = handle; _ = buffer; .Unsupported! }
+pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry { _ = handle; _ = buffer; _ = offset; .Unsupported! }
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { _ = buffer; _ = offset; null }
+pub fn cwd() FileDescriptor { .init(-2) }
+pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] { _ = buffer; .Unsupported! }
+pub fn pageSize() usize { 4096 }
+pub fn pageAlignedLen(len: usize) Errno!usize { if len.alignForward(pageSize()) is ?value { !value } else { .OutOfRange! } }
+pub fn mapPages(len: usize, align: usize) Errno!MappedPages { _ = len; _ = align; .Unsupported! }
+pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() { _ = ptr; _ = len; .Unsupported! }
+pub fn random(bytes: &mut [u8]) Errno!() { _ = bytes; .Unsupported! }
+pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor { _ = dir; _ = path; _ = mode; _ = create; _ = truncate; _ = exclusive; _ = permissions; .Unsupported! }
+pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor { _ = dir; _ = path; _ = mode; _ = directory; _ = create; _ = truncate; _ = exclusive; _ = permissions; _ = followSymlinks; .Unsupported! }
+pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() { _ = dir; _ = parent; _ = name; _ = permissions; .Unsupported! }
+pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() { _ = dir; _ = parent; _ = name; _ = directory; .Unsupported! }
+pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() { _ = oldDir; _ = oldParent; _ = oldName; _ = newDir; _ = newParent; _ = newName; .Unsupported! }
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata { _ = dir; _ = path; _ = followSymlinks; .Unsupported! }
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt { _ = path; _ = argv; _ = envp; _ = options; .failure(.Setup(.Unsupported)) }
+pub fn wait(pid: ProcessId) Errno!WaitStatus { _ = pid; .Unsupported! }
+pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus { _ = pid; .Unsupported! }
+pub fn killWith(pid: ProcessId, signal: i32) Errno!() { _ = pid; _ = signal; .Unsupported! }
+pub fn exit(code: i32) () { _ = code; loop {} }
