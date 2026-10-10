@@ -1786,6 +1786,10 @@ fn command_json_value(command: &CommandAction) -> serde_json::Value {
     };
     serde_json::json!({
         "program": program,
+        "stdin": match &command.stdin {
+            CommandStdin::Null => serde_json::json!({ "kind": "null" }),
+            CommandStdin::InputPath(path) => serde_json::json!({ "kind": "input", "path": logical_path_json(path) }),
+        },
         "arguments": command.arguments.iter().map(|argument| match argument {
             CommandArgument::Literal(value) => serde_json::json!({ "kind": "literal", "value": value }),
             CommandArgument::InputPath(path) => serde_json::json!({ "kind": "input", "path": logical_path_json(path) }),

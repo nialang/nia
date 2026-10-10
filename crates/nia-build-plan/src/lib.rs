@@ -442,6 +442,18 @@ pub enum CommandEnvironmentPolicy {
     Clear,
 }
 
+/// Standard input supplied to an external command.
+///
+/// Commands never inherit the coordinator's stdin. A declared input may be
+/// opened and attached to the child process explicitly.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CommandStdin {
+    /// Attach no input and close the child's stdin.
+    Null,
+    /// Read stdin from a declared logical input path.
+    InputPath(LogicalPath),
+}
+
 /// Whether a command result can enter the persistent action cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandCachePolicy {
@@ -568,6 +580,8 @@ pub struct CommandAction {
     pub environment_policy: CommandEnvironmentPolicy,
     /// Persistent cache policy for the process result.
     pub cache_policy: CommandCachePolicy,
+    /// Explicit standard-input contract.
+    pub stdin: CommandStdin,
     /// Program identity resolved at execution time.
     pub program: CommandProgram,
     /// Ordered command-line arguments.
@@ -1705,6 +1719,7 @@ mod tests {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1745,6 +1760,7 @@ mod tests {
                 resource_class: ActionResourceClass::Cpu,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("test".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1776,6 +1792,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: outputs
                     .iter()
@@ -1830,6 +1847,7 @@ mod tests {
                 resource_class: ActionResourceClass::Cpu,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![
                     CommandArgument::InputPath(input),
@@ -1865,6 +1883,7 @@ mod tests {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(
@@ -1893,6 +1912,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![
                     CommandArgument::OutputPath(output.clone()),
@@ -1942,6 +1962,7 @@ mod tests {
                     resource_class: ActionResourceClass::Io,
                     environment_policy: CommandEnvironmentPolicy::Inherit,
                     cache_policy: CommandCachePolicy::Uncacheable,
+                    stdin: CommandStdin::Null,
                     program: CommandProgram::Search("tool".to_string()),
                     arguments: vec![CommandArgument::InputPath(input.clone())],
                     working_directory: LogicalPath::new(
@@ -2099,6 +2120,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(LogicalPathRoot::Build, working_directory)
@@ -2178,6 +2200,7 @@ mod tests {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Artifact(artifact), "").unwrap(),
                 ),
@@ -2230,6 +2253,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![CommandArgument::InputPath(artifact_input.clone())],
                 working_directory: LogicalPath::new(
@@ -2268,6 +2292,40 @@ mod tests {
     }
 
     #[test]
+    fn freeze_rejects_undeclared_command_stdin() {
+        let mut value = draft(false);
+        let input =
+            LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "stdin.txt").unwrap();
+        value.actions.push(PlanAction {
+            key: action_key("stdin"),
+            kind: ActionKind::ExternalCommand(CommandAction {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::InputPath(input),
+                program: CommandProgram::Search("tool".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            }),
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidCommand {
+                reason: "stdin input path is not declared as an input",
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn artifact_inputs_require_a_declared_artifact() {
         let mut value = draft(false);
         let missing = artifact_key("missing");
@@ -2278,6 +2336,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: vec![CommandArgument::InputPath(input.clone())],
                 working_directory: LogicalPath::new(
@@ -2312,6 +2371,7 @@ mod tests {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Artifact(artifact_key("app")), "").unwrap(),
                 ),
@@ -2354,6 +2414,7 @@ mod tests {
                 resource_class: ActionResourceClass::Conservative,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Artifact(artifact_key("app")), "").unwrap(),
                 ),
@@ -2389,6 +2450,7 @@ mod tests {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Inherit,
                 cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Search("tool".to_string()),
                 arguments: Vec::new(),
                 working_directory: LogicalPath::new(

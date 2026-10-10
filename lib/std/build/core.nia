@@ -477,6 +477,38 @@ extend Build {
                 }
             }
         }
+        if options.stdin is ?stdin {
+            if stdin.kind is (.ArtifactInput) {
+                self.validateExecutableHandle(stdin.payload.artifact).?;
+                if self.findEmitStep(stdin.payload.artifact) is null {
+                    return .Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Step(self.steps.len()),
+                    }!;
+                }
+                artifactInputCount += 1;
+            } else if stdin.kind is (.ObjectInput) {
+                self.validateObjectHandle(stdin.payload.object).?;
+                if self.findEmitObjectStep(stdin.payload.object) is null {
+                    return .Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Step(self.steps.len()),
+                    }!;
+                }
+                artifactInputCount += 1;
+            } else if stdin.kind is (.StaticArchiveInput) {
+                self.validateStaticArchiveHandle(stdin.payload.staticArchive).?;
+                if self.findEmitStaticArchiveStep(stdin.payload.staticArchive) is null {
+                    return .Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Step(self.steps.len()),
+                    }!;
+                }
+                artifactInputCount += 1;
+            } else if stdin.kind is (.PackageInput) {
+                self.validatePackageHandle(stdin.package).?;
+            }
+        }
         self.dependencies.reserve(
             self.allocator,
             artifactInputCount,
@@ -488,7 +520,7 @@ extend Build {
         }
         let result = self.commitPendingStep().?;
         let dependencyStart = self.dependencies.len();
-        if self.addExternalCommandDependencies(result, options.arguments) is primary! {
+        if self.addExternalCommandDependencies(result, options.arguments, options.stdin) is primary! {
             while self.dependencies.len() > dependencyStart {
                 _ = self.dependencies.pop();
             }
@@ -502,6 +534,7 @@ extend Build {
         &mut self,
         step: StepHandle,
         arguments: ?&[CommandArgument],
+        stdin: ?CommandArgument,
     ) Error!() {
         if arguments is ?arguments {
             for &argument in arguments.iter() {
@@ -536,6 +569,30 @@ extend Build {
                     };
                     self.dependOn(step, producer).?;
                 }
+            }
+        }
+        if stdin is ?stdin {
+            if stdin.kind is (.ArtifactInput) {
+                let producer = if self.findEmitStep(stdin.payload.artifact) is ?producer {
+                    producer
+                } else {
+                    return .Invalid { operation: Operation::Validate, subject: Subject::Step(step.index()) }!;
+                };
+                self.dependOn(step, producer).?;
+            } else if stdin.kind is (.ObjectInput) {
+                let producer = if self.findEmitObjectStep(stdin.payload.object) is ?producer {
+                    producer
+                } else {
+                    return .Invalid { operation: Operation::Validate, subject: Subject::Step(step.index()) }!;
+                };
+                self.dependOn(step, producer).?;
+            } else if stdin.kind is (.StaticArchiveInput) {
+                let producer = if self.findEmitStaticArchiveStep(stdin.payload.staticArchive) is ?producer {
+                    producer
+                } else {
+                    return .Invalid { operation: Operation::Validate, subject: Subject::Step(step.index()) }!;
+                };
+                self.dependOn(step, producer).?;
             }
         }
         !()

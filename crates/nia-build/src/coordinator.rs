@@ -53,9 +53,9 @@ use nia_target_config::{BuildProfile, CompilationMode};
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandAction, CommandArgument,
-    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, EnvironmentInput, LogicalPath,
-    LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey, PlanAction,
-    PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey,
+    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, CommandStdin, EnvironmentInput,
+    LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey,
+    PlanAction, PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,

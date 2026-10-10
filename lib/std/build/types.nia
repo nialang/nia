@@ -224,6 +224,7 @@ pub struct ExternalCommandOptions {
     environmentPolicy: CommandEnvironmentPolicy,
     cachePolicy: CommandCachePolicy,
     environment: ?&[CommandEnvironmentInput],
+    stdin: ?CommandArgument,
 }
 
 pub(pkg) union OwnedCommandArgumentPayload {
@@ -252,6 +253,7 @@ pub struct ExternalCommandStep {
     environmentPolicy: CommandEnvironmentPolicy,
     cachePolicy: CommandCachePolicy,
     environment: collections::ArrayList[OwnedCommandEnvironmentInput],
+    stdin: ?OwnedCommandArgument,
 }
 
 pub union StepPayload {

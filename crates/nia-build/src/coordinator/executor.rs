@@ -319,6 +319,7 @@ impl DriverActionExecutor {
             environment,
             inputs,
             outputs,
+            stdin,
         } = command;
         let (environment_policy, cache_policy) = (*environment_policy, *cache_policy);
         let working_directory = self.resolve_path(action, logical_working_directory)?;
@@ -326,6 +327,21 @@ impl DriverActionExecutor {
             .iter()
             .map(|input| self.resolve_path(action, input).map(|path| (input, path)))
             .collect::<Result<Vec<_>, _>>()?;
+        let resolved_stdin = match stdin {
+            CommandStdin::Null => None,
+            CommandStdin::InputPath(path) => Some(
+                resolved_inputs
+                    .iter()
+                    .find(|(input, _)| *input == path)
+                    .map(|(_, resolved)| resolved.as_path())
+                    .ok_or_else(|| {
+                        inconsistent(
+                            format!("action `{}`", action.key.name()),
+                            "declared command stdin binding".to_string(),
+                        )
+                    })?,
+            ),
+        };
         let resolved_outputs = outputs
             .iter()
             .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
@@ -443,6 +459,7 @@ impl DriverActionExecutor {
                 working_directory: &working_directory,
                 environment_policy,
                 environment,
+                stdin: resolved_stdin,
             },
             ExternalExecutionPolicy {
                 timeout: EXTERNAL_COMMAND_TIMEOUT,
@@ -1245,6 +1262,13 @@ fn append_test_suite_action_identity(
     append_test_suite_path(encoded, &artifact.output);
     encoded.push(artifact_kind_tag(&artifact.kind));
     append_test_suite_path(encoded, &command.working_directory);
+    match &command.stdin {
+        CommandStdin::Null => encoded.push(0),
+        CommandStdin::InputPath(path) => {
+            encoded.push(1);
+            append_test_suite_path(encoded, path);
+        }
+    }
     match &command.program {
         CommandProgram::Path(path) => {
             encoded.push(0);

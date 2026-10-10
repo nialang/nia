@@ -41,6 +41,7 @@ pub(super) struct ResolvedExternalCommand<'a> {
     pub(super) working_directory: &'a Path,
     pub(super) environment_policy: crate::CommandEnvironmentPolicy,
     pub(super) environment: &'a [crate::EnvironmentInput],
+    pub(super) stdin: Option<&'a Path>,
 }
 
 pub(super) fn resolve_search_program(
@@ -511,7 +512,17 @@ pub(super) fn execute_external_command(
     command
         .args(request.arguments)
         .current_dir(request.working_directory)
-        .stdin(Stdio::null())
+        .stdin(match request.stdin {
+            Some(path) => Stdio::from(fs::File::open(path).map_err(|source| {
+                CoordinatorError::ExternalCommandIo {
+                    action: action.key.clone(),
+                    path: path.to_path_buf(),
+                    operation: "open stdin",
+                    error: source,
+                }
+            })?),
+            None => Stdio::null(),
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if request.environment_policy == crate::CommandEnvironmentPolicy::Clear {
