@@ -197,6 +197,8 @@ pub enum CommandEnvironmentPolicy: i32 {
 pub enum CommandCachePolicy: i32 {
     Uncacheable = 1,
     DeclaredInputs = 2,
+    ToolAndInputs = 3,
+    FullDeclaredEnvironment = 4,
     _
 }
 

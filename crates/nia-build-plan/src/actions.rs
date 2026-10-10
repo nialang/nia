@@ -212,18 +212,29 @@ pub(crate) fn canonicalize_actions(
                         reason: "duplicate environment input",
                     });
                 }
-                if *cache_policy == CommandCachePolicy::DeclaredInputs
-                    && *environment_policy != CommandEnvironmentPolicy::Clear
+                if matches!(
+                    cache_policy,
+                    CommandCachePolicy::DeclaredInputs | CommandCachePolicy::ToolAndInputs
+                ) && *environment_policy != CommandEnvironmentPolicy::Clear
                 {
                     return Err(PlanError::InvalidCommand {
                         action: action.key.clone(),
                         reason: "cacheable command must clear inherited environment",
                     });
                 }
-                if *cache_policy == CommandCachePolicy::DeclaredInputs && outputs.is_empty() {
+                if *cache_policy != CommandCachePolicy::Uncacheable && outputs.is_empty() {
                     return Err(PlanError::InvalidCommand {
                         action: action.key.clone(),
                         reason: "cacheable command must declare an output",
+                    });
+                }
+                if *cache_policy == CommandCachePolicy::FullDeclaredEnvironment
+                    && (*environment_policy != CommandEnvironmentPolicy::Inherit
+                        || !environment.is_empty())
+                {
+                    return Err(PlanError::InvalidCommand {
+                        action: action.key.clone(),
+                        reason: "full environment cache cannot declare environment overrides",
                     });
                 }
                 inputs.sort();

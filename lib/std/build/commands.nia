@@ -94,8 +94,14 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
     }
     match options.cachePolicy {
         .Uncacheable => {},
-        .DeclaredInputs => {
+        .DeclaredInputs, .ToolAndInputs => {
             if options.environmentPolicy != CommandEnvironmentPolicy::Clear {
+                return invalidStep(index);
+            }
+        },
+        .FullDeclaredEnvironment => {
+            if options.environmentPolicy != CommandEnvironmentPolicy::Inherit or
+                (options.environment is ?declared and declared.len() != 0) {
                 return invalidStep(index);
             }
         },
@@ -156,7 +162,7 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
             }
         }
     }
-    if options.cachePolicy == CommandCachePolicy::DeclaredInputs and not hasOutput {
+    if options.cachePolicy != CommandCachePolicy::Uncacheable and not hasOutput {
         return invalidStep(index);
     }
     !()
@@ -275,6 +281,30 @@ extend ExternalCommandOptions {
             resourceClass: self.resourceClass,
             environmentPolicy: self.environmentPolicy,
             cachePolicy: .DeclaredInputs,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withToolAndInputCache(self) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: .Clear,
+            cachePolicy: .ToolAndInputs,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withFullEnvironmentCache(self) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: .Inherit,
+            cachePolicy: .FullDeclaredEnvironment,
             environment: self.environment,
         }
     }

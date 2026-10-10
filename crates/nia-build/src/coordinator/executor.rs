@@ -135,7 +135,7 @@ impl DriverActionExecutor {
             .iter()
             .map(|output| self.resolve_path(action, output).map(|path| (output, path)))
             .collect::<Result<Vec<_>, _>>()?;
-        let cacheable = cache_policy == CommandCachePolicy::DeclaredInputs;
+        let cacheable = cache_policy != CommandCachePolicy::Uncacheable;
         let resolved_program = match program {
             CommandProgram::Path(path) => self.resolve_path(action, path)?,
             CommandProgram::Search(name) if cacheable => {
@@ -146,12 +146,16 @@ impl DriverActionExecutor {
         let program_text = path_text(action, &resolved_program)?;
 
         let cache = ExternalCommandCache::new(self.invocation.cache_dir.clone());
+        let environment_snapshot = (cache_policy == CommandCachePolicy::FullDeclaredEnvironment)
+            .then(snapshot_process_environment)
+            .flatten();
         let mut cache_identity = if cacheable {
             Some(self.external_command_cache_identity(
                 action,
                 command,
                 &resolved_inputs,
                 &resolved_program,
+                environment_snapshot.as_deref(),
             )?)
         } else {
             None
@@ -289,6 +293,7 @@ impl DriverActionExecutor {
             command,
             &resolved_inputs,
             &resolved_program,
+            environment_snapshot.as_deref(),
         ) {
             Ok(identity) => identity,
             Err(_) => {
@@ -314,6 +319,7 @@ impl DriverActionExecutor {
         command: &CommandAction,
         resolved_inputs: &[(&LogicalPath, PathBuf)],
         resolved_program: &Path,
+        environment_snapshot: Option<&[(Vec<u8>, Vec<u8>)]>,
     ) -> Result<ExternalCommandCacheIdentity, CoordinatorError> {
         let tool_contents = read_external_identity_file(action, resolved_program, "read tool")?;
         let inputs = resolved_inputs
@@ -330,6 +336,7 @@ impl DriverActionExecutor {
             self.plan.packages(),
             tool_contents,
             self.invocation.toolchain.identity(),
+            environment_snapshot,
         )
         .ok_or_else(|| {
             inconsistent(
@@ -992,4 +999,22 @@ impl DriverActionExecutor {
         }
         Ok(path)
     }
+}
+
+const MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES: usize = 1024 * 1024;
+
+fn snapshot_process_environment() -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut entries = std::env::vars_os()
+        .map(|(name, value)| {
+            (
+                name.as_encoded_bytes().to_vec(),
+                value.as_encoded_bytes().to_vec(),
+            )
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    let size = entries.iter().try_fold(0usize, |size, (name, value)| {
+        size.checked_add(8 + name.len() + value.len())
+    })?;
+    (size <= MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES).then_some(entries)
 }

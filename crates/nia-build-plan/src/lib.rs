@@ -451,6 +451,14 @@ pub enum CommandCachePolicy {
     /// `inputs`. The working directory contributes logical location identity,
     /// but its undeclared contents are deliberately not implicit inputs.
     DeclaredInputs,
+    /// Cache by the declared inputs and the resolved external tool identity.
+    ///
+    /// This policy makes the tool contract explicit for commands whose
+    /// executable is selected through a search name.
+    ToolAndInputs,
+    /// Cache by declared inputs, resolved tool identity, and a bounded
+    /// snapshot of the effective inherited environment.
+    FullDeclaredEnvironment,
 }
 
 /// Scheduling/resource class reserved by an action.
