@@ -156,6 +156,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) target: &'a TargetConfig,
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: nia_target_config::CompilationMode,
+    pub(crate) runtime: crate::Runtime,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
@@ -172,7 +173,7 @@ impl CompilerEmitCacheIdentity {
             target: input.target,
             profile: input.profile,
             compilation_mode: input.compilation_mode,
-            runtime: crate::Runtime::Freestanding,
+            runtime: input.runtime,
             manifest: input.manifest,
             toolchain: input.toolchain,
         })?;
