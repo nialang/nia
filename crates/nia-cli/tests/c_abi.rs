@@ -5,8 +5,6 @@
 //! value shapes must equal the ones clang emits for the same C signatures on
 //! every maintained target, and Nia and C code must exchange those values
 //! correctly in both directions on every Linux target this host runs.
-#![cfg(all(target_os = "linux", target_arch = "x86_64"))]
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -16,7 +14,9 @@ use nia_test_support::{CommandExt, test_dir};
 const DECLARATIONS_C: &str = include_str!("c_abi/declarations.c");
 const DECLARATIONS_NIA: &str = include_str!("c_abi/declarations.nia");
 const DECLARATIONS_I128_NIA: &str = include_str!("c_abi/declarations_i128.nia");
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const EXCHANGE_C: &str = include_str!("c_abi/exchange.c");
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const EXCHANGE_NIA: &str = include_str!("c_abi/exchange.nia");
 
 /// Each maintained target with the clang triple of the same C ABI.
@@ -36,6 +36,7 @@ fn clang() -> &'static str {
         .expect("the C ABI reference needs clang 23 on PATH; install clang-23")
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn clang_triple(target: &str) -> &'static str {
     TARGETS
         .iter()
@@ -173,6 +174,7 @@ fn extern_declarations_match_clang_on_every_target() {
     }
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn c_and_nia_exchange_values_on_every_linux_target() {
     let root = test_dir("c_and_nia_exchange_values_on_every_linux_target");
