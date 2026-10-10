@@ -149,6 +149,11 @@ impl DriverActionExecutor {
         let environment_snapshot = (cache_policy == CommandCachePolicy::FullDeclaredEnvironment)
             .then(snapshot_process_environment)
             .flatten();
+        let cacheable = if cache_policy == CommandCachePolicy::FullDeclaredEnvironment {
+            environment_snapshot.is_some()
+        } else {
+            cacheable
+        };
         let mut cache_identity = if cacheable {
             Some(self.external_command_cache_identity(
                 action,
