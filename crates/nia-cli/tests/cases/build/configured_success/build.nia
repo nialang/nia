@@ -144,7 +144,7 @@ fn configure(b: &mut build::Build) build::Error!() {
                 .withArguments(&toolArguments)
                 .withEnvironment(&windowsEnvironment)
                 .withClearedEnvironment()
-                .withDeclaredInputCache()
+                .withToolAndInputCache()
                 .withResourceClass(build::ActionResourceClass::Io),
         )
     } else {
@@ -166,7 +166,7 @@ fn configure(b: &mut build::Build) build::Error!() {
                 .withArguments(&toolArguments)
                 .withEnvironment(&toolEnvironment)
                 .withClearedEnvironment()
-                .withDeclaredInputCache()
+                .withToolAndInputCache()
                 .withResourceClass(build::ActionResourceClass::Io),
         )
     }).?;
