@@ -655,12 +655,15 @@ fn collect_source_files(
 ) -> io::Result<()> {
     let mut pending = vec![directory.to_path_buf()];
     while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(directory)? {
+        for entry in std::fs::read_dir(&directory)? {
             let entry = entry?;
             let path = entry.path();
             let relative = path.strip_prefix(root).expect("source path under root");
             let name = relative.to_string_lossy().replace('\\', "/");
-            if excluded_source_component(relative)
+            let source_relative = path
+                .strip_prefix(&directory)
+                .expect("source path under selected source root");
+            if excluded_source_component(source_relative)
                 || excludes
                     .iter()
                     .any(|exclude| name == *exclude || name.starts_with(&format!("{exclude}/")))
@@ -2170,6 +2173,37 @@ mod tests {
         std::fs::write(root.join("examples/demo.nia"), "changed").unwrap();
         let changed = package_source_identity_with_selection(&root, package, &equivalent).unwrap();
         assert_ne!(first.source_fingerprint, changed.source_fingerprint);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicitly_selected_reserved_source_root_is_included() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-reserved-source-root-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("build/nested/target")).unwrap();
+        std::fs::create_dir_all(root.join("src/build")).unwrap();
+        std::fs::write(root.join("build/main.nia"), "main").unwrap();
+        std::fs::write(root.join("build/nested/target/generated.nia"), "generated").unwrap();
+        std::fs::write(root.join("src/build/ignored.nia"), "ignored").unwrap();
+
+        let package = package();
+        let default_identity = package_source_identity(&root, package.clone()).unwrap();
+        assert!(default_identity.files.is_empty());
+
+        let selected = PackageSourceSelection {
+            source_roots: vec!["build".into(), "src/build".into()],
+            excludes: Vec::new(),
+        };
+        let identity = package_source_identity_with_selection(&root, package, &selected).unwrap();
+        let paths = identity
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, ["build/main.nia", "src/build/ignored.nia"]);
+
         std::fs::remove_dir_all(root).unwrap();
     }
 
