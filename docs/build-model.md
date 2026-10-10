@@ -81,11 +81,13 @@ these states as `resolved`, `loaded_modules`, and `used`;
 `resolved_dependency_count` counts selected dependency edges, while
 `resolved_count` counts selected package nodes including the root.
 
-The runner draft carries bounded file-content, file-presence, directory, and
-environment evidence. The host rechecks each reported value under the
-package-root boundary before publishing a configure-cache record. Command,
-Git, and tool probes remain a separate executable-identity protocol addition;
-they are not represented as filesystem facts.
+The runner draft carries bounded file-content, file-presence, directory,
+environment, command, Git, and tool evidence. The host rechecks each reported
+value before publishing a configure-cache record. Command-like observations
+resolve the executable using the host `PATH`, execute its canonical path, and
+include that path and a streamed content fingerprint in the observation
+identity, alongside the request, status, and bounded output. They are not
+represented as package-relative filesystem facts.
 
 ## Evolution rule
 
