@@ -343,17 +343,44 @@ fn flavor_for_another_object_format_is_rejected() {
 }
 
 #[test]
-fn mach_o_links_are_reported_as_unimplemented() {
+fn mach_o_invocation_uses_darwin_arguments() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program("ld64.lld"),
         ..LinkOptions::default()
     };
-    assert!(matches!(
-        options.invocation(
+    let invocation = options
+        .invocation(
             target("aarch64-apple-macos"),
             &link_inputs("main.o"),
             PathBuf::from("main"),
-        ),
-        Err(LinkerConfigError::UnsupportedFlavor(LinkerFlavor::Ld64Lld))
-    ));
+        )
+        .expect("Mach-O link invocation");
+    assert_eq!(invocation.program, "ld64.lld");
+    assert!(
+        invocation
+            .args
+            .windows(2)
+            .any(|args| args == ["-arch", "arm64"])
+    );
+    assert!(
+        invocation
+            .args
+            .windows(4)
+            .any(|args| { args == ["-platform_version", "macos", "15.0", "15.0"] })
+    );
+    assert!(
+        invocation
+            .args
+            .windows(2)
+            .any(|args| args == ["-e", "_main"])
+    );
+    assert!(invocation.args.iter().any(|arg| arg == "-pie"));
+    assert!(invocation.args.iter().any(|arg| arg == "-adhoc_codesign"));
+    assert!(invocation.args.iter().any(|arg| arg == "main.o"));
+    assert!(
+        invocation
+            .args
+            .windows(2)
+            .any(|args| args == ["-o", "main"])
+    );
 }
