@@ -1,7 +1,9 @@
-// Darwin platform contract. The type and method surface is intentionally kept
-// parallel to the other facades while native libSystem implementations land.
-// Operations that are not implemented yet return Unsupported rather than
-// silently using host behavior.
+// Darwin platform boundary. Native calls stay in the private bindings module;
+// operations without an implementation still return Unsupported explicitly.
+pub(pkg) module bindings;
+using pkg::os::macos::bindings;
+using pkg::math;
+
 pub const maxPathBytes: usize = 1024;
 
 pub enum Errno: i32 {
@@ -129,14 +131,30 @@ extend FileDescriptor {
     pub fn stdout() FileDescriptor { .init(1) }
     pub fn stderr() FileDescriptor { .init(2) }
     pub fn raw(&self) i32 { self.fd }
-    pub fn writeSome(&self, bytes: &[u8]) Errno!usize { _ = bytes; .Unsupported! }
-    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize { _ = bytes; .Unsupported! }
-    pub fn close(&self) Errno!() { .Unsupported! }
-    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 { _ = offset; _ = whence; .Unsupported! }
-    pub fn truncate(&self, len: u64) Errno!() { _ = len; .Unsupported! }
-    pub fn setPermissions(&self, permissions: u32) Errno!() { _ = permissions; .Unsupported! }
-    pub fn sync(&self) Errno!() { .Unsupported! }
-    pub fn syncData(&self) Errno!() { .Unsupported! }
+    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
+        let ret = bindings::write(self.fd, bytes.ptr(), bytes.len());
+        if ret < 0 { return errno()!; }
+        if ret as usize > bytes.len() { return .Io!; }
+        !(ret as usize)
+    }
+    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
+        let ret = bindings::read(self.fd, bytes.ptrMut(), bytes.len());
+        if ret < 0 { return errno()!; }
+        if ret as usize > bytes.len() { return .Io!; }
+        !(ret as usize)
+    }
+    pub fn close(&self) Errno!() { checkZero(bindings::close(self.fd)) }
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
+        let ret = bindings::lseek(self.fd, offset, whence as i32);
+        if ret < 0 { return errno()!; }
+        !(ret as u64)
+    }
+    pub fn truncate(&self, len: u64) Errno!() { checkZero(bindings::ftruncate(self.fd, len as i64)) }
+    pub fn setPermissions(&self, permissions: u32) Errno!() {
+        checkZero(bindings::fchmod(self.fd, permissions as u16))
+    }
+    pub fn sync(&self) Errno!() { checkZero(bindings::fsync(self.fd)) }
+    pub fn syncData(&self) Errno!() { checkZero(bindings::fdatasync(self.fd)) }
     pub fn metadata(&self) Errno!FileMetadata { .Unsupported! }
 }
 
@@ -146,12 +164,56 @@ pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buff
 pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry { _ = handle; _ = buffer; _ = offset; .Unsupported! }
 pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize { _ = buffer; _ = offset; null }
 pub fn cwd() FileDescriptor { .init(-2) }
-pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] { _ = buffer; .Unsupported! }
+pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+    if buffer.len() == 0 { return .Invalid!; }
+    let result = bindings::getcwd(buffer.ptrMut(), buffer.len());
+    if result as usize == 0 { return errno()!; }
+    let mut length: usize = 0;
+    while length < buffer.len() and buffer[length] != 0 { length += 1; }
+    if length == buffer.len() { return .Io!; }
+    !&buffer[0..length]
+}
 pub fn pageSize() usize { 4096 }
 pub fn pageAlignedLen(len: usize) Errno!usize { if len.alignForward(pageSize()) is ?value { !value } else { .OutOfRange! } }
-pub fn mapPages(len: usize, align: usize) Errno!MappedPages { _ = len; _ = align; .Unsupported! }
-pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() { _ = ptr; _ = len; .Unsupported! }
-pub fn random(bytes: &mut [u8]) Errno!() { _ = bytes; .Unsupported! }
+pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+    if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
+    let alignedLen = pageAlignedLen(len).?;
+    let extra = if align > pageSize() { align - pageSize() } else { 0 };
+    let mapLen = match alignedLen.checkedAdd(extra) {
+        ?value => value,
+        null => return .OutOfRange!,
+    };
+    let mapped = bindings::mmap(0, mapLen, bindings::protRead | bindings::protWrite, bindings::mapPrivate | bindings::mapAnonymous, -1, 0);
+    if mapped as usize == usize::MAX { return errno()!; }
+    let mappedAddr = mapped as usize;
+    if mappedAddr.checkedAdd(mapLen) is null {
+        _ = bindings::munmap(mapped, mapLen);
+        return .OutOfRange!;
+    }
+    let resultAddr = match mappedAddr.alignForward(align) {
+        ?value => value,
+        null => {
+            _ = bindings::munmap(mapped, mapLen);
+            return .OutOfRange!;
+        },
+    };
+    !.{ ptr: resultAddr as &mut u8, releasePtr: mapped, releaseSize: mapLen }
+}
+pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+    if len == 0 { return .Invalid!; }
+    checkZero(bindings::munmap(ptr, pageAlignedLen(len).?))
+}
+pub fn random(bytes: &mut [u8]) Errno!() {
+    let mut offset: usize = 0;
+    while offset < bytes.len() {
+        let remaining = bytes.len() - offset;
+        let chunk = if remaining > 256 { 256 } else { remaining };
+        let mut chunkBuffer = &mut bytes[offset..];
+        if bindings::getentropy(chunkBuffer.ptrMut(), chunk) != 0 { return errno()!; }
+        offset += chunk;
+    }
+    !()
+}
 pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor { _ = dir; _ = path; _ = mode; _ = create; _ = truncate; _ = exclusive; _ = permissions; .Unsupported! }
 pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor { _ = dir; _ = path; _ = mode; _ = directory; _ = create; _ = truncate; _ = exclusive; _ = permissions; _ = followSymlinks; .Unsupported! }
 pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() { _ = dir; _ = parent; _ = name; _ = permissions; .Unsupported! }
@@ -162,4 +224,13 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAtte
 pub fn wait(pid: ProcessId) Errno!WaitStatus { _ = pid; .Unsupported! }
 pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus { _ = pid; .Unsupported! }
 pub fn killWith(pid: ProcessId, signal: i32) Errno!() { _ = pid; _ = signal; .Unsupported! }
-pub fn exit(code: i32) () { _ = code; loop {} }
+pub fn exit(code: i32) () { bindings::exit(code); loop {} }
+
+fn errno() Errno {
+    let value = bindings::__error().*;
+    value as Errno
+}
+
+fn checkZero(result: i32) Errno!() {
+    if result == 0 { !() } else { errno()! }
+}

@@ -7,5 +7,7 @@ current-version: 0
 compatibility-version: 0
 exports:
   - targets:         [ arm64-macos, x86_64-macos ]
-    symbols:        [ _exit, _write ]
+    symbols:        [ ___error, _close, _exit, _fdatasync, _fchmod, _fsync,
+                      _ftruncate, _getcwd, _getentropy, _lseek, _mmap, _munmap,
+                      _read, _write ]
 ...
