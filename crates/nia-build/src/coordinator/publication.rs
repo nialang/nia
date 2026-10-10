@@ -400,29 +400,34 @@ fn validate_and_sync_transaction_output(
 }
 
 fn validate_and_sync_transaction_directory(path: &Path) -> io::Result<()> {
-    let mut entries = fs::read_dir(path)?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<io::Result<Vec<_>>>()?;
-    entries.sort();
-    for entry in entries {
-        let metadata = fs::symlink_metadata(&entry)?;
-        if metadata.file_type().is_file() {
-            nia_compat::sync_file(&entry)?;
-        } else if metadata.file_type().is_dir() {
-            validate_and_sync_transaction_directory(&entry)?;
-        } else {
-            // Device nodes and symlinks would make restore semantics depend on
-            // mutable state outside the transaction.
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "transaction directory contains non-file entry `{}`",
-                    entry.display()
-                ),
-            ));
+    let mut pending = vec![(path.to_path_buf(), false)];
+    while let Some((directory, entered)) = pending.pop() {
+        if entered {
+            nia_compat::sync_directory(&directory)?;
+            continue;
+        }
+        pending.push((directory.clone(), true));
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?.path();
+            let metadata = fs::symlink_metadata(&entry)?;
+            if metadata.file_type().is_file() {
+                nia_compat::sync_file(&entry)?;
+            } else if metadata.file_type().is_dir() {
+                pending.push((entry, false));
+            } else {
+                // Device nodes and symlinks would make restore semantics depend on
+                // mutable state outside the transaction.
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "transaction directory contains non-file entry `{}`",
+                        entry.display()
+                    ),
+                ));
+            }
         }
     }
-    nia_compat::sync_directory(path)
+    Ok(())
 }
 
 fn rollback_staged_outputs(

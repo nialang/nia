@@ -27,6 +27,7 @@ use crate::{
 use nia_build_plan::OUTPUT_TRANSACTION_DIRECTORY;
 const MAX_JOURNAL_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUTS: usize = 4096;
+const MAX_JOURNAL_ENTRIES: usize = 4096;
 const OUTPUT_TRANSACTION_JOURNAL_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.output-transaction-journal");
 static JOURNAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -177,13 +178,23 @@ pub(crate) fn recover_interrupted_output_transactions(
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(recovery_error(&root, &root, "scan", error)),
     };
-    let mut journals = entries
-        .map(|entry| {
-            entry
-                .map(|entry| entry.path())
-                .map_err(|error| recovery_error(&root, &root, "read directory entry for", error))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut journals = Vec::new();
+    for entry in entries {
+        if journals.len() >= MAX_JOURNAL_ENTRIES {
+            return Err(recovery_error(
+                &root,
+                &root,
+                "scan",
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "output transaction journal directory exceeds its entry limit",
+                ),
+            ));
+        }
+        let entry = entry
+            .map_err(|error| recovery_error(&root, &root, "read directory entry for", error))?;
+        journals.push(entry.path());
+    }
     retire_dead_temporary_journals(&root, &journals)?;
     journals
         .retain(|path| path.extension().and_then(|value| value.to_str()) == Some("transaction"));
@@ -804,22 +815,22 @@ fn output_exists(
 }
 
 fn validate_directory_tree(path: &Path) -> io::Result<()> {
-    let mut entries = fs::read_dir(path)?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<io::Result<Vec<_>>>()?;
-    entries.sort();
-    for entry in entries {
-        let metadata = fs::symlink_metadata(&entry)?;
-        if metadata.file_type().is_dir() {
-            validate_directory_tree(&entry)?;
-        } else if !metadata.file_type().is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "transaction directory contains non-file entry `{}`",
-                    entry.display()
-                ),
-            ));
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?.path();
+            let metadata = fs::symlink_metadata(&entry)?;
+            if metadata.file_type().is_dir() {
+                pending.push(entry);
+            } else if !metadata.file_type().is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "transaction directory contains non-file entry `{}`",
+                        entry.display()
+                    ),
+                ));
+            }
         }
     }
     Ok(())
@@ -1439,6 +1450,30 @@ mod tests {
 
         assert!(!dead.exists());
         assert!(live.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn oversized_journal_namespace_blocks_recovery() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-output-recovery-oversized-{}-{}",
+            std::process::id(),
+            JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache_dir = root.join(".nia-cache");
+        let build_dir = root.join(".nia-build");
+        let journals = journal_root(&build_dir);
+        fs::create_dir_all(&journals).expect("create journal root");
+        for index in 0..=MAX_JOURNAL_ENTRIES {
+            fs::create_dir(journals.join(format!("entry-{index}"))).expect("create journal entry");
+        }
+
+        let error = recover_interrupted_output_transactions(&cache_dir, &build_dir)
+            .expect_err("oversized journal namespace must fail closed");
+
+        assert_eq!(error.operation, "scan");
+        assert_eq!(error.error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.error.to_string().contains("entry limit"));
         let _ = fs::remove_dir_all(root);
     }
 
