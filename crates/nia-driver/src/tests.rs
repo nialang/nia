@@ -140,7 +140,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .link_executable(
                 crate::LinkExecutableRequest::new(
                     crate::CheckRequest::new(source.to_string_lossy().into_owned())
-                        .with_optimization(crate::NiaOptimizationLevel::O2),
+                        .with_optimization(crate::NiaOptimizationLevel::O2)
+                        .with_runtime(common::test_freestanding_runtime()),
                     &output,
                 )
                 .with_link_time_optimization(policy),
@@ -153,6 +154,52 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .unwrap_or_else(|error| panic!("run {name} LTO executable: {error}"));
         assert_eq!(status.code(), Some(0), "{name} LTO executable failed");
     }
+}
+
+#[test]
+#[cfg(unix)]
+fn bare_link_preserves_caller_entry_symbol() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use nia_linker::{ExecutableLinker, LinkOptions};
+
+    let root = common::temp_dir("bare-link-entry");
+    let source = root.join("main.nia");
+    common::write(&source, "fn main() () {}\n");
+    let linker = root.join("linker.sh");
+    let arguments = root.join("arguments");
+    std::fs::write(
+        &linker,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nout=\nprev=\nfor arg in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$arg\"; fi; prev=\"$arg\"; done\nprintf linked > \"$out\"\nchmod +x \"$out\"\n",
+            arguments.display()
+        ),
+    )
+    .expect("write mock linker");
+    let mut permissions = std::fs::metadata(&linker)
+        .expect("mock linker metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&linker, permissions).expect("make mock linker executable");
+
+    let output = root.join("runner");
+    common::test_driver()
+        .link_executable(
+            crate::LinkExecutableRequest::new(
+                crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+                &output,
+            )
+            .with_link_options(LinkOptions {
+                linker: ExecutableLinker::with_program(linker.to_string_lossy()),
+                entry: Some("custom_entry".to_string()),
+                ..LinkOptions::default()
+            }),
+        )
+        .result
+        .expect("bare executable link");
+
+    let args = std::fs::read_to_string(arguments).expect("read mock linker arguments");
+    assert!(args.lines().any(|arg| arg == "custom_entry"));
 }
 
 #[test]
@@ -201,7 +248,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         driver
             .link_executable(
                 crate::LinkExecutableRequest::new(
-                    crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+                    crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                        .with_runtime(common::test_freestanding_runtime()),
                     root.join(name),
                 )
                 .with_link_time_optimization(policy),
