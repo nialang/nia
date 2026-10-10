@@ -304,7 +304,7 @@ mod sysv64 {
     /// Classes of the two eightbytes, or `None` when the value is passed in
     /// memory.
     fn classify_eightbytes(aggregate: &CAggregate, leaves: &[(u64, Leaf)]) -> Option<[Class; 2]> {
-        if aggregate.size > 16 {
+        if aggregate.size > 16 || has_unaligned_leaf(leaves) {
             return None;
         }
         let mut classes = [Class::None; 2];
@@ -322,6 +322,23 @@ mod sysv64 {
             }
         }
         Some(classes)
+    }
+
+    fn leaf_align(leaf: Leaf) -> u64 {
+        match leaf {
+            Leaf::Int(bytes) => bytes.next_power_of_two().min(16),
+            Leaf::Float => 4,
+            Leaf::Double | Leaf::Pointer => 8,
+        }
+    }
+
+    /// The SysV classifier passes an aggregate in memory when one of its
+    /// fields is not naturally aligned. Packed C records therefore cannot be
+    /// represented by the register eightbyte forms below.
+    fn has_unaligned_leaf(leaves: &[(u64, Leaf)]) -> bool {
+        leaves
+            .iter()
+            .any(|(offset, leaf)| *offset % leaf_align(*leaf) != 0)
     }
 
     fn has_data(leaves: &[(u64, Leaf)], start: u64, end: u64) -> bool {

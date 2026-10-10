@@ -247,6 +247,18 @@ fn sysv64_passes_aggregates_in_memory_when_registers_run_out() {
 }
 
 #[test]
+fn sysv64_passes_packed_aggregates_in_memory() {
+    let c = CConvention::SysV64;
+    let packed = CType::Aggregate(CAggregate {
+        size: 9,
+        align: 1,
+        fields: vec![(0, U8), (1, I64)],
+    });
+    assert_eq!(arg(c, packed.clone()), CArg::Byval { align: 8 });
+    assert_eq!(ret(c, packed), CRet::SRet { align: 1 });
+}
+
+#[test]
 fn i386_expands_scalar_structs_and_returns_aggregates_in_memory() {
     let c = CConvention::I386;
     let s = |fields: &[CType]| record(c, fields);
