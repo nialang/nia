@@ -254,6 +254,12 @@ impl ConfigureCache {
         identity: &ConfigureIdentity,
         record: &ConfigureRecord,
     ) -> io::Result<()> {
+        if !record_matches_identity(identity, record) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "configure record manifest does not match its identity",
+            ));
+        }
         let manifest = record
             .manifest
             .encode()
@@ -290,7 +296,14 @@ impl ConfigureCache {
     /// Reads and validates a manifest; corruption is reported as a cache miss.
     pub fn lookup(&self, identity: &ConfigureIdentity) -> io::Result<Option<ConfigureRecord>> {
         let path = self.path(identity);
-        read_record(&path)
+        let Some(record) = read_record(&path)? else {
+            return Ok(None);
+        };
+        if !record_matches_identity(identity, &record) {
+            let _ = fs::remove_file(path);
+            return Ok(None);
+        }
+        Ok(Some(record))
     }
 
     /// Publishes a plan/manifest witness only after the plan has been decoded
@@ -526,6 +539,16 @@ fn read_record(path: &Path) -> io::Result<Option<ConfigureRecord>> {
     Ok(record)
 }
 
+fn record_matches_identity(identity: &ConfigureIdentity, record: &ConfigureRecord) -> bool {
+    ConfigureIdentity::new(
+        identity.runner.clone(),
+        identity.invocation.clone(),
+        &record.manifest,
+    )
+    .key()
+        == identity.key()
+}
+
 fn decode_record(bytes: &[u8]) -> Option<ConfigureRecord> {
     if bytes.len() < HEADER_BYTES
         || bytes.len() > MAX_RECORD_BYTES
@@ -608,6 +631,57 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         assert_eq!(cache.lookup(&identity).unwrap(), None);
         assert!(!path.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cache_rejects_and_retires_identity_mismatched_records() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-configure-identity-mismatch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cache = ConfigureCache { root: root.clone() };
+
+        let mut first_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        first_manifest
+            .push(
+                ConfigureObservation::new("inputs/first", ObservationKind::FileContents, [1; 32])
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut second_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
+        second_manifest
+            .push(
+                ConfigureObservation::new("inputs/second", ObservationKind::FileContents, [2; 32])
+                    .unwrap(),
+            )
+            .unwrap();
+        let first = ConfigureIdentity::new("runner", "invocation", &first_manifest);
+        let second = ConfigureIdentity::new("runner", "invocation", &second_manifest);
+        let second_record = ConfigureRecord {
+            plan: b"second".to_vec(),
+            manifest: second_manifest,
+        };
+
+        let mismatch = cache.publish(
+            &first,
+            &ConfigureRecord {
+                plan: b"wrong".to_vec(),
+                manifest: second_record.manifest.clone(),
+            },
+        );
+        assert_eq!(mismatch.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        cache.publish(&second, &second_record).unwrap();
+        let first_path = cache.path(&first);
+        std::fs::copy(cache.path(&second), &first_path).unwrap();
+
+        assert_eq!(cache.lookup(&first).unwrap(), None);
+        assert!(!first_path.exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 
