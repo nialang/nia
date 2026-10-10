@@ -3,11 +3,26 @@
 pub(pkg) extern fn read(fd: i32, buffer: &mut u8, length: usize) i64;
 pub(pkg) extern fn write(fd: i32, buffer: &u8, length: usize) i64;
 pub(pkg) extern fn close(fd: i32) i32;
+pub(pkg) extern fn openat(fd: i32, path: &u8, flags: i32, mode: u32) i32;
+pub(pkg) extern fn mkdirat(fd: i32, path: &u8, mode: u32) i32;
+pub(pkg) extern fn unlinkat(fd: i32, path: &u8, flags: i32) i32;
+pub(pkg) extern fn renameat(oldFd: i32, oldPath: &u8, newFd: i32, newPath: &u8) i32;
 pub(pkg) extern fn lseek(fd: i32, offset: i64, whence: i32) i64;
 pub(pkg) extern fn ftruncate(fd: i32, length: i64) i32;
 pub(pkg) extern fn fchmod(fd: i32, mode: u16) i32;
 pub(pkg) extern fn fsync(fd: i32) i32;
 pub(pkg) extern fn fdatasync(fd: i32) i32;
+@[if arch == "aarch64"]
+pub(pkg) extern fn fstat(fd: i32, stat: &mut DarwinStat) i32;
+@[if arch == "x86_64"]
+@[linkName("fstat$INODE64")]
+pub(pkg) extern fn fstat(fd: i32, stat: &mut DarwinStat) i32;
+@[if arch == "aarch64"]
+pub(pkg) extern fn fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
+@[if arch == "x86_64"]
+@[linkName("fstatat$INODE64")]
+pub(pkg) extern fn fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
+pub(pkg) extern fn getdirentries64(fd: i32, buffer: &mut u8, length: usize, base: &mut i64) i64;
 pub(pkg) extern fn getcwd(buffer: &mut u8, length: usize) &mut u8;
 pub(pkg) extern fn mmap(address: usize, length: usize, protection: i32, flags: i32, fd: i32, offset: i64) &mut u8;
 pub(pkg) extern fn munmap(address: &mut u8, length: usize) i32;
@@ -19,3 +34,40 @@ pub(pkg) const protRead: i32 = 1;
 pub(pkg) const protWrite: i32 = 2;
 pub(pkg) const mapPrivate: i32 = 2;
 pub(pkg) const mapAnonymous: i32 = 0x1000;
+pub(pkg) const atSymlinkNoFollow: i32 = 0x20;
+pub(pkg) const atRemoveDir: i32 = 0x800;
+pub(pkg) const openCreate: i32 = 0x200;
+pub(pkg) const openExclusive: i32 = 0x800;
+pub(pkg) const openTruncate: i32 = 0x400;
+pub(pkg) const openDirectory: i32 = 0x100000;
+pub(pkg) const openNoFollow: i32 = 0x100;
+
+pub(pkg) extern struct DarwinTimespec {
+    seconds: i64,
+    nanos: i64,
+}
+
+// This is the 64-bit-inode Darwin stat layout used by arm64 and by the
+// x86_64 `$INODE64` entry points. Keep it as a C-layout type: the facade reads
+// fields only after the target-specific libSystem call has filled it.
+pub(pkg) extern struct DarwinStat {
+    device: i32,
+    mode: u16,
+    links: u16,
+    inode: u64,
+    user: i32,
+    group: i32,
+    special: i32,
+    atime: DarwinTimespec,
+    mtime: DarwinTimespec,
+    ctime: DarwinTimespec,
+    birthtime: DarwinTimespec,
+    size: i64,
+    blocks: i64,
+    blockSize: i32,
+    flags: u32,
+    generation: u32,
+    spare: i32,
+    reserved0: i64,
+    reserved1: i64,
+}
