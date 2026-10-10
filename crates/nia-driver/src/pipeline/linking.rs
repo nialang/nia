@@ -3,14 +3,12 @@
 
 use std::{fs, path::PathBuf, process::Command};
 
-use nia_linker::{ArchiveOptions, LinkOptions, SystemImportLibrary};
-use nia_toolchain::RuntimeSpec;
-
 use super::emission::ObjectEmissionMode;
 use super::output::{
     TempDir, archive_member_file_name, install_streamed_output, object_file_name, write_output_file,
 };
 use super::*;
+use nia_linker::{ArchiveOptions, LinkOptions, SystemImportLibrary};
 
 const MAX_TOOL_OUTPUT_BYTES: usize = 16 * 1024;
 
@@ -118,14 +116,10 @@ impl Driver {
     ) -> DriverOutput<LinkedExecutableWithSourceManifest> {
         let mut request = request;
         let timings = request.check.timings;
-        let runtime =
-            match RuntimeSpec::freestanding(&self.config.toolchain, &self.config.artifact_target) {
-                Ok(runtime) => runtime,
-                Err(error) => return DriverOutput::from_error(DriverError::Runtime(error)),
-            };
-        request.link_options.entry = runtime
-            .source()
-            .map(|runtime| runtime.entry_point().linker_symbol().to_owned());
+        let runtime = request.check.runtime.clone();
+        if let Some(runtime) = runtime.source() {
+            request.link_options.entry = Some(runtime.entry_point().linker_symbol().to_owned());
+        }
         let preserved_symbols = request
             .link_options
             .entry
@@ -139,14 +133,14 @@ impl Driver {
                 lto_mode: nia_codegen_llvm::LtoMode::Thin,
                 linkage_source_identity: &linkage_source_identity,
                 preserved_symbols: &preserved_symbols,
-                freestanding: true,
+                freestanding: runtime.source().is_some(),
                 backend_cache_directory: self.thin_lto_backend_cache_directory.as_deref(),
             },
             LinkTimeOptimization::Full => ObjectEmissionMode::Lto {
                 lto_mode: nia_codegen_llvm::LtoMode::Full,
                 linkage_source_identity: &linkage_source_identity,
                 preserved_symbols: &preserved_symbols,
-                freestanding: true,
+                freestanding: runtime.source().is_some(),
                 backend_cache_directory: None,
             },
         };

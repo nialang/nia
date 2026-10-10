@@ -2262,6 +2262,21 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
             return ExitCode::FAILURE;
         }
     };
+    let runtime = match options.runtime.resolve(&context.toolchain) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            write_diagnostic_report(
+                &render_driver_failure(
+                    &nia_driver::DriverError::Runtime(error),
+                    Some(path),
+                    Some(source),
+                    context.diagnostics_format,
+                ),
+                context.diagnostics_format,
+            );
+            return ExitCode::FAILURE;
+        }
+    };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir.clone(),
         ..nia_driver::DriverConfig::new(context.toolchain)
@@ -2272,7 +2287,8 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
                 .with_profile(context.profile)
-                .with_timings(context.timings),
+                .with_timings(context.timings)
+                .with_runtime(runtime),
             output: options.output.clone(),
             link_options: options.link_options.clone(),
             link_time_optimization: options.link_time_optimization,
@@ -2392,6 +2408,7 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
 struct EmitExeOptions {
     output: PathBuf,
     cache_dir: Option<PathBuf>,
+    runtime: RuntimeMode,
     link_options: nia_linker::LinkOptions,
     link_time_optimization: nia_driver::LinkTimeOptimization,
 }
@@ -2403,6 +2420,7 @@ fn parse_emit_exe_options(
 ) -> Result<EmitExeOptions, String> {
     let mut output = None::<PathBuf>;
     let mut cache_dir = None::<PathBuf>;
+    let mut runtime = RuntimeMode::Freestanding;
     let mut link_options = nia_linker::LinkOptions::default();
     let mut link_time_optimization = nia_driver::LinkTimeOptimization::Off;
     let mut explicit_linker_program = false;
@@ -2419,7 +2437,7 @@ fn parse_emit_exe_options(
             continue;
         }
         if let Some(value) = arg.strip_prefix("--runtime=") {
-            let runtime = parse_runtime(value)
+            runtime = parse_runtime(value)
                 .map_err(|message| format!("{message} for `nia emit --exe`"))?;
             if runtime != RuntimeMode::Freestanding {
                 return Err(
@@ -2497,7 +2515,7 @@ fn parse_emit_exe_options(
                 let Some(value) = iter.next() else {
                     return Err("missing runtime after `--runtime`".to_string());
                 };
-                let runtime = parse_runtime(&value)
+                runtime = parse_runtime(&value)
                     .map_err(|message| format!("{message} for `nia emit --exe`"))?;
                 if runtime != RuntimeMode::Freestanding {
                     return Err(
@@ -2574,6 +2592,7 @@ fn parse_emit_exe_options(
         output: output
             .unwrap_or_else(|| default_output_path(source, target.executable_extension())),
         cache_dir,
+        runtime,
         link_options,
         link_time_optimization,
     })

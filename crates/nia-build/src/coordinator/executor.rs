@@ -657,7 +657,7 @@ impl DriverActionExecutor {
             )
         })?;
         let request =
-            self.check_request(action, &artifact.root_module, target, Runtime::Freestanding)?;
+            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let mut cache_link_inputs = Vec::with_capacity(static_archives.len());

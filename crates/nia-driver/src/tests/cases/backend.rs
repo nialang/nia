@@ -237,7 +237,8 @@ fn run_executable_case(driver: &crate::Driver, case_root: &Path) {
     let artifact = driver
         .link_executable(crate::LinkExecutableRequest::new(
             crate::CheckRequest::new(virtual_source.to_string_lossy().into_owned())
-                .with_module_map(module_map),
+                .with_module_map(module_map)
+                .with_runtime(crate::tests::common::test_freestanding_runtime()),
             &output,
         ))
         .result
