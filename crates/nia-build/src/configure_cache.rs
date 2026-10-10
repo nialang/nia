@@ -14,6 +14,7 @@ use crate::{BuildInvocation, ConfigureManifest, ObservationValidation};
 
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CONFIGURE_CACHE_ENTRIES: usize = 4096;
 const INVOCATION_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.invocation");
 const CONFIGURE_CACHE_DOMAIN: FingerprintDomain =
@@ -391,6 +392,11 @@ impl ConfigureCache {
                     ConfigureCacheMissReason::NotFound,
                 ));
             }
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                return Ok(ConfigureCacheLookup::Miss(
+                    ConfigureCacheMissReason::NotFound,
+                ));
+            }
             Err(error) => return Err(error),
         };
         let mut poisoned = false;
@@ -455,6 +461,9 @@ impl ConfigureCache {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok(ConfigureCacheCandidate::None);
             }
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                return Ok(ConfigureCacheCandidate::None);
+            }
             Err(error) => return Err(error),
         };
         for path in entries {
@@ -483,6 +492,12 @@ fn record_paths(root: &Path) -> io::Result<Vec<PathBuf>> {
         if entry.file_type()?.is_file()
             && entry.path().extension().and_then(|value| value.to_str()) == Some("manifest")
         {
+            if paths.len() >= MAX_CONFIGURE_CACHE_ENTRIES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "configure cache contains too many entries",
+                ));
+            }
             paths.push(entry.path());
         }
     }
@@ -891,6 +906,41 @@ mod tests {
                 .unwrap(),
             ConfigureCacheLookup::Miss(ConfigureCacheMissReason::Poisoned)
         ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reusable_lookup_treats_an_oversized_cache_namespace_as_a_miss() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-configure-cache-limit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let namespace = root
+            .join("cache")
+            .join("configure")
+            .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string());
+        std::fs::create_dir_all(&namespace).unwrap();
+        for index in 0..=MAX_CONFIGURE_CACHE_ENTRIES {
+            std::fs::write(namespace.join(format!("{index:04x}.manifest")), []).unwrap();
+        }
+
+        let cache = ConfigureCache {
+            root: root.join("cache"),
+        };
+        assert_eq!(
+            cache
+                .lookup_reusable("runner", "invocation", &root)
+                .unwrap(),
+            ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound)
+        );
+        assert_eq!(
+            cache.candidate_status("runner", "invocation").unwrap(),
+            ConfigureCacheCandidate::None
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
