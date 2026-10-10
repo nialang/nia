@@ -2129,7 +2129,10 @@ pub(super) fn write_optimization(
     builder.write_u8(u8::from(policy.prefer_size));
 }
 
-fn write_target_identity(builder: &mut QueryFingerprintBuilder, identity: &TargetMachineIdentity) {
+pub(super) fn write_target_identity(
+    builder: &mut QueryFingerprintBuilder,
+    identity: &TargetMachineIdentity,
+) {
     builder.write_str(&identity.triple);
     builder.write_str(&identity.cpu);
     builder.write_str(&identity.features);
