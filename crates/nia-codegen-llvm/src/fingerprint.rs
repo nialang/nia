@@ -2133,6 +2133,16 @@ fn write_target_identity(builder: &mut QueryFingerprintBuilder, identity: &Targe
     builder.write_str(&identity.triple);
     builder.write_str(&identity.cpu);
     builder.write_str(&identity.features);
+    builder.write_u8(match identity.relocation_model {
+        nia_llvm::target::TargetRelocationModel::Pic => 0,
+        nia_llvm::target::TargetRelocationModel::Static => 1,
+        nia_llvm::target::TargetRelocationModel::DynamicNoPic => 2,
+    });
+    builder.write_u8(match identity.code_model {
+        nia_llvm::target::TargetCodeModel::Default => 0,
+        nia_llvm::target::TargetCodeModel::Small => 1,
+        nia_llvm::target::TargetCodeModel::Large => 2,
+    });
 }
 
 const fn llvm_sys_version() -> u64 {
@@ -3138,9 +3148,15 @@ mod tests {
             triple: "x86_64-unknown-linux-gnu".to_string(),
             cpu: "generic".to_string(),
             features: "+sse2".to_string(),
+            relocation_model: nia_llvm::target::TargetRelocationModel::Pic,
+            code_model: nia_llvm::target::TargetCodeModel::Default,
         };
         let changed_target = TargetMachineIdentity {
             features: "+sse2,+avx2".to_string(),
+            ..target.clone()
+        };
+        let changed_relocation = TargetMachineIdentity {
+            relocation_model: nia_llvm::target::TargetRelocationModel::Static,
             ..target.clone()
         };
 
@@ -3211,6 +3227,22 @@ mod tests {
         assert_eq!(
             baseline.components.declarations,
             changed.components.declarations
+        );
+        let changed_relocation_fingerprint = source_unit_fingerprint(
+            &fixture.partition,
+            &declarations,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::NativeObject(&changed_relocation),
+        )
+        .expect("valid changed-relocation fingerprint fixture");
+        assert_ne!(
+            baseline.fingerprint,
+            changed_relocation_fingerprint.fingerprint
+        );
+        assert_ne!(
+            baseline.components.target,
+            changed_relocation_fingerprint.components.target
         );
 
         let changed_toolchain = source_unit_fingerprint(

@@ -605,6 +605,11 @@ interpreter; the relocator returns without writing for both. The form is a
 link option (`--executable static-pie|static|dynamic`), not a code model:
 objects are identical for all three.
 
+LLVM object emission uses the artifact target's explicit triple, baseline CPU,
+features, PIC relocation model, and default code model. These values are part
+of the native object and LTO cache identity, so changing any one of them cannot
+reuse an object produced for a different target-machine contract.
+
 ### 15.1 Nia Function Parameters
 
 The Nia function ABI classifies parameters as follows:
