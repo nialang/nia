@@ -73,6 +73,35 @@ Other functions named `main` are ordinary Nia functions. A runtime may expose
 an entry symbol or omit startup entirely; those choices do not change the
 source-level function rules defined here.
 
+### 2.1 Build Scripts
+
+A package's optional `build.nia` is an ordinary Nia program compiled for the
+host and invoked by `nia build` during configuration. It uses the
+`std::build` API to declare modules, artifacts, dependencies, generated files,
+commands, tests, and named steps. These calls construct a typed build graph;
+they do not compile sources, run commands, publish outputs, or mutate the
+package's build products while the script is executing.
+
+The build script receives the host and selected artifact targets as explicit
+values. An artifact without an explicit target uses the invocation's artifact
+target, while a target override applies only to that artifact. The frozen graph
+is validated after the script exits, and the coordinator executes only the
+validated selected closure. Build scripts cannot provide callbacks, raw
+compiler argument vectors, or inherited interactive input as graph actions.
+
+Configuration probes are explicit inputs to the build graph. File, directory,
+environment, command, tool, Git, and presence probes return bounded typed
+observations. The host validates those observations against the current package
+root and records them in the configure identity; changing an observed value,
+including an observed absence, causes configuration to run again. Probe
+commands are bounded host probes and cannot execute graph actions or write
+build outputs.
+
+Build configuration is therefore deterministic for the same package, host and
+artifact inputs and validated observations. `nia build --dry-run` freezes and
+validates the graph without executing its actions; inspection options expose
+the graph and cache decisions without changing these semantics.
+
 ## 3. Lexical Structure
 
 ### 3.1 Comments
