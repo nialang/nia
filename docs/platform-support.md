@@ -63,7 +63,7 @@ The stable boundary differs by platform, so the interface Nia binds differs too:
 Darwin does not keep its system-call numbers or ABI stable, and a macOS process
 always starts through `dyld`; `libSystem` is therefore the stable boundary, in
 the same role that `kernel32` has on Windows. Nia uses its POSIX
-system-interface functions, such as `open`, `mmap`, and `posix_spawn`, and
+system-interface functions, such as `open`, `mmap`, `fork`, and `execve`, and
 leaves its C library facilities to programs that link them explicitly. The
 Darwin entry symbol is `main` only because that is the name `dyld` and the
 linker expect; it is Nia runtime startup, not a C runtime `main`.
