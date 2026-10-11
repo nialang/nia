@@ -112,6 +112,7 @@ jobs:
           cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings
 
       - name: Run Darwin executable and standard-library suites
+        id: darwin-suite
         run: |
           cargo test -p nia-cli --tests --no-default-features --features llvm-static -- --nocapture
 
@@ -120,6 +121,11 @@ jobs:
         run: |
           mkdir -p target/platform-evidence
           {
+            printf 'suite_status=%s\n' '${{ steps.darwin-suite.outcome }}'
+            printf 'commit=%s\n' "${GITHUB_SHA}"
+            printf 'run_id=%s\n' "${GITHUB_RUN_ID}"
+            printf 'job=%s\n' "${GITHUB_JOB}"
+            printf 'workflow=%s\n' "${GITHUB_WORKFLOW}"
             printf 'runner=%s\n' '${{ matrix.runner }}'
             printf 'target=%s\n' '${{ matrix.target }}'
             printf 'host_arch=%s\n' "$(uname -m)"
