@@ -910,6 +910,7 @@ dependencies = [
 name = "nia-loader-query"
 version = "0.2.0-dev"
 dependencies = [
+ "libc",
  "nia-ast",
  "nia-ast-walk",
  "nia-compat",
@@ -936,6 +937,7 @@ dependencies = [
  "nia-target-config",
  "nia-toolchain",
  "parking_lot",
+ "windows-sys",
 ]
 
 [[package]]
