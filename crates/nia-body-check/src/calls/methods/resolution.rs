@@ -1867,106 +1867,85 @@ impl<'a> BodyChecker<'a> {
         where_predicates: &[nia_defs::WherePredicateSignature],
         const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) {
-        let actuals = args
-            .iter()
-            .enumerate()
-            .map(|(index, arg)| {
-                let param = params.get(index).copied();
-                let callable_pattern = param.and_then(|param| {
+        // Publish each structurally valid argument's substitutions before
+        // checking the next closure, as the ordinary function-call path does.
+        for (index, arg) in args.iter().enumerate() {
+            let param = params.get(index).copied();
+            let callable_pattern = param.and_then(|param| {
+                self.static_callable_bound_from_predicates(
+                    param,
+                    where_predicates,
+                    substitutions,
+                    const_substitutions,
+                )
+            });
+            let callable_pattern = callable_pattern.map(|(params, return_type)| {
+                self.interner.intern(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+            });
+            let mut inferred_from_closure = callable_pattern.is_some_and(|pattern| {
+                self.infer_generics_from_closure_signature(pattern, arg, substitutions, arg.span)
+            }) || param.is_some_and(|param| {
+                self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
+            });
+            let closure_pattern = callable_pattern
+                .or_else(|| param.map(|param| self.substitute_generics(param, substitutions)));
+            let closure_params_ready = closure_pattern.is_some_and(|pattern| {
+                self.seed_closure_params_from_callable_pattern(pattern, arg)
+            });
+            if closure_params_ready && let Some(pattern) = closure_pattern {
+                inferred_from_closure |= self.infer_generics_from_closure_signature(
+                    pattern,
+                    arg,
+                    substitutions,
+                    arg.span,
+                );
+            }
+            let callable_pattern = param
+                .and_then(|param| {
                     self.static_callable_bound_from_predicates(
                         param,
                         where_predicates,
                         substitutions,
                         const_substitutions,
                     )
-                });
-                let callable_pattern = callable_pattern.map(|(params, return_type)| {
+                })
+                .map(|(params, return_type)| {
                     self.interner.intern(TyKind::CallablePointee {
                         params,
                         return_type,
                     })
                 });
-                let mut inferred_from_closure = callable_pattern.is_some_and(|pattern| {
-                    self.infer_generics_from_closure_signature(
-                        pattern,
-                        arg,
-                        substitutions,
-                        arg.span,
-                    )
-                }) || param.is_some_and(|param| {
-                    self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
-                });
-                let closure_pattern = callable_pattern
-                    .or_else(|| param.map(|param| self.substitute_generics(param, substitutions)));
-                let closure_params_ready = closure_pattern.is_some_and(|pattern| {
-                    self.seed_closure_params_from_callable_pattern(pattern, arg)
-                });
-                if closure_params_ready && let Some(pattern) = closure_pattern {
-                    inferred_from_closure |= self.infer_generics_from_closure_signature(
-                        pattern,
-                        arg,
-                        substitutions,
-                        arg.span,
-                    );
-                }
-                let callable_pattern = param
-                    .and_then(|param| {
-                        self.static_callable_bound_from_predicates(
-                            param,
-                            where_predicates,
-                            substitutions,
-                            const_substitutions,
-                        )
-                    })
-                    .map(|(params, return_type)| {
-                        self.interner.intern(TyKind::CallablePointee {
-                            params,
-                            return_type,
-                        })
-                    });
-                let substituted_param =
-                    param.map(|param| self.substitute_generics(param, substitutions));
-                let unresolved_type_params = generic_params
-                    .iter()
-                    .filter(|param| {
-                        matches!(
-                            param.kind,
-                            nia_item_signatures::GenericParamSignatureKind::Type
-                        ) && !substitutions.contains_key(&param.name)
-                    })
-                    .map(|param| param.name)
-                    .collect::<Vec<_>>();
-                let expected = substituted_param
-                    .and_then(|param| self.generic_call_expected(param))
-                    .or_else(|| {
-                        callable_pattern.and_then(|pattern| {
-                            self.callable_pattern_expected(pattern, &unresolved_type_params)
-                        })
-                    });
-                if let Some(expected) = expected {
-                    Some(self.check_expr_with_expected(arg, Some(expected)))
-                } else if inferred_from_closure && !closure_params_ready {
-                    None
-                } else {
-                    Some(self.check_expr(arg))
-                }
-                .map(|actual| (actual, callable_pattern))
-            })
-            .collect::<Vec<_>>();
-        for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
-            if let Some((actual, callable_pattern)) = actual.as_ref()
+            let substituted_param =
+                param.map(|param| self.substitute_generics(param, substitutions));
+            let expected = self.generic_argument_expected(
+                substituted_param,
+                callable_pattern,
+                generic_params,
+                substitutions,
+            );
+            let actual = if let Some(expected) = expected {
+                self.check_expr_with_expected(arg, Some(expected))
+            } else if inferred_from_closure && !closure_params_ready {
+                continue;
+            } else {
+                self.check_expr(arg)
+            };
+            if let Some(param) = param
                 && (self.inferred_closure_signature(arg).is_none()
-                    || self.generic_pattern_accepts_type_shape(*param, *actual))
+                    || self.generic_pattern_accepts_type_shape(param, actual))
             {
                 if let Some(callable_pattern) = callable_pattern {
                     self.infer_generics_from_static_callable_shape(
-                        *callable_pattern,
-                        *actual,
+                        callable_pattern,
+                        actual,
                         substitutions,
                         arg.span,
                     );
                 }
-                self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
+                self.infer_generics_from_type(param, actual, substitutions, arg.span);
             }
         }
     }

@@ -499,8 +499,7 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = if let Some(expected) = expected {
             let actual = ty;
-            let ty = self
-                .coerce_pointer_array_to_slice(expr, expected, actual)
+            self.coerce_pointer_array_to_slice(expr, expected, actual)
                 .or_else(|| {
                     self.coerce_mutable_pointer_to_readonly(expected, actual)
                         .inspect(|target_ty| {
@@ -517,8 +516,7 @@ impl<'a> BodyChecker<'a> {
                 .or_else(|| self.coerce_pointer_array_to_slice_trait_object(expr, expected, actual))
                 .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, actual))
                 .or_else(|| self.materialize_inferred_array_type(expected, actual))
-                .unwrap_or(actual);
-            ty
+                .unwrap_or(actual)
         } else {
             ty
         };
