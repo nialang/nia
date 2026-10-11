@@ -26,8 +26,8 @@ use nia_toolchain::ToolchainIdentity;
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, action_identity,
     encoded_field_fits, fingerprint_text, integer_component, logical_path_identity,
-    package_roots_identity, read_exact_or_corrupt, read_stream_fingerprint, read_stream_u64,
-    stream_has_trailing_byte, text_component, write_bytes, write_fingerprint,
+    open_cache_entry, package_roots_identity, read_exact_or_corrupt, read_stream_fingerprint,
+    read_stream_u64, stream_has_trailing_byte, text_component, write_bytes, write_fingerprint,
 };
 #[cfg(test)]
 use super::{read_bytes, read_fingerprint, read_u64};
@@ -925,7 +925,7 @@ fn scan_external_command_entry(
     path: &Path,
     expected: Option<&ExternalCommandCacheIdentity>,
 ) -> io::Result<Option<ScannedExternalCommandEntry>> {
-    let mut file = fs::File::open(path)?;
+    let mut file = open_cache_entry(path)?;
     let metadata_len = file.metadata()?.len();
     let mut magic = [0; 8];
     if !read_exact_or_corrupt(&mut file, &mut magic)? || magic != *EXTERNAL_COMMAND_ENTRY.magic {

@@ -160,21 +160,50 @@ enum BoundedCacheEntry {
     Oversized,
 }
 
-/// Reads at most `max_bytes + 1` bytes so growth after the metadata check cannot
-/// turn a bounded cache lookup into an unbounded allocation.
-fn read_bounded_cache_entry(path: &Path, max_bytes: usize) -> io::Result<BoundedCacheEntry> {
+/// Opens one persistent cache record without following links or reparse
+/// points. Cache records are immutable files owned by Nia; accepting a link
+/// here would let a cache directory redirect reads or retirement operations
+/// outside its namespace.
+pub(super) fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt as _;
     #[cfg(windows)]
-    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
 
     let mut options = fs::OpenOptions::new();
     options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
     #[cfg(windows)]
-    options.share_mode(
-        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
-            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
-            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
-    );
-    let mut file = options.open(path)?;
+    {
+        options.share_mode(
+            windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+                | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+                | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+        );
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_file() || is_reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cache entry must be a regular, non-link file",
+        ));
+    }
+    Ok(file)
+}
+
+/// Reads at most `max_bytes + 1` bytes so growth after the metadata check cannot
+/// turn a bounded cache lookup into an unbounded allocation.
+fn read_bounded_cache_entry(path: &Path, max_bytes: usize) -> io::Result<BoundedCacheEntry> {
+    let mut file = open_cache_entry(path)?;
     let metadata_len = file.metadata()?.len();
     let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
     if metadata_len > max_bytes_u64 {
@@ -772,18 +801,7 @@ fn scan_generated_file_entry(
     path: &Path,
     expected: &GeneratedFileCacheIdentity,
 ) -> io::Result<Option<ScannedEntry>> {
-    #[cfg(windows)]
-    use std::os::windows::fs::OpenOptionsExt as _;
-
-    let mut options = fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    options.share_mode(
-        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
-            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
-            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
-    );
-    let mut file = options.open(path)?;
+    let mut file = open_cache_entry(path)?;
     let metadata_len = file.metadata()?.len();
     let mut magic = [0; 8];
     if !read_exact_or_corrupt(&mut file, &mut magic)? || magic != *GENERATED_FILE_ENTRY.magic {
@@ -1237,6 +1255,26 @@ mod tests {
             standard_library: QueryFingerprint::from_parts([1, 3]),
             build_protocol: QueryFingerprint::from_parts([1, 4]),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_entry_reader_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root("symlink-entry");
+        fs::create_dir_all(&root).expect("create cache root");
+        let target = root.join("target.entry");
+        let alias = root.join("alias.entry");
+        fs::write(&target, b"cache record").expect("write cache record");
+        symlink(&target, &alias).expect("create cache symlink");
+
+        assert!(
+            open_cache_entry(&alias).is_err(),
+            "cache symlink must be rejected"
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
