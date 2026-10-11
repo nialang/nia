@@ -763,7 +763,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
         zig: &zig,
         resource_root: &resource_root,
     };
-    let toolchain = toolchain_identity(root)?;
+    let toolchain = toolchain_identity(root, &nia, &resource_root)?;
     let started = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("system clock precedes Unix epoch: {error}"))?

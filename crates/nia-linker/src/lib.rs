@@ -400,6 +400,21 @@ impl ExecutableLinker {
         self
     }
 
+    /// Resolves a version probe using the same program and LLD driver selection
+    /// as executable linking, including explicit and bundled overrides.
+    pub fn version_invocation(
+        &self,
+        target: TargetConfig,
+    ) -> Result<LinkerInvocation, LinkerConfigError> {
+        let resolved = self.resolve(target)?;
+        let mut args = resolved.driver_args;
+        args.push("--version".to_owned());
+        Ok(LinkerInvocation {
+            program: resolved.program,
+            args,
+        })
+    }
+
     /// Resolves the flavor for `target`, rejecting a flavor for another
     /// object format.
     pub fn flavor_for(&self, target: TargetConfig) -> Result<LinkerFlavor, LinkerConfigError> {

@@ -131,6 +131,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
         return Err("--repetitions must be positive".to_owned());
     }
 
+    let toolchain = toolchain_identity(root, &nia, &resource_root)?;
     let mut runs = Vec::new();
     let mut temporaries = Vec::new();
     for _ in 0..options.repetitions {
@@ -151,7 +152,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let baseline = BuildBaseline {
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
-        toolchain: toolchain_identity(root)?,
+        toolchain,
         compiler: compiler_identity(&nia)?,
         configuration: BuildBaselineConfiguration {
             compiler_built_by_baseline,

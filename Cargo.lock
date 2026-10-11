@@ -967,7 +967,9 @@ name = "nia-maintain"
 version = "0.2.0-dev"
 dependencies = [
  "blake3",
+ "nia-linker",
  "nia-mangle",
+ "nia-toolchain",
  "regex",
  "serde",
  "serde_json",
