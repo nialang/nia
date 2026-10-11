@@ -460,6 +460,7 @@ fn assert_configured_build_success(
             environment,
             inputs,
             outputs,
+            ..
         }) => {
             assert_eq!(
                 *resource_class,
@@ -510,6 +511,7 @@ fn assert_configured_build_success(
             environment,
             inputs,
             outputs,
+            ..
         }) => {
             assert_eq!(*resource_class, nia_build::ActionResourceClass::Io);
             assert_eq!(

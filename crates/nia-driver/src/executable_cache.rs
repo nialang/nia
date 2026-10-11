@@ -50,10 +50,10 @@ impl PersistentLinkResultCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid link-result cache path"))?;
-        if let Err(error) = validate_cache_namespace(&self.root, parent) {
-            if error.kind() != io::ErrorKind::NotFound {
-                return Err(error);
-            }
+        if let Err(error) = validate_cache_namespace(&self.root, parent)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(error);
         }
         let mut entry = match open_cache_file(&path) {
             Ok(file) => file,

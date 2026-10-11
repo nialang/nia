@@ -768,10 +768,10 @@ fn retire_oversized(path: &Path) {
 
 fn remove_cache_entry(root: &Path, path: &Path) {
     let parent = path.parent().expect("frontend cache entry parent");
-    if let Err(error) = validate_cache_namespace(root, parent) {
-        if error.kind() != io::ErrorKind::NotFound {
-            return;
-        }
+    if let Err(error) = validate_cache_namespace(root, parent)
+        && error.kind() != io::ErrorKind::NotFound
+    {
+        return;
     }
     let Ok(_lock) = FrontendCacheMutationLock::acquire(path) else {
         return;

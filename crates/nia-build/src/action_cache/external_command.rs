@@ -523,10 +523,10 @@ impl ExternalCommandCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid external-command cache path"))?;
-        if let Err(error) = validate_cache_namespace(&self.root, parent) {
-            if error.kind() != io::ErrorKind::NotFound {
-                return Err(error);
-            }
+        if let Err(error) = validate_cache_namespace(&self.root, parent)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(error);
         }
         let entry = match scan_external_command_entry(&path, Some(identity)) {
             Ok(Some(entry)) => entry,

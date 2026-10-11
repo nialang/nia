@@ -291,9 +291,9 @@ fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
     }
     #[cfg(windows)]
     {
-        return metadata.file_attributes()
+        metadata.file_attributes()
             & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
-            != 0;
+            != 0
     }
     #[cfg(not(windows))]
     {
