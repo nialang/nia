@@ -233,7 +233,11 @@ payloads. Compiler-check entries record only a prior successful zero-diagnostic
 check against a complete source manifest. Compiler-emit entries bind build
 identity to a Driver-owned executable cache reference rather than duplicating
 the executable. Cache I/O and corruption produce explicit misses and never
-replace the ordinary correctness path.
+replace the ordinary correctness path. Action, configure, and runner cache
+records are opened as regular files without following symlinks or Windows
+reparse points; recovery journals and lock-owner records use the same
+no-follow rule. A redirected or malformed record is rejected and follows the
+ordinary miss or recovery-error path.
 
 ## Verification
 

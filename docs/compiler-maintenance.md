@@ -85,6 +85,13 @@ independent resources even after one release fails. A partially completed
 operation is not published as an empty or reusable value merely because its
 logical length is zero.
 
+Persistent records are read through a no-follow regular-file boundary. Cache,
+recovery, and coordination readers reject symbolic links and platform reparse
+points before decoding or retiring a record; bounded streaming limits remain
+in force after the file is opened. This keeps a malformed or redirected record
+on the miss or typed-failure path instead of granting it access to another
+filesystem location.
+
 Semantic checks and later lowering must agree on the same accepted value set.
 Recovery values, unchecked metadata, and host-language truncation are not
 substitutes for a source- or target-level contract. When a rule changes an
