@@ -200,6 +200,63 @@ pub(crate) fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
     Ok(file)
 }
 
+/// Creates and validates a cache namespace below its invocation-owned root.
+/// Every component is checked after creation so a replaced parent cannot
+/// redirect cache publication outside the namespace.
+pub(crate) fn ensure_cache_directory(root: &Path, directory: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(root) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir_all(root)?;
+        }
+        Err(error) => return Err(error),
+    }
+    validate_cache_directory(root)?;
+    let relative = directory.strip_prefix(root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "cache directory is outside its invocation root",
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cache directory contains a non-normal component",
+            ));
+        }
+        current.push(component);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        validate_cache_directory(&current)?;
+    }
+    Ok(())
+}
+
+fn validate_cache_directory(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    use std::os::windows::fs::MetadataExt as _;
+
+    let metadata = fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cache namespace must contain real directories",
+        ));
+    }
+    Ok(())
+}
+
 /// Reads at most `max_bytes + 1` bytes so growth after the metadata check cannot
 /// turn a bounded cache lookup into an unbounded allocation.
 fn read_bounded_cache_entry(path: &Path, max_bytes: usize) -> io::Result<BoundedCacheEntry> {
@@ -459,7 +516,7 @@ impl GeneratedFileCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid generated-file cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = parent.join(format!(
             ".nia-generated-cache-{}-{}.tmp",
             std::process::id(),
@@ -699,12 +756,13 @@ impl GeneratedFileCache {
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
         let mut builder = QueryFingerprintBuilder::new(ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
-        let lock = self
+        let lock_root = self
             .root
             .join("coordination")
             .join("action-cache-mutations")
-            .join(GENERATED_FILE_CACHE.path_component)
-            .join(format!("{}.lock", fingerprint_text(builder.finish())));
+            .join(GENERATED_FILE_CACHE.path_component);
+        ensure_cache_directory(&self.root, &lock_root)?;
+        let lock = lock_root.join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
     }
@@ -1275,6 +1333,27 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_namespace_rejects_intermediate_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root("symlink-namespace");
+        let outside = test_root("symlink-namespace-outside");
+        fs::create_dir_all(&root).expect("create cache root");
+        fs::create_dir_all(&outside).expect("create outside root");
+        symlink(&outside, root.join("actions")).expect("create namespace symlink");
+
+        let directory = root.join("actions/generated-files/namespace");
+        let error = ensure_cache_directory(&root, &directory)
+            .expect_err("cache namespace symlink must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(!outside.join("generated-files").exists());
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
     }
 
     #[test]

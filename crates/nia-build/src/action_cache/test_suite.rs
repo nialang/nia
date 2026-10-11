@@ -16,8 +16,8 @@ use nia_compat::formats::{TEST_SUITE_CACHE, TEST_SUITE_ENTRY};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 
 use super::{
-    ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE, fingerprint_text,
-    read_bounded_cache_entry,
+    ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE, ensure_cache_directory,
+    fingerprint_text, read_bounded_cache_entry,
 };
 use crate::lock::ScopedFileLock;
 
@@ -94,10 +94,9 @@ impl TestSuiteCache {
         identity: TestSuiteCacheIdentity,
         is_cancelled: impl FnMut() -> bool,
     ) -> io::Result<Option<ScopedFileLock>> {
-        let lock = self
-            .root
-            .join("coordination/test-suite-cache")
-            .join(format!("{}.lock", fingerprint_text(identity.fingerprint)));
+        let lock = self.root.join("coordination/test-suite-cache");
+        ensure_cache_directory(&self.root, &lock)?;
+        let lock = lock.join(format!("{}.lock", fingerprint_text(identity.fingerprint)));
         ScopedFileLock::acquire_interruptible(lock, is_cancelled)
     }
 
@@ -106,7 +105,7 @@ impl TestSuiteCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid test-suite cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = parent.join(format!(
             ".nia-test-suite-{}-{}.tmp",
             std::process::id(),

@@ -25,9 +25,10 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, action_identity,
-    encoded_field_fits, fingerprint_text, integer_component, logical_path_identity,
-    open_cache_entry, package_roots_identity, read_exact_or_corrupt, read_stream_fingerprint,
-    read_stream_u64, stream_has_trailing_byte, text_component, write_bytes, write_fingerprint,
+    encoded_field_fits, ensure_cache_directory, fingerprint_text, integer_component,
+    logical_path_identity, open_cache_entry, package_roots_identity, read_exact_or_corrupt,
+    read_stream_fingerprint, read_stream_u64, stream_has_trailing_byte, text_component,
+    write_bytes, write_fingerprint,
 };
 #[cfg(test)]
 use super::{read_bytes, read_fingerprint, read_u64};
@@ -574,7 +575,7 @@ impl ExternalCommandCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid external-command cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = parent.join(format!(
             ".nia-command-cache-{}-{}.tmp",
             std::process::id(),
@@ -761,11 +762,12 @@ impl ExternalCommandCache {
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
         let mut builder = QueryFingerprintBuilder::new(super::ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
-        let lock = self
+        let lock_root = self
             .root
             .join("coordination/action-cache-mutations")
-            .join(EXTERNAL_COMMAND_CACHE.path_component)
-            .join(format!("{}.lock", fingerprint_text(builder.finish())));
+            .join(EXTERNAL_COMMAND_CACHE.path_component);
+        ensure_cache_directory(&self.root, &lock_root)?;
+        let lock = lock_root.join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
     }
