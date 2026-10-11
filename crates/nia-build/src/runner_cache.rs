@@ -22,7 +22,8 @@ const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3:
 const MAX_RUNNER_BYTES: usize = 256 * 1024 * 1024;
 const MAX_RUNNER_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const STREAM_BYTES: usize = 64 * 1024;
-const RUNNER_CACHE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.runner-cache");
+const RUNNER_CACHE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.runner-cache.framed");
 static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(0);
 
 /// Canonical private cache record for a generated build runner.
@@ -232,6 +233,7 @@ fn hash_bounded_file(hasher: &mut blake3::Hasher, path: &std::path::Path) -> io:
         ));
     }
     let mut remaining = metadata.len();
+    hasher.update(&remaining.to_le_bytes());
     let mut buffer = [0; STREAM_BYTES];
     while remaining != 0 {
         let count = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
@@ -254,12 +256,14 @@ pub(super) fn cache_key(
     runner: &BuildRunnerSource,
 ) -> Result<String, BuildError> {
     let mut hasher = blake3::Hasher::new();
-    // The registered release identity and this owner-local fingerprint domain
-    // force a miss whenever the cache contract or key construction changes.
-    hasher.update(RUNNER_CACHE_DOMAIN.as_str().as_bytes());
-    hasher.update(runner.source.as_bytes());
+    hash_field(
+        &mut hasher,
+        b"domain",
+        RUNNER_CACHE_DOMAIN.as_str().as_bytes(),
+    );
+    hash_field(&mut hasher, b"runner-source", runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
-    hasher.update(b"std-source-tree");
+    hash_field(&mut hasher, b"tree", b"std-source-tree");
     hash_directory(
         &mut hasher,
         invocation.toolchain.resource_root().join("std"),
@@ -268,7 +272,11 @@ pub(super) fn cache_key(
     for part in invocation.toolchain.identity().fingerprint().parts() {
         hasher.update(&part.to_le_bytes());
     }
-    hasher.update(invocation.toolchain.host_target().name().as_bytes());
+    hash_field(
+        &mut hasher,
+        b"host-target",
+        invocation.toolchain.host_target().name().as_bytes(),
+    );
     hasher.update(&[
         profile_tag(invocation.profile),
         compilation_mode_tag(invocation.compilation_mode),
@@ -283,7 +291,9 @@ fn hash_file(
     path: &std::path::Path,
     runner: &BuildRunnerSource,
 ) -> Result<(), BuildError> {
-    hasher.update(
+    hash_field(
+        hasher,
+        b"file-name",
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default()
@@ -309,9 +319,14 @@ fn hash_directory(
     let mut entries = Vec::new();
     collect_files(&root, &mut entries, runner)?;
     entries.sort();
+    hasher.update(&(entries.len() as u64).to_le_bytes());
     for path in entries {
         let relative = path.strip_prefix(&root).unwrap_or(&path);
-        hasher.update(relative.to_string_lossy().as_bytes());
+        hash_field(
+            hasher,
+            b"relative-path",
+            relative.to_string_lossy().as_bytes(),
+        );
         hash_bounded_file(hasher, &path).map_err(|error| BuildError::CompileRunner {
             path: runner.path.clone(),
             source: runner.source.clone(),
@@ -323,6 +338,13 @@ fn hash_directory(
         })?;
     }
     Ok(())
+}
+
+fn hash_field(hasher: &mut blake3::Hasher, tag: &[u8], value: &[u8]) {
+    hasher.update(&(tag.len() as u64).to_le_bytes());
+    hasher.update(tag);
+    hasher.update(&(value.len() as u64).to_le_bytes());
+    hasher.update(value);
 }
 
 fn collect_files(
@@ -571,6 +593,31 @@ mod tests {
 
         assert!(!restore_executable(&invocation, key).expect("reject non-regular runner cache"));
         assert!(cache.exists(), "directories are not removed as files");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runner_cache_identity_frames_source_paths_and_contents() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-framing-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let std_root = invocation.toolchain.resource_root().join("std");
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+
+        fs::write(std_root.join("a"), b"bc").unwrap();
+        let first = cache_key(&invocation, &runner).unwrap();
+        fs::remove_file(std_root.join("a")).unwrap();
+        fs::write(std_root.join("ab"), b"c").unwrap();
+        let second = cache_key(&invocation, &runner).unwrap();
+
+        assert_ne!(first, second);
         fs::remove_dir_all(root).unwrap();
     }
 
