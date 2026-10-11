@@ -1920,12 +1920,7 @@ impl<'a> BodyChecker<'a> {
                             return_type,
                         })
                     });
-                let callable_pattern_is_concrete = callable_pattern.is_some_and(|pattern| {
-                    !self.type_contains_generic_param(pattern)
-                        && !self.type_contains_const_generic_param(pattern)
-                });
-                if callable_pattern_is_concrete {
-                    let expected = callable_pattern.expect("checked callable pattern");
+                if let Some(expected) = callable_pattern {
                     Some(self.check_expr_with_expected(arg, Some(expected)))
                 } else if let Some(expected) =
                     param.map(|param| self.substitute_generics(param, substitutions))
