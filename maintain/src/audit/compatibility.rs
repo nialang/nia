@@ -123,6 +123,60 @@ fn production_source(path: &Path) -> MaintainResult<String> {
     }))
 }
 
+fn contains_release_version(source: &str, version: &str) -> bool {
+    let bytes = source.as_bytes();
+    let version = version.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'/') {
+            index += 2;
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            continue;
+        }
+        if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
+            index += 2;
+            let mut depth = 1usize;
+            while index < bytes.len() && depth != 0 {
+                if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
+                    depth += 1;
+                    index += 2;
+                } else if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
+                    depth -= 1;
+                    index += 2;
+                } else {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        if bytes[index] == b'"' || bytes[index] == b'\'' {
+            let quote = bytes[index];
+            index += 1;
+            while index < bytes.len() {
+                if bytes[index..].starts_with(version) {
+                    return true;
+                }
+                if bytes[index] == b'\\' {
+                    index = index.saturating_add(2);
+                } else if bytes[index] == quote {
+                    index += 1;
+                    break;
+                } else {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        if bytes[index..].starts_with(version) {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
 fn relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -334,7 +388,7 @@ pub fn release_version_errors(root: &Path) -> MaintainResult<Vec<String>> {
     for path in production_rust_sources(root)? {
         let relative = relative(root, &path);
         let source = production_source(&path)?;
-        if source.contains(&version) {
+        if contains_release_version(&source, &version) {
             errors.push(format!(
                 "{relative}: workspace version `{version}` is duplicated"
             ));
@@ -467,5 +521,15 @@ mod tests {
             release_version_errors(directory.path()).unwrap(),
             vec!["crates/owner/src/lib.rs: workspace version `1.2.3` is duplicated"]
         );
+    }
+
+    #[test]
+    fn release_version_comments_are_not_treated_as_literals() {
+        let directory = repository("comment-version");
+        directory.write(
+            "crates/owner/src/lib.rs",
+            "/// release 1.2.3\n/* nested 1.2.3 /* still a comment */ */\nconst VERSION: &str = \"1.2.4\";\n",
+        );
+        assert!(release_version_errors(directory.path()).unwrap().is_empty());
     }
 }
