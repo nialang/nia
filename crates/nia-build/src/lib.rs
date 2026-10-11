@@ -3368,6 +3368,51 @@ mod tests {
         assert!(!runner.source.contains("const"));
     }
 
+    #[cfg(feature = "llvm-static")]
+    #[test]
+    fn generated_runner_checks_for_maintained_darwin_targets() {
+        let root = temp_root("generated_runner_checks_for_maintained_darwin_targets");
+        std::fs::write(
+            root.join("build.nia"),
+            include_str!("../../nia-cli/tests/cases/build/configured_success/build.nia"),
+        )
+        .expect("write build script");
+        for target_name in ["aarch64-apple-macos", "x86_64-apple-macos"] {
+            let target = nia_target::TargetConfig::parse(target_name).expect("Darwin target");
+            let toolchain = test_toolchain_layout_for(target);
+            let plan = resolve_build_invocation(
+                BuildRequest::new(Arc::clone(&toolchain)).with_root(&root),
+            )
+            .expect("build invocation");
+            let runner = build_runner_source(&plan).expect("runner source");
+            let driver = Driver::with_config(
+                DriverConfig::new(Arc::clone(&toolchain)).with_artifact_target(target),
+            );
+            driver
+                .set_source(runner.path.clone(), runner.source.clone())
+                .expect("set runner source");
+            let module_map = build_runner_module_map(&plan).expect("runner module map");
+            let request = CheckRequest::new(runner.path.clone())
+                .with_module_map(module_map)
+                .with_profile(plan.profile)
+                .with_compilation_mode(plan.compilation_mode)
+                .with_optimization(BUILD_RUNNER_OPTIMIZATION)
+                .with_package_graph_options(plan.package_graph_report.options)
+                .with_runtime(
+                    nia_toolchain::RuntimeSpec::freestanding(&toolchain, &target)
+                        .expect("Darwin runtime"),
+                );
+            driver
+                .check_entry(request.clone())
+                .result
+                .expect("Darwin runner semantic check");
+            driver
+                .emit_native_objects(EmitObjectRequest::new(request))
+                .result
+                .expect("Darwin runner backend check");
+        }
+    }
+
     #[test]
     fn build_runner_uses_host_o0_and_transports_artifact_configuration() {
         let artifact_target = foreign_target();
@@ -3407,53 +3452,6 @@ mod tests {
             encoded
                 .windows("inspect".len())
                 .any(|value| value == b"inspect")
-        );
-    }
-
-    #[cfg(feature = "llvm-static")]
-    #[test]
-    fn generated_runner_backend_validation_accepts_darwin_target() {
-        let target =
-            nia_target::TargetConfig::parse("aarch64-apple-macos").expect("parse Darwin target");
-        let toolchain = test_toolchain_layout_for(target);
-        let root = temp_root("generated_runner_darwin_backend_validation");
-        std::fs::write(
-            root.join("build.nia"),
-            "using std::build;\n\npub fn build(b: &mut build::Build) build::Error!() {\n    _ = b;\n    !()\n}\n",
-        )
-        .expect("write build script");
-        let invocation =
-            resolve_build_invocation(BuildRequest::new(Arc::clone(&toolchain)).with_root(&root))
-                .expect("resolve invocation");
-        let runner = build_runner_source(&invocation).expect("generate runner source");
-        let driver = Driver::with_config(
-            DriverConfig::new(Arc::clone(&toolchain)).with_artifact_target(target),
-        );
-        driver
-            .set_source(runner.path.clone(), runner.source.clone())
-            .expect("set generated runner source");
-        let module_map = build_runner_module_map(&invocation).expect("build runner module map");
-        let runtime = nia_toolchain::RuntimeSpec::freestanding(&toolchain, &target)
-            .expect("construct Darwin runtime");
-        let request = CheckRequest::new(runner.path.clone())
-            .with_module_map(module_map)
-            .with_profile(invocation.profile)
-            .with_compilation_mode(invocation.compilation_mode)
-            .with_optimization(BUILD_RUNNER_OPTIMIZATION)
-            .with_runtime(runtime)
-            .with_package_graph_options(invocation.package_graph_report.options);
-
-        let checked = driver.check_entry(request.clone());
-        assert!(
-            checked.result.is_ok(),
-            "{:?}",
-            checked.result.as_ref().err()
-        );
-        let objects = driver.emit_native_objects(EmitObjectRequest::new(request));
-        assert!(
-            objects.result.is_ok(),
-            "{:?}",
-            objects.result.as_ref().err()
         );
     }
 
