@@ -43,7 +43,18 @@ impl BackendValidator<'_> {
             }
             FunctionCallee::ClosureEntry { closure_id, state } => {
                 self.validate_expr(state);
-                let Some((_key, entry)) = self.closure_entry_for_call(*closure_id) else {
+                let owner_instance = match self.ty_kind(state.ty) {
+                    Some(TyKind::Pointer { elem, .. }) => match self.ty_kind(*elem) {
+                        Some(TyKind::ClosureState { owner_instance, .. }) => {
+                            owner_instance.as_ref()
+                        }
+                        _ => None,
+                    },
+                    Some(TyKind::ClosureState { owner_instance, .. }) => owner_instance.as_ref(),
+                    _ => None,
+                };
+                let Some((_key, entry)) = self.closure_entry_for_call(*closure_id, owner_instance)
+                else {
                     self.invalid_call_contract(
                         span,
                         "closure-entry",
@@ -413,14 +424,30 @@ impl BackendValidator<'_> {
     fn closure_entry_for_call(
         &self,
         closure_id: nia_ids::ClosureId,
+        owner_instance: Option<&nia_ty::ClosureOwnerInstance>,
     ) -> Option<(
         nia_backend_ir::BackendClosureEntryKey,
         &nia_backend_ir::BackendClosureEntry,
     )> {
-        let owner = self.current_closure_owner.clone()?;
+        let owner = owner_instance
+            .map(|owner| {
+                nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
+                    nia_function_ir::FunctionInstanceKey {
+                        def_id: closure_id.owner,
+                        arg_module_id: owner.arg_module_id,
+                        self_arg: owner.self_arg,
+                        args: owner.args.clone(),
+                        const_args: owner.const_args.clone(),
+                    },
+                )
+            })
+            .or_else(|| self.current_closure_owner.clone())?;
         let current = nia_backend_ir::BackendClosureEntryKey { closure_id, owner };
         if let Some(entry) = self.index.closure_entry(&current) {
             return Some((current, entry));
+        }
+        if owner_instance.is_some() {
+            return None;
         }
         let source = nia_backend_ir::BackendClosureEntryKey {
             closure_id,

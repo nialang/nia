@@ -939,6 +939,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(entry) = self.module.closure_entry_item(&current) {
             return Some((current, entry));
         }
+        if owner_instance.is_some() {
+            return None;
+        }
         let source = BackendClosureEntryKey {
             closure_id,
             owner: nia_backend_ir::BackendClosureEntryOwner::Source(closure_id.owner),
