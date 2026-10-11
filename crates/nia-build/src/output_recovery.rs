@@ -176,7 +176,7 @@ pub(crate) fn recover_interrupted_output_transactions(
     cache_dir: &Path,
     build_dir: &Path,
 ) -> Result<(), OutputRecoveryError> {
-    let root = match ensure_journal_root(build_dir) {
+    let root = match existing_journal_root(build_dir) {
         Ok(root) => root,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
@@ -693,6 +693,14 @@ fn journal_root(build_dir: &Path) -> PathBuf {
 }
 
 fn ensure_journal_root(build_dir: &Path) -> io::Result<PathBuf> {
+    journal_root_with_mode(build_dir, true)
+}
+
+fn existing_journal_root(build_dir: &Path) -> io::Result<PathBuf> {
+    journal_root_with_mode(build_dir, false)
+}
+
+fn journal_root_with_mode(build_dir: &Path, create: bool) -> io::Result<PathBuf> {
     validate_real_directory(build_dir)?;
     let mut current = build_dir.to_path_buf();
     for component in [
@@ -700,10 +708,14 @@ fn ensure_journal_root(build_dir: &Path) -> io::Result<PathBuf> {
         OUTPUT_TRANSACTION.path_component,
     ] {
         current.push(component);
-        match fs::create_dir(&current) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
+        if create {
+            match fs::create_dir(&current) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        } else {
+            fs::symlink_metadata(&current)?;
         }
         validate_real_directory(&current)?;
     }
