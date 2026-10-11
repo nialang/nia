@@ -163,7 +163,7 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
     }
     for command in [
         "tools/llvm/build-static.sh",
-        "LLVM_ENABLE_PROJECTS='clang;lld'",
+        "LLVM_TARGETS_TO_BUILD='${{ matrix.llvm_targets }}'",
         "cargo maintain check",
         "cargo fmt --all -- --check",
         "cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings",
@@ -174,5 +174,4 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
     }
     assert!(workflow.contains("MACOSX_DEPLOYMENT_TARGET: \"15.0\""));
     assert!(workflow.contains("ld64.lld"));
-    assert!(workflow.contains("${LLVM_SYS_231_PREFIX}/bin/clang"));
 }

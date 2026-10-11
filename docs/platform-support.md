@@ -90,7 +90,7 @@ The repository is exercised in these environments:
 
 The platform workflow also runs the executable and standard-library suites on
 the hosted `macos-15-intel` Intel and `macos-15` arm64 runners. It builds the
-pinned LLVM 23 toolchain from `tools/llvm/build-static.sh`, selects the corresponding
+pinned LLVM 23/LLD toolchain from `tools/llvm/build-static.sh`, selects the corresponding
 Darwin target, and publishes the Rust, LLVM, linker, runner, and host-identity
 evidence for each job. A successful workflow run is the managed execution
 evidence required by the D3 row in [the platform roadmap](platform-roadmap.md).
