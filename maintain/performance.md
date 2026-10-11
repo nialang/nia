@@ -307,10 +307,14 @@ runner-local schema version. The key includes the generated source, build-script
 library source tree, toolchain identity, host target, profile, test mode, and
 build protocol. Artifact optimization is transported through the private
 runner configuration but does not alter the runner executable: the short-lived
-host plan constructor is always compiled at O0. A hit verifies and atomically
-restores the private runner executable; the runner is still started and its
-plan is still validated and executed. Malformed or corrupted records are
-retired as misses.
+host plan constructor is always compiled at O0. A runner-cache hit verifies
+and atomically restores the private runner executable. A separate configure
+cache validates invocation identity and observed inputs before reusing the
+frozen plan; only a configure miss starts the runner. Malformed or corrupted
+records are retired as misses. `build_configure_plan` measures both paths,
+including observation validation; `build_run_runner` appears only when the
+runner executes. The baseline checks exact configure hits and runner
+executions for each transition alongside action and native-product reuse.
 
 Diagnostics and compiler timing records both use stderr. The baseline runner
 selects a complete structured timing record for the current toolchain rather

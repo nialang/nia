@@ -55,7 +55,8 @@ fn run_state(
             output.status
         ));
     }
-    let reports = parse_build_reports(&stderr, succeeded)?;
+    let reports = parse_build_reports(&stderr, succeeded)
+        .map_err(|error| format!("build state {name:?}: {error}"))?;
     if reports.actions.success != expect_success {
         return Err(format!(
             "build state {name:?} action status disagrees with process status"

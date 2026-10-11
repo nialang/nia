@@ -58,6 +58,64 @@ fn configured_build_fixtures_have_independent_tests() {
     );
 }
 
+#[test]
+fn configure_timing_distinguishes_runner_execution_from_plan_reuse() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/build/runner-only");
+    let workspace = nia_test_support::test_dir("configure-timing");
+    copy_case_tree(&fixture, &workspace);
+    for cold in [true, false] {
+        let output = support::nia_command()
+            .args([
+                "build",
+                "--timings=detail",
+                "--timings-format=json",
+                "--root",
+            ])
+            .arg(&workspace)
+            .output_timeout_in_session("measure configure timing");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stderr}");
+        let reports = stderr
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|report| {
+                report["counters"]
+                    .get("build.runner_compilations")
+                    .is_some()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(reports.len(), 1, "{stderr}");
+        let report = &reports[0];
+        let stages = report["timings"].as_array().unwrap();
+        for (name, count) in [
+            ("build_configure_plan", 1),
+            ("build_run_runner", usize::from(cold)),
+        ] {
+            assert_eq!(
+                stages
+                    .iter()
+                    .filter(|stage| stage["kind"] == "stage" && stage["name"] == name)
+                    .count(),
+                count,
+                "{stderr}"
+            );
+        }
+        for (counter, expected) in [
+            ("build.runner_executions", u64::from(cold)),
+            ("build.configure_cache_hits", u64::from(!cold)),
+            ("build.configure_cache_misses", u64::from(cold)),
+        ] {
+            assert_eq!(
+                report["counters"][counter].as_u64().unwrap_or(0),
+                expected,
+                "{stderr}"
+            );
+        }
+    }
+    assert_no_transient_runner_files(&workspace);
+}
+
 fn run_build_case(name: &str) {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
     let case_root = fixtures.join(name);

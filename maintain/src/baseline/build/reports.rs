@@ -9,7 +9,7 @@ pub(super) const BUILD_STAGE_NAMES: [&str; 5] = [
     "build_resolve_invocation",
     "build_prepare_directories",
     "build_compile_runner",
-    "build_run_runner",
+    "build_configure_plan",
     "build_execute_plan",
 ];
 
@@ -46,7 +46,7 @@ fn json_lines(stderr: &str) -> Vec<Map<String, Value>> {
 /// Extracts one outer build measurement and action report from mixed stderr.
 pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<BuildReports> {
     // stderr deliberately mixes diagnostics with JSON timing lines. The outer
-    // build invocation is identified structurally by its runner counter rather
+    // build invocation is identified structurally by its runner lookup counter rather
     // than by line order, which may change as nested compiler reports evolve.
     let mut timings = Vec::<Map<String, Value>>::new();
     for report in json_lines(stderr) {
@@ -71,7 +71,7 @@ pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<Buil
         .filter(|report| {
             report["counters"]
                 .as_object()
-                .is_some_and(|counters| counters.contains_key("build.runner_executions"))
+                .is_some_and(|counters| counters.contains_key("build.runner_compilations"))
         })
         .collect::<Vec<_>>();
     if outer.len() != 1 {
