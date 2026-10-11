@@ -1024,6 +1024,10 @@ impl LinkOptions {
         options.write_str(nia_compat::COMPILER_VERSION);
         write_optional_string(&mut options, Some(self.effective_entry(target)));
         write_executable_form(&mut options, form.as_ref());
+        if target.object_format() == ObjectFormat::Coff {
+            options.write_str("coff-timestamp");
+            options.write_u64(0);
+        }
         write_strings(&mut options, &self.library_paths);
         write_strings(&mut options, &self.rpaths);
 
@@ -1248,6 +1252,8 @@ impl LinkOptions {
         output: PathBuf,
     ) -> LinkerInvocation {
         let mut args = vec!["/NOLOGO".to_string()];
+        // Wall-clock timestamps must not distinguish clean and reused artifacts.
+        args.push("/TIMESTAMP:0".to_string());
         args.push(format!("/ENTRY:{}", self.effective_entry(target)));
         args.push("/SUBSYSTEM:CONSOLE".to_string());
         args.extend(

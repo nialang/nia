@@ -75,6 +75,7 @@ fn lld_link_invocation_uses_coff_arguments() {
         )
         .expect("link invocation");
     assert_eq!(invocation.program, "lld-link.exe");
+    assert!(invocation.args.iter().any(|arg| arg == "/TIMESTAMP:0"));
     assert!(invocation.args.iter().any(|arg| arg == "/ENTRY:_start"));
     assert!(
         invocation
