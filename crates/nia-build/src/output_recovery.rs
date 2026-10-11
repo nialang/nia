@@ -97,8 +97,7 @@ impl OutputTransactionJournal {
         staged_directory: &Path,
         committed_directory: &Path,
     ) -> io::Result<Self> {
-        let root = journal_root(build_dir);
-        fs::create_dir_all(&root)?;
+        let root = ensure_journal_root(build_dir)?;
         let header = JournalHeader {
             action: action.clone(),
             outputs: outputs.to_vec(),
@@ -177,7 +176,18 @@ pub(crate) fn recover_interrupted_output_transactions(
     cache_dir: &Path,
     build_dir: &Path,
 ) -> Result<(), OutputRecoveryError> {
-    let root = journal_root(build_dir);
+    let root = match ensure_journal_root(build_dir) {
+        Ok(root) => root,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(recovery_error(
+                build_dir,
+                build_dir,
+                "validate journal root",
+                error,
+            ));
+        }
+    };
     let entries = match fs::read_dir(&root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -675,10 +685,46 @@ fn resolve_build_path(build_dir: &Path, logical: &LogicalPath) -> PathBuf {
     path
 }
 
+#[cfg(test)]
 fn journal_root(build_dir: &Path) -> PathBuf {
     build_dir
         .join(OUTPUT_TRANSACTION_DIRECTORY)
         .join(OUTPUT_TRANSACTION.path_component)
+}
+
+fn ensure_journal_root(build_dir: &Path) -> io::Result<PathBuf> {
+    validate_real_directory(build_dir)?;
+    let mut current = build_dir.to_path_buf();
+    for component in [
+        OUTPUT_TRANSACTION_DIRECTORY,
+        OUTPUT_TRANSACTION.path_component,
+    ] {
+        current.push(component);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        validate_real_directory(&current)?;
+    }
+    Ok(current)
+}
+
+fn validate_real_directory(path: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "output transaction root must be a real directory",
+        ));
+    }
+    Ok(())
 }
 
 fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
@@ -1602,6 +1648,27 @@ mod tests {
         symlink(&target, &alias).unwrap();
 
         assert!(read_bounded(&alias).is_err());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_root_rejects_symlink_component() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-output-recovery-root-{}-{}",
+            std::process::id(),
+            JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let build_dir = root.join(".nia-build");
+        let outside = root.join("outside");
+        fs::create_dir_all(&build_dir).unwrap();
+        fs::create_dir(&outside).unwrap();
+        symlink(&outside, build_dir.join(OUTPUT_TRANSACTION_DIRECTORY)).unwrap();
+
+        assert!(ensure_journal_root(&build_dir).is_err());
 
         let _ = fs::remove_dir_all(root);
     }
