@@ -597,6 +597,18 @@ fn validates_unary_and_binary_operator_contracts_before_llvm() {
         is_readonly: false,
         elem: i32_ty,
     });
+    let mutable_slice_i32_ty = interner.test_intern(TyKind::Slice {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let readonly_slice_i32_ty = interner.test_intern(TyKind::Slice {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let mutable_slice_ptr_i32_ty = interner.test_intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: mutable_slice_i32_ty,
+    });
     let span = Span::default();
     let value = |ty| FunctionExpr {
         span,
@@ -634,6 +646,13 @@ fn validates_unary_and_binary_operator_contracts_before_llvm() {
         binary(bool_ty, i32_ty, BinaryOp::And, bool_ty),
         binary(i32_ty, i32_ty, BinaryOp::Shl, f32_ty),
         unary(i32_ty, UnaryOp::Deref, pointer_i32_ty),
+        // A mutable pointer ABI can carry a readonly slice view through
+        // dereference; validation must preserve that safe variance.
+        unary(
+            readonly_slice_i32_ty,
+            UnaryOp::Deref,
+            mutable_slice_ptr_i32_ty,
+        ),
         binary(vector_i32_ty, vector_i32_ty, BinaryOp::Add, vector_i32_ty),
     ];
     let function = BackendFunction {
@@ -707,6 +726,11 @@ fn validates_unary_and_binary_operator_contracts_before_llvm() {
             output.diagnostics
         );
     }
+    assert!(!has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "deref result type does not match its pointee"
+    ));
 }
 
 #[test]

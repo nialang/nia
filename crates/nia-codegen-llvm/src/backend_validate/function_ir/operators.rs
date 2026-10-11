@@ -48,7 +48,10 @@ impl BackendValidator<'_> {
                     _ => None,
                 };
                 if let Some(expected) = expected {
-                    if !self.same_type(result_ty, expected) {
+                    // A mutable pointer may be lowered as the storage ABI for
+                    // a readonly view. The view is safe, but the pointee
+                    // mutability bit must not be allowed to flow in reverse.
+                    if !self.projection_result_compatible(result_ty, expected) {
                         self.invalid_operator(span, "deref result type does not match its pointee");
                     }
                 } else {
