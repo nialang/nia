@@ -6,6 +6,9 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as _;
+
 use nia_compat::{formats, toolchain::BUILD_PROTOCOL};
 use nia_query::FingerprintDomain;
 
@@ -54,11 +57,22 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
         }
         return Err(error);
     }
-    let length = match cached.metadata() {
-        Ok(metadata) => metadata.len(),
+    let metadata = match fs::symlink_metadata(&cached) {
+        Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || is_reparse {
+        retire(&cached);
+        return Ok(false);
+    }
+    let length = metadata.len();
     let maximum = CACHE_HEADER_BYTES.saturating_add(MAX_RUNNER_BYTES) as u64;
     if length > maximum {
         retire(&cached);
@@ -67,6 +81,10 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
     let bytes = match read_bounded_file(&cached, CACHE_HEADER_BYTES + MAX_RUNNER_BYTES) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+            retire(&cached);
+            return Ok(false);
+        }
         Err(error) => return Err(error),
     };
     let Some(executable) = decode_record(&bytes) else {
@@ -530,6 +548,60 @@ mod tests {
         fs::write(&cache, corrupt).unwrap();
         assert!(!restore_executable(&invocation, key).expect("reject corrupt runner cache"));
         assert!(!cache.exists());
+    }
+
+    #[test]
+    fn runner_cache_rejects_non_regular_entry_as_a_miss() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-non-regular-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let key = "non-regular";
+        fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
+        fs::write(&invocation.runner_executable, b"runner executable").unwrap();
+        publish_executable(&invocation, key).expect("publish runner executable");
+        fs::remove_file(&invocation.runner_executable).unwrap();
+
+        let cache = cache_path(&invocation, key);
+        fs::remove_file(&cache).unwrap();
+        fs::create_dir(&cache).unwrap();
+
+        assert!(!restore_executable(&invocation, key).expect("reject non-regular runner cache"));
+        assert!(cache.exists(), "directories are not removed as files");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runner_cache_retires_symlink_as_a_miss() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-symlink-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let key = "symlink";
+        fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
+        fs::write(&invocation.runner_executable, b"runner executable").unwrap();
+        publish_executable(&invocation, key).expect("publish runner executable");
+        fs::remove_file(&invocation.runner_executable).unwrap();
+
+        let cache = cache_path(&invocation, key);
+        let outside = root.join("outside.cache");
+        fs::write(&outside, b"outside record").unwrap();
+        fs::remove_file(&cache).unwrap();
+        symlink(&outside, &cache).unwrap();
+
+        assert!(!restore_executable(&invocation, key).expect("reject symlink runner cache"));
+        assert!(!cache.exists(), "symlink cache record must be retired");
+        assert!(outside.exists(), "retirement must not remove the target");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
