@@ -39,7 +39,7 @@ impl ProviderFactRevision {
     /// Allocates the initial token for a new provider fact store.
     pub fn new_store() -> Option<Self> {
         let owner = NEXT_PROVIDER_FACT_OWNER
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
                 owner.checked_add(1)
             })
             .ok()?;

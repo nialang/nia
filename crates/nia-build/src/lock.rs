@@ -315,9 +315,9 @@ fn lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
         return true;
     }
     fs::symlink_metadata(path)
-        .filter(|metadata| !metadata.file_type().is_symlink())
-        .and_then(|metadata| metadata.modified())
         .ok()
+        .filter(|metadata| !metadata.file_type().is_symlink())
+        .and_then(|metadata| metadata.modified().ok())
         .and_then(|modified| modified.elapsed().ok())
         .is_some_and(|age| age >= stale_after)
 }

@@ -1514,7 +1514,7 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&executable, permissions).unwrap();
         symlink(&outside, root.join("linked")).unwrap();
-        let error = resolve_probe_executable_in_path("linked/tool", &root, &OsStr::new(""))
+        let error = resolve_probe_executable_in_path("linked/tool", &root, OsStr::new(""))
             .expect_err("symlink escape must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         fs::remove_file(root.join("linked")).unwrap();

@@ -360,7 +360,7 @@ impl QueryDbId {
     fn fresh() -> nia_ice::IceResult<Self> {
         static NEXT_QUERY_DB_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_QUERY_DB_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| nia_ice::Ice::new("query database identity space exhausted"))?;
         Ok(Self(id))
     }
@@ -373,7 +373,7 @@ impl QuerySessionId {
     fn fresh() -> nia_ice::IceResult<Self> {
         static NEXT_QUERY_SESSION_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_QUERY_SESSION_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| nia_ice::Ice::new("query session identity space exhausted"))?;
         Ok(Self(id))
     }
