@@ -237,6 +237,31 @@ pub(crate) fn ensure_cache_directory(root: &Path, directory: &Path) -> io::Resul
     Ok(())
 }
 
+/// Validates an existing cache namespace without creating missing components.
+/// A missing component remains a normal cache miss; links and reparse points
+/// are rejected before any path below them is opened.
+pub(crate) fn validate_cache_namespace(root: &Path, directory: &Path) -> io::Result<()> {
+    validate_cache_directory(root)?;
+    let relative = directory.strip_prefix(root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "cache directory is outside its invocation root",
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cache directory contains a non-normal component",
+            ));
+        }
+        current.push(component);
+        validate_cache_directory(&current)?;
+    }
+    Ok(())
+}
+
 fn validate_cache_directory(path: &Path) -> io::Result<()> {
     #[cfg(windows)]
     use std::os::windows::fs::MetadataExt as _;
@@ -477,6 +502,14 @@ impl GeneratedFileCache {
         identity: &GeneratedFileCacheIdentity,
     ) -> io::Result<GeneratedFileCacheLookup> {
         let path = self.path(identity.fingerprints);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid generated-file cache path"))?;
+        if let Err(error) = validate_cache_namespace(&self.root, parent) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let max_bytes = identity.encoded_len()?;
         let encoded = match read_bounded_cache_entry(&path, max_bytes) {
             Ok(BoundedCacheEntry::Bytes(encoded)) => encoded,
@@ -545,6 +578,14 @@ impl GeneratedFileCache {
         expected: &GeneratedFileCacheIdentity,
     ) -> io::Result<GeneratedFileCacheLookup> {
         let directory = self.key_dir(expected.fingerprints.cache_key);
+        if let Err(error) = validate_cache_namespace(&self.root, &directory) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(GeneratedFileCacheLookup::Miss(
+                    ActionCacheMissReason::NotFound,
+                ));
+            }
+            return Err(error);
+        }
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -1351,6 +1392,30 @@ mod tests {
             .expect_err("cache namespace symlink must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(!outside.join("generated-files").exists());
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_lookup_rejects_intermediate_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root("symlink-lookup");
+        let outside = test_root("symlink-lookup-outside");
+        fs::create_dir_all(&root).expect("create cache root");
+        fs::create_dir_all(&outside).expect("create outside root");
+        symlink(&outside, root.join("actions")).expect("create namespace symlink");
+
+        let cache = GeneratedFileCache::new(root.clone());
+        let result = cache.lookup(&identity(
+            &output("generated/source.nia"),
+            b"source",
+            toolchain(),
+        ));
+        let error = result.expect_err("cache lookup symlink must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(outside);

@@ -37,7 +37,8 @@ use super::{
     },
     ensure_cache_directory, fingerprint_text, logical_path_identity,
     read_bounded_compiler_cache_entry, read_bytes, read_fingerprint, read_u64,
-    validate_compiler_cache_entry_size, write_bytes, write_fingerprint, write_text,
+    validate_cache_namespace, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
+    write_text,
 };
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, lock::ScopedFileLock};
 use nia_target::TargetConfig;
@@ -236,6 +237,14 @@ impl CompilerEmitCache {
         identity: &CompilerEmitCacheIdentity,
     ) -> io::Result<CompilerEmitCacheLookup> {
         let path = self.path(identity.fingerprints);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid compiler-emit cache path"))?;
+        if let Err(error) = validate_cache_namespace(&self.root, parent) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let encoded = match read_bounded_compiler_cache_entry(&path) {
             Ok(BoundedCacheEntry::Bytes(encoded)) => encoded,
             Ok(BoundedCacheEntry::Oversized) => {
@@ -342,7 +351,16 @@ impl CompilerEmitCache {
         &self,
         expected: &CompilerEmitCacheIdentity,
     ) -> io::Result<CompilerEmitCacheLookup> {
-        let entries = match fs::read_dir(self.key_dir(expected.fingerprints.cache_key)) {
+        let directory = self.key_dir(expected.fingerprints.cache_key);
+        if let Err(error) = validate_cache_namespace(&self.root, &directory) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(CompilerEmitCacheLookup::Miss(
+                    ActionCacheMissReason::NotFound,
+                ));
+            }
+            return Err(error);
+        }
+        let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok(CompilerEmitCacheLookup::Miss(
