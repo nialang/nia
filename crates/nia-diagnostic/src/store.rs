@@ -91,7 +91,7 @@ impl DiagnosticStore {
     /// Creates an empty store with a fresh owner identity.
     pub fn new() -> nia_ice::IceResult<Self> {
         let id = NEXT_STORE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| nia_ice::Ice::new("exhausted diagnostic store identities"))?;
@@ -140,7 +140,7 @@ impl DiagnosticStore {
     fn allocate_bundle_id(&self) -> nia_ice::IceResult<DiagnosticBundleId> {
         let index = self
             .next_bundle_index
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| nia_ice::Ice::new("exhausted diagnostic bundle identities"))?;

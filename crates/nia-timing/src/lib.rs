@@ -559,7 +559,7 @@ impl TimingSession {
 fn next_timing_session_id() -> Option<u64> {
     static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_SESSION_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
         .ok()
 }
 

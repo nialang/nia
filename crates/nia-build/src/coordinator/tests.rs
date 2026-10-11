@@ -2046,6 +2046,8 @@ fn compiler_emit_cache_classifies_source_option_output_and_artifact_changes() {
     assert_eq!(
         only_compiler_emit_outcome(&changed_artifact),
         &ActionCacheOutcome::Miss(ActionCacheMissReason::Invalidated(vec![
+            crate::ActionCacheInvalidation::Sources,
+            crate::ActionCacheInvalidation::Runtime,
             crate::ActionCacheInvalidation::Artifact,
         ]))
     );
@@ -2524,6 +2526,7 @@ fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
                 resource_class: ActionResourceClass::Io,
                 environment_policy: CommandEnvironmentPolicy::Clear,
                 cache_policy: CommandCachePolicy::DeclaredInputs,
+                stdin: CommandStdin::Null,
                 program: CommandProgram::Path(
                     LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "tool.sh")
                         .unwrap(),

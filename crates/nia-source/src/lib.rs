@@ -53,7 +53,7 @@ impl SourceStoreId {
     fn fresh() -> Self {
         static NEXT_SOURCE_STORE_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_SOURCE_STORE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .unwrap_or(u32::MAX);
         Self(id)
     }

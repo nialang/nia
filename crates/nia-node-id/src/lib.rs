@@ -190,7 +190,7 @@ impl NodeStoreId {
     fn fresh() -> Self {
         static NEXT_NODE_STORE_ID: AtomicU32 = AtomicU32::new(1);
         let id = NEXT_NODE_STORE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .unwrap_or(u32::MAX);
         Self(id)
     }
@@ -437,7 +437,7 @@ impl NodeRevision {
         }
         let index = NodeIndex(
             next_index
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
                     index.checked_add(1)
                 })
                 .unwrap_or(u32::MAX),

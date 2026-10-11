@@ -430,7 +430,10 @@ mod tests {
         assert_eq!(super::release_compatibility("0.2.0-dev.1"), 2);
         assert_eq!(super::release_compatibility("0.2.0"), 2);
         assert_eq!(super::release_compatibility("0.2.1"), 2);
-        assert_eq!(super::release_compatibility(COMPILER_VERSION), PROTOCOL_EPOCH);
+        assert_eq!(
+            super::release_compatibility(COMPILER_VERSION),
+            PROTOCOL_EPOCH
+        );
         assert_eq!(PROTOCOL_EPOCH, 2);
     }
 
