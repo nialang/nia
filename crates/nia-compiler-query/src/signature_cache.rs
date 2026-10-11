@@ -13,6 +13,9 @@ use std::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as _;
+
 use nia_compat::formats::{
     CHECK_CERTIFICATE, EXECUTABLE_VALUE_REF_EDGES, EXTENSION_VALIDATION_DIAGNOSTICS,
     FRONTEND_CACHE, SIGNATURE_ITEM_SIGNATURES, SIGNATURE_TYPE_LOWERING, SIGNATURE_TYPE_RESOLUTION,
@@ -77,6 +80,139 @@ const EXTENSION_VALIDATION_DIAGNOSTICS_ENTRY_DOMAIN: FingerprintDomain =
 const EXECUTABLE_VALUE_REF_EDGES_ENTRY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.executable-value-ref-edges.entry");
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn ensure_cache_directory(root: &Path, directory: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(root) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir_all(root)?,
+        Err(error) => return Err(error),
+    }
+    validate_cache_directory(root)?;
+    let relative = directory.strip_prefix(root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "signature cache path escaped root",
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid cache path",
+            ));
+        }
+        current.push(component);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        validate_cache_directory(&current)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_cache_namespace(root: &Path, directory: &Path) -> io::Result<()> {
+    validate_cache_directory(root)?;
+    let relative = directory.strip_prefix(root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "signature cache path escaped root",
+        )
+    })?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid cache path",
+            ));
+        }
+        current.push(component);
+        validate_cache_directory(&current)?;
+    }
+    Ok(())
+}
+
+fn validate_cache_directory(path: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    let reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let reparse = false;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "signature cache namespace is not a real directory",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn open_signature_cache_file(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt as _;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt as _;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    {
+        options.share_mode(1 | 2 | 4);
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    let reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let reparse = false;
+    if !metadata.is_file() || reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "signature cache entry is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+pub(crate) fn open_signature_cache_lock(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt as _;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt as _;
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    {
+        options.share_mode(1 | 2 | 4);
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    let reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let reparse = false;
+    if !metadata.is_file() || reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "signature cache lock is not a regular file",
+        ));
+    }
+    Ok(file)
+}
 
 #[derive(Debug)]
 pub(crate) struct PersistentSignatureCache {

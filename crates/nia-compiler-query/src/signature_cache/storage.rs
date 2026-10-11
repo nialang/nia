@@ -86,7 +86,7 @@ impl PersistentSignatureCache {
             return Ok(());
         }
         let path = self.type_resolution_path(identity.key);
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(&path).is_ok() {
             self.type_resolution_directory_exists
                 .store(true, Ordering::Release);
             return Ok(());
@@ -97,7 +97,7 @@ impl PersistentSignatureCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let publication = atomic_publish(&path, &encoded, replace);
         if publication.is_ok() {
             self.type_resolution_directory_exists
@@ -175,7 +175,7 @@ impl PersistentSignatureCache {
             return Ok(());
         }
         let path = self.type_lowering_path(identity.key);
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(&path).is_ok() {
             self.type_lowering_directory_exists
                 .store(true, Ordering::Release);
             return Ok(());
@@ -191,7 +191,7 @@ impl PersistentSignatureCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let publication = atomic_publish(&path, &encoded, replace);
         if publication.is_ok() {
             self.type_lowering_directory_exists
@@ -268,7 +268,7 @@ impl PersistentSignatureCache {
             return Ok(());
         }
         let path = self.item_signatures_path(identity.key);
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(&path).is_ok() {
             self.item_signature_directory_exists
                 .store(true, Ordering::Release);
             return Ok(());
@@ -278,7 +278,7 @@ impl PersistentSignatureCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let publication = atomic_publish(&path, &encoded, replace);
         if publication.is_ok() {
             self.item_signature_directory_exists
@@ -326,7 +326,7 @@ impl PersistentSignatureCache {
         replace: bool,
     ) -> io::Result<()> {
         let path = self.extension_validation_diagnostics_path(identity.key);
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(&path).is_ok() {
             return Ok(());
         }
         let payload = encode_stable_diagnostic_bundle(diagnostics, identity.source_len)
@@ -335,7 +335,7 @@ impl PersistentSignatureCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         atomic_publish(&path, &encoded, replace)
     }
 
@@ -381,7 +381,7 @@ impl PersistentSignatureCache {
         replace: bool,
     ) -> io::Result<()> {
         let path = self.executable_value_ref_edges_path(identity.key);
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(&path).is_ok() {
             return Ok(());
         }
         let payload = encode_executable_value_ref_edges(edges, module_paths)?;
@@ -389,7 +389,7 @@ impl PersistentSignatureCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         atomic_publish(&path, &encoded, replace)
     }
 
@@ -429,7 +429,7 @@ impl PersistentSignatureCache {
         replace: bool,
     ) -> io::Result<()> {
         let path = self.check_certificate_path(identity.key);
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(&path).is_ok() {
             return Ok(());
         }
         let encoded = match encode_check_certificate(identity, &certificate) {
@@ -444,7 +444,7 @@ impl PersistentSignatureCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         atomic_publish(&path, &encoded, replace)
     }
 
@@ -523,7 +523,7 @@ fn atomic_publish(path: &Path, encoded: &[u8], replace: bool) -> io::Result<()> 
     }
     let result = (|| {
         let _lock = SignatureCacheMutationLock::acquire(path)?;
-        if !replace && path.is_file() {
+        if !replace && open_signature_cache_file(path).is_ok() {
             return Ok(());
         }
         fs::rename(&staged, path)?;
@@ -553,13 +553,9 @@ struct SignatureCacheMutationLock {
 
 impl SignatureCacheMutationLock {
     fn acquire(path: &Path) -> io::Result<Self> {
+        validate_signature_cache_parent(path)?;
         let lock_path = path.with_extension("lock");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
+        let file = open_signature_cache_lock(&lock_path)?;
         file.lock()?;
         Ok(Self { _file: file })
     }
@@ -575,7 +571,8 @@ enum SignatureCacheEntryRead {
 /// check avoids reading known oversized files, while `max + 1` also catches a
 /// file that grows after metadata was observed without an unbounded allocation.
 fn read_signature_cache_entry(path: &Path) -> io::Result<SignatureCacheEntryRead> {
-    let file = match File::open(path) {
+    validate_signature_cache_parent(path)?;
+    let file = match open_signature_cache_file(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(SignatureCacheEntryRead::NotFound);
@@ -594,6 +591,17 @@ fn read_signature_cache_entry(path: &Path) -> io::Result<SignatureCacheEntryRead
         Ok(SignatureCacheEntryRead::Oversized)
     } else {
         Ok(SignatureCacheEntryRead::Bytes(encoded))
+    }
+}
+
+fn validate_signature_cache_parent(path: &Path) -> io::Result<()> {
+    let Some(root) = path.ancestors().nth(5) else {
+        return Ok(());
+    };
+    match validate_cache_namespace(root, path.parent().unwrap_or(root)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
@@ -646,6 +654,9 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+
     static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn test_root(name: &str) -> PathBuf {
@@ -661,6 +672,39 @@ mod tests {
         validate_entry_size(MAX_ENTRY_BYTES).expect("limit itself is valid");
         let error = validate_entry_size(MAX_ENTRY_BYTES + 1).expect_err("oversized entry");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signature_cache_namespace_rejects_intermediate_symlink() {
+        let root = test_root("symlink-namespace");
+        let outside = test_root("symlink-namespace-outside");
+        fs::create_dir_all(&root).expect("create cache root");
+        fs::create_dir_all(&outside).expect("create outside root");
+        symlink(&outside, root.join("artifacts")).expect("create namespace symlink");
+
+        let error = ensure_cache_directory(&root, &root.join("artifacts/frontend"))
+            .expect_err("namespace symlink must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(!outside.join("frontend").exists());
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signature_cache_entry_open_rejects_symlink() {
+        let root = test_root("symlink-entry");
+        fs::create_dir_all(&root).expect("create cache root");
+        let target = root.join("target");
+        let link = root.join("link");
+        fs::write(&target, b"cache record").expect("write cache record");
+        symlink(&target, &link).expect("create cache symlink");
+
+        assert!(open_signature_cache_file(&link).is_err());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
