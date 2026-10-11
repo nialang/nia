@@ -305,11 +305,6 @@ pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, new
     operation.cleanupAfter(oldHandle.close()).cleanupAfter(newHandle.close())
 }
 pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
-    if followSymlinks {
-        let handle = openAtBeneath(dir, path, .ReadOnly, false, false, false, false, 0, true).?;
-        let result = handle.metadata();
-        return result.cleanupAfter(handle.close());
-    }
     let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
     let length = copyAndValidateRelative(path, &mut storage[..]).?;
     let mut finalEnd = length;
@@ -337,7 +332,10 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
         ownsCurrent = true;
         while cursor < finalStart and storage[cursor] == b'/' { cursor += 1; }
     }
-    let result = metadataAtDirent(current, &storage[finalStart]);
+    let flags = if followSymlinks { 0 } else { bindings::atSymlinkNoFollow };
+    let mut stat: bindings::DarwinStat;
+    if bindings::fstatat(current.fd, &storage[finalStart], &mut stat, flags) != 0 { return errno()!; }
+    let result = stat.asMetadata();
     if ownsCurrent { result.cleanupAfter(current.close()) } else { result }
 }
 struct SpawnPipe { read: ?FileDescriptor, write: ?FileDescriptor }
@@ -470,7 +468,7 @@ fn reapSpawnFailure(pid: ProcessId) Errno!() {
             !status => { _ = status; return !(); },
             .Interrupted! => {},
             .NoChild! => return !(),
-            error! => return error!,
+            error! => { return error!; },
         }
     }
 }

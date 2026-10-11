@@ -61,10 +61,16 @@ fn darwin_std_facade_checks_against_the_artifact_target() {
         &source,
         r#"
 using std::fs;
+using std::process;
 
 fn inspect(dir: &fs::Dir, path: fs::RelativePathView) fs::OperationError!() {
     _ = dir.metadata(path, fs::MetadataOptions::init()).?;
     !()
+}
+
+fn inspectProcess(init: process::Init) () {
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
+    _ = command.spawn();
 }
 
 fn main() () {}
