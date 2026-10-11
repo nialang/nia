@@ -345,3 +345,112 @@ pub fn main(init: process::Init) process::ExitCode!() {{
         assert!(!stdout.contains("beta-ran"), "{stdout}");
     }
 }
+
+#[test]
+fn test_only_source_edits_do_not_invalidate_ordinary_build_artifacts() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("test-only-edit-ordinary-build-cache");
+    fs::create_dir_all(workspace.join("src")).unwrap();
+    fs::create_dir_all(workspace.join("tests/src")).unwrap();
+    fs::write(
+        workspace.join("nia.package"),
+        "name = \"root\"\ndependency = tests:tests:test-only\n",
+    )
+    .unwrap();
+    fs::write(workspace.join("tests/nia.package"), "name = \"tests\"\n").unwrap();
+    fs::write(
+        workspace.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let appModule = b.addModule(build::ModuleOptions::init(
+        &"app", fs::PathView::init(&"src/main.nia"),
+    )).?;
+    let appExe = b.addExecutable(build::ExecutableOptions::init(&"app", appModule)).?;
+    let buildStep = b.addEmitExecutableStep(&"build", appExe).?;
+    b.setDefaultStep(buildStep).?;
+    !()
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        workspace.join("src/main.nia"),
+        r#"using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    process::ExitCode(0)!
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        workspace.join("tests/src/suite.nia"),
+        "not valid Nia source\n",
+    )
+    .unwrap();
+
+    let run = || {
+        let mut command = support::nia_command();
+        command
+            .args([
+                "--diagnostics-format=json",
+                "build",
+                "--print-cache",
+                "--root",
+            ])
+            .arg(&workspace);
+        command.output_timeout_in_session("build without test-only sources")
+    };
+    let cold = run();
+    assert!(
+        cold.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cold.stderr)
+    );
+    let warm = run();
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    let cache = String::from_utf8_lossy(&warm.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["kind"] == "action-cache")
+        .expect("ordinary build cache report");
+    let entries = cache["entries"].as_array().expect("cache entries");
+    assert!(!entries.is_empty(), "{cache}");
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["decision"]["status"] == "hit"),
+        "warm ordinary build did not reuse every cached artifact: {cache}"
+    );
+
+    fs::write(
+        workspace.join("tests/src/suite.nia"),
+        "still invalid Nia, but changed test-only input\n",
+    )
+    .unwrap();
+    let after_test_edit = run();
+    assert!(
+        after_test_edit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after_test_edit.stderr)
+    );
+    let cache = String::from_utf8_lossy(&after_test_edit.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["kind"] == "action-cache")
+        .expect("ordinary build cache report after test-only edit");
+    let entries = cache["entries"].as_array().expect("cache entries");
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["decision"]["status"] == "hit"),
+        "test-only source edit invalidated ordinary artifact actions: {cache}"
+    );
+}
