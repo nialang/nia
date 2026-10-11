@@ -175,3 +175,20 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
     assert!(workflow.contains("MACOSX_DEPLOYMENT_TARGET: \"15.0\""));
     assert!(workflow.contains("ld64.lld"));
 }
+
+#[test]
+fn platform_evidence_records_suite_outcome_and_run_identity() {
+    let workflow = workflow("platform.yml");
+    for field in [
+        "id: darwin-suite",
+        "printf 'suite_status=%s\\n' '${{ steps.darwin-suite.outcome }}'",
+        "printf 'commit=%s\\n' \"${GITHUB_SHA}\"",
+        "printf 'run_id=%s\\n' \"${GITHUB_RUN_ID}\"",
+        "printf 'job=%s\\n' \"${GITHUB_JOB}\"",
+        "printf 'workflow=%s\\n' \"${GITHUB_WORKFLOW}\"",
+        "if: always()",
+        "actions/upload-artifact@v7",
+    ] {
+        assert!(workflow.contains(field), "missing evidence field {field}");
+    }
+}
