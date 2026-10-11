@@ -58,6 +58,33 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn monomorphic_closure_passed_to_generic_callable_keeps_source_entry() {
+    let root = common::temp_dir("monomorphic_closure_generic_callable_source_entry");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn apply[F](callback: F) i32
+where F: Fn() i32
+{
+    callback()
+}
+
+fn main() i32 {
+    let callback = \ -> { 7 };
+    apply(callback)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn known_local_function_pointer_is_devirtualized() {
     let root = common::temp_dir("known_local_function_pointer_devirtualized");
     let main = root.join("main.nia");
