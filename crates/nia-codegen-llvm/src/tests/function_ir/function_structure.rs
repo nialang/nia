@@ -661,6 +661,22 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
         is_readonly: true,
         elem: state_ty,
     });
+    let instance_state_ty = interner.test_intern(TyKind::ClosureState {
+        closure_id,
+        owner_instance: Some(nia_ty::ClosureOwnerInstance {
+            arg_module_id: module_id,
+            self_arg: None,
+            args: vec![i32_ty],
+            const_args: Vec::new(),
+        }),
+        captures: Vec::new(),
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let instance_state_pointer_ty = interner.test_intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: instance_state_ty,
+    });
     let callable_ty = interner.test_intern(TyKind::Callable {
         is_readonly: true,
         params: vec![i32_ty],
@@ -739,6 +755,21 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
                                 state: Box::new(FunctionExpr {
                                     span,
                                     ty: state_pointer_ty,
+                                    kind: FunctionExprKind::Null,
+                                }),
+                            },
+                            args: vec![integer()],
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::ClosureEntry {
+                                closure_id,
+                                state: Box::new(FunctionExpr {
+                                    span,
+                                    ty: instance_state_pointer_ty,
                                     kind: FunctionExprKind::Null,
                                 }),
                             },
@@ -944,4 +975,16 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
             output.diagnostics
         );
     }
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains(
+                "closure-entry call has an invalid ABI contract: call references a missing generated entry"
+            ))
+            .count()
+            >= 2,
+        "concrete closure owner incorrectly reused the source entry: {:?}",
+        output.diagnostics
+    );
 }
