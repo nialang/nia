@@ -266,7 +266,9 @@ cross-thread deadlocks before blocking.
 Owns source file loading, module discovery, and module-to-source mapping. Provides
 loader facade, source manifests, and module activation. Resolves logical module
 paths to physical source files. Builds the compiler source-input manifest with
-content fingerprints.
+content fingerprints. Its persistent frontend products are disposable cache
+records keyed by loader identities; their namespace directories and records are
+validated beneath the invocation cache root before publication or reuse.
 
 ### `nia-loader-contract`
 
@@ -495,7 +497,9 @@ Loads source files, builds the using graph, computes public surfaces, and schedu
 whole-program checking and codegen by requesting query products. Owns orchestration
 across modules, not semantic interpretation. The using graph is acyclic; semantic
 cycles inside loaded modules are diagnosed by the query or crate that owns the
-affected construct.
+affected construct. Its object/LTO, archive, and linked-executable caches own
+only validated disposable products; each cache validates its namespace parents and
+opens records and mutation locks without following links or reparse points.
 
 ## 6. Type Frontend
 
