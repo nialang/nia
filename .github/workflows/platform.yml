@@ -1,0 +1,138 @@
+name: platform correctness
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/platform.yml"
+      - ".cargo/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "examples/**"
+      - "lib/**"
+      - "maintain/**"
+      - "tools/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/platform.yml"
+      - ".cargo/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/**"
+      - "examples/**"
+      - "lib/**"
+      - "maintain/**"
+      - "tools/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  darwin:
+    name: Darwin correctness (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-macos
+          - name: arm64
+            runner: macos-15
+            target: aarch64-apple-macos
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+      LLVM_SOURCE_ROOT: ${{ github.workspace }}/target/llvm-source
+      LLVM_BUILD_ROOT: ${{ github.workspace }}/target/llvm-static/build
+      LLVM_INSTALL_ROOT: ${{ github.workspace }}/target/llvm-static/install
+      LLVM_SYS_231_PREFIX: ${{ github.workspace }}/target/llvm-static/install
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt --no-self-update
+          rustup default stable
+          rustc --version --verbose
+          cargo --version
+
+      - name: Report Darwin toolchain identity
+        run: |
+          sw_vers
+          uname -m
+          xcrun --sdk macosx --show-sdk-path
+          clang --version
+          xcodebuild -version
+
+      - name: Cache static LLVM prefix
+        id: llvm-cache
+        uses: actions/cache@v6
+        with:
+          path: target/llvm-static/install
+          key: nia-llvm-23.1.2-clang-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.sh') }}
+
+      - name: Build pinned static LLVM
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        run: |
+          LLVM_ENABLE_PROJECTS='clang;lld' LLVM_BUILD_JOBS=2 tools/llvm/build-static.sh
+
+      - name: Verify static LLVM and Darwin linker
+        run: |
+          case "${{ matrix.target }}:$(uname -m)" in
+            x86_64-apple-macos:x86_64|aarch64-apple-macos:arm64) ;;
+            *) echo "runner architecture does not match target: ${{ matrix.target }} on $(uname -m)" >&2; exit 1 ;;
+          esac
+          test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)" = "23.1.2"
+          test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --shared-mode)" = "static"
+          test -x "${LLVM_SYS_231_PREFIX}/bin/clang"
+          test -x "${LLVM_SYS_231_PREFIX}/bin/ld64.lld"
+          "${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version
+          "${LLVM_SYS_231_PREFIX}/bin/clang" --version
+          "${LLVM_SYS_231_PREFIX}/bin/ld64.lld" --version
+          echo "${LLVM_SYS_231_PREFIX}/bin" >> "${GITHUB_PATH}"
+
+      - name: Check maintenance tooling
+        run: cargo maintain check
+
+      - name: Format and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings
+
+      - name: Run Darwin executable and standard-library suites
+        run: |
+          cargo test -p nia-cli --tests --no-default-features --features llvm-static -- --nocapture
+
+      - name: Record Darwin execution evidence
+        if: always()
+        run: |
+          mkdir -p target/platform-evidence
+          {
+            printf 'runner=%s\n' '${{ matrix.runner }}'
+            printf 'target=%s\n' '${{ matrix.target }}'
+            printf 'host_arch=%s\n' "$(uname -m)"
+            printf 'rust=%s\n' "$(rustc --version)"
+            printf 'llvm=%s\n' "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)"
+            printf 'linker=%s\n' "$("${LLVM_SYS_231_PREFIX}/bin/ld64.lld" --version | head -n 1)"
+          } > target/platform-evidence/${{ matrix.name }}.txt
+
+      - name: Publish Darwin execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-darwin-evidence-${{ matrix.name }}
+          path: target/platform-evidence/${{ matrix.name }}.txt
+          if-no-files-found: warn
+          retention-days: 30

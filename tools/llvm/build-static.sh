@@ -13,6 +13,7 @@ llvm_build_root="${LLVM_BUILD_ROOT:-${repo_root}/target/llvm-static/build}"
 llvm_install_root="${LLVM_INSTALL_ROOT:-${repo_root}/target/llvm-static/install}"
 # Every architecture in the maintained target matrix (see nia-target).
 llvm_targets="${LLVM_TARGETS_TO_BUILD:-X86;AArch64}"
+llvm_projects="${LLVM_ENABLE_PROJECTS:-lld}"
 detected_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
 default_jobs="${detected_jobs}"
 llvm_jobs="${LLVM_BUILD_JOBS:-${default_jobs}}"
@@ -40,7 +41,7 @@ cmake -S "${llvm_source_root}/llvm" -B "${llvm_build_root}" \
     -G "${generator}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="${llvm_install_root}" \
-    -DLLVM_ENABLE_PROJECTS=lld \
+    -DLLVM_ENABLE_PROJECTS="${llvm_projects}" \
     -DLLVM_TARGETS_TO_BUILD="${llvm_targets}" \
     -DLLVM_BUILD_LLVM_DYLIB=OFF \
     -DLLVM_LINK_LLVM_DYLIB=OFF \
