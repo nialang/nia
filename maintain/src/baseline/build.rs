@@ -54,7 +54,7 @@ impl Options {
     /// Creates options using repository-standard executable, fixture, and output paths.
     pub fn for_repository(root: &Path) -> Self {
         Self {
-            nia: root.join("target/release/nia"),
+            nia: super::repository_compiler(root),
             resource_root: root.join("lib"),
             fixture: root.join("benchmarks/build/representative"),
             runner_fixture: root.join("benchmarks/build/runner-only"),
@@ -70,7 +70,7 @@ impl Options {
 /// Runs the representative build matrix and writes its report.
 pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let requested_nia = absolute_path(&options.nia)?;
-    let default_compiler = root.join("target/release/nia");
+    let default_compiler = super::repository_compiler(root);
     let compiler_built_by_baseline = options.build_compiler && requested_nia == default_compiler;
     if compiler_built_by_baseline {
         let status = std::process::Command::new("cargo")
