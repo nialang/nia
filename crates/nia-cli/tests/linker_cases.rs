@@ -14,6 +14,35 @@ use nia_test_support::{
 use nia_test_support::CommandStatusExt;
 
 #[test]
+#[cfg(windows)]
+fn coff_executables_have_reproducible_timestamps_and_bytes() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("coff-reproducibility");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/hello.nia");
+    let mut artifacts = Vec::new();
+    for name in ["first.exe", "second.exe"] {
+        let executable = root.join(name);
+        let output = support::nia_command()
+            .args(["emit", "--exe"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable)
+            .output_timeout_in_session("emit reproducible COFF executable");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let bytes = std::fs::read(executable).unwrap();
+        let header = u32::from_le_bytes(bytes[60..64].try_into().unwrap()) as usize;
+        assert_eq!(&bytes[header..header + 4], b"PE\0\0");
+        assert_eq!(&bytes[header + 8..header + 12], &[0; 4]);
+        artifacts.push(bytes);
+    }
+    assert_eq!(artifacts[0], artifacts[1]);
+}
+
+#[test]
 fn linker_cases_match_expectations() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/linker");
