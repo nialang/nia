@@ -28,11 +28,14 @@ use nia_driver::{
     LinkTimeOptimization, ProgramDiagnostic, TimingMode,
 };
 use nia_imports::ModuleMap;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_source::SourcePath;
 use nia_target_config::{BuildProfile, CompilationMode};
 use nia_timing::{TimingFormat, TimingOptions};
 
 const RUNNER_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
+const REPORT_ENVIRONMENT_VALUE_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.report.environment-value");
 
 fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
     usize::try_from(remaining).map_or(buffer_len, |remaining| remaining.min(buffer_len))
@@ -1798,10 +1801,28 @@ fn command_json_value(command: &CommandAction) -> serde_json::Value {
         "working_directory": logical_path_json(&command.working_directory),
         "environment_policy": environment_policy_name(command.environment_policy),
         "cache_policy": cache_policy_name(command.cache_policy),
-        "environment": command.environment.iter().map(|input| serde_json::json!({ "name": input.name, "value": input.value })).collect::<Vec<_>>(),
+        "environment": command.environment.iter().map(environment_json_value).collect::<Vec<_>>(),
         "inputs": command.inputs.iter().map(logical_path_json).collect::<Vec<_>>(),
         "outputs": command.outputs.iter().map(logical_path_json).collect::<Vec<_>>(),
     })
+}
+
+fn environment_json_value(input: &EnvironmentInput) -> serde_json::Value {
+    let value = match &input.value {
+        Some(value) => {
+            let mut builder = QueryFingerprintBuilder::new(REPORT_ENVIRONMENT_VALUE_DOMAIN);
+            builder.write_str(&input.name);
+            builder.write_str(value);
+            let [first, second] = builder.finish().parts();
+            serde_json::json!({
+                "kind": "explicit",
+                "bytes": value.len(),
+                "fingerprint": format!("{first:016x}{second:016x}"),
+            })
+        }
+        None => serde_json::json!({ "kind": "inherited" }),
+    };
+    serde_json::json!({ "name": input.name, "value": value })
 }
 
 fn action_outputs_json(plan: &BuildPlan, action: &PlanAction) -> Vec<serde_json::Value> {
@@ -2844,6 +2865,27 @@ fn time_build_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -
 mod tests {
     use super::*;
     use std::sync::OnceLock;
+
+    #[test]
+    fn build_reports_redact_declared_environment_values() {
+        let explicit = environment_json_value(&EnvironmentInput {
+            name: "NIA_SECRET".to_string(),
+            value: Some("super-secret-value".to_string()),
+        });
+        let encoded = explicit.to_string();
+        assert_eq!(explicit["name"], "NIA_SECRET");
+        assert_eq!(explicit["value"]["kind"], "explicit");
+        assert_eq!(explicit["value"]["bytes"], 18);
+        assert!(explicit["value"]["fingerprint"].as_str().is_some());
+        assert!(!encoded.contains("super-secret-value"), "{encoded}");
+
+        let inherited = environment_json_value(&EnvironmentInput {
+            name: "NIA_INHERITED".to_string(),
+            value: None,
+        });
+        assert_eq!(inherited["value"]["kind"], "inherited");
+        assert!(inherited["value"].get("fingerprint").is_none());
+    }
 
     #[test]
     fn runner_completion_retains_output_and_failure_stage() {
