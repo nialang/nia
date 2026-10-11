@@ -9,7 +9,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use nia_compat::{formats, toolchain::BUILD_PROTOCOL};
 use nia_query::FingerprintDomain;
 
-use crate::{BuildError, BuildInvocation, BuildRunnerSource, action_cache::open_cache_entry};
+use crate::{
+    BuildError, BuildInvocation, BuildRunnerSource,
+    action_cache::{ensure_cache_directory, open_cache_entry},
+};
 
 const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
 const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3::OUT_LEN;
@@ -61,6 +64,12 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
         retire(&cached);
         return Ok(false);
     };
+    fs::create_dir_all(
+        invocation
+            .runner_executable
+            .parent()
+            .expect("runner executable parent"),
+    )?;
     install_file(&invocation.runner_executable, executable, true)?;
     Ok(true)
 }
@@ -73,7 +82,12 @@ pub(super) fn publish_executable(invocation: &BuildInvocation, key: &str) -> io:
     record.extend_from_slice(&(executable.len() as u64).to_le_bytes());
     record.extend_from_slice(blake3::hash(&executable).as_bytes());
     record.extend_from_slice(&executable);
-    install_file(&cache_path(invocation, key), &record, false)
+    let path = cache_path(invocation, key);
+    ensure_cache_directory(
+        &invocation.cache_dir,
+        path.parent().expect("runner cache parent"),
+    )?;
+    install_file(&path, &record, false)
 }
 
 fn decode_record(bytes: &[u8]) -> Option<&[u8]> {
@@ -106,7 +120,6 @@ fn install_file(path: &std::path::Path, bytes: &[u8], executable: bool) -> io::R
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("runner cache path has no parent"))?;
-    fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(
         ".runner-cache-{}-{}",
         std::process::id(),

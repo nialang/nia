@@ -24,9 +24,10 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE,
-    MAX_COMPILER_CACHE_ENTRY_BYTES, fingerprint_text, logical_path_identity,
-    package_roots_identity, read_bounded_compiler_cache_entry, read_bytes, read_fingerprint,
-    read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint, write_text,
+    MAX_COMPILER_CACHE_ENTRY_BYTES, ensure_cache_directory, fingerprint_text,
+    logical_path_identity, package_roots_identity, read_bounded_compiler_cache_entry, read_bytes,
+    read_fingerprint, read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
+    write_text,
 };
 use crate::{ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, lock::ScopedFileLock};
 use nia_target::TargetConfig;
@@ -289,7 +290,7 @@ impl CompilerCheckCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid compiler-check cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = parent.join(format!(
             ".nia-compiler-check-cache-{}-{}.tmp",
             std::process::id(),
@@ -476,8 +477,9 @@ impl CompilerCheckCache {
             .join("coordination")
             .join("action-cache-mutations")
             .join("compiler-checks")
-            .join(COMPILER_CHECK_CACHE.path_component)
-            .join(format!("{}.lock", fingerprint_text(builder.finish())));
+            .join(COMPILER_CHECK_CACHE.path_component);
+        ensure_cache_directory(&self.root, &lock)?;
+        let lock = lock.join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
     }

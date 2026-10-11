@@ -11,7 +11,8 @@ use nia_compat::formats;
 use nia_query::FingerprintDomain;
 
 use crate::{
-    BuildInvocation, ConfigureManifest, ObservationValidation, action_cache::open_cache_entry,
+    BuildInvocation, ConfigureManifest, ObservationValidation,
+    action_cache::{ensure_cache_directory, open_cache_entry},
 };
 
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
@@ -285,7 +286,11 @@ impl ConfigureCache {
         bytes.extend_from_slice(&manifest);
         let path = self.path(identity);
         let parent = path.parent().expect("configure cache path has parent");
-        fs::create_dir_all(parent)?;
+        let cache_root = self
+            .root
+            .parent()
+            .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
+        ensure_cache_directory(cache_root, parent)?;
         let temporary = parent.join(format!(
             ".{}.tmp-{}",
             path.file_name().unwrap().to_string_lossy(),

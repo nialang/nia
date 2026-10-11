@@ -35,9 +35,9 @@ use super::{
         SourceRecord, action_fingerprint, bytes_fingerprint, integer_fingerprint,
         invalidations as compiler_invalidations, read_tag, source_records_fingerprint,
     },
-    fingerprint_text, logical_path_identity, read_bounded_compiler_cache_entry, read_bytes,
-    read_fingerprint, read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
-    write_text,
+    ensure_cache_directory, fingerprint_text, logical_path_identity,
+    read_bounded_compiler_cache_entry, read_bytes, read_fingerprint, read_u64,
+    validate_compiler_cache_entry_size, write_bytes, write_fingerprint, write_text,
 };
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, lock::ScopedFileLock};
 use nia_target::TargetConfig;
@@ -283,7 +283,7 @@ impl CompilerEmitCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid compiler-emit cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = parent.join(format!(
             ".nia-compiler-emit-cache-{}-{}.tmp",
             std::process::id(),
@@ -496,8 +496,9 @@ impl CompilerEmitCache {
             .join("coordination")
             .join("action-cache-mutations")
             .join("compiler-emits")
-            .join(COMPILER_EMIT_CACHE.path_component)
-            .join(format!("{}.lock", fingerprint_text(builder.finish())));
+            .join(COMPILER_EMIT_CACHE.path_component);
+        ensure_cache_directory(&self.root, &lock)?;
+        let lock = lock.join(format!("{}.lock", fingerprint_text(builder.finish())));
         ScopedFileLock::acquire_interruptible(lock, || false)?
             .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
     }
