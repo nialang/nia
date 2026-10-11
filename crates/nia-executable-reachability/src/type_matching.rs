@@ -311,16 +311,21 @@ fn match_type_pattern_inner<'a>(
         },
         TyKind::ClosureState {
             closure_id,
+            owner_instance,
             captures,
             params,
             return_type,
+            ..
         } => match actual.kind() {
             Some(TyKind::ClosureState {
                 closure_id: actual_id,
+                owner_instance: actual_owner_instance,
                 captures: actual_captures,
                 params: actual_params,
                 return_type: actual_return,
+                ..
             }) if closure_id == actual_id
+                && (owner_instance.is_none() || owner_instance == actual_owner_instance)
                 && captures.len() == actual_captures.len()
                 && params.len() == actual_params.len() =>
             {
@@ -1154,18 +1159,23 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
         (
             Some(TyKind::ClosureState {
                 closure_id: left_id,
+                owner_instance: left_owner,
                 captures: left_captures,
                 params: left_params,
                 return_type: left_return,
+                ..
             }),
             Some(TyKind::ClosureState {
                 closure_id: right_id,
+                owner_instance: right_owner,
                 captures: right_captures,
                 params: right_params,
                 return_type: right_return,
+                ..
             }),
         ) => {
             left_id == right_id
+                && left_owner == right_owner
                 && typed_ref_slices_equivalent(
                     left.store,
                     left_captures,
@@ -2075,6 +2085,7 @@ mod tests {
                 },
                 ordinal: 0,
             },
+            owner_instance: None,
             captures: vec![array],
             params: vec![array],
             return_type: array,

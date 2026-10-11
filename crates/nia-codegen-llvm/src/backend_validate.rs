@@ -1253,13 +1253,14 @@ impl BackendValidator<'_> {
                 "closure entry state type does not match its identity and ABI signature",
             ));
         }
-        let state_pointer_matches = matches!(
-            self.index.type_store().get(entry.abi.state_pointer_type),
+        let state_pointer_matches = match self.index.type_store().get(entry.abi.state_pointer_type)
+        {
             Some(TyKind::Pointer {
                 is_readonly: true,
                 elem,
-            }) if *elem == entry.abi.state_type
-        );
+            }) => self.same_type(*elem, entry.abi.state_type),
+            _ => false,
+        };
         if !state_pointer_matches {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,

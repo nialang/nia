@@ -1920,26 +1920,19 @@ impl<'a> BodyChecker<'a> {
                             return_type,
                         })
                     });
-                let callable_pattern_is_concrete = callable_pattern.is_some_and(|pattern| {
-                    !self.type_contains_generic_param(pattern)
-                        && !self.type_contains_const_generic_param(pattern)
-                });
-                if callable_pattern_is_concrete {
-                    let expected = callable_pattern.expect("checked callable pattern");
+                let substituted_param =
+                    param.map(|param| self.substitute_generics(param, substitutions));
+                let expected = substituted_param
+                    .and_then(|param| {
+                        (!self.type_contains_generic_param(param)
+                            && !self.type_contains_const_generic_param(param))
+                        .then_some(param)
+                    })
+                    .or(callable_pattern);
+                if let Some(expected) = expected {
                     Some(self.check_expr_with_expected(arg, Some(expected)))
-                } else if let Some(expected) =
-                    param.map(|param| self.substitute_generics(param, substitutions))
-                {
-                    let expected = if self.type_contains_generic_param(expected) {
-                        None
-                    } else {
-                        Some(expected)
-                    };
-                    match expected {
-                        Some(expected) => Some(self.check_expr_with_expected(arg, Some(expected))),
-                        None if inferred_from_closure && !closure_params_ready => None,
-                        None => Some(self.check_expr(arg)),
-                    }
+                } else if inferred_from_closure && !closure_params_ready {
+                    None
                 } else {
                     Some(self.check_expr(arg))
                 }

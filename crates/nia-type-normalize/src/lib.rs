@@ -110,6 +110,7 @@ impl<'a> TypeNormalizer<'a, '_> {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
             Some(TyKind::ClosureState {
                 closure_id,
+                owner_instance,
                 captures,
                 params,
                 return_type,
@@ -123,8 +124,26 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .map(|param| self.normalize_ty(param, stack))
                     .collect();
                 let return_type = self.normalize_ty(return_type, stack);
+                let owner_instance = owner_instance.map(|owner| nia_ty::ClosureOwnerInstance {
+                    arg_module_id: owner.arg_module_id,
+                    self_arg: owner.self_arg.map(|ty| self.normalize_ty(ty, stack)),
+                    args: owner
+                        .args
+                        .into_iter()
+                        .map(|ty| self.normalize_ty(ty, stack))
+                        .collect(),
+                    const_args: owner
+                        .const_args
+                        .into_iter()
+                        .map(|mut arg| {
+                            arg.ty = self.normalize_ty(arg.ty, stack);
+                            arg
+                        })
+                        .collect(),
+                });
                 self.intern(TyKind::ClosureState {
                     closure_id,
+                    owner_instance,
                     captures,
                     params,
                     return_type,
@@ -477,6 +496,7 @@ impl<'a> TypeNormalizer<'a, '_> {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
             Some(TyKind::ClosureState {
                 closure_id,
+                owner_instance,
                 captures,
                 params,
                 return_type,
@@ -493,8 +513,29 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let return_type =
                     self.normalize_ty_with_substitutions(return_type, substitutions, stack);
+                let owner_instance = owner_instance.map(|owner| nia_ty::ClosureOwnerInstance {
+                    arg_module_id: owner.arg_module_id,
+                    self_arg: owner
+                        .self_arg
+                        .map(|ty| self.normalize_ty_with_substitutions(ty, substitutions, stack)),
+                    args: owner
+                        .args
+                        .into_iter()
+                        .map(|ty| self.normalize_ty_with_substitutions(ty, substitutions, stack))
+                        .collect(),
+                    const_args: owner
+                        .const_args
+                        .into_iter()
+                        .map(|mut arg| {
+                            arg.ty =
+                                self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
+                            arg
+                        })
+                        .collect(),
+                });
                 self.intern(TyKind::ClosureState {
                     closure_id,
+                    owner_instance,
                     captures,
                     params,
                     return_type,

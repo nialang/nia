@@ -426,6 +426,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     };
     let state_ty = interner.test_intern(TyKind::ClosureState {
         closure_id,
+        owner_instance: None,
         captures: Vec::new(),
         params: vec![i32_ty, i32_ty],
         return_type: i32_ty,
@@ -651,6 +652,7 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
     };
     let state_ty = interner.test_intern(TyKind::ClosureState {
         closure_id,
+        owner_instance: None,
         captures: Vec::new(),
         params: vec![i32_ty],
         return_type: i32_ty,

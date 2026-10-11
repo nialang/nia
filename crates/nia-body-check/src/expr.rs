@@ -633,6 +633,7 @@ impl<'a> BodyChecker<'a> {
         self.current_param_locals = previous_params;
         self.interner.intern(TyKind::ClosureState {
             closure_id,
+            owner_instance: None,
             captures: capture_types,
             params: param_types,
             return_type,

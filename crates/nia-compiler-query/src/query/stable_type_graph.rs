@@ -22,6 +22,48 @@ pub(super) fn stable_primitive_from_tag(tag: u8) -> Option<nia_ty::PrimitiveTy> 
 }
 use super::*;
 
+struct CurrentPackageResolver<'a> {
+    database: &'a CompilerDatabase,
+    package: PackageId,
+}
+
+impl StableDefinitionPackageResolver for CurrentPackageResolver<'_> {
+    fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId> {
+        let graph = self.database.db.get(ModuleGraphQuery)?;
+        let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+            return Err(self.database.db.invalid_input(
+                &ModuleGraphQuery,
+                "entry module has no package root; provide an external definition resolver"
+                    .to_string(),
+            ));
+        };
+        if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+            return Err(self.database.db.invalid_input(
+                &ModuleGraphQuery,
+                format!("nominal type belongs to an external package; provide an external definition resolver: {def_id:?}"),
+            ));
+        }
+        Ok(self.package.clone())
+    }
+
+    fn package_for_module(&self, module_id: nia_ids::ModuleId) -> QueryResult<PackageId> {
+        let graph = self.database.db.get(ModuleGraphQuery)?;
+        let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+            return Err(self.database.db.invalid_input(
+                &ModuleGraphQuery,
+                "entry module has no package root; provide an external module resolver".to_string(),
+            ));
+        };
+        if graph.current_package_root(module_id) != Some(entry_root) {
+            return Err(self.database.db.invalid_input(
+                &ModuleGraphQuery,
+                format!("module belongs to an external package; provide an external module resolver: {module_id:?}"),
+            ));
+        }
+        Ok(self.package.clone())
+    }
+}
+
 pub(super) struct StableTypeGraphEncoder<'db> {
     pub(super) db: &'db QueryDb<CompilerContext>,
     pub(super) graph: &'db ModuleGraphSnapshot,
@@ -36,6 +78,19 @@ pub(super) struct StableTypeGraphEncoder<'db> {
 }
 
 impl StableTypeGraphEncoder<'_> {
+    fn stable_module(&self, module_id: nia_ids::ModuleId) -> QueryResult<StableModuleId> {
+        let module = self.graph.stable_key(module_id).ok_or_else(|| {
+            self.db.invalid_input(
+                &ModuleGraphQuery,
+                "closure owner instance has no stable module identity".to_string(),
+            )
+        })?;
+        Ok(StableModuleId {
+            package: self.resolver.package_for_module(module_id)?,
+            path: module.source_identity().normalized_path().to_owned(),
+        })
+    }
+
     pub(super) fn encode(&mut self, ty: nia_ids::InternedTyId) -> QueryResult<u32> {
         if let Some(index) = self.indexes.get(&ty) {
             return Ok(*index);
@@ -260,9 +315,30 @@ impl StableTypeGraphEncoder<'_> {
                 captures,
                 params,
                 return_type,
+                owner_instance,
             } => StableTypeNode::ClosureState {
                 owner: self.definition(closure_id.owner)?,
                 ordinal: closure_id.ordinal,
+                owner_instance: owner_instance
+                    .as_ref()
+                    .map(|owner| -> QueryResult<_> {
+                        Ok(StableClosureOwnerInstance {
+                            arg_module: self.stable_module(owner.arg_module_id)?,
+                            self_arg: owner.self_arg.map(|ty| self.encode(ty)).transpose()?,
+                            args: owner
+                                .args
+                                .iter()
+                                .copied()
+                                .map(|ty| self.encode(ty))
+                                .collect::<QueryResult<Vec<_>>>()?,
+                            const_args: owner
+                                .const_args
+                                .iter()
+                                .map(|arg| self.encode_const_argument(arg))
+                                .collect::<QueryResult<Vec<_>>>()?,
+                        })
+                    })
+                    .transpose()?,
                 captures: captures
                     .into_iter()
                     .map(|capture| self.encode(capture))
@@ -550,10 +626,35 @@ impl StableTypeGraphEncoder<'_> {
                 captures,
                 params,
                 return_type,
+                owner_instance,
             } => {
                 key.push(29);
                 append_definition_key(&mut key, &self.definition(closure_id.owner)?);
                 key.extend_from_slice(&closure_id.ordinal.to_le_bytes());
+                if let Some(owner) = owner_instance {
+                    key.push(1);
+                    let module = self.stable_module(owner.arg_module_id)?;
+                    append_bytes(&mut key, module.package.canonical_text().as_bytes());
+                    key.push(0);
+                    append_bytes(&mut key, module.path.as_bytes());
+                    match owner.self_arg {
+                        Some(ty) => {
+                            key.push(1);
+                            append_bytes(&mut key, &self.canonical_key(ty)?);
+                        }
+                        None => key.push(0),
+                    }
+                    append_len(&mut key, owner.args.len());
+                    for arg in owner.args {
+                        append_bytes(&mut key, &self.canonical_key(arg)?);
+                    }
+                    append_len(&mut key, owner.const_args.len());
+                    for arg in &owner.const_args {
+                        self.append_stable_const_key(&mut key, arg)?;
+                    }
+                } else {
+                    key.push(0);
+                }
                 append_len(&mut key, captures.len());
                 for capture in captures {
                     append_bytes(&mut key, &self.canonical_key(capture)?);
@@ -1291,6 +1392,7 @@ impl CompilerDatabase {
                 StableTypeNode::ClosureState {
                     owner,
                     ordinal,
+                    owner_instance,
                     captures,
                     parameters,
                     result,
@@ -1299,6 +1401,21 @@ impl CompilerDatabase {
                         owner: resolver.definition_for_identity(owner)?,
                         ordinal: *ordinal,
                     },
+                    owner_instance: owner_instance
+                        .as_ref()
+                        .map(|owner| -> QueryResult<_> {
+                            Ok(nia_ty::ClosureOwnerInstance {
+                                arg_module_id: resolver.module_for_identity(&owner.arg_module)?,
+                                self_arg: owner
+                                    .self_arg
+                                    .map(|index| self.rehydrated_type(&types, index))
+                                    .transpose()?,
+                                args: self.rehydrated_types(&types, &owner.args)?,
+                                const_args: self
+                                    .rehydrate_stable_const_args(&owner.const_args, &types)?,
+                            })
+                        })
+                        .transpose()?,
                     captures: self.rehydrated_types(&types, captures)?,
                     params: self.rehydrated_types(&types, parameters)?,
                     return_type: self.rehydrated_type(&types, *result)?,
@@ -1319,23 +1436,13 @@ impl CompilerDatabase {
         package: PackageId,
         roots: &[nia_ids::InternedTyId],
     ) -> QueryResult<StableTypeGraph> {
-        self.stable_type_graph_for_roots_with_resolver(roots, &|def_id: GlobalDefId| {
-            let graph = self.db.get(ModuleGraphQuery)?;
-            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    "entry module has no package root; provide an external definition resolver"
-                        .to_string(),
-                ));
-            };
-            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
-                return Err(self.db.invalid_input(
-                    &ModuleGraphQuery,
-                    format!("nominal type belongs to an external package; provide an external definition resolver: {def_id:?}"),
-                ));
-            }
-            Ok(package.clone())
-        })
+        self.stable_type_graph_for_roots_with_resolver(
+            roots,
+            &CurrentPackageResolver {
+                database: self,
+                package,
+            },
+        )
     }
 
     /// Converts session-owned type roots into a package-stable type graph using
@@ -1344,7 +1451,8 @@ impl CompilerDatabase {
     /// The resolver is required for every nominal definition, including
     /// definitions from the current package. This keeps external identities
     /// explicit and prevents dependency types from being silently attributed
-    /// to the current package.
+    /// to the current package. Closure owner instances also require the
+    /// resolver to implement `package_for_module` for each argument module.
     pub fn stable_type_graph_for_roots_with_resolver(
         &self,
         roots: &[nia_ids::InternedTyId],

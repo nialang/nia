@@ -10,6 +10,23 @@ use super::*;
 /// infer ownership from declaration spelling or physical source paths.
 pub trait StableDefinitionPackageResolver {
     fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId>;
+
+    /// Resolves module ownership without depending on the module's declarations.
+    ///
+    /// Stable type graphs may contain a generic argument module with no
+    /// definitions, so package identity cannot be inferred from an arbitrary
+    /// definition in that module.
+    fn package_for_module(&self, module_id: ModuleId) -> QueryResult<PackageId> {
+        Err(QueryError::InvalidInput {
+            query: QueryFrame {
+                name: "stable_module_identity",
+                stats_category: None,
+                key: "ModuleId".into(),
+                description: "stable module package resolution".into(),
+            },
+            message: format!("package identity is not available for module {module_id:?}"),
+        })
+    }
 }
 
 /// Resolves a session module to its relocation-independent package identity.
@@ -64,6 +81,18 @@ impl StableModuleIndex {
 /// identities; no physical path lookup is implied by this trait.
 pub trait StableDefinitionResolver {
     fn definition_for_identity(&self, definition: &DefinitionId) -> QueryResult<GlobalDefId>;
+
+    fn module_for_identity(&self, module: &StableModuleId) -> QueryResult<ModuleId> {
+        Err(QueryError::InvalidInput {
+            query: QueryFrame {
+                name: "stable_module_index",
+                stats_category: None,
+                key: "StableModuleId".into(),
+                description: "stable module identity resolution".into(),
+            },
+            message: format!("compiled module is not present in the current session: {module:?}"),
+        })
+    }
 }
 
 /// Session-local remap table for stable package definition identities.
@@ -134,6 +163,18 @@ impl StableDefinitionResolver for StableDefinitionIndex {
             message: format!(
                 "compiled definition is not present in the current session: {definition:?}"
             ),
+        })
+    }
+
+    fn module_for_identity(&self, module: &StableModuleId) -> QueryResult<ModuleId> {
+        self.module(module).ok_or_else(|| QueryError::InvalidInput {
+            query: QueryFrame {
+                name: "stable_module_index",
+                stats_category: None,
+                key: "StableModuleId".into(),
+                description: "stable module identity resolution".into(),
+            },
+            message: format!("compiled module is not present in the current session: {module:?}"),
         })
     }
 }

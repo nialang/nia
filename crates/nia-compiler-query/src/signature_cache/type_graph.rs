@@ -349,10 +349,30 @@ pub(crate) fn write_ty_kind(
             captures,
             params,
             return_type,
+            owner_instance,
         } => {
             encoded.push(23);
             write_global_def(encoded, closure_id.owner, graph.module_paths)?;
             write_u32(encoded, closure_id.ordinal);
+            match owner_instance {
+                Some(owner) => {
+                    encoded.push(1);
+                    let path = graph
+                        .module_paths
+                        .get(&owner.arg_module_id)
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "closure owner module is not loaded",
+                            )
+                        })?;
+                    write_string(encoded, path);
+                    write_optional_type(encoded, owner.self_arg, graph)?;
+                    write_types(encoded, &owner.args, graph)?;
+                    write_const_args(encoded, &owner.const_args, graph)?;
+                }
+                None => encoded.push(0),
+            }
             write_types(encoded, captures, graph)?;
             write_types(encoded, params, graph)?;
             write_type_index(encoded, graph.intern(*return_type)?);
@@ -497,6 +517,16 @@ pub(crate) fn read_ty_kind(
             closure_id: nia_ids::ClosureId {
                 owner: read_global_def(cursor, modules)?,
                 ordinal: read_u32(cursor)?,
+            },
+            owner_instance: match read_u8(cursor)? {
+                0 => None,
+                1 => Some(nia_ty::ClosureOwnerInstance {
+                    arg_module_id: *modules.get(&read_string(cursor, cursor.get_ref().len())?)?,
+                    self_arg: read_optional_type(cursor, types)?,
+                    args: read_types(cursor, types)?,
+                    const_args: read_const_args(cursor, types, symbols)?,
+                }),
+                _ => return None,
             },
             captures: read_types(cursor, types)?,
             params: read_types(cursor, types)?,

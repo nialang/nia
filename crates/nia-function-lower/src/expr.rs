@@ -31,6 +31,7 @@ impl FunctionLowerer<'_> {
                 captures,
                 params,
                 return_type,
+                ..
             }) if *actual_id == closure_id => (captures.clone(), params.clone(), *return_type),
             _ => {
                 self.record_internal(nia_ice::Ice::new(

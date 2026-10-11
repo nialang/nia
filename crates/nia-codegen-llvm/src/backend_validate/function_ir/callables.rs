@@ -31,6 +31,7 @@ impl BackendValidator<'_> {
         };
         let Some(TyKind::ClosureState {
             closure_id: state_closure_id,
+            owner_instance,
             params: state_params,
             return_type: state_return,
             ..
@@ -50,7 +51,7 @@ impl BackendValidator<'_> {
         {
             self.invalid_callable_coercion(span, "callable signature does not match closure state");
         }
-        let Some(entry) = self.current_closure_entry(closure_id) else {
+        let Some(entry) = self.current_closure_entry(closure_id, owner_instance.as_ref()) else {
             self.invalid_callable_coercion(span, "generated closure entry is missing");
             return;
         };
@@ -81,7 +82,7 @@ impl BackendValidator<'_> {
             );
             return;
         };
-        let Some(entry) = self.current_closure_entry(closure_id) else {
+        let Some(entry) = self.current_closure_entry(closure_id, None) else {
             self.invalid_callable_coercion(span, "generated closure entry is missing");
             return;
         };
@@ -91,6 +92,7 @@ impl BackendValidator<'_> {
                 captures,
                 params: state_params,
                 return_type: state_return,
+                ..
             }) => {
                 *state_closure_id == closure_id
                     && captures.is_empty()
@@ -113,8 +115,21 @@ impl BackendValidator<'_> {
     fn current_closure_entry(
         &self,
         closure_id: nia_ids::ClosureId,
+        owner_instance: Option<&nia_ty::ClosureOwnerInstance>,
     ) -> Option<&nia_backend_ir::BackendClosureEntry> {
-        let owner = self.current_closure_owner.clone()?;
+        let owner = owner_instance
+            .map(|owner| {
+                nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
+                    nia_function_ir::FunctionInstanceKey {
+                        def_id: closure_id.owner,
+                        arg_module_id: owner.arg_module_id,
+                        self_arg: owner.self_arg,
+                        args: owner.args.clone(),
+                        const_args: owner.const_args.clone(),
+                    },
+                )
+            })
+            .or_else(|| self.current_closure_owner.clone())?;
         self.index
             .closure_entry(&nia_backend_ir::BackendClosureEntryKey { closure_id, owner })
     }

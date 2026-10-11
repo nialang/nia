@@ -620,7 +620,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_function_callable(expr.span, function)
             }
             FunctionExprKind::ClosureFunctionPointer { closure_id } => {
-                let Some((key, _entry)) = self.closure_entry_for_call(*closure_id) else {
+                let Some((key, _entry)) = self.closure_entry_for_call(*closure_id, None) else {
                     return Err(self.error(expr.span, "missing generated closure entry ABI"));
                 };
                 Ok(self
@@ -1007,7 +1007,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         closure_id: nia_ids::ClosureId,
         state: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some((key, _entry)) = self.closure_entry_for_call(closure_id) else {
+        let owner_instance = match self.module.ty_kind(state.ty) {
+            Some(TyKind::Pointer { elem, .. }) => match self.module.ty_kind(*elem) {
+                Some(TyKind::ClosureState { owner_instance, .. }) => owner_instance.as_ref(),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some((key, _entry)) = self.closure_entry_for_call(closure_id, owner_instance) else {
             return Err(self.error(span, "missing generated closure entry function"));
         };
         let Some(function) = self.module.closure_entry_value(&key) else {

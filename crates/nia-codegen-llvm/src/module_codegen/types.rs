@@ -1387,7 +1387,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
+    pub(crate) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
         if left == right {
             return true;
         }

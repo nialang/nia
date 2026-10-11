@@ -367,6 +367,7 @@ pub(super) fn substitute_type(
             captures,
             params,
             return_type,
+            owner_instance,
         }) => {
             let substitute = |ty| {
                 substitute_type(
@@ -382,8 +383,33 @@ pub(super) fn substitute_type(
                     },
                 )
             };
+            let owner_instance = owner_instance
+                .as_ref()
+                .map(|owner| {
+                    Ok(nia_ty::ClosureOwnerInstance {
+                        arg_module_id: owner.arg_module_id,
+                        self_arg: owner.self_arg.map(substitute).transpose()?,
+                        args: owner
+                            .args
+                            .iter()
+                            .copied()
+                            .map(substitute)
+                            .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                        const_args: owner
+                            .const_args
+                            .iter()
+                            .map(|arg| {
+                                let mut arg = arg.clone();
+                                arg.ty = substitute(arg.ty)?;
+                                Ok(arg)
+                            })
+                            .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                    })
+                })
+                .transpose()?;
             append.intern(TyKind::ClosureState {
                 closure_id: *closure_id,
+                owner_instance: owner_instance.clone(),
                 captures: captures
                     .iter()
                     .copied()

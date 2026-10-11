@@ -358,6 +358,9 @@ impl<'a> MembershipBuilder<'a> {
                 });
             }
         }
+        for closure_id in refs.closure_ids {
+            self.add_context_dependency(closure_id.owner.module_id);
+        }
         self.add_types(refs.types);
         for reference in refs.trait_object_vtables {
             self.add_vtable_reference(reference);
@@ -541,6 +544,19 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_type_owner_dependencies(&mut self, kind: &TyKind) {
         match kind {
+            TyKind::ClosureState {
+                closure_id,
+                owner_instance,
+                ..
+            } => {
+                self.dependency_modules.insert(closure_id.owner.module_id);
+                if let Some(owner) = owner_instance {
+                    self.add_context_dependency(owner.arg_module_id);
+                    self.add_types(owner.self_arg);
+                    self.add_types(owner.args.iter().copied());
+                    self.add_const_arg_dependencies(&owner.const_args);
+                }
+            }
             TyKind::Array {
                 len: ArrayLenTy::ConstExpr(expr_id),
                 ..

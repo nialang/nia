@@ -1569,11 +1569,13 @@ impl<'a> BodyChecker<'a> {
                     is_readonly: expected_readonly,
                     params: expected_params,
                     return_type: expected_return,
+                    ..
                 }),
                 Some(TyKind::Callable {
                     is_readonly: actual_readonly,
                     params: actual_params,
                     return_type: actual_return,
+                    ..
                 }),
             ) => {
                 expected_readonly == actual_readonly
@@ -1588,10 +1590,12 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::CallablePointee {
                     params: expected_params,
                     return_type: expected_return,
+                    ..
                 }),
                 Some(TyKind::CallablePointee {
                     params: actual_params,
                     return_type: actual_return,
+                    ..
                 }),
             ) => {
                 expected_params.len() == actual_params.len()
@@ -1607,12 +1611,14 @@ impl<'a> BodyChecker<'a> {
                     captures: expected_captures,
                     params: expected_params,
                     return_type: expected_return,
+                    ..
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: actual_id,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
+                    ..
                 }),
             ) => {
                 expected_id == actual_id

@@ -90,12 +90,14 @@ impl Analyzer<'_> {
                     captures: pattern_captures,
                     params: pattern_params,
                     return_type: pattern_return,
+                    ..
                 },
                 TyKind::ClosureState {
                     closure_id: actual_id,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
+                    ..
                 },
             ) => {
                 pattern_id == actual_id
@@ -811,12 +813,14 @@ impl Analyzer<'_> {
                 captures,
                 params,
                 return_type,
+                ..
             } => {
                 if let Some(TyKind::ClosureState {
                     closure_id: actual_id,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
+                    ..
                 }) = self.ty_kind(actual_ty)
                     && closure_id == actual_id
                     && captures.len() == actual_captures.len()
@@ -1297,12 +1301,14 @@ impl Analyzer<'_> {
                     captures: pattern_captures,
                     params: pattern_params,
                     return_type: pattern_return,
+                    ..
                 },
                 TyKind::ClosureState {
                     closure_id: actual_id,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
+                    ..
                 },
             ) if pattern_id == actual_id
                 && pattern_captures.len() == actual_captures.len()

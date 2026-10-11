@@ -388,16 +388,19 @@ impl TraitSolver<'_> {
             },
             Some(TyKind::ClosureState {
                 closure_id,
+                owner_instance,
                 captures,
                 params,
                 return_type,
             }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::ClosureState {
                     closure_id: actual_id,
+                    owner_instance: actual_owner,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
                 }) if closure_id == actual_id
+                    && owner_instance == actual_owner
                     && captures.len() == actual_captures.len()
                     && params.len() == actual_params.len() =>
                 {

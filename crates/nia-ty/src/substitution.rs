@@ -171,11 +171,32 @@ pub fn substitute_ty(
         }),
         Some(TyKind::ClosureState {
             closure_id,
+            owner_instance,
             captures,
             params,
             return_type,
         }) => append.intern(TyKind::ClosureState {
             closure_id: *closure_id,
+            owner_instance: owner_instance
+                .as_ref()
+                .map(|owner| {
+                    Ok(crate::ClosureOwnerInstance {
+                        arg_module_id: owner.arg_module_id,
+                        self_arg: owner.self_arg.map(substitute).transpose()?,
+                        args: owner
+                            .args
+                            .iter()
+                            .copied()
+                            .map(substitute)
+                            .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                        const_args: owner
+                            .const_args
+                            .iter()
+                            .map(substitute_const_arg)
+                            .collect::<nia_ice::IceResult<Vec<_>>>()?,
+                    })
+                })
+                .transpose()?,
             captures: captures
                 .iter()
                 .copied()

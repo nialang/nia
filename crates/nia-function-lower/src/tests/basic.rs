@@ -176,6 +176,7 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
         &append,
         TyKind::ClosureState {
             closure_id,
+            owner_instance: None,
             captures: vec![i32_ty],
             params: vec![i32_ty],
             return_type: i32_ty,
@@ -366,6 +367,7 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
                 owner: closure_id.owner,
                 ordinal: 1,
             },
+            owner_instance: None,
             captures: vec![i32_ty],
             params: vec![i32_ty],
             return_type: i32_ty,
@@ -433,6 +435,7 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
         &append,
         TyKind::ClosureState {
             closure_id,
+            owner_instance: None,
             captures: vec![i32_ty, i32_ty],
             params: vec![i32_ty],
             return_type: i32_ty,
