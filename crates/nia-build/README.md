@@ -128,10 +128,11 @@ truncated count prefix cannot amplify a tiny draft into `count * size_of(T)` of
 host allocation.
 
 The registered protocol identities in `nia-compat` are the only schema and
-namespace authorities. The release-line epoch follows the latest public
-release, so internal `0.2.0-dev` changes keep the published `0.1.0` epoch.
-Changing an encoded field or persistent cache input must update its owning
-identity and is not a promise to read or migrate data from an earlier release.
+namespace authorities. The active `0.2.0-dev` release line uses epoch `2`;
+the published `0.1.0` line used epoch `1`. Internal changes keep the active
+line's epoch fixed. Changing an encoded field or persistent cache input must
+update its owning contract, without promising to read or migrate data from an
+earlier release.
 
 ## Execution And Publication
 
