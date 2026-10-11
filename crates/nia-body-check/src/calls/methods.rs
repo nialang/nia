@@ -517,7 +517,7 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
-        let Some((mut substitutions, const_substitutions)) =
+        let Some((mut substitutions, mut const_substitutions)) =
             self.profile_stage("body_check.profile.method.generic_substitutions", |this| {
                 this.method_generic_substitutions(
                     MethodGenericContext {
@@ -569,10 +569,15 @@ impl<'a> BodyChecker<'a> {
                     &mut substitutions,
                     &signature.generic_params,
                     &signature.where_predicates,
-                    &const_substitutions,
+                    &mut const_substitutions,
                 );
             });
-            if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
+            if !self.method_generics_are_complete_with_consts(
+                call.span,
+                &signature,
+                &substitutions,
+                &const_substitutions,
+            ) {
                 self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
                 return Some(self.error());
             }

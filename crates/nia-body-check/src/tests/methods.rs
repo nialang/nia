@@ -1509,6 +1509,49 @@ fn main() usize {
 }
 
 #[test]
+fn infers_const_generic_method_arguments_from_array_values() {
+    let checked = pipeline(
+        r#"
+struct Buffer {}
+
+extend Buffer {
+    fn take[N: usize](&self, value: [i32; N]) usize {
+        N
+    }
+}
+
+fn main() usize {
+    let buffer = Buffer {};
+    buffer.take([1, 2, 3])
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn method_const_inference_shapes_later_callable_arguments() {
+    let checked = pipeline(
+        r#"
+struct Runner {}
+
+extend Runner {
+    fn apply[N: usize, Output, Mapper](self, value: [i32; N], callback: Mapper) Output
+    where Mapper: Fn([i32; N]) Output
+    {
+        callback(value)
+    }
+}
+
+fn main() i32 {
+    Runner {}.apply([1, 2, 3], \value -> value[0])
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn preserves_const_generic_extension_target_in_function_pointers() {
     let checked = pipeline(
         r#"

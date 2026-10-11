@@ -166,7 +166,7 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
-        let Some((mut substitutions, const_substitutions)) = self.method_generic_substitutions(
+        let Some((mut substitutions, mut const_substitutions)) = self.method_generic_substitutions(
             MethodGenericContext {
                 span,
                 self_ty: candidate.self_ty,
@@ -230,7 +230,7 @@ impl<'a> BodyChecker<'a> {
                 &mut substitutions,
                 &signature.generic_params,
                 &signature.where_predicates,
-                &const_substitutions,
+                &mut const_substitutions,
             );
             if !self.method_generics_are_complete_with_consts(
                 span,
@@ -383,7 +383,7 @@ impl<'a> BodyChecker<'a> {
             &candidate.trait_args,
             &candidate.trait_const_args,
         );
-        let Some((mut substitutions, const_substitutions)) = self.method_generic_substitutions(
+        let Some((mut substitutions, mut const_substitutions)) = self.method_generic_substitutions(
             MethodGenericContext {
                 span: expr.span,
                 self_ty: target_ty,
@@ -421,7 +421,7 @@ impl<'a> BodyChecker<'a> {
                 &mut substitutions,
                 &candidate.signature.generic_params,
                 &candidate.signature.where_predicates,
-                &const_substitutions,
+                &mut const_substitutions,
             );
             if !self.method_generics_are_complete_with_consts(
                 expr.span,
