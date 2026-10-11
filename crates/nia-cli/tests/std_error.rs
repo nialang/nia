@@ -225,7 +225,7 @@ enum Failure: i32 {
 }
 
 fn fallible(value: Failure!i32) Failure!i32 {
-    value.map(&\value: i32 -> value + 1).andThen(&\value: i32 -> {
+    value.map(\value: i32 -> value + 1).andThen(\value: i32 -> {
         if value == 3 { Failure::Bad! } else { !(value * 2) }
     })
 }
