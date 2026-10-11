@@ -529,6 +529,7 @@ impl BodyInputValidator<'_, '_> {
             captures: capture_types,
             params: param_types,
             return_type,
+            ..
         }) = self.types.get(expr.ty)
         else {
             return Err(FunctionLoweringInvariant {

@@ -493,6 +493,75 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
 }
 
 #[test]
+fn stable_type_graph_round_trips_closure_owner_instance() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let defs = database
+        .db
+        .get(FullModuleDefsQuery(fixture.entry_id()))
+        .unwrap();
+    let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
+    let append = database
+        .db
+        .context()
+        .type_store
+        .append_for_module(fixture.entry_id());
+    let value = append.test_primitive(nia_ty::PrimitiveTy::I32);
+    let closure = append.test_intern(nia_ty::TyKind::ClosureState {
+        closure_id: nia_ids::ClosureId {
+            owner: nia_ids::GlobalDefId {
+                module_id: fixture.entry_id(),
+                def_id,
+            },
+            ordinal: 3,
+        },
+        owner_instance: Some(nia_ty::ClosureOwnerInstance {
+            arg_module_id: fixture.entry_id(),
+            self_arg: None,
+            args: vec![value],
+            const_args: vec![nia_ty::ConstGenericArg {
+                ty: value,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
+            }],
+        }),
+        captures: vec![value],
+        params: vec![],
+        return_type: value,
+    });
+
+    let graph = database
+        .stable_type_graph_for_roots(package.clone(), &[closure])
+        .unwrap();
+    let nia_package_metadata::StableTypeNode::ClosureState {
+        owner_instance: Some(owner_instance),
+        ..
+    } = &graph.nodes[1]
+    else {
+        panic!("closure owner instance was not published");
+    };
+    assert_eq!(owner_instance.arg_module.package, package);
+    assert_eq!(owner_instance.args, vec![0]);
+    assert_eq!(owner_instance.const_args.len(), 1);
+
+    let index = database
+        .stable_definition_index(&|_| Ok(package.clone()))
+        .unwrap();
+    let roots = database
+        .rehydrate_stable_type_graph(&graph, &index)
+        .unwrap();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(
+        database.db.context().type_store.get(roots[0]),
+        database.db.context().type_store.get(closure)
+    );
+}
+
+#[test]
 fn stable_definition_index_remaps_current_session_identities() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();

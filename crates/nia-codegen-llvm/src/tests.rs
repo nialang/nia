@@ -563,3 +563,36 @@ fn main() i32 {
         "LLVM IR omitted generic closure entry call: {ir}"
     );
 }
+
+#[test]
+fn generic_closure_passed_to_static_callable_retains_instance_entry() {
+    let root = common::temp_dir("generic_closure_static_callable_instances");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn invoke[F](callback: F) i32
+where F: Fn() i32
+{
+    callback()
+}
+
+fn make[T](value: T) i32
+where T: Sized
+{
+    let callback = \ -> { std::builtin::size[T]() as i32 };
+    invoke(callback)
+}
+
+fn main() i32 {
+    make[i32](1) + make[i64](2)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}

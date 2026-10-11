@@ -93,6 +93,16 @@ impl<'a> ModuleLowerer<'a> {
                 self.foreign_function_instance_refs.push(instance);
                 continue;
             }
+            if instance
+                .args
+                .iter()
+                .any(|arg| self.unresolved_generic_closure_state(*arg))
+            {
+                // This reference came from an uninstantiated generic body.
+                // Its closure owner is resolved when the concrete owner body
+                // is lowered, where the owner instance can be attached.
+                continue;
+            }
             let self_arg = self.canonicalize_instance_ref_self_arg(&instance);
             let args = self.canonicalize_instance_ref_args(&instance);
             let const_args = instance.const_args.clone();
@@ -180,7 +190,15 @@ impl<'a> ModuleLowerer<'a> {
                 discovery.extend(self.discover_backend_items_from_body(&entry.function_body));
             }
             for discovered in &discovery.refs.function_instances {
-                let discovered_args = self.canonicalize_instance_args(&discovered.args);
+                let discovered_args = discovered
+                    .args
+                    .iter()
+                    .copied()
+                    .map(|arg| {
+                        let arg = self.stamp_closure_type_with_owner(arg, &owner);
+                        self.canonicalize_instance_arg(arg)
+                    })
+                    .collect::<Vec<_>>();
                 let discovered_self_arg = self.canonicalize_instance_ref_self_arg(discovered);
                 let discovered_const_args = discovered.const_args.clone();
                 if !seen.contains(&FunctionInstanceKey {
@@ -513,8 +531,15 @@ impl<'a> ModuleLowerer<'a> {
                     substitutions: &substitutions,
                     const_substitutions: &const_substitutions,
                 });
+            // Closure ABI types must be instantiated while the concrete owner
+            // scope is active; otherwise the owner-instance marker is lost
+            // after the function body instantiation restores its context.
+            let type_snapshot = self.instantiation.take_snapshot();
+            self.instantiation
+                .set_instance_scope(def_id, arg_module_id, substitution_id, false);
             let state_type = self.instantiate_ty_with_id(entry.state_ty, substitution_id);
             let return_type = self.instantiate_ty_with_id(entry.return_type, substitution_id);
+            self.instantiation.restore(type_snapshot);
             if let Some(lowered_entry) = self.materialize_closure_entry(
                 &entry,
                 BackendClosureEntryOwner::FunctionInstance(owner_key.clone()),
@@ -784,6 +809,54 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn canonicalize_instance_arg(&mut self, arg: InternedTyId) -> InternedTyId {
         self.instantiate_ty(arg, &SymbolMap::default())
+    }
+
+    fn stamp_closure_type_with_owner(
+        &mut self,
+        ty: InternedTyId,
+        owner: &FunctionInstanceKey,
+    ) -> InternedTyId {
+        let Some(TyKind::ClosureState {
+            closure_id,
+            owner_instance: None,
+            captures,
+            params,
+            return_type,
+        }) = self.ty_kind(ty).cloned()
+        else {
+            return ty;
+        };
+        if closure_id.owner != owner.def_id {
+            return ty;
+        }
+        self.type_context.intern(TyKind::ClosureState {
+            closure_id,
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: owner.arg_module_id,
+                self_arg: owner.self_arg,
+                args: owner.args.clone(),
+                const_args: owner.const_args.clone(),
+            }),
+            captures,
+            params,
+            return_type,
+        })
+    }
+
+    fn unresolved_generic_closure_state(&self, ty: InternedTyId) -> bool {
+        let Some(TyKind::ClosureState {
+            closure_id,
+            owner_instance: None,
+            ..
+        }) = self.ty_kind(ty)
+        else {
+            return false;
+        };
+        self.input
+            .program
+            .functions()
+            .get(&closure_id.owner)
+            .is_some_and(|function| !function.signature.generics.is_empty())
     }
 
     pub(crate) fn canonicalize_instance_ref_args(

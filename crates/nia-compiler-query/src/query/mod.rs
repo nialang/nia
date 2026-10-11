@@ -30,8 +30,8 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, ModuleId as StableModuleId, PackageId, StableArrayLength,
-    StableAssociatedTypeBinding, StableConstArg, StableConstValue, StableTraitId, StableTypeGraph,
-    StableTypeNode,
+    StableAssociatedTypeBinding, StableClosureOwnerInstance, StableConstArg, StableConstValue,
+    StableTraitId, StableTypeGraph, StableTypeNode,
 };
 use nia_program_signatures::{
     ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,

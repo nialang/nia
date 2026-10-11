@@ -343,6 +343,8 @@ pub enum TyKind {
     ClosureState {
         /// Stable closure identity.
         closure_id: ClosureId,
+        /// Concrete substitutions of the enclosing generic function.
+        owner_instance: Option<ClosureOwnerInstance>,
         /// Captured value types.
         captures: Vec<InternedTyId>,
         /// Parameter types.
@@ -421,6 +423,19 @@ pub enum TyKind {
     GenericParam(SymbolId),
     /// Unresolved `Self` parameter.
     SelfParam,
+}
+
+/// Concrete owner context for a closure materialized from a generic function.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ClosureOwnerInstance {
+    /// Module supplying generic argument identities.
+    pub arg_module_id: ModuleId,
+    /// Optional receiver substitution.
+    pub self_arg: Option<InternedTyId>,
+    /// Type arguments in canonical order.
+    pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
+    pub const_args: Vec<ConstGenericArg>,
 }
 
 impl TyKind {
@@ -1050,18 +1065,21 @@ pub trait TypeEquivalence {
             (
                 Some(TyKind::ClosureState {
                     closure_id: left_id,
+                    owner_instance: left_owner,
                     captures: left_captures,
                     params: left_params,
                     return_type: left_return,
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: right_id,
+                    owner_instance: right_owner,
                     captures: right_captures,
                     params: right_params,
                     return_type: right_return,
                 }),
             ) => {
                 left_id == right_id
+                    && left_owner == right_owner
                     && self.same_type_args_for_equiv(left_captures, right_captures)
                     && self.same_type_args_for_equiv(left_params, right_params)
                     && self.same_type_for_equiv(*left_return, *right_return)
@@ -1571,6 +1589,7 @@ mod tests {
                 &left_append,
                 TyKind::ClosureState {
                     closure_id,
+                    owner_instance: None,
                     captures: vec![left_i32],
                     params: vec![left_i32],
                     return_type: left_i32,
@@ -1590,6 +1609,7 @@ mod tests {
                 &right_append,
                 TyKind::ClosureState {
                     closure_id,
+                    owner_instance: None,
                     captures: vec![right_i32],
                     params: vec![right_i32],
                     return_type: right_i32,

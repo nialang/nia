@@ -535,7 +535,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         self.error(expr.span, "closure entry cannot use tracked-caller ABI")
                     );
                 }
-                let Some((key, entry)) = self.closure_entry_for_call(*closure_id) else {
+                let owner_instance = match self.module.ty_kind(state.ty) {
+                    Some(TyKind::Pointer { elem, .. }) => match self.module.ty_kind(*elem) {
+                        Some(TyKind::ClosureState { owner_instance, .. }) => {
+                            owner_instance.as_ref()
+                        }
+                        _ => None,
+                    },
+                    Some(TyKind::ClosureState { owner_instance, .. }) => owner_instance.as_ref(),
+                    _ => None,
+                };
+                let Some((key, entry)) = self.closure_entry_for_call(*closure_id, owner_instance)
+                else {
                     return Err(self.error(expr.span, "missing generated closure entry ABI"));
                 };
                 let state_pointer_type = entry.abi.state_pointer_type;
@@ -825,18 +836,38 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             caller_location,
                         );
                     }
-                    Some(TyKind::ClosureState { closure_id, .. }) => {
-                        let direct = FunctionCallee::ClosureEntry {
-                            closure_id,
-                            state: Box::new(callee.as_ref().clone()),
+                    Some(TyKind::ClosureState {
+                        closure_id,
+                        owner_instance,
+                        ..
+                    }) => {
+                        let Some((key, entry)) =
+                            self.closure_entry_for_call(closure_id, owner_instance.as_ref())
+                        else {
+                            return Err(
+                                self.error(expr.span, "missing generated closure entry ABI")
+                            );
                         };
-                        return self.emit_call_raw_with_caller(
-                            expr,
-                            &direct,
-                            args,
+                        let state_pointer_type = entry.abi.state_pointer_type;
+                        let param_types = entry.abi.params.clone();
+                        let Some(function) = self.module.closure_entry_value(&key) else {
+                            return Err(
+                                self.error(expr.span, "missing generated closure entry function")
+                            );
+                        };
+                        let llvm_args = self.emit_call_args_iter(
+                            expr.span,
+                            std::iter::once(callee.as_ref()).chain(args.iter()),
+                            std::iter::once(state_pointer_type).chain(param_types),
                             out_ptr,
-                            caller_location,
-                        );
+                            false,
+                        )?;
+                        return self
+                            .builder
+                            .build_call(function, &llvm_args, "closure.call")
+                            .map_err(|_| {
+                                self.error(expr.span, "failed to build generated closure call")
+                            });
                     }
                     _ => {}
                 }
@@ -886,14 +917,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn closure_entry_for_call(
         &self,
         closure_id: nia_ids::ClosureId,
+        owner_instance: Option<&nia_ty::ClosureOwnerInstance>,
     ) -> Option<(
         BackendClosureEntryKey,
         &'a nia_backend_ir::BackendClosureEntry,
     )> {
-        let current = BackendClosureEntryKey {
-            closure_id,
-            owner: self.function.closure_owner.clone(),
-        };
+        let owner = owner_instance
+            .map(|owner| {
+                nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
+                    nia_function_ir::FunctionInstanceKey {
+                        def_id: closure_id.owner,
+                        arg_module_id: owner.arg_module_id,
+                        self_arg: owner.self_arg,
+                        args: owner.args.clone(),
+                        const_args: owner.const_args.clone(),
+                    },
+                )
+            })
+            .unwrap_or_else(|| self.function.closure_owner.clone());
+        let current = BackendClosureEntryKey { closure_id, owner };
         if let Some(entry) = self.module.closure_entry_item(&current) {
             return Some((current, entry));
         }

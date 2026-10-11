@@ -979,7 +979,12 @@ impl<'a> ModuleLowerer<'a> {
         }
         match self.ty_kind(ty).cloned() {
             Some(TyKind::GenericParam(name)) => {
-                let instantiated = self.type_substitution(substitutions, &name).unwrap_or(ty);
+                let instantiated = self
+                    .type_substitution(substitutions, &name)
+                    .map(|instantiated| {
+                        self.stamp_current_closure_owner(instantiated, substitutions)
+                    })
+                    .unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::SelfParam) => {
@@ -989,6 +994,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Opaque) => self.finish_type_instantiation(key, ty, can_use_cache),
             Some(TyKind::ClosureState {
                 closure_id,
+                owner_instance,
                 captures,
                 params,
                 return_type,
@@ -1014,8 +1020,54 @@ impl<'a> ModuleLowerer<'a> {
                     substitutions,
                     active_projections,
                 );
+                let owner_instance = owner_instance.map(|owner| nia_ty::ClosureOwnerInstance {
+                    arg_module_id: owner.arg_module_id,
+                    self_arg: owner.self_arg.map(|ty| {
+                        self.instantiate_ty_with_id_inner(ty, substitutions, active_projections)
+                    }),
+                    args: owner
+                        .args
+                        .into_iter()
+                        .map(|ty| {
+                            self.instantiate_ty_with_id_inner(ty, substitutions, active_projections)
+                        })
+                        .collect(),
+                    const_args: owner
+                        .const_args
+                        .into_iter()
+                        .map(|arg| {
+                            self.instantiate_const_generic_arg_with_id(
+                                &arg,
+                                substitutions,
+                                active_projections,
+                            )
+                        })
+                        .collect(),
+                });
+                let owner_instance = if self.instantiation.function == Some(closure_id.owner) {
+                    let args =
+                        self.effective_instance_type_args_for_def(closure_id.owner, substitutions);
+                    let const_args =
+                        self.effective_instance_const_args_for_def(closure_id.owner, substitutions);
+                    match (args, const_args) {
+                        (Some(args), Some(const_args))
+                            if !args.is_empty() || !const_args.is_empty() =>
+                        {
+                            Some(nia_ty::ClosureOwnerInstance {
+                                arg_module_id: self.current_arg_module_id(),
+                                self_arg: self.self_substitution(substitutions),
+                                args,
+                                const_args,
+                            })
+                        }
+                        _ => owner_instance,
+                    }
+                } else {
+                    owner_instance
+                };
                 let instantiated = self.type_context.intern(TyKind::ClosureState {
                     closure_id,
+                    owner_instance,
                     captures,
                     params,
                     return_type,
@@ -1507,6 +1559,46 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Error | TyKind::ConstOnly)
             | Some(TyKind::Primitive(_) | TyKind::Vector { .. })
             | None => self.finish_type_instantiation(key, ty, can_use_cache),
+        }
+    }
+
+    fn stamp_current_closure_owner(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: TypeSubstitutionId,
+    ) -> InternedTyId {
+        let Some(TyKind::ClosureState {
+            closure_id,
+            owner_instance: None,
+            captures,
+            params,
+            return_type,
+        }) = self.ty_kind(ty).cloned()
+        else {
+            return ty;
+        };
+        if self.instantiation.function != Some(closure_id.owner) {
+            return ty;
+        }
+        let args = self.effective_instance_type_args_for_def(closure_id.owner, substitutions);
+        let const_args =
+            self.effective_instance_const_args_for_def(closure_id.owner, substitutions);
+        match (args, const_args) {
+            (Some(args), Some(const_args)) if !args.is_empty() || !const_args.is_empty() => {
+                self.type_context.intern(TyKind::ClosureState {
+                    closure_id,
+                    owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                        arg_module_id: self.current_arg_module_id(),
+                        self_arg: self.self_substitution(substitutions),
+                        args,
+                        const_args,
+                    }),
+                    captures,
+                    params,
+                    return_type,
+                })
+            }
+            _ => ty,
         }
     }
 
@@ -2687,12 +2779,14 @@ impl<'a> ModuleLowerer<'a> {
                     captures: left_captures,
                     params: left_params,
                     return_type: left_return,
+                    ..
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: right_id,
                     captures: right_captures,
                     params: right_params,
                     return_type: right_return,
+                    ..
                 }),
             ) => {
                 left_id == right_id

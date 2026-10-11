@@ -275,18 +275,21 @@ impl TraitSolver<'_> {
             (
                 Some(TyKind::ClosureState {
                     closure_id: left_id,
+                    owner_instance: left_owner,
                     captures: left_captures,
                     params: left_params,
                     return_type: left_return,
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: right_id,
+                    owner_instance: right_owner,
                     captures: right_captures,
                     params: right_params,
                     return_type: right_return,
                 }),
             ) => {
                 left_id == right_id
+                    && left_owner == right_owner
                     && left_captures.len() == right_captures.len()
                     && left_params.len() == right_params.len()
                     && left_captures

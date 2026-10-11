@@ -831,6 +831,15 @@ pub struct StableAssociatedTypeBinding {
     pub ty: u32,
 }
 
+/// Stable owner substitutions for a materialized closure state.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StableClosureOwnerInstance {
+    pub arg_module: ModuleId,
+    pub self_arg: Option<u32>,
+    pub args: Vec<u32>,
+    pub const_args: Vec<StableConstArg>,
+}
+
 /// Canonical array length expression accepted by package interfaces.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StableArrayLength {
@@ -938,6 +947,7 @@ pub enum StableTypeNode {
     ClosureState {
         owner: DefinitionId,
         ordinal: u32,
+        owner_instance: Option<StableClosureOwnerInstance>,
         captures: Vec<u32>,
         parameters: Vec<u32>,
         result: u32,
@@ -1091,12 +1101,20 @@ impl StableTypeGraph {
                 }
                 StableTypeNode::ClosureState {
                     owner,
+                    owner_instance,
                     captures,
                     parameters,
                     result,
                     ..
                 } => {
                     validate_definition(owner)?;
+                    if let Some(instance) = owner_instance {
+                        validate_module_id(&instance.arg_module)?;
+                        references.extend(&instance.self_arg);
+                        references.extend(&instance.args);
+                        validate_stable_const_arguments(&instance.const_args)?;
+                        references.extend(instance.const_args.iter().map(|arg| &arg.ty));
+                    }
                     references.extend(captures);
                     references.extend(parameters);
                     references.push(result);
@@ -1343,6 +1361,7 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
             StableTypeNode::ClosureState {
                 owner,
                 ordinal,
+                owner_instance,
                 captures,
                 parameters,
                 result,
@@ -1350,6 +1369,22 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 output.push(30);
                 put_definition(&mut output, owner)?;
                 put_u32(&mut output, *ordinal);
+                match owner_instance {
+                    Some(instance) => {
+                        output.push(1);
+                        put_module_id(&mut output, &instance.arg_module)?;
+                        match instance.self_arg {
+                            Some(ty) => {
+                                output.push(1);
+                                put_u32(&mut output, ty);
+                            }
+                            None => output.push(0),
+                        }
+                        put_refs(&mut output, &instance.args)?;
+                        put_stable_const_args(&mut output, &instance.const_args)?;
+                    }
+                    None => output.push(0),
+                }
                 put_refs(&mut output, captures)?;
                 put_refs(&mut output, parameters)?;
                 put_u32(&mut output, *result);
@@ -1534,6 +1569,20 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
             30 => StableTypeNode::ClosureState {
                 owner: read_definition(&mut cursor)?,
                 ordinal: get_u32(&mut cursor)?,
+                owner_instance: match read_u8(&mut cursor)? {
+                    0 => None,
+                    1 => Some(StableClosureOwnerInstance {
+                        arg_module: read_module_id(&mut cursor)?,
+                        self_arg: match read_u8(&mut cursor)? {
+                            0 => None,
+                            1 => Some(get_u32(&mut cursor)?),
+                            _ => return Err(MetadataError::InvalidManifest),
+                        },
+                        args: read_refs(&mut cursor)?,
+                        const_args: read_stable_const_args(&mut cursor)?,
+                    }),
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
                 captures: read_refs(&mut cursor)?,
                 parameters: read_refs(&mut cursor)?,
                 result: get_u32(&mut cursor)?,
@@ -2035,6 +2084,7 @@ mod tests {
                 StableTypeNode::ClosureState {
                     owner,
                     ordinal: 1,
+                    owner_instance: None,
                     captures: vec![0],
                     parameters: vec![1],
                     result: 2,

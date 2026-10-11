@@ -2238,11 +2238,13 @@ impl<'a> BodyChecker<'a> {
                     is_readonly: left_readonly,
                     params: left_params,
                     return_type: left_return,
+                    ..
                 }),
                 Some(TyKind::Callable {
                     is_readonly: right_readonly,
                     params: right_params,
                     return_type: right_return,
+                    ..
                 }),
             ) => {
                 left_readonly == right_readonly
@@ -2257,10 +2259,12 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::CallablePointee {
                     params: left_params,
                     return_type: left_return,
+                    ..
                 }),
                 Some(TyKind::CallablePointee {
                     params: right_params,
                     return_type: right_return,
+                    ..
                 }),
             ) => {
                 left_params.len() == right_params.len()
@@ -2276,12 +2280,14 @@ impl<'a> BodyChecker<'a> {
                     captures: left_captures,
                     params: left_params,
                     return_type: left_return,
+                    ..
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: right_id,
                     captures: right_captures,
                     params: right_params,
                     return_type: right_return,
+                    ..
                 }),
             ) => {
                 left_id == right_id

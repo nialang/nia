@@ -138,6 +138,8 @@ pub struct FunctionBodyRefs {
     pub globals: BTreeSet<GlobalDefId>,
     /// Concrete function instances, retaining each use span.
     pub function_instances: Vec<FunctionInstanceRef>,
+    /// Source closure identities whose generated entries are needed by this body.
+    pub closure_ids: BTreeSet<nia_ids::ClosureId>,
     /// Concrete global instances, retaining each use span.
     pub global_instances: Vec<GlobalInstanceRef>,
     /// Interned types required by expressions and locals.
@@ -161,6 +163,7 @@ impl FunctionBodyRefs {
         self.functions.extend(other.functions);
         self.globals.extend(other.globals);
         self.function_instances.extend(other.function_instances);
+        self.closure_ids.extend(other.closure_ids);
         self.global_instances.extend(other.global_instances);
         self.types.extend(other.types);
         self.trait_object_vtables.extend(other.trait_object_vtables);
@@ -284,6 +287,9 @@ fn collect_function_refs_from_expr(
     refs: &mut FunctionBodyRefs,
 ) {
     refs.types.insert(expr.ty);
+    if let Some(TyKind::ClosureState { closure_id, .. }) = types.get(expr.ty) {
+        refs.closure_ids.insert(*closure_id);
+    }
     match &expr.kind {
         FunctionExprKind::EnumConstructor(variant) => {
             refs.modules.insert(variant.module_id);
@@ -338,7 +344,10 @@ fn collect_function_refs_from_expr(
             });
             collect_function_refs_from_expr(inner, types, refs);
         }
-        FunctionExprKind::CallableCoercion { state, .. } => {
+        FunctionExprKind::CallableCoercion {
+            state, closure_id, ..
+        } => {
+            refs.closure_ids.insert(*closure_id);
             collect_function_refs_from_expr(state, types, refs);
         }
         FunctionExprKind::FunctionCallable { function } => {
@@ -460,11 +469,13 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
         | FunctionExprKind::Local(_)
-        | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::Trap => {}
+        FunctionExprKind::ClosureFunctionPointer { closure_id, .. } => {
+            refs.closure_ids.insert(*closure_id);
+        }
         FunctionExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);
         }
@@ -528,7 +539,10 @@ fn collect_function_refs_from_callee(
         FunctionCallee::Tracked { callee, .. } => {
             collect_function_refs_from_callee(span, callee, types, refs)
         }
-        FunctionCallee::ClosureEntry { state, .. } => {
+        FunctionCallee::ClosureEntry {
+            closure_id, state, ..
+        } => {
+            refs.closure_ids.insert(*closure_id);
             collect_function_refs_from_expr(state, types, refs);
         }
         FunctionCallee::Function(def_id) => {
@@ -1142,6 +1156,86 @@ mod tests {
         assert_eq!(refs.globals, BTreeSet::from([slice_global]));
         assert!(refs.types.contains(&array_ty));
         assert!(refs.types.contains(&slice_ty));
+    }
+
+    #[test]
+    fn closure_references_retain_their_source_owner_module() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner_module = module_ids.allocate().expect("allocate module ID");
+        let caller_module = module_ids.allocate().expect("allocate module ID");
+        let types = TypeStore::new().expect("create type store");
+        let value_ty = primitive(&types, owner_module, PrimitiveTy::Usize);
+        let closure_id = nia_ids::ClosureId {
+            owner: global(owner_module, 1),
+            ordinal: 0,
+        };
+        let state_ty = intern(
+            &types,
+            owner_module,
+            TyKind::ClosureState {
+                closure_id,
+                owner_instance: None,
+                captures: vec![value_ty],
+                params: Vec::new(),
+                return_type: value_ty,
+            },
+        );
+        let state_pointer_ty = intern(
+            &types,
+            caller_module,
+            TyKind::Pointer {
+                is_readonly: true,
+                elem: state_ty,
+            },
+        );
+        let state = expr(state_ty, FunctionExprKind::Null);
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![
+                    FunctionOp::Expr(expr(
+                        state_ty,
+                        FunctionExprKind::CallableCoercion {
+                            state: Box::new(state.clone()),
+                            closure_id,
+                        },
+                    )),
+                    FunctionOp::Expr(expr(
+                        value_ty,
+                        FunctionExprKind::ClosureFunctionPointer { closure_id },
+                    )),
+                    FunctionOp::Expr(expr(
+                        value_ty,
+                        FunctionExprKind::Call {
+                            callee: FunctionCallee::ClosureEntry {
+                                closure_id,
+                                state: Box::new(expr(state_pointer_ty, FunctionExprKind::Null)),
+                            },
+                            args: Vec::new(),
+                        },
+                    )),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: None,
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: value_ty,
+        };
+
+        let refs = body.value_refs(&types);
+
+        assert_eq!(refs.closure_ids, BTreeSet::from([closure_id]));
     }
 
     #[test]

@@ -1662,10 +1662,21 @@ impl<'a> Encoder<'a> {
                 captures,
                 params,
                 return_type,
+                owner_instance,
             } => {
                 self.tag(23);
                 self.global_def(closure_id.owner);
                 self.u32(closure_id.ordinal);
+                match owner_instance {
+                    Some(owner) => {
+                        self.tag(1);
+                        self.module_id(owner.arg_module_id);
+                        self.optional_ty(owner.self_arg);
+                        self.types(&owner.args);
+                        self.const_args(&owner.const_args);
+                    }
+                    None => self.tag(0),
+                }
                 self.types(captures);
                 self.types(params);
                 self.ty(*return_type);
@@ -2815,6 +2826,7 @@ mod tests {
                     },
                     ordinal: 0,
                 },
+                owner_instance: None,
                 captures: Vec::new(),
                 params: Vec::new(),
                 return_type: i32_ty,

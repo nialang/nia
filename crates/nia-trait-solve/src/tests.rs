@@ -962,6 +962,7 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
             },
             ordinal: 0,
         },
+        owner_instance: None,
         captures: vec![i32_ty],
         params: vec![i32_ty],
         return_type: i32_ty,

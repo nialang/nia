@@ -1045,6 +1045,7 @@ impl MonoCollector<'_> {
                 captures,
                 params,
                 return_type,
+                owner_instance,
             } => {
                 let captures = captures
                     .iter()
@@ -1068,6 +1069,7 @@ impl MonoCollector<'_> {
                     module_id,
                     TyKind::ClosureState {
                         closure_id,
+                        owner_instance,
                         captures,
                         params,
                         return_type,

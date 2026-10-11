@@ -799,9 +799,55 @@ where
                 mangle_type_inner(type_store, *return_type, module_id, nominal_name, array_len)
             )
         }
-        Some(TyKind::ClosureState { closure_id, .. }) => {
+        Some(TyKind::ClosureState {
+            closure_id,
+            owner_instance,
+            ..
+        }) => {
             let owner = mangle_source_def(closure_id.owner, module_id, nominal_name);
-            format!("closure__{owner}__ord__{}", closure_id.ordinal)
+            let instance = owner_instance
+                .as_ref()
+                .map(|instance| {
+                    let self_arg = instance
+                        .self_arg
+                        .map(|ty| {
+                            mangle_type_inner(type_store, ty, module_id, nominal_name, array_len)
+                        })
+                        .unwrap_or_else(|| "none".to_string());
+                    let args = instance
+                        .args
+                        .iter()
+                        .map(|ty| {
+                            mangle_type_inner(type_store, *ty, module_id, nominal_name, array_len)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("__");
+                    let const_args = instance
+                        .const_args
+                        .iter()
+                        .map(|arg| {
+                            mangle_const_generic_arg(
+                                type_store,
+                                arg,
+                                module_id,
+                                nominal_name,
+                                array_len,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("__");
+                    format!(
+                        "__instance__ctx{}__self{}__argc{}__{}__constargc{}__{}",
+                        module_id(instance.arg_module_id).0,
+                        self_arg,
+                        instance.args.len(),
+                        args,
+                        instance.const_args.len(),
+                        const_args
+                    )
+                })
+                .unwrap_or_default();
+            format!("closure__{owner}__ord__{}{instance}", closure_id.ordinal)
         }
         Some(TyKind::Nominal {
             def_id,
