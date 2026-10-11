@@ -6,6 +6,8 @@ use std::io::Read;
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt as _;
 
 #[derive(Clone, Copy)]
 enum ExternalIdentityKind {
@@ -133,6 +135,17 @@ pub(super) fn read_external_identity_input(
             operation,
             error,
         })?;
+    if is_reparse_point(&metadata) {
+        return Err(CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: path.to_path_buf(),
+            operation,
+            error: io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input cannot be a symbolic link or reparse point",
+            ),
+        });
+    }
     if metadata.is_file() {
         return read_external_identity_regular_file(
             action,
@@ -170,14 +183,18 @@ fn read_external_identity_regular_file(
         if reject_symlink {
             options.custom_flags(libc::O_NOFOLLOW);
         }
-        #[cfg(not(unix))]
-        let _ = reject_symlink;
+        #[cfg(windows)]
+        if reject_symlink {
+            options.custom_flags(
+                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
+            );
+        }
         let mut file = options.open(path)?;
         let metadata = file.metadata()?;
-        if !metadata.is_file() {
+        if !metadata.is_file() || (reject_symlink && is_reparse_point(&metadata)) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "cache identity must be a regular file",
+                "cache identity must be a regular, non-link file",
             ));
         }
         match kind {
@@ -230,7 +247,8 @@ fn plan_external_identity_directory(
             "cache input directory is nested too deeply",
         ));
     }
-    if !fs::symlink_metadata(path)?.is_dir() {
+    let metadata = fs::symlink_metadata(path)?;
+    if is_reparse_point(&metadata) || !metadata.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("cache input directory `{}` changed type", path.display()),
@@ -271,7 +289,15 @@ fn plan_external_identity_directory(
         encoded_len = checked_directory_identity_len(encoded_len, 1)?;
         let child = entry.path();
         let metadata = fs::symlink_metadata(&child)?;
-        if metadata.is_file() {
+        if is_reparse_point(&metadata) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "cache input tree contains a symbolic link or reparse point `{}`",
+                    child.display()
+                ),
+            ));
+        } else if metadata.is_file() {
             encoded_len = checked_directory_identity_len(encoded_len, 8)?;
             encoded_len = checked_directory_identity_len(encoded_len, metadata.len())?;
             planned.push(ExternalDirectoryIdentityEntry {
@@ -363,7 +389,8 @@ fn stream_external_identity_directory(
 }
 
 fn sorted_external_directory_names(path: &Path) -> io::Result<Vec<Vec<u8>>> {
-    if !fs::symlink_metadata(path)?.is_dir() {
+    let metadata = fs::symlink_metadata(path)?;
+    if is_reparse_point(&metadata) || !metadata.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("cache input directory `{}` changed type", path.display()),
@@ -383,6 +410,22 @@ fn sorted_external_directory_names(path: &Path) -> io::Result<Vec<Vec<u8>>> {
     Ok(names)
 }
 
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+
+        return metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
 fn stream_external_identity_file(
     path: &Path,
     expected_len: u64,
@@ -393,9 +436,11 @@ fn stream_external_identity_file(
     options.read(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
     let mut file = options.open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.len() != expected_len {
+    if !metadata.is_file() || is_reparse_point(&metadata) || metadata.len() != expected_len {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
