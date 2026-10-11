@@ -313,6 +313,9 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
     let length = copyAndValidateRelative(path, &mut storage[..]).?;
     let finalStart = finalComponentStart(&storage[..], length);
+    let mut finalEnd = length;
+    while finalEnd != 0 and storage[finalEnd - 1] == b'/' { finalEnd -= 1; }
+    storage[finalEnd] = 0;
     let mut current = dir;
     let mut ownsCurrent = false;
     let mut cursor: usize = 0;
@@ -337,10 +340,272 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     let result = metadataAtDirent(current, &storage[finalStart]);
     if ownsCurrent { result.cleanupAfter(current.close()) } else { result }
 }
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt { _ = path; _ = argv; _ = envp; _ = options; .failure(.Setup(.Unsupported)) }
-pub fn wait(pid: ProcessId) Errno!WaitStatus { _ = pid; .Unsupported! }
-pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus { _ = pid; .Unsupported! }
-pub fn killWith(pid: ProcessId, signal: i32) Errno!() { _ = pid; _ = signal; .Unsupported! }
+struct SpawnPipe { read: ?FileDescriptor, write: ?FileDescriptor }
+struct SpawnResources { stdin: SpawnPipe, stdout: SpawnPipe, stderr: SpawnPipe, error: SpawnPipe }
+struct SpawnErrorRecord { stage: i32, code: i32 }
+
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+    let mut resources = SpawnResources::init();
+    let result = spawnWithResources(path, argv, envp, options, &mut resources);
+    resources.closeAll();
+    result
+}
+
+fn spawnWithResources(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions, resources: &mut SpawnResources) SpawnAttempt {
+    if options.stdin() == StdIo::Pipe {
+        resources.stdin = match SpawnPipe::openCloseOnExec() { !pipe => pipe, error! => return .failure(.Setup(error)) };
+    }
+    if options.stdout() == StdIo::Pipe {
+        resources.stdout = match SpawnPipe::openCloseOnExec() { !pipe => pipe, error! => return .failure(.Setup(error)) };
+    }
+    if options.stderr() == StdIo::Pipe {
+        resources.stderr = match SpawnPipe::openCloseOnExec() { !pipe => pipe, error! => return .failure(.Setup(error)) };
+    }
+    resources.error = match SpawnPipe::openCloseOnExec() { !pipe => pipe, error! => return .failure(.Setup(error)) };
+    let ret = bindings::fork();
+    if ret < 0 { return .failure(.Setup(errno())); }
+    if ret == 0 {
+        resources.error.closeRead();
+        if applyStdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) is error! {
+            reportSpawnError(&resources.error, .Stdio, error);
+            exit(127);
+        }
+        if applyCwd(options) is error! {
+            reportSpawnError(&resources.error, .Cwd, error);
+            exit(127);
+        }
+        let execError = executePath(path, argv, envp);
+        reportSpawnError(&resources.error, .Exec, execError);
+        exit(127);
+        .failure(.Setup(.Io))
+    } else {
+        resources.stdin.closeRead();
+        resources.stdout.closeRead();
+        resources.stderr.closeRead();
+        resources.error.closeWrite();
+        let pid = ProcessId::init(ret);
+        let errorRead = if resources.error.takeRead() is ?fd { fd } else { return failedSpawnAttempt(pid, .Setup(.Io)); };
+        match readSpawnError(errorRead) {
+            !(?spawnError) => failedSpawnAttempt(pid, spawnError),
+            !null => .success(.init(pid, resources.stdin.takeWrite(), resources.stdout.takeWrite(), resources.stderr.takeWrite())),
+            error! => failedSpawnAttempt(pid, error),
+        }
+    }
+}
+
+fn executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
+    let mut pathLen: usize = 0;
+    while path[pathLen] != 0 { pathLen += 1; }
+    let mut hasSeparator = false;
+    let mut index: usize = 0;
+    while index < pathLen {
+        if path[index] == b'/' { hasSeparator = true; break; }
+        index += 1;
+    }
+    if hasSeparator { return execveResult(bindings::execve(path, argv, envp)); }
+    let pointerSize = pkg::builtin::size[&u8]();
+    let mut entry = envp;
+    while entry as usize != 0 and entry.* as usize != 0 {
+        let text = entry.*;
+        let mut textLen: usize = 0;
+        while text[textLen] != 0 { textLen += 1; }
+        if textLen >= 5 and text[0] == b'P' and text[1] == b'A' and text[2] == b'T' and text[3] == b'H' and text[4] == b'=' {
+            let valueEnd = textLen;
+            let mut segmentStart: usize = 5;
+            loop {
+                let mut segmentEnd = segmentStart;
+                while segmentEnd < valueEnd and text[segmentEnd] != b':' { segmentEnd += 1; }
+                let mut candidate: [u8; maxPathBytes] = [0; maxPathBytes];
+                let mut cursor: usize = 0;
+                if segmentEnd == segmentStart {
+                    candidate[0] = b'.';
+                    cursor = 1;
+                } else {
+                    while segmentStart < segmentEnd {
+                        if cursor + 1 >= candidate.len() { return .TooLong; }
+                        candidate[cursor] = text[segmentStart];
+                        cursor += 1;
+                        segmentStart += 1;
+                    }
+                }
+                if cursor != 0 and candidate[cursor - 1] != b'/' {
+                    if cursor + 1 >= candidate.len() { return .TooLong; }
+                    candidate[cursor] = b'/';
+                    cursor += 1;
+                }
+                let mut commandIndex: usize = 0;
+                while commandIndex < pathLen {
+                    if cursor + 1 >= candidate.len() { return .TooLong; }
+                    candidate[cursor] = path[commandIndex];
+                    cursor += 1;
+                    commandIndex += 1;
+                }
+                candidate[cursor] = 0;
+                let error = execveResult(bindings::execve(&candidate[0], argv, envp));
+                if error != .NoEntry { return error; }
+                if segmentEnd == valueEnd { break; }
+                segmentStart = segmentEnd + 1;
+            }
+            return .NoEntry;
+        }
+        entry = ((entry as usize) + pointerSize) as &&u8;
+    }
+    .NoEntry
+}
+
+fn execveResult(result: i32) Errno {
+    if result == 0 { .Io } else { errno() }
+}
+
+fn failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
+    if reapSpawnFailure(pid) is cause! {
+        return .failure(.Reap { stage: error.stage(), primary: error.primary(), cause: cause, pid: pid });
+    }
+    .failure(error)
+}
+
+fn reapSpawnFailure(pid: ProcessId) Errno!() {
+    loop {
+        match wait(pid) {
+            !status => { _ = status; return !(); },
+            .Interrupted! => {},
+            .NoChild! => return !(),
+            error! => return error!,
+        }
+    }
+}
+
+fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, value: Errno) () {
+    if pipe.write() is !fd {
+        let mut record: SpawnErrorRecord = .{ stage: stage as i32, code: value as i32 };
+        let bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
+        let mut written: usize = 0;
+        while written < bytes.len() {
+            match fd.writeSome(&bytes[written..]) {
+                !amount => { if amount == 0 { return; } written += amount; },
+                .Interrupted! => {},
+                error! => return,
+            }
+        }
+    }
+}
+
+fn readSpawnError(fd: FileDescriptor) SpawnError! ?SpawnError {
+    let mut record: SpawnErrorRecord = .{ stage: SpawnStage::Setup as i32, code: Errno::Io as i32 };
+    let bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
+    let mut readLen: usize = 0;
+    while readLen < bytes.len() {
+        let amount = match fd.readSome(&mut bytes[readLen..]) {
+            !amount => amount,
+            .Interrupted! => continue,
+            error! => return finishSpawnError(fd, .Setup(error)!),
+        };
+        if amount == 0 {
+            if readLen == 0 { return finishSpawnError(fd, !null); }
+            return finishSpawnError(fd, .Setup(.Io)!);
+        }
+        readLen += amount;
+    }
+    finishSpawnError(fd, !(?SpawnError::fromStage(record.stage as SpawnStage, record.code as Errno)))
+}
+
+fn finishSpawnError(fd: FileDescriptor, result: SpawnError! ?SpawnError) SpawnError! ?SpawnError {
+    match result {
+        !value => { match fd.close() { !ok => { _ = ok; !value }, error! => .Setup(error)! } },
+        error! => { _ = fd.close(); error! },
+    }
+}
+
+fn applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut SpawnPipe, stderrPipe: &mut SpawnPipe) Errno!() {
+    let mut devNull: ?FileDescriptor = null;
+    if options.stdin() == StdIo::Ignore {
+        let fd = openDevNull().?; devNull = ?fd; dupTo(fd, FileDescriptor::stdin()).?;
+    } else if options.stdin() == StdIo::Pipe { dupTo(stdinPipe.read().?, FileDescriptor::stdin()).?; }
+    if options.stdout() == StdIo::Ignore {
+        match devNull { ?fd => dupTo(fd, FileDescriptor::stdout()).?, null => { let fd = openDevNull().?; devNull = ?fd; dupTo(fd, FileDescriptor::stdout()).?; } }
+    } else if options.stdout() == StdIo::Pipe { dupTo(stdoutPipe.write().?, FileDescriptor::stdout()).?; }
+    if options.stderr() == StdIo::Ignore {
+        match devNull { ?fd => dupTo(fd, FileDescriptor::stderr()).?, null => { let fd = openDevNull().?; devNull = ?fd; dupTo(fd, FileDescriptor::stderr()).?; } }
+    } else if options.stderr() == StdIo::Pipe { dupTo(stderrPipe.write().?, FileDescriptor::stderr()).?; }
+    stdinPipe.closeAllExcept(options);
+    stdoutPipe.closeAllExcept(options);
+    stderrPipe.closeAllExcept(options);
+    if devNull is ?fd and not isStandardTarget(fd, options) { fd.close().?; }
+    !()
+}
+
+fn applyCwd(options: SpawnOptions) Errno!() {
+    if options.cwd() is ?path { checkZero(bindings::chdir(path)) } else { !() }
+}
+
+fn openDevNull() Errno!FileDescriptor {
+    let path = b"/dev/null\0";
+    openAt(cwd(), &path[0], .ReadWrite, false, false, false, 0)
+}
+
+fn dupTo(from: FileDescriptor, to: FileDescriptor) Errno!() {
+    if from.raw() == to.raw() { return checkZero(bindings::fcntl(to.raw(), bindings::fSetFd, 0)); }
+    let ret = bindings::dup2(from.raw(), to.raw());
+    if ret < 0 { errno()! } else if ret != to.raw() { .Io! } else { !() }
+}
+
+pub fn wait(pid: ProcessId) Errno!WaitStatus { waitWithOptions(pid, 0) }
+
+pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+    let mut status: i32 = 0;
+    let ret = bindings::waitpid(pid.raw(), &mut status, bindings::waitNoHang);
+    if ret < 0 { return errno()!; }
+    if ret == 0 { !null } else if ret != pid.raw() { .Io! } else { !(?.init(status)) }
+}
+
+pub fn killWith(pid: ProcessId, signal: i32) Errno!() { checkZero(bindings::kill(pid.raw(), signal)) }
+
+fn waitWithOptions(pid: ProcessId, options: i32) Errno!WaitStatus {
+    let mut status: i32 = 0;
+    let ret = bindings::waitpid(pid.raw(), &mut status, options);
+    if ret < 0 { return errno()!; }
+    if ret != pid.raw() { .Io! } else { !.init(status) }
+}
+
+extend SpawnPipe {
+    fn closed() SpawnPipe { .{ read: null, write: null } }
+    fn init(read: FileDescriptor, write: FileDescriptor) SpawnPipe { .{ read: ?read, write: ?write } }
+    fn openCloseOnExec() Errno!SpawnPipe {
+        let mut fds: [i32; 2] = [0; 2];
+        if bindings::pipe(&mut fds[0]) != 0 { return errno()!; }
+        let first = bindings::fcntl(fds[0], bindings::fSetFd, bindings::fdCloseOnExec);
+        let second = if first < 0 { -1 } else { bindings::fcntl(fds[1], bindings::fSetFd, bindings::fdCloseOnExec) };
+        if first < 0 or second < 0 {
+            let cause = errno();
+            _ = bindings::close(fds[0]);
+            _ = bindings::close(fds[1]);
+            return cause!;
+        }
+        !.init(.init(fds[0]), .init(fds[1]))
+    }
+    fn read(&self) Errno!FileDescriptor { if self.read is ?fd { !fd } else { .Invalid! } }
+    fn write(&self) Errno!FileDescriptor { if self.write is ?fd { !fd } else { .Invalid! } }
+    fn takeRead(&mut self) ?FileDescriptor { let value = self.read; self.read = null; value }
+    fn takeWrite(&mut self) ?FileDescriptor { let value = self.write; self.write = null; value }
+    fn closeRead(&mut self) () { if self.takeRead() is ?fd { _ = fd.close(); } }
+    fn closeWrite(&mut self) () { if self.takeWrite() is ?fd { _ = fd.close(); } }
+    fn closeAll(&mut self) () { self.closeRead(); self.closeWrite(); }
+    fn closeAllExcept(&mut self, options: SpawnOptions) () {
+        if self.takeRead() is ?fd and not isStandardTarget(fd, options) { _ = fd.close(); }
+        if self.takeWrite() is ?fd and not isStandardTarget(fd, options) { _ = fd.close(); }
+    }
+}
+
+fn isStandardTarget(fd: FileDescriptor, options: SpawnOptions) bool {
+    (options.stdin() != StdIo::Inherit and fd.raw() == 0)
+        or (options.stdout() != StdIo::Inherit and fd.raw() == 1)
+        or (options.stderr() != StdIo::Inherit and fd.raw() == 2)
+}
+
+extend SpawnResources {
+    fn init() SpawnResources { .{ stdin: .closed(), stdout: .closed(), stderr: .closed(), error: .closed() } }
+    fn closeAll(&mut self) () { self.stdin.closeAll(); self.stdout.closeAll(); self.stderr.closeAll(); self.error.closeAll(); }
+}
 pub fn exit(code: i32) () { bindings::exit(code); loop {} }
 
 const statTypeMask: u16 = 0o170000;
