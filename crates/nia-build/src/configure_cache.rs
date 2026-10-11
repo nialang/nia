@@ -7,6 +7,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as _;
+
 use nia_compat::formats;
 use nia_query::FingerprintDomain;
 
@@ -563,7 +566,20 @@ fn read_record(path: &Path) -> io::Result<Option<ConfigureRecord>> {
     let file = match open_cache_entry(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
+        Err(open_error) => {
+            let non_regular = match non_regular_cache_record(path) {
+                Ok(non_regular) => non_regular,
+                Err(metadata_error) if metadata_error.kind() == io::ErrorKind::NotFound => {
+                    return Ok(None);
+                }
+                Err(_) => return Err(open_error),
+            };
+            if non_regular {
+                let _ = fs::remove_file(path);
+                return Ok(None);
+            }
+            return Err(open_error);
+        }
     };
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_RECORD_BYTES as u64 {
@@ -578,6 +594,17 @@ fn read_record(path: &Path) -> io::Result<Option<ConfigureRecord>> {
         let _ = fs::remove_file(path);
     }
     Ok(record)
+}
+
+fn non_regular_cache_record(path: &Path) -> io::Result<bool> {
+    let metadata = fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    Ok(!metadata.is_file() || metadata.file_type().is_symlink() || is_reparse)
 }
 
 fn record_matches_identity(identity: &ConfigureIdentity, record: &ConfigureRecord) -> bool {
@@ -620,7 +647,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn configure_record_reader_rejects_symlink() {
+    fn configure_record_reader_treats_symlink_as_miss() {
         use std::os::unix::fs::symlink;
 
         let root = std::env::temp_dir().join(format!(
@@ -633,9 +660,42 @@ mod tests {
         fs::write(&target, b"cache record").expect("write cache record");
         symlink(&target, &alias).expect("create cache symlink");
 
-        assert!(read_record(&alias).is_err());
+        assert_eq!(read_record(&alias).expect("read cache symlink"), None);
+        assert!(!alias.exists(), "cache symlink must be retired");
+        assert!(target.exists(), "retirement must not remove the target");
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn exact_lookup_treats_non_regular_record_as_miss() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-configure-cache-non-regular-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create cache root");
+        let cache = ConfigureCache { root: root.clone() };
+        let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
+        let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
+        cache
+            .publish(
+                &identity,
+                &ConfigureRecord {
+                    plan: b"plan".to_vec(),
+                    manifest,
+                },
+            )
+            .expect("publish configure record");
+        let path = cache.path(&identity);
+        fs::remove_file(&path).expect("remove configure record");
+        fs::create_dir(&path).expect("replace record with directory");
+
+        assert_eq!(
+            cache.lookup(&identity).expect("lookup directory record"),
+            None
+        );
+        fs::remove_dir_all(root).expect("remove cache root");
     }
 
     #[test]
