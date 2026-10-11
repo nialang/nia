@@ -1236,11 +1236,26 @@ impl BackendValidator<'_> {
             match self.index.type_store().get(entry.abi.state_type).cloned() {
                 Some(TyKind::ClosureState {
                     closure_id,
+                    owner_instance,
                     params,
                     return_type,
                     ..
                 }) => {
                     closure_id == entry.key.closure_id
+                        && match (&entry.key.owner, owner_instance.as_ref()) {
+                            (BackendClosureEntryOwner::Source(_), None) => true,
+                            (
+                                BackendClosureEntryOwner::FunctionInstance(owner),
+                                Some(state_owner),
+                            ) => {
+                                owner.def_id == closure_id.owner
+                                    && owner.arg_module_id == state_owner.arg_module_id
+                                    && owner.self_arg == state_owner.self_arg
+                                    && owner.args == state_owner.args
+                                    && owner.const_args == state_owner.const_args
+                            }
+                            _ => false,
+                        }
                         && self.same_type_args(&params, &entry.abi.params)
                         && self.same_type(return_type, entry.abi.return_type)
                 }
@@ -1250,7 +1265,7 @@ impl BackendValidator<'_> {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 entry.span,
-                "closure entry state type does not match its identity and ABI signature",
+                "closure entry state type does not match its identity, owner, and ABI signature",
             ));
         }
         let state_pointer_matches = match self.index.type_store().get(entry.abi.state_pointer_type)

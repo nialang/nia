@@ -1608,6 +1608,7 @@ impl<'a> BodyChecker<'a> {
             (
                 Some(TyKind::ClosureState {
                     closure_id: expected_id,
+                    owner_instance: expected_owner,
                     captures: expected_captures,
                     params: expected_params,
                     return_type: expected_return,
@@ -1615,6 +1616,7 @@ impl<'a> BodyChecker<'a> {
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: actual_id,
+                    owner_instance: actual_owner,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
@@ -1622,6 +1624,10 @@ impl<'a> BodyChecker<'a> {
                 }),
             ) => {
                 expected_id == actual_id
+                    && self.closure_owner_instances_match(
+                        expected_owner.as_ref(),
+                        actual_owner.as_ref(),
+                    )
                     && expected_captures.len() == actual_captures.len()
                     && expected_params.len() == actual_params.len()
                     && expected_captures
@@ -1633,6 +1639,34 @@ impl<'a> BodyChecker<'a> {
                         .zip(actual_params)
                         .all(|(expected, actual)| self.types_match_normalized(*expected, actual))
                     && self.types_match_normalized(expected_return, actual_return)
+            }
+            _ => false,
+        }
+    }
+
+    fn closure_owner_instances_match(
+        &mut self,
+        expected: Option<&nia_ty::ClosureOwnerInstance>,
+        actual: Option<&nia_ty::ClosureOwnerInstance>,
+    ) -> bool {
+        match (expected, actual) {
+            (None, None) => true,
+            (Some(expected), Some(actual)) => {
+                expected.arg_module_id == actual.arg_module_id
+                    && expected.args.len() == actual.args.len()
+                    && match (expected.self_arg, actual.self_arg) {
+                        (Some(expected), Some(actual)) => {
+                            self.types_match_normalized(expected, actual)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && expected
+                        .args
+                        .iter()
+                        .zip(&actual.args)
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+                    && self.const_generic_arg_slices_match(&expected.const_args, &actual.const_args)
             }
             _ => false,
         }
