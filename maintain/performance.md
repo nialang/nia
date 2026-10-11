@@ -32,7 +32,9 @@ class, not a way to rename a developer machine. Local runs should omit it.
 
 Every compiler and build report records the full Git revision and dirty state;
 resolved paths and version output for Rust, Cargo, `llvm-config`, and the linker
-selected by `NIA_LINKER` or the native default; the measured Nia executable
+selected through the compiler's native link policy (`NIA_LINKER`, then
+`NIA_LLD`, bundled LLD from the measured resource root, or the target's LLD
+driver on `PATH`); the measured Nia executable
 identity where applicable; and the compiler/workload profile, feature,
 optimization, project-cache, and operating-system page-cache policy. The build
 baseline builds the repository-default release compiler before measurement;

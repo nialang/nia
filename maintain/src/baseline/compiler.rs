@@ -642,6 +642,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             unknown.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
+    let toolchain = toolchain_identity(root, &compiler, &resource_root)?;
     let mut results = Vec::new();
     for iteration in 0..options.repeat {
         for name in &selected {
@@ -675,7 +676,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             "dirty": dirty,
         },
         "machine": machine_metadata(runner_class),
-        "toolchain": toolchain_identity(root)?,
+        "toolchain": toolchain,
         "configuration": {
             "compiler_built_by_baseline": compiler_built_by_baseline,
             "compiler_cargo_profile": compiler_built_by_baseline.then_some("release"),

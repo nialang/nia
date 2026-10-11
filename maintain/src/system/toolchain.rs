@@ -69,8 +69,13 @@ fn program_candidates(program: &Path) -> Vec<PathBuf> {
     #[cfg(not(windows))]
     let candidates = vec![program.to_path_buf()];
     #[cfg(windows)]
+    if !program.as_os_str().to_string_lossy().ends_with(".exe") {
+        let mut executable = program.as_os_str().to_os_string();
+        executable.push(".exe");
+        candidates.push(PathBuf::from(executable));
+    }
+    #[cfg(windows)]
     if program.extension().is_none() {
-        candidates.push(program.with_extension("exe"));
         candidates.push(program.with_extension("cmd"));
         candidates.push(program.with_extension("bat"));
     }
@@ -159,17 +164,33 @@ fn source_identity(root: &Path) -> MaintainResult<SourceIdentity> {
 }
 
 /// Captures source, Rust, LLVM, and linker identities for a performance report.
-pub fn toolchain_identity(root: &Path) -> MaintainResult<ToolchainIdentity> {
-    let linker = env::var_os("NIA_LINKER")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("ld"));
+pub fn toolchain_identity(
+    root: &Path,
+    compiler: &Path,
+    resource_root: &Path,
+) -> MaintainResult<ToolchainIdentity> {
+    let layout = nia_toolchain::ToolchainLayout::resolve(
+        nia_toolchain::ToolchainLayoutRequest::explicit(compiler, resource_root),
+    )
+    .map_err(|error| format!("failed to resolve measured toolchain: {error}"))?;
+    let mut linker = nia_linker::ExecutableLinker::default();
+    if let Some(bundled) = layout.bundled_lld() {
+        linker = linker.with_bundled_program(bundled.to_string_lossy());
+    }
+    let invocation = linker
+        .version_invocation(*layout.host_target())
+        .map_err(|error| format!("failed to resolve measured linker: {error}"))?;
+    let arguments = invocation
+        .args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     Ok(ToolchainIdentity {
         source: source_identity(root)?,
         rustc: tool_identity("rustc", &["--version", "--verbose"])?,
         cargo: tool_identity("cargo", &["--version"])?,
         llvm_config: tool_identity(llvm_config_program(), &["--version"])?,
-        linker: tool_identity(linker, &["--version"])?,
+        linker: tool_identity(invocation.program, &arguments)?,
     })
 }
 
@@ -196,5 +217,16 @@ mod tests {
         let cargo = tool_identity("cargo", &["--version"]).unwrap();
         assert!(rustc.version.starts_with("rustc "), "{}", rustc.version);
         assert!(cargo.version.starts_with("cargo "), "{}", cargo.version);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn resolves_dotted_llvm_executable_names() {
+        let directory = crate::test_support::TestDirectory::new("dotted-tools");
+        directory.write("ld.lld.exe", "linker");
+        assert_eq!(
+            resolve_program(&directory.path().join("ld.lld")).unwrap(),
+            directory.path().join("ld.lld.exe")
+        );
     }
 }

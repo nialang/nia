@@ -2,6 +2,21 @@ use super::*;
 use std::process::Command;
 
 #[test]
+fn explicit_linker_version_probe_preserves_program_contract() {
+    let linker = ExecutableLinker::with_program("chosen-linker");
+    let invocation = linker.version_invocation(linux()).unwrap();
+    assert_eq!(invocation.program, "chosen-linker");
+    assert_eq!(invocation.args, ["--version"]);
+    assert!(
+        linker
+            .clone()
+            .with_bundled_program("other-linker")
+            .version_invocation(linux())
+            .is_ok_and(|probe| probe == invocation)
+    );
+}
+
+#[test]
 fn lld_invocation_uses_gnu_like_arguments() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program_and_flavor("ld.lld", LinkerFlavor::Lld),
@@ -297,12 +312,16 @@ fn discovered_lld_selects_the_target_flavor_explicitly() {
     for (name, flavor) in [
         ("x86_64-unknown-linux", "gnu"),
         ("x86_64-pc-windows-msvc", "link"),
+        ("aarch64-apple-macos", "darwin"),
     ] {
         let invocation = options
             .invocation(target(name), &link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         assert_eq!(invocation.program, linker.to_string_lossy());
         assert_eq!(invocation.args[..2], ["-flavor", flavor], "{name}");
+        let probe = options.linker.version_invocation(target(name)).unwrap();
+        assert_eq!(probe.program, invocation.program, "{name}");
+        assert_eq!(probe.args, ["-flavor", flavor, "--version"], "{name}");
     }
 
     restore_env("NIA_LLD", previous_nia_lld);
