@@ -235,9 +235,11 @@ identity to a Driver-owned executable cache reference rather than duplicating
 the executable. Cache I/O and corruption produce explicit misses and never
 replace the ordinary correctness path. Action, configure, and runner cache
 records are opened as regular files without following symlinks or Windows
-reparse points; recovery journals and lock-owner records use the same
-no-follow rule. A redirected or malformed record is rejected and follows the
-ordinary miss or recovery-error path.
+reparse points. Their cache namespaces are also created and traversed component
+by component under the invocation cache root; symlinked or reparse parent
+directories are rejected on both publication and lookup. Recovery journals and
+lock-owner records use the same no-follow rule. A redirected or malformed
+record is rejected and follows the ordinary miss or recovery-error path.
 
 ## Verification
 

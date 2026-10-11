@@ -90,7 +90,9 @@ recovery, and coordination readers reject symbolic links and platform reparse
 points before decoding or retiring a record; bounded streaming limits remain
 in force after the file is opened. This keeps a malformed or redirected record
 on the miss or typed-failure path instead of granting it access to another
-filesystem location.
+filesystem location. Cache publication and lookup also validate every parent
+directory in the owned namespace, so a replaced directory cannot redirect a
+record or lock path outside the invocation root.
 
 Semantic checks and later lowering must agree on the same accepted value set.
 Recovery values, unchecked metadata, and host-language truncation are not
