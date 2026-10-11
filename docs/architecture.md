@@ -878,7 +878,13 @@ stage timings. This does not use LLVM's legacy ThinLTO C API or delegate the
 index to a linker plugin. Nia persists pre-link modules under its normal
 release/toolchain identity and persists ThinLTO backend objects under LLVM's
 complete cache key, which includes the combined-index import/export and target
-decisions. Neither cache defines an independent schema or release version.
+decisions. The driver prepares the backend namespace component by component
+under the invocation cache root before passing it to LLVM; the LLVM bridge
+rechecks any existing directory and rejects redirected cache directories and
+non-regular cache records before reading or publishing. Backend records use
+the registered `THIN_LTO_BACKEND_OBJECT` identity and protocol epoch, while
+LLVM remains the owner of the complete backend key. Neither cache defines an
+independent schema or release version.
 
 LTO is executable-only because object sets and static archives do not own a
 complete final linkage unit. The no-LTO path remains the default: current

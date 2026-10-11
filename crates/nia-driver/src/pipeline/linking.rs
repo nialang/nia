@@ -126,6 +126,28 @@ impl Driver {
             .as_deref()
             .into_iter()
             .collect::<Vec<_>>();
+        let thin_lto_backend_cache_directory = if request.link_time_optimization
+            == LinkTimeOptimization::Thin
+        {
+            match (
+                self.config.artifact_cache_dir.as_deref(),
+                self.thin_lto_backend_cache_directory.as_deref(),
+            ) {
+                (Some(root), Some(directory)) => {
+                    if let Err(error) = crate::cache_fs::ensure_cache_directory(root, directory) {
+                        return DriverOutput::from_error(DriverError::Io {
+                            path: directory.to_path_buf(),
+                            operation: "prepare ThinLTO backend cache namespace",
+                            error,
+                        });
+                    }
+                    Some(directory)
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         let linkage_source_identity = request.check.entry_path.identity();
         let emission_mode = match request.link_time_optimization {
             LinkTimeOptimization::Off => ObjectEmissionMode::NoLto,
@@ -134,7 +156,7 @@ impl Driver {
                 linkage_source_identity: &linkage_source_identity,
                 preserved_symbols: &preserved_symbols,
                 freestanding: runtime.source().is_some(),
-                backend_cache_directory: self.thin_lto_backend_cache_directory.as_deref(),
+                backend_cache_directory: thin_lto_backend_cache_directory,
             },
             LinkTimeOptimization::Full => ObjectEmissionMode::Lto {
                 lto_mode: nia_codegen_llvm::LtoMode::Full,
