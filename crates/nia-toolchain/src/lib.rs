@@ -1127,13 +1127,12 @@ mod tests {
                 &b"--- !tapi-tbd\ntbd-version:     4\ntargets:         [ arm64-macos, x86_64-macos ]\nflags:           [ not_app_extension_safe ]\ninstall-name:    '/usr/lib/libSystem.B.dylib'\ncurrent-version: 0\ncompatibility-version: 0\nexports:\n  - targets:         [ arm64-macos, x86_64-macos ]\n    symbols:        [ _exit, _write ]\n...\n"[..]
             )]
         );
-        for name in ["x86_64-unknown-linux"] {
-            let target = TargetConfig::parse(name).unwrap();
-            assert!(
-                layout.import_descriptions(target).unwrap().is_empty(),
-                "{name}"
-            );
-        }
+        let name = "x86_64-unknown-linux";
+        let target = TargetConfig::parse(name).unwrap();
+        assert!(
+            layout.import_descriptions(target).unwrap().is_empty(),
+            "{name}"
+        );
     }
 
     #[test]
