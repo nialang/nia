@@ -38,8 +38,21 @@ use windows_sys::Win32::{
     Foundation::{CloseHandle, FILETIME},
     System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
 };
-#[cfg(all(not(target_os = "linux"), not(windows)))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
 static PROCESS_GENERATION: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+#[link(name = "proc")]
+unsafe extern "C" {
+    #[link_name = "proc_pidinfo"]
+    fn query_process_info(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+        arg: u64,
+        buffer: *mut libc::c_void,
+        buffersize: libc::c_int,
+    ) -> libc::c_int;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProcessIdentity {
@@ -74,9 +87,22 @@ impl ProcessIdentity {
         process_start_time(self.pid) == Some(self.start_time)
     }
 
-    #[cfg(all(not(target_os = "linux"), not(windows)))]
+    #[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
     pub(crate) fn is_alive(self) -> bool {
         true
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn is_alive(self) -> bool {
+        if self.start_time == 0 {
+            let Ok(pid) = libc::pid_t::try_from(self.pid) else {
+                return false;
+            };
+            let result = unsafe { libc::kill(pid, 0) };
+            return result == 0
+                || io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied;
+        }
+        process_start_time(self.pid) == Some(self.start_time)
     }
 }
 
@@ -419,7 +445,31 @@ fn process_start_time(pid: u32) -> Option<u64> {
         .then(|| u64::from(creation.dwLowDateTime) | (u64::from(creation.dwHighDateTime) << 32))
 }
 
-#[cfg(all(not(target_os = "linux"), not(windows)))]
+#[cfg(target_os = "macos")]
+fn process_start_time(pid: u32) -> Option<u64> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: proc_pidinfo writes the documented proc_bsdinfo record to this
+    // zero-initialized buffer when the requested record size is sufficient.
+    let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
+    let length = unsafe {
+        query_process_info(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?,
+        )
+    };
+    (length == std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int
+        && info.pbi_pid == pid as u32)
+        .then(|| {
+            info.pbi_start_tvsec
+                .saturating_mul(1_000_000)
+                .saturating_add(info.pbi_start_tvusec)
+        })
+}
+
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
 fn process_start_time(_pid: u32) -> Option<u64> {
     // Platforms without a process start-time API still need one stable
     // per-process generation so PID reuse cannot collide with persisted names.
@@ -507,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     fn dead_owner_is_reclaimed_without_age_delay() {
         let path = test_root("stale").join("output.lock");
         let pid = std::process::id();
@@ -519,6 +569,18 @@ mod tests {
         assert!(path.is_file());
         drop(lock);
         assert!(!path.exists());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_identity_without_start_time_falls_back_to_pid_liveness() {
+        assert!(
+            ProcessIdentity {
+                pid: std::process::id(),
+                start_time: 0,
+            }
+            .is_alive()
+        );
     }
 
     #[test]
