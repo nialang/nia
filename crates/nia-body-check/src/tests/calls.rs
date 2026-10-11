@@ -611,6 +611,65 @@ fn main(source: ?Source) ?Target {
 }
 
 #[test]
+fn callable_inference_uses_earlier_value_arguments_for_functions_and_methods() {
+    for call in [
+        "apply(makeSource(), \\value -> value.intoTarget())",
+        "Runner {}.apply(makeSource(), \\value -> value.intoTarget())",
+        "Runner::apply(Runner {}, makeSource(), \\value -> value.intoTarget())",
+        "applyBorrowed(makeSource(), &\\value -> value.intoTarget())",
+        "Runner {}.applyBorrowed(makeSource(), &\\value -> value.intoTarget())",
+        "Runner::applyBorrowed(Runner {}, makeSource(), &\\value -> value.intoTarget())",
+    ] {
+        let checked = pipeline(&format!(
+            r#"
+struct Source {{ value: i32 }}
+struct Target {{ value: i32 }}
+struct Runner {{}}
+
+fn makeSource() Source {{ Source {{ value: 42 }} }}
+
+extend Source {{
+    fn intoTarget(self) Target {{ Target {{ value: self.value }} }}
+}}
+
+fn apply[Input, Output, Mapper](value: Input, callback: Mapper) Output
+where Mapper: Fn(Input) Output
+{{
+    callback(value)
+}}
+
+fn applyBorrowed[Input, Output](value: Input, callback: &Fn(Input) Output) Output {{
+    callback(value)
+}}
+
+extend Runner {{
+    fn apply[Input, Output, Mapper](self, value: Input, callback: Mapper) Output
+    where Mapper: Fn(Input) Output
+    {{
+        callback(value)
+    }}
+
+    fn applyBorrowed[Input, Output](self, value: Input, callback: &Fn(Input) Output) Output {{
+        callback(value)
+    }}
+}}
+
+fn main() i32 {{
+    let result = {call};
+    _ = result;
+    0
+}}
+"#,
+        ));
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{call}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
 fn generic_method_callable_infers_return_from_nested_method_call() {
     let checked = pipeline(
         r#"

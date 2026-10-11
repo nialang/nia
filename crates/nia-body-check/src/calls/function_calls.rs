@@ -1183,20 +1183,12 @@ impl<'a> BodyChecker<'a> {
                         return_type,
                     })
                 });
-            let unresolved_type_params = signature
-                .generic_params
-                .iter()
-                .filter(|param| {
-                    matches!(param.kind, GenericParamSignatureKind::Type)
-                        && !substitutions.types.contains_key(&param.name)
-                })
-                .map(|param| param.name)
-                .collect::<Vec<_>>();
-            let expected = self.generic_call_expected(substituted_param).or_else(|| {
-                callable_pattern.and_then(|pattern| {
-                    self.callable_pattern_expected(pattern, &unresolved_type_params)
-                })
-            });
+            let expected = self.generic_argument_expected(
+                Some(substituted_param),
+                callable_pattern,
+                &signature.generic_params,
+                &substitutions.types,
+            );
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
             } else if inferred_from_closure && !closure_params_ready {
@@ -2471,7 +2463,32 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(in crate::calls) fn callable_pattern_expected(
+    pub(in crate::calls) fn generic_argument_expected(
+        &self,
+        substituted_param: Option<InternedTyId>,
+        callable_pattern: Option<InternedTyId>,
+        generic_params: &[nia_item_signatures::GenericParamSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        substituted_param
+            .and_then(|param| self.generic_call_expected(param))
+            .or_else(|| {
+                let pattern = callable_pattern?;
+                let unresolved_type_params = generic_params
+                    .iter()
+                    .filter(|param| {
+                        matches!(param.kind, GenericParamSignatureKind::Type)
+                            && !substitutions.contains_key(&param.name)
+                    })
+                    .map(|param| param.name)
+                    .collect::<Vec<_>>();
+                self.callable_pattern_expected(pattern, &unresolved_type_params)
+            })
+    }
+
+    // Enclosing function generics are rigid types. Only parameters still
+    // being inferred for this call must stay out of the closure's context.
+    fn callable_pattern_expected(
         &self,
         ty: InternedTyId,
         unresolved_type_params: &[SymbolId],
@@ -2481,9 +2498,7 @@ impl<'a> BodyChecker<'a> {
         }
         let mut pending = vec![self.normalization.normalize(ty)];
         while let Some(current) = pending.pop() {
-            let Some(kind) = self.interner.get(current) else {
-                return None;
-            };
+            let kind = self.interner.get(current)?;
             match kind {
                 TyKind::GenericParam(name) if unresolved_type_params.contains(name) => {
                     return None;
