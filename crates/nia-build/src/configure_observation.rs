@@ -1483,7 +1483,7 @@ mod tests {
             fs::set_permissions(&outside, permissions).unwrap();
         }
         let program = format!("../{}", outside.file_name().unwrap().to_string_lossy());
-        let error = resolve_probe_executable_in_path(&program, &root, &OsStr::new(""))
+        let error = resolve_probe_executable_in_path(&program, &root, OsStr::new(""))
             .expect_err("parent traversal must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         fs::remove_file(outside).unwrap();
