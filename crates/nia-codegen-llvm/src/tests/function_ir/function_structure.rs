@@ -523,6 +523,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         span,
     };
     let mut missing_owner_entry = entry.clone();
+    missing_owner_entry.abi.state_type = state_ty;
     missing_owner_entry.key.owner = nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
         nia_function_ir::FunctionInstanceKey {
             def_id: GlobalDefId {
@@ -604,7 +605,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     assert!(has_internal_diagnostic(
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
-        "closure entry state type does not match its identity and ABI signature"
+        "closure entry state type does not match its identity, owner, and ABI signature"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,

@@ -2277,6 +2277,7 @@ impl<'a> BodyChecker<'a> {
             (
                 Some(TyKind::ClosureState {
                     closure_id: left_id,
+                    owner_instance: left_owner,
                     captures: left_captures,
                     params: left_params,
                     return_type: left_return,
@@ -2284,6 +2285,7 @@ impl<'a> BodyChecker<'a> {
                 }),
                 Some(TyKind::ClosureState {
                     closure_id: right_id,
+                    owner_instance: right_owner,
                     captures: right_captures,
                     params: right_params,
                     return_type: right_return,
@@ -2291,6 +2293,10 @@ impl<'a> BodyChecker<'a> {
                 }),
             ) => {
                 left_id == right_id
+                    && self.closure_owner_instances_equivalent(
+                        left_owner.as_ref(),
+                        right_owner.as_ref(),
+                    )
                     && left_captures.len() == right_captures.len()
                     && left_params.len() == right_params.len()
                     && left_captures
@@ -2457,6 +2463,32 @@ impl<'a> BodyChecker<'a> {
             used[index] = true;
             true
         })
+    }
+
+    fn closure_owner_instances_equivalent(
+        &mut self,
+        left: Option<&nia_ty::ClosureOwnerInstance>,
+        right: Option<&nia_ty::ClosureOwnerInstance>,
+    ) -> bool {
+        match (left, right) {
+            (None, None) => true,
+            (Some(left), Some(right)) => {
+                left.arg_module_id == right.arg_module_id
+                    && left.args.len() == right.args.len()
+                    && match (left.self_arg, right.self_arg) {
+                        (Some(left), Some(right)) => {
+                            self.types_equivalent_without_projection_resolution(left, right)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && left.args.iter().zip(&right.args).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, *right)
+                    })
+                    && self.const_generic_arg_slices_match(&left.const_args, &right.const_args)
+            }
+            _ => false,
+        }
     }
 }
 
