@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+};
+
+use crate::cache_fs::{
+    ensure_cache_directory, open_cache_file as open_cache_entry, open_cache_lock,
+    validate_cache_namespace,
 };
 
 use nia_codegen_llvm::{
@@ -146,6 +149,12 @@ impl PersistentWorkProductCache {
         expected: CodegenUnitFingerprintSet,
     ) -> io::Result<CodegenWorkProductLookup> {
         let directory = self.key_dir(key);
+        if let Err(error) = validate_cache_namespace(&self.root, &directory) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(CodegenWorkProductLookup::NotFound);
+            }
+            return Err(error);
+        }
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -206,6 +215,14 @@ impl PersistentWorkProductCache {
         fingerprints: CodegenUnitFingerprintSet,
     ) -> io::Result<CodegenWorkProductLookup> {
         let path = self.path(key, fingerprints.fingerprint);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid codegen work-product path"))?;
+        if let Err(error) = validate_cache_namespace(&self.root, parent) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let mut file = match open_cache_file(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -241,7 +258,7 @@ impl PersistentWorkProductCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid codegen work-product path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let result = (|| {
             let mut file = OpenOptions::new()
@@ -539,11 +556,7 @@ fn staged_path(path: &Path) -> PathBuf {
 }
 
 fn open_cache_file(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    options.share_mode(1 | 2 | 4);
-    options.open(path)
+    open_cache_entry(path)
 }
 
 struct WorkProductMutationLock {
@@ -553,12 +566,7 @@ struct WorkProductMutationLock {
 impl WorkProductMutationLock {
     fn acquire(path: &Path) -> io::Result<Self> {
         let lock_path = path.with_extension("lock");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
+        let file = open_cache_lock(&lock_path)?;
         file.lock()?;
         Ok(Self { _file: file })
     }

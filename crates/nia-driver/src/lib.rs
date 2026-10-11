@@ -11,6 +11,7 @@ fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
 }
 
 mod archive_cache;
+mod cache_fs;
 mod executable_cache;
 mod inspect;
 mod object_cache;
