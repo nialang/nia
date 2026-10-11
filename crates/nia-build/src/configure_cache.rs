@@ -12,7 +12,7 @@ use nia_query::FingerprintDomain;
 
 use crate::{
     BuildInvocation, ConfigureManifest, ObservationValidation,
-    action_cache::{ensure_cache_directory, open_cache_entry},
+    action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
 };
 
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
@@ -303,6 +303,18 @@ impl ConfigureCache {
     /// Reads and validates a manifest; corruption is reported as a cache miss.
     pub fn lookup(&self, identity: &ConfigureIdentity) -> io::Result<Option<ConfigureRecord>> {
         let path = self.path(identity);
+        let cache_root = self
+            .root
+            .parent()
+            .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
+        if let Err(error) = validate_cache_namespace(
+            cache_root,
+            path.parent().expect("configure cache path has parent"),
+        ) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let Some(record) = read_record(&path)? else {
             return Ok(None);
         };
@@ -405,6 +417,18 @@ impl ConfigureCache {
         let namespace_root = self
             .root
             .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string());
+        let cache_root = self
+            .root
+            .parent()
+            .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
+        if let Err(error) = validate_cache_namespace(cache_root, &namespace_root) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(ConfigureCacheLookup::Miss(
+                    ConfigureCacheMissReason::NotFound,
+                ));
+            }
+            return Err(error);
+        }
         let entries = match record_paths(&namespace_root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -476,6 +500,16 @@ impl ConfigureCache {
         let root = self
             .root
             .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string());
+        let cache_root = self
+            .root
+            .parent()
+            .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
+        if let Err(error) = validate_cache_namespace(cache_root, &root) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(ConfigureCacheCandidate::None);
+            }
+            return Err(error);
+        }
         let entries = match record_paths(&root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {

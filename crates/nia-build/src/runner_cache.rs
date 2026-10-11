@@ -11,7 +11,7 @@ use nia_query::FingerprintDomain;
 
 use crate::{
     BuildError, BuildInvocation, BuildRunnerSource,
-    action_cache::{ensure_cache_directory, open_cache_entry},
+    action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
 };
 
 const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
@@ -45,6 +45,15 @@ pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
 /// Invalid records are retired and treated as misses.
 pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
     let cached = cache_path(invocation, key);
+    if let Err(error) = validate_cache_namespace(
+        &invocation.cache_dir,
+        cached.parent().expect("runner cache executable parent"),
+    ) {
+        if error.kind() == io::ErrorKind::NotFound {
+            return Ok(false);
+        }
+        return Err(error);
+    }
     let length = match cached.metadata() {
         Ok(metadata) => metadata.len(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),

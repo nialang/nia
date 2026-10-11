@@ -28,7 +28,7 @@ use super::{
     encoded_field_fits, ensure_cache_directory, fingerprint_text, integer_component,
     logical_path_identity, open_cache_entry, package_roots_identity, read_exact_or_corrupt,
     read_stream_fingerprint, read_stream_u64, stream_has_trailing_byte, text_component,
-    write_bytes, write_fingerprint,
+    validate_cache_namespace, write_bytes, write_fingerprint,
 };
 #[cfg(test)]
 use super::{read_bytes, read_fingerprint, read_u64};
@@ -520,6 +520,14 @@ impl ExternalCommandCache {
         identity: &ExternalCommandCacheIdentity,
     ) -> io::Result<ExternalCommandCacheLookup> {
         let path = self.path(identity.fingerprints);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid external-command cache path"))?;
+        if let Err(error) = validate_cache_namespace(&self.root, parent) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let entry = match scan_external_command_entry(&path, Some(identity)) {
             Ok(Some(entry)) => entry,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -602,7 +610,16 @@ impl ExternalCommandCache {
         &self,
         expected: &ExternalCommandCacheIdentity,
     ) -> io::Result<ExternalCommandCacheLookup> {
-        let entries = match fs::read_dir(self.key_dir(expected.fingerprints.cache_key)) {
+        let directory = self.key_dir(expected.fingerprints.cache_key);
+        if let Err(error) = validate_cache_namespace(&self.root, &directory) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(ExternalCommandCacheLookup::Miss(
+                    ActionCacheMissReason::NotFound,
+                ));
+            }
+            return Err(error);
+        }
+        let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok(ExternalCommandCacheLookup::Miss(

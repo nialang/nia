@@ -17,7 +17,7 @@ use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 
 use super::{
     ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE, ensure_cache_directory,
-    fingerprint_text, read_bounded_cache_entry,
+    fingerprint_text, read_bounded_cache_entry, validate_cache_namespace,
 };
 use crate::lock::ScopedFileLock;
 
@@ -59,6 +59,14 @@ impl TestSuiteCache {
         identity: TestSuiteCacheIdentity,
     ) -> io::Result<TestSuiteCacheLookup> {
         let path = self.path(identity);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid test-suite cache path"))?;
+        if let Err(error) = validate_cache_namespace(&self.root, parent) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let bytes = match read_bounded_cache_entry(&path, 28) {
             Ok(BoundedCacheEntry::Bytes(bytes)) => bytes,
             Ok(BoundedCacheEntry::Oversized) => {
