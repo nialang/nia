@@ -285,7 +285,10 @@ query types and manages compilation session lifecycle. The root query module is
 only the public database facade and query registry surface. Stable identities,
 stable type graphs, fingerprints, invalidation, provider settlement, database
 ownership, and loader/context input adapters live in dedicated modules so none
-of those contracts depend on facade implementation details.
+of those contracts depend on facade implementation details. Its persistent
+signature products are disposable, identity-checked records; publication and
+reuse validate every cache namespace parent and open records and locks without
+following links or reparse points.
 
 ### `nia-node-id`
 
