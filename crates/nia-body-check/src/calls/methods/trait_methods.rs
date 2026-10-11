@@ -88,7 +88,7 @@ impl<'a> BodyChecker<'a> {
                 &mut substitutions,
                 &candidate.signature.generic_params,
                 &candidate.signature.where_predicates,
-                &const_substitutions,
+                &mut const_substitutions,
             );
             if !self.method_generics_are_complete_with_consts(
                 call.span,

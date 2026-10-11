@@ -220,7 +220,7 @@ impl<'a> BodyChecker<'a> {
             &mut substitutions,
             &trait_method.signature.generic_params,
             &trait_method.signature.where_predicates,
-            &const_substitutions,
+            &mut const_substitutions,
         );
         for (param, arg) in params.iter().zip(call.args) {
             if let Some(actual) = self.expr_ty(arg) {
@@ -374,7 +374,7 @@ impl<'a> BodyChecker<'a> {
             &mut substitutions,
             &signature.generic_params,
             &signature.where_predicates,
-            &const_substitutions,
+            &mut const_substitutions,
         );
         for (param, arg) in params.iter().zip(call.args) {
             if let Some(actual) = self.expr_ty(arg) {
@@ -1646,7 +1646,7 @@ impl<'a> BodyChecker<'a> {
         else {
             return false;
         };
-        let Some((mut substitutions, const_substitutions)) = self.method_generic_substitutions(
+        let Some((mut substitutions, mut const_substitutions)) = self.method_generic_substitutions(
             MethodGenericContext {
                 span: call.span,
                 self_ty: candidate.self_ty,
@@ -1669,9 +1669,14 @@ impl<'a> BodyChecker<'a> {
                 &mut substitutions,
                 &signature.generic_params,
                 &signature.where_predicates,
-                &const_substitutions,
+                &mut const_substitutions,
             );
-            if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
+            if !self.method_generics_are_complete_with_consts(
+                call.span,
+                &signature,
+                &substitutions,
+                &const_substitutions,
+            ) {
                 return false;
             }
             params = signature
@@ -1865,7 +1870,7 @@ impl<'a> BodyChecker<'a> {
         substitutions: &mut SymbolMap<InternedTyId>,
         generic_params: &[nia_item_signatures::GenericParamSignature],
         where_predicates: &[nia_defs::WherePredicateSignature],
-        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) {
         // Publish each structurally valid argument's substitutions before
         // checking the next closure, as the ordinary function-call path does.
@@ -1890,8 +1895,11 @@ impl<'a> BodyChecker<'a> {
             }) || param.is_some_and(|param| {
                 self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
             });
-            let closure_pattern = callable_pattern
-                .or_else(|| param.map(|param| self.substitute_generics(param, substitutions)));
+            let closure_pattern = callable_pattern.or_else(|| {
+                param.map(|param| {
+                    self.substitute_generics_and_consts(param, substitutions, const_substitutions)
+                })
+            });
             let closure_params_ready = closure_pattern.is_some_and(|pattern| {
                 self.seed_closure_params_from_callable_pattern(pattern, arg)
             });
@@ -1918,8 +1926,9 @@ impl<'a> BodyChecker<'a> {
                         return_type,
                     })
                 });
-            let substituted_param =
-                param.map(|param| self.substitute_generics(param, substitutions));
+            let substituted_param = param.map(|param| {
+                self.substitute_generics_and_consts(param, substitutions, const_substitutions)
+            });
             let expected = self.generic_argument_expected(
                 substituted_param,
                 callable_pattern,
@@ -1946,6 +1955,11 @@ impl<'a> BodyChecker<'a> {
                     );
                 }
                 self.infer_generics_from_type(param, actual, substitutions, arg.span);
+                if self.generic_pattern_accepts_type_shape(param, actual) {
+                    let mut staged = const_substitutions.clone();
+                    self.infer_const_generics_from_type(param, actual, &mut staged, arg.span);
+                    *const_substitutions = staged;
+                }
             }
         }
     }
@@ -1994,20 +2008,6 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         Some(first)
-    }
-
-    pub(in crate::calls::methods) fn method_generics_are_complete(
-        &mut self,
-        span: Span,
-        signature: &FunctionSignature,
-        substitutions: &SymbolMap<InternedTyId>,
-    ) -> bool {
-        self.method_generics_are_complete_with_consts(
-            span,
-            signature,
-            substitutions,
-            &SymbolMap::default(),
-        )
     }
 
     pub(in crate::calls::methods) fn method_generics_are_complete_with_consts(
