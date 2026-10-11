@@ -313,10 +313,9 @@ impl ConfigureCache {
         if let Err(error) = validate_cache_namespace(
             cache_root,
             path.parent().expect("configure cache path has parent"),
-        ) {
-            if error.kind() != io::ErrorKind::NotFound {
-                return Err(error);
-            }
+        ) && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(error);
         }
         let Some(record) = read_record(&path)? else {
             return Ok(None);

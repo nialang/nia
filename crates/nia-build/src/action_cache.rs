@@ -505,10 +505,10 @@ impl GeneratedFileCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid generated-file cache path"))?;
-        if let Err(error) = validate_cache_namespace(&self.root, parent) {
-            if error.kind() != io::ErrorKind::NotFound {
-                return Err(error);
-            }
+        if let Err(error) = validate_cache_namespace(&self.root, parent)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(error);
         }
         let max_bytes = identity.encoded_len()?;
         let encoded = match read_bounded_cache_entry(&path, max_bytes) {
