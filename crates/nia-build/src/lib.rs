@@ -685,48 +685,61 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_compile_failures", 1);
             }
             let (runner_executable, runner_cache_key) = runner?;
-            let mut configure_candidate =
-                match configure_cache_candidate(&invocation, &runner_cache_key) {
-                    Ok(ConfigureCacheCandidate::Present) => {
-                        nia_timing::emit_counter("build.configure_cache_candidates", 1);
-                        ConfigureCacheCandidate::Present
-                    }
-                    Ok(ConfigureCacheCandidate::None) => ConfigureCacheCandidate::None,
-                    Ok(candidate @ ConfigureCacheCandidate::Miss(_)) => candidate,
-                    Err(_) => ConfigureCacheCandidate::None,
-                };
-            let reusable = ConfigureCache::new(&invocation)
-                .lookup_reusable(
-                    &runner_cache_key,
-                    &invocation_identity(&invocation),
-                    &invocation.package_root,
-                )
-                .inspect(|lookup| {
-                    if let ConfigureCacheLookup::Miss(reason) = lookup
-                        && !matches!(reason, ConfigureCacheMissReason::NotFound)
-                    {
-                        configure_candidate = ConfigureCacheCandidate::Miss(reason.clone());
-                    }
-                })
-                .ok();
-            let mut runner_reused = false;
-            let draft = match reusable {
-                Some(ConfigureCacheLookup::Hit(record)) => {
-                    let manifest = record.manifest.encode().ok();
-                    match (ConfigureCache::decode_plan(&record).ok(), manifest) {
-                        (Some(plan), Some(observations)) => {
-                            runner_reused = true;
-                            nia_timing::emit_counter("build.configure_cache_hits", 1);
-                            let cleanup = fs::remove_file(&runner_executable);
-                            match cleanup {
-                                Ok(()) => Ok(BuildDraft { plan, observations }),
-                                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                                    Ok(BuildDraft { plan, observations })
+            let (draft, configure_candidate, runner_reused) =
+                time_summary_stage(timings, "build_configure_plan", || {
+                    let mut configure_candidate =
+                        match configure_cache_candidate(&invocation, &runner_cache_key) {
+                            Ok(ConfigureCacheCandidate::Present) => {
+                                nia_timing::emit_counter("build.configure_cache_candidates", 1);
+                                ConfigureCacheCandidate::Present
+                            }
+                            Ok(ConfigureCacheCandidate::None) => ConfigureCacheCandidate::None,
+                            Ok(candidate @ ConfigureCacheCandidate::Miss(_)) => candidate,
+                            Err(_) => ConfigureCacheCandidate::None,
+                        };
+                    let reusable = ConfigureCache::new(&invocation)
+                        .lookup_reusable(
+                            &runner_cache_key,
+                            &invocation_identity(&invocation),
+                            &invocation.package_root,
+                        )
+                        .inspect(|lookup| {
+                            if let ConfigureCacheLookup::Miss(reason) = lookup
+                                && !matches!(reason, ConfigureCacheMissReason::NotFound)
+                            {
+                                configure_candidate = ConfigureCacheCandidate::Miss(reason.clone());
+                            }
+                        })
+                        .ok();
+                    let mut runner_reused = false;
+                    let draft = match reusable {
+                        Some(ConfigureCacheLookup::Hit(record)) => {
+                            let manifest = record.manifest.encode().ok();
+                            match (ConfigureCache::decode_plan(&record).ok(), manifest) {
+                                (Some(plan), Some(observations)) => {
+                                    runner_reused = true;
+                                    nia_timing::emit_counter("build.configure_cache_hits", 1);
+                                    let cleanup = fs::remove_file(&runner_executable);
+                                    match cleanup {
+                                        Ok(()) => Ok(BuildDraft { plan, observations }),
+                                        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                                            Ok(BuildDraft { plan, observations })
+                                        }
+                                        Err(error) => Err(BuildError::CleanupRunnerExecutable {
+                                            path: runner_executable.clone(),
+                                            error,
+                                        }),
+                                    }
                                 }
-                                Err(error) => Err(BuildError::CleanupRunnerExecutable {
-                                    path: runner_executable.clone(),
-                                    error,
-                                }),
+                                _ => {
+                                    nia_timing::emit_counter("build.configure_cache_misses", 1);
+                                    nia_timing::emit_counter("build.runner_executions", 1);
+                                    run_and_cleanup_build_runner_draft(
+                                        &invocation,
+                                        &runner_executable,
+                                        &runner_cache_key,
+                                    )
+                                }
                             }
                         }
                         _ => {
@@ -738,18 +751,9 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                                 &runner_cache_key,
                             )
                         }
-                    }
-                }
-                _ => {
-                    nia_timing::emit_counter("build.configure_cache_misses", 1);
-                    nia_timing::emit_counter("build.runner_executions", 1);
-                    run_and_cleanup_build_runner_draft(
-                        &invocation,
-                        &runner_executable,
-                        &runner_cache_key,
-                    )
-                }
-            };
+                    };
+                    (draft, configure_candidate, runner_reused)
+                });
             if draft.is_err() {
                 nia_timing::emit_counter("build.runner_failures", 1);
             }
@@ -2816,7 +2820,9 @@ fn run_and_cleanup_build_runner_draft(
     runner_executable: &Path,
     runner_cache_key: &str,
 ) -> Result<BuildDraft, BuildError> {
-    let result = run_build_runner(invocation, runner_executable, runner_cache_key);
+    let result = time_summary_stage(invocation.timings, "build_run_runner", || {
+        run_build_runner(invocation, runner_executable, runner_cache_key)
+    });
     let cleanup = match fs::remove_file(runner_executable) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),

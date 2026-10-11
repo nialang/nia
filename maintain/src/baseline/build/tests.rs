@@ -176,7 +176,7 @@ fn passing_results() -> Vec<BuildResult> {
             "runner_only_warm",
             values(&[
                 ("build.runner_compilations", 1),
-                ("build.runner_executions", 1),
+                ("build.runner_executions", 0),
                 ("build.runner_cache_misses", 0),
                 ("build.runner_cache_hits", 1),
                 ("build.actions_executed", 1),
@@ -209,6 +209,32 @@ fn passing_results() -> Vec<BuildResult> {
             .clone(),
     });
     results[6].corrupted_action_cache_entries = Some(3);
+    for result in &mut results {
+        let executes_runner = matches!(
+            result.name.as_str(),
+            "clean"
+                | "source_edit"
+                | "source_edit_clean"
+                | "module_map_edit"
+                | "module_map_edit_clean"
+                | "failed_action"
+                | "runner_only_clean"
+        );
+        let counters = &mut result.reports.measurement.counters;
+        counters.insert("build.runner_compilations".to_owned(), json!(1));
+        counters.insert(
+            "build.runner_executions".to_owned(),
+            json!(i64::from(executes_runner)),
+        );
+        counters.insert(
+            "build.configure_cache_misses".to_owned(),
+            json!(i64::from(executes_runner)),
+        );
+        counters.insert(
+            "build.configure_cache_hits".to_owned(),
+            json!(i64::from(!executes_runner)),
+        );
+    }
     results
 }
 
@@ -252,7 +278,7 @@ fn extracts_outer_build_measurement() {
 
 #[test]
 fn parsed_measurement_does_not_retain_compiler_release_identity() {
-    let mut report = timing_report(1.0, 2048, json!({"build.runner_executions": 1}));
+    let mut report = timing_report(1.0, 2048, json!({"build.runner_compilations": 1}));
     report
         .as_object_mut()
         .expect("timing report object")
@@ -264,18 +290,70 @@ fn parsed_measurement_does_not_retain_compiler_release_identity() {
 
 #[test]
 fn rejects_missing_or_malformed_timing_entries() {
-    let missing = json!({"process":{},"timings":[],"counters":{"build.runner_executions":1}});
+    let missing = json!({"process":{},"timings":[],"counters":{"build.runner_compilations":1}});
     assert!(
         parse_build_reports(&missing.to_string(), true)
             .unwrap_err()
             .contains("build_resolve_invocation")
     );
-    let malformed = json!({"process":{},"timings":[1],"counters":{"build.runner_executions":1}});
+    let malformed = json!({"process":{},"timings":[1],"counters":{"build.runner_compilations":1}});
     assert!(
         parse_build_reports(&malformed.to_string(), true)
             .unwrap_err()
             .contains("non-object")
     );
+}
+
+#[test]
+fn extracts_warm_configuration_without_runner_execution() {
+    let report = timing_report(
+        1.0,
+        2048,
+        json!({"build.runner_compilations": 1, "build.configure_cache_hits": 1}),
+    );
+    let parsed = parse_build_reports(&report.to_string(), true).unwrap();
+    assert_eq!(parsed.measurement.counters["build.configure_cache_hits"], 1);
+    assert!(!parsed.measurement.stages.contains_key("build_run_runner"));
+    assert!(
+        parsed
+            .measurement
+            .stages
+            .contains_key("build_configure_plan")
+    );
+}
+
+#[test]
+fn acceptance_requires_exact_configure_reuse_for_each_transition() {
+    let mut results = passing_results();
+    results[1]
+        .reports
+        .measurement
+        .counters
+        .insert("build.runner_executions".to_owned(), json!(1));
+    results[7]
+        .reports
+        .measurement
+        .counters
+        .remove("build.configure_cache_hits");
+    results[4]
+        .reports
+        .measurement
+        .counters
+        .insert("build.configure_cache_hits".to_owned(), json!(1));
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    for (state, counter) in [
+        ("warm", "build.runner_executions"),
+        ("recovered_warm", "build.configure_cache_hits"),
+        ("module_map_edit", "build.configure_cache_hits"),
+    ] {
+        assert!(
+            acceptance
+                .checks
+                .iter()
+                .any(|check| check.state == state && check.counter == counter && !check.passed)
+        );
+    }
 }
 
 #[test]

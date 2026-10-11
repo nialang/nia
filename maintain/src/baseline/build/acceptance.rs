@@ -51,12 +51,6 @@ pub(super) fn validate_workload(results: &[BuildResult]) -> MaintainResult<()> {
                 result.name
             ));
         }
-        if counter(result, "build.runner_executions")? != 1 {
-            return Err(format!(
-                "build state {:?} did not execute exactly one runner",
-                result.name
-            ));
-        }
     }
     let failed_action = &results[8];
     if counter(failed_action, "build.action_failures")? != 1 {
@@ -164,6 +158,47 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
                 passed: !existed,
             });
         }
+    }
+
+    for result in results {
+        let executes_runner = matches!(
+            result.name.as_str(),
+            "clean"
+                | "source_edit"
+                | "source_edit_clean"
+                | "module_map_edit"
+                | "module_map_edit_clean"
+                | "failed_action"
+                | "runner_only_clean"
+        );
+        exact(
+            &mut checks,
+            &result.name,
+            result,
+            "build.runner_compilations",
+            1,
+        )?;
+        exact(
+            &mut checks,
+            &result.name,
+            result,
+            "build.runner_executions",
+            i64::from(executes_runner),
+        )?;
+        exact(
+            &mut checks,
+            &result.name,
+            result,
+            "build.configure_cache_misses",
+            i64::from(executes_runner),
+        )?;
+        exact(
+            &mut checks,
+            &result.name,
+            result,
+            "build.configure_cache_hits",
+            i64::from(!executes_runner),
+        )?;
     }
 
     for (state, result) in [
@@ -501,8 +536,6 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         ("runner_only_clean", runner_only_clean),
         ("runner_only_warm", runner_only_warm),
     ] {
-        exact(&mut checks, state, result, "build.runner_compilations", 1)?;
-        exact(&mut checks, state, result, "build.runner_executions", 1)?;
         // Even an empty build plan executes its single aggregate step. This
         // keeps runner-only measurements honest while excluding application
         // actions and cache lookups from the isolated workload.
