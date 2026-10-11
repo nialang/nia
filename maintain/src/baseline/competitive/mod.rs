@@ -117,7 +117,7 @@ impl Options {
     /// Creates options for the repository compiler and the active host tools.
     pub fn for_repository(root: &Path) -> Self {
         Self {
-            nia: root.join("target/release/nia"),
+            nia: super::repository_compiler(root),
             rustc: PathBuf::from("rustc"),
             cargo: PathBuf::from("cargo"),
             zig: PathBuf::from("zig"),
@@ -134,7 +134,7 @@ impl Options {
 }
 
 fn build_compiler(root: &Path, compiler: &Path, enabled: bool) -> MaintainResult<bool> {
-    let default = root.join("target/release/nia");
+    let default = super::repository_compiler(root);
     if !enabled || compiler != default {
         return Ok(false);
     }

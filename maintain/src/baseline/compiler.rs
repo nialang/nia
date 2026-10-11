@@ -35,7 +35,7 @@ impl Options {
     /// Creates options using repository-standard compiler and resource paths.
     pub fn for_repository(root: &Path) -> Self {
         Self {
-            compiler: root.join("target/release/nia"),
+            compiler: super::repository_compiler(root),
             resource_root: root.join("lib"),
             output: root.join("target/nia-perf/baseline.json"),
             repeat: 1,
@@ -598,7 +598,7 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             resource_root.display()
         ));
     }
-    let default_compiler = root.join("target/release/nia");
+    let default_compiler = super::repository_compiler(root);
     if options.build_compiler && compiler == default_compiler {
         let status = Command::new("cargo")
             .args([
