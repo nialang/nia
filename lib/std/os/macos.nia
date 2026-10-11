@@ -312,10 +312,10 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     }
     let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
     let length = copyAndValidateRelative(path, &mut storage[..]).?;
-    let finalStart = finalComponentStart(&storage[..], length);
     let mut finalEnd = length;
     while finalEnd != 0 and storage[finalEnd - 1] == b'/' { finalEnd -= 1; }
     storage[finalEnd] = 0;
+    let finalStart = finalComponentStart(&storage[..], finalEnd);
     let mut current = dir;
     let mut ownsCurrent = false;
     let mut cursor: usize = 0;
