@@ -126,7 +126,14 @@ impl BackendValidator<'_> {
         let pointer_cast = (source_pointer && target_pointer)
             || (source_pointer && target_pointer_int)
             || (source_pointer_int && target_pointer);
-        if !(numeric || char_to_u32 || enum_cast || pointer_cast) {
+        let readonly_view_cast = matches!(
+            (self.index.ty_kind(inner.ty), self.index.ty_kind(target_ty)),
+            (
+                Some(TyKind::Slice { is_readonly: false, elem: source }),
+                Some(TyKind::Slice { is_readonly: true, elem: target }),
+            ) if self.same_type(*source, *target)
+        );
+        if !(numeric || char_to_u32 || enum_cast || pointer_cast || readonly_view_cast) {
             self.invalid_operator(span, "cast source and target categories are incompatible");
             return;
         }

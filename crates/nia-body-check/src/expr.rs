@@ -498,13 +498,27 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Match(matched) => self.check_match_expr(matched, expected),
         };
         let ty = if let Some(expected) = expected {
-            self.coerce_pointer_array_to_slice(expr, expected, ty)
-                .or_else(|| self.coerce_mutable_pointer_to_readonly(expected, ty))
-                .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, ty))
-                .or_else(|| self.coerce_pointer_array_to_slice_trait_object(expr, expected, ty))
-                .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, ty))
-                .or_else(|| self.materialize_inferred_array_type(expected, ty))
-                .unwrap_or(ty)
+            let actual = ty;
+            let ty = self
+                .coerce_pointer_array_to_slice(expr, expected, actual)
+                .or_else(|| {
+                    self.coerce_mutable_pointer_to_readonly(expected, actual)
+                        .inspect(|target_ty| {
+                            self.record_mutable_to_readonly_coercion(
+                                expr,
+                                nia_sema_ir::MutableToReadonlyCoercion {
+                                    source_ty: actual,
+                                    target_ty: *target_ty,
+                                },
+                            );
+                        })
+                })
+                .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, actual))
+                .or_else(|| self.coerce_pointer_array_to_slice_trait_object(expr, expected, actual))
+                .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, actual))
+                .or_else(|| self.materialize_inferred_array_type(expected, actual))
+                .unwrap_or(actual);
+            ty
         } else {
             ty
         };

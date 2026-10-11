@@ -649,6 +649,21 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
+        if let Some(coercion) = self
+            .node_mutable_to_readonly_coercions
+            .get(&expr.node_key)
+            .copied()
+            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.target_ty))
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.target_ty,
+                kind: TypedExprKind::Cast {
+                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
+                    ty: coercion.target_ty,
+                },
+            };
+        }
         if let Some(upcast) = self
             .node_trait_object_upcasts
             .get(&expr.node_key)
@@ -1104,7 +1119,7 @@ impl<'a> BodyChecker<'a> {
                         expr: Box::new(pointer),
                     }
                 } else if matches!(op, UnaryOp::Deref) {
-                    let inner_ty = self.pointer_to_deref_expected(forced_ty);
+                    let inner_ty = Some(self.expr_runtime_ty(inner));
                     TypedExprKind::Unary {
                         op: *op,
                         expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
@@ -1753,7 +1768,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_deref_pointer(&mut self, expr: &Expr) -> Option<TypedExpr> {
-        let ty = self.expr_runtime_ty(expr);
+        let ty = self
+            .node_mutable_to_readonly_coercions
+            .get(&expr.node_key)
+            .map(|coercion| coercion.source_ty)
+            .unwrap_or_else(|| self.expr_runtime_ty(expr));
         self.lower_builtin_deref_method_call(expr, ty, false)
     }
 

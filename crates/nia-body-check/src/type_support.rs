@@ -10,7 +10,9 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_hash::FastHashMap;
 use nia_ids::{GlobalConstExprId, InternedTyId};
-use nia_sema_ir::{FunctionPointerToCallableCoercion, PointerArrayToSliceCoercion};
+use nia_sema_ir::{
+    FunctionPointerToCallableCoercion, MutableToReadonlyCoercion, PointerArrayToSliceCoercion,
+};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_trait_solve::TraitSolverContext;
@@ -642,6 +644,13 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         if let Some(coerced) = self.coerce_mutable_pointer_to_readonly(expected, actual) {
+            self.record_mutable_to_readonly_coercion(
+                expr,
+                MutableToReadonlyCoercion {
+                    source_ty: actual,
+                    target_ty: coerced,
+                },
+            );
             self.record_expr_node_type(expr, coerced);
             return;
         }
@@ -1817,6 +1826,7 @@ impl<'a> BodyChecker<'a> {
             node_expr_types: FastHashMap::default(),
             node_bracket_suffix_resolutions: FastHashMap::default(),
             node_pointer_array_to_slice_coercions: FastHashMap::default(),
+            node_mutable_to_readonly_coercions: FastHashMap::default(),
             node_function_pointer_to_callable_coercions: FastHashMap::default(),
             node_trait_object_coercions: FastHashMap::default(),
             node_trait_object_upcasts: FastHashMap::default(),

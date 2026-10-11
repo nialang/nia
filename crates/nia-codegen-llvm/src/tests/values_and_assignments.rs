@@ -223,6 +223,40 @@ fn main() i32 {
 }
 
 #[test]
+fn mutable_call_results_keep_abi_types_through_readonly_coercions() {
+    let root = temp_dir("mutable_call_results_keep_abi_types_through_readonly_coercions");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn slot() &mut i32;
+extern fn read_pointer(value: &i32);
+fn values(value: &mut [i32]) &mut [i32] {
+    value
+}
+fn read_slice(value: &[i32]) () {
+    _ = value;
+}
+
+fn main(xs: &mut [i32]) i32 {
+    read_pointer(slot());
+    let value: &i32 = slot();
+    _ = value.*;
+    read_slice(values(xs));
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn emits_index_assignment_through_mutable_slice_call_result() {
     let root = temp_dir("emits_index_assignment_through_mutable_slice_call_result");
     let main = root.join("main.nia");
