@@ -88,6 +88,13 @@ The repository is exercised in these environments:
 - experimental i686 workspace compilation and selected freestanding executable
   tests using runtime-owned `int 0x80` startup/syscall source.
 
+The platform workflow also runs the executable and standard-library suites on
+the hosted `macos-15-intel` Intel and `macos-15` arm64 runners. It builds the
+pinned LLVM 23 toolchain from `tools/llvm/build-static.sh`, selects the corresponding
+Darwin target, and publishes the Rust, LLVM, linker, runner, and host-identity
+evidence for each job. A successful workflow run is the managed execution
+evidence required by the D3 row in [the platform roadmap](platform-roadmap.md).
+
 The i686 LLVM-backed matrix requires an LLVM installation whose headers include
 the target-width configuration (for the current LLVM 23 packages,
 `LLVM_SYS_231_PREFIX=/usr/lib/llvm23`). A distro prefix that exposes only the

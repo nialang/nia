@@ -122,7 +122,12 @@ fn release_workflow_publishes_only_versioned_linux_archives() {
 
 #[test]
 fn workflows_have_no_parallel_python_or_node_toolchain() {
-    for name in ["build-std.yml", "performance.yml", "release.yml"] {
+    for name in [
+        "build-std.yml",
+        "performance.yml",
+        "platform.yml",
+        "release.yml",
+    ] {
         let workflow = workflow(name);
         for forbidden in [
             "setup-python",
@@ -139,4 +144,35 @@ fn workflows_have_no_parallel_python_or_node_toolchain() {
             );
         }
     }
+}
+
+#[test]
+fn platform_workflow_runs_both_darwin_execution_matrices() {
+    let workflow = workflow("platform.yml");
+    for runner in ["macos-15-intel", "macos-15"] {
+        assert!(
+            workflow.contains(&format!("runner: {runner}")),
+            "missing {runner}"
+        );
+    }
+    for target in ["x86_64-apple-macos", "aarch64-apple-macos"] {
+        assert!(
+            workflow.contains(&format!("target: {target}")),
+            "missing {target}"
+        );
+    }
+    for command in [
+        "tools/llvm/build-static.sh",
+        "LLVM_ENABLE_PROJECTS='clang;lld'",
+        "cargo maintain check",
+        "cargo fmt --all -- --check",
+        "cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings",
+        "cargo test -p nia-cli --tests --no-default-features --features llvm-static",
+        "actions/upload-artifact@v7",
+    ] {
+        assert!(workflow.contains(command), "missing command {command}");
+    }
+    assert!(workflow.contains("MACOSX_DEPLOYMENT_TARGET: \"15.0\""));
+    assert!(workflow.contains("ld64.lld"));
+    assert!(workflow.contains("${LLVM_SYS_231_PREFIX}/bin/clang"));
 }

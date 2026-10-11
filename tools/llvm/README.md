@@ -22,6 +22,10 @@ Useful overrides:
 LLVM_TARGETS_TO_BUILD=X86 LLVM_BUILD_JOBS=8 tools/llvm/build-static.sh
 ```
 
+The default build includes LLD. A validation workflow that needs the matching
+Clang driver may set `LLVM_ENABLE_PROJECTS='clang;lld'`; the project list is a
+CMake semicolon list and participates in that workflow's toolchain identity.
+
 When `LLVM_BUILD_JOBS` is omitted, the script uses the full host CPU count.
 WSL users should lower it when the VM has limited memory; an explicit value can
 be set after increasing the WSL memory and swap allocation.
