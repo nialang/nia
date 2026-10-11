@@ -77,9 +77,9 @@ use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
     AssociatedConstProjection, BracketSuffixResolution, BuiltinValue,
     FunctionPointerToCallableCoercion, FunctionReference, FunctionSemanticFactsBuilder,
-    GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts,
-    SemanticFactsBuilder, SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse,
-    TraitObjectCoercion, TraitObjectUpcast,
+    GenericInstantiation, MutableToReadonlyCoercion, PointerArrayToSliceCoercion, ResolvedCall,
+    SemanticFacts, SemanticFactsBuilder, SemanticTraitMethodRef, SemanticUseTable,
+    SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -213,6 +213,7 @@ struct BodyChecker<'a> {
     node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
     node_pointer_array_to_slice_coercions:
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    node_mutable_to_readonly_coercions: FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
     node_function_pointer_to_callable_coercions:
         FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
     node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,

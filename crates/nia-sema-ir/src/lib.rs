@@ -403,6 +403,8 @@ pub struct SemanticFacts {
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
     /// Pointer-to-array coercions owned by module-level expressions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Mutable-pointer to readonly-pointer coercions owned by module-level expressions.
+    pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions owned by module-level expressions.
     pub node_function_pointer_to_callable_coercions: NodeMap<FunctionPointerToCallableCoercion>,
     /// Trait-object coercions owned by module-level expressions.
@@ -443,6 +445,9 @@ pub struct SemanticFactsBuilder {
     /// Module-level pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Module-level mutable-pointer to readonly-pointer coercions.
+    pub node_mutable_to_readonly_coercions:
+        FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
     /// Module-level function-pointer to callable-view coercions.
     pub node_function_pointer_to_callable_coercions:
         FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
@@ -511,6 +516,10 @@ impl SemanticFacts {
             facts.node_pointer_array_to_slice_coercions,
         );
         extend_node_map(
+            &mut self.node_mutable_to_readonly_coercions,
+            facts.node_mutable_to_readonly_coercions,
+        );
+        extend_node_map(
             &mut self.node_function_pointer_to_callable_coercions,
             facts.node_function_pointer_to_callable_coercions,
         );
@@ -557,6 +566,10 @@ impl SemanticFacts {
                 .collect(),
             node_pointer_array_to_slice_coercions: self
                 .node_pointer_array_to_slice_coercions
+                .into_entries()
+                .collect(),
+            node_mutable_to_readonly_coercions: self
+                .node_mutable_to_readonly_coercions
                 .into_entries()
                 .collect(),
             node_function_pointer_to_callable_coercions: self
@@ -737,6 +750,9 @@ impl SemanticFactsBuilder {
             for key in facts.node_pointer_array_to_slice_coercions.keys() {
                 self.node_pointer_array_to_slice_coercions.remove(&key);
             }
+            for key in facts.node_mutable_to_readonly_coercions.keys() {
+                self.node_mutable_to_readonly_coercions.remove(&key);
+            }
             for key in facts.node_trait_object_coercions.keys() {
                 self.node_trait_object_coercions.remove(&key);
             }
@@ -784,6 +800,10 @@ impl SemanticFactsBuilder {
                 store,
                 self.node_pointer_array_to_slice_coercions,
             ),
+            node_mutable_to_readonly_coercions: node_map_from_entries(
+                store,
+                self.node_mutable_to_readonly_coercions,
+            ),
             node_function_pointer_to_callable_coercions: node_map_from_entries(
                 store,
                 self.node_function_pointer_to_callable_coercions,
@@ -825,6 +845,8 @@ pub struct FunctionSemanticFacts {
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Mutable-pointer to readonly-pointer coercions.
+    pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions.
     pub node_function_pointer_to_callable_coercions: NodeMap<FunctionPointerToCallableCoercion>,
     /// Trait-object coercions.
@@ -863,6 +885,9 @@ pub struct FunctionSemanticFactsBuilder {
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Mutable-pointer to readonly-pointer coercions.
+    pub node_mutable_to_readonly_coercions:
+        FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions.
     pub node_function_pointer_to_callable_coercions:
         FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
@@ -913,6 +938,10 @@ impl FunctionSemanticFacts {
                 .node_pointer_array_to_slice_coercions
                 .into_entries()
                 .collect(),
+            node_mutable_to_readonly_coercions: self
+                .node_mutable_to_readonly_coercions
+                .into_entries()
+                .collect(),
             node_function_pointer_to_callable_coercions: self
                 .node_function_pointer_to_callable_coercions
                 .into_entries()
@@ -950,6 +979,7 @@ impl FunctionSemanticFactsBuilder {
             && self.node_expr_types.is_empty()
             && self.node_bracket_suffix_resolutions.is_empty()
             && self.node_pointer_array_to_slice_coercions.is_empty()
+            && self.node_mutable_to_readonly_coercions.is_empty()
             && self.node_function_pointer_to_callable_coercions.is_empty()
             && self.node_trait_object_coercions.is_empty()
             && self.node_trait_object_upcasts.is_empty()
@@ -976,6 +1006,10 @@ impl FunctionSemanticFactsBuilder {
             node_pointer_array_to_slice_coercions: node_map_from_entries(
                 store,
                 self.node_pointer_array_to_slice_coercions,
+            ),
+            node_mutable_to_readonly_coercions: node_map_from_entries(
+                store,
+                self.node_mutable_to_readonly_coercions,
             ),
             node_function_pointer_to_callable_coercions: node_map_from_entries(
                 store,
@@ -1078,6 +1112,15 @@ pub struct PointerArrayToSliceCoercion {
     pub slice_ty: InternedTyId,
     /// Whether the resulting slice forbids mutation.
     pub is_readonly: bool,
+}
+
+/// Coercion from a mutable pointer to its readonly view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MutableToReadonlyCoercion {
+    /// Source mutable-pointer type.
+    pub source_ty: InternedTyId,
+    /// Result readonly-pointer type.
+    pub target_ty: InternedTyId,
 }
 
 /// Coercion from a thin function pointer to a callable view.
