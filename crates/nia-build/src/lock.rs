@@ -4,10 +4,8 @@
 //! Owner PID, process start time, and acquisition sequence prevent stale or
 //! older same-process guards from removing a live successor's lock.
 
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
 #[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
 use std::{
     fs,
     io::{self, Read as _, Write as _},
@@ -16,6 +14,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+use std::{os::fd::AsRawFd, os::unix::fs::OpenOptionsExt as _};
 
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
@@ -205,7 +205,10 @@ fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
         // The owner keeps an advisory lock on the inode for its whole scope.
         // A stale reclaimer must acquire that same lock before unlinking, so a
         // live owner or a competing reclaimer can never be mistaken for stale.
-        let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(path) else {
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true);
+        options.custom_flags(libc::O_NOFOLLOW);
+        let Ok(file) = options.open(path) else {
             return;
         };
         let Ok(true) = try_lock_file(&file) else {
@@ -231,7 +234,10 @@ fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
         let _ = fs::OpenOptions::new()
             .access_mode(windows_sys::Win32::Storage::FileSystem::DELETE)
             .share_mode(0)
-            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE)
+            .custom_flags(
+                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_DELETE_ON_CLOSE
+                    | windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
+            )
             .open(path);
     }
 
@@ -282,7 +288,8 @@ fn lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
     if stale_after == Duration::ZERO {
         return true;
     }
-    fs::metadata(path)
+    fs::symlink_metadata(path)
+        .filter(|metadata| !metadata.file_type().is_symlink())
         .and_then(|metadata| metadata.modified())
         .ok()
         .and_then(|modified| modified.elapsed().ok())
@@ -299,9 +306,19 @@ fn lock_owner_is_alive(path: &Path) -> bool {
 
 #[cfg(not(any(unix, windows)))]
 fn lock_owner_is_alive(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
         return false;
     };
+    if metadata.file_type().is_symlink() {
+        return false;
+    }
+    #[cfg(windows)]
+    if metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0
+    {
+        return false;
+    }
     metadata
         .modified()
         .ok()
@@ -326,13 +343,29 @@ fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
 fn read_bounded_utf8(path: &Path, max_bytes: usize) -> Option<String> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
     #[cfg(windows)]
-    options.share_mode(
-        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
-            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
-            | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
-    );
+    {
+        options.share_mode(
+            windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+                | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+                | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+        );
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
     let file = options.open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    #[cfg(windows)]
+    if metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0
+    {
+        return None;
+    }
+    if !metadata.is_file() {
+        return None;
+    }
     let mut bytes = Vec::new();
     file.take(u64::try_from(max_bytes).ok()?.saturating_add(1))
         .read_to_end(&mut bytes)
@@ -514,6 +547,22 @@ mod tests {
         assert_eq!(read_lock_owner(&path), None);
         reclaim_stale_lock(&path, Duration::ZERO);
         assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_owner_reader_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root("symlink-owner");
+        let target = root.join("target");
+        let alias = root.join("output.lock");
+        fs::write(&target, "1:2:0\n").unwrap();
+        symlink(&target, &alias).unwrap();
+
+        assert_eq!(read_lock_owner(&alias), None);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

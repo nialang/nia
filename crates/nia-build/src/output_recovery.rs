@@ -14,6 +14,11 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
+#[cfg(windows)]
+use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+
 use nia_compat::formats::{
     OUTPUT_TRANSACTION, OUTPUT_TRANSACTION_JOURNAL, OUTPUT_TRANSACTION_PREPARED,
 };
@@ -677,8 +682,21 @@ fn journal_root(build_dir: &Path) -> PathBuf {
 }
 
 fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
-    let metadata = fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_file() {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_file() || is_reparse {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "transaction record is not a regular file",
@@ -691,7 +709,7 @@ fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
         )
     })?;
     validate_transaction_record_size(length)?;
-    let mut file = fs::File::open(path)?;
+    let mut file = file;
     read_bounded_contents(&mut file, length)
 }
 
@@ -1565,5 +1583,26 @@ mod tests {
                 .kind(),
             io::ErrorKind::InvalidData
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_journal_read_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-output-recovery-symlink-{}-{}",
+            std::process::id(),
+            JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("target");
+        let alias = root.join("journal.bin");
+        fs::write(&target, b"journal").unwrap();
+        symlink(&target, &alias).unwrap();
+
+        assert!(read_bounded(&alias).is_err());
+
+        let _ = fs::remove_dir_all(root);
     }
 }
