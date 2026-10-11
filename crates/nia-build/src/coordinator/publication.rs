@@ -9,7 +9,7 @@ use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
 #[cfg(windows)]
-use std::os::windows::fs::MetadataExt as _;
+use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
 
 pub(super) fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorError> {
     path.to_str()
@@ -716,9 +716,11 @@ fn generated_file_matches(path: &Path, expected: &[u8]) -> bool {
         options.read(true);
         #[cfg(unix)]
         options.custom_flags(libc::O_NOFOLLOW);
+        #[cfg(windows)]
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
         let mut file = options.open(path)?;
         let metadata = file.metadata()?;
-        if !metadata.is_file() {
+        if !metadata.is_file() || is_link_or_reparse_point(&metadata) {
             return Ok(false);
         }
         generated_stream_matches(&mut file, metadata.len(), expected)
@@ -821,5 +823,42 @@ mod tests {
         assert!(!generated_stream_matches(&mut io::Cursor::new(b"sourcf"), 6, b"source").unwrap());
         assert!(!generated_stream_matches(&mut io::Cursor::new(b"source!"), 6, b"source").unwrap());
         assert!(!generated_stream_matches(&mut io::Cursor::new(b"source"), 7, b"source").unwrap());
+    }
+
+    #[test]
+    fn generated_file_match_accepts_exact_regular_file() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-generated-match-{}-{}",
+            std::process::id(),
+            GENERATED_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("output");
+        fs::write(&path, b"accepted").unwrap();
+
+        assert!(generated_file_matches(&path, b"accepted"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_file_match_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-generated-match-{}-{}",
+            std::process::id(),
+            GENERATED_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        let target = root.join("target");
+        let alias = root.join("alias");
+        fs::write(&target, b"accepted").unwrap();
+        symlink(&target, &alias).unwrap();
+
+        assert!(!generated_file_matches(&alias, b"accepted"));
+
+        let _ = fs::remove_dir_all(root);
     }
 }
