@@ -10,7 +10,9 @@ use std::{
 use nia_compat::formats;
 use nia_query::FingerprintDomain;
 
-use crate::{BuildInvocation, ConfigureManifest, ObservationValidation};
+use crate::{
+    BuildInvocation, ConfigureManifest, ObservationValidation, action_cache::open_cache_entry,
+};
 
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
@@ -519,7 +521,7 @@ fn record_paths(root: &Path) -> io::Result<Vec<PathBuf>> {
 }
 
 fn read_record(path: &Path) -> io::Result<Option<ConfigureRecord>> {
-    let file = match fs::File::open(path) {
+    let file = match open_cache_entry(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
@@ -576,6 +578,26 @@ fn decode_record(bytes: &[u8]) -> Option<ConfigureRecord> {
 mod tests {
     use super::*;
     use crate::{ConfigureObservation, ObservationKind, ObservationPolicy};
+
+    #[cfg(unix)]
+    #[test]
+    fn configure_record_reader_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-configure-cache-symlink-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create cache root");
+        let target = root.join("target.manifest");
+        let alias = root.join("alias.manifest");
+        fs::write(&target, b"cache record").expect("write cache record");
+        symlink(&target, &alias).expect("create cache symlink");
+
+        assert!(read_record(&alias).is_err());
+
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn identity_changes_with_invocation_and_observations() {

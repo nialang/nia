@@ -164,7 +164,7 @@ enum BoundedCacheEntry {
 /// points. Cache records are immutable files owned by Nia; accepting a link
 /// here would let a cache directory redirect reads or retirement operations
 /// outside its namespace.
-pub(super) fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
+pub(crate) fn open_cache_entry(path: &Path) -> io::Result<fs::File> {
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt as _;
     #[cfg(windows)]

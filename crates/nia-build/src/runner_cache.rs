@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use nia_compat::{formats, toolchain::BUILD_PROTOCOL};
 use nia_query::FingerprintDomain;
 
-use crate::{BuildError, BuildInvocation, BuildRunnerSource};
+use crate::{BuildError, BuildInvocation, BuildRunnerSource, action_cache::open_cache_entry};
 
 const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
 const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3::OUT_LEN;
@@ -155,7 +155,7 @@ fn retire(path: &std::path::Path) {
 }
 
 fn read_bounded_file(path: &std::path::Path, maximum: usize) -> io::Result<Vec<u8>> {
-    let mut file = fs::File::open(path)?;
+    let mut file = open_cache_entry(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > maximum as u64 {
         return Err(io::Error::new(
@@ -183,7 +183,7 @@ fn read_bounded_file(path: &std::path::Path, maximum: usize) -> io::Result<Vec<u
 }
 
 fn hash_bounded_file(hasher: &mut blake3::Hasher, path: &std::path::Path) -> io::Result<()> {
-    let mut file = fs::File::open(path)?;
+    let mut file = open_cache_entry(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_RUNNER_INPUT_BYTES as u64 {
         return Err(io::Error::new(
