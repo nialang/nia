@@ -29,6 +29,9 @@ use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
 
+use crate::cache_fs::{
+    ensure_cache_directory, open_cache_file, open_cache_lock, validate_cache_namespace,
+};
 use crate::facade_facts::{ModuleFacadeFacts, PublicReexportSource};
 use crate::used_paths::{ExplicitUsingImport, ModuleDeclarations};
 
@@ -151,6 +154,17 @@ impl PersistentFrontendCache {
         symbols: &SymbolTable,
     ) -> io::Result<ProviderSummaryCacheLookup> {
         let path = self.provider_summary_path(key);
+        validate_cache_namespace(
+            &self.root,
+            path.parent().expect("provider summary cache parent"),
+        )
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -197,7 +211,7 @@ impl PersistentFrontendCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid frontend cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let encoded =
             encode_provider_summary(key, namespace, module, item_signature, summary, symbols)?;
@@ -205,7 +219,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_provider_summary(&self, key: FrontendProviderSummaryCacheKey) {
-        remove_cache_entry(&self.provider_summary_path(key));
+        remove_cache_entry(&self.root, &self.provider_summary_path(key));
     }
 
     pub(crate) fn load_facade_facts(
@@ -218,6 +232,17 @@ impl PersistentFrontendCache {
         symbols: &SymbolTable,
     ) -> io::Result<FacadeFactsCacheLookup> {
         let path = self.facade_facts_path(key);
+        validate_cache_namespace(
+            &self.root,
+            path.parent().expect("facade facts cache parent"),
+        )
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -264,7 +289,7 @@ impl PersistentFrontendCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid frontend facade facts path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let encoded = encode_facade_facts(
             key,
@@ -279,7 +304,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_facade_facts(&self, key: FrontendFacadeFactsCacheKey) {
-        remove_cache_entry(&self.facade_facts_path(key));
+        remove_cache_entry(&self.root, &self.facade_facts_path(key));
     }
 
     pub(crate) fn load_module_dependencies(
@@ -292,6 +317,17 @@ impl PersistentFrontendCache {
         symbols: &SymbolTable,
     ) -> io::Result<ModuleDependenciesCacheLookup> {
         let path = self.module_dependencies_path(key);
+        validate_cache_namespace(
+            &self.root,
+            path.parent().expect("module dependencies cache parent"),
+        )
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -349,7 +385,7 @@ impl PersistentFrontendCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid frontend module dependencies path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let encoded = encode_module_dependencies(
             key,
@@ -364,7 +400,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_module_dependencies(&self, key: FrontendModuleDependenciesCacheKey) {
-        remove_cache_entry(&self.module_dependencies_path(key));
+        remove_cache_entry(&self.root, &self.module_dependencies_path(key));
     }
 
     pub(crate) fn load_public_surface_facts(
@@ -376,6 +412,17 @@ impl PersistentFrontendCache {
         symbols: &SymbolTable,
     ) -> io::Result<PublicSurfaceFactsCacheLookup> {
         let path = self.public_surface_facts_path(key);
+        validate_cache_namespace(
+            &self.root,
+            path.parent().expect("public surface facts cache parent"),
+        )
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -425,14 +472,14 @@ impl PersistentFrontendCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid frontend public surface facts path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let encoded = encode_public_surface_facts(key, namespace, module, source, facts, symbols)?;
         atomic_publish(&staged, &path, &encoded)
     }
 
     pub(crate) fn remove_public_surface_facts(&self, key: FrontendPublicSurfaceFactsCacheKey) {
-        remove_cache_entry(&self.public_surface_facts_path(key));
+        remove_cache_entry(&self.root, &self.public_surface_facts_path(key));
     }
 
     pub(crate) fn load_dependency_manifest(
@@ -443,6 +490,17 @@ impl PersistentFrontendCache {
         source: SourceContentFingerprint,
     ) -> io::Result<DependencyManifestCacheLookup> {
         let path = self.dependency_manifest_path(key);
+        validate_cache_namespace(
+            &self.root,
+            path.parent().expect("dependency manifest cache parent"),
+        )
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -484,14 +542,14 @@ impl PersistentFrontendCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid frontend manifest path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let encoded = encode_dependency_manifest(key, namespace, module, source, item_signature);
         atomic_publish(&staged, &path, &encoded)
     }
 
     pub(crate) fn remove_dependency_manifest(&self, key: FrontendSourceCacheKey) {
-        remove_cache_entry(&self.dependency_manifest_path(key));
+        remove_cache_entry(&self.root, &self.dependency_manifest_path(key));
     }
 
     pub(crate) fn load_provider_demand_plan(
@@ -502,6 +560,17 @@ impl PersistentFrontendCache {
         symbols: &SymbolTable,
     ) -> io::Result<ProviderDemandPlanCacheLookup> {
         let path = self.provider_demand_plan_path(identity.key);
+        validate_cache_namespace(
+            &self.root,
+            path.parent().expect("provider demand plan cache parent"),
+        )
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
@@ -568,14 +637,14 @@ impl PersistentFrontendCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid provider demand plan path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let encoded =
             encode_provider_demand_plan(identity, source_paths, demands, sources, symbols)?;
         atomic_publish(&staged_path(&path), &path, &encoded)
     }
 
     pub(crate) fn remove_provider_demand_plan(&self, key: FrontendProviderDemandPlanCacheKey) {
-        remove_cache_entry(&self.provider_demand_plan_path(key));
+        remove_cache_entry(&self.root, &self.provider_demand_plan_path(key));
     }
 
     pub(crate) fn provider_summary_path(&self, key: FrontendProviderSummaryCacheKey) -> PathBuf {
@@ -649,7 +718,7 @@ impl PersistentFrontendCache {
 }
 
 fn read_cache_entry(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    let file = match File::open(path) {
+    let file = match open_cache_file(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
@@ -667,12 +736,7 @@ struct FrontendCacheMutationLock {
 impl FrontendCacheMutationLock {
     fn acquire(path: &Path) -> io::Result<Self> {
         let lock_path = path.with_extension("lock");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(lock_path)?;
+        let file = open_cache_lock(&lock_path)?;
         file.lock()?;
         Ok(Self { _file: file })
     }
@@ -702,7 +766,13 @@ fn retire_oversized(path: &Path) {
     }
 }
 
-fn remove_cache_entry(path: &Path) {
+fn remove_cache_entry(root: &Path, path: &Path) {
+    let parent = path.parent().expect("frontend cache entry parent");
+    if let Err(error) = validate_cache_namespace(root, parent) {
+        if error.kind() != io::ErrorKind::NotFound {
+            return;
+        }
+    }
     let Ok(_lock) = FrontendCacheMutationLock::acquire(path) else {
         return;
     };

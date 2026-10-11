@@ -6,6 +6,7 @@
 //! source/module-map dependencies before reuse; a cache miss or invalidated
 //! entry falls back to the in-memory query graph.
 
+mod cache_fs;
 mod facade_facts;
 mod frontend_cache;
 mod graph;
