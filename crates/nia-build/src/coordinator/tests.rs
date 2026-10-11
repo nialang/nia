@@ -3073,6 +3073,54 @@ fn wrong_previous_directory_type_is_rejected_without_replacement() {
 
 #[cfg(unix)]
 #[test]
+fn output_parent_symlink_is_rejected_before_staging() {
+    use std::os::unix::fs::symlink;
+
+    let invocation = test_invocation();
+    let outside = invocation
+        .package_root
+        .parent()
+        .unwrap()
+        .join(format!("nia-build-outside-{}", std::process::id()));
+    fs::create_dir_all(&outside).unwrap();
+    fs::create_dir_all(&invocation.build_dir).unwrap();
+    let redirected = invocation.build_dir.join("redirected");
+    symlink(&outside, &redirected).unwrap();
+    let output = redirected.join("result.txt");
+
+    let result = prepare_test_staged_outputs(&invocation, &[output]);
+    assert!(matches!(result, Err(CoordinatorError::StagedOutput { .. })));
+    assert!(!outside.join("result.txt").exists());
+
+    let _ = fs::remove_dir_all(&outside);
+    let _ = fs::remove_file(&redirected);
+    let _ = fs::remove_dir_all(&invocation.package_root);
+}
+
+#[test]
+fn output_parent_outside_build_root_is_rejected_before_staging() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let output = invocation.package_root.join("outside-result.txt");
+    let logical = LogicalPath::new(
+        LogicalPathRoot::Package(PackageKey::root()),
+        "outside-result.txt",
+    )
+    .unwrap();
+    let resolved = [ResolvedTransactionOutput {
+        logical: &logical,
+        destination: output,
+        kind: TransactionOutputKind::File,
+    }];
+
+    let result = prepare_typed_staged_outputs(&external_action(), &invocation.build_dir, &resolved);
+    assert!(matches!(result, Err(CoordinatorError::StagedOutput { .. })));
+
+    let _ = fs::remove_dir_all(&invocation.package_root);
+}
+
+#[cfg(unix)]
+#[test]
 fn staged_directory_with_symlink_is_rejected_before_replacement() {
     use std::os::unix::fs::symlink;
 

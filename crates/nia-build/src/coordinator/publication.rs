@@ -8,6 +8,8 @@
 use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as _;
 
 pub(super) fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorError> {
     path.to_str()
@@ -101,9 +103,22 @@ pub(super) fn prepare_typed_staged_outputs(
                 None,
             )
         })?;
-    fs::create_dir_all(parent).map_err(|error| {
-        staged_output_io(action, parent, "create parent directory for", error, None)
-    })?;
+    for output in resolved_outputs {
+        let parent = output
+            .destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .ok_or_else(|| {
+                staged_output_io(
+                    action,
+                    &output.destination,
+                    "resolve parent for",
+                    io::Error::new(io::ErrorKind::InvalidInput, "output has no parent"),
+                    None,
+                )
+            })?;
+        ensure_output_parent(action, build_dir, parent)?;
+    }
     // Staging and committed marker names share one sequence. Refusing an
     // existing committed marker prevents reuse of a name still owned by crash
     // recovery from an earlier process.
@@ -188,6 +203,102 @@ pub(super) fn prepare_typed_staged_outputs(
         ),
         None,
     ))
+}
+
+fn ensure_output_parent(
+    action: &PlanAction,
+    build_dir: &Path,
+    parent: &Path,
+) -> Result<(), CoordinatorError> {
+    match fs::create_dir(build_dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(staged_output_io(
+                action,
+                build_dir,
+                "create output build root",
+                error,
+                None,
+            ));
+        }
+    }
+    let root_metadata = fs::symlink_metadata(build_dir).map_err(|error| {
+        staged_output_io(action, build_dir, "inspect output build root", error, None)
+    })?;
+    if is_link_or_reparse_point(&root_metadata) || !root_metadata.is_dir() {
+        return Err(staged_output_io(
+            action,
+            build_dir,
+            "validate output build root",
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "output build root must be a real directory",
+            ),
+            None,
+        ));
+    }
+    let relative = parent.strip_prefix(build_dir).map_err(|_| {
+        staged_output_io(
+            action,
+            parent,
+            "validate output parent",
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "output parent is outside the invocation build root",
+            ),
+            None,
+        )
+    })?;
+    let mut current = build_dir.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(staged_output_io(
+                    action,
+                    &current,
+                    "create parent directory for",
+                    error,
+                    None,
+                ));
+            }
+        }
+        let metadata = fs::symlink_metadata(&current).map_err(|error| {
+            staged_output_io(action, &current, "inspect output parent", error, None)
+        })?;
+        if is_link_or_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(staged_output_io(
+                action,
+                &current,
+                "validate output parent",
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "output parent must be a real directory",
+                ),
+                None,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        return metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0;
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 pub(super) fn publish_staged_outputs(

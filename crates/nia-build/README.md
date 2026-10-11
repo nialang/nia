@@ -159,6 +159,8 @@ as a cacheable fact; creating, removing, or changing its entry kind invalidates
 the configuration. Existing ancestors must resolve inside the package root,
 including when several trailing path components are absent. Unresolvable
 symlinks and unreadable paths remain errors rather than recorded absence.
+Cache input files and directory trees also reject Windows reparse points during
+both identity passes, preserving the same boundary on Windows.
 Environment observations use the same explicit-absence rule and reject
 non-UTF-8 values instead of silently changing the cache identity.
 The runner transports bounded file-content, file-presence, directory,
@@ -212,6 +214,9 @@ does not create a separate executor or replace LLVM memory backpressure.
 
 Actions publish only declared build-root outputs. Equal logical destinations
 share a cross-process lock; unrelated destinations may proceed independently.
+Before staging, every output parent is created and checked component by
+component beneath the invocation build root; symlinks and Windows reparse
+points are rejected so a logical output cannot redirect publication elsewhere.
 A lock is stale only when no live owner holds it: Unix reclaimers take the
 owner's `flock`, and Windows reclaimers need an exclusive open that deletes the
 same file object on close. Neither platform reclaims a live lock by age.
