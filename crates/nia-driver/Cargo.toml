@@ -12,6 +12,7 @@ llvm-static = ["nia-codegen-llvm/llvm-static"]
 [dependencies]
 nia-target.workspace = true
 blake3.workspace = true
+libc.workspace = true
 nia-codegen-llvm = { workspace = true, default-features = false }
 nia-compiler-query.workspace = true
 nia-compat.workspace = true
@@ -32,6 +33,9 @@ nia-syntax.workspace = true
 nia-target-config.workspace = true
 nia-toolchain.workspace = true
 nia-timing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
 
 [dev-dependencies]
 nia-test-support.workspace = true

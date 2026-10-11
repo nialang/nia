@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+};
+
+use crate::cache_fs::{
+    ensure_cache_directory, open_cache_file as open_cache_entry, open_cache_lock,
+    validate_cache_namespace,
 };
 
 use nia_compat::formats::{LINK_RESULT, LINK_RESULT_CACHE};
@@ -44,6 +47,14 @@ impl PersistentLinkResultCache {
         output: &Path,
     ) -> io::Result<LinkResultCacheLookup> {
         let path = self.path(fingerprints.cache_key, fingerprints.fingerprint);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid link-result cache path"))?;
+        if let Err(error) = validate_cache_namespace(&self.root, parent) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
         let mut entry = match open_cache_file(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -109,7 +120,7 @@ impl PersistentLinkResultCache {
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid link-result cache path"))?;
-        fs::create_dir_all(parent)?;
+        ensure_cache_directory(&self.root, parent)?;
         let staged = staged_path(&path);
         let result = (|| {
             let mut staged_file = OpenOptions::new()
@@ -147,6 +158,12 @@ impl PersistentLinkResultCache {
         expected: LinkResultFingerprintSet,
     ) -> io::Result<LinkResultCacheLookup> {
         let directory = self.key_dir(expected.cache_key);
+        if let Err(error) = validate_cache_namespace(&self.root, &directory) {
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(LinkResultCacheLookup::NotFound);
+            }
+            return Err(error);
+        }
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -526,11 +543,7 @@ fn staged_path(path: &Path) -> PathBuf {
 }
 
 fn open_cache_file(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    options.share_mode(1 | 2 | 4);
-    options.open(path)
+    open_cache_entry(path)
 }
 
 struct LinkResultCacheMutationLock {
@@ -539,12 +552,7 @@ struct LinkResultCacheMutationLock {
 
 impl LinkResultCacheMutationLock {
     fn acquire(path: &Path) -> io::Result<Self> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path.with_extension("lock"))?;
+        let file = open_cache_lock(&path.with_extension("lock"))?;
         file.lock()?;
         Ok(Self { _file: file })
     }

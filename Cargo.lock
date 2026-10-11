@@ -608,6 +608,7 @@ name = "nia-driver"
 version = "0.2.0-dev"
 dependencies = [
  "blake3",
+ "libc",
  "nia-ast",
  "nia-backend-ir",
  "nia-body-ir",
@@ -640,6 +641,7 @@ dependencies = [
  "nia-timing",
  "nia-toolchain",
  "nia-ty",
+ "windows-sys",
 ]
 
 [[package]]
