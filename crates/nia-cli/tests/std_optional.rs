@@ -17,7 +17,7 @@ using std::option;
 using std::process;
 
 fn double(value: ?i32) ?i32 {
-    value.map(&\value: i32 -> value * 2)
+    value.map(\value: i32 -> value * 2)
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
@@ -29,10 +29,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if present is ?value {
         if value != 42 { return process::ExitCode(2)!; }
     }
-    if double(null).isNull() == false or double(null).map(&\value: i32 -> value).isPresent() {
+    if double(null).isNull() == false or double(null).map(\value: i32 -> value).isPresent() {
         return process::ExitCode(3)!;
     }
-    if double(?1).andThen(&\value: i32 -> if value == 2 { ?41 } else { null }) is ?value {
+    if double(?1).andThen(\value: i32 -> if value == 2 { ?41 } else { null }) is ?value {
         if value != 41 { return process::ExitCode(4)!; }
     } else {
         return process::ExitCode(5)!;

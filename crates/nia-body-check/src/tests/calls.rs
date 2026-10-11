@@ -56,6 +56,26 @@ fn main() i32 {
 }
 
 #[test]
+fn static_callable_generic_infers_identity_return_without_result_context() {
+    let checked = pipeline(
+        r#"
+fn apply[Mapper, Output](callback: Mapper) Output
+where Mapper: Fn(i32) Output
+{
+    callback(1)
+}
+
+fn main() i32 {
+    let result = apply(\value: i32 -> value);
+    _ = result;
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn static_callable_generic_infers_output_from_function_item() {
     let checked = pipeline(
         r#"

@@ -228,6 +228,7 @@ impl<'a> BodyChecker<'a> {
                 value_args,
                 &params,
                 &mut substitutions,
+                &signature.generic_params,
                 &signature.where_predicates,
                 &const_substitutions,
             );
@@ -418,6 +419,7 @@ impl<'a> BodyChecker<'a> {
                 args,
                 &params,
                 &mut substitutions,
+                &candidate.signature.generic_params,
                 &candidate.signature.where_predicates,
                 &const_substitutions,
             );

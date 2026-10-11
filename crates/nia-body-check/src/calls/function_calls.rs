@@ -1183,9 +1183,20 @@ impl<'a> BodyChecker<'a> {
                         return_type,
                     })
                 });
-            let expected = self
-                .generic_call_expected(substituted_param)
-                .or(callable_pattern);
+            let unresolved_type_params = signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(param.kind, GenericParamSignatureKind::Type)
+                        && !substitutions.types.contains_key(&param.name)
+                })
+                .map(|param| param.name)
+                .collect::<Vec<_>>();
+            let expected = self.generic_call_expected(substituted_param).or_else(|| {
+                callable_pattern.and_then(|pattern| {
+                    self.callable_pattern_expected(pattern, &unresolved_type_params)
+                })
+            });
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
             } else if inferred_from_closure && !closure_params_ready {
@@ -2452,12 +2463,38 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {
+    pub(in crate::calls) fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {
         if self.type_contains_generic_param(ty) || self.type_contains_const_generic_param(ty) {
             None
         } else {
             Some(ty)
         }
+    }
+
+    pub(in crate::calls) fn callable_pattern_expected(
+        &self,
+        ty: InternedTyId,
+        unresolved_type_params: &[SymbolId],
+    ) -> Option<InternedTyId> {
+        if self.type_contains_const_generic_param(ty) {
+            return None;
+        }
+        let mut pending = vec![self.normalization.normalize(ty)];
+        while let Some(current) = pending.pop() {
+            let Some(kind) = self.interner.get(current) else {
+                return None;
+            };
+            match kind {
+                TyKind::GenericParam(name) if unresolved_type_params.contains(name) => {
+                    return None;
+                }
+                TyKind::SelfParam => return None,
+                _ => kind.visit_referenced_types(|referenced| {
+                    pending.push(self.normalization.normalize(referenced));
+                }),
+            }
+        }
+        Some(ty)
     }
 
     /// Returns whether a canonical type still contains a const parameter that

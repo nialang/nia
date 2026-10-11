@@ -567,6 +567,7 @@ impl<'a> BodyChecker<'a> {
                     call.args,
                     &params,
                     &mut substitutions,
+                    &signature.generic_params,
                     &signature.where_predicates,
                     &const_substitutions,
                 );

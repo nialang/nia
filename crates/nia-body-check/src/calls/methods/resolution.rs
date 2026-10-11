@@ -218,6 +218,7 @@ impl<'a> BodyChecker<'a> {
             call.args,
             &params,
             &mut substitutions,
+            &trait_method.signature.generic_params,
             &trait_method.signature.where_predicates,
             &const_substitutions,
         );
@@ -371,6 +372,7 @@ impl<'a> BodyChecker<'a> {
             call.args,
             &params,
             &mut substitutions,
+            &signature.generic_params,
             &signature.where_predicates,
             &const_substitutions,
         );
@@ -1665,6 +1667,7 @@ impl<'a> BodyChecker<'a> {
                 call.args,
                 &params,
                 &mut substitutions,
+                &signature.generic_params,
                 &signature.where_predicates,
                 &const_substitutions,
             );
@@ -1860,6 +1863,7 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         params: &[InternedTyId],
         substitutions: &mut SymbolMap<InternedTyId>,
+        generic_params: &[nia_item_signatures::GenericParamSignature],
         where_predicates: &[nia_defs::WherePredicateSignature],
         const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) {
@@ -1922,13 +1926,23 @@ impl<'a> BodyChecker<'a> {
                     });
                 let substituted_param =
                     param.map(|param| self.substitute_generics(param, substitutions));
-                let expected = substituted_param
-                    .and_then(|param| {
-                        (!self.type_contains_generic_param(param)
-                            && !self.type_contains_const_generic_param(param))
-                        .then_some(param)
+                let unresolved_type_params = generic_params
+                    .iter()
+                    .filter(|param| {
+                        matches!(
+                            param.kind,
+                            nia_item_signatures::GenericParamSignatureKind::Type
+                        ) && !substitutions.contains_key(&param.name)
                     })
-                    .or(callable_pattern);
+                    .map(|param| param.name)
+                    .collect::<Vec<_>>();
+                let expected = substituted_param
+                    .and_then(|param| self.generic_call_expected(param))
+                    .or_else(|| {
+                        callable_pattern.and_then(|pattern| {
+                            self.callable_pattern_expected(pattern, &unresolved_type_params)
+                        })
+                    });
                 if let Some(expected) = expected {
                     Some(self.check_expr_with_expected(arg, Some(expected)))
                 } else if inferred_from_closure && !closure_params_ready {
