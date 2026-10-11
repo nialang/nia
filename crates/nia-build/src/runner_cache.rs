@@ -21,6 +21,9 @@ const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
 const CACHE_HEADER_BYTES: usize = CACHE_MAGIC.len() + size_of::<u64>() + blake3::OUT_LEN;
 const MAX_RUNNER_BYTES: usize = 256 * 1024 * 1024;
 const MAX_RUNNER_INPUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RUNNER_INPUT_ENTRIES: usize = 1_000_000;
+const MAX_RUNNER_INPUT_TREE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_RUNNER_INPUT_DEPTH: usize = 256;
 const STREAM_BYTES: usize = 64 * 1024;
 const RUNNER_CACHE_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.runner-cache.framed");
@@ -223,7 +226,11 @@ fn read_bounded_file(path: &std::path::Path, maximum: usize) -> io::Result<Vec<u
     Ok(bytes)
 }
 
-fn hash_bounded_file(hasher: &mut blake3::Hasher, path: &std::path::Path) -> io::Result<()> {
+fn hash_bounded_file(
+    hasher: &mut blake3::Hasher,
+    path: &std::path::Path,
+    total_tree_bytes: Option<&mut u64>,
+) -> io::Result<()> {
     let mut file = open_cache_entry(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_RUNNER_INPUT_BYTES as u64 {
@@ -233,6 +240,20 @@ fn hash_bounded_file(hasher: &mut blake3::Hasher, path: &std::path::Path) -> io:
         ));
     }
     let mut remaining = metadata.len();
+    if let Some(total_tree_bytes) = total_tree_bytes {
+        *total_tree_bytes = total_tree_bytes.checked_add(remaining).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "runner cache input tree size overflowed",
+            )
+        })?;
+        if *total_tree_bytes > MAX_RUNNER_INPUT_TREE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "runner cache input tree exceeds its size limit",
+            ));
+        }
+    }
     hasher.update(&remaining.to_le_bytes());
     let mut buffer = [0; STREAM_BYTES];
     while remaining != 0 {
@@ -299,7 +320,7 @@ fn hash_file(
             .unwrap_or_default()
             .as_bytes(),
     );
-    hash_bounded_file(hasher, path).map_err(|error| BuildError::CompileRunner {
+    hash_bounded_file(hasher, path, None).map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
         error: Box::new(crate::DriverError::Io {
@@ -317,9 +338,11 @@ fn hash_directory(
     runner: &BuildRunnerSource,
 ) -> Result<(), BuildError> {
     let mut entries = Vec::new();
-    collect_files(&root, &mut entries, runner)?;
+    let mut total_entries = 0;
+    collect_files(&root, &mut entries, runner, 0, &mut total_entries)?;
     entries.sort();
     hasher.update(&(entries.len() as u64).to_le_bytes());
+    let mut total_tree_bytes = 0;
     for path in entries {
         let relative = path.strip_prefix(&root).unwrap_or(&path);
         hash_field(
@@ -327,14 +350,16 @@ fn hash_directory(
             b"relative-path",
             relative.to_string_lossy().as_bytes(),
         );
-        hash_bounded_file(hasher, &path).map_err(|error| BuildError::CompileRunner {
-            path: runner.path.clone(),
-            source: runner.source.clone(),
-            error: Box::new(crate::DriverError::Io {
-                operation: "read runner cache input",
-                path: path.clone(),
-                error,
-            }),
+        hash_bounded_file(hasher, &path, Some(&mut total_tree_bytes)).map_err(|error| {
+            BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(crate::DriverError::Io {
+                    operation: "read runner cache input",
+                    path: path.clone(),
+                    error,
+                }),
+            }
         })?;
     }
     Ok(())
@@ -351,7 +376,23 @@ fn collect_files(
     root: &std::path::Path,
     files: &mut Vec<PathBuf>,
     runner: &BuildRunnerSource,
+    depth: usize,
+    total_entries: &mut usize,
 ) -> Result<(), BuildError> {
+    if depth > MAX_RUNNER_INPUT_DEPTH {
+        return Err(BuildError::CompileRunner {
+            path: runner.path.clone(),
+            source: runner.source.clone(),
+            error: Box::new(crate::DriverError::Io {
+                operation: "walk runner cache input directory",
+                path: root.to_path_buf(),
+                error: io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "runner cache input directory exceeds its depth limit",
+                ),
+            }),
+        });
+    }
     let entries = fs::read_dir(root).map_err(|error| BuildError::CompileRunner {
         path: runner.path.clone(),
         source: runner.source.clone(),
@@ -371,6 +412,34 @@ fn collect_files(
                 error,
             }),
         })?;
+        *total_entries = total_entries
+            .checked_add(1)
+            .ok_or_else(|| BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(crate::DriverError::Io {
+                    operation: "walk runner cache input directory",
+                    path: root.to_path_buf(),
+                    error: io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "runner cache input entry count overflowed",
+                    ),
+                }),
+            })?;
+        if *total_entries > MAX_RUNNER_INPUT_ENTRIES {
+            return Err(BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(crate::DriverError::Io {
+                    operation: "walk runner cache input directory",
+                    path: root.to_path_buf(),
+                    error: io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "runner cache input directory has too many entries",
+                    ),
+                }),
+            });
+        }
         let path = entry.path();
         let file_type = entry
             .file_type()
@@ -384,7 +453,7 @@ fn collect_files(
                 }),
             })?;
         if file_type.is_dir() && entry.file_name() != ".nia-cache" {
-            collect_files(&path, files, runner)?;
+            collect_files(&path, files, runner, depth + 1, total_entries)?;
         } else if file_type.is_file() {
             files.push(path);
         }
@@ -684,5 +753,92 @@ mod tests {
         executable.set_len((MAX_RUNNER_BYTES + 1) as u64).unwrap();
         let error = publish_executable(&invocation, "oversized").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn runner_cache_rejects_oversized_source_trees() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-tree-bounds-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let std_root = invocation.toolchain.resource_root().join("std");
+        for index in 0..=MAX_RUNNER_INPUT_TREE_BYTES / MAX_RUNNER_INPUT_BYTES as u64 {
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(std_root.join(format!("large-{index}")))
+                .unwrap();
+            file.set_len(MAX_RUNNER_INPUT_BYTES as u64).unwrap();
+        }
+
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+        let error = cache_key(&invocation, &runner).unwrap_err();
+        assert!(
+            error.to_string().contains("tree exceeds its size limit"),
+            "{error}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runner_cache_rejects_excessive_source_tree_entries() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-depth-bounds-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+        let mut files = Vec::new();
+        let mut total_entries = MAX_RUNNER_INPUT_ENTRIES;
+        let error = collect_files(
+            &invocation.toolchain.resource_root().join("std"),
+            &mut files,
+            &runner,
+            0,
+            &mut total_entries,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("too many entries"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn runner_cache_rejects_excessive_source_tree_depth() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-depth-bounds-{}-{}",
+            std::process::id(),
+            formats::RUNNER_CACHE.path_component
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let invocation = invocation(&root);
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+        let mut files = Vec::new();
+        let mut total_entries = 0;
+        let error = collect_files(
+            &invocation.toolchain.resource_root().join("std"),
+            &mut files,
+            &runner,
+            MAX_RUNNER_INPUT_DEPTH + 1,
+            &mut total_entries,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("depth limit"), "{error}");
+        let _ = fs::remove_dir_all(root);
     }
 }
