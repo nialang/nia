@@ -109,6 +109,9 @@ observations, declared tools, package-graph decisions, and selected closure.
 component invalidations, declared outputs, and publication state. Dry runs emit
 the same action records with `not_consulted` and `not_attempted` states and do
 not consult or publish any action cache.
+Explicit command environment values are represented by their variable name,
+byte length, and domain-separated fingerprint; reports never include the value
+itself. Inherited variables are represented as `inherited`.
 
 The runner draft carries bounded file-content, file-presence, directory,
 environment, command, Git, and tool evidence. The host rechecks each reported
