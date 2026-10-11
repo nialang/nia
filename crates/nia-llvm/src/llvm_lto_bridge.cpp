@@ -307,6 +307,29 @@ struct CacheReadResult {
   std::string Bytes;
 };
 
+bool isRealCacheDirectory(StringRef Path) {
+  sys::fs::file_status Status;
+  std::error_code EC = sys::fs::status(Path, Status, /*Follow=*/false);
+  return !EC && Status.type() == sys::fs::file_type::directory_file;
+}
+
+bool isValidCacheDirectory(StringRef Path) {
+  sys::fs::file_status Status;
+  std::error_code EC = sys::fs::status(Path, Status, /*Follow=*/false);
+  if (EC == std::errc::no_such_file_or_directory ||
+      Status.type() == sys::fs::file_type::file_not_found)
+    return true;
+  return !EC && Status.type() == sys::fs::file_type::directory_file;
+}
+
+bool isRealCacheFile(StringRef Path, bool &Missing) {
+  sys::fs::file_status Status;
+  std::error_code EC = sys::fs::status(Path, Status, /*Follow=*/false);
+  Missing = EC == std::errc::no_such_file_or_directory ||
+            Status.type() == sys::fs::file_type::file_not_found;
+  return !EC && Status.type() == sys::fs::file_type::regular_file;
+}
+
 SmallString<256> cacheEntryPath(StringRef Directory, StringRef Key) {
   SmallString<256> Path(Directory);
   sys::path::append(Path, "llvmcache-" + Key);
@@ -315,6 +338,9 @@ SmallString<256> cacheEntryPath(StringRef Directory, StringRef Key) {
 
 CacheReadResult readCacheEntry(StringRef Path, ArrayRef<uint8_t> Magic,
                                uint32_t ProtocolEpoch) {
+  bool Missing = false;
+  if (!isRealCacheFile(Path, Missing))
+    return {Missing ? CacheRead::NotFound : CacheRead::Corrupt, {}};
   ErrorOr<std::unique_ptr<MemoryBuffer>> Buffer =
       MemoryBuffer::getFile(Path, /*IsText=*/false,
                             /*RequiresNullTerminator=*/false);
@@ -353,8 +379,15 @@ bool writeCacheEntry(StringRef Directory, StringRef Path,
                      uint32_t ProtocolEpoch, StringRef Payload) {
   if (Magic.size() != CacheMagicSize)
     return false;
-  if (std::error_code EC =
-          sys::fs::create_directories(Directory, /*IgnoreExisting=*/true))
+  if (!isRealCacheDirectory(Directory)) {
+    if (std::error_code EC =
+            sys::fs::create_directories(Directory, /*IgnoreExisting=*/true))
+      return false;
+  }
+  if (!isRealCacheDirectory(Directory))
+    return false;
+  bool Missing = false;
+  if (!isRealCacheFile(Path, Missing) && !Missing)
     return false;
   SmallString<256> TempModel(Directory);
   sys::path::append(TempModel, "nia-thin-%%%%%%.tmp");
@@ -627,6 +660,11 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
   if (!CacheDirectory.empty()) {
     if (CacheMagicBytes.size() != CacheMagicSize) {
       Result->Error = "ThinLTO backend cache received an invalid format identity";
+      return Result.release();
+    }
+    if (!isValidCacheDirectory(CacheDirectory)) {
+      Result->Error =
+          "ThinLTO backend cache directory must be a real directory";
       return Result.release();
     }
     std::copy(CacheMagicBytes.bytes_begin(), CacheMagicBytes.bytes_end(),

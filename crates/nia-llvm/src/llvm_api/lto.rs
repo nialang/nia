@@ -961,6 +961,83 @@ mod tests {
     }
 
     #[test]
+    fn thin_lto_backend_cache_rejects_file_path() {
+        let (target, bitcode) = summary_bitcode("thin-cache-file");
+        let cache = std::env::temp_dir().join(format!(
+            "nia-thin-lto-cache-file-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::write(&cache, b"not a directory").expect("write cache path file");
+
+        let result = run_thin_lto(
+            &[ThinLtoInput {
+                name: "thin-cache-file",
+                bitcode: &bitcode,
+            }],
+            ThinLtoConfig {
+                target: &target,
+                optimization: OptimizationLevel::Default,
+                parallelism: 1,
+                freestanding: true,
+                preserved_symbols: &["entry"],
+                backend_cache_directory: Some(&cache),
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(LlvmError::Error(message))
+                if message.contains("backend cache directory must be a real directory")
+        ));
+        std::fs::remove_file(cache).expect("remove cache path file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn thin_lto_backend_cache_rejects_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let (target, bitcode) = summary_bitcode("thin-cache-symlink");
+        let root = std::env::temp_dir().join(format!(
+            "nia-thin-lto-cache-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let outside = root.with_extension("outside");
+        std::fs::create_dir_all(&outside).expect("create outside cache directory");
+        symlink(&outside, &root).expect("create cache directory symlink");
+
+        let result = run_thin_lto(
+            &[ThinLtoInput {
+                name: "thin-cache-symlink",
+                bitcode: &bitcode,
+            }],
+            ThinLtoConfig {
+                target: &target,
+                optimization: OptimizationLevel::Default,
+                parallelism: 1,
+                freestanding: true,
+                preserved_symbols: &["entry"],
+                backend_cache_directory: Some(&root),
+            },
+        );
+        let error = result.expect_err("symlinked backend cache must be rejected");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message)
+                if message.contains("backend cache directory must be a real directory")
+        ));
+        let _ = std::fs::remove_file(&root);
+        let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[test]
     fn modern_thin_lto_resolves_cross_module_calls() {
         let identity = crate::llvm_api::test_host_identity();
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
