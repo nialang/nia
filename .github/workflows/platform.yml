@@ -46,9 +46,11 @@ jobs:
           - name: x86_64
             runner: macos-15-intel
             target: x86_64-apple-macos
+            llvm_targets: X86
           - name: arm64
             runner: macos-15
             target: aarch64-apple-macos
+            llvm_targets: AArch64
     env:
       CARGO_TERM_COLOR: always
       MACOSX_DEPLOYMENT_TARGET: "15.0"
@@ -81,12 +83,12 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/llvm-static/install
-          key: nia-llvm-23.1.2-clang-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.sh') }}
+          key: nia-llvm-23.1.2-${{ matrix.llvm_targets }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.sh') }}
 
       - name: Build pinned static LLVM
         if: steps.llvm-cache.outputs.cache-hit != 'true'
         run: |
-          LLVM_ENABLE_PROJECTS='clang;lld' LLVM_BUILD_JOBS=2 tools/llvm/build-static.sh
+          LLVM_TARGETS_TO_BUILD='${{ matrix.llvm_targets }}' tools/llvm/build-static.sh
 
       - name: Verify static LLVM and Darwin linker
         run: |
@@ -96,10 +98,8 @@ jobs:
           esac
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)" = "23.1.2"
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --shared-mode)" = "static"
-          test -x "${LLVM_SYS_231_PREFIX}/bin/clang"
           test -x "${LLVM_SYS_231_PREFIX}/bin/ld64.lld"
           "${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version
-          "${LLVM_SYS_231_PREFIX}/bin/clang" --version
           "${LLVM_SYS_231_PREFIX}/bin/ld64.lld" --version
           echo "${LLVM_SYS_231_PREFIX}/bin" >> "${GITHUB_PATH}"
 
