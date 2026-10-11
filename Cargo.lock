@@ -452,6 +452,7 @@ dependencies = [
 name = "nia-compiler-query"
 version = "0.2.0-dev"
 dependencies = [
+ "libc",
  "nia-abi-check",
  "nia-ast",
  "nia-ast-walk",
@@ -508,6 +509,7 @@ dependencies = [
  "nia-type-resolve",
  "nia-value-resolve",
  "parking_lot",
+ "windows-sys",
 ]
 
 [[package]]
