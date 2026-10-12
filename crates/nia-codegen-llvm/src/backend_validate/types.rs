@@ -216,11 +216,23 @@ impl BackendValidator<'_> {
                 }
             }
             TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             } => {
+                if let Some(owner) = owner_instance {
+                    if let Some(self_arg) = owner.self_arg {
+                        self.validate_type(self_arg, span);
+                    }
+                    for arg in owner.args {
+                        self.validate_type(arg, span);
+                    }
+                    for arg in owner.const_args {
+                        self.validate_const_arg(&arg, span);
+                    }
+                }
                 for capture in captures {
                     self.validate_runtime_type(capture, span);
                 }
@@ -1070,6 +1082,44 @@ mod tests {
                 .summary
                 .contains("belongs to missing module")
         );
+    }
+
+    #[test]
+    fn validate_closure_type_checks_owner_instance_arguments() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
+        let type_store = TypeStore::new().expect("create type store");
+        let interner = type_store.append_for_module(owner);
+        let error_ty = interner.test_intern(TyKind::Error);
+        let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
+        let closure_ty = interner.test_intern(TyKind::ClosureState {
+            closure_id: nia_ids::ClosureId {
+                owner: GlobalDefId {
+                    module_id: owner,
+                    def_id: nia_ids::DefId(1),
+                },
+                ordinal: 0,
+            },
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: owner,
+                self_arg: None,
+                args: vec![error_ty],
+                const_args: Vec::new(),
+            }),
+            captures: Vec::new(),
+            params: Vec::new(),
+            return_type: usize_ty,
+        });
+        drop(interner);
+
+        let store = Arc::new(BackendModuleStore::new([owner]).expect("create module store"));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_type(closure_ty, Span::default());
+
+        assert_eq!(validator.diagnostics.len(), 1);
+        assert!(validator.diagnostics[0].summary.contains("is error"));
     }
 
     #[test]
