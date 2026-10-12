@@ -2428,6 +2428,58 @@ mod tests {
     }
 
     #[test]
+    fn shared_checkout_keeps_each_dependency_class_decision() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-shared-checkout-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let shared = root.join("shared");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(
+            root.join("nia.package"),
+            "dependency = runtime:shared:runtime\ndependency = optional:shared:optional\n",
+        )
+        .unwrap();
+        std::fs::write(shared.join("nia.package"), "name = \"shared\"\n").unwrap();
+
+        let graph =
+            LocalPackageGraph::resolve_with_options(&root, LocalPackageGraphOptions::default())
+                .unwrap();
+        assert_eq!(
+            graph.nodes.len(),
+            2,
+            "one physical checkout is one graph node"
+        );
+        let report = graph.report();
+        let runtime = report
+            .declared
+            .iter()
+            .find(|edge| edge.dependency.name == "runtime")
+            .unwrap();
+        let optional = report
+            .declared
+            .iter()
+            .find(|edge| edge.dependency.name == "optional")
+            .unwrap();
+        let shared_root = graph
+            .nodes
+            .iter()
+            .find(|node| !node.root.is_empty())
+            .unwrap()
+            .root
+            .clone();
+        assert_eq!(runtime.resolved_root, Some(shared_root));
+        assert_eq!(optional.resolved_root, None);
+        assert_eq!(runtime.source_root, optional.source_root);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn package_graph_fingerprint_includes_selection_policy() {
         let root = std::env::temp_dir().join(format!(
             "nia-graph-policy-{}-{}",
