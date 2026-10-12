@@ -201,6 +201,13 @@ pub(crate) fn canonicalize_actions(
                         reason: "argument contains NUL",
                     });
                 }
+                // Commands execute on the plan's host, independently of the
+                // platform decoding the plan or the artifact target.
+                if host_target.os() == nia_target::Os::Windows {
+                    for input in environment.iter_mut() {
+                        input.name.make_ascii_uppercase();
+                    }
+                }
                 environment.sort();
                 for input in environment.iter() {
                     if input.name.is_empty()

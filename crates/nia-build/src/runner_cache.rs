@@ -789,7 +789,7 @@ mod tests {
     #[test]
     fn runner_cache_rejects_excessive_source_tree_entries() {
         let root = std::env::temp_dir().join(format!(
-            "nia-runner-cache-depth-bounds-{}-{}",
+            "nia-runner-cache-entry-bounds-{}-{}",
             std::process::id(),
             formats::RUNNER_CACHE.path_component
         ));
