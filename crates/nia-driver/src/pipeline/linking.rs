@@ -120,10 +120,10 @@ impl Driver {
         if let Some(runtime) = runtime.source() {
             request.link_options.entry = Some(runtime.entry_point().linker_symbol().to_owned());
         }
-        let preserved_symbols = request
-            .link_options
-            .entry
-            .as_deref()
+        let preserved_symbols = runtime
+            .source()
+            .map(|runtime| runtime.entry_point().definition_name())
+            .or(request.link_options.entry.as_deref())
             .into_iter()
             .collect::<Vec<_>>();
         let thin_lto_backend_cache_directory = if request.link_time_optimization
@@ -178,7 +178,7 @@ impl Driver {
             || {
                 self.emit_objects_with_source_manifest(
                     EmitObjectRequest {
-                        check: request.check.with_runtime(runtime),
+                        check: request.check.with_runtime(runtime.clone()),
                     },
                     emission_mode,
                 )

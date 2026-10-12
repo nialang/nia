@@ -2303,6 +2303,10 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String
     let check = check
         .with_runtime(runtime)
         .with_current_package(runner_cache::package_id(&cache_key));
+    let runtime_entry = check
+        .runtime
+        .source()
+        .map(|runtime| runtime.entry_point().linker_symbol().to_owned());
     // Check the user-owned build script before lowering the generated wrapper.
     // A bad build script otherwise poisons the wrapper's recovery values and
     // produces a long list of diagnostics at synthetic runner locations.
@@ -2331,7 +2335,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String
                     &objects,
                     invocation.runner_executable.clone(),
                     nia_linker::LinkOptions {
-                        entry: Some("_start".to_string()),
+                        entry: runtime_entry,
                         ..nia_linker::LinkOptions::default()
                     },
                     invocation.timings,
