@@ -593,6 +593,10 @@ helpers. Everything else in startup remains ordinary Nia code whose
 reachability follows its calls, so unused runtime code is pruned by the same
 query graph as user code.
 
+On Darwin, the source-level runtime entry is `main`; Mach-O spells that same
+external symbol `_main` in the linker invocation. `dyld` enters it through
+`LC_MAIN`, and it forwards the launch arguments to `niaDarwinStart`.
+
 A Linux executable is static-pie by default: position independent with no
 interpreter, so the kernel maps it at a random base and applies no
 relocations. `_start` passes the ELF header (`__ehdr_start`) and dynamic

@@ -65,8 +65,9 @@ always starts through `dyld`; `libSystem` is therefore the stable boundary, in
 the same role that `kernel32` has on Windows. Nia uses its POSIX
 system-interface functions, such as `open`, `mmap`, `fork`, and `execve`, and
 leaves its C library facilities to programs that link them explicitly. The
-Darwin entry symbol is `main` only because that is the name `dyld` and the
-linker expect; it is Nia runtime startup, not a C runtime `main`.
+Darwin source entry is `main`; its Mach-O linker spelling is `_main`, which is
+the symbol passed to `ld64.lld` for `LC_MAIN`. It is Nia runtime startup, not a
+C runtime `main`.
 
 ## Maintained Configurations
 
