@@ -279,10 +279,15 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "cross-link failed: $target O$optimization" }
             }
           }
-          Get-ChildItem "$destination/probe-*" | Sort-Object Name | ForEach-Object {
+          $checksums = Get-ChildItem "$destination/probe-*" | Sort-Object Name | ForEach-Object {
             $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
             "$digest  $($_.Name)"
-          } | Set-Content -Encoding ascii "$destination/SHA256SUMS"
+          }
+          [IO.File]::WriteAllText(
+            "$destination/SHA256SUMS",
+            (($checksums -join "`n") + "`n"),
+            [Text.UTF8Encoding]::new($false)
+          )
 
       - name: Publish Windows-built Linux executables
         uses: actions/upload-artifact@v7
