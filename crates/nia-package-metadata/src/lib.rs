@@ -36,7 +36,12 @@ pub struct PackageId {
 impl PackageId {
     /// Returns the canonical text used at compiler identity boundaries.
     pub fn canonical_text(&self) -> String {
-        format!("{}/{}@{}", self.namespace, self.name, self.version)
+        format!(
+            "{}/{}@{}",
+            canonical_component(&self.namespace),
+            canonical_component(&self.name),
+            canonical_component(&self.version)
+        )
     }
 
     /// Returns the canonical identity of the toolchain standard library.
@@ -47,6 +52,19 @@ impl PackageId {
             version: format!("{}+std{}", COMPILER_VERSION, toolchain::STANDARD_LIBRARY),
         }
     }
+}
+
+fn canonical_component(value: &str) -> String {
+    let mut canonical = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if matches!(byte, b'%' | b'/' | b'@' | 0..=0x1f | 0x7f..=0xff) {
+            use std::fmt::Write as _;
+            write!(canonical, "%{byte:02X}").expect("writing to a string cannot fail");
+        } else {
+            canonical.push(char::from(byte));
+        }
+    }
+    canonical
 }
 
 /// Local package source identity used by build and package caches.
@@ -605,10 +623,12 @@ pub fn package_source_identity_with_selection(
     encoded.extend_from_slice(b"\0\x01");
     encoded.extend_from_slice(package.canonical_text().as_bytes());
     encoded.push(0);
+    encoded.extend_from_slice(&(selected_roots.len() as u64).to_le_bytes());
     for source_root in &selected_roots {
         encoded.extend_from_slice(&(source_root.len() as u64).to_le_bytes());
         encoded.extend_from_slice(source_root.as_bytes());
     }
+    encoded.extend_from_slice(&(excludes.len() as u64).to_le_bytes());
     for exclude in &excludes {
         encoded.extend_from_slice(&(exclude.len() as u64).to_le_bytes());
         encoded.extend_from_slice(exclude.as_bytes());
@@ -1999,6 +2019,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn package_canonical_text_escapes_component_delimiters_injectively() {
+        let first = PackageId {
+            namespace: "acme".into(),
+            name: "lib@tools".into(),
+            version: "1.0".into(),
+        };
+        let second = PackageId {
+            namespace: "acme".into(),
+            name: "lib".into(),
+            version: "tools@1.0".into(),
+        };
+
+        assert_eq!(first.canonical_text(), "acme/lib%40tools@1.0");
+        assert_eq!(second.canonical_text(), "acme/lib@tools%401.0");
+        assert_ne!(first.canonical_text(), second.canonical_text());
+    }
+
     fn definition(name: &str, kind: u8, owner: Option<DefinitionId>) -> DefinitionId {
         DefinitionId {
             module: ModuleId {
@@ -2254,6 +2292,32 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(paths, ["build/main.nia", "src/build/ignored.nia"]);
 
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_identity_keeps_root_and_exclude_lists_distinct() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-selection-boundary-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::create_dir_all(root.join("b")).unwrap();
+        let first = PackageSourceSelection {
+            source_roots: vec!["a".into()],
+            excludes: vec!["b".into(), "c".into()],
+        };
+        let second = PackageSourceSelection {
+            source_roots: vec!["a".into(), "b".into()],
+            excludes: vec!["c".into()],
+        };
+        let first = package_source_identity_with_selection(&root, package(), &first).unwrap();
+        let second = package_source_identity_with_selection(&root, package(), &second).unwrap();
+        assert_ne!(first.source_fingerprint, second.source_fingerprint);
         std::fs::remove_dir_all(root).unwrap();
     }
 
