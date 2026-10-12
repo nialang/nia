@@ -196,11 +196,11 @@ mod tests {
         fs::write(&target, b"cache record").expect("write cache record");
         symlink(&target, &link).expect("create cache symlink");
 
-        let error = open_cache_file(&link).expect_err("cache record symlink must be rejected");
-        assert!(matches!(
-            error.kind(),
-            io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData | io::ErrorKind::Other
-        ));
+        // The no-follow open is the security contract. Rust maps the kernel's
+        // symlink-loop error to different `ErrorKind` variants across
+        // supported releases, so the test intentionally checks rejection
+        // rather than one particular platform mapping.
+        let _error = open_cache_file(&link).expect_err("cache record symlink must be rejected");
 
         let _ = fs::remove_dir_all(root);
     }
