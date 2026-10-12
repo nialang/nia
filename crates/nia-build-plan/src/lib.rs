@@ -1714,6 +1714,7 @@ mod tests {
     #[test]
     fn freeze_rejects_ambiguous_external_command_environment() {
         let mut value = draft(false);
+        value.host_target = TargetConfig::host().expect("maintained host target");
         value.actions.push(PlanAction {
             key: action_key("run"),
             kind: ActionKind::ExternalCommand(CommandAction {
@@ -1734,7 +1735,11 @@ mod tests {
                         value: Some("first".to_string()),
                     },
                     EnvironmentInput {
-                        name: "MODE".to_string(),
+                        name: if cfg!(windows) {
+                            "mode".to_string()
+                        } else {
+                            "MODE".to_string()
+                        },
                         value: Some("second".to_string()),
                     },
                 ],
