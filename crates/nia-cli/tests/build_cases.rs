@@ -660,7 +660,7 @@ fn assert_configured_build_success(
                             value: Some("fixture".to_string()),
                         },
                         nia_build::EnvironmentInput {
-                            name: "SystemRoot".to_string(),
+                            name: "SYSTEMROOT".to_string(),
                             value: Some("C:\\Windows".to_string()),
                         },
                     ]
