@@ -681,11 +681,36 @@ fn collect_array_len_const_exprs_in_ty(
             }
         }
         Some(TyKind::ClosureState {
+            owner_instance,
             captures,
             params,
             return_type,
             ..
         }) => {
+            if let Some(owner) = owner_instance {
+                if let Some(self_arg) = owner.self_arg {
+                    collect_array_len_const_exprs_in_ty(
+                        type_store,
+                        self_arg,
+                        candidate_ids,
+                        out,
+                        seen,
+                    );
+                }
+                for arg in &owner.args {
+                    collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
+                }
+                for arg in &owner.const_args {
+                    collect_array_len_const_exprs_in_ty(
+                        type_store,
+                        arg.ty,
+                        candidate_ids,
+                        out,
+                        seen,
+                    );
+                    collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+                }
+            }
             for ty in captures.iter().chain(params).chain([return_type]) {
                 collect_array_len_const_exprs_in_ty(type_store, *ty, candidate_ids, out, seen);
             }
@@ -933,6 +958,62 @@ mod tests {
         let mut out = HashSet::new();
         let mut seen = HashSet::new();
         collect_array_len_const_exprs_in_ty(&types, projection, &candidates, &mut out, &mut seen);
+        assert_eq!(out, candidates);
+    }
+
+    #[test]
+    fn const_expression_collector_descends_closure_owner_context() {
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
+        let types = TypeStore::new().expect("create type store");
+        let append = types.append_for_module(module_id);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let ids: Vec<_> = (0..4)
+            .map(|index| GlobalConstExprId {
+                module_id,
+                const_expr_id: ConstExprId(index),
+            })
+            .collect();
+        let arrays: Vec<_> = ids[..3]
+            .iter()
+            .map(|id| {
+                append.test_intern(TyKind::Array {
+                    len: ArrayLenTy::ConstExpr(*id),
+                    elem: usize_ty,
+                })
+            })
+            .collect();
+        let closure = append.test_intern(TyKind::ClosureState {
+            closure_id: nia_ids::ClosureId {
+                owner: GlobalDefId {
+                    module_id,
+                    def_id: DefId(0),
+                },
+                ordinal: 0,
+            },
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(arrays[0]),
+                args: vec![arrays[1]],
+                const_args: vec![
+                    ConstGenericArg {
+                        ty: arrays[2],
+                        value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(0)),
+                    },
+                    ConstGenericArg {
+                        ty: usize_ty,
+                        value: ConstGenericValue::ConstExpr(ids[3]),
+                    },
+                ],
+            }),
+            captures: Vec::new(),
+            params: Vec::new(),
+            return_type: usize_ty,
+        });
+        let candidates = ids.into_iter().collect::<HashSet<_>>();
+        let mut out = HashSet::new();
+        let mut seen = HashSet::new();
+        collect_array_len_const_exprs_in_ty(&types, closure, &candidates, &mut out, &mut seen);
         assert_eq!(out, candidates);
     }
 }
