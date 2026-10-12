@@ -1375,7 +1375,7 @@ impl Analyzer<'_> {
                         self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
                     }
                     for arg in owner.const_args {
-                        self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
+                        self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
                     }
                 }
                 for ty in captures.into_iter().chain(params).chain([return_type]) {
@@ -1584,6 +1584,65 @@ impl Analyzer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closure_owner_collects_const_argument_values_and_nested_array_lengths() {
+        crate::tests::test_support::check_source_with_input("", |input| {
+            let module_id = input.defs.module_id;
+            let append = input.type_store.append_for_module(module_id);
+            let usize_ty = append.primitive(PrimitiveTy::Usize).expect("usize type");
+            let ids: Vec<_> = (0..4)
+                .map(|index| GlobalConstExprId {
+                    module_id,
+                    const_expr_id: nia_ids::ConstExprId(index),
+                })
+                .collect();
+            let arrays: Vec<_> = ids[..3]
+                .iter()
+                .map(|id| {
+                    append
+                        .intern(TyKind::Array {
+                            len: ArrayLenTy::ConstExpr(*id),
+                            elem: usize_ty,
+                        })
+                        .expect("array type")
+                })
+                .collect();
+            let closure = append
+                .intern(TyKind::ClosureState {
+                    closure_id: nia_ids::ClosureId {
+                        owner: GlobalDefId {
+                            module_id,
+                            def_id: DefId(0),
+                        },
+                        ordinal: 0,
+                    },
+                    owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                        arg_module_id: module_id,
+                        self_arg: Some(arrays[0]),
+                        args: vec![arrays[1]],
+                        const_args: vec![
+                            ConstGenericArg {
+                                ty: arrays[2],
+                                value: ConstGenericValue::Int(IntConst::unsigned(0)),
+                            },
+                            ConstGenericArg {
+                                ty: usize_ty,
+                                value: ConstGenericValue::ConstExpr(ids[3]),
+                            },
+                        ],
+                    }),
+                    captures: Vec::new(),
+                    params: Vec::new(),
+                    return_type: usize_ty,
+                })
+                .expect("closure type");
+            let analyzer = Analyzer::new(input);
+            let mut dependencies = HashSet::new();
+            analyzer.collect_array_len_const_exprs_in_ty(closure, &mut dependencies);
+            assert_eq!(dependencies, ids.into_iter().collect());
+        });
+    }
 
     #[test]
     fn execution_frames_stop_at_nearest_function_boundary() {

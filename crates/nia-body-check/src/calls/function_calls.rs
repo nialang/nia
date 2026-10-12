@@ -2742,10 +2742,10 @@ impl<'a> BodyChecker<'a> {
                             .args
                             .iter()
                             .any(|ty| self.type_contains_generic_param(*ty))
-                        || owner.const_args.iter().any(|arg| {
-                            matches!(arg.value, ConstGenericValue::GenericParam(_))
-                                || self.type_contains_generic_param(arg.ty)
-                        })
+                        || owner
+                            .const_args
+                            .iter()
+                            .any(|arg| self.type_contains_generic_param(arg.ty))
                 }) || captures
                     .iter()
                     .chain(params)

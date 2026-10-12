@@ -35,6 +35,18 @@ pub(super) fn check_source_for_target(
     source: &str,
     target: nia_target::TargetConfig,
 ) -> CheckedFixture {
+    check_source_for_target_with_input(source, target, |_| {})
+}
+
+pub(crate) fn check_source_with_input(source: &str, inspect: impl FnOnce(ConstInput<'_>)) {
+    check_source_for_target_with_input(source, target("x86_64-unknown-linux"), inspect);
+}
+
+fn check_source_for_target_with_input(
+    source: &str,
+    target: nia_target::TargetConfig,
+    inspect: impl FnOnce(ConstInput<'_>),
+) -> CheckedFixture {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let symbols = SymbolTable::new();
@@ -120,6 +132,7 @@ pub(super) fn check_source_for_target(
         source_text: source,
         program: ConstProgramContext::empty(),
     };
+    inspect(input);
     let checked = check_module_const(input).expect("check module const expressions");
     CheckedFixture {
         module_id,
