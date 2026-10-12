@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Link and archive workflows for driver-produced object artifacts.
 
-use std::{fs, path::PathBuf, process::Command};
+use std::{ffi::OsString, fs, path::PathBuf, process::Command};
 
 use super::emission::ObjectEmissionMode;
 use super::output::{
     TempDir, archive_member_file_name, install_streamed_output, object_file_name, write_output_file,
 };
 use super::*;
-use nia_linker::{ArchiveOptions, LinkOptions, SystemImportLibrary};
+use nia_linker::{ArchiveOptions, LinkOptions, LinkerFlavor, SystemImportLibrary};
 
 const MAX_TOOL_OUTPUT_BYTES: usize = 16 * 1024;
+// Keep enough headroom for the executable path and Windows' command-line
+// quoting. The hard CreateProcess limit is 32,768 UTF-16 code units.
+const WINDOWS_RESPONSE_FILE_THRESHOLD: usize = 24 * 1024;
 
 fn bounded_tool_output(bytes: &[u8]) -> String {
     let truncated = bytes.len() > MAX_TOOL_OUTPUT_BYTES;
@@ -20,6 +23,68 @@ fn bounded_tool_output(bytes: &[u8]) -> String {
         output.push_str("\n[tool output truncated]");
     }
     output
+}
+
+fn quote_windows_response_argument(argument: &str) -> String {
+    let needs_quotes = argument.is_empty()
+        || argument
+            .chars()
+            .any(|character| character.is_whitespace() || character == '"');
+    if !needs_quotes {
+        return argument.to_owned();
+    }
+
+    let mut quoted = String::with_capacity(argument.len() + 2);
+    quoted.push('"');
+    let mut backslashes = 0;
+    for character in argument.chars() {
+        match character {
+            '\\' => backslashes += 1,
+            '"' => {
+                quoted.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            character => {
+                quoted.extend(std::iter::repeat_n('\\', backslashes));
+                quoted.push(character);
+                backslashes = 0;
+            }
+        }
+    }
+    // Backslashes before the closing quote must be doubled.
+    quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
+    quoted.push('"');
+    quoted
+}
+
+fn windows_response_file_contents(arguments: &[String]) -> String {
+    let mut contents = arguments
+        .iter()
+        .map(|argument| quote_windows_response_argument(argument))
+        .collect::<Vec<_>>()
+        .join("\n");
+    contents.push('\n');
+    contents
+}
+
+fn windows_command_line_length(program: &str, arguments: &[String]) -> usize {
+    quote_windows_response_argument(program)
+        .encode_utf16()
+        .count()
+        + arguments
+            .iter()
+            .map(|argument| {
+                1 + quote_windows_response_argument(argument)
+                    .encode_utf16()
+                    .count()
+            })
+            .sum::<usize>()
+}
+
+fn needs_windows_response_file(program: &str, arguments: &[String], flavor: LinkerFlavor) -> bool {
+    flavor == LinkerFlavor::LldLink
+        && windows_command_line_length(program, arguments) > WINDOWS_RESPONSE_FILE_THRESHOLD
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,13 +422,37 @@ impl Driver {
             Ok(invocation) => invocation,
             Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
         };
+        let command_args = if cfg!(windows)
+            && link_options
+                .linker
+                .flavor_for(self.config.artifact_target)
+                .is_ok_and(|flavor| {
+                    needs_windows_response_file(&invocation.program, &invocation.args, flavor)
+                }) {
+            let response_file = temp.path().join("linker.rsp");
+            if let Err(error) = fs::write(
+                &response_file,
+                windows_response_file_contents(&invocation.args),
+            ) {
+                return DriverOutput::from_error(DriverError::Io {
+                    path: response_file,
+                    operation: "write linker response file",
+                    error,
+                });
+            }
+            let mut response_argument = OsString::from("@");
+            response_argument.push(response_file);
+            vec![response_argument]
+        } else {
+            invocation.args.iter().map(OsString::from).collect()
+        };
         let linker_output = nia_timing::time_stage(
             timings,
             nia_timing::TimingLevel::Summary,
             "link_invoke",
             || {
                 Command::new(&invocation.program)
-                    .args(&invocation.args)
+                    .args(&command_args)
                     .output()
             },
         );
@@ -552,4 +641,55 @@ fn write_system_imports(
             })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod response_file_tests {
+    use super::*;
+
+    #[test]
+    fn windows_response_arguments_preserve_spaces_quotes_and_trailing_slashes() {
+        let arguments = vec![
+            "plain.obj".to_owned(),
+            "path with spaces\\module.obj".to_owned(),
+            "embedded\"quote".to_owned(),
+            "trailing space\\".to_owned(),
+            String::new(),
+        ];
+
+        assert_eq!(
+            windows_response_file_contents(&arguments)
+                .lines()
+                .collect::<Vec<_>>(),
+            [
+                "plain.obj",
+                "\"path with spaces\\module.obj\"",
+                "\"embedded\\\"quote\"",
+                "\"trailing space\\\\\"",
+                "\"\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn only_large_coff_invocations_use_response_files() {
+        let short = vec!["module.obj".to_owned()];
+        let long = vec!["x".repeat(WINDOWS_RESPONSE_FILE_THRESHOLD)];
+
+        assert!(!needs_windows_response_file(
+            "lld-link.exe",
+            &short,
+            LinkerFlavor::LldLink,
+        ));
+        assert!(needs_windows_response_file(
+            "lld-link.exe",
+            &long,
+            LinkerFlavor::LldLink,
+        ));
+        assert!(!needs_windows_response_file(
+            "ld.lld",
+            &long,
+            LinkerFlavor::Lld,
+        ));
+    }
 }

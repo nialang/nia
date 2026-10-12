@@ -1517,14 +1517,28 @@ impl ExecutableLinker {
                 _ => Err(LinkerConfigError::UnsupportedFlavor(flavor)),
             };
         };
-        // Every LLD driver accepts a leading `-flavor`, so one discovered
-        // binary links every object format regardless of its file name.
+        // The generic LLD executable accepts a leading `-flavor`. Named
+        // drivers select their own protocol from the executable name; in
+        // particular, lld-link treats `-flavor` as an input path.
+        let program = resolve_lld_program(flavor, driver, self.bundled_program.as_deref())?;
+        let driver_args = if flavor == LinkerFlavor::LldLink && is_named_lld_link_driver(&program) {
+            Vec::new()
+        } else {
+            vec!["-flavor".to_string(), lld_flavor.to_string()]
+        };
         Ok(ResolvedLinker {
-            program: resolve_lld_program(flavor, driver, self.bundled_program.as_deref())?,
+            program,
             flavor,
-            driver_args: vec!["-flavor".to_string(), lld_flavor.to_string()],
+            driver_args,
         })
     }
+}
+
+fn is_named_lld_link_driver(program: &str) -> bool {
+    Path::new(program)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.eq_ignore_ascii_case("lld-link"))
 }
 
 /// Fully resolved executable-link process invocation.

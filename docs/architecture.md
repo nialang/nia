@@ -897,9 +897,10 @@ results, not reported as cold compiler throughput.
 Invokes the linker to produce executables. The artifact target is not a link option:
 the driver passes its typed target to every invocation and cache identity, and the target
 selects the default flavor, LLD for its object format (`ld.lld` for ELF, `lld-link` for
-COFF, `ld64.lld` for Mach-O). A discovered LLD is invoked with an explicit `-flavor`, so
-the one bundled binary links every target; an explicit program keeps the object format's
-system argument contract, and a flavor for another object format is rejected. System
+COFF, `ld64.lld` for Mach-O). A generic discovered LLD is invoked with an explicit
+`-flavor`; dedicated drivers such as `lld-link` use their own command-line protocol. An
+explicit program keeps the object format's system argument contract, and a flavor for
+another object format is rejected. System
 `ld` remains an explicit ELF flavor. Bare tool names resolve with the host executable
 suffix, so a host never selects a foreign executable exposed on `PATH`.
 
