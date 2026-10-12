@@ -2583,12 +2583,22 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .any(|elem| self.type_contains_const_generic_param(*elem)),
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
-                captures
+                owner_instance.as_ref().is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.type_contains_const_generic_param(ty))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|ty| self.type_contains_const_generic_param(*ty))
+                        || owner.const_args.iter().any(&const_arg_contains_param)
+                }) || captures
                     .iter()
                     .chain(params)
                     .any(|ty| self.type_contains_const_generic_param(*ty))
@@ -2718,12 +2728,25 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .any(|elem| self.type_contains_generic_param(*elem)),
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
-                captures
+                owner_instance.as_ref().is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.type_contains_generic_param(ty))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|ty| self.type_contains_generic_param(*ty))
+                        || owner.const_args.iter().any(|arg| {
+                            matches!(arg.value, ConstGenericValue::GenericParam(_))
+                                || self.type_contains_generic_param(arg.ty)
+                        })
+                }) || captures
                     .iter()
                     .chain(params)
                     .any(|ty| self.type_contains_generic_param(*ty))

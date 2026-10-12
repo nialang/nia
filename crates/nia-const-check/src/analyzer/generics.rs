@@ -32,6 +32,22 @@ fn readonly_pointer_accepts(pattern_readonly: bool, actual_readonly: bool) -> bo
 }
 
 impl Analyzer<'_> {
+    fn closure_owner_instances_have_same_shape(
+        pattern: Option<&nia_ty::ClosureOwnerInstance>,
+        actual: Option<&nia_ty::ClosureOwnerInstance>,
+    ) -> bool {
+        match (pattern, actual) {
+            (None, None) => true,
+            (Some(pattern), Some(actual)) => {
+                pattern.arg_module_id == actual.arg_module_id
+                    && pattern.args.len() == actual.args.len()
+                    && pattern.const_args.len() == actual.const_args.len()
+                    && pattern.self_arg.is_some() == actual.self_arg.is_some()
+            }
+            _ => false,
+        }
+    }
+
     fn associated_binding_types_match_after_inference(
         &mut self,
         pattern: &nia_ty::AssociatedTypeBindingTy,
@@ -87,6 +103,7 @@ impl Analyzer<'_> {
             (
                 TyKind::ClosureState {
                     closure_id: pattern_id,
+                    owner_instance: pattern_owner,
                     captures: pattern_captures,
                     params: pattern_params,
                     return_type: pattern_return,
@@ -94,6 +111,7 @@ impl Analyzer<'_> {
                 },
                 TyKind::ClosureState {
                     closure_id: actual_id,
+                    owner_instance: actual_owner,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
@@ -101,6 +119,33 @@ impl Analyzer<'_> {
                 },
             ) => {
                 pattern_id == actual_id
+                    && Self::closure_owner_instances_have_same_shape(
+                        pattern_owner.as_ref(),
+                        actual_owner.as_ref(),
+                    )
+                    && match (pattern_owner, actual_owner) {
+                        (None, None) => true,
+                        (Some(pattern), Some(actual)) => {
+                            (match (pattern.self_arg, actual.self_arg) {
+                                (Some(pattern), Some(actual)) => {
+                                    self.inference_pattern_accepts_type_shape(pattern, actual)
+                                }
+                                (None, None) => true,
+                                _ => false,
+                            }) && pattern
+                                .args
+                                .iter()
+                                .zip(&actual.args)
+                                .all(|(pattern, actual)| {
+                                    self.inference_pattern_accepts_type_shape(*pattern, *actual)
+                                })
+                                && self.const_generic_args_allow_inference(
+                                    &pattern.const_args,
+                                    &actual.const_args,
+                                )
+                        }
+                        _ => false,
+                    }
                     && pattern_captures.len() == actual_captures.len()
                     && pattern_params.len() == actual_params.len()
                     && pattern_captures
@@ -810,6 +855,7 @@ impl Analyzer<'_> {
             }
             TyKind::ClosureState {
                 closure_id,
+                owner_instance,
                 captures,
                 params,
                 return_type,
@@ -817,6 +863,7 @@ impl Analyzer<'_> {
             } => {
                 if let Some(TyKind::ClosureState {
                     closure_id: actual_id,
+                    owner_instance: actual_owner,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
@@ -825,7 +872,49 @@ impl Analyzer<'_> {
                     && closure_id == actual_id
                     && captures.len() == actual_captures.len()
                     && params.len() == actual_params.len()
+                    && Self::closure_owner_instances_have_same_shape(
+                        owner_instance.as_ref(),
+                        actual_owner.as_ref(),
+                    )
+                    && match (owner_instance.as_ref(), actual_owner.as_ref()) {
+                        (Some(pattern), Some(actual)) => self.const_generic_args_allow_inference(
+                            &pattern.const_args,
+                            &actual.const_args,
+                        ),
+                        _ => true,
+                    }
                 {
+                    if let (Some(pattern), Some(actual)) =
+                        (owner_instance.as_ref(), actual_owner.as_ref())
+                    {
+                        if let (Some(pattern), Some(actual)) = (pattern.self_arg, actual.self_arg) {
+                            self.infer_generics_from_tys(
+                                span,
+                                target_module_id,
+                                pattern,
+                                actual,
+                                substitutions,
+                            )?;
+                        }
+                        for (pattern, actual) in pattern.args.iter().zip(&actual.args) {
+                            self.infer_generics_from_tys(
+                                span,
+                                target_module_id,
+                                *pattern,
+                                *actual,
+                                substitutions,
+                            )?;
+                        }
+                        for (pattern, actual) in pattern.const_args.iter().zip(&actual.const_args) {
+                            self.infer_generics_from_tys(
+                                span,
+                                target_module_id,
+                                pattern.ty,
+                                actual.ty,
+                                substitutions,
+                            )?;
+                        }
+                    }
                     for (pattern, actual) in captures.into_iter().zip(actual_captures) {
                         self.infer_generics_from_tys(
                             span,
@@ -1298,6 +1387,7 @@ impl Analyzer<'_> {
             (
                 TyKind::ClosureState {
                     closure_id: pattern_id,
+                    owner_instance: pattern_owner,
                     captures: pattern_captures,
                     params: pattern_params,
                     return_type: pattern_return,
@@ -1305,6 +1395,7 @@ impl Analyzer<'_> {
                 },
                 TyKind::ClosureState {
                     closure_id: actual_id,
+                    owner_instance: actual_owner,
                     captures: actual_captures,
                     params: actual_params,
                     return_type: actual_return,
@@ -1312,8 +1403,48 @@ impl Analyzer<'_> {
                 },
             ) if pattern_id == actual_id
                 && pattern_captures.len() == actual_captures.len()
-                && pattern_params.len() == actual_params.len() =>
+                && pattern_params.len() == actual_params.len()
+                && Self::closure_owner_instances_have_same_shape(
+                    pattern_owner.as_ref(),
+                    actual_owner.as_ref(),
+                )
+                && match (pattern_owner.as_ref(), actual_owner.as_ref()) {
+                    (Some(pattern), Some(actual)) => self.const_generic_args_allow_inference(
+                        &pattern.const_args,
+                        &actual.const_args,
+                    ),
+                    _ => true,
+                } =>
             {
+                if let (Some(pattern), Some(actual)) =
+                    (pattern_owner.as_ref(), actual_owner.as_ref())
+                {
+                    if let (Some(pattern), Some(actual)) = (pattern.self_arg, actual.self_arg) {
+                        self.infer_const_generics_from_tys(
+                            span,
+                            target_module_id,
+                            pattern,
+                            actual,
+                            substitutions,
+                        )?;
+                    }
+                    for (pattern, actual) in pattern.args.iter().zip(&actual.args) {
+                        self.infer_const_generics_from_tys(
+                            span,
+                            target_module_id,
+                            *pattern,
+                            *actual,
+                            substitutions,
+                        )?;
+                    }
+                    self.infer_const_generics_from_args(
+                        span,
+                        target_module_id,
+                        &pattern.const_args,
+                        &actual.const_args,
+                        substitutions,
+                    )?;
+                }
                 for (pattern, actual) in pattern_captures.into_iter().zip(actual_captures) {
                     self.infer_const_generics_from_tys(
                         span,

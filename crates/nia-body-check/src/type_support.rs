@@ -1207,12 +1207,25 @@ impl<'a> BodyChecker<'a> {
                     || self.type_contains_unstable_const(*return_type, visited)
             }
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
-                captures
+                owner_instance.as_ref().is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.type_contains_unstable_const(ty, visited))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|ty| self.type_contains_unstable_const(*ty, visited))
+                        || owner.const_args.iter().any(|arg| {
+                            matches!(arg.value, ConstGenericValue::ConstExpr(_))
+                                || self.type_contains_unstable_const(arg.ty, visited)
+                        })
+                }) || captures
                     .iter()
                     .chain(params)
                     .any(|ty| self.type_contains_unstable_const(*ty, visited))

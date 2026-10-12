@@ -60,6 +60,76 @@ fn ordered_type_substitutions_reuse_existing_ids() {
     );
 }
 
+#[test]
+fn closure_owner_instance_is_monomorphized_with_its_type_and_const_arguments() {
+    let (module_id, mut collector) = empty_collector();
+    let append = collector.type_store.append_for_module(module_id);
+    let generic_t = append
+        .intern(TyKind::GenericParam(sym("T")))
+        .expect("intern T");
+    let generic_u = append
+        .intern(TyKind::GenericParam(sym("U")))
+        .expect("intern U");
+    let generic_n = ConstGenericArg {
+        ty: generic_u,
+        value: ConstGenericValue::GenericParam(sym("N")),
+    };
+    let closure = append
+        .intern(TyKind::ClosureState {
+            closure_id: nia_ids::ClosureId {
+                owner: GlobalDefId {
+                    module_id,
+                    def_id: nia_ids::DefId(0),
+                },
+                ordinal: 0,
+            },
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(generic_t),
+                args: vec![generic_t],
+                const_args: vec![generic_n],
+            }),
+            captures: vec![generic_t],
+            params: vec![generic_t],
+            return_type: generic_t,
+        })
+        .expect("intern generic closure");
+    let i32_ty = append.primitive(PrimitiveTy::I32).expect("intern i32");
+    let u64_ty = append.primitive(PrimitiveTy::U64).expect("intern u64");
+    let concrete_n = ConstGenericArg {
+        ty: generic_u,
+        value: ConstGenericValue::Int(IntConst::unsigned(7)),
+    };
+    let substitutions = collector.intern_ordered_substitutions(
+        None,
+        vec![(sym("T"), i32_ty), (sym("U"), u64_ty)],
+        vec![(sym("N"), concrete_n)],
+    );
+
+    let instantiated = collector.instantiate_ty(module_id, closure, substitutions);
+    let Some(TyKind::ClosureState {
+        owner_instance: Some(owner),
+        captures,
+        params,
+        return_type,
+        ..
+    }) = collector.type_kind(instantiated)
+    else {
+        panic!("expected instantiated closure state")
+    };
+
+    assert_eq!(owner.self_arg, Some(i32_ty));
+    assert_eq!(owner.args, vec![i32_ty]);
+    assert_eq!(owner.const_args[0].ty, u64_ty);
+    assert_eq!(
+        owner.const_args[0].value,
+        ConstGenericValue::Int(IntConst::unsigned(7))
+    );
+    assert_eq!(captures, vec![i32_ty]);
+    assert_eq!(params, vec![i32_ty]);
+    assert_eq!(return_type, i32_ty);
+}
+
 fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
     static FIXTURE: std::sync::LazyLock<(TypeStore, ModuleId)> = std::sync::LazyLock::new(|| {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");

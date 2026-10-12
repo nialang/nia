@@ -1782,12 +1782,25 @@ impl Analyzer<'_> {
                 .into_iter()
                 .any(|elem| self.type_contains_generic_inner(elem, seen)),
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
-                captures
+                owner_instance.is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.type_contains_generic_inner(ty, seen))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|ty| self.type_contains_generic_inner(*ty, seen))
+                        || owner.const_args.iter().any(|arg| {
+                            self.type_contains_generic_inner(arg.ty, seen)
+                                || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                        })
+                }) || captures
                     .into_iter()
                     .chain(params)
                     .any(|ty| self.type_contains_generic_inner(ty, seen))
