@@ -12,11 +12,11 @@ const fdPathBytes: usize = 1024;
 
 pub enum Errno: i32 {
     PermissionDenied = 1, NoEntry = 2, Interrupted = 4, Io = 5,
-    BadFd = 9, NoChild = 10, Again = 11, NoMemory = 12, Access = 13,
+    BadFd = 9, NoChild = 10, Again = 35, NoMemory = 12, Access = 13,
     Fault = 14, Busy = 16, Exists = 17, CrossDevice = 18, NotDir = 20,
     IsDir = 21, Invalid = 22, NoSpace = 28, ReadOnly = 30, BrokenPipe = 32,
-    OutOfRange = 34, TooLong = 36, Unsupported = 38, SymlinkLoop = 40,
-    NotEmpty = 39, _,
+    OutOfRange = 34, TooLong = 63, Unsupported = 45, SymlinkLoop = 62,
+    NotEmpty = 66, _,
 }
 
 pub enum SpawnStage: i32 { Setup = 1, Stdio = 2, Cwd = 3, Exec = 4, _ }
@@ -270,8 +270,9 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
             let flags = openFlags(mode, directory, create, truncate, exclusive, effectiveFollow);
             let ret = bindings::openat(current.fd, &storage[componentStart], flags, permissions);
             if ret < 0 {
+                let cause = errno();
                 if ownsCurrent { _ = current.close(); }
-                return errno()!;
+                return cause!;
             }
             let result = FileDescriptor::init(ret);
             if effectiveFollow {
@@ -279,7 +280,7 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
                 if containment is error! {
                     _ = result.close();
                     if ownsCurrent { _ = current.close(); }
-                    return containment;
+                    return error!;
                 }
             }
             if ownsCurrent { _ = current.close(); }
@@ -287,8 +288,9 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
         }
         let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
         if ret < 0 {
+            let cause = errno();
             if ownsCurrent { _ = current.close(); }
-            return errno()!;
+            return cause!;
         }
         if ownsCurrent { _ = current.close(); }
         current = FileDescriptor::init(ret);
@@ -299,7 +301,7 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
 }
 pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
     let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, false).?;
-    let result = bindings::mkdirat(parentHandle.fd, name, permissions);
+    let result = bindings::mkdirat(parentHandle.fd, name, permissions as u16);
     let operation = checkZero(result);
     operation.cleanupAfter(parentHandle.close())
 }
@@ -345,8 +347,9 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
         storage[componentEnd] = 0;
         let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
         if ret < 0 {
+            let cause = errno();
             if ownsCurrent { _ = current.close(); }
-            return errno()!;
+            return cause!;
         }
         if ownsCurrent { _ = current.close(); }
         current = FileDescriptor::init(ret);
@@ -356,8 +359,9 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     let flags = if followSymlinks { 0 } else { bindings::atSymlinkNoFollow };
     let mut stat: bindings::DarwinStat;
     if bindings::fstatat(current.fd, &storage[finalStart], &mut stat, flags) != 0 {
+        let cause = errno();
         if ownsCurrent { _ = current.close(); }
-        return errno()!;
+        return cause!;
     }
     let result = stat.asMetadata();
     if ownsCurrent { result.cleanupAfter(current.close()) } else { result }
@@ -758,7 +762,8 @@ extend bindings::DarwinStat {
 
 fn errno() Errno {
     let value = bindings::__error().*;
-    value as Errno
+    // ENOSYS and ENOTSUP both expose the portable Unsupported error.
+    if value == 78 { .Unsupported } else { value as Errno }
 }
 
 fn fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {
