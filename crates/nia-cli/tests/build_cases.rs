@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{path::Path, process::Command};
+use std::{borrow::Cow, path::Path, process::Command};
 
 mod support;
 
@@ -264,6 +264,18 @@ fn assert_configured_build_success(
     workspace: &Path,
     output: &std::process::Output,
 ) {
+    // The build runner reports physical paths after canonicalization. macOS
+    // exposes `/private` for temporary directories even when the test creates
+    // them through `/var`, so compare against the same canonical identity.
+    let reported_workspace: Cow<'_, Path> = if cfg!(target_os = "macos") {
+        Cow::Owned(
+            workspace
+                .canonicalize()
+                .expect("canonicalize configured build workspace"),
+        )
+    } else {
+        Cow::Borrowed(workspace)
+    };
     assert_eq!(
         contracts,
         [
@@ -284,9 +296,15 @@ fn assert_configured_build_success(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     for expected in [
-        format!("root={}\n", workspace.display()),
-        format!("build={}\n", workspace.join(".nia-build").display()),
-        format!("cache={}\n", workspace.join(".nia-cache").display()),
+        format!("root={}\n", reported_workspace.display()),
+        format!(
+            "build={}\n",
+            reported_workspace.join(".nia-build").display()
+        ),
+        format!(
+            "cache={}\n",
+            reported_workspace.join(".nia-cache").display()
+        ),
         format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia")),
         "run=roadmap\n".to_string(),
         "host=roadmap\n".to_string(),
