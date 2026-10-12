@@ -6,7 +6,7 @@
 //! them to its interpreter, and a static one has none.
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
 
-use std::{path::Path, process::Command};
+use std::path::Path;
 mod support;
 use nia_test_support::{CommandExt, test_dir as temp_dir};
 
