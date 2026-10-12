@@ -1186,7 +1186,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe)
         .current_dir(&root)
         .status_timeout("run file adapter descriptor identity executable");
-    assert_eq!(status.code(), Some(0));
+    assert_eq!(status.code(), Some(0), "status: {status:?}");
     assert_eq!(
         std::fs::read(&writer_path).expect("read writer replacement"),
         b""
@@ -2190,8 +2190,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
             _ = ok;
             return process::ExitCode(8)!;
         },
-        error! => {
-        },
+        fs::OperationError::System {
+            operation: fs::Operation::DeleteDir,
+            cause: fs::Error::NotEmpty,
+        }! => {},
+        error! => { _ = error; return process::ExitCode(12)!; },
     }
 
     match cwd.deleteFile(fs::RelativePathView::fromText(&"subdir/new-name.txt").?) {
@@ -2591,5 +2594,5 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe)
         .current_dir(&root)
         .status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
+    assert_eq!(status.code(), Some(0), "status: {status:?}");
 }
