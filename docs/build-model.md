@@ -90,6 +90,14 @@ symlinked entries, and stream file contents into their BLAKE3 fingerprints.
 The walk is iterative and rejects source trees with more than one million
 regular files before publishing an identity.
 
+Canonical package text escapes each namespace, name, and version component
+before joining them as `namespace/name@version`. Percent signs, delimiters,
+control bytes, and non-ASCII UTF-8 bytes use uppercase percent encoding so
+distinct component tuples cannot share a text identity. Source fingerprints
+frame both the count and the entries of each source-root and exclusion list.
+Local `nia.package` manifests are limited to 1 MiB; readers consume at most
+one byte beyond that limit and reject oversized input before decoding UTF-8.
+
 `nia build --explain` reports each declared dependency's selected-graph
 resolution, the number of its modules represented in the frozen plan, and
 whether the selected action closure owns or references that package. Module
