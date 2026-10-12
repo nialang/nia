@@ -8,15 +8,18 @@ use std::time::{Duration, Instant};
 
 use crate::MaintainResult;
 
+const MAX_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
+
 /// Captured result from one independently executed child process.
+#[derive(Debug)]
 pub struct BoundedOutput {
     /// Child process identifier.
     pub process_id: u32,
     /// Child exit status.
     pub status: ExitStatus,
-    /// Complete standard output.
+    /// Captured standard output, bounded by the maintenance capture limit.
     pub stdout: Vec<u8>,
-    /// Complete standard error.
+    /// Captured standard error, bounded by the maintenance capture limit.
     pub stderr: Vec<u8>,
     /// Parent-observed wall time in seconds.
     pub elapsed: f64,
@@ -49,7 +52,19 @@ fn terminate_process_group(child: &mut std::process::Child) {
 }
 
 #[cfg(not(unix))]
-fn terminate_process_group(_child: &mut std::process::Child) {}
+fn terminate_process_group(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
 
 #[cfg(unix)]
 fn configure_process_group(process: &mut Command) {
@@ -64,7 +79,27 @@ fn read_pipe<R: Read + Send + 'static>(
 ) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
     thread::spawn(move || {
         let mut bytes = Vec::new();
-        pipe.read_to_end(&mut bytes)?;
+        let mut buffer = [0u8; 8192];
+        let mut overflowed = false;
+        loop {
+            let count = pipe.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            if bytes.len() < MAX_CAPTURE_BYTES {
+                let retained = count.min(MAX_CAPTURE_BYTES - bytes.len());
+                bytes.extend_from_slice(&buffer[..retained]);
+                overflowed |= retained != count;
+            } else {
+                overflowed = true;
+            }
+        }
+        if overflowed {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("child output exceeded {MAX_CAPTURE_BYTES} bytes"),
+            ));
+        }
         Ok(bytes)
     })
 }
@@ -85,6 +120,9 @@ pub fn run_bounded(
     cwd: &Path,
     timeout_seconds: u64,
 ) -> MaintainResult<BoundedOutput> {
+    if command.is_empty() {
+        return Err("cannot run an empty command".to_owned());
+    }
     let started = Instant::now();
     let mut process = Command::new(&command[0]);
     process
@@ -125,4 +163,32 @@ pub fn run_bounded(
         stderr: join_pipe(stderr, "stderr")?,
         elapsed: started.elapsed().as_secs_f64(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn capture_rejects_output_beyond_the_fixed_limit() {
+        let bytes = vec![b'x'; MAX_CAPTURE_BYTES + 1];
+        let result = read_pipe(Cursor::new(bytes)).join().unwrap();
+        let error = result.expect_err("oversized output must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("child output exceeded"));
+    }
+
+    #[test]
+    fn capture_accepts_output_at_the_fixed_limit() {
+        let bytes = vec![b'x'; MAX_CAPTURE_BYTES];
+        let captured = read_pipe(Cursor::new(bytes)).join().unwrap().unwrap();
+        assert_eq!(captured.len(), MAX_CAPTURE_BYTES);
+    }
+
+    #[test]
+    fn empty_commands_are_rejected_before_process_setup() {
+        let error = run_bounded(&[], Path::new("."), 1).expect_err("empty command");
+        assert_eq!(error, "cannot run an empty command");
+    }
 }
