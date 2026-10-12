@@ -50,6 +50,7 @@ pub(pkg) const openTruncate: i32 = 0x400;
 pub(pkg) const openDirectory: i32 = 0x100000;
 pub(pkg) const openNoFollow: i32 = 0x100;
 pub(pkg) const fSetFd: i32 = 2;
+pub(pkg) const fGetPath: i32 = 50;
 pub(pkg) const fdCloseOnExec: i32 = 1;
 pub(pkg) const waitNoHang: i32 = 1;
 
