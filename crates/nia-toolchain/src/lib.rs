@@ -284,7 +284,7 @@ impl RuntimeSpec {
         }
         let implementation = target.arch().name();
         let (definition_name, linker_symbol) = if target.os() == Os::Macos {
-            ("main", "main")
+            ("main", "_main")
         } else {
             ("_start", "_start")
         };
@@ -1196,13 +1196,18 @@ mod tests {
                     target.os().name()
                 )
             );
-            let expected_entry = if target.os() == Os::Macos {
+            let expected_definition = if target.os() == Os::Macos {
                 "main"
             } else {
                 "_start"
             };
-            assert_eq!(source.entry_point().definition_name(), expected_entry);
-            assert_eq!(source.entry_point().linker_symbol(), expected_entry);
+            let expected_linker_symbol = if target.os() == Os::Macos {
+                "_main"
+            } else {
+                "_start"
+            };
+            assert_eq!(source.entry_point().definition_name(), expected_definition);
+            assert_eq!(source.entry_point().linker_symbol(), expected_linker_symbol);
             if target.os() == Os::Macos {
                 assert_eq!(
                     source.required_exports(),
