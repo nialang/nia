@@ -87,8 +87,9 @@ fn inspect(path: &Path) -> Image {
     }
 }
 
-fn run(path: &Path) -> String {
-    let output = Command::new(path).output_timeout_for_runtime("run executable form");
+fn run(target: &str, path: &Path) -> String {
+    let output = nia_test_support::linux_target_command(target, path)
+        .output_timeout_for_runtime("run executable form");
     assert_eq!(output.status.code(), Some(0), "{}", path.display());
     // `debugPrint` writes to standard error.
     String::from_utf8_lossy(&output.stderr).trim().to_owned()
@@ -106,14 +107,15 @@ fn linux_executable_forms_run_programs_with_relocated_data() {
     let root = temp_dir("linux_executable_forms");
     let main = root.join("main.nia");
     std::fs::write(&main, PROGRAM).expect("write program");
-    for target in ["x86_64-unknown-linux", "x86-unknown-linux"] {
-        // LLD packs relocations as RELR; GNU ld emits them as RELA or REL.
-        for (form, flavor) in [
-            ("static-pie", "lld"),
-            ("static-pie", "gnu"),
-            ("static", "lld"),
-            ("dynamic", "lld"),
-        ] {
+    for target in nia_test_support::LINUX_TARGETS {
+        let mut forms = vec![("static-pie", "lld"), ("static", "lld")];
+        if target != "aarch64-unknown-linux" {
+            // GNU ld emits RELA or REL; native x86_64 also exercises the
+            // dynamic interpreter path.
+            forms.push(("static-pie", "gnu"));
+            forms.push(("dynamic", "lld"));
+        }
+        for (form, flavor) in forms {
             let case = format!("{target} {form} {flavor}");
             let exe = root.join(format!("{target}-{form}-{flavor}"));
             let output = support::nia_command()
@@ -134,10 +136,10 @@ fn linux_executable_forms_run_programs_with_relocated_data() {
                 _ => (ET_DYN, true),
             };
             assert_eq!((image.kind, image.interpreter), expected, "{case}");
-            let first = run(&exe);
-            if form == "static-pie" && randomized() {
+            let first = run(target, &exe);
+            if form == "static-pie" && target != "aarch64-unknown-linux" && randomized() {
                 // The kernel chooses a fresh base for every run.
-                let differs = (0..8).any(|_| run(&exe) != first);
+                let differs = (0..8).any(|_| run(target, &exe) != first);
                 assert!(differs, "{case}: static-pie base never moved from {first}");
             }
         }
