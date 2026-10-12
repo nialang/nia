@@ -227,7 +227,10 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
         "cargo fmt --all -- --check",
         "cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings",
         "cargo test -p nia-cli --tests --no-default-features --features llvm-static",
+        "--no-fail-fast -- --nocapture",
         "actions/upload-artifact@v7",
+        "2>&1 | tee target/platform-evidence/suite.log",
+        "shell: bash",
     ] {
         assert!(workflow.contains(command), "missing command {command}");
     }
@@ -239,6 +242,24 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
     );
     assert!(workflow.contains("test -x \"${CLANG}\""));
     assert!(workflow.contains("ld64.lld"));
+}
+
+#[test]
+fn platform_workflow_saves_verified_llvm_before_running_nia_suites() {
+    let workflow = workflow("platform.yml");
+    assert!(workflow.contains("actions/cache/restore@v6"));
+    assert!(workflow.contains("actions/cache/save@v6"));
+    assert!(workflow.contains("key: ${{ steps.llvm-cache.outputs.cache-primary-key }}"));
+    let verify = workflow
+        .find("- name: Verify static LLVM and Darwin linker")
+        .unwrap();
+    let save = workflow
+        .find("- name: Save verified static LLVM prefix")
+        .unwrap();
+    let suite = workflow
+        .find("- name: Run Darwin executable and standard-library suites")
+        .unwrap();
+    assert!(verify < save && save < suite);
 }
 
 #[test]
