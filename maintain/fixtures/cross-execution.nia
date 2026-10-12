@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+using std::io;
+using std::process;
+
+fn one() i32 { 1 }
+fn two() i32 { 2 }
+static handlers: [&fn() i32; 2] = [&one, &two];
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut total: i32 = 0;
+    for &handler in &handlers[..] {
+        total += handler();
+    }
+    if total != 3 {
+        return process::ExitCode(1)!;
+    }
+    io::debugPrint(&"cross-execution-ok\n", &[]).?;
+    !()
+}

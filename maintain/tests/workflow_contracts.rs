@@ -87,6 +87,62 @@ fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
 }
 
 #[test]
+fn build_std_workflow_exchanges_and_executes_cross_host_artifacts() {
+    let workflow = workflow("build-std.yml");
+    for (job, producer, artifact, runner) in [
+        (
+            "run-windows-cross",
+            "correctness",
+            "nia-linux-built-windows",
+            "windows-2022",
+        ),
+        (
+            "run-linux-cross",
+            "windows",
+            "nia-windows-built-linux",
+            "ubuntu-24.04",
+        ),
+    ] {
+        let job = workflow
+            .split(&format!("\n  {job}:\n"))
+            .nth(1)
+            .expect("cross-execution job")
+            .split("\n  run-")
+            .next()
+            .unwrap();
+        assert!(job.contains(&format!("needs: {producer}")));
+        assert!(job.contains(&format!("name: {artifact}")));
+        assert!(job.contains(&format!("runs-on: {runner}")));
+        assert!(job.contains("actions/download-artifact@v8"));
+        assert!(job.contains("cross-execution/SHA256SUMS"));
+        assert!(job.contains("cross-execution/execution.txt"));
+        assert!(job.contains("cross-execution-ok"));
+        assert!(job.contains("run_id="));
+        assert!(job.contains("job="));
+    }
+    for command in [
+        "--target x86_64-pc-windows-msvc",
+        "'x86_64-unknown-linux', 'x86-unknown-linux', 'aarch64-unknown-linux'",
+        "maintain/fixtures/cross-execution.nia",
+        "for optimization in 0 2",
+        "foreach ($optimization in @(0, 2))",
+        "Get-FileHash -Algorithm SHA256",
+        "sha256sum --check SHA256SUMS",
+        "$process.WaitForExit(30000)",
+        "$process.ExitCode -ne 0",
+        "timeout 30s qemu-aarch64-static",
+        "timeout 30s \"./${executable}\"",
+    ] {
+        assert!(workflow.contains(command), "missing command {command}");
+    }
+    assert!(
+        repository_root()
+            .join("maintain/fixtures/cross-execution.nia")
+            .is_file()
+    );
+}
+
+#[test]
 fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
     let workflow = workflow("performance.yml");
     for command in [

@@ -134,6 +134,24 @@ jobs:
       - name: Build release compiler
         run: cargo build --release -p nia-cli
 
+      - name: Cross-link Windows executables on Linux
+        run: |
+          mkdir -p target/cross-execution/windows
+          for optimization in 0 2; do
+            target/release/nia --resource-root lib --target x86_64-pc-windows-msvc \
+              emit --exe "-O${optimization}" maintain/fixtures/cross-execution.nia \
+              -o "target/cross-execution/windows/probe-O${optimization}.exe"
+          done
+          (cd target/cross-execution/windows && sha256sum probe-*.exe > SHA256SUMS)
+
+      - name: Publish Linux-built Windows executables
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-linux-built-windows
+          path: target/cross-execution/windows
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run clean/warm/edit/corruption/failure build baseline
         run: |
           cargo maintain baseline build \
@@ -247,3 +265,133 @@ jobs:
         run: |
           cargo build --release -p nia-cli --no-default-features --target x86_64-pc-windows-msvc
           & .\target\x86_64-pc-windows-msvc\release\nia.exe --version
+
+      - name: Cross-link Linux executables on Windows
+        shell: pwsh
+        run: |
+          $destination = 'target/cross-execution/linux'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          foreach ($target in @('x86_64-unknown-linux', 'x86-unknown-linux', 'aarch64-unknown-linux')) {
+            foreach ($optimization in @(0, 2)) {
+              & .\target\x86_64-pc-windows-msvc\release\nia.exe --resource-root lib --target $target `
+                emit --exe "-O$optimization" maintain/fixtures/cross-execution.nia `
+                -o "$destination/probe-$target-O$optimization"
+              if ($LASTEXITCODE -ne 0) { throw "cross-link failed: $target O$optimization" }
+            }
+          }
+          Get-ChildItem "$destination/probe-*" | Sort-Object Name | ForEach-Object {
+            $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$digest  $($_.Name)"
+          } | Set-Content -Encoding ascii "$destination/SHA256SUMS"
+
+      - name: Publish Windows-built Linux executables
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-windows-built-linux
+          path: target/cross-execution/linux
+          if-no-files-found: error
+          retention-days: 14
+
+  run-windows-cross:
+    name: Run Linux-built Windows executables
+    needs: correctness
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Download Linux-built Windows executables
+        uses: actions/download-artifact@v8
+        with:
+          name: nia-linux-built-windows
+          path: cross-execution
+
+      - name: Verify and execute Windows artifacts
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path cross-execution).Path
+          foreach ($optimization in @(0, 2)) {
+            $name = "probe-O$optimization.exe"
+            $executable = Join-Path $root $name
+            $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $executable).Hash.ToLowerInvariant()
+            if ((Get-Content "$root/SHA256SUMS") -notcontains "$digest  $name") {
+              throw "artifact checksum mismatch: $name"
+            }
+            $stdout = Join-Path $root "$name.stdout"
+            $stderr = Join-Path $root "$name.stderr"
+            $process = Start-Process -FilePath $executable -PassThru -WindowStyle Hidden `
+              -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if (-not $process.WaitForExit(30000)) {
+              $process.Kill($true)
+              throw "artifact execution timed out: $name"
+            }
+            $process.WaitForExit()
+            if ($process.ExitCode -ne 0) { throw "artifact exit code $($process.ExitCode): $name" }
+            if ((Get-Content -Raw $stderr).Trim() -ne 'cross-execution-ok') {
+              throw "unexpected artifact output: $name"
+            }
+            "commit=$env:GITHUB_SHA run_id=$env:GITHUB_RUN_ID job=$env:GITHUB_JOB target=x86_64-pc-windows-msvc optimization=O$optimization sha256=$digest exit=0" |
+              Add-Content "$root/execution.txt"
+          }
+
+      - name: Publish Windows cross-execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-windows-cross-execution-evidence
+          path: |
+            cross-execution/execution.txt
+            cross-execution/SHA256SUMS
+            cross-execution/*.stdout
+            cross-execution/*.stderr
+          if-no-files-found: warn
+          retention-days: 30
+
+  run-linux-cross:
+    name: Run Windows-built Linux executables
+    needs: windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install target execution support
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes qemu-user-static
+
+      - name: Download Windows-built Linux executables
+        uses: actions/download-artifact@v8
+        with:
+          name: nia-windows-built-linux
+          path: cross-execution
+
+      - name: Verify and execute Linux artifacts
+        run: |
+          cd cross-execution
+          sha256sum --check SHA256SUMS
+          for target in x86_64-unknown-linux x86-unknown-linux aarch64-unknown-linux; do
+            for optimization in 0 2; do
+              executable="probe-${target}-O${optimization}"
+              chmod +x "${executable}"
+              if test "${target}" = aarch64-unknown-linux; then
+                timeout 30s qemu-aarch64-static "./${executable}" > "${executable}.stdout" 2> "${executable}.stderr"
+              else
+                timeout 30s "./${executable}" > "${executable}.stdout" 2> "${executable}.stderr"
+              fi
+              test "$(cat "${executable}.stderr")" = cross-execution-ok
+              printf 'commit=%s run_id=%s job=%s target=%s optimization=O%s sha256=%s exit=0\n' \
+                "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "${GITHUB_JOB}" "${target}" "${optimization}" \
+                "$(sha256sum "${executable}" | cut -d ' ' -f 1)" \
+                >> execution.txt
+            done
+          done
+
+      - name: Publish Linux cross-execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-linux-cross-execution-evidence
+          path: |
+            cross-execution/execution.txt
+            cross-execution/SHA256SUMS
+            cross-execution/*.stdout
+            cross-execution/*.stderr
+          if-no-files-found: warn
+          retention-days: 30
