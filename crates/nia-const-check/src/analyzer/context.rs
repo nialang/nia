@@ -1361,11 +1361,23 @@ impl Analyzer<'_> {
                 }
             }
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
+                if let Some(owner) = owner_instance {
+                    if let Some(ty) = owner.self_arg {
+                        self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
+                    }
+                    for ty in owner.args {
+                        self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
+                    }
+                    for arg in owner.const_args {
+                        self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
+                    }
+                }
                 for ty in captures.into_iter().chain(params).chain([return_type]) {
                     self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
                 }

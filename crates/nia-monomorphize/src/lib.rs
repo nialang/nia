@@ -458,12 +458,25 @@ impl MonoCollector<'_> {
                 .iter()
                 .any(|elem| self.ty_contains_generic_param(*elem)),
             TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             } => {
-                captures
+                owner_instance.is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.ty_contains_generic_param(ty))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|ty| self.ty_contains_generic_param(*ty))
+                        || owner.const_args.iter().any(|arg| {
+                            matches!(arg.value, ConstGenericValue::GenericParam(_))
+                                || self.ty_contains_generic_param(arg.ty)
+                        })
+                }) || captures
                     .iter()
                     .chain(params.iter())
                     .any(|ty| self.ty_contains_generic_param(*ty))
@@ -755,12 +768,25 @@ impl MonoCollector<'_> {
                 .iter()
                 .any(|elem| self.ty_exceeds_instance_depth(*elem, next)),
             TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             } => {
-                captures
+                owner_instance.is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.ty_exceeds_instance_depth(ty, next))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|ty| self.ty_exceeds_instance_depth(*ty, next))
+                        || owner
+                            .const_args
+                            .iter()
+                            .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                }) || captures
                     .iter()
                     .chain(params.iter())
                     .any(|ty| self.ty_exceeds_instance_depth(*ty, next))
@@ -1047,6 +1073,29 @@ impl MonoCollector<'_> {
                 return_type,
                 owner_instance,
             } => {
+                let owner_instance = owner_instance.map(|owner| nia_ty::ClosureOwnerInstance {
+                    arg_module_id: owner.arg_module_id,
+                    self_arg: owner.self_arg.map(|ty| {
+                        self.instantiate_ty_inner(module_id, ty, substitutions, active_projections)
+                    }),
+                    args: owner
+                        .args
+                        .iter()
+                        .map(|ty| {
+                            self.instantiate_ty_inner(
+                                module_id,
+                                *ty,
+                                substitutions,
+                                active_projections,
+                            )
+                        })
+                        .collect(),
+                    const_args: owner
+                        .const_args
+                        .iter()
+                        .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
+                        .collect(),
+                });
                 let captures = captures
                     .iter()
                     .map(|ty| {
