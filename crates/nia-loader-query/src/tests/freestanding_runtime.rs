@@ -57,7 +57,7 @@ fn darwin_startup_selects_main_entry_and_libsystem_runtime_modules() {
         .expect("Darwin freestanding startup");
     let source = runtime.source().expect("source runtime");
     assert_eq!(source.entry_point().definition_name(), "main");
-    assert_eq!(source.entry_point().linker_symbol(), "main");
+    assert_eq!(source.entry_point().linker_symbol(), "_main");
     assert_eq!(
         source.required_exports(),
         [RuntimeExport::new(
