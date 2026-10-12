@@ -18,6 +18,7 @@ pub const MAX_STABLE_METADATA_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_SOURCE_FILES: usize = MAX_ITEMS;
+const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_MANIFEST_ENTRIES: usize = 1024;
 const MAX_DEFINITION_DEPTH: usize = 256;
 const PACKAGE_GRAPH_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.package.graph");
@@ -386,13 +387,18 @@ impl LocalPackageManifest {
     /// `name`, `version`, `protocol-epoch`, `source-root`, and `exclude`.
     pub fn read(root: &Path) -> io::Result<Self> {
         let path = root.join(concat!("nia", ".package"));
-        let text = std::fs::read_to_string(path)?;
-        if text.len() > 1024 * 1024 {
+        let mut contents = Vec::new();
+        File::open(path)?
+            .take((MAX_MANIFEST_BYTES + 1) as u64)
+            .read_to_end(&mut contents)?;
+        if contents.len() > MAX_MANIFEST_BYTES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "package manifest is too large",
             ));
         }
+        let text = String::from_utf8(contents)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let mut manifest = Self::implicit(
             root.file_name()
                 .and_then(|name| name.to_str())
@@ -2035,6 +2041,17 @@ mod tests {
         assert_eq!(first.canonical_text(), "acme/lib%40tools@1.0");
         assert_eq!(second.canonical_text(), "acme/lib@tools%401.0");
         assert_ne!(first.canonical_text(), second.canonical_text());
+
+        let escaped = PackageId {
+            namespace: "acme/team".into(),
+            name: "%40@\0\u{7f}".into(),
+            version: "\u{e9}\u{4e2d}".into(),
+        };
+        assert_eq!(
+            escaped.canonical_text(),
+            "acme%2Fteam/%2540%40%00%7F@%C3%A9%E4%B8%AD"
+        );
+        assert_ne!(canonical_component("%40"), canonical_component("@"));
     }
 
     fn definition(name: &str, kind: u8, owner: Option<DefinitionId>) -> DefinitionId {
@@ -2351,6 +2368,36 @@ mod tests {
                     .is_err()
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_manifest_enforces_byte_limit_before_utf8_decoding() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-bounds-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("nia.package");
+        let mut contents = vec![b' '; MAX_MANIFEST_BYTES];
+        std::fs::write(&path, &contents).unwrap();
+        assert!(LocalPackageManifest::read(&root).is_ok());
+
+        contents.push(0xff);
+        std::fs::write(&path, &contents).unwrap();
+        let error = LocalPackageManifest::read(&root).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "package manifest is too large");
+
+        std::fs::write(&path, [0xff]).unwrap();
+        assert_eq!(
+            LocalPackageManifest::read(&root).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
