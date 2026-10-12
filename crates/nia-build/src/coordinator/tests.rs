@@ -3475,6 +3475,31 @@ fn cacheable_program_search_honors_explicit_path_removal() {
 }
 
 #[test]
+#[cfg(windows)]
+fn cacheable_program_search_honors_case_insensitive_explicit_path_removal() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let error = resolve_search_program(
+        &external_action(),
+        "cmd.exe",
+        &invocation.package_root,
+        &[EnvironmentInput {
+            name: "path".to_string(),
+            value: None,
+        }],
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        CoordinatorError::ExternalCommandIo {
+            operation: "resolve",
+            ..
+        }
+    ));
+}
+
+#[test]
 fn external_output_tail_discards_only_the_oldest_bytes() {
     let mut tail = vec![b'a'; EXTERNAL_OUTPUT_TAIL_BYTES - 2];
     crate::process_output::append_output_tail(&mut tail, b"bcdef", EXTERNAL_OUTPUT_TAIL_BYTES);

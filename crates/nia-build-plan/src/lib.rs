@@ -427,9 +427,10 @@ pub enum CommandArgument {
 /// One explicitly declared environment input.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EnvironmentInput {
-    /// Environment variable name.
+    /// Environment variable name. ASCII letters are canonicalized to uppercase
+    /// for Windows host plans, where names are case-insensitive.
     pub name: String,
-    /// Optional value; `None` reads the inherited value under the policy.
+    /// Explicit value; `None` removes the variable from the child environment.
     pub value: Option<String>,
 }
 

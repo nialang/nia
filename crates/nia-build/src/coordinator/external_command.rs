@@ -70,7 +70,10 @@ pub(super) fn resolve_search_program(
     }
     // Declared PATH wins even when it is explicitly removed. Falling back to
     // the host is allowed only when the action did not declare PATH at all.
-    let search_path = match environment.iter().find(|input| input.name == "PATH") {
+    let search_path = match environment
+        .iter()
+        .find(|input| environment_name_matches(input.name.as_str(), "PATH"))
+    {
         Some(input) => input.value.as_deref().map(std::ffi::OsString::from),
         None => std::env::var_os("PATH"),
     };
@@ -97,6 +100,18 @@ pub(super) fn resolve_search_program(
             "command program was not found in PATH",
         ),
     })
+}
+
+#[inline]
+fn environment_name_matches(left: &str, right: &str) -> bool {
+    #[cfg(windows)]
+    {
+        left.eq_ignore_ascii_case(right)
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
 }
 
 fn executable_candidate(path: &Path) -> Option<PathBuf> {
