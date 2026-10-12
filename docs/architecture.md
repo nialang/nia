@@ -669,6 +669,11 @@ pointer size and alignment.
 Callable pointees are unsized and have no `TypeLayout`. A callable view is `Sized`,
 with size equal to two target pointer words and target pointer alignment.
 
+Closure state layout uses the capture fields. Before publishing a root layout,
+open-generic detection also checks the closure owner's receiver, type arguments,
+and const arguments, even when those arguments do not occur in the captures or
+call signature. Layout roots become eligible only after that context is concrete.
+
 The algorithm reads every existing handle from the session `TypeStore` and publishes
 structural types created by generic substitution through a module-scoped
 `TypeStoreAppend`.
