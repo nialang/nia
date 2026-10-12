@@ -5,9 +5,9 @@
 //! value shapes must equal the ones clang emits for the same C signatures on
 //! every maintained target, and Nia and C code must exchange those values
 //! correctly in both directions on every Linux target this host runs.
-use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
+use std::{collections::HashMap, sync::OnceLock};
 mod support;
 use nia_test_support::{CommandExt, test_dir};
 
@@ -30,10 +30,20 @@ const TARGETS: [(&str, &str); 6] = [
 ];
 
 fn clang() -> &'static str {
-    ["clang-23", "clang"]
-        .into_iter()
-        .find(|program| Command::new(program).arg("--version").output().is_ok())
-        .expect("the C ABI reference needs clang 23 on PATH; install clang-23")
+    static CLANG: OnceLock<String> = OnceLock::new();
+    CLANG
+        .get_or_init(|| {
+            std::env::var("CLANG")
+                .ok()
+                .or_else(|| {
+                    ["clang-23", "clang"]
+                        .into_iter()
+                        .find(|program| Command::new(program).arg("--version").output().is_ok())
+                        .map(str::to_owned)
+                })
+                .expect("the C ABI reference needs clang 23 on PATH; install clang-23")
+        })
+        .as_str()
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

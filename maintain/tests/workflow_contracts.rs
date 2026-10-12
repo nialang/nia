@@ -76,6 +76,8 @@ fn build_std_workflow_runs_the_windows_static_llvm_matrix() {
         );
     }
     assert!(workflow.contains("LLVM_SYS_231_PREFIX"));
+    assert!(workflow.contains("LLVM_ENABLE_PROJECTS: clang;lld"));
+    assert!(workflow.contains("CLANG=$env:CLANG"));
     assert!(workflow.contains("target\\x86_64-pc-windows-msvc\\release\\nia.exe"));
     assert!(!workflow.contains("-Lnative="));
     assert!(workflow.contains("LLVM_INSTALL_ROOT"));

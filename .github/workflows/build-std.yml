@@ -162,6 +162,7 @@ jobs:
       LLVM_BUILD_ROOT: ${{ github.workspace }}\target\llvm-static\build
       LLVM_INSTALL_ROOT: ${{ github.workspace }}\target\llvm-static\install
       LLVM_SYS_231_PREFIX: ${{ github.workspace }}\target\llvm-static\install
+      LLVM_ENABLE_PROJECTS: clang;lld
 
     steps:
       - name: Check out repository
@@ -206,12 +207,14 @@ jobs:
           }
           $env:LLVM_SYS_231_PREFIX = "$env:GITHUB_WORKSPACE\target\llvm-static\install"
           $env:Path = "$env:LLVM_SYS_231_PREFIX\bin;$env:Path"
+          $env:CLANG = "$env:LLVM_SYS_231_PREFIX\bin\clang.exe"
           # Explicit --target on Cargo commands keeps the repository's static
           # CRT flags on target code rather than host build scripts. llvm-sys
           # otherwise treats Windows system import libraries as bundled static
           # archives and requires extra rustc search paths for the SDK.
           @(
             "LLVM_SYS_231_PREFIX=$env:LLVM_SYS_231_PREFIX"
+            "CLANG=$env:CLANG"
             "LIB=$env:LIB"
             "INCLUDE=$env:INCLUDE"
             "PATH=$env:PATH"
