@@ -114,6 +114,19 @@ fn join_pipe(
         .map_err(|error| format!("failed to read child {name}: {error}"))
 }
 
+fn join_pipes(
+    stdout: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    stderr: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> MaintainResult<(Vec<u8>, Vec<u8>)> {
+    let stdout = join_pipe(stdout, "stdout");
+    let stderr = join_pipe(stderr, "stderr");
+    match (stdout, stderr) {
+        (Ok(stdout), Ok(stderr)) => Ok((stdout, stderr)),
+        (Err(error), Ok(_)) | (Err(error), Err(_)) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
+
 /// Executes a command in an owned process group with bounded output capture.
 pub fn run_bounded(
     command: &[String],
@@ -139,11 +152,14 @@ pub fn run_bounded(
     let stderr = read_pipe(child.stderr.take().expect("piped child stderr"));
     let deadline = started + Duration::from_secs(timeout_seconds);
     let status = loop {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("failed to wait for child process: {error}"))?
-        {
-            break status;
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                terminate_process_group(&mut child);
+                let _ = join_pipes(stdout, stderr);
+                return Err(format!("failed to wait for child process: {error}"));
+            }
         }
         if Instant::now() >= deadline {
             terminate_process_group(&mut child);
@@ -156,11 +172,12 @@ pub fn run_bounded(
         }
         thread::sleep(Duration::from_millis(25));
     };
+    let (stdout, stderr) = join_pipes(stdout, stderr)?;
     Ok(BoundedOutput {
         process_id,
         status,
-        stdout: join_pipe(stdout, "stdout")?,
-        stderr: join_pipe(stderr, "stderr")?,
+        stdout,
+        stderr,
         elapsed: started.elapsed().as_secs_f64(),
     })
 }
