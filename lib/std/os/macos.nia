@@ -290,6 +290,9 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
         if ret < 0 {
             let cause = errno();
             if ownsCurrent { _ = current.close(); }
+            // Linux openat2 reports a capability escape as EXDEV. Darwin's
+            // O_NOFOLLOW reports ELOOP for the same intermediate symlink.
+            if cause == .SymlinkLoop { return .CrossDevice!; }
             return cause!;
         }
         if ownsCurrent { _ = current.close(); }
@@ -406,14 +409,14 @@ fn spawnWithResources(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions, 
         .failure(.Setup(.Io))
     } else {
         resources.stdin.closeRead();
-        resources.stdout.closeRead();
-        resources.stderr.closeRead();
+        resources.stdout.closeWrite();
+        resources.stderr.closeWrite();
         resources.error.closeWrite();
         let pid = ProcessId::init(ret);
         let errorRead = if resources.error.takeRead() is ?fd { fd } else { return failedSpawnAttempt(pid, .Setup(.Io)); };
         match readSpawnError(errorRead) {
             !(?spawnError) => failedSpawnAttempt(pid, spawnError),
-            !null => .success(.init(pid, resources.stdin.takeWrite(), resources.stdout.takeWrite(), resources.stderr.takeWrite())),
+            !null => .success(.init(pid, resources.stdin.takeWrite(), resources.stdout.takeRead(), resources.stderr.takeRead())),
             error! => failedSpawnAttempt(pid, error),
         }
     }

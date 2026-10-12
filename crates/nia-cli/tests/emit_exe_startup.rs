@@ -93,8 +93,17 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
     let std_start_linux_x86 = resource_root.join("runtime/start/freestanding/linux/x86.nia");
     let std_start_freestanding_windows =
         resource_root.join("runtime/start/freestanding/windows.nia");
+    let std_start_freestanding_macos = resource_root.join("runtime/start/freestanding/macos.nia");
     let std_start_windows_x86_64 =
         resource_root.join("runtime/start/freestanding/windows/x86_64.nia");
+    let std_start_macos_arch = resource_root.join(format!(
+        "runtime/start/freestanding/macos/{}.nia",
+        if cfg!(target_arch = "aarch64") {
+            "aarch64"
+        } else {
+            "x86_64"
+        }
+    ));
     let windows_builtins = resource_root.join("runtime/builtins/windows/x86_64.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
@@ -105,6 +114,12 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
             .expect("std Windows start parent"),
     )
     .expect("create custom Windows runtime dir");
+    std::fs::create_dir_all(
+        std_start_macos_arch
+            .parent()
+            .expect("std macOS start parent"),
+    )
+    .expect("create custom macOS runtime dir");
     std::fs::create_dir_all(windows_builtins.parent().expect("Windows builtins parent"))
         .expect("create custom Windows builtins dir");
     std::fs::create_dir_all(std_builtin.parent().expect("custom std builtin parent"))
@@ -127,6 +142,15 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
             imports.join(library),
         )
         .expect("copy import description");
+    }
+    if cfg!(target_os = "macos") {
+        let imports = resource_root.join("imports/macos");
+        std::fs::create_dir_all(&imports).expect("create custom Darwin imports");
+        std::fs::copy(
+            workspace_root.join("lib/imports/macos/libSystem.tbd"),
+            imports.join("libSystem.tbd"),
+        )
+        .expect("copy Darwin import description");
     }
     std::fs::write(
         &std_root,
@@ -179,12 +203,16 @@ pub fn asm(config: AsmConfig) ();
 pub(pkg) module freestanding;
 @[if os == "windows" and arch == "x86_64"]
 pub(pkg) module freestanding;
+@[if os == "macos" and (arch == "x86_64" or arch == "aarch64")]
+pub(pkg) module freestanding;
 @[if os == "linux" and arch == "x86_64"]
 using pkg::start::freestanding::linux::x86_64;
 @[if os == "linux" and arch == "x86"]
 using pkg::start::freestanding::linux::x86;
 @[if os == "windows" and arch == "x86_64"]
 using pkg::start::freestanding::windows::x86_64;
+@[if os == "macos"]
+using pkg::start::freestanding::macos;
 "#,
     )
     .expect("write custom std start facade");
@@ -195,6 +223,8 @@ using pkg::start::freestanding::windows::x86_64;
 pub(pkg) module linux;
 @[if os == "windows"]
 pub(pkg) module windows;
+@[if os == "macos"]
+pub(pkg) module macos;
 "#,
     )
     .expect("write custom std freestanding facade");
@@ -203,6 +233,11 @@ pub(pkg) module windows;
         "pub(pkg) module startup;\n@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n",
     )
     .expect("write custom std Windows freestanding facade");
+    std::fs::write(
+        &std_start_freestanding_macos,
+        "pub(pkg) module startup;\n@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n@[if arch == \"aarch64\"]\npub(pkg) module aarch64;\n",
+    )
+    .expect("write custom Darwin freestanding facade");
     std::fs::write(
         &std_start_freestanding_linux,
         r#"
@@ -300,6 +335,16 @@ pub extern fn _start() () {
         "using entry;\n\nextern fn ExitProcess(code: u32) ();\n\nextern fn niaWindowsStart() () { ExitProcess(11u32); loop {} }\n",
     )
     .expect("write custom Windows startup");
+    std::fs::write(
+        std_start_macos_arch.with_file_name("startup.nia"),
+        "using entry;\n\nextern fn _exit(code: i32) ();\n\nextern fn niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; _exit(entry::mymain()); loop {} }\n",
+    )
+    .expect("write custom Darwin startup");
+    std::fs::write(
+        &std_start_macos_arch,
+        "pub extern fn main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
+    )
+    .expect("write custom Darwin start");
     std::fs::write(
         &main,
         r#"

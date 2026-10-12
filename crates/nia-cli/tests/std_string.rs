@@ -515,6 +515,8 @@ using std::process;
 static catProgram = "C:\\Windows\\System32\\more.com";
 @[if os == "linux"]
 static catProgram = "/bin/cat";
+@[if os == "macos"]
+static catProgram = "/bin/cat";
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
