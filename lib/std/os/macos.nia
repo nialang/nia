@@ -5,7 +5,10 @@ using pkg::os::macos::bindings;
 using pkg::error;
 using pkg::math;
 
-pub const maxPathBytes: usize = 1024;
+// Keep parity with Darwin's PATH_MAX-sized syscall buffers. The shorter
+// fcntl(F_GETPATH) buffer below is only used for capability containment.
+pub const maxPathBytes: usize = 4096;
+const fdPathBytes: usize = 1024;
 
 pub enum Errno: i32 {
     PermissionDenied = 1, NoEntry = 2, Interrupted = 4, Io = 5,
@@ -260,14 +263,27 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
         let isFinal = cursor == length;
         storage[componentEnd] = 0;
         if isFinal {
-            let flags = openFlags(mode, directory, create, truncate, exclusive, followSymlinks);
+            // Never follow an existing final link for a mutating open. A
+            // read-only open may follow it, but the resulting descriptor is
+            // checked against the capability root before publication.
+            let effectiveFollow = followSymlinks and not create and not truncate and not exclusive;
+            let flags = openFlags(mode, directory, create, truncate, exclusive, effectiveFollow);
             let ret = bindings::openat(current.fd, &storage[componentStart], flags, permissions);
             if ret < 0 {
                 if ownsCurrent { _ = current.close(); }
                 return errno()!;
             }
+            let result = FileDescriptor::init(ret);
+            if effectiveFollow {
+                let containment = ensureContained(dir, result);
+                if containment is error! {
+                    _ = result.close();
+                    if ownsCurrent { _ = current.close(); }
+                    return containment;
+                }
+            }
             if ownsCurrent { _ = current.close(); }
-            return !FileDescriptor::init(ret);
+            return !result;
         }
         let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
         if ret < 0 {
@@ -282,21 +298,21 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
     .Invalid!
 }
 pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
-    let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, true).?;
+    let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, false).?;
     let result = bindings::mkdirat(parentHandle.fd, name, permissions);
     let operation = checkZero(result);
     operation.cleanupAfter(parentHandle.close())
 }
 pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
-    let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, true).?;
+    let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, false).?;
     let flags = if directory { bindings::atRemoveDir } else { 0 };
     let result = bindings::unlinkat(parentHandle.fd, name, flags);
     let operation = checkZero(result);
     operation.cleanupAfter(parentHandle.close())
 }
 pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
-    let oldHandle = openAtBeneath(oldDir, oldParent, .ReadOnly, true, false, false, false, 0, true).?;
-    let newHandle = match openAtBeneath(newDir, newParent, .ReadOnly, true, false, false, false, 0, true) {
+    let oldHandle = openAtBeneath(oldDir, oldParent, .ReadOnly, true, false, false, false, 0, false).?;
+    let newHandle = match openAtBeneath(newDir, newParent, .ReadOnly, true, false, false, false, 0, false) {
         !handle => handle,
         error! => { _ = oldHandle.close(); return error!; },
     };
@@ -305,6 +321,11 @@ pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, new
     operation.cleanupAfter(oldHandle.close()).cleanupAfter(newHandle.close())
 }
 pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+    if followSymlinks {
+        let handle = openAtBeneath(dir, path, .ReadOnly, false, false, false, false, 0, true).?;
+        let result = handle.metadata();
+        return result.cleanupAfter(handle.close());
+    }
     let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
     let length = copyAndValidateRelative(path, &mut storage[..]).?;
     let mut finalEnd = length;
@@ -334,7 +355,10 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     }
     let flags = if followSymlinks { 0 } else { bindings::atSymlinkNoFollow };
     let mut stat: bindings::DarwinStat;
-    if bindings::fstatat(current.fd, &storage[finalStart], &mut stat, flags) != 0 { return errno()!; }
+    if bindings::fstatat(current.fd, &storage[finalStart], &mut stat, flags) != 0 {
+        if ownsCurrent { _ = current.close(); }
+        return errno()!;
+    }
     let result = stat.asMetadata();
     if ownsCurrent { result.cleanupAfter(current.close()) } else { result }
 }
@@ -735,6 +759,42 @@ extend bindings::DarwinStat {
 fn errno() Errno {
     let value = bindings::__error().*;
     value as Errno
+}
+
+fn fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {
+    if buffer.len() == 0 { return .Invalid!; }
+    let result = if fd.fd == -2 {
+        bindings::getcwd(buffer.ptrMut(), buffer.len()) as usize
+    } else {
+        if bindings::fcntl(fd.fd, bindings::fGetPath, buffer.ptrMut()) != 0 { return errno()!; }
+        buffer.ptrMut() as usize
+    };
+    if result == 0 { return errno()!; }
+    let mut length: usize = 0;
+    while length < buffer.len() and buffer[length] != 0 { length += 1; }
+    if length == buffer.len() { return .TooLong!; }
+    !&buffer[0..length]
+}
+
+fn pathWithin(root: &[u8], candidate: &[u8]) bool {
+    if root.len() == 1 and root[0] == b'/' {
+        return candidate.len() != 0 and candidate[0] == b'/';
+    }
+    if candidate.len() < root.len() { return false; }
+    let mut index: usize = 0;
+    while index < root.len() {
+        if root[index] != candidate[index] { return false; }
+        index += 1;
+    }
+    candidate.len() == root.len() or candidate[root.len()] == b'/'
+}
+
+fn ensureContained(root: FileDescriptor, candidate: FileDescriptor) Errno!() {
+    let mut rootStorage: [u8; fdPathBytes] = [0; fdPathBytes];
+    let mut candidateStorage: [u8; fdPathBytes] = [0; fdPathBytes];
+    let rootPath = fdPath(root, &mut rootStorage[..]).?;
+    let candidatePath = fdPath(candidate, &mut candidateStorage[..]).?;
+    if pathWithin(rootPath, candidatePath) { !() } else { .CrossDevice! }
 }
 
 fn checkZero(result: i32) Errno!() {
