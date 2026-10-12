@@ -357,7 +357,11 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
         .arg("--linker")
         .arg(&linker)
         .arg("--linker-flavor")
-        .arg("lld")
+        .arg(if cfg!(target_os = "macos") {
+            "ld64.lld"
+        } else {
+            "lld"
+        })
         .arg("-L")
         .arg("/native/lib")
         .arg("-l")

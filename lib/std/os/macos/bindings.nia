@@ -30,6 +30,10 @@ pub(pkg) extern fn fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32
 @[if arch == "x86_64"]
 @[linkName("fstatat$INODE64")]
 pub(pkg) extern fn fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
+// Darwin's 64-bit inode directory ABI is the private __getdirentries64
+// entry point used by Zig and libc; the public getdirentries is explicitly
+// unavailable when 64-bit inodes are enabled.
+@[linkName("__getdirentries64")]
 pub(pkg) extern fn getdirentries64(fd: i32, buffer: &mut u8, length: usize, base: &mut i64) i64;
 pub(pkg) extern fn getcwd(buffer: &mut u8, length: usize) &mut u8;
 pub(pkg) extern fn mmap(address: usize, length: usize, protection: i32, flags: i32, fd: i32, offset: i64) &mut u8;
