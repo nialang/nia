@@ -127,6 +127,7 @@ fn build_std_workflow_exchanges_and_executes_cross_host_artifacts() {
         "for optimization in 0 2",
         "foreach ($optimization in @(0, 2))",
         "Get-FileHash -Algorithm SHA256",
+        "(($checksums -join \"`n\") + \"`n\")",
         "sha256sum --check SHA256SUMS",
         "$process.WaitForExit(30000)",
         "$process.ExitCode -ne 0",
