@@ -518,11 +518,21 @@ impl TyKind {
                 visit(*return_type);
             }
             Self::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             } => {
+                if let Some(owner) = owner_instance {
+                    if let Some(self_arg) = owner.self_arg {
+                        visit(self_arg);
+                    }
+                    for arg in &owner.args {
+                        visit(*arg);
+                    }
+                    visit_const_args(&owner.const_args, &mut visit);
+                }
                 for capture in captures {
                     visit(*capture);
                 }
@@ -1624,6 +1634,47 @@ mod tests {
         for (left, right) in left_types.into_iter().zip(right_types) {
             assert!(equivalence.same_type_for_equiv(left, right));
         }
+    }
+
+    #[test]
+    fn referenced_types_include_closure_owner_instance_arguments() {
+        let store = TypeStore::new().expect("create type store");
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module = modules.allocate().expect("allocate module ID");
+        let append = store.append_for_module(module);
+        let i32_ty = primitive(&append, PrimitiveTy::I32);
+        let bool_ty = primitive(&append, PrimitiveTy::Bool);
+        let closure = intern(
+            &append,
+            TyKind::ClosureState {
+                closure_id: nia_ids::ClosureId {
+                    owner: nia_ids::GlobalDefId {
+                        module_id: module,
+                        def_id: nia_ids::DefId(8),
+                    },
+                    ordinal: 0,
+                },
+                owner_instance: Some(ClosureOwnerInstance {
+                    arg_module_id: module,
+                    self_arg: Some(bool_ty),
+                    args: vec![i32_ty],
+                    const_args: vec![ConstGenericArg {
+                        ty: bool_ty,
+                        value: ConstGenericValue::Int(IntConst::unsigned(1)),
+                    }],
+                }),
+                captures: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+            },
+        );
+        let mut referenced = Vec::new();
+        store
+            .get(closure)
+            .expect("closure type")
+            .visit_referenced_types(|ty| referenced.push(ty));
+
+        assert_eq!(referenced, vec![bool_ty, i32_ty, bool_ty, i32_ty]);
     }
 
     #[test]

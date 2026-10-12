@@ -386,11 +386,23 @@ fn collect_ty_owner_modules<'a>(
         }
         TyKind::Tuple(elems) => type_ids.extend(elems.iter().copied()),
         TyKind::ClosureState {
+            closure_id,
+            owner_instance,
             captures,
             params,
             return_type,
             ..
         } => {
+            add_reachable_type_module(closure_id.owner.module_id, type_modules);
+            if let Some(owner) = owner_instance {
+                add_reachable_type_module(owner.arg_module_id, type_modules);
+                if let Some(self_arg) = owner.self_arg {
+                    type_ids.push_back(self_arg);
+                }
+                type_ids.extend(owner.args.iter().copied());
+                type_ids.extend(owner.const_args.iter().map(|arg| arg.ty));
+                collect_const_arg_owner_modules(&owner.const_args, type_modules);
+            }
             type_ids.extend(captures.iter().copied());
             type_ids.extend(params.iter().copied());
             type_ids.push_back(*return_type);
@@ -849,5 +861,81 @@ mod tests {
         assert!(type_modules.contains(&outer_module));
         assert!(type_modules.contains(&alias_module));
         assert!(type_modules.contains(&leaf_module));
+    }
+
+    #[test]
+    fn closure_owner_instance_contributes_type_owner_modules() {
+        let modules = ModuleIdAllocator::new().expect("create module ID allocator");
+        let use_module = modules.allocate().expect("allocate module ID");
+        let owner_module = modules.allocate().expect("allocate module ID");
+        let arg_module = modules.allocate().expect("allocate module ID");
+        let argument_type_module = modules.allocate().expect("allocate module ID");
+        let const_module = modules.allocate().expect("allocate module ID");
+        let types = TypeStore::new().expect("create type store");
+        let append = types.append_for_module(use_module);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let argument_ty = append.test_intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: argument_type_module,
+                def_id: nia_defs::DefId(1),
+            },
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let const_arg = nia_ty::ConstGenericArg {
+            ty: usize_ty,
+            value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
+                module_id: const_module,
+                const_expr_id: ConstExprId(0),
+            }),
+        };
+        let closure = append.test_intern(TyKind::ClosureState {
+            closure_id: nia_ids::ClosureId {
+                owner: GlobalDefId {
+                    module_id: owner_module,
+                    def_id: nia_defs::DefId(2),
+                },
+                ordinal: 0,
+            },
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: arg_module,
+                self_arg: Some(argument_ty),
+                args: vec![argument_ty],
+                const_args: vec![const_arg],
+            }),
+            captures: Vec::new(),
+            params: Vec::new(),
+            return_type: usize_ty,
+        });
+        let no_function = |_| None;
+        let no_struct = |_| None;
+        let no_union = |_| None;
+        let no_enum = |_| None;
+        let no_type_alias = |_| None;
+        let no_trait = |_| None;
+        let no_default_method = |_| None;
+        let signatures = ExecutableSignatureIndex {
+            function: &no_function,
+            struct_: &no_struct,
+            union: &no_union,
+            enum_: &no_enum,
+            type_alias: &no_type_alias,
+            trait_: &no_trait,
+            trait_default_method: &no_default_method,
+        };
+        let mut type_modules = HashSet::new();
+        let mut traits = ReachableTraitRefs::default();
+        collect_ty_ids_owner_modules(
+            [closure],
+            signatures,
+            &types,
+            &mut type_modules,
+            &mut traits,
+        );
+
+        assert!(type_modules.contains(&owner_module));
+        assert!(type_modules.contains(&arg_module));
+        assert!(type_modules.contains(&argument_type_module));
+        assert!(type_modules.contains(&const_module));
     }
 }
