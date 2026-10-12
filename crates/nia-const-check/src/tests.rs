@@ -30,7 +30,7 @@ use std::{collections::HashMap, sync::Arc};
 #[path = "tests/resolution_contracts.rs"]
 mod resolution_contracts;
 #[path = "tests/test_support.rs"]
-mod test_support;
+pub(crate) mod test_support;
 use test_support::*;
 #[path = "tests/typed_values.rs"]
 mod typed_values;

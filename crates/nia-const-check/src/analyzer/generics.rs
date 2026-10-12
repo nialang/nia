@@ -2214,6 +2214,226 @@ impl<'a> AssociatedBindingSearch<'a> {
 mod tests {
     use super::*;
 
+    fn closure_type(
+        input: ConstInput<'_>,
+        owner: Option<nia_ty::ClosureOwnerInstance>,
+    ) -> InternedTyId {
+        let module_id = input.defs.module_id;
+        let append = input.type_store.append_for_module(module_id);
+        let unit = append.intern(TyKind::Tuple(Vec::new())).expect("unit type");
+        append
+            .intern(TyKind::ClosureState {
+                closure_id: nia_ids::ClosureId {
+                    owner: GlobalDefId {
+                        module_id,
+                        def_id: DefId(0),
+                    },
+                    ordinal: 0,
+                },
+                owner_instance: owner,
+                captures: Vec::new(),
+                params: Vec::new(),
+                return_type: unit,
+            })
+            .expect("closure type")
+    }
+
+    #[test]
+    fn closure_inference_collects_owner_type_arguments() {
+        crate::tests::test_support::check_source_with_input("", |input| {
+            let module_id = input.defs.module_id;
+            let append = input.type_store.append_for_module(module_id);
+            let names = ["S", "T", "U"].map(|name| input.symbols.intern(name).expect("symbol"));
+            let generics = names.map(|name| {
+                append
+                    .intern(TyKind::GenericParam(name))
+                    .expect("generic type")
+            });
+            let actuals = [PrimitiveTy::I32, PrimitiveTy::U64, PrimitiveTy::Usize]
+                .map(|ty| append.primitive(ty).expect("primitive type"));
+            let owner = |tys: [InternedTyId; 3]| nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(tys[0]),
+                args: vec![tys[1]],
+                const_args: vec![ConstGenericArg {
+                    ty: tys[2],
+                    value: ConstGenericValue::Int(IntConst::unsigned(7)),
+                }],
+            };
+            let pattern = closure_type(input, Some(owner(generics)));
+            let actual = closure_type(input, Some(owner(actuals)));
+            let mut analyzer = Analyzer::new(input);
+            let mut substitutions = SymbolMap::default();
+            assert!(analyzer.type_contains_generic(pattern));
+            assert!(!analyzer.type_contains_generic(actual));
+            assert!(
+                analyzer
+                    .infer_type_generics_from_compatible_tys(
+                        Span::new(0, 0),
+                        module_id,
+                        pattern,
+                        actual,
+                        &mut substitutions
+                    )
+                    .expect("infer owner types")
+            );
+            for (name, ty) in names.into_iter().zip(actuals) {
+                assert_eq!(substitutions.get(&name), Some(&ty));
+            }
+        });
+    }
+
+    #[test]
+    fn closure_inference_collects_owner_const_arguments() {
+        crate::tests::test_support::check_source_with_input("", |input| {
+            let module_id = input.defs.module_id;
+            let append = input.type_store.append_for_module(module_id);
+            let usize_ty = append.primitive(PrimitiveTy::Usize).expect("usize type");
+            let names = ["N", "M", "K"].map(|name| input.symbols.intern(name).expect("symbol"));
+            let array = |len| {
+                append
+                    .intern(TyKind::Array {
+                        len,
+                        elem: usize_ty,
+                    })
+                    .expect("array type")
+            };
+            let owner = |self_len, arg_len, value| nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(array(self_len)),
+                args: vec![array(arg_len)],
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value,
+                }],
+            };
+            let pattern = closure_type(
+                input,
+                Some(owner(
+                    ArrayLenTy::GenericParam(names[0]),
+                    ArrayLenTy::GenericParam(names[1]),
+                    ConstGenericValue::GenericParam(names[2]),
+                )),
+            );
+            let actual = closure_type(
+                input,
+                Some(owner(
+                    ArrayLenTy::ConstValue(3),
+                    ArrayLenTy::ConstValue(5),
+                    ConstGenericValue::Int(IntConst::unsigned(7)),
+                )),
+            );
+            let mut analyzer = Analyzer::new(input);
+            let mut substitutions = SymbolMap::default();
+            assert!(analyzer.type_contains_generic(pattern));
+            assert!(!analyzer.type_contains_generic(actual));
+            assert!(
+                analyzer
+                    .infer_const_generics_from_compatible_tys(
+                        Span::new(0, 0),
+                        module_id,
+                        pattern,
+                        actual,
+                        &mut substitutions
+                    )
+                    .expect("infer owner consts")
+            );
+            for (name, value) in names.into_iter().zip([3, 5, 7]) {
+                assert_eq!(
+                    substitutions.get(&name),
+                    Some(&ConstGenericArg {
+                        ty: usize_ty,
+                        value: ConstGenericValue::Int(IntConst::unsigned(value))
+                    })
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn incompatible_closure_owner_does_not_publish_inference() {
+        crate::tests::test_support::check_source_with_input("", |input| {
+            let module_id = input.defs.module_id;
+            let append = input.type_store.append_for_module(module_id);
+            let type_name = input.symbols.intern("T").expect("type symbol");
+            let const_name = input.symbols.intern("N").expect("const symbol");
+            let generic = append
+                .intern(TyKind::GenericParam(type_name))
+                .expect("generic type");
+            let usize_ty = append.primitive(PrimitiveTy::Usize).expect("usize type");
+            let bool_ty = append.primitive(PrimitiveTy::Bool).expect("bool type");
+            let pattern_owner = nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(generic),
+                args: vec![usize_ty],
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::GenericParam(const_name),
+                }],
+            };
+            let actual_owner = nia_ty::ClosureOwnerInstance {
+                self_arg: Some(bool_ty),
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Int(IntConst::unsigned(7)),
+                }],
+                ..pattern_owner.clone()
+            };
+            let pattern = closure_type(input, Some(pattern_owner));
+            let mut analyzer = Analyzer::new(input);
+            let compatible = closure_type(input, Some(actual_owner.clone()));
+            assert!(analyzer.inference_pattern_accepts_type_shape(pattern, compatible));
+            let mut incompatible_owners = vec![None];
+            let mut wrong_types = actual_owner.clone();
+            wrong_types.args[0] = bool_ty;
+            incompatible_owners.push(Some(wrong_types));
+            let mut wrong_module = actual_owner.clone();
+            wrong_module.arg_module_id = nia_ids::ModuleIdAllocator::new()
+                .expect("module allocator")
+                .allocate()
+                .expect("module ID");
+            incompatible_owners.push(Some(wrong_module));
+            let mut missing_self = actual_owner.clone();
+            missing_self.self_arg = None;
+            incompatible_owners.push(Some(missing_self));
+            let mut missing_arg = actual_owner.clone();
+            missing_arg.args.clear();
+            incompatible_owners.push(Some(missing_arg));
+            let mut missing_const = actual_owner;
+            missing_const.const_args.clear();
+            incompatible_owners.push(Some(missing_const));
+            for owner in incompatible_owners {
+                let actual = closure_type(input, owner);
+                let mut types = SymbolMap::default();
+                let mut consts = SymbolMap::default();
+                assert!(
+                    !analyzer
+                        .infer_type_generics_from_compatible_tys(
+                            Span::new(0, 0),
+                            module_id,
+                            pattern,
+                            actual,
+                            &mut types
+                        )
+                        .expect("type inference")
+                );
+                assert!(
+                    !analyzer
+                        .infer_const_generics_from_compatible_tys(
+                            Span::new(0, 0),
+                            module_id,
+                            pattern,
+                            actual,
+                            &mut consts
+                        )
+                        .expect("const inference")
+                );
+                assert!(types.is_empty());
+                assert!(consts.is_empty());
+            }
+        });
+    }
+
     #[test]
     fn type_for_module_validation_rejects_foreign_store() {
         let span = Span::new(4, 9);
