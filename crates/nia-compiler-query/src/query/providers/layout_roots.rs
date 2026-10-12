@@ -192,11 +192,23 @@ impl<'a> LayoutRootCollector<'a> {
                 }
             }
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
+                if let Some(owner) = owner_instance {
+                    if let Some(self_arg) = owner.self_arg {
+                        self.add(self_arg);
+                    }
+                    for arg in owner.args {
+                        self.add(arg);
+                    }
+                    for arg in owner.const_args {
+                        self.add(arg.ty);
+                    }
+                }
                 for ty in captures.into_iter().chain(params).chain([return_type]) {
                     self.add(ty);
                 }
@@ -555,6 +567,58 @@ mod tests {
         let roots = roots.finish().expect("collect layout roots");
         assert!(roots.types.contains(&nominal));
         assert!(roots.types.contains(&usize_ty));
+    }
+
+    #[test]
+    fn closure_owner_instance_types_are_layout_roots() {
+        let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = modules.allocate().expect("allocate module ID");
+        let type_store = nia_ty::TypeStore::new().expect("create type store");
+        let types = type_store.append_for_module(module_id);
+        let owner_arg = types.test_intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: nia_defs::DefId(20),
+            },
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let owner_const_ty = types.test_intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: nia_defs::DefId(21),
+            },
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let closure = types.test_intern(TyKind::ClosureState {
+            closure_id: nia_ids::ClosureId {
+                owner: GlobalDefId {
+                    module_id,
+                    def_id: nia_defs::DefId(22),
+                },
+                ordinal: 0,
+            },
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(owner_arg),
+                args: vec![owner_arg],
+                const_args: vec![nia_ty::ConstGenericArg {
+                    ty: owner_const_ty,
+                    value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(1)),
+                }],
+            }),
+            captures: Vec::new(),
+            params: Vec::new(),
+            return_type: types.test_intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize)),
+        });
+
+        let mut roots = LayoutRootCollector::new(&type_store, module_id);
+        roots.add(closure);
+        let roots = roots.finish().expect("collect closure layout roots");
+
+        assert!(roots.types.contains(&owner_arg));
+        assert!(roots.types.contains(&owner_const_ty));
     }
 
     #[test]

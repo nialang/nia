@@ -325,9 +325,15 @@ fn match_type_pattern_inner<'a>(
                 return_type: actual_return,
                 ..
             }) if closure_id == actual_id
-                && (owner_instance.is_none() || owner_instance == actual_owner_instance)
                 && captures.len() == actual_captures.len()
-                && params.len() == actual_params.len() =>
+                && params.len() == actual_params.len()
+                && match_closure_owner_instance_pattern(
+                    pattern.store,
+                    owner_instance.as_ref(),
+                    actual.store,
+                    actual_owner_instance.as_ref(),
+                    substitutions,
+                ) =>
             {
                 captures
                     .iter()
@@ -809,6 +815,62 @@ fn match_type_pattern_inner<'a>(
     }
 }
 
+fn match_closure_owner_instance_pattern(
+    pattern_store: &TypeStore,
+    pattern: Option<&nia_ty::ClosureOwnerInstance>,
+    actual_store: &TypeStore,
+    actual: Option<&nia_ty::ClosureOwnerInstance>,
+    substitutions: &mut PatternSubstitutions,
+) -> bool {
+    let Some(pattern) = pattern else {
+        return true;
+    };
+    let Some(actual) = actual else {
+        return false;
+    };
+    pattern.arg_module_id == actual.arg_module_id
+        && match (pattern.self_arg, actual.self_arg) {
+            (Some(pattern), Some(actual)) => match_type_pattern(
+                TypedTyRef {
+                    store: pattern_store,
+                    ty: pattern,
+                },
+                TypedTyRef {
+                    store: actual_store,
+                    ty: actual,
+                },
+                substitutions,
+            ),
+            (None, None) => true,
+            _ => false,
+        }
+        && pattern.args.len() == actual.args.len()
+        && pattern
+            .args
+            .iter()
+            .zip(&actual.args)
+            .all(|(pattern, actual)| {
+                match_type_pattern(
+                    TypedTyRef {
+                        store: pattern_store,
+                        ty: *pattern,
+                    },
+                    TypedTyRef {
+                        store: actual_store,
+                        ty: *actual,
+                    },
+                    substitutions,
+                )
+            })
+        && match_const_generic_arg_patterns(
+            pattern_store,
+            &pattern.const_args,
+            actual_store,
+            &actual.const_args,
+            substitutions,
+        )
+}
+
 fn match_array_len_pattern(
     pattern_store: &TypeStore,
     pattern: &nia_ty::ArrayLenTy,
@@ -1175,7 +1237,12 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
             }),
         ) => {
             left_id == right_id
-                && left_owner == right_owner
+                && closure_owner_instances_equivalent(
+                    left.store,
+                    left_owner.as_ref(),
+                    right.store,
+                    right_owner.as_ref(),
+                )
                 && typed_ref_slices_equivalent(
                     left.store,
                     left_captures,
@@ -1402,6 +1469,42 @@ pub(super) fn typed_ref_slices_equivalent(
                 },
             )
         })
+}
+
+fn closure_owner_instances_equivalent(
+    left_store: &TypeStore,
+    left: Option<&nia_ty::ClosureOwnerInstance>,
+    right_store: &TypeStore,
+    right: Option<&nia_ty::ClosureOwnerInstance>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.arg_module_id == right.arg_module_id
+                && match (left.self_arg, right.self_arg) {
+                    (Some(left), Some(right)) => typed_refs_equivalent(
+                        TypedTyRef {
+                            store: left_store,
+                            ty: left,
+                        },
+                        TypedTyRef {
+                            store: right_store,
+                            ty: right,
+                        },
+                    ),
+                    (None, None) => true,
+                    _ => false,
+                }
+                && typed_ref_slices_equivalent(left_store, &left.args, right_store, &right.args)
+                && const_generic_args_equivalent(
+                    left_store,
+                    &left.const_args,
+                    right_store,
+                    &right.const_args,
+                )
+        }
+        _ => false,
+    }
 }
 
 fn array_lens_equivalent(
@@ -2195,6 +2298,150 @@ mod tests {
                 store: &right,
                 ty: right_mismatch,
             }
+        ));
+    }
+
+    #[test]
+    fn closure_owner_instances_compare_structurally_across_type_stores() {
+        let module_id = module();
+        let left = TypeStore::new().expect("create left type store");
+        let right = TypeStore::new().expect("create right type store");
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_i32 = left_append.test_primitive(PrimitiveTy::I32);
+        let right_i32 = right_append.test_primitive(PrimitiveTy::I32);
+        let left_usize = left_append.test_primitive(PrimitiveTy::Usize);
+        let right_usize = right_append.test_primitive(PrimitiveTy::Usize);
+        let closure_id = ClosureId {
+            owner: GlobalDefId {
+                module_id,
+                def_id: DefId(30),
+            },
+            ordinal: 1,
+        };
+        let left_closure = left_append.test_intern(TyKind::ClosureState {
+            closure_id,
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(left_i32),
+                args: vec![left_i32],
+                const_args: vec![ConstGenericArg {
+                    ty: left_usize,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+                }],
+            }),
+            captures: vec![left_i32],
+            params: vec![left_i32],
+            return_type: left_i32,
+        });
+        let right_closure = right_append.test_intern(TyKind::ClosureState {
+            closure_id,
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: Some(right_i32),
+                args: vec![right_i32],
+                const_args: vec![ConstGenericArg {
+                    ty: right_usize,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+                }],
+            }),
+            captures: vec![right_i32],
+            params: vec![right_i32],
+            return_type: right_i32,
+        });
+
+        assert!(typed_refs_equivalent(
+            TypedTyRef {
+                store: &left,
+                ty: left_closure,
+            },
+            TypedTyRef {
+                store: &right,
+                ty: right_closure,
+            },
+        ));
+    }
+
+    #[test]
+    fn closure_owner_pattern_recovers_type_and_const_arguments() {
+        let module_id = module();
+        let store = TypeStore::new().expect("create type store");
+        let append = store.append_for_module(module_id);
+        let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+        let i32_ty = append.test_primitive(PrimitiveTy::I32);
+        let type_name = symbol("OwnerT");
+        let const_name = symbol("OwnerN");
+        let type_param = append.test_intern(TyKind::GenericParam(type_name));
+        let closure_id = ClosureId {
+            owner: GlobalDefId {
+                module_id,
+                def_id: DefId(31),
+            },
+            ordinal: 0,
+        };
+        let pattern = append.test_intern(TyKind::ClosureState {
+            closure_id,
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: None,
+                args: vec![type_param],
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::GenericParam(const_name),
+                }],
+            }),
+            captures: Vec::new(),
+            params: Vec::new(),
+            return_type: usize_ty,
+        });
+        let actual = append.test_intern(TyKind::ClosureState {
+            closure_id,
+            owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                arg_module_id: module_id,
+                self_arg: None,
+                args: vec![i32_ty],
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
+                }],
+            }),
+            captures: Vec::new(),
+            params: Vec::new(),
+            return_type: usize_ty,
+        });
+        let generic_params = [
+            nia_item_signatures::GenericParamSignature {
+                name: type_name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Type,
+            },
+            nia_item_signatures::GenericParamSignature {
+                name: const_name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
+            },
+        ];
+        let mut substitutions = PatternSubstitutions::for_impl(&generic_params);
+
+        assert!(match_type_pattern(
+            TypedTyRef {
+                store: &store,
+                ty: pattern,
+            },
+            TypedTyRef {
+                store: &store,
+                ty: actual,
+            },
+            &mut substitutions,
+        ));
+        assert!(matches!(
+            substitutions.types.get(&type_name),
+            Some(SubstitutionTy::Canonical(ty)) if *ty == i32_ty
+        ));
+        assert!(matches!(
+            substitutions.consts.get(&const_name),
+            Some(ConstGenericArg {
+                value: ConstGenericValue::Int(value),
+                ..
+            }) if value.bits() == 7
         ));
     }
 
