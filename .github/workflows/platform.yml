@@ -46,11 +46,9 @@ jobs:
           - name: x86_64
             runner: macos-15-intel
             target: x86_64-apple-macos
-            llvm_targets: X86
           - name: arm64
             runner: macos-15
             target: aarch64-apple-macos
-            llvm_targets: AArch64
     env:
       CARGO_TERM_COLOR: always
       MACOSX_DEPLOYMENT_TARGET: "15.0"
@@ -58,6 +56,9 @@ jobs:
       LLVM_BUILD_ROOT: ${{ github.workspace }}/target/llvm-static/build
       LLVM_INSTALL_ROOT: ${{ github.workspace }}/target/llvm-static/install
       LLVM_SYS_231_PREFIX: ${{ github.workspace }}/target/llvm-static/install
+      LLVM_TARGETS_TO_BUILD: X86;AArch64
+      LLVM_ENABLE_PROJECTS: clang;lld
+      CLANG: ${{ github.workspace }}/target/llvm-static/install/bin/clang
 
     steps:
       - name: Check out repository
@@ -83,12 +84,12 @@ jobs:
         uses: actions/cache@v6
         with:
           path: target/llvm-static/install
-          key: nia-llvm-23.1.2-${{ matrix.llvm_targets }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.sh') }}
+          key: nia-llvm-23.1.2-${{ env.LLVM_TARGETS_TO_BUILD }}-${{ env.LLVM_ENABLE_PROJECTS }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.sh') }}
 
       - name: Build pinned static LLVM
         if: steps.llvm-cache.outputs.cache-hit != 'true'
         run: |
-          LLVM_TARGETS_TO_BUILD='${{ matrix.llvm_targets }}' tools/llvm/build-static.sh
+          tools/llvm/build-static.sh
 
       - name: Verify static LLVM and Darwin linker
         run: |
@@ -98,8 +99,10 @@ jobs:
           esac
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)" = "23.1.2"
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --shared-mode)" = "static"
+          test -x "${CLANG}"
           test -x "${LLVM_SYS_231_PREFIX}/bin/ld64.lld"
           "${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version
+          "${CLANG}" --version
           "${LLVM_SYS_231_PREFIX}/bin/ld64.lld" --version
           echo "${LLVM_SYS_231_PREFIX}/bin" >> "${GITHUB_PATH}"
 
@@ -131,6 +134,7 @@ jobs:
             printf 'host_arch=%s\n' "$(uname -m)"
             printf 'rust=%s\n' "$(rustc --version)"
             printf 'llvm=%s\n' "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)"
+            printf 'clang=%s\n' "$("${CLANG}" --version | head -n 1)"
             printf 'linker=%s\n' "$("${LLVM_SYS_231_PREFIX}/bin/ld64.lld" --version | head -n 1)"
           } > target/platform-evidence/${{ matrix.name }}.txt
 

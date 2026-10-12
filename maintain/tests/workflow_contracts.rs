@@ -165,7 +165,7 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
     }
     for command in [
         "tools/llvm/build-static.sh",
-        "LLVM_TARGETS_TO_BUILD='${{ matrix.llvm_targets }}'",
+        "LLVM_TARGETS_TO_BUILD: X86;AArch64",
         "cargo maintain check",
         "cargo fmt --all -- --check",
         "cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings",
@@ -175,6 +175,12 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
         assert!(workflow.contains(command), "missing command {command}");
     }
     assert!(workflow.contains("MACOSX_DEPLOYMENT_TARGET: \"15.0\""));
+    assert!(workflow.contains("LLVM_ENABLE_PROJECTS: clang;lld"));
+    assert!(workflow.contains("${{ env.LLVM_TARGETS_TO_BUILD }}-${{ env.LLVM_ENABLE_PROJECTS }}"));
+    assert!(
+        workflow.contains("CLANG: ${{ github.workspace }}/target/llvm-static/install/bin/clang")
+    );
+    assert!(workflow.contains("test -x \"${CLANG}\""));
     assert!(workflow.contains("ld64.lld"));
 }
 
@@ -188,6 +194,7 @@ fn platform_evidence_records_suite_outcome_and_run_identity() {
         "printf 'run_id=%s\\n' \"${GITHUB_RUN_ID}\"",
         "printf 'job=%s\\n' \"${GITHUB_JOB}\"",
         "printf 'workflow=%s\\n' \"${GITHUB_WORKFLOW}\"",
+        "printf 'clang=%s\\n' \"$(\"${CLANG}\" --version | head -n 1)\"",
         "if: always()",
         "actions/upload-artifact@v7",
     ] {

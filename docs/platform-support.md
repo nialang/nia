@@ -91,11 +91,13 @@ The repository is exercised in these environments:
 
 The platform workflow also runs the executable and standard-library suites on
 the hosted `macos-15-intel` Intel and `macos-15` arm64 runners. It builds the
-pinned LLVM 23/LLD toolchain from `tools/llvm/build-static.sh`, selects the
-corresponding Darwin target, and publishes an evidence file for each job. The
-file records the suite outcome, commit, workflow run, job, runner, target,
-host architecture, Rust, LLVM, and linker identities; it is uploaded even when
-the suite fails. A successful workflow run is the managed execution evidence
+pinned LLVM 23/Clang/LLD toolchain from `tools/llvm/build-static.sh` with both
+X86 and AArch64 backends, selects the corresponding Darwin target, and publishes
+an evidence file for each job. C ABI differential tests use this prefix's Clang,
+so the reference compiler matches the backend version on both hosts. The file
+records the suite outcome, commit, workflow run, job, runner, target,
+host architecture, Rust, LLVM, Clang, and linker identities; it is uploaded even
+when the suite fails. A successful workflow run is the managed execution evidence
 required by the D3 row in [the platform roadmap](platform-roadmap.md).
 
 The i686 LLVM-backed matrix requires an LLVM installation whose headers include
