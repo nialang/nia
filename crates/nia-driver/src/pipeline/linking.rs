@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Link and archive workflows for driver-produced object artifacts.
 
-use std::{ffi::OsString, fs, path::PathBuf, process::Command};
+use std::{
+    ffi::OsString,
+    fs,
+    io::{self, Read},
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 use super::emission::ObjectEmissionMode;
 use super::output::{
@@ -15,14 +21,93 @@ const MAX_TOOL_OUTPUT_BYTES: usize = 16 * 1024;
 // quoting. The hard CreateProcess limit is 32,768 UTF-16 code units.
 const WINDOWS_RESPONSE_FILE_THRESHOLD: usize = 24 * 1024;
 
-fn bounded_tool_output(bytes: &[u8]) -> String {
-    let truncated = bytes.len() > MAX_TOOL_OUTPUT_BYTES;
-    let end = bytes.len().min(MAX_TOOL_OUTPUT_BYTES);
-    let mut output = String::from_utf8_lossy(&bytes[..end]).trim().to_owned();
-    if truncated {
-        output.push_str("\n[tool output truncated]");
+struct BoundedToolProcess {
+    status: std::process::ExitStatus,
+    stdout: ToolStream,
+    stderr: ToolStream,
+}
+
+#[derive(Default)]
+struct ToolStream {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+impl ToolStream {
+    fn diagnostic(&self) -> String {
+        let mut output = String::from_utf8_lossy(&self.bytes).trim().to_owned();
+        if self.truncated {
+            output.push_str("\n[tool output truncated]");
+        }
+        output
     }
-    output
+}
+
+fn run_bounded_tool(command: &mut Command) -> io::Result<BoundedToolProcess> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    std::thread::scope(|scope| {
+        let result = (|| {
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| io::Error::other("link tool stdout pipe missing"))?;
+            let stderr = child
+                .stderr
+                .take()
+                .ok_or_else(|| io::Error::other("link tool stderr pipe missing"))?;
+            let stdout_thread =
+                std::thread::Builder::new().spawn_scoped(scope, || capture_tool_tail(stdout))?;
+            let stderr_thread =
+                std::thread::Builder::new().spawn_scoped(scope, || capture_tool_tail(stderr))?;
+            let status = child.wait()?;
+            // Join both readers before interpreting either failure.
+            let stdout = stdout_thread.join();
+            let stderr = stderr_thread.join();
+            Ok(BoundedToolProcess {
+                status,
+                stdout: stdout
+                    .map_err(|_| io::Error::other("link tool stdout reader failed"))??,
+                stderr: stderr
+                    .map_err(|_| io::Error::other("link tool stderr reader failed"))??,
+            })
+        })();
+        if result.is_err() {
+            // Scope exit joins any started reader; stop the child first so a
+            // failed reader startup or wait cannot leave that join blocked.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        result
+    })
+}
+
+fn capture_tool_tail(mut reader: impl Read) -> io::Result<ToolStream> {
+    let mut stream = ToolStream::default();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Ok(stream);
+        }
+        let bytes = &buffer[..count];
+        let excess = stream
+            .bytes
+            .len()
+            .saturating_add(bytes.len())
+            .saturating_sub(MAX_TOOL_OUTPUT_BYTES);
+        stream.truncated |= excess != 0;
+        if excess != 0 {
+            stream.bytes.drain(..excess);
+        }
+        stream.bytes.extend_from_slice(bytes);
+    }
 }
 
 fn quote_windows_response_argument(argument: &str) -> String {
@@ -450,11 +535,7 @@ impl Driver {
             timings,
             nia_timing::TimingLevel::Summary,
             "link_invoke",
-            || {
-                Command::new(&invocation.program)
-                    .args(&command_args)
-                    .output()
-            },
+            || run_bounded_tool(Command::new(&invocation.program).args(&command_args)),
         );
         match linker_output {
             Ok(process) if process.status.success() => {
@@ -491,8 +572,8 @@ impl Driver {
             Ok(process) => DriverOutput::from_error(DriverError::LinkerStatus {
                 program: invocation.program,
                 status: process.status,
-                stdout: bounded_tool_output(&process.stdout),
-                stderr: bounded_tool_output(&process.stderr),
+                stdout: process.stdout.diagnostic(),
+                stderr: process.stderr.diagnostic(),
             }),
             Err(error) => DriverOutput::from_error(DriverError::LinkerIo {
                 program: invocation.program,
@@ -558,10 +639,7 @@ impl Driver {
             Ok(invocation) => invocation,
             Err(error) => return DriverOutput::from_error(DriverError::ArchiveConfig(error)),
         };
-        match Command::new(&invocation.program)
-            .args(&invocation.args)
-            .output()
-        {
+        match run_bounded_tool(Command::new(&invocation.program).args(&invocation.args)) {
             Ok(process) if process.status.success() => {
                 if let Err(error) = install_streamed_output(&temporary_archive, &output) {
                     return DriverOutput::from_error(DriverError::Io {
@@ -588,8 +666,8 @@ impl Driver {
             Ok(process) => DriverOutput::from_error(DriverError::ArchiveStatus {
                 program: invocation.program,
                 status: process.status,
-                stdout: bounded_tool_output(&process.stdout),
-                stderr: bounded_tool_output(&process.stderr),
+                stdout: process.stdout.diagnostic(),
+                stderr: process.stderr.diagnostic(),
             }),
             Err(error) => DriverOutput::from_error(DriverError::ArchiveIo {
                 program: invocation.program,
@@ -641,6 +719,105 @@ fn write_system_imports(
             })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tool_process_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    #[ignore = "child process fixture"]
+    fn tool_output_fixture() {
+        let Ok(status) = std::env::var("NIA_DRIVER_TOOL_FIXTURE_STATUS") else {
+            return;
+        };
+        let mut stdin = Vec::new();
+        io::stdin().read_to_end(&mut stdin).unwrap();
+        assert!(stdin.is_empty());
+        let mut stdout = io::stdout().lock();
+        let mut stderr = io::stderr().lock();
+        for _ in 0..128 {
+            stdout.write_all(&[b'o'; 8192]).unwrap();
+            stderr.write_all(&[b'e'; 8192]).unwrap();
+        }
+        stdout.write_all(b"stdout-final\n").unwrap();
+        stderr.write_all(b"stderr-final\n").unwrap();
+        stdout.flush().unwrap();
+        stderr.flush().unwrap();
+        std::process::exit(status.parse().unwrap());
+    }
+
+    #[test]
+    fn tool_output_is_drained_and_bounded_on_success_and_failure() {
+        let _resources =
+            nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
+        for status in [0, 23] {
+            let output = run_bounded_tool(
+                Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "pipeline::linking::tool_process_tests::tool_output_fixture",
+                        "--ignored",
+                        "--nocapture",
+                    ])
+                    .env("NIA_DRIVER_TOOL_FIXTURE_STATUS", status.to_string()),
+            )
+            .expect("run noisy tool fixture");
+            assert_eq!(output.status.code(), Some(status));
+            for (stream, ending) in [
+                (output.stdout, "stdout-final"),
+                (output.stderr, "stderr-final"),
+            ] {
+                assert_eq!(stream.bytes.len(), MAX_TOOL_OUTPUT_BYTES);
+                assert!(stream.truncated);
+                assert!(
+                    stream
+                        .diagnostic()
+                        .ends_with(&format!("{ending}\n[tool output truncated]"))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tool_output_truncation_distinguishes_exact_limit_from_overflow() {
+        for length in [0, MAX_TOOL_OUTPUT_BYTES, MAX_TOOL_OUTPUT_BYTES + 1] {
+            let bytes = vec![b'x'; length];
+            let stream = capture_tool_tail(bytes.as_slice()).unwrap();
+            assert_eq!(stream.bytes.len(), length.min(MAX_TOOL_OUTPUT_BYTES));
+            assert_eq!(stream.truncated, length > MAX_TOOL_OUTPUT_BYTES);
+        }
+    }
+
+    #[test]
+    fn tool_output_reader_retries_interruptions_and_propagates_errors() {
+        struct InterruptedOnce(bool);
+        impl Read for InterruptedOnce {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if !self.0 {
+                    self.0 = true;
+                    Err(io::ErrorKind::Interrupted.into())
+                } else {
+                    b"tail".as_slice().read(buffer)
+                }
+            }
+        }
+        let stream = capture_tool_tail(InterruptedOnce(false).take(4)).unwrap();
+        assert_eq!(stream.bytes, b"tail");
+        assert!(!stream.truncated);
+
+        struct FailedReader;
+        impl Read for FailedReader {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+        }
+        assert_eq!(
+            capture_tool_tail(FailedReader).err().unwrap().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
 }
 
 #[cfg(test)]
