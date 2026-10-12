@@ -850,12 +850,25 @@ impl<'a> LayoutComputer<'a> {
                 .iter()
                 .any(|elem| self.is_open_generic_type_inner(*elem, seen)),
             Some(TyKind::ClosureState {
+                owner_instance,
                 captures,
                 params,
                 return_type,
                 ..
             }) => {
-                captures
+                owner_instance.as_ref().is_some_and(|owner| {
+                    owner
+                        .self_arg
+                        .is_some_and(|ty| self.is_open_generic_type_inner(ty, seen))
+                        || owner
+                            .args
+                            .iter()
+                            .any(|arg| self.is_open_generic_type_inner(*arg, seen))
+                        || owner
+                            .const_args
+                            .iter()
+                            .any(|arg| self.is_open_generic_const_arg(arg, seen))
+                }) || captures
                     .iter()
                     .chain(params)
                     .any(|ty| self.is_open_generic_type_inner(*ty, seen))
@@ -1896,6 +1909,57 @@ mod tests {
                 elem: concrete,
             })
             .expect("intern layout-builtin array type");
+        let mut owner_closures = Vec::new();
+        for (self_arg, args, const_args) in [
+            (Some(generic), Vec::new(), Vec::new()),
+            (None, vec![generic], Vec::new()),
+            (
+                None,
+                Vec::new(),
+                vec![ConstGenericArg {
+                    ty: generic,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(0)),
+                }],
+            ),
+            (
+                None,
+                Vec::new(),
+                vec![ConstGenericArg {
+                    ty: concrete,
+                    value: ConstGenericValue::GenericParam(sym("N")),
+                }],
+            ),
+            (
+                Some(concrete),
+                vec![concrete],
+                vec![ConstGenericArg {
+                    ty: concrete,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(0)),
+                }],
+            ),
+        ] {
+            let closure = append
+                .intern(TyKind::ClosureState {
+                    closure_id: nia_ids::ClosureId {
+                        owner: GlobalDefId {
+                            module_id,
+                            def_id: nia_defs::DefId(2),
+                        },
+                        ordinal: 0,
+                    },
+                    owner_instance: Some(nia_ty::ClosureOwnerInstance {
+                        arg_module_id: module_id,
+                        self_arg,
+                        args,
+                        const_args,
+                    }),
+                    captures: vec![concrete],
+                    params: Vec::new(),
+                    return_type: concrete,
+                })
+                .expect("intern closure with owner instance");
+            owner_closures.push(closure);
+        }
         let closed = append
             .intern(TyKind::Tuple(vec![concrete, concrete]))
             .expect("intern closed tuple");
@@ -1921,12 +1985,30 @@ mod tests {
         assert!(computer.is_open_generic_type(generic_tuple));
         assert!(computer.is_open_generic_type(generic_const));
         assert!(computer.is_open_generic_type(generic_layout_operand));
+        for ty in &owner_closures[..4] {
+            assert!(computer.is_open_generic_type(*ty));
+        }
+        assert!(!computer.is_open_generic_type(owner_closures[4]));
         assert!(!computer.is_open_generic_type(closed));
         assert!(!computer.is_open_generic_type(shared_dag));
         assert_eq!(computer.open_generic_seen.len(), 65);
         let scratch_capacity = computer.open_generic_seen.capacity();
         assert!(!computer.is_open_generic_type(shared_dag));
         assert_eq!(computer.open_generic_seen.capacity(), scratch_capacity);
+
+        let layouts = computer
+            .compute_roots(LayoutRoots {
+                types: &owner_closures,
+                ..LayoutRoots::default()
+            })
+            .expect("compute closure layouts");
+        for ty in &owner_closures[..4] {
+            assert!(!layouts.types.contains_key(ty));
+        }
+        assert_eq!(
+            layouts.types.get(&owner_closures[4]),
+            Some(&TypeLayout { size: 1, align: 1 })
+        );
     }
 
     include!("tests/layout/test_support.rs");
