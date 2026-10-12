@@ -81,7 +81,7 @@ jobs:
 
       - name: Cache static LLVM prefix
         id: llvm-cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: target/llvm-static/install
           key: nia-llvm-23.1.2-${{ env.LLVM_TARGETS_TO_BUILD }}-${{ env.LLVM_ENABLE_PROJECTS }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/llvm/build-static.sh') }}
@@ -106,6 +106,14 @@ jobs:
           "${LLVM_SYS_231_PREFIX}/bin/ld64.lld" --version
           echo "${LLVM_SYS_231_PREFIX}/bin" >> "${GITHUB_PATH}"
 
+      # Keep the verified toolchain even when the Nia suites below fail.
+      - name: Save verified static LLVM prefix
+        if: steps.llvm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: target/llvm-static/install
+          key: ${{ steps.llvm-cache.outputs.cache-primary-key }}
+
       - name: Check maintenance tooling
         run: cargo maintain check
 
@@ -116,8 +124,11 @@ jobs:
 
       - name: Run Darwin executable and standard-library suites
         id: darwin-suite
+        shell: bash
         run: |
-          cargo test -p nia-cli --tests --no-default-features --features llvm-static -- --nocapture
+          mkdir -p target/platform-evidence
+          cargo test -p nia-cli --tests --no-default-features --features llvm-static --no-fail-fast -- --nocapture \
+            2>&1 | tee target/platform-evidence/suite.log
 
       - name: Record Darwin execution evidence
         if: always()
@@ -143,6 +154,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: nia-darwin-evidence-${{ matrix.name }}
-          path: target/platform-evidence/${{ matrix.name }}.txt
+          path: |
+            target/platform-evidence/${{ matrix.name }}.txt
+            target/platform-evidence/suite.log
           if-no-files-found: warn
           retention-days: 30
