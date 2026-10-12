@@ -329,6 +329,42 @@ fn discovered_lld_selects_the_target_flavor_explicitly() {
 }
 
 #[test]
+fn discovered_named_lld_link_driver_does_not_receive_flavor_argument() {
+    let root = env::temp_dir().join(format!("nia-linker-lld-link-driver-{}", std::process::id()));
+    fs::create_dir_all(&root).expect("create bundled linker directory");
+    let linker = root.join(format!("lld-link{}", env::consts::EXE_SUFFIX));
+    fs::write(&linker, "").expect("write mock linker");
+    make_executable(&linker);
+
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("").with_bundled_program(linker.to_string_lossy()),
+        ..LinkOptions::default()
+    };
+    let invocation = options
+        .invocation(
+            target("x86_64-pc-windows-msvc"),
+            &link_inputs("main.obj"),
+            PathBuf::from("main.exe"),
+        )
+        .expect("COFF link invocation");
+    assert_eq!(invocation.program, linker.to_string_lossy());
+    assert!(!invocation.args.iter().any(|argument| argument == "-flavor"));
+    assert!(
+        invocation
+            .args
+            .iter()
+            .any(|argument| argument == "main.obj")
+    );
+
+    let probe = options
+        .linker
+        .version_invocation(target("x86_64-pc-windows-msvc"))
+        .expect("COFF linker version probe");
+    assert_eq!(probe.program, invocation.program);
+    assert_eq!(probe.args, ["--version"]);
+}
+
+#[test]
 fn explicit_program_receives_no_flavor_selection() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program_and_flavor("ld.lld", LinkerFlavor::Lld),

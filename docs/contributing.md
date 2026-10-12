@@ -188,9 +188,9 @@ the tree are grouped here so their role stays explicit:
 - `NIA_LINKER`: user-facing override for the executable linker. The program
   follows the artifact target's system argument contract: GNU for ELF,
   `lld-link` for COFF, `ld64.lld` for Mach-O.
-- `NIA_LLD`: user-facing override for the discovered LLD executable. Any LLD
-  driver serves every target, because the compiler passes the target's
-  `-flavor` explicitly.
+- `NIA_LLD`: user-facing override for the discovered LLD executable. A generic
+  multi-flavor LLD binary receives the target's `-flavor`; dedicated drivers
+  such as `lld-link` use their own command-line protocol.
 - `NO_COLOR`: standard terminal convention respected by CLI help rendering.
 - `LLVM_SYS_231_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
   installations.
