@@ -241,6 +241,11 @@ by component under the invocation cache root; symlinked or reparse parent
 directories are rejected on both publication and lookup. Recovery journals and
 lock-owner records use the same no-follow rule. A redirected or malformed
 record is rejected and follows the ordinary miss or recovery-error path.
+Mutation locks are held across publication and validation/retirement. This
+prevents a stale reader that observed corruption from deleting a complete
+replacement installed by another invocation. Test-suite completion records use
+the same lock while the coordinator rechecks identity, executes the suite, and
+publishes its successful completion witness.
 
 ## Verification
 
