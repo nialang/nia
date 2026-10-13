@@ -348,8 +348,10 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
     assert_success(&raw_output);
     assert_args(&args_log, raw);
 
+    // Dynamic-linker selection is an ELF contract, independent of the host.
     let structured_output = support::nia_command()
         .env("NIA_LINKER", &linker)
+        .args(["--target", "x86_64-unknown-linux"])
         .arg("emit")
         .arg("--exe")
         .arg(source)
@@ -357,11 +359,7 @@ fn run_invocation(source: &Path, raw: &[String], structured: &[String]) {
         .arg("--linker")
         .arg(&linker)
         .arg("--linker-flavor")
-        .arg(if cfg!(target_os = "macos") {
-            "ld64.lld"
-        } else {
-            "lld"
-        })
+        .arg("lld")
         .arg("-L")
         .arg("/native/lib")
         .arg("-l")
