@@ -3,19 +3,21 @@
 
 use std::{
     fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt as _;
 
 use nia_compat::formats;
-use nia_query::FingerprintDomain;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 use crate::{
     BuildInvocation, ConfigureManifest, ObservationValidation,
     action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
+    lock::ScopedFileLock,
 };
 
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
@@ -25,6 +27,9 @@ const INVOCATION_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.invocation");
 const CONFIGURE_CACHE_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.configure-cache");
+const CONFIGURE_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.configure-cache-mutation-lock");
+static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(0);
 
 /// Inputs that determine whether a configured plan may be reused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -294,13 +299,28 @@ impl ConfigureCache {
             .parent()
             .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
         ensure_cache_directory(cache_root, parent)?;
+        let _lock = self.acquire_mutation_lock(&path)?;
         let temporary = parent.join(format!(
-            ".{}.tmp-{}",
+            ".{}.tmp-{}-{}",
             path.file_name().unwrap().to_string_lossy(),
-            std::process::id()
+            std::process::id(),
+            NEXT_TEMPORARY_FILE.fetch_add(1, Ordering::Relaxed)
         ));
-        fs::write(&temporary, &bytes)?;
-        nia_compat::replace_path(&temporary, &path)
+        let result = (|| {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            drop(file);
+            nia_compat::replace_path(&temporary, &path)?;
+            nia_compat::sync_directory(parent)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
     }
 
     /// Reads and validates a manifest; corruption is reported as a cache miss.
@@ -310,13 +330,15 @@ impl ConfigureCache {
             .root
             .parent()
             .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
-        if let Err(error) = validate_cache_namespace(
+        match validate_cache_namespace(
             cache_root,
             path.parent().expect("configure cache path has parent"),
-        ) && error.kind() != io::ErrorKind::NotFound
-        {
-            return Err(error);
+        ) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
         }
+        let _lock = self.acquire_mutation_lock(&path)?;
         let Some(record) = read_record(&path)? else {
             return Ok(None);
         };
@@ -325,6 +347,21 @@ impl ConfigureCache {
             return Ok(None);
         }
         Ok(Some(record))
+    }
+
+    fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
+        let mut builder = QueryFingerprintBuilder::new(CONFIGURE_CACHE_MUTATION_LOCK_DOMAIN);
+        builder.write_bytes(path.as_os_str().as_encoded_bytes());
+        let cache_root = self
+            .root
+            .parent()
+            .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
+        let lock_root = cache_root.join("coordination").join("configure-cache");
+        ensure_cache_directory(cache_root, &lock_root)?;
+        let [first, second] = builder.finish().parts();
+        let lock = lock_root.join(format!("{first:016x}{second:016x}.lock"));
+        ScopedFileLock::acquire_interruptible(lock, || false)?
+            .ok_or_else(|| io::Error::other("configure cache mutation lock was cancelled"))
     }
 
     /// Publishes a plan/manifest witness only after the plan has been decoded
@@ -449,6 +486,7 @@ impl ConfigureCache {
         let mut changed = None;
         let mut missing = None;
         for path in entries {
+            let _lock = self.acquire_mutation_lock(&path)?;
             let record = match read_record(&path) {
                 Ok(Some(record)) => record,
                 _ => continue,
@@ -523,6 +561,7 @@ impl ConfigureCache {
             Err(error) => return Err(error),
         };
         for path in entries {
+            let _lock = self.acquire_mutation_lock(&path)?;
             let record = match read_record(&path) {
                 Ok(Some(record)) => record,
                 _ => continue,
