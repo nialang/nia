@@ -2319,6 +2319,36 @@ fn failed_generated_file_publication_cleans_temporary_output() {
     }));
 }
 
+#[cfg(unix)]
+#[test]
+fn generated_file_parent_symlink_is_rejected_before_writing() {
+    use std::os::unix::fs::symlink;
+
+    let invocation = test_invocation();
+    let outside = invocation
+        .package_root
+        .parent()
+        .unwrap()
+        .join(format!("nia-generated-outside-{}", std::process::id()));
+    fs::create_dir_all(&outside).unwrap();
+    fs::create_dir_all(&invocation.build_dir).unwrap();
+    let redirected = invocation.build_dir.join("redirected");
+    symlink(&outside, &redirected).unwrap();
+    let plan = generated_plan(&invocation, "redirected/result.nia", b"contents");
+
+    let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+    assert!(matches!(
+        error,
+        CoordinatorError::GeneratedFileIo { action, .. } if action.name() == "generate"
+    ));
+    assert!(!outside.join("result.nia").exists());
+
+    let _ = fs::remove_dir_all(&outside);
+    let _ = fs::remove_file(&redirected);
+    let _ = fs::remove_dir_all(&invocation.package_root);
+}
+
 fn external_action() -> PlanAction {
     PlanAction {
         key: action("run"),
@@ -3095,6 +3125,43 @@ fn output_parent_symlink_is_rejected_before_staging() {
     assert!(matches!(result, Err(CoordinatorError::StagedOutput { .. })));
     assert!(!outside.join("result.txt").exists());
 
+    let _ = fs::remove_dir_all(&outside);
+    let _ = fs::remove_file(&redirected);
+    let _ = fs::remove_dir_all(&invocation.package_root);
+}
+
+#[cfg(unix)]
+#[test]
+fn output_parent_replacement_is_rejected_before_publication() {
+    use std::os::unix::fs::symlink;
+
+    let invocation = test_invocation();
+    let outside = invocation
+        .package_root
+        .parent()
+        .unwrap()
+        .join(format!("nia-build-publish-outside-{}", std::process::id()));
+    let first = invocation.build_dir.join("stable/first.txt");
+    let redirected = invocation.build_dir.join("redirected");
+    let second = redirected.join("result.txt");
+    fs::create_dir_all(&outside).unwrap();
+    let mut staged = prepare_test_staged_outputs(&invocation, &[first, second]).unwrap();
+    for output in &staged.outputs {
+        fs::write(&output.temporary, b"new").unwrap();
+    }
+    fs::remove_dir(&redirected).unwrap();
+    symlink(&outside, &redirected).unwrap();
+
+    let error = publish_staged_outputs(&external_action(), staged).unwrap_err();
+
+    assert!(matches!(
+        error,
+        CoordinatorError::StagedOutput {
+            operation: "validate output parent",
+            ..
+        }
+    ));
+    assert!(!outside.join("result.txt").exists());
     let _ = fs::remove_dir_all(&outside);
     let _ = fs::remove_file(&redirected);
     let _ = fs::remove_dir_all(&invocation.package_root);

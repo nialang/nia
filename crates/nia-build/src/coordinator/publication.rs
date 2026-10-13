@@ -9,7 +9,7 @@ use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
 #[cfg(windows)]
-use std::os::windows::fs::{MetadataExt as _, OpenOptionsExt as _};
+use std::os::windows::fs::OpenOptionsExt as _;
 
 pub(super) fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorError> {
     path.to_str()
@@ -23,6 +23,7 @@ pub(super) fn path_text(action: &PlanAction, path: &Path) -> Result<String, Coor
 static STAGED_OUTPUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) struct StagedOutputTransaction {
+    pub(super) build_dir: PathBuf,
     pub(super) directory: PathBuf,
     pub(super) committed_directory: PathBuf,
     pub(super) outputs: Vec<StagedOutputEntry>,
@@ -175,6 +176,7 @@ pub(super) fn prepare_typed_staged_outputs(
                     }
                 };
                 return Ok(StagedOutputTransaction {
+                    build_dir: build_dir.to_path_buf(),
                     directory,
                     committed_directory,
                     outputs,
@@ -210,44 +212,51 @@ fn ensure_output_parent(
     build_dir: &Path,
     parent: &Path,
 ) -> Result<(), CoordinatorError> {
+    ensure_output_parent_with(build_dir, parent, |path, operation, error| {
+        staged_output_io(action, path, operation, error, None)
+    })
+}
+
+fn ensure_generated_output_parent(
+    action: &PlanAction,
+    build_dir: &Path,
+    parent: &Path,
+) -> Result<(), CoordinatorError> {
+    ensure_output_parent_with(build_dir, parent, |path, operation, error| {
+        generated_io(action, path, operation, error)
+    })
+}
+
+fn ensure_output_parent_with(
+    build_dir: &Path,
+    parent: &Path,
+    mut error_for: impl FnMut(&Path, &'static str, io::Error) -> CoordinatorError,
+) -> Result<(), CoordinatorError> {
     match fs::create_dir(build_dir) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(error) => {
-            return Err(staged_output_io(
-                action,
-                build_dir,
-                "create output build root",
-                error,
-                None,
-            ));
-        }
+        Err(error) => return Err(error_for(build_dir, "create output build root", error)),
     }
-    let root_metadata = fs::symlink_metadata(build_dir).map_err(|error| {
-        staged_output_io(action, build_dir, "inspect output build root", error, None)
-    })?;
+    let root_metadata = fs::symlink_metadata(build_dir)
+        .map_err(|error| error_for(build_dir, "inspect output build root", error))?;
     if is_link_or_reparse_point(&root_metadata) || !root_metadata.is_dir() {
-        return Err(staged_output_io(
-            action,
+        return Err(error_for(
             build_dir,
             "validate output build root",
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 "output build root must be a real directory",
             ),
-            None,
         ));
     }
     let relative = parent.strip_prefix(build_dir).map_err(|_| {
-        staged_output_io(
-            action,
+        error_for(
             parent,
             "validate output parent",
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "output parent is outside the invocation build root",
             ),
-            None,
         )
     })?;
     let mut current = build_dir.to_path_buf();
@@ -257,48 +266,23 @@ fn ensure_output_parent(
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => {
-                return Err(staged_output_io(
-                    action,
-                    &current,
-                    "create parent directory for",
-                    error,
-                    None,
-                ));
+                return Err(error_for(&current, "create parent directory for", error));
             }
         }
-        let metadata = fs::symlink_metadata(&current).map_err(|error| {
-            staged_output_io(action, &current, "inspect output parent", error, None)
-        })?;
+        let metadata = fs::symlink_metadata(&current)
+            .map_err(|error| error_for(&current, "inspect output parent", error))?;
         if is_link_or_reparse_point(&metadata) || !metadata.is_dir() {
-            return Err(staged_output_io(
-                action,
+            return Err(error_for(
                 &current,
                 "validate output parent",
                 io::Error::new(
                     io::ErrorKind::InvalidData,
                     "output parent must be a real directory",
                 ),
-                None,
             ));
         }
     }
     Ok(())
-}
-
-fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        metadata.file_attributes()
-            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
-            != 0
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
 }
 
 pub(super) fn publish_staged_outputs(
@@ -342,9 +326,7 @@ pub(super) fn publish_staged_outputs_with(
                         None,
                     )
                 })?;
-            fs::create_dir_all(parent).map_err(|error| {
-                staged_output_io(action, parent, "create parent directory for", error, None)
-            })?;
+            ensure_output_parent(action, &staged.build_dir, parent)?;
             let had_previous = match fs::symlink_metadata(&output.destination) {
                 Ok(_) => {
                     validate_and_sync_transaction_output(&output.destination, output.kind)
@@ -657,6 +639,7 @@ pub(super) static GENERATED_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn write_generated_file(
     action: &PlanAction,
+    build_dir: &Path,
     output: &std::path::Path,
     contents: &[u8],
 ) -> Result<(), CoordinatorError> {
@@ -677,8 +660,7 @@ pub(super) fn write_generated_file(
                 ),
             )
         })?;
-    fs::create_dir_all(parent)
-        .map_err(|error| generated_io(action, parent, "create parent directory for", error))?;
+    ensure_generated_output_parent(action, build_dir, parent)?;
     let (temporary_path, mut temporary) = create_generated_temporary(action, parent)?;
     let result = (|| {
         temporary
