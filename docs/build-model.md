@@ -54,6 +54,14 @@ the dependency closure.
   payload; failed or cancelled suites never publish a record, and cache
   failures fall back to running the suite.
 
+All mutable cache operations use the entry's coordination lock. Publication
+holds that lock while installing a complete record; lookup and namespace scans
+hold the same lock while validating or retiring corruption. A reader that
+observed malformed bytes therefore cannot remove a valid replacement published
+after its initial scan. The runner and configure caches use invocation-local
+lock namespaces, while compiler and linker product caches retain their owner
+specific lock implementations.
+
 The configure cache stores a validated plan together with the observations that
 produced it. A later invocation may reuse that record only after its
 observations match the current package root and the plan is decoded through
