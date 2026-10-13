@@ -475,10 +475,14 @@ fn validate_and_sync_transaction_output(
 ) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     match kind {
-        TransactionOutputKind::File if metadata.file_type().is_file() => {
+        TransactionOutputKind::File
+            if metadata.file_type().is_file() && !is_link_or_reparse_point(&metadata) =>
+        {
             nia_compat::sync_file(path)
         }
-        TransactionOutputKind::Directory if metadata.file_type().is_dir() => {
+        TransactionOutputKind::Directory
+            if metadata.file_type().is_dir() && !is_link_or_reparse_point(&metadata) =>
+        {
             validate_and_sync_transaction_directory(path)
         }
         TransactionOutputKind::File => Err(io::Error::new(
@@ -503,7 +507,15 @@ fn validate_and_sync_transaction_directory(path: &Path) -> io::Result<()> {
         for entry in fs::read_dir(&directory)? {
             let entry = entry?.path();
             let metadata = fs::symlink_metadata(&entry)?;
-            if metadata.file_type().is_file() {
+            if is_link_or_reparse_point(&metadata) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "transaction directory contains redirected entry `{}`",
+                        entry.display()
+                    ),
+                ));
+            } else if metadata.file_type().is_file() {
                 nia_compat::sync_file(&entry)?;
             } else if metadata.file_type().is_dir() {
                 pending.push((entry, false));
