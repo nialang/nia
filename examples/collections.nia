@@ -9,7 +9,7 @@ pub fn main(init: Init) ExitCode!() {
 
     let mut page: mem::PageAllocator = .init();
     let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
-    defer allocator.deinit().ok().?;
+    defer allocator.deinit().?;
 
     let mut values: std::ArrayList[i32] = .init();
     defer values.deinit(&mut allocator).?;

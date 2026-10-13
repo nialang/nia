@@ -468,9 +468,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(25)!;
     }
     ownedMap.deinit(&mut ownedAllocator).?;
-    if ownedAllocator.deinit().? != mem::DeinitStatus::Ok {
-        return process::ExitCode(26)!;
-    }
+    ownedAllocator.deinit().?;
     !()
 }
 "#,

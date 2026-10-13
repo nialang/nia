@@ -23,7 +23,7 @@ pub using allocation::{Allocated, CallableAllocation};
 pub using arena_allocator::ArenaAllocator;
 pub using allocator::{Allocator, ReallocError, SliceAllocation};
 pub using fixed_buffer_allocator::FixedBufferAllocator;
-pub using general_purpose_allocator::{DeinitStatus, GeneralPurposeAllocator};
+pub using general_purpose_allocator::GeneralPurposeAllocator;
 pub using page_allocator::PageAllocator;
 
 pub fn allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]

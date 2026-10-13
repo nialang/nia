@@ -301,7 +301,7 @@ fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
-    defer allocator.deinit().ok().?;
+    defer allocator.deinit().?;
     let mut api = initBuild(init, &mut allocator).?;
     defer api.deinit().?;
 

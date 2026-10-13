@@ -68,6 +68,17 @@ The library follows a small set of ownership rules:
   an error and mark it inactive only after cleanup succeeds; this preserves a
   valid retry path. Keep this invariant explicit in the owning implementation
   and its focused tests.
+- `GeneralPurposeAllocator::deinit` returns `mem::Error!()`. Live user
+  allocations are reported as `mem::Error::Leak` after backing cleanup
+  completes; this diagnostic means the allocator is empty and needs no retry.
+  Pending rollback storage and empty slabs are not user leaks. If a backing
+  release fails, every independent release is still attempted and the first
+  release error takes priority. Failed owners and the detected leak remain on
+  the allocator for cleanup retry; do not resume allocation operations during
+  that retry. Once cleanup succeeds, any previously detected leak is reported.
+  `deinitWithoutLeakCheck` explicitly suppresses the leak diagnostic, including
+  one remembered from a failed checked teardown. Normal deferred cleanup uses
+  `defer allocator.deinit().?;`, with `IntoError` handling error conversion.
 - Hash-map control bytes, keys, and values share one aligned storage block.
   Rehash keeps the replaced block as a map-owned retired allocation until its
   release succeeds; a failed release leaves the active table usable but

@@ -25,7 +25,7 @@ fn exitForTextError(error: string::TextError) process::ExitCode {
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut page: mem::PageAllocator = .init();
     let mut general: mem::GeneralPurposeAllocator = .init(&mut page);
-    defer general.deinit().ok().?;
+    defer general.deinit().?;
     let mut arena = mem::ArenaAllocator::init(&mut general);
     defer arena.deinit().?;
 
