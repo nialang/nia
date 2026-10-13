@@ -44,6 +44,12 @@ The library follows a small set of ownership rules:
 - Owned values such as `String`, `fs::Path`, and collections use explicit
   allocators for allocation, mutation, and release. Nia does not add implicit
   destruction or hidden allocator state to these values.
+- Build module imports are module-level declarations. `Build::addTestSuite`
+  uses the same module import model as an ordinary executable and does not
+  introduce a separate `TestImport` namespace. When an application root and a
+  test root both use a package such as `foo`, the same `ModuleImport` descriptors
+  may be reused in both `ModuleOptions`; each root still declares its own
+  visibility explicitly.
 - Borrowed forms use views such as `&[T]`, `fs::PathView`, and `CStringView`.
   A view never extends the lifetime of its backing storage.
 - `fs::Path::joinComponent` supports components borrowed from its own text. It
