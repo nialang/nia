@@ -152,7 +152,7 @@ impl DriverActionExecutor {
                 action: action.key.clone(),
             });
         }
-        let miss_reason = match cache.lookup(identity) {
+        let miss_reason = match cache.lookup_locked(identity) {
             Ok(TestSuiteCacheLookup::Hit) => return Ok(Some(ActionCacheOutcome::Hit)),
             Ok(TestSuiteCacheLookup::Miss(reason)) => reason,
             Err(_) => ActionCacheMissReason::ReadError,
@@ -173,7 +173,7 @@ impl DriverActionExecutor {
                 ActionCacheMissReason::Uncacheable,
             )));
         }
-        let reason = match cache.publish(identity) {
+        let reason = match cache.publish_locked(identity) {
             Ok(()) => miss_reason,
             Err(_) => ActionCacheMissReason::WriteError,
         };

@@ -54,7 +54,18 @@ impl TestSuiteCache {
         Self { root }
     }
 
+    #[cfg(test)]
     pub(crate) fn lookup(
+        &self,
+        identity: TestSuiteCacheIdentity,
+    ) -> io::Result<TestSuiteCacheLookup> {
+        let _lock = self
+            .acquire_interruptible(identity, || false)?
+            .ok_or_else(|| io::Error::other("test-suite cache lock was cancelled"))?;
+        self.lookup_locked(identity)
+    }
+
+    pub(crate) fn lookup_locked(
         &self,
         identity: TestSuiteCacheIdentity,
     ) -> io::Result<TestSuiteCacheLookup> {
@@ -108,7 +119,15 @@ impl TestSuiteCache {
         ScopedFileLock::acquire_interruptible(lock, is_cancelled)
     }
 
+    #[cfg(test)]
     pub(crate) fn publish(&self, identity: TestSuiteCacheIdentity) -> io::Result<()> {
+        let _lock = self
+            .acquire_interruptible(identity, || false)?
+            .ok_or_else(|| io::Error::other("test-suite cache lock was cancelled"))?;
+        self.publish_locked(identity)
+    }
+
+    pub(crate) fn publish_locked(&self, identity: TestSuiteCacheIdentity) -> io::Result<()> {
         let path = self.path(identity);
         let parent = path
             .parent()
@@ -183,6 +202,29 @@ mod tests {
             TestSuiteCacheLookup::Miss(ActionCacheMissReason::Corrupt)
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn locked_lookup_preserves_a_replacement_written_after_scan() {
+        let root = root();
+        let cache = TestSuiteCache::new(root.clone());
+        let identity = TestSuiteCacheIdentity::from_bytes(b"replacement");
+        cache.publish(identity).unwrap();
+        let path = cache.path(identity);
+        let valid = fs::read(&path).unwrap();
+        let held = cache
+            .acquire_interruptible(identity, || false)
+            .unwrap()
+            .unwrap();
+        fs::write(&path, b"corrupt").unwrap();
+
+        let lookup_root = root.clone();
+        let worker = std::thread::spawn(move || TestSuiteCache::new(lookup_root).lookup(identity));
+        fs::write(&path, valid).unwrap();
+        drop(held);
+
+        assert_eq!(worker.join().unwrap().unwrap(), TestSuiteCacheLookup::Hit);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
