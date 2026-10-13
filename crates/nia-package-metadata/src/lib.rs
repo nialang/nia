@@ -654,22 +654,40 @@ pub fn package_source_identity_with_selection(
 
 fn validate_selection_path(value: &str) -> io::Result<String> {
     let path = Path::new(value);
-    if value.is_empty()
-        || path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir | std::path::Component::Prefix(_)
-            )
-        })
-        || value.contains('\\')
-    {
+    if value.is_empty() || path.is_absolute() || value.contains(':') || value.contains('\\') {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "package source selection paths must be normalized relative paths",
         ));
     }
-    Ok(value.trim_end_matches('/').to_string())
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(component) => {
+                let component = component.to_str().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "package source selection paths must be valid UTF-8",
+                    )
+                })?;
+                components.push(component);
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "package source selection paths must be normalized relative paths",
+                ));
+            }
+        }
+    }
+    if components.is_empty() {
+        Ok(".".into())
+    } else {
+        Ok(components.join("/"))
+    }
 }
 
 fn collect_source_files(
@@ -685,7 +703,15 @@ fn collect_source_files(
             let entry = entry?;
             let path = entry.path();
             let relative = path.strip_prefix(root).expect("source path under root");
-            let name = relative.to_string_lossy().replace('\\', "/");
+            let name = relative
+                .to_str()
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "package source paths must be valid UTF-8",
+                    )
+                })?
+                .replace('\\', "/");
             let source_relative = path
                 .strip_prefix(&directory)
                 .expect("source path under selected source root");
@@ -2252,6 +2278,33 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn package_source_identity_rejects_non_utf8_paths() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-non-utf8-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let invalid_name = std::ffi::OsStr::from_bytes(b"invalid-\xff.nia");
+        std::fs::write(root.join(invalid_name), b"source").unwrap();
+
+        let error = package_source_identity(&root, package()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "package source paths must be valid UTF-8"
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn selected_source_roots_and_excludes_are_canonical_inputs() {
         let root =
@@ -2278,6 +2331,39 @@ mod tests {
         std::fs::write(root.join("examples/demo.nia"), "changed").unwrap();
         let changed = package_source_identity_with_selection(&root, package, &equivalent).unwrap();
         assert_ne!(first.source_fingerprint, changed.source_fingerprint);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn source_selection_normalizes_redundant_components() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-selection-normalize-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("src/generated")).unwrap();
+        std::fs::write(root.join("src/lib.nia"), "lib").unwrap();
+        std::fs::write(root.join("src/generated/out.nia"), "generated").unwrap();
+
+        let canonical = PackageSourceSelection {
+            source_roots: vec!["src".into()],
+            excludes: vec!["src/generated".into()],
+        };
+        let redundant = PackageSourceSelection {
+            source_roots: vec!["./src//".into()],
+            excludes: vec!["src/./generated//".into()],
+        };
+        let first = package_source_identity_with_selection(&root, package(), &canonical).unwrap();
+        let second = package_source_identity_with_selection(&root, package(), &redundant).unwrap();
+        assert_eq!(first.source_fingerprint, second.source_fingerprint);
+        assert_eq!(first.files, second.files);
+
+        for invalid in ["../src", "src/../lib", "/tmp/src", "C:/src", "src\\lib"] {
+            let selection = PackageSourceSelection {
+                source_roots: vec![invalid.into()],
+                excludes: Vec::new(),
+            };
+            assert!(package_source_identity_with_selection(&root, package(), &selection).is_err());
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
