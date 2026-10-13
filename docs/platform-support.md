@@ -97,8 +97,11 @@ an evidence file for each job. C ABI differential tests use this prefix's Clang,
 so the reference compiler matches the backend version on both hosts. The file
 records the suite outcome, commit, workflow run, job, runner, target,
 host architecture, Rust, LLVM, Clang, and linker identities; it is uploaded even
-when the suite fails. A successful workflow run is the managed execution evidence
-required by the D3 row in [the platform roadmap](platform-roadmap.md).
+when the suite fails. [Run 38349934891](https://github.com/nialang/nia/actions/runs/38349934891)
+passed all 42 CLI test groups on each host at commit `728e47fe1`, verifying Nia
+startup and the executable and standard-library boundary on both Darwin targets.
+This is the managed execution evidence for D2 and D3 in
+[the platform roadmap](platform-roadmap.md).
 
 The i686 LLVM-backed matrix requires an LLVM installation whose headers include
 the target-width configuration (for the current LLVM 23 packages,
@@ -149,15 +152,12 @@ The project does not claim support for:
   `Signal::Kill` as termination requests and implements both with
   `TerminateProcess`, reporting the resulting Windows exit code rather than a
   POSIX signal termination;
-- macOS compiler hosts;
-- Windows release archives. Windows compilers are built from source; only the
+- Windows or macOS release archives. These compilers are built from source; only the
   Linux x86_64 archive is packaged and published;
-- complete cross-linked macOS executables. `--target` selects any maintained
-  target for checking, IR, object emission, and structured Mach-O linker
-  invocation from every maintained host; executable Darwin startup and runtime
-  execution remain open under the platform roadmap's D2 and D3 rows;
-- complete freestanding executable startup for Darwin targets and any target
-  without the roadmap's verified runtime evidence;
+- execution of Darwin executables cross-linked on Linux or Windows. Both Darwin
+  startup targets have cross-link tests, and native macOS compiler hosts run the
+  complete CLI suite, but the exchanged executable evidence currently covers
+  Linux and Windows;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or executable runtime support. The pure-Rust
   frontend, semantic, query, and maintenance owners are checked for wasm32,
