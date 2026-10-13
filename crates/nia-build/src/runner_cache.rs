@@ -3,18 +3,19 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt as _;
 
 use nia_compat::{formats, toolchain::BUILD_PROTOCOL};
-use nia_query::FingerprintDomain;
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 use crate::{
     BuildError, BuildInvocation, BuildRunnerSource,
     action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
+    lock::ScopedFileLock,
 };
 
 const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
@@ -28,6 +29,8 @@ const STREAM_BYTES: usize = 64 * 1024;
 const RUNNER_CACHE_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.runner-cache.framed");
 static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(0);
+const RUNNER_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.runner-cache-mutation-lock");
 
 /// Canonical private cache record for a generated build runner.
 fn cache_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
@@ -61,6 +64,7 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
         }
         return Err(error);
     }
+    let _lock = acquire_mutation_lock(invocation, &cached)?;
     let metadata = match fs::symlink_metadata(&cached) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
@@ -118,7 +122,22 @@ pub(super) fn publish_executable(invocation: &BuildInvocation, key: &str) -> io:
         &invocation.cache_dir,
         path.parent().expect("runner cache parent"),
     )?;
+    let _lock = acquire_mutation_lock(invocation, &path)?;
     install_file(&path, &record, false)
+}
+
+fn acquire_mutation_lock(invocation: &BuildInvocation, path: &Path) -> io::Result<ScopedFileLock> {
+    let mut builder = QueryFingerprintBuilder::new(RUNNER_CACHE_MUTATION_LOCK_DOMAIN);
+    builder.write_bytes(path.as_os_str().as_encoded_bytes());
+    let lock_root = invocation
+        .cache_dir
+        .join("coordination")
+        .join("runner-cache");
+    ensure_cache_directory(&invocation.cache_dir, &lock_root)?;
+    let [first, second] = builder.finish().parts();
+    let lock = lock_root.join(format!("{first:016x}{second:016x}.lock"));
+    ScopedFileLock::acquire_interruptible(lock, || false)?
+        .ok_or_else(|| io::Error::other("runner cache mutation lock was cancelled"))
 }
 
 fn decode_record(bytes: &[u8]) -> Option<&[u8]> {
