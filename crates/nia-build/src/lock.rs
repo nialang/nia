@@ -133,7 +133,7 @@ impl ScopedFileLock {
         mut is_cancelled: impl FnMut() -> bool,
     ) -> io::Result<Option<Self>> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::create_real_directory(parent)?;
         }
         let start = Instant::now();
         let mut sleep = Duration::from_millis(10);
@@ -637,5 +637,24 @@ mod tests {
 
         assert!(path.exists());
         fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_namespace_rejects_intermediate_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root("symlink-namespace");
+        let outside = root.join("outside");
+        fs::create_dir(&outside).unwrap();
+        let cache = root.join("cache");
+        fs::create_dir(&cache).unwrap();
+        symlink(&outside, cache.join("coordination")).unwrap();
+        let path = cache.join("coordination/output-locks/output.lock");
+
+        let error = ScopedFileLock::acquire(path).expect_err("lock namespace symlink rejected");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
     }
 }

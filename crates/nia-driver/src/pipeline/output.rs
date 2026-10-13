@@ -8,14 +8,79 @@ use std::{
     sync::{atomic::AtomicU64, atomic::Ordering},
 };
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as _;
+
 const FILE_STREAM_BYTES: usize = 64 * 1024;
 static OUTPUT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Creates a directory path without following a symbolic link or reparse
+/// point in any existing or newly-created component.
+pub(crate) fn ensure_output_directory(path: &Path) -> io::Result<()> {
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    let mut current = path.to_path_buf();
+    let existing = loop {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => break (current.clone(), metadata),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let name = current.file_name().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "output directory has no resolvable parent",
+                    )
+                })?;
+                missing.push(name.to_os_string());
+                current = current
+                    .parent()
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "output directory has no resolvable parent",
+                        )
+                    })?
+                    .to_path_buf();
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    validate_output_directory(&existing.0, &existing.1)?;
+    for name in missing.iter().rev() {
+        current.push(name);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        let metadata = fs::symlink_metadata(&current)?;
+        validate_output_directory(&current, &metadata)?;
+    }
+    Ok(())
+}
+
+fn validate_output_directory(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("`{}` must be a real output directory", path.display()),
+        ));
+    }
+    Ok(())
+}
 
 pub(super) fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
-        fs::create_dir_all(parent)?;
+        ensure_output_directory(parent)?;
     }
     fs::write(path, bytes)
 }
@@ -38,7 +103,7 @@ pub(super) fn install_streamed_output(source: &Path, output: &Path) -> io::Resul
         .parent()
         .ok_or_else(|| io::Error::other("invalid driver output path"))?;
     if !parent.as_os_str().is_empty() {
-        fs::create_dir_all(parent)?;
+        ensure_output_directory(parent)?;
     }
     let staged = output.with_extension(format!(
         "tmp.{}.{}",
@@ -168,5 +233,23 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         assert_eq!(fs::read(output).expect("read existing output"), b"existing");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_directory_rejects_intermediate_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempDir::new("nia_driver_output_symlink");
+        fs::create_dir_all(root.path()).expect("create test root");
+        let outside = root.path().join("outside");
+        fs::create_dir(&outside).expect("create outside directory");
+        let redirected = root.path().join("redirected");
+        symlink(&outside, &redirected).expect("create directory symlink");
+
+        let error = ensure_output_directory(&redirected.join("nested"))
+            .expect_err("redirected output directory must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(!outside.join("nested").exists());
     }
 }
