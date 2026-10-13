@@ -65,6 +65,7 @@ use crate::{
         GeneratedFileCacheIdentity, GeneratedFileCacheLookup, TestSuiteCache,
         TestSuiteCacheIdentity, TestSuiteCacheLookup,
     },
+    is_link_or_reparse_point,
     lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
     output_recovery::{
         OutputTransactionJournal, TransactionOutput, TransactionOutputKind,

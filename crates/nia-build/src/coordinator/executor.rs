@@ -960,7 +960,7 @@ impl DriverActionExecutor {
         let lookup = match cache.lookup(&identity) {
             Ok(lookup) => lookup,
             Err(_) => {
-                write_generated_file(action, &output, contents)?;
+                write_generated_file(action, &self.invocation.build_dir, &output, contents)?;
                 return Ok(Some(ActionCacheOutcome::Miss(
                     ActionCacheMissReason::ReadError,
                 )));
@@ -968,11 +968,11 @@ impl DriverActionExecutor {
         };
         match lookup {
             GeneratedFileCacheLookup::Hit(payload) => {
-                write_generated_file(action, &output, &payload)?;
+                write_generated_file(action, &self.invocation.build_dir, &output, &payload)?;
                 Ok(Some(ActionCacheOutcome::Hit))
             }
             GeneratedFileCacheLookup::Miss(reason) => {
-                write_generated_file(action, &output, contents)?;
+                write_generated_file(action, &self.invocation.build_dir, &output, contents)?;
                 let reason = match cache.publish(&identity, contents) {
                     Ok(()) => reason,
                     Err(_) => ActionCacheMissReason::WriteError,

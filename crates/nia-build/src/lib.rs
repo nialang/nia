@@ -22,6 +22,9 @@ use std::{
     thread,
 };
 
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt as _;
+
 use nia_compat::formats::RUNNER_CONFIG;
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, LinkExecutableRequest,
@@ -53,6 +56,43 @@ mod resources;
 mod runner_cache;
 mod runner_config;
 mod runner_observation;
+
+fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn create_real_directory(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => return validate_real_directory(path, &metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    fs::create_dir_all(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    validate_real_directory(path, &metadata)
+}
+
+fn validate_real_directory(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {
+    if is_link_or_reparse_point(metadata) || !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("`{}` must be a real directory", path.display()),
+        ));
+    }
+    Ok(())
+}
 
 use process_output::{
     CaptureFailure, CapturedStream, StreamCapture, capture_stream, join_capture_tail,
@@ -2229,7 +2269,7 @@ fn build_runner_source_for_path(
 
 fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String), BuildError> {
     time_build_stage(invocation.timings, "build_runner_prepare_directory", || {
-        fs::create_dir_all(&invocation.runner_dir).map_err(|error| {
+        create_real_directory(&invocation.runner_dir).map_err(|error| {
             BuildError::CreateRunnerDirectory {
                 path: invocation.runner_dir.clone(),
                 error,
@@ -2258,7 +2298,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String
     }
     nia_timing::emit_counter("build.runner_cache_misses", 1);
     if let Some(parent) = invocation.runner_executable.parent() {
-        fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
+        create_real_directory(parent).map_err(|error| BuildError::CreateRunnerDirectory {
             path: parent.to_path_buf(),
             error,
         })?;
@@ -2451,13 +2491,13 @@ fn build_runner_module_map(invocation: &BuildInvocation) -> nia_ice::IceResult<M
 }
 
 fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildError> {
-    fs::create_dir_all(&invocation.build_dir).map_err(|error| {
+    create_real_directory(&invocation.build_dir).map_err(|error| {
         BuildError::CreateBuildDirectory {
             path: invocation.build_dir.clone(),
             error,
         }
     })?;
-    fs::create_dir_all(&invocation.cache_dir).map_err(|error| BuildError::CreateCacheDirectory {
+    create_real_directory(&invocation.cache_dir).map_err(|error| BuildError::CreateCacheDirectory {
         path: invocation.cache_dir.clone(),
         error,
     })

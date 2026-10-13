@@ -95,7 +95,7 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
         retire(&cached);
         return Ok(false);
     };
-    fs::create_dir_all(
+    crate::create_real_directory(
         invocation
             .runner_executable
             .parent()
