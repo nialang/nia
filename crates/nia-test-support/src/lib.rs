@@ -118,9 +118,35 @@ impl Drop for TestDir {
 /// Workspace checkout containing this crate, whose `lib` directory holds the
 /// toolchain resources under test.
 pub fn workspace_root() -> &'static Path {
+    static WORKSPACE_ROOT: OnceLock<PathBuf> = OnceLock::new();
+    WORKSPACE_ROOT
+        .get_or_init(discover_workspace_root)
+        .as_path()
+}
+
+fn discover_workspace_root() -> PathBuf {
+    let mut candidates = Vec::new();
+    if let Ok(current_dir) = std::env::current_dir() {
+        candidates.extend(current_dir.ancestors().map(Path::to_path_buf));
+    }
+    if let Ok(current_exe) = std::env::current_exe() {
+        candidates.extend(current_exe.ancestors().map(Path::to_path_buf));
+    }
+
+    // Test support is shared by binaries built in different checkouts. Resolve
+    // the active checkout at runtime so a reused target directory cannot keep
+    // an old absolute `CARGO_MANIFEST_DIR` path alive.
+    if let Some(root) = candidates
+        .into_iter()
+        .find(|candidate| candidate.join("lib/toolchain.meta").is_file())
+    {
+        return root.canonicalize().unwrap_or(root);
+    }
+
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
+        .map(Path::to_path_buf)
         .expect("nia-test-support lives under crates/")
 }
 
