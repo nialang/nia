@@ -74,14 +74,44 @@ fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
 }
 
 fn create_real_directory(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => return validate_real_directory(path, &metadata),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
+    let mut missing = Vec::new();
+    let mut current = path.to_path_buf();
+    let existing = loop {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => break (current.clone(), metadata),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let name = current.file_name().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "directory path has no resolvable parent",
+                    )
+                })?;
+                missing.push(name.to_os_string());
+                current = current
+                    .parent()
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "directory path has no resolvable parent",
+                        )
+                    })?
+                    .to_path_buf();
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    validate_real_directory(&existing.0, &existing.1)?;
+    for name in missing.iter().rev() {
+        current.push(name);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        let metadata = fs::symlink_metadata(&current)?;
+        validate_real_directory(&current, &metadata)?;
     }
-    fs::create_dir_all(path)?;
-    let metadata = fs::symlink_metadata(path)?;
-    validate_real_directory(path, &metadata)
+    Ok(())
 }
 
 fn validate_real_directory(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {
