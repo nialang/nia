@@ -208,7 +208,21 @@ pub(crate) fn recover_interrupted_output_transactions(
         }
         let entry = entry
             .map_err(|error| recovery_error(&root, &root, "read directory entry for", error))?;
-        journals.push(entry.path());
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| recovery_error(&root, &path, "inspect journal entry for", error))?;
+        if !metadata.file_type().is_dir() || crate::is_link_or_reparse_point(&metadata) {
+            return Err(recovery_error(
+                &root,
+                &path,
+                "inspect journal entry for",
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "output transaction journal entry is not a real directory",
+                ),
+            ));
+        }
+        journals.push(path);
     }
     retire_dead_temporary_journals(&root, &journals)?;
     journals
@@ -833,7 +847,11 @@ fn read_u8(cursor: &mut Cursor<&[u8]>) -> Option<u8> {
 
 fn directory_exists(journal: &Path, path: &Path) -> Result<bool, OutputRecoveryError> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => Ok(true),
+        Ok(metadata)
+            if metadata.file_type().is_dir() && !crate::is_link_or_reparse_point(&metadata) =>
+        {
+            Ok(true)
+        }
         Ok(_) => Err(recovery_error(
             journal,
             path,
@@ -859,11 +877,17 @@ fn output_exists(
     kind: TransactionOutputKind,
 ) -> Result<bool, OutputRecoveryError> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if kind == TransactionOutputKind::File && metadata.file_type().is_file() => {
+        Ok(metadata)
+            if kind == TransactionOutputKind::File
+                && metadata.file_type().is_file()
+                && !crate::is_link_or_reparse_point(&metadata) =>
+        {
             Ok(true)
         }
         Ok(metadata)
-            if kind == TransactionOutputKind::Directory && metadata.file_type().is_dir() =>
+            if kind == TransactionOutputKind::Directory
+                && metadata.file_type().is_dir()
+                && !crate::is_link_or_reparse_point(&metadata) =>
         {
             validate_directory_tree(path)
                 .map(|()| true)
@@ -896,7 +920,15 @@ fn validate_directory_tree(path: &Path) -> io::Result<()> {
         for entry in fs::read_dir(directory)? {
             let entry = entry?.path();
             let metadata = fs::symlink_metadata(&entry)?;
-            if metadata.file_type().is_dir() {
+            if crate::is_link_or_reparse_point(&metadata) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "transaction directory contains redirected entry `{}`",
+                        entry.display()
+                    ),
+                ));
+            } else if metadata.file_type().is_dir() {
                 pending.push(entry);
             } else if !metadata.file_type().is_file() {
                 return Err(io::Error::new(
@@ -1681,6 +1713,28 @@ mod tests {
         symlink(&outside, build_dir.join(OUTPUT_TRANSACTION_DIRECTORY)).unwrap();
 
         assert!(ensure_journal_root(&build_dir).is_err());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn journal_scan_rejects_non_directory_entry_without_touching_it() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-output-recovery-entry-file-{}-{}",
+            std::process::id(),
+            JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache_dir = root.join(".nia-cache");
+        let build_dir = root.join(".nia-build");
+        let journals = journal_root(&build_dir);
+        fs::create_dir_all(&journals).unwrap();
+        let entry = journals.join(".nia-output-1-1-0.tmp");
+        fs::write(&entry, b"not a directory").unwrap();
+
+        let error = recover_interrupted_output_transactions(&cache_dir, &build_dir)
+            .expect_err("non-directory journal entry must fail closed");
+        assert_eq!(error.operation, "inspect journal entry for");
+        assert!(entry.exists());
 
         let _ = fs::remove_dir_all(root);
     }
