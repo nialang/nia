@@ -289,10 +289,20 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
         let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
         if ret < 0 {
             let cause = errno();
+            // Darwin reports either ELOOP or ENOTDIR when O_NOFOLLOW meets
+            // an intermediate symlink. Inspect the component without
+            // following it so ordinary non-directory errors retain identity.
+            let mut escaped = false;
+            if cause == .SymlinkLoop or cause == .NotDir {
+                let mut stat: bindings::DarwinStat;
+                if bindings::fstatat(current.fd, &storage[componentStart], &mut stat, bindings::atSymlinkNoFollow) == 0
+                    and stat.kind() == .Symlink
+                {
+                    escaped = true;
+                }
+            }
             if ownsCurrent { _ = current.close(); }
-            // Linux openat2 reports a capability escape as EXDEV. Darwin's
-            // O_NOFOLLOW reports ELOOP for the same intermediate symlink.
-            if cause == .SymlinkLoop { return .CrossDevice!; }
+            if escaped { return .CrossDevice!; }
             return cause!;
         }
         if ownsCurrent { _ = current.close(); }
@@ -765,8 +775,10 @@ extend bindings::DarwinStat {
 
 fn errno() Errno {
     let value = bindings::__error().*;
-    // ENOSYS and ENOTSUP both expose the portable Unsupported error.
-    if value == 78 { .Unsupported } else { value as Errno }
+    // Preserve portable errors for unsupported calls and invalid native paths.
+    if value == 78 { .Unsupported }
+    else if value == 92 { .Invalid }
+    else { value as Errno }
 }
 
 fn fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {

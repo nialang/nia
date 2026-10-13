@@ -129,6 +129,21 @@ pub fn main(init: process::Init) process::ExitCode!() {
 #[test]
 fn emit_exe_std_fs_native_paths_preserve_non_utf8_bytes() {
     let root = temp_dir("emit_exe_std_fs_native_paths_preserve_non_utf8_bytes");
+    let native_name = std::ffi::OsStr::from_bytes(b"native-\xff.bin");
+    // Native views preserve bytes, but some Darwin filesystems reject invalid
+    // UTF-8 names with EILSEQ. Compare with a host open on the same filesystem.
+    let accepts_native_name = match std::fs::File::create(root.join(native_name)) {
+        Ok(file) => {
+            drop(file);
+            std::fs::remove_file(root.join(native_name)).expect("remove native path probe");
+            true
+        }
+        Err(error) => {
+            assert!(cfg!(target_os = "macos"), "native path probe: {error}");
+            assert_eq!(error.raw_os_error(), Some(libc::EILSEQ), "{error}");
+            false
+        }
+    };
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -163,11 +178,24 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut cwd = fs::Dir::cwd().?;
     defer cwd.close().?;
     let relative = native.relative().?;
-    let mut file = cwd.createNativeFile(relative, fs::CreateOptions::init()).?;
+    let mut file = match cwd.createNativeFile(relative, fs::CreateOptions::init()) {
+        !value => {
+            if not HOST_ACCEPTS_NATIVE_NAME { return process::ExitCode(7)!; }
+            value
+        },
+        fs::OperationError::System {
+            operation: fs::Operation::CreateFile,
+            cause: fs::Error::Invalid,
+        }! => {
+            if HOST_ACCEPTS_NATIVE_NAME { return process::ExitCode(8)!; }
+            return !();
+        },
+        error! => { _ = error; return process::ExitCode(9)!; },
+    };
     file.close().?;
     !()
 }
-"#,
+"#.replace("HOST_ACCEPTS_NATIVE_NAME", if accepts_native_name { "true" } else { "false" }),
     )
     .expect("write test source");
 
@@ -191,8 +219,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         Some(0)
     );
 
-    let native_name = std::ffi::OsStr::from_bytes(b"native-\xff.bin");
-    assert!(root.join(native_name).is_file());
+    assert_eq!(root.join(native_name).is_file(), accepts_native_name);
 }
 
 #[test]

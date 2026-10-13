@@ -143,15 +143,13 @@ fn emit_exe_entry_name_is_chosen_by_selected_runtime_not_compiler() {
         )
         .expect("copy import description");
     }
-    if cfg!(target_os = "macos") {
-        let imports = resource_root.join("imports/macos");
-        std::fs::create_dir_all(&imports).expect("create custom Darwin imports");
-        std::fs::copy(
-            workspace_root.join("lib/imports/macos/libSystem.tbd"),
-            imports.join("libSystem.tbd"),
-        )
-        .expect("copy Darwin import description");
-    }
+    let imports = resource_root.join("imports/macos");
+    std::fs::create_dir_all(&imports).expect("create custom Darwin imports");
+    std::fs::copy(
+        workspace_root.join("lib/imports/macos/libSystem.tbd"),
+        imports.join("libSystem.tbd"),
+    )
+    .expect("copy Darwin import description");
     std::fs::write(
         &std_root,
         r#"
@@ -337,14 +335,16 @@ pub extern fn _start() () {
     .expect("write custom Windows startup");
     std::fs::write(
         std_start_macos_arch.with_file_name("startup.nia"),
-        "using entry;\n\nextern fn _exit(code: i32) ();\n\nextern fn niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; _exit(entry::mymain()); loop {} }\n",
+        "using entry;\n\nextern fn exit(code: i32) ();\n\npub(pkg) extern fn niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(entry::mymain()); loop {} }\n",
     )
     .expect("write custom Darwin startup");
-    std::fs::write(
-        &std_start_macos_arch,
-        "pub extern fn main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
-    )
-    .expect("write custom Darwin start");
+    for arch in ["x86_64", "aarch64"] {
+        std::fs::write(
+            std_start_macos_arch.with_file_name(format!("{arch}.nia")),
+            "using pkg::start::freestanding::macos::startup::niaDarwinStart;\npub extern fn main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
+        )
+        .expect("write custom Darwin start");
+    }
     std::fs::write(
         &main,
         r#"
@@ -372,6 +372,23 @@ pub fn mymain() i32 {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(11));
+
+    for target in ["x86_64-apple-macos", "aarch64-apple-macos"] {
+        let output = nia_test_support::nia_command_with_resource_root(
+            env!("CARGO_BIN_EXE_nia"),
+            &resource_root,
+        )
+        .args(["--target", target, "emit", "--exe"])
+        .arg(&main)
+        .arg("-o")
+        .arg(root.join(target))
+        .output_timeout_for_build("cross-link custom Darwin startup");
+        assert!(
+            output.status.success(),
+            "{target}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
