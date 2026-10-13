@@ -10,34 +10,6 @@ using pkg::os;
 using allocator::Allocator;
 using types::{Block, Error, Layout};
 
-pub enum DeinitStatus: i32 {
-    Ok = 0,
-    Leak = 1,
-}
-
-extend DeinitStatus {
-    pub fn ok(self) Error!() {
-        if self == DeinitStatus::Ok {
-            !()
-        } else {
-            .Invalid!
-        }
-    }
-}
-
-extend Error!DeinitStatus {
-    pub fn ok(self) Error!() {
-        match self {
-            !status => {
-                status.ok()
-            },
-            err! => {
-                err!
-            },
-        }
-    }
-}
-
 const maxSmallSize: usize = 2048;
 const minSlotSize: usize = 16;
 @[if pointerWidth == 64]
@@ -80,24 +52,36 @@ pub struct GeneralPurposeAllocator {
     smallPages: ?&mut SmallPage,
     largeAllocations: ?&mut LargeHeader,
     pendingFree: ?Block,
+    deinitLeak: bool,
 }
 
 extend GeneralPurposeAllocator {
     pub fn init(child: &mut Allocator) GeneralPurposeAllocator {
-        .{ child, smallPages: null, largeAllocations: null, pendingFree: null }
-    }
-
-    pub fn deinit(&mut self) Error!DeinitStatus {
-        let leaked = not self.isEmpty();
-        self.deinitWithoutLeakCheck().?;
-        if leaked {
-            !.Leak
-        } else {
-            !.Ok
+        .{
+            child,
+            smallPages: null,
+            largeAllocations: null,
+            pendingFree: null,
+            deinitLeak: false,
         }
     }
 
+    pub fn deinit(&mut self) Error!() {
+        self.deinitLeak = self.deinitLeak or self.hasLiveAllocations();
+        self.deinitBacking().?;
+        if self.deinitLeak {
+            self.deinitLeak = false;
+            return .Leak!;
+        }
+        !()
+    }
+
     pub fn deinitWithoutLeakCheck(&mut self) Error!() {
+        self.deinitLeak = false;
+        self.deinitBacking()
+    }
+
+    fn deinitBacking(&mut self) Error!() {
         let small = self.smallPages;
         let large = self.largeAllocations;
         let pending = self.pendingFree;
@@ -105,6 +89,24 @@ extend GeneralPurposeAllocator {
         self.largeAllocations = null;
         self.pendingFree = null;
         self.freeDetachedLists(small, large, pending)
+    }
+
+    fn hasLiveAllocations(&self) bool {
+        if self.largeAllocations is ?_ {
+            return true;
+        }
+
+        let mut page = self.smallPages;
+        loop {
+            if page is ?item {
+                if item.usedCount != 0 {
+                    return true;
+                }
+                page = item.next;
+            } else {
+                return false;
+            }
+        }
     }
 
     pub fn capacity(&self) usize {

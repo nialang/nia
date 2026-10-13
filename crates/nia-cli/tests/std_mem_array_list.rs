@@ -482,12 +482,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut sourcePage = mem::PageAllocator::init();
     let mut sourceGpa = mem::GeneralPurposeAllocator::init(&mut sourcePage);
-    defer sourceGpa.deinit().ok().?;
+    defer sourceGpa.deinit().?;
     let sourceAllocator = &mut sourceGpa;
 
     let mut targetPage = mem::PageAllocator::init();
     let mut targetGpa = mem::GeneralPurposeAllocator::init(&mut targetPage);
-    defer targetGpa.deinit().ok().?;
+    defer targetGpa.deinit().?;
     let targetAllocator = &mut targetGpa;
 
     let mut source = std::ArrayList[i32]::init();

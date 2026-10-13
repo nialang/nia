@@ -343,6 +343,7 @@ fn writeMemoryCause(formatter: &mut fmt::Formatter, cause: mem::Error) fmt::Erro
         .Invalid => formatter.writeText(&"invalid"),
         .InvalidAlignment => formatter.writeText(&"invalid alignment"),
         .OutOfMemory => formatter.writeText(&"out of memory"),
+        .Leak => formatter.writeText(&"memory leak"),
         .System => formatter.writeText(&"system"),
         _ => formatter.writeText(&"unknown"),
     }

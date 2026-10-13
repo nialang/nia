@@ -141,6 +141,7 @@ extend mem::Error : builtin::IntoError[ExitCode] {
             .Invalid => ExitCode(22),
             .InvalidAlignment => ExitCode(22),
             .OutOfMemory => ExitCode(12),
+            .Leak => ExitCode(255),
             _ => ExitCode(255),
         }
     }

@@ -435,7 +435,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     child.rejectNext(3usize);
-    match allocator.deinitWithoutLeakCheck() {
+    match allocator.deinit() {
         !ok => { _ = ok; return process::ExitCode(5)!; },
         mem::Error::Invalid! => {},
         error! => { _ = error; return process::ExitCode(6)!; },
@@ -449,7 +449,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(7)!;
     }
 
-    allocator.deinitWithoutLeakCheck().?;
+    match allocator.deinit() {
+        mem::Error::Leak! => {},
+        !ok => { _ = ok; return process::ExitCode(9)!; },
+        error! => { _ = error; return process::ExitCode(10)!; },
+    }
     if child.liveBlocks != 0usize
         or child.malformedLive
         or not allocator.isEmpty()
@@ -458,6 +462,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     {
         return process::ExitCode(8)!;
     }
+
     !()
 }
 "#,
@@ -537,7 +542,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(5)!;
     }
     list.deinit(&mut allocator).?;
-    allocator.deinit().ok().?;
+    _ = allocator.deinit().?;
     !()
 }
 "#,
@@ -656,7 +661,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not allocator.isEmpty() {
         return process::ExitCode(7)!;
     }
-    allocator.deinit().ok().?;
+    _ = allocator.deinit().?;
     !()
 }
 "#,
@@ -752,11 +757,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not allocator.isEmpty() {
         return process::ExitCode(6)!;
     }
-    allocator.deinit().ok().?;
+    _ = allocator.deinit().?;
     let mut leaking = mem::GeneralPurposeAllocator::init(&mut page);
     _ = leaking.alloc(small_layout).?;
-    if leaking.deinit().? != mem::DeinitStatus::Leak {
-        return process::ExitCode(13)!;
+    match leaking.deinit() {
+        mem::Error::Leak! => {},
+        !ok => { _ = ok; return process::ExitCode(13)!; },
+        error! => { _ = error; return process::ExitCode(14)!; },
     }
     !()
 }

@@ -343,7 +343,7 @@ fn configPathArg(
 pub fn main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
-    defer allocator.deinit().ok().?;
+    defer allocator.deinit().?;
 
     let mut configPathStorage = fs::Path::init();
     defer configPathStorage.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;

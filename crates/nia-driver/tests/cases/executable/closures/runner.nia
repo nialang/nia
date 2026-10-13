@@ -21,7 +21,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let swapped = swapPointer(Pair { left: 4, right: 5 });
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
-    defer allocator.deinit().ok().?;
+    defer allocator.deinit().?;
     let mut owned = helper::allocateOffset(&mut allocator, 7).?;
     defer owned.deinit(&mut allocator).?;
     let ownedResult = owned.callback()(8);
