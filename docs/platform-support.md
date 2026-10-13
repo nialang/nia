@@ -100,8 +100,7 @@ host architecture, Rust, LLVM, Clang, and linker identities; it is uploaded even
 when the suite fails. [Run 38349934891](https://github.com/nialang/nia/actions/runs/38349934891)
 passed all 42 CLI test groups on each host at commit `728e47fe1`, verifying Nia
 startup and the executable and standard-library boundary on both Darwin targets.
-This is the managed execution evidence for D2 and D3 in
-[the platform roadmap](platform-roadmap.md).
+This is the recorded managed execution evidence for the Darwin runtime boundary.
 
 The i686 LLVM-backed matrix requires an LLVM installation whose headers include
 the target-width configuration (for the current LLVM 23 packages,
