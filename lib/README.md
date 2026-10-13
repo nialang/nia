@@ -79,6 +79,17 @@ The library follows a small set of ownership rules:
   `deinitWithoutLeakCheck` explicitly suppresses the leak diagnostic, including
   one remembered from a failed checked teardown. Normal deferred cleanup uses
   `defer allocator.deinit().?;`, with `IntoError` handling error conversion.
+- Nia's general-purpose allocator is intentionally a lightweight, single-owner
+  allocator. Zig 0.17's `SafeAllocator` is a separate diagnostic allocator,
+  not a replacement for its ordinary allocator: it adds allocation footers,
+  checksums and canaries, freed-memory poisoning, stack traces, no-reuse
+  behavior, and thread-aware metadata. Those checks are valuable for compiler
+  and test diagnostics but would impose the wrong cost and synchronization
+  contract on Nia's normal allocator. A future Nia diagnostic allocator should
+  therefore wrap the allocator boundary as a separate type, preserve complete
+  `mem::Error` cleanup propagation, and add these checks incrementally. It must
+  not reintroduce a status-to-error adapter or weaken the existing cleanup
+  retry contract.
 - Hash-map control bytes, keys, and values share one aligned storage block.
   Rehash keeps the replaced block as a map-owned retired allocation until its
   release succeeds; a failed release leaves the active table usable but
