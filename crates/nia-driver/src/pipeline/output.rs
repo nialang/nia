@@ -8,8 +8,12 @@ use std::{
     sync::{atomic::AtomicU64, atomic::Ordering},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt as _;
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt as _;
 
 const FILE_STREAM_BYTES: usize = 64 * 1024;
 static OUTPUT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -82,7 +86,34 @@ pub(super) fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     {
         ensure_output_directory(parent)?;
     }
-    fs::write(path, bytes)
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    {
+        options.share_mode(
+            windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+                | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+                | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+        );
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    let is_reparse = metadata.file_attributes()
+        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+        != 0;
+    #[cfg(not(windows))]
+    let is_reparse = false;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || is_reparse {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "output must be a regular, non-link file",
+        ));
+    }
+    file.write_all(bytes)
 }
 
 /// Copies one tool-produced file into a sibling staging file before replacing
@@ -251,5 +282,26 @@ mod tests {
             .expect_err("redirected output directory must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(!outside.join("nested").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_file_rejects_final_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempDir::new("nia_driver_output_file_symlink");
+        fs::create_dir_all(root.path()).expect("create test root");
+        let outside = root.path().join("outside");
+        fs::write(&outside, b"preserved").expect("write outside file");
+        let redirected = root.path().join("redirected");
+        symlink(&outside, &redirected).expect("create file symlink");
+
+        let error = write_output_file(&redirected, b"replacement")
+            .expect_err("redirected output file must be rejected");
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::Other | io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
+        ));
+        assert_eq!(fs::read(&outside).expect("read outside file"), b"preserved");
     }
 }
