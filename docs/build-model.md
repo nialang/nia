@@ -62,6 +62,11 @@ after its initial scan. The runner and configure caches use invocation-local
 lock namespaces, while compiler and linker product caches retain their owner
 specific lock implementations.
 
+Output lock records carry a bounded process identity and acquisition sequence.
+Readers require the complete `pid:start-time:sequence` record before checking
+liveness; malformed records are reclaimed as stale, while live owners retain
+the canonical lock path.
+
 The configure cache stores a validated plan together with the observations that
 produced it. A later invocation may reuse that record only after its
 observations match the current package root and the plan is decoded through

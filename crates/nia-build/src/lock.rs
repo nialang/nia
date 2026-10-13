@@ -355,12 +355,19 @@ fn lock_owner_is_alive(path: &Path) -> bool {
 #[cfg(any(not(windows), test))]
 fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
     let owner = read_bounded_utf8(path, MAX_LOCK_OWNER_BYTES)?;
-    let token = owner.split_whitespace().next()?;
+    let token = owner.strip_suffix('\n').unwrap_or(&owner);
+    let token = token.strip_suffix('\r').unwrap_or(token);
+    if token.is_empty() || token.chars().any(char::is_whitespace) {
+        return None;
+    }
     let mut parts = token.split(':');
-    Some(ProcessIdentity {
-        pid: parts.next()?.parse().ok()?,
-        start_time: parts.next()?.parse().ok()?,
-    })
+    let pid = parts.next()?.parse().ok()?;
+    let start_time = parts.next()?.parse().ok()?;
+    let _sequence: u64 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || pid == 0 {
+        return None;
+    }
+    Some(ProcessIdentity { pid, start_time })
 }
 
 /// Reads small coordination records with a stream-enforced `max + 1` budget.
@@ -609,6 +616,22 @@ mod tests {
         assert_eq!(read_lock_owner(&path), None);
         reclaim_stale_lock(&path, Duration::ZERO);
         assert!(!path.exists());
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    fn malformed_owner_records_are_reclaimed_without_pid_zero_liveness() {
+        let root = test_root("malformed-owner");
+        for (index, owner) in ["0:0:0\n", "1:2\n", "1:2:3:extra\n", "1:2:3 extra\n"]
+            .into_iter()
+            .enumerate()
+        {
+            let path = root.join(format!("{index}.lock"));
+            fs::write(&path, owner).unwrap();
+            assert_eq!(read_lock_owner(&path), None, "owner record {owner:?}");
+            reclaim_stale_lock(&path, Duration::ZERO);
+            assert!(!path.exists(), "malformed owner was retained: {owner:?}");
+        }
     }
 
     #[cfg(unix)]
