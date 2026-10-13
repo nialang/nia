@@ -139,7 +139,9 @@ fn emit_exe_std_fs_native_paths_preserve_non_utf8_bytes() {
             true
         }
         Err(error) => {
-            assert!(cfg!(target_os = "macos"), "native path probe: {error}");
+            if !cfg!(target_os = "macos") {
+                panic!("native path probe: {error}");
+            }
             assert_eq!(error.raw_os_error(), Some(libc::EILSEQ), "{error}");
             false
         }
