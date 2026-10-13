@@ -243,6 +243,79 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert!(stderr.contains("1 test suite(s) failed"), "{stderr}");
 }
 
+#[test]
+fn executable_and_test_modules_can_share_one_package_import_set() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("test-and-executable-shared-package-imports");
+    fs::create_dir_all(workspace.join("src")).expect("create executable source directory");
+    fs::create_dir_all(workspace.join("tests")).expect("create test source directory");
+    fs::create_dir_all(workspace.join("packages/foo")).expect("create foo package directory");
+    fs::write(
+        workspace.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let foo = b.addPackage(build::PackageOptions::init(
+        &"foo", fs::PathView::init(&"packages/foo"),
+    )).?;
+    let imports = [build::ModuleImport::fromPackage(
+        &"foo", foo, fs::PathView::init(&"main.nia"),
+    )];
+    let appModule = b.addModule(build::ModuleOptions::init(
+        &"app", fs::PathView::init(&"src/main.nia"),
+    ).withImports(&imports[..])).?;
+    let testModule = b.addModule(build::ModuleOptions::init(
+        &"tests", fs::PathView::init(&"tests/main.nia"),
+    ).withImports(&imports[..])).?;
+    let app = b.addExecutable(build::ExecutableOptions::init(&"app", appModule)).?;
+    let emit = b.addEmitExecutableStep(&"build", app).?;
+    _ = b.addTestSuite(&"foo-tests", testModule).?;
+    b.setDefaultStep(emit)
+}
+"#,
+    )
+    .expect("write build script");
+    fs::write(
+        workspace.join("packages/foo/main.nia"),
+        "pub fn value() i32 { 7 }\n",
+    )
+    .expect("write foo package source");
+    let source = r#"using foo;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if foo::value() != 7 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#;
+    fs::write(workspace.join("src/main.nia"), source).expect("write executable source");
+    fs::write(workspace.join("tests/main.nia"), source).expect("write test source");
+
+    let build = support::nia_command()
+        .args(["build", "--root"])
+        .arg(&workspace)
+        .output_timeout_in_session("build executable with shared package imports");
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let test = support::nia_command()
+        .args(["test", "--root"])
+        .arg(&workspace)
+        .output_timeout_in_session("test executable with shared package imports");
+    assert!(
+        test.status.success(),
+        "{}",
+        String::from_utf8_lossy(&test.stderr)
+    );
+}
+
 fn test_command(workspace: &std::path::Path) -> Command {
     let command_directory = workspace
         .parent()
