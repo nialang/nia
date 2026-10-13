@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -26,6 +26,8 @@ mod linking;
 mod output;
 mod requests;
 mod sessions;
+
+pub(crate) use output::ensure_output_directory;
 
 pub use contracts::{
     CheckedProgramWithSourceManifest, DriverConfig, ExecutableCacheEnvironment,
@@ -210,7 +212,7 @@ impl Driver {
                     }]
                 }
                 ObjectOutput::Directory(dir) => {
-                    if let Err(error) = fs::create_dir_all(&dir) {
+                    if let Err(error) = ensure_output_directory(&dir) {
                         return DriverOutput::from_error(DriverError::Io {
                             path: dir,
                             operation: "create object output directory",

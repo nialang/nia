@@ -10,6 +10,7 @@ use crate::cache_fs::{
     ensure_cache_directory, open_cache_file as open_cache_entry, open_cache_lock,
     validate_cache_namespace,
 };
+use crate::pipeline::ensure_output_directory;
 
 use nia_compat::formats::{LINK_RESULT, LINK_RESULT_CACHE};
 use nia_linker::{
@@ -76,7 +77,7 @@ impl PersistentLinkResultCache {
             .parent()
             .ok_or_else(|| io::Error::other("invalid linked executable output path"))?;
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
+            ensure_output_directory(parent)?;
         }
         let staged = staged_path(output);
         let result: io::Result<bool> = (|| {

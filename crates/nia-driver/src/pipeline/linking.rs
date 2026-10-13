@@ -11,7 +11,8 @@ use std::{
 
 use super::emission::ObjectEmissionMode;
 use super::output::{
-    TempDir, archive_member_file_name, install_streamed_output, object_file_name, write_output_file,
+    TempDir, archive_member_file_name, ensure_output_directory, install_streamed_output,
+    object_file_name, write_output_file,
 };
 use super::*;
 use nia_linker::{ArchiveOptions, LinkOptions, LinkerFlavor, SystemImportLibrary};
@@ -490,7 +491,7 @@ impl Driver {
         };
         if let Some(parent) = output.parent()
             && !parent.as_os_str().is_empty()
-            && let Err(error) = fs::create_dir_all(parent)
+            && let Err(error) = ensure_output_directory(parent)
         {
             return DriverOutput::from_error(DriverError::Io {
                 path: parent.to_path_buf(),
