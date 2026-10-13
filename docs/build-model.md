@@ -98,6 +98,12 @@ symlinked entries, and stream file contents into their BLAKE3 fingerprints.
 The walk is iterative and rejects source trees with more than one million
 regular files before publishing an identity.
 
+Manifest source-root and exclude paths are normalized as slash-separated,
+package-relative lexical paths before they enter the identity. Redundant `.`
+components and separators therefore cannot create a second identity for the
+same selection; parent, absolute, drive-prefixed, and backslash paths are
+rejected.
+
 Canonical package text escapes each namespace, name, and version component
 before joining them as `namespace/name@version`. Percent signs, delimiters,
 control bytes, and non-ASCII UTF-8 bytes use uppercase percent encoding so
