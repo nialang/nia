@@ -67,6 +67,11 @@ Readers require the complete `pid:start-time:sequence` record before checking
 liveness; malformed records are reclaimed as stale, while live owners retain
 the canonical lock path.
 
+The managed performance guard measures the same build and compiler contracts
+after cache and publication changes. A compatible controlled runner compares
+wall time, RSS, query executions, allocator traffic, and backend peak growth;
+the current development revision passed that guard before acceptance closure.
+
 The configure cache stores a validated plan together with the observations that
 produced it. A later invocation may reuse that record only after its
 observations match the current package root and the plan is decoded through
