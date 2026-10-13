@@ -221,6 +221,9 @@ points are rejected so a logical output cannot redirect publication elsewhere.
 A lock is stale only when no live owner holds it: Unix reclaimers take the
 owner's `flock`, and Windows reclaimers need an exclusive open that deletes the
 same file object on close. Neither platform reclaims a live lock by age.
+The bounded owner record is `pid:start-time:sequence`; malformed records,
+including PID-zero records, are rejected and reclaimed as stale instead of
+being treated as live process ownership.
 File and directory outputs use staged same-filesystem transactions. The
 checksummed journal and prepared marker make interrupted publication recoverable
 without guessing which partial destination is valid. Corrupt or contradictory
