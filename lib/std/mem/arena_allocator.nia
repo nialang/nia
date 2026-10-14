@@ -1,3 +1,11 @@
+// Arena allocator over a child allocator.
+//
+// Cleanup detaches the used and free chunk lists, attempts every child-block
+// release, and links each failed owner back into the free list. A later
+// `deinit` retries only those residual chunks; one failed release must not
+// hide a later chunk or erase retained capacity. Backing-chunk resizes keep
+// the original release pointer and length.
+
 using pkg::cmp;
 using pkg::error;
 using pkg::math;

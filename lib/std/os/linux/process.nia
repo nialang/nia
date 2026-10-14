@@ -1,3 +1,21 @@
+// Linux process spawn, wait, and termination.
+//
+// Spawn setup keeps all four pipe pairs in one resource transaction. Every
+// return path closes all untransferred ends; the child identity and the public
+// stdin/stdout/stderr ends transfer out before that cleanup. Because close
+// consumes a descriptor, a close error must not replace the primary spawn
+// error or turn a successfully executed but unowned child into an error.
+//
+// Handshake descriptors are consumed and closed exactly once after the
+// handshake result is known. EOF plus close failure is a setup error; an
+// earlier handshake or read error remains the primary cause.
+//
+// Failed-child reaping is part of `SpawnAttempt` ownership. A non-interrupted
+// `wait4` failure returns the spawn stage, original cause, reap cause, and pid
+// while retaining the same native attempt for the next `finish`; the original
+// spawn error is exposed only after reaping completes. `ECHILD` confirms that
+// no waitable pid owner remains and therefore completes cleanup.
+
 using pkg::os::linux::syscall;
 using pkg::os::linux::types;
 using pkg::os::linux::fd as linuxFd;

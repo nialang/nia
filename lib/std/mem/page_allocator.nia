@@ -1,3 +1,10 @@
+// Page allocator backed directly by OS mappings.
+//
+// Over-aligned allocations may expose an interior aligned pointer while
+// `mem::Block` retains the complete mapping release range for one exact
+// `free`. Validation failures after the mapping succeeds release that
+// unpublished range before returning an error.
+
 using pkg::builtin;
 using pkg::mem::allocator;
 using pkg::mem::types;

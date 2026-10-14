@@ -1,3 +1,10 @@
+// Buffered readers and writers over filesystem and standard handles.
+//
+// `FileReader` and `FileWriter` borrow their `File` owner and resolve its live
+// handle on each access. They never retain a copied descriptor that could
+// target a different object after close and descriptor reuse. Callers keep the
+// borrowed owner alive and at a stable address for the adapter lifetime.
+
 using pkg::fs;
 using pkg::io::traits;
 using pkg::os;

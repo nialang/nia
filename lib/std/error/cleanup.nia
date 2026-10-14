@@ -6,6 +6,11 @@
 // The accumulator records the first failure without allocating. Resource
 // ownership stays with each operation, so a failed owner remains available for
 // a later deinit retry.
+//
+// An owner that tracks its own liveness stays active when `deinit` returns an
+// error and is marked inactive only after cleanup succeeds, preserving a valid
+// retry path. `if value is pattern` follows the same ownership model as
+// `match`.
 
 pub struct CleanupAccumulator[Failure] {
     firstFailure: ?Failure,

@@ -59,6 +59,9 @@ pub struct RunSummary {
     skipped: usize,
 }
 
+// Runs a borrowed, caller-owned case table and returns a RunSummary. It
+// continues after failures unless `withFailFast` is selected, and performs no
+// hidden allocation or file discovery.
 pub struct Runner {
     cases: &[Case],
     failFast: bool,

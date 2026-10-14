@@ -1,3 +1,10 @@
+// Formatter, format specs, and the `Format` trait.
+//
+// Radix methods reject values other than 2, 8, 10, and 16 before writing any
+// output. Specs validate both open-enum fields before output, so unnamed
+// presentation or alignment values are rejected as invalid templates rather
+// than receiving fallback behavior.
+
 using pkg::io;
 using pkg::option;
 using pkg::result;

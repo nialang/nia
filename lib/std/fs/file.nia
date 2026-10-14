@@ -1,3 +1,16 @@
+// Filesystem operations on paths, files, and directories.
+//
+// Syscall paths encode into `os::maxPathBytes` caller-stack storage. Scalar
+// and split native paths return `PathError::TooLong` before a syscall when that
+// bound is exceeded, so no hidden allocator owner can replace the operation
+// result through fallible cleanup.
+//
+// Close treats the descriptor as consumed before the OS close result; cleanup
+// must not issue a second close after a close error. Temporary descriptors are
+// closed after their owning operation: a failed operation remains the primary
+// error; after success, the first close error is returned while every later
+// descriptor is still attempted.
+
 using pkg::fs::convert;
 using pkg::fs::options;
 using pkg::fs::path;

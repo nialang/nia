@@ -1,3 +1,14 @@
+// Allocator-explicit growable array.
+//
+// The active allocation keeps its owner in `storageBlock`, even when the
+// logical length or capacity is zero; later growth replaces that stored owner,
+// not a block inferred from the logical capacity. Replacement growth and
+// shrink retain a failed temporary replacement block for `deinit` retry
+// instead of dropping it after an old-owner release failure. Self-aliasing
+// append, insert, and replace keep failed temporary-copy blocks separately
+// from replacement storage. Borrowed views and capacities are never used to
+// recreate release ownership.
+
 using pkg::mem;
 using pkg::error;
 using pkg::slice;

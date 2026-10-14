@@ -2,6 +2,13 @@
 //
 // Encoding is bounded and deterministic. The handoff is validated again before
 // execution, so this module owns the encoded plan rather than running actions.
+//
+// Collection counts and derived dependency/input/output counts are checked
+// before narrowing to fixed-width protocol fields, and generated-file payload
+// lengths before their length prefixes are published. The byte backing lives
+// on `Build` until publication and cleanup complete. Writer, flush, sync, and
+// close errors keep the first operation error; a failed backing free is
+// retried by the next draft or `Build::deinit`.
 
 using pkg::collections;
 using pkg::fs;

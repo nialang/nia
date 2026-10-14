@@ -1,3 +1,38 @@
+// Build graph mutation: packages, modules, artifacts, steps, and validation.
+//
+// Every insertion reserves its containing list before initializing a
+// `Build`-owned pending record (`pendingPackage`, `pendingModule`,
+// `pendingExecutable`, `pendingObject`, `pendingStaticArchive`,
+// `pendingStep`). A failed field release stays attached to that slot and is
+// retried before the next matching insertion or by `Build::deinit`; no local
+// rollback defer can discard it, hide an owner, or replace a primary error.
+//
+// - Executable insertion extends the pending target to its static-archive
+//   handle-list backing. Cleanup attempts the list and both strings, retains
+//   every failed owner, and blocks the next executable insertion until retry
+//   succeeds.
+// - Module insertion owns the partial module and all appended import slots.
+//   The outer and nested lists reserve before initialization; failed import
+//   name/path cleanup retains both fields and the imports backing.
+// - Generated-file, uncacheable, aggregate, check, and emit steps use the
+//   pre-reserved, kind-correct pending step; name, output/contents, and
+//   description owners stay reachable across failed rollback cleanup.
+// - Run/test insertion appends empty argument owners to a reserved nested list
+//   before initialization. If dependency insertion fails after step commit,
+//   rollback moves the popped step into the pending slot; cleanup failure
+//   cannot replace the dependency error or discard its name and arguments.
+// - Install steps keep their step name and destination in kind-specific
+//   pending payloads; a producer-edge failure stays primary.
+// - External-command insertion reserves both nested lists and appends
+//   kind-correct argument/environment owners before string retention. A
+//   multi-producer edge failure removes all newly added edges, preserves the
+//   primary error, and moves the step into pending ownership. Emit-executable
+//   archive edges use the same explicit dependency-suffix rollback.
+//
+// Dependency validation stores its indegree and ready-list scratch on `Build`.
+// Both releases are attempted after every pass; a validation error stays
+// primary and failed frees are retried on the next pass or `Build::deinit`.
+
 using pkg::collections;
 using pkg::fs;
 using pkg::mem;

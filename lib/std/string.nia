@@ -208,6 +208,8 @@ extend String {
         self.text.appendSliceAssumeCapacity(text)
     }
 
+    // Retires any pending formatting staging owner first, so a successful
+    // transfer leaves no second allocation behind in this string.
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[char] {
         self.releaseFormatBytes(allocator).?;
         self.text.intoOwnedSlice(allocator)
@@ -306,6 +308,10 @@ extend TextFormatWriter {
         self.bytes.deinit(self.allocator)
     }
 
+    // Format and UTF-8 errors stay primary over staging cleanup failures; a
+    // cleanup allocation error is reported only when formatting succeeded. A
+    // backing whose free failed moves to `out` as a pending owner, retried
+    // before the next format and during `String::deinit`.
     fn finish(&mut self, out: &mut String, primary: ?TextFormatError) TextFormatError!() {
         if self.deinit() is error! {
             out.formatBytes = self.bytes;

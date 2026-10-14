@@ -1,4 +1,10 @@
 // Windows SDK ABI declarations shared by the platform implementation.
+//
+// `imports/windows/kernel32.def` and `bcryptprimitives.def` list exactly the
+// Win32 functions declared by the toolchain's Windows sources; the linker
+// generates their import libraries, so no platform SDK is needed. Adding or
+// removing an `extern fn` here requires the same change to its description,
+// and `cargo maintain check` enforces the match.
 pub(pkg) const invalidHandle: usize = (-1) as usize;
 pub(pkg) const stdInputHandle: i32 = -10;
 pub(pkg) const stdOutputHandle: i32 = -11;

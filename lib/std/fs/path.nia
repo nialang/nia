@@ -26,6 +26,9 @@ extend PathView {
         RelativePathView::fromPath(self)
     }
 
+    // Validates NULs, total UTF-8 length, and terminator capacity before
+    // writing. Any encoding error leaves the complete output buffer unchanged
+    // rather than publishing a partial native path.
     pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
         let byteLen = encodedPathByteLen(self.text()).?;
         if byteLen >= storage.len() {
@@ -142,6 +145,10 @@ extend Path {
         self.text.push(allocator, ch)
     }
 
+    // `component` may borrow this path's own text. Its logical offset is
+    // recorded before growth and the slice is rebuilt after any allocation
+    // move; the join commits only after the complete length is reserved and
+    // retains no temporary allocation owner.
     pub fn joinComponent(&mut self, allocator: &mut mem::Allocator, component: &[char]) mem::Error!() {
         appendComponentToString(allocator, component, &mut self.text)
     }

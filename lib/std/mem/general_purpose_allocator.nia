@@ -1,3 +1,33 @@
+// Lightweight single-owner general-purpose allocator over a child allocator.
+//
+// `deinit` returns `mem::Error!()`. Live user allocations are reported as
+// `Error::Leak` after backing cleanup completes; that diagnostic means the
+// allocator is empty and needs no retry. Pending rollback storage and empty
+// slabs are not user leaks. Cleanup independently walks small pages and large
+// headers, then releases any pending rollback block; every independent release
+// is attempted and the first release error takes priority. Each failed owner
+// returns to its matching state slot, so capacity/used/emptiness stay truthful
+// and a retry never revisits released owner classes. Failed owners and a
+// detected leak remain on the allocator for cleanup retry; do not resume
+// allocation during that retry. Once cleanup succeeds, a previously detected
+// leak is reported. `deinitWithoutLeakCheck` suppresses the leak diagnostic,
+// including one remembered from a failed checked teardown. Deferred cleanup
+// uses `defer allocator.deinit().?;`, with `IntoError` converting the error.
+//
+// Large allocations validate the backing base plus header offset before
+// publishing metadata, rejecting malformed child addresses. If malformed
+// metadata is rejected but the rollback release fails, the child block is kept
+// pending; later allocation or `deinit` retries it, and it stays visible in
+// capacity/emptiness accounting.
+//
+// Design boundary: diagnostic checks (allocation footers, checksums, canaries,
+// freed-memory poisoning, stack traces, no-reuse, thread-aware metadata) would
+// impose the wrong cost and synchronization contract on this allocator. A
+// diagnostic allocator belongs in a separate type that wraps the `Allocator`
+// boundary, preserves complete `mem::Error` cleanup propagation, and adds those
+// checks incrementally without a status-to-error adapter or a weaker cleanup
+// retry contract.
+
 using pkg::cmp;
 using pkg::error;
 using pkg::math;
