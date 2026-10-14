@@ -1,0 +1,242 @@
+// Executable resolution for Windows spawning.
+//
+// `CreateProcessW` with no application name resolves the first command-line
+// token itself: it searches the parent's image directory before the current
+// directory, misreads `/`-separated relative paths, ignores the child's
+// requested working directory and environment, and falls back to system
+// directories. Spawning therefore resolves the program explicitly and passes
+// the result as the application name, with the same rules as the POSIX
+// providers:
+//
+// - a path containing a separator or drive names one file, relative to the
+//   child's working directory when one is requested;
+// - a bare name is searched in the `PATH` of the child's environment, where
+//   an empty entry names the child's working directory. A name without an
+//   extension also tries each `PATHEXT` extension, as the build host's probe
+//   resolver does.
+
+using pkg::os::windows::bindings::{
+    fileAttributeDirectory, invalidFileAttributes, GetFileAttributesW,
+};
+using pkg::os::windows::types::{maxPathBytes, Errno};
+using pkg::os::windows::encoding::{cStringLen, utf8ToWide};
+using pkg::os::windows::path::normalizeSeparators;
+
+const defaultPathExt: &[u8] = &b".COM;.EXE;.BAT;.CMD";
+
+/// Writes the NUL-terminated application path for `program` into `storage`.
+pub(pkg) fn resolveExecutable(
+    program: &u8,
+    envp: &&u8,
+    cwd: ?&u8,
+    storage: &mut [u16],
+) Errno!&u16 {
+    let length = cStringLen(program);
+    if length == 0 {
+        return .NoEntry!;
+    }
+    let name = &program[0..length];
+    if hasPathComponent(name) {
+        let mut candidate: [u8; maxPathBytes] = [0; maxPathBytes];
+        let mut cursor: usize = 0;
+        if not isAbsolute(name) and cwd is ?directory {
+            appendDirectory(&mut candidate[..], &mut cursor, directory).?;
+        }
+        appendBytes(&mut candidate[..], &mut cursor, name).?;
+        return wideCandidate(&candidate[..], cursor, storage);
+    }
+
+    let searchPath = match environmentValue(envp, &b"PATH") {
+        ?value => value,
+        null => return .NoEntry!,
+    };
+    let extensions = if hasExtension(name) {
+        &b""[..]
+    } else {
+        match environmentValue(envp, &b"PATHEXT") {
+            ?value => value,
+            null => defaultPathExt,
+        }
+    };
+    let mut segmentStart: usize = 0;
+    loop {
+        let mut segmentEnd = segmentStart;
+        while segmentEnd < searchPath.len() and searchPath[segmentEnd] != b';' {
+            segmentEnd += 1;
+        }
+        let directory = unquote(&searchPath[segmentStart..segmentEnd]);
+        if findInDirectory(directory, name, extensions, cwd, storage).? {
+            return !&storage[0];
+        }
+        if segmentEnd == searchPath.len() {
+            break;
+        }
+        segmentStart = segmentEnd + 1;
+    }
+    .NoEntry!
+}
+
+// Tries `directory\name`, then `directory\name` plus each extension. An empty
+// directory is the child's working directory.
+fn findInDirectory(
+    directory: &[u8],
+    name: &[u8],
+    extensions: &[u8],
+    cwd: ?&u8,
+    storage: &mut [u16],
+) Errno!bool {
+    let mut candidate: [u8; maxPathBytes] = [0; maxPathBytes];
+    let mut cursor: usize = 0;
+    if directory.len() == 0 {
+        if cwd is ?value {
+            appendDirectory(&mut candidate[..], &mut cursor, value).?;
+        }
+    } else {
+        appendBytes(&mut candidate[..], &mut cursor, directory).?;
+        appendSeparator(&mut candidate[..], &mut cursor).?;
+    }
+    appendBytes(&mut candidate[..], &mut cursor, name).?;
+    if isFile(&candidate[..], cursor, storage).? {
+        return !true;
+    }
+    let base = cursor;
+    let mut extensionStart: usize = 0;
+    while extensionStart < extensions.len() {
+        let mut extensionEnd = extensionStart;
+        while extensionEnd < extensions.len() and extensions[extensionEnd] != b';' {
+            extensionEnd += 1;
+        }
+        if extensionEnd > extensionStart {
+            cursor = base;
+            appendBytes(&mut candidate[..], &mut cursor, &extensions[extensionStart..extensionEnd]).?;
+            if isFile(&candidate[..], cursor, storage).? {
+                return !true;
+            }
+        }
+        extensionStart = extensionEnd + 1;
+    }
+    !false
+}
+
+fn isFile(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!bool {
+    let path = wideCandidate(candidate, length, storage).?;
+    let attributes = GetFileAttributesW(path);
+    !(attributes != invalidFileAttributes and (attributes & fileAttributeDirectory) == 0)
+}
+
+fn wideCandidate(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!&u16 {
+    if length >= candidate.len() {
+        return .TooLong!;
+    }
+    let path = utf8ToWide(&candidate[0], storage).?;
+    normalizeSeparators(storage);
+    !path
+}
+
+fn appendDirectory(candidate: &mut [u8], cursor: &mut usize, directory: &u8) Errno!() {
+    let length = cStringLen(directory);
+    appendBytes(candidate, cursor, &directory[0..length]).?;
+    if length != 0 {
+        appendSeparator(candidate, cursor).?;
+    }
+    !()
+}
+
+fn appendSeparator(candidate: &mut [u8], cursor: &mut usize) Errno!() {
+    if cursor.* != 0 and isSeparator(candidate[cursor.* - 1]) {
+        return !();
+    }
+    appendBytes(candidate, cursor, &b"\x5c")
+}
+
+// Leaves one byte for the terminator that `utf8ToWide` reads.
+fn appendBytes(candidate: &mut [u8], cursor: &mut usize, bytes: &[u8]) Errno!() {
+    if bytes.len() >= candidate.len() - cursor.* {
+        return .TooLong!;
+    }
+    let mut index: usize = 0;
+    while index < bytes.len() {
+        if bytes[index] == 0 {
+            return .Invalid!;
+        }
+        candidate[cursor.*] = bytes[index];
+        cursor.* += 1;
+        index += 1;
+    }
+    candidate[cursor.*] = 0;
+    !()
+}
+
+fn environmentValue(envp: &&u8, name: &[u8]) ?&[u8] {
+    if envp == 0usize as &&u8 {
+        return null;
+    }
+    let pointerSize = pkg::builtin::size[&u8]();
+    let mut entry = envp;
+    while entry.* != 0usize as &u8 {
+        let text = entry.*;
+        let length = cStringLen(text);
+        // Windows environment names are case-insensitive (`Path`, `PATH`).
+        if length > name.len() and text[name.len()] == b'=' and asciiEqualIgnoringCase(&text[0..name.len()], name) {
+            return ?&text[name.len() + 1..length];
+        }
+        entry = ((entry as usize) + pointerSize) as &&u8;
+    }
+    null
+}
+
+fn asciiEqualIgnoringCase(left: &[u8], right: &[u8]) bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index: usize = 0;
+    while index < left.len() {
+        if asciiUpper(left[index]) != asciiUpper(right[index]) {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+fn asciiUpper(byte: u8) u8 {
+    if byte >= b'a' and byte <= b'z' { byte - 32 } else { byte }
+}
+
+fn unquote(entry: &[u8]) &[u8] {
+    if entry.len() >= 2 and entry[0] == b'"' and entry[entry.len() - 1] == b'"' {
+        &entry[1..entry.len() - 1]
+    } else {
+        entry
+    }
+}
+
+fn isSeparator(byte: u8) bool {
+    byte == b'/' or byte == 92
+}
+
+fn hasPathComponent(name: &[u8]) bool {
+    let mut index: usize = 0;
+    while index < name.len() {
+        if isSeparator(name[index]) or name[index] == b':' {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+fn isAbsolute(name: &[u8]) bool {
+    isSeparator(name[0]) or (name.len() > 1 and name[1] == b':')
+}
+
+fn hasExtension(name: &[u8]) bool {
+    let mut index: usize = 0;
+    while index < name.len() {
+        if name[index] == b'.' {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}

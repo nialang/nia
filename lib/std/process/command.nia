@@ -30,6 +30,10 @@ using types::{
 };
 
 extend Command {
+    /// Describes a program to run. A path containing a separator names that
+    /// file, relative to the child's working directory. A bare name is
+    /// searched in the `PATH` of the child's environment; on Windows a name
+    /// without an extension also tries each `PATHEXT` extension.
     pub fn init(path: fs::PathView, env: Env) Command {
         .{
             path,

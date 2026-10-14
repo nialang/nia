@@ -1,3 +1,4 @@
+pub(pkg) module executable;
 pub(pkg) module stdio;
 
 using pkg::os::windows::bindings::{
@@ -12,6 +13,7 @@ using pkg::os::windows::types::{Errno, ProcessId, WaitStatus, SpawnAttempt, Spaw
 using pkg::os::windows::error::{errno, lastError};
 using pkg::os::windows::encoding::utf8ToWide;
 using pkg::os::windows::command::{appendCommandArgument, EnvironmentBlock};
+using pkg::os::windows::process::executable::resolveExecutable;
 using pkg::os::windows::process::stdio::{prepareStream, closeHandle, HandleList};
 
 const signalTerm: i32 = 15;
@@ -56,6 +58,12 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAtte
             return .failure(.Cwd(.NotDir));
         }
     }
+
+    let mut applicationStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let application = match resolveExecutable(path, envp, options.cwd(), &mut applicationStorage[..]) {
+        !value => value,
+        error! => return .failure(.Exec(error)),
+    };
 
     let mut stdin = match prepareStream(options.stdin(), stdInputHandle, true) {
         !value => value,
@@ -107,7 +115,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAtte
     };
     let flags = createUnicodeEnvironment | if count == 0 { 0 } else { extendedStartupInfoPresent };
     if CreateProcessW(
-        0usize as &u16, &mut commandStorage[0], 0, 0, if count == 0 { 0 } else { 1 },
+        application, &mut commandStorage[0], 0, 0, if count == 0 { 0 } else { 1 },
         flags, environment.ptr(), cwd, &mut startup.base, &mut info,
     ) == 0 {
         return .failure(.Exec(lastError()));

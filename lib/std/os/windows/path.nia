@@ -48,7 +48,7 @@ fn appendPath(storage: &mut [u16], length: usize, child: &u8) Errno!&u16 {
     !&storage[0]
 }
 
-fn normalizeSeparators(storage: &mut [u16]) () {
+pub(pkg) fn normalizeSeparators(storage: &mut [u16]) () {
     let mut index: usize = 0;
     while index < storage.len() and storage[index] != 0 {
         if storage[index] == 47 { storage[index] = 92; }
