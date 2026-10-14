@@ -65,7 +65,7 @@ impl LocalResolver<'_> {
         else {
             return false;
         };
-        ty.is_none() || self.expr_is_known_local(expr)
+        ty.is_none() || self.expr_names_value(expr)
     }
 
     fn bracket_suffix_is_unambiguous_index(&self, args: &[nia_ast::BracketArg]) -> bool {
@@ -79,11 +79,37 @@ impl LocalResolver<'_> {
         )
     }
 
-    fn expr_is_known_local(&self, expr: &Expr) -> bool {
-        let ExprKind::Ident(name) = &expr.kind else {
-            return false;
-        };
-        self.lookup_local(name).is_some() || self.lookup_static(name).is_some()
+    /// Reports whether an argument that also parses as a type names only a
+    /// value: a lexical local or static, or a module value that value
+    /// resolution found and no type shares. Such an argument can only be an
+    /// index, so its value use must be recorded.
+    fn expr_names_value(&self, expr: &Expr) -> bool {
+        let is_type_candidate = self
+            .values
+            .node_qualified_type_prefixes
+            .contains_key(&expr.node_key)
+            || self
+                .values
+                .node_imported_type_prefixes
+                .contains_key(&expr.node_key);
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                self.lookup_local(name).is_some()
+                    || self.lookup_static(name).is_some()
+                    || (matches!(
+                        self.values.node_names.get(&expr.node_key),
+                        Some(ValueNameResolution::Def(_) | ValueNameResolution::External(_))
+                    ) && !is_type_candidate
+                        && self.defs.module_scope.types.get(name).is_none())
+            }
+            ExprKind::Qualified { .. } => {
+                self.values
+                    .node_qualified_values
+                    .contains_key(&expr.node_key)
+                    && !is_type_candidate
+            }
+            _ => false,
+        }
     }
 
     fn callee_is_indexable_expr(&self, callee: &Expr) -> bool {

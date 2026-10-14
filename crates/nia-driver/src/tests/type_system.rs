@@ -1918,3 +1918,42 @@ pub struct Point {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn module_values_index_ambiguous_bracket_suffixes() {
+    let root = temp_dir("module_values_index_ambiguous_bracket_suffixes");
+    // Every argument here also parses as a type and every callee could take
+    // generic arguments, so only the argument's value resolution makes the
+    // suffix an index. Parentheses keep the argument an expression.
+    write(
+        &root.join("main.nia"),
+        r#"
+struct P { arr: [i32; 4] }
+struct M(i32)
+
+static mut slots: [i32; 4] = [0; 4];
+static mut count: usize = 1;
+const N: usize = 2;
+static mut holders: [P; 2] = [P { arr: [0; 4] }; 2];
+
+fn id[T](value: T) T { value }
+
+fn main() i32 {
+    let mut local = P { arr: [0; 4] };
+    let i = 0usize;
+    slots[count] = 1;
+    slots[count] += 1;
+    local.arr[count] = slots[N];
+    holders[count].arr[N] = 3;
+    let m = id[M](M(1));
+    let pair = id[(i32, i32)]((1, 2));
+    _ = m;
+    _ = pair;
+    slots[(count)] + local.arr[(i)] + id[(i32)](0)
+}
+"#,
+    );
+
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
