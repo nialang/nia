@@ -504,6 +504,73 @@ using entry::a; fn main() {}"#,
 }
 
 #[test]
+fn self_referential_reexports_report_unresolved_names() {
+    // A re-export whose source names the re-exported item itself, directly,
+    // through an alias, through a wildcard, or across two facades, can never
+    // discover a module. Loading must stop and leave one name diagnostic.
+    for (index, (main, a, b)) in [
+        (
+            "pub using x;
+fn main() {}",
+            "",
+            "",
+        ),
+        (
+            "using entry::impl; pub using impl;
+fn main() {}",
+            "",
+            "",
+        ),
+        (
+            "using entry::impl as q; pub using q;
+fn main() {}",
+            "",
+            "",
+        ),
+        (
+            "fn x() {} pub using x;
+fn main() {}",
+            "",
+            "",
+        ),
+        (
+            "pub using x::*;
+fn main() {}",
+            "",
+            "",
+        ),
+        (
+            "module a;
+module b;
+using entry::a::m::z;
+fn main() {}",
+            "using entry::b::m;
+pub using m;",
+            "using entry::a::m;
+pub using m;",
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let root = temp_dir(&format!("self_referential_reexports_{index}"));
+        write(&root.join("main.nia"), main);
+        write(&root.join("a.nia"), a);
+        write(&root.join("b.nia"), b);
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(
+            !program.diagnostics.is_empty()
+                && program.diagnostics.iter().all(|diagnostic| {
+                    diagnostic.diagnostic.code.as_str()
+                        == nia_diagnostic::codes::NAME_RESOLUTION.code
+                }),
+            "{main}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
 fn builtin_module_exposes_target_const_values() {
     let root = temp_dir("builtin_module_exposes_target_const_values");
     write(

@@ -596,6 +596,35 @@ pub(crate) fn add_visible_declared_module_path(
     segments: &[SymbolId],
     processing: UsedModulePathProcessing,
 ) -> TraversalResult<Option<nia_imports::ModuleId>> {
+    add_visible_declared_module_path_following(
+        db,
+        graph,
+        accessing_module,
+        start,
+        segments,
+        processing,
+        &mut Vec::new(),
+    )
+}
+
+/// Re-export facades whose source path is being followed, innermost last.
+///
+/// A `pub using` source can name the re-exported item itself (`pub using x;`
+/// or a wildcard), and facades can re-export each other. Following a facade
+/// name that is already in progress cannot discover a new module, so the
+/// traversal stops there and leaves the unresolved name to public-surface
+/// diagnostics.
+pub(crate) type ReexportStack = Vec<(nia_imports::ModuleId, SymbolId)>;
+
+pub(crate) fn add_visible_declared_module_path_following(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    accessing_module: nia_imports::ModuleId,
+    start: nia_imports::ModuleId,
+    segments: &[SymbolId],
+    processing: UsedModulePathProcessing,
+    reexports: &mut ReexportStack,
+) -> TraversalResult<Option<nia_imports::ModuleId>> {
     let mut current = start;
     if processing == UsedModulePathProcessing::Always && segments.is_empty() {
         mark_process_used_paths_and_process(db, graph, current)?;
@@ -632,8 +661,14 @@ pub(crate) fn add_visible_declared_module_path(
             let reexport_facade = current;
             let source_processing = (processing == UsedModulePathProcessing::Never)
                 .then_some(UsedModulePathProcessing::Never);
-            let Some(reexport_source) =
-                add_public_reexport_source_module(db, graph, current, segment, source_processing)?
+            let Some(reexport_source) = add_public_reexport_source_module(
+                db,
+                graph,
+                current,
+                segment,
+                source_processing,
+                reexports,
+            )?
             else {
                 match processing {
                     UsedModulePathProcessing::Always => {
