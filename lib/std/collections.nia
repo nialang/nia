@@ -3,6 +3,11 @@
 // Collection values are independent of the allocator that manages their
 // storage. Operations that grow, clone, transfer, or release data receive that
 // allocator at the call boundary.
+//
+// Fallible `deinit` attempts every independently owned allocation and retains
+// each one whose release fails. A partially completed `deinit` leaves the value
+// in cleanup-only state: retry `deinit` with the same allocator rather than
+// using the value again.
 
 pub(pkg) module array_list;
 pub(pkg) module hash_map;

@@ -1,3 +1,20 @@
+// The `Allocator` trait and its default operations.
+//
+// `allocSlice` returns a `SliceAllocation[T]` owner instead of a raw slice.
+// `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
+// `Block` even for a zero-length view, and `ArrayList`/`String` owner-transfer
+// APIs consume that typed owner. Raw-slice ownership constructors are
+// intentionally absent.
+//
+// Default `realloc` reports a typed `ReallocError`. When both the old and the
+// replacement releases fail, `Rollback` carries the replacement block and its
+// cleanup error so callers can retry the still-owned allocations. This
+// owner-carrying error has no generic process-exit conversion; callers match
+// it and retire the original and replacement owners explicitly.
+//
+// A successful remap changes only a block's logical layout. Default and
+// concrete remap paths preserve the original release pointer and length.
+
 using pkg::mem::types;
 using pkg::result;
 using pkg::slice;

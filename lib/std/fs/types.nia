@@ -107,7 +107,9 @@ pub struct DirEntry {
     size: u64,
 }
 
-// DirIterator borrows the directory owner and caller-provided buffer.
+// DirIterator borrows the directory owner and caller-provided buffer. It
+// resolves the owner's live handle rather than keeping a copied descriptor, so
+// the borrowed Dir must stay alive and at a stable address.
 // Call close (usually with defer) to release enumeration resources on early exit.
 pub struct DirIterator {
     dir: &Dir,

@@ -3,6 +3,10 @@
 // Allocator-backed values retain no implicit destructor. Release uses the
 // allocator that produced the storage, and callable views remain borrowed
 // from their `Allocated` or `CallableAllocation` owner.
+//
+// Library-wide, ownership-transfer constructors consume an existing owner,
+// while copying constructors accept an allocator and preserve typed allocation
+// or validation failures.
 
 pub(pkg) module arena_allocator;
 pub(pkg) module allocation;
@@ -26,6 +30,11 @@ pub using fixed_buffer_allocator::FixedBufferAllocator;
 pub using general_purpose_allocator::GeneralPurposeAllocator;
 pub using page_allocator::PageAllocator;
 
+// Public construction boundary for allocator-backed typed owners. `Allocated`
+// and `CallableAllocation` keep the returned Block layout and complete release
+// range across callable transfer, including non-empty Blocks for zero-sized
+// values; successful deinit and transfer clear that state, so cleanup is
+// single-shot.
 pub fn allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
 where T: Sized
 {

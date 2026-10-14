@@ -1,4 +1,8 @@
 // Error propagation builtin trait.
+//
+// Errors retain their domain cause. `IntoError` is for reviewed, infallible
+// propagation; contextual operation, path, subject, and cleanup information is
+// attached by the owning module.
 
 @[builtin("IntoError")]
 pub trait IntoError[Target] {

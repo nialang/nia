@@ -1,3 +1,9 @@
+// Buffered reader and writer adapters.
+//
+// Like every generic I/O adapter, these preserve the wrapped reader or
+// writer's invalid-transfer error identity and reject impossible byte counts
+// before mutating state.
+
 using pkg::io::traits;
 using pkg::slice;
 

@@ -1,3 +1,11 @@
+// Private runtime package injected only when Nia startup is selected; bare
+// compilation does not inject it.
+//
+// `main` owns the user entry contract. Platform startup modules prepare
+// `process::Init` and terminate the process. Architecture entry stubs and
+// compiler-required native helpers have separate modules; required helpers are
+// retained by their source module and definition, even without a Nia call site.
+
 pub(pkg) module start;
 pub(pkg) module builtins;
 pub(pkg) module main;

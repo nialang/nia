@@ -2,6 +2,12 @@
 //
 // Common value types and entry points are re-exported here for concise
 // `std::name` paths. Domain-specific APIs remain under their modules.
+//
+// Public submodule facades re-export the supported API; provider and
+// implementation modules stay package-private. Importing a facade does not by
+// itself select every provider. Callback parameters are borrowed for the
+// duration of a call unless an API explicitly returns an owner such as
+// `mem::CallableAllocation`.
 
 pub module atomic;
 pub module builtin;

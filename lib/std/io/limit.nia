@@ -1,3 +1,9 @@
+// Byte-count limits for readers.
+//
+// Like every generic I/O adapter, the limited reader preserves the wrapped
+// reader's invalid-transfer error identity and rejects impossible byte counts
+// before mutating state.
+
 using pkg::io::traits;
 
 using traits::Reader;

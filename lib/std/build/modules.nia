@@ -2,6 +2,12 @@
 //
 // Borrowed options are copied into owned package/module records. Generated
 // module roots stay build-relative and every import owns its name and path.
+//
+// Module imports are module-level declarations. `Build::addTestSuite` uses the
+// same import model as an ordinary executable; there is no separate test
+// import namespace. When an application root and a test root both use a
+// package, the same `ModuleImport` descriptors may be reused in both
+// `ModuleOptions`, while each root still declares its own visibility.
 
 using pkg::fs;
 using pkg::mem;
