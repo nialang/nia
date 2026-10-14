@@ -19,7 +19,7 @@ extern struct NA { p: Pt, z: f32 }
 extern struct AR { v: [f32; 3] }
 extern struct BQ { a: u8, b: i64 }
 extern struct US { a: u16, b: u8 }
-extern struct FP { f: &fn(i32) (), n: i32 }
+extern struct FP { f: &extern fn(i32) (), n: i32 }
 
 extern fn r_i8() i8;
 extern fn r_u8() u8;
@@ -80,7 +80,7 @@ extern fn t_sse8(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, h: f64,
 extern fn t_mixed_exhaust(a: i64, b: i64, c: i64, d: i64, e: i64, v: FD, f: i64) ();
 extern fn t_var(first: i32, ...) i32;
 
-fn callback(value: i32) () {
+extern fn callback(value: i32) () {
     _ = value;
 }
 
