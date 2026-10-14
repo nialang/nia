@@ -511,7 +511,10 @@ fn bracket_arg(p: &mut Parser<'_>) -> Option<Parsed> {
         let type_errors = p.errors_len();
         let ty = types::type_(p);
         let type_events = ty.as_ref().map(|ty| p.snapshot(ty, type_checkpoint));
-        let type_end = ty.as_ref().map(|ty| ty.span.end);
+        // Compare readings by the tokens they consumed, not by node spans: a
+        // parenthesized expression's span is its inner expression, while a
+        // parenthesized type's span includes the parentheses.
+        let type_end = ty.as_ref().map(|_| p.previous_end());
         p.rewind(type_checkpoint);
         p.truncate_errors(type_errors);
 
@@ -521,13 +524,13 @@ fn bracket_arg(p: &mut Parser<'_>) -> Option<Parsed> {
         } else {
             expr_until_tokens(p, &[TokenKind::Comma, TokenKind::RBracket])
         };
-        let expr_end = expr.as_ref().map(|expr| expr.span.end);
+        let expr_end = expr.as_ref().map(|_| p.previous_end());
         if expr.is_none() || expr_end.is_some_and(|expr_end| Some(expr_end) < type_end) {
             p.rewind(type_checkpoint);
             p.truncate_errors(expr_errors);
             expr = None;
         }
-        let end = match (type_end, expr.as_ref().map(|expr| expr.span.end)) {
+        let end = match (type_end, expr_end.filter(|_| expr.is_some())) {
             (Some(type_end), Some(expr_end)) => type_end.max(expr_end),
             (Some(type_end), None) => type_end,
             (None, Some(expr_end)) => expr_end,
