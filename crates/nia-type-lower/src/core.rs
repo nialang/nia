@@ -168,12 +168,39 @@ impl TypeLowerer<'_, '_> {
                 let Some(type_segment) = type_name_segment(segments) else {
                     return self.intern(TyKind::Error);
                 };
-                match self
+                let resolution = self
                     .resolved
                     .node_type_names
                     .get(ty.node_key.site())
-                    .copied()
+                    .copied();
+                // Only a nominal or built-in trait path interprets the final
+                // segment's arguments. Every other argument is still type
+                // syntax that later phases read, so lower it here instead of
+                // leaving its node without a lowered entry.
+                let consumes_type_segment_args = matches!(
+                    resolution,
+                    Some(
+                        TypeNameResolution::BuiltinTrait(_)
+                            | TypeNameResolution::Def(_)
+                            | TypeNameResolution::External(_)
+                    )
+                );
+                for segment in segments {
+                    if !(consumes_type_segment_args && std::ptr::eq(segment, type_segment)) {
+                        self.lower_unconsumed_path_args(segment);
+                    }
+                }
+                if let Some(message) =
+                    non_generic_path_args_message(resolution, type_segment, context)
                 {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_NORMALIZATION,
+                        ty.span,
+                        message,
+                    ));
+                    return self.intern(TyKind::Error);
+                }
+                match resolution {
                     Some(TypeNameResolution::Primitive(primitive)) => {
                         self.lower_primitive_type(primitive)
                     }
@@ -222,6 +249,10 @@ impl TypeLowerer<'_, '_> {
                 let self_ty = self.lower_type_in_context(ty, TypeContext::Value);
                 let trait_ty = self.lower_type_in_context(trait_ref, TypeContext::TraitBound);
                 let trait_ty = self.normalize_if_known(trait_ty);
+                if matches!(self.type_store.get(trait_ty), Some(TyKind::Error)) {
+                    // The trait path already carries its root diagnostic.
+                    return self.intern(TyKind::Error);
+                }
                 let Some((trait_id, args, const_args)) = self.projection_trait_id(trait_ty) else {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_NORMALIZATION,
@@ -480,6 +511,26 @@ impl TypeLowerer<'_, '_> {
         })
     }
 
+    /// Lowers the type syntax inside path arguments that the path's own
+    /// resolution does not interpret, without diagnosing arity or binding
+    /// names: the path itself already carries the root diagnostic.
+    fn lower_unconsumed_path_args(&mut self, segment: &TypePathSegment) {
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) | TypeArg::TypeOrConst { ty: arg_ty, .. } => {
+                    self.lower_type_in_context(arg_ty, TypeContext::Value);
+                }
+                TypeArg::AssocBinding { key, ty, .. } => {
+                    if let AssocBindingKey::Projection(projection) = key {
+                        self.lower_type_in_context(projection, TypeContext::Value);
+                    }
+                    self.lower_type_in_context(ty, TypeContext::Value);
+                }
+                TypeArg::Const(_) => {}
+            }
+        }
+    }
+
     pub(crate) fn lower_type_or_const_type_arg(&mut self, ty: &TypeRef) -> InternedTyId {
         if matches!(ty.kind, TypeKind::Path { .. })
             && !self
@@ -495,5 +546,30 @@ impl TypeLowerer<'_, '_> {
             return self.intern(TyKind::Error);
         }
         self.lower_type_in_context(ty, TypeContext::Value)
+    }
+}
+
+/// Rejects generic arguments on path forms that have no generic parameters,
+/// and non-trait names in trait-bound position.
+fn non_generic_path_args_message(
+    resolution: Option<TypeNameResolution>,
+    segment: &TypePathSegment,
+    context: TypeContext,
+) -> Option<&'static str> {
+    let has_args = !segment.args.is_empty();
+    match resolution {
+        Some(TypeNameResolution::Primitive(_)) if context == TypeContext::TraitBound => {
+            Some("trait bound must name a trait, not a primitive type")
+        }
+        Some(TypeNameResolution::GenericParam) if context == TypeContext::TraitBound => {
+            Some("trait bound must name a trait, not a generic parameter")
+        }
+        Some(TypeNameResolution::Primitive(_)) if has_args => {
+            Some("primitive types do not take generic arguments")
+        }
+        Some(TypeNameResolution::GenericParam) if has_args => {
+            Some("generic parameters do not take generic arguments")
+        }
+        _ => None,
     }
 }

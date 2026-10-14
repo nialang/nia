@@ -540,6 +540,8 @@ fn impl_trait_id(
             Some(TraitId::Source(def_id))
         }
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
+        // Type lowering already reported why this trait path has no type.
+        Some(TyKind::Error) => None,
         _ => {
             diagnostics.push(
                 Diagnostic::user_error(
@@ -785,6 +787,8 @@ fn supertrait_id(
             Some(TraitId::Source(def_id))
         }
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
+        // Type lowering already reported why this trait path has no type.
+        Some(TyKind::Error) => None,
         _ => {
             diagnostics.push(
                 Diagnostic::user_error(

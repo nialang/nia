@@ -312,6 +312,8 @@ impl<'a> TypeLowerer<'a, '_> {
                         trait_const_args,
                         ..
                     }) => (trait_id, trait_args, trait_const_args),
+                    // The trait path already carries its root diagnostic.
+                    Some(TyKind::Error) => return None,
                     _ => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_NORMALIZATION,
@@ -497,9 +499,12 @@ impl<'a> TypeLowerer<'a, '_> {
     }
 
     pub(crate) fn is_trait_def(&mut self, def_id: GlobalDefId) -> bool {
+        self.def_kind(def_id) == Some(nia_defs::DefKind::Trait)
+    }
+
+    pub(crate) fn def_kind(&mut self, def_id: GlobalDefId) -> Option<nia_defs::DefKind> {
         self.defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id).map(|def| def.kind))
-            == Some(nia_defs::DefKind::Trait)
     }
 
     pub(crate) fn trait_has_associated_type(
