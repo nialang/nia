@@ -98,7 +98,26 @@ impl TypeLowerer<'_, '_> {
     }
 
     pub(crate) fn lower_trait_bound(&mut self, bound: &nia_ast::TypeRef) {
-        self.lower_type_in_context(bound, TypeContext::TraitBound);
+        let lowered = self.lower_type_in_context(bound, TypeContext::TraitBound);
+        // Supertraits, implementations, and projections validate their trait
+        // after normalization; a `where` bound has no later owner, so a
+        // struct, union, or enum must be rejected here. Aliases may still name
+        // traits or callable interfaces and are left to normalization.
+        if let Some(TyKind::Nominal { def_id, .. }) = self.type_store.get(lowered).cloned()
+            && matches!(
+                self.def_kind(def_id),
+                Some(
+                    nia_defs::DefKind::Struct | nia_defs::DefKind::Union | nia_defs::DefKind::Enum
+                )
+            )
+            && !bound_has_assoc_bindings(bound)
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_NORMALIZATION,
+                bound.span,
+                "trait bound must name a trait, not a struct, union, or enum",
+            ));
+        }
     }
 
     pub(crate) fn lower_array_len(&mut self, len: &ArrayLen) -> ArrayLenTy {
@@ -229,6 +248,20 @@ impl TypeLowerer<'_, '_> {
             .get(&module_id)
             .and_then(|defs| defs.as_deref())
     }
+}
+
+/// Associated-type bindings on a non-trait bound already report that they
+/// require a trait, which is the more specific diagnostic.
+fn bound_has_assoc_bindings(bound: &nia_ast::TypeRef) -> bool {
+    let nia_ast::TypeKind::Path { segments } = &bound.kind else {
+        return false;
+    };
+    segments.last().is_some_and(|segment| {
+        segment
+            .args
+            .iter()
+            .any(|arg| matches!(arg, nia_ast::TypeArg::AssocBinding { .. }))
+    })
 }
 
 #[cfg(test)]

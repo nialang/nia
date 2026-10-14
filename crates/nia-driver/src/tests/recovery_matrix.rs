@@ -171,6 +171,77 @@ fn recovery_owner_boundaries_keep_independent_body_errors() {
 }
 
 #[test]
+fn unresolved_and_non_trait_bounds_report_one_root_without_internal_errors() {
+    let mut failures = Vec::new();
+    for (declaration, root) in [
+        (
+            "fn inspect[T](value: &T) () where T: Mapper[C = i32] { _ = value; _ = need(true); }",
+            "unknown type `Mapper`",
+        ),
+        (
+            "fn inspect[T](value: &T) () where T: Mapper[i32, bool, C = i32, D = &bool] { _ = value; _ = need(true); }",
+            "unknown type `Mapper`",
+        ),
+        (
+            "struct Holder[T] { value: T } extend[T] Holder[T] where T: Mapper[C = i32] { fn inspect(&self) () { _ = need(true); } }",
+            "unknown type `Mapper`",
+        ),
+        (
+            "trait Tr: Mapper[C = i32] {} fn inspect() () { _ = need(true); }",
+            "unknown type `Mapper`",
+        ),
+        (
+            "fn inspect[T, U](value: &T) () where T: U[C = i32] { _ = value; _ = need(true); }",
+            "trait bound must name a trait, not a generic parameter",
+        ),
+        (
+            "fn inspect[T](value: &T) () where T: i32[C = i32] { _ = value; _ = need(true); }",
+            "trait bound must name a trait, not a primitive type",
+        ),
+        (
+            "struct S { x: i32 } fn inspect[T](value: &T) () where T: S { _ = value; _ = need(true); }",
+            "trait bound must name a trait, not a struct, union, or enum",
+        ),
+        (
+            "fn inspect(value: i32[u8]) () { _ = value; _ = need(true); }",
+            "primitive types do not take generic arguments",
+        ),
+        (
+            "fn inspect[T](value: T[u8]) () { _ = value; _ = need(true); }",
+            "generic parameters do not take generic arguments",
+        ),
+    ] {
+        let source = format!("const fn need(value: i32) i32 {{ value }}\n{declaration}\n");
+        let driver = test_driver();
+        driver
+            .set_source("main.nia", source.clone())
+            .expect("source");
+        let checked =
+            checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
+        let summaries = checked
+            .diagnostics
+            .iter()
+            .map(|item| item.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        if summaries.len() != 2
+            || summaries
+                .iter()
+                .filter(|summary| summary.contains(root))
+                .count()
+                != 1
+            || summaries
+                .iter()
+                .filter(|summary| summary.contains("expected i32, got bool"))
+                .count()
+                != 1
+        {
+            failures.push(format!("{declaration}: {summaries:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn global_recovery_keeps_independent_initializer_errors() {
     for kind in ["const", "static"] {
         for declaration in [
