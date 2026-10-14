@@ -230,3 +230,51 @@ fn c_and_nia_exchange_values_on_every_linux_target() {
         }
     }
 }
+
+#[test]
+fn invalid_extern_signatures_are_user_errors_in_check_and_emit() {
+    let root = test_dir("invalid_extern_signatures_are_user_errors");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+extern fn takes_bool(flag: bool);
+extern fn takes_wide(value: i128);
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    // The 128-bit rejection is specific to the i386 C ABI, so check that
+    // target explicitly; `bool` is rejected on every target.
+    for args in [
+        &["check", "--runtime", "freestanding"][..],
+        &["emit", "--obj", "-o"],
+    ] {
+        let mut command = support::nia_command();
+        command.args(["--target", "x86-unknown-linux"]).args(args);
+        if args.contains(&"-o") {
+            command.arg(root.join("main.o"));
+        }
+        let output = command
+            .arg(&main)
+            .output_timeout_for_compiler("run nia on invalid extern signatures");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {stderr}");
+        assert!(
+            stderr.contains("error[E0501]: extern parameter cannot use `bool` directly"),
+            "{args:?}: {stderr}"
+        );
+        assert!(
+            stderr.contains("cannot use a 128-bit integer on `x86-unknown-linux`"),
+            "{args:?}: {stderr}"
+        );
+        assert!(!stderr.contains("internal["), "{args:?}: {stderr}");
+    }
+}

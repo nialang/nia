@@ -333,7 +333,8 @@ Nia has no packed or over-aligned struct form, and no C bit-fields.
 
 ## Common Errors
 
-`nia emit` and builds report boundary errors on the offending declaration:
+`nia check`, `nia emit`, and builds report boundary errors as `E0501` on the
+offending declaration, whether or not anything calls it:
 
 | Message | Fix |
 | --- | --- |
@@ -344,7 +345,11 @@ Nia has no packed or over-aligned struct form, and no C bit-fields.
 | `extern parameter cannot use optional by value` | use a pointer compared with `0usize as &T` |
 | `extern parameter cannot use enum directly; use its backing integer type` | pass the backing integer |
 | `extern parameter cannot use array by value` | pass `&array[0]` |
-| `extern parameter cannot use tuple by value` | use an `extern struct`; `()` is only valid as a return type |
+| `extern parameter cannot use tuple by value` | use an `extern struct` |
+| ``extern parameter cannot use `()` `` | remove the parameter; `()` is only valid as a return type |
+| `extern parameter must use a C function pointer` | write the type as `&extern fn(...)` and pass an `extern fn` |
+| `extern parameter cannot use empty struct by value` | add a field, or pass a pointer |
+| ``extern parameter cannot use a 128-bit integer on `x86-unknown-linux` `` | split the value into two 64-bit integers |
 | `extern parameter cannot use union by value` | pass a pointer to an `extern union` |
 | ``extern return type cannot use `never` directly`` | return `()` |
 | `extern variadic function definition is not supported` | define a fixed-parameter function |

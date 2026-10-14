@@ -617,6 +617,14 @@ impl AbiChecker<'_> {
                 "an incomplete type has no size or alignment contract at the foreign boundary",
                 "pass a pointer to the opaque value instead of passing it by value",
             )),
+            Some(TyKind::Tuple(_)) if self.is_unit(ty) => {
+                self.diagnostics.push(extern_type_diagnostic(
+                    span,
+                    format!("{context_desc} cannot use `()`"),
+                    "a zero-sized value has no C representation",
+                    "remove the parameter or field, or use `()` only as a return type",
+                ))
+            }
             Some(TyKind::Tuple(_)) => self.diagnostics.push(extern_type_diagnostic(
                 span,
                 format!("{context_desc} cannot use tuple by value"),
@@ -1008,6 +1016,8 @@ union Bits { i: i32 }
 extern fn bad_union(bits: Bits);
 extern fn bad_callable_view(callback: &Fn(i32) i32);
 extern fn bad_callable_pointee(callback: Fn(i32) i32);
+extern fn bad_nia_fn_pointer(callback: &fn(i32) i32);
+extern fn bad_tuple(pair: (i32, i32));
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1046,6 +1056,8 @@ extern fn bad_callable_pointee(callback: Fn(i32) i32);
             "union by value",
             "nia callable view directly",
             "unsized callable interface directly",
+            "extern parameter cannot use `()`",
+            "must use a C function pointer",
         ] {
             assert!(
                 checked

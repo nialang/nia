@@ -1018,6 +1018,54 @@ pub enum Color: u8 { Red }
 }
 
 #[test]
+fn entry_checking_rejects_extern_abi_types_with_or_without_calls() {
+    let root = temp_dir("entry_checking_rejects_extern_abi_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+module types;
+using entry::types;
+
+extern fn called(flag: bool);
+extern fn unreachable(point: types::Point);
+
+fn main() i32 {
+    called(true);
+    0
+}
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Point { x: i32 }
+extern fn type_module_only(flag: char);
+"#,
+    );
+
+    // Entry checking materializes only executable-reachable bodies, but C ABI
+    // validity is a declaration rule, so every loaded extern signature counts.
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    for expected in [
+        "extern parameter cannot use `bool` directly",
+        "extern parameter cannot use normal Nia struct by value",
+        "extern parameter cannot use `char` directly",
+    ] {
+        let diagnostic = program
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.diagnostic.summary.contains(expected))
+            .unwrap_or_else(|| panic!("{expected}: {:?}", program.diagnostics));
+        assert_eq!(
+            diagnostic.diagnostic.code,
+            nia_diagnostic::codes::STATIC_CHECK.into(),
+            "{expected} must be a user diagnostic, not a backend ICE"
+        );
+        assert!(!diagnostic.diagnostic.notes.is_empty(), "{diagnostic:?}");
+    }
+}
+
+#[test]
 fn rejects_cross_module_aliases_to_invalid_extern_abi_types() {
     let root = temp_dir("rejects_cross_module_aliases_to_invalid_extern_abi_types");
     write(

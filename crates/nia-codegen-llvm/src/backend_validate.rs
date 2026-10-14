@@ -40,7 +40,7 @@ use nia_mangle::{
     mangle_symbol_id, mangle_type_with,
 };
 use nia_symbol::SymbolId;
-use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, ConstGenericArg, FunctionPointerAbi, PrimitiveTy, TyKind};
 
 #[derive(Clone, Copy)]
 struct FunctionInstanceRef<'a> {
@@ -1510,6 +1510,9 @@ impl BackendValidator<'_> {
                     format!("{description} cannot use incomplete `opaque` directly"),
                 );
             }
+            TyKind::Tuple(ref elements) if elements.is_empty() => {
+                self.extern_abi_error(span, format!("{description} cannot use `()`"));
+            }
             TyKind::Tuple(_) => {
                 self.extern_abi_error(span, format!("{description} cannot use tuple by value"));
             }
@@ -1556,8 +1559,14 @@ impl BackendValidator<'_> {
                 params,
                 return_type,
                 is_variadic,
-                ..
+                abi,
             } => {
+                if abi != FunctionPointerAbi::C {
+                    self.extern_abi_error(
+                        span,
+                        format!("{description} must use a C function pointer"),
+                    );
+                }
                 if is_variadic {
                     self.extern_abi_error(
                         span,
@@ -1722,6 +1731,15 @@ impl BackendValidator<'_> {
             };
             (item.is_extern, None)
         };
+        // Mirror the declaration checker's order: emptiness is the more
+        // specific rejection and applies to extern and Nia structs alike.
+        if fields.as_ref().is_some_and(Vec::is_empty) {
+            self.extern_abi_error(
+                span,
+                format!("{description} cannot use empty struct by value"),
+            );
+            return;
+        }
         if !is_extern {
             self.extern_abi_error(
                 span,
@@ -1736,13 +1754,6 @@ impl BackendValidator<'_> {
             );
             return;
         };
-        if fields.is_empty() {
-            self.extern_abi_error(
-                span,
-                format!("{description} cannot use empty struct by value"),
-            );
-            return;
-        }
         nominal_stack.push(def_id);
         for field in &fields {
             self.validate_extern_abi_type(
