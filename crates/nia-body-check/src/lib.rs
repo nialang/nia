@@ -5,6 +5,30 @@
 //! independently reusable typed facts, static initializers, and Body IR. Query
 //! callers select a product/filter explicitly so reachability and cache reuse
 //! cannot silently alter which semantic work is performed.
+//!
+//! Function bodies, methods, globals, and static initializers are checked
+//! here. The `SemanticFacts` product is the semantic surface: expression
+//! types, call targets, coercions, and generic instantiations. `BodyIr` is the
+//! runtime checked body with typed function bodies and static initializers.
+//! Later phases consume these products explicitly instead of reading checker
+//! side tables or rediscovering expression semantics from AST shape.
+//!
+//! Receiver call chains use contextual method goals when the receiver cannot
+//! be typed independently and the call has an expected result. Candidate
+//! discovery is restricted to visible extension methods and source-trait
+//! implementations indexed by method name. Each candidate is instantiated from
+//! the expected result and call arguments in an isolated checker snapshot,
+//! then validated through the ordinary method and trait solvers. A failed
+//! snapshot cannot publish diagnostics, semantic facts, generic instances, or
+//! provider demands. A unique receiver type is confirmed by rerunning normal
+//! checking in the owning checker; several receiver types produce an
+//! ambiguity diagnostic. Reverse matching is equality-based and does not
+//! invert coercions or associated projections.
+//!
+//! This probe/confirm layer handles bidirectional constraints inside one
+//! expression chain. The function-local union-find pass is responsible for
+//! structural equality and closure constraints across statements; it does not
+//! duplicate nominal method lookup or generic candidate search.
 
 use nia_ice::{Ice, IceResult};
 use parking_lot::Mutex;

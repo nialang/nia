@@ -3,6 +3,19 @@
 //!
 //! The resolver preserves stable node identities and separates local, module,
 //! static, and type-prefix use categories for downstream semantic phases.
+//!
+//! Local scopes are built for functions and blocks, covering parameters, local
+//! bindings, deferred expressions, and local identifiers. Block-local imports
+//! arrive already resolved into lexical environments by `nia-public-surface`.
+//! A failed import retains the emitted root identity. An unavailable host
+//! keeps its module identity until compiler queries can match the declaration
+//! against a unique published loader diagnostic; ambiguous or absent evidence
+//! does not manufacture a cause link.
+//!
+//! Full-body and signature-const resolution use separate item-tree
+//! dependencies. Const IR omits resolved import directives because they have
+//! no runtime effect. Expressions that syntactically act as type prefixes for
+//! associated function calls or enum variant paths are marked here.
 use std::collections::HashMap;
 
 use nia_ast::{

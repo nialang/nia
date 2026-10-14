@@ -3,6 +3,10 @@
 //!
 //! Products are keyed by stable node identities so later semantic phases can
 //! reuse resolutions across incremental item-tree revisions.
+//!
+//! Paths resolve to top-level values, functions, enum variants, and imported
+//! names. Local variables are left to `nia-local-resolve`, and call-site
+//! candidate checking belongs to body checking.
 use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};

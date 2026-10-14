@@ -3,6 +3,9 @@
 //!
 //! Lowering allocates stable block/scope/local identities, extracts closure
 //! entries, and validates every produced CFG before returning it to consumers.
+//! Source-shaped control flow from `nia-body-ir` becomes explicit blocks and
+//! terminators. Each lowered body is owned directly by the
+//! `LoweredFunctionBodyQuery` keyed by its `GlobalDefId`.
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 

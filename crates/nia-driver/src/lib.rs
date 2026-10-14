@@ -5,6 +5,26 @@
 //! meaning remains in query and analysis crates; the driver carries source
 //! manifests through checking, code generation, linking, and publication so a
 //! result cannot be associated with a different source closure.
+//!
+//! The driver loads sources, builds the using graph, computes public surfaces,
+//! and schedules whole-program checking and code generation by requesting
+//! query products. The using graph is acyclic; semantic cycles inside loaded
+//! modules are diagnosed by the query or crate that owns the affected
+//! construct. Its object/LTO, archive, and linked-executable caches hold only
+//! validated, disposable products.
+//!
+//! Preparation errors and artifacts keep the retained diagnostic source
+//! snapshots produced by compiler queries. When rendering, a retained snapshot
+//! takes precedence over a caller-supplied source and over disk reads, and an
+//! explicit missing-source entry prohibits reading a later file at that path.
+//! Linker and archiver failures keep both captured output streams and use the
+//! same diagnostic constructor for text and JSON output.
+//!
+//! Executable codegen has three final-link policies: no LTO (the default),
+//! ThinLTO, and full LTO. LTO is executable-only, because object sets and
+//! static archives do not own a complete final linkage unit. The driver
+//! prepares the ThinLTO backend cache namespace beneath the invocation cache
+//! root before passing it to LLVM.
 
 fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
     usize::try_from(remaining).map_or(buffer_len, |remaining| remaining.min(buffer_len))

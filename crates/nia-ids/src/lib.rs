@@ -6,6 +6,11 @@
 //! products remap stable module/source keys into fresh handles. Builtin enums,
 //! names, descriptors, and exhaustive `ALL` lists live here as one registry so
 //! resolution, checking, const evaluation, and cache codecs share one domain.
+//!
+//! The typed ids (`ModuleId`, `DefId`, `LocalId`, `InternedTyId`,
+//! `GlobalDefId`) store no semantic tables and carry no filesystem, parser, or
+//! diagnostic responsibility. A type handle exposes its session owner but no
+//! semantic interpretation; the type store owns that.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 

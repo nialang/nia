@@ -1,5 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Relocation-independent package identities and stable compiler type graphs.
+//!
+//! A [`PackageId`] names a package by namespace, name, and version, and the
+//! toolchain standard library has a canonical identity of its own. A
+//! [`PackageSourceIdentity`] fingerprints only the declared package content:
+//! files are selected by [`PackageSourceSelection`], recorded by normalized
+//! relative path, and hashed with BLAKE3, so moving a checkout does not change
+//! the identity. Local manifests and their path dependencies resolve into a
+//! bounded [`LocalPackageGraph`] without loading source modules; a
+//! [`DependencyClass`] policy decides which declared edges are selected, and
+//! [`LocalPackageGraphReport`] explains those decisions.
+//!
+//! Stable module and definition identities, and the canonical
+//! [`StableTypeGraph`], are the session-independent forms that compiler-owned
+//! sections embed for cross-package linkage and caches. Their encoders and
+//! decoders are strict and bounded, and every payload is tied to the protocol
+//! epoch.
 
 use std::{
     collections::BTreeSet,

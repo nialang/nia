@@ -4,7 +4,12 @@
 //! This crate qualifies the declaration-only products from `nia-item-signatures`
 //! with global definition identities and provides visibility-aware extension and
 //! trait-implementation indexes. It does not perform body checking or reparse
-//! source text.
+//! source text. Lookup and context APIs borrow or resolve existing signatures
+//! rather than reconstructing body semantics.
+//!
+//! Visibility-aware extension discovery computes a deterministic closure from
+//! `using` scopes, public surfaces, canonical type normalization, and nominal
+//! extension providers.
 mod analysis;
 
 use std::collections::HashMap;

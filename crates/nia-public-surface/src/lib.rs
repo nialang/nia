@@ -1,5 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Public export surfaces and lexical `using` scopes across the module graph.
+//!
+//! From the definition tables of every module and the module graph, this
+//! crate computes each module's exported public surface and its resolved
+//! module-level `using` scope. Selector expansion and namespace resolution
+//! apply declaration visibility, and failures are diagnosed against the module
+//! that owns the `using`, including duplicate imported names and modules.
+//!
+//! Block-local `using` declarations are resolved here into shared lexical
+//! environments before type, value, and local resolution. A child block
+//! inherits its parent's imports; an inner import overrides outer imports and
+//! module definitions in the same namespace; sibling blocks cannot see each
+//! other's imports. [`TypeExposureIndex`] is a stable reverse index from a type
+//! definition to every source-level name that exposes it.
 
 use std::{borrow::Borrow, collections::HashMap};
 

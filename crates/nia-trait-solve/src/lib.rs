@@ -25,6 +25,11 @@
 //! normalized goals to implement this least-fixed-point interpretation. Type
 //! projection has a separate cycle guard because recursive associated types
 //! likewise have no finite normal form.
+//!
+//! Solver inputs are canonical type handles and explicit signature facts
+//! supplied by the caller; the solver never borrows a module interner.
+//! Synthesized goal and projection types are published through the
+//! module-scoped store capability.
 #![warn(missing_docs)]
 
 mod equivalence;

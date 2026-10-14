@@ -8,7 +8,13 @@
 //! operating system are the only independent choices in the maintained
 //! matrix; vendor, environment, pointer width, byte order, object format,
 //! minimum OS version and LLVM triple all derive from them, so no consumer can
-//! combine inconsistent strings.
+//! combine inconsistent strings. The baseline CPU is derived the same way.
+//!
+//! Parsing accepts only canonical target names, and `TargetConfig::host`
+//! returns `None` on a host outside the maintained matrix. Every persistent
+//! identity (build plans, runner configuration, cache namespaces) encodes the
+//! canonical name. Conditional compilation is evaluated against this model by
+//! `nia-target-config`, which does not own target identity.
 
 use std::fmt;
 

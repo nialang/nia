@@ -4,6 +4,10 @@
 //! Static values remain target-independent until backend validation. Reference
 //! walkers intentionally model only materialized elements, so zero-length
 //! repeats do not retain unreachable functions or globals.
+//!
+//! The IR represents compile-time data, not executable control flow: zero
+//! values, scalars, strings and bytes, arrays, tuples, vectors, repeats,
+//! structs, null pointers, global addresses, and function addresses.
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceRef};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;

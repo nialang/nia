@@ -1,4 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Call checking for functions, methods, associated items, and builtins.
+//!
+//! A failed callable lookup owns the callee span, leaving independent argument
+//! diagnostics visible. Ambiguous bracket syntax keeps a valid type
+//! interpretation when its base is an error; value-shaped arguments are still
+//! checked. Candidate reports retain declaration-owned paths, distinguish
+//! ordinary parameters from receivers, and sort identities and locations
+//! before applying display limits. Failed method lookup on a structural error
+//! receiver checks independent arguments without falling back to a field-shape
+//! error or requesting an unavailable provider; known method candidates
+//! continue through ordinary signature checking.
+//!
+//! Required type arguments validate unresolved candidate leaves recursively
+//! through lowered type sites and report the leaf span. Unused type readings
+//! of const arguments are excluded. Nested bracket expressions use the same
+//! candidate-aware resolution as outer expressions, and error-union candidates
+//! visit both payload types.
 mod args;
 mod asm;
 mod builtins;

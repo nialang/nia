@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Parsing and decoding of numeric, character, and string literals.
+//!
+//! Every phase that needs a literal's value (const IR, const evaluation,
+//! target-configuration evaluation, body checking, and lowering) decodes the
+//! token spelling through this dependency-free crate, so all phases agree on
+//! radix prefixes, digit separators, type suffixes, and escapes. Integer
+//! literals evaluate to `u128`; checking the value against the literal's type
+//! belongs to the caller. String and byte-string literals are decoded from their adjacent
+//! parts and concatenated. Decoding failures return `None` or an error string;
+//! callers own the diagnostic.
 
 /// Evaluates an integer literal with radix prefixes, separators, and suffixes.
 pub fn eval_int_literal(text: &str) -> Result<u128, String> {

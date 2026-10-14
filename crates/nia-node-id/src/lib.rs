@@ -7,6 +7,11 @@
 //! bridges AST `(kind, span)` lookups to those handles. Builders support
 //! transactional origin-map rollback because parsers may intern several
 //! candidates before accepting one ambiguous syntax interpretation.
+//!
+//! A `VersionedNodeKey` combines source id, syntax kind, and position with the
+//! source revision. A `NodeId` is an eight-byte handle whose indices are
+//! allocated monotonically and never reused. The canonical store holds only
+//! active source-revision shards; retiring a source revision removes its shard.
 
 use std::{
     collections::{HashMap, hash_map},

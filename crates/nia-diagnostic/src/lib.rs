@@ -5,8 +5,14 @@
 //! marked fallback spans. Reports impose deterministic presentation order and
 //! deduplicate only byte-for-byte equivalent diagnostic structure; secondary
 //! labels, notes, help, structured suggestions, related locations, and
-//! internal debug fields are part
-//! of a diagnostic's identity.
+//! internal debug fields are part of a diagnostic's identity.
+//!
+//! This crate owns diagnostic display, not semantic policy. Diagnostic codes
+//! are registry-backed schema values: severity, category, and stage are
+//! reconstructed from the registered definition when a stable bundle is
+//! decoded. Rendering uses the source text supplied by the caller; a label
+//! whose span that text cannot cover renders as a byte range rather than a
+//! guessed line.
 
 use nia_span::Span;
 

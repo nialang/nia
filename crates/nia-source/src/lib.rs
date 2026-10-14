@@ -1,5 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Stable source identities, versioned files, and concurrent source storage.
+//!
+//! Sources have two identities. [`SourceIdentity`] is the relocation-stable
+//! logical identity derived from normalized path text; [`SourcePath`] pairs it
+//! with a physical location but compares and hashes by the logical identity
+//! only, so relocated toolchain and package sources keep their compiler
+//! identities. [`SourceId`] is a compact session-local handle scoped to one
+//! source store, and a [`SourceVersion`] names one [`SourceRevision`] of it.
+//!
+//! [`SourceTable`] is a concurrent bijection between logical paths and ids,
+//! and [`SourceDatabase`] stores the current immutable [`SourceFile`] snapshot
+//! for each id. Handles from another store are rejected. Files are read as
+//! UTF-8 through [`read_source_text`], which enforces
+//! [`MAX_SOURCE_FILE_BYTES`] even when a file grows while being read.
 
 use parking_lot::Mutex;
 use std::{

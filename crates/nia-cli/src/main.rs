@@ -6,6 +6,13 @@
 //! requests. Native outputs remain file-only, inspection output uses stdout,
 //! and diagnostics/timings use stderr. Compiler failures reach this boundary as
 //! structured diagnostics rather than unwinding through the CLI.
+//!
+//! The commands are `build` and `test`, which run a package's `build.nia`
+//! through `nia-build`, `check`, which validates without code generation, and
+//! `emit`, which writes one product selected by `--tokens`, `--ast`,
+//! `--checked`, `--backend`, `--llvm`, `--obj`, or `--exe`. Global options
+//! include `-O0` through `-Oz`, `-M name=path` module mappings, and
+//! `--timings`; `--opt-report` prints the backend optimization report.
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
 use std::{

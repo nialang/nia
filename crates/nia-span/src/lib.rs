@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Half-open source ranges used by diagnostics and syntax products.
+//!
+//! A [`Span`] is a plain `[start, end)` offset pair with no source identity;
+//! the owning product pairs it with a source or node key. Lexer and syntax
+//! spans are UTF-8 byte offsets.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 /// A half-open byte/character source range `[start, end)`.

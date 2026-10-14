@@ -3,7 +3,8 @@
 //!
 //! Measurements are process-wide while collection sessions serialize report
 //! ownership. Allocation metrics are available only when a binary installs and
-//! registers [`CountingAllocator`] as its global allocator.
+//! registers [`CountingAllocator`] as its global allocator. Query accumulators
+//! aggregate by stable names before emitting bounded reports.
 use std::{
     cell::RefCell,
     cmp::Reverse,

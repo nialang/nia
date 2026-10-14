@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Structured internal compiler errors.
+//!
+//! An [`Ice`] reports a broken compiler invariant, never a user error. It
+//! records the message, the source location that detected the failure, and the
+//! compiler operations it propagated through; each layer adds its context with
+//! [`Ice::with_context`] while returning an [`IceResult`]. Errors reach the CLI
+//! boundary as values instead of unwinding through it, and the rendered message
+//! identifies the failure as a compiler bug to report.
 
 use std::fmt;
 use std::panic::Location;

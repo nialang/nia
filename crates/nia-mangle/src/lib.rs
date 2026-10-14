@@ -1,5 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Stable symbol and type-name mangling for backend and linker boundaries.
+//!
+//! The canonical path builds a [`StableSymbolKey`] from package and module
+//! metadata, definition identity, item kind, source name, and canonical
+//! generic arguments, then emits a length-delimited `_N` linker symbol. The
+//! decoder is strict and reversible; debug names are a separate,
+//! source-oriented product. Session-local module and definition handles, ABI
+//! details, and layout hashes never appear in the symbol grammar.
+//!
+//! Every source-owned canonical symbol carries its package identity, so equal
+//! module paths in different packages cannot alias at link time. Vtables and
+//! other compiler-owned derived symbols use the reserved compiler-generated
+//! package identity. External names, such as `extern` functions and the
+//! runtime entry symbol, stay outside `_N` and are handled by the backend's
+//! typed extern import and export contracts. Ordinary Nia items have no
+//! unmangled path.
 
 use nia_ids::{ClosureId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_symbol::{SymbolId, stable_hash};

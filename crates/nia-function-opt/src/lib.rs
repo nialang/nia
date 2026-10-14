@@ -6,6 +6,10 @@
 //! structural invariants checked by [`nia_function_ir::validate_function_body`]
 //! as well as evaluation order and observable effects. Debug builds validate
 //! those structural invariants at the pipeline boundary and after every pass.
+//!
+//! The passes are dead-code elimination, constant folding, CFG simplification,
+//! and local copy propagation. Pass selection comes from the
+//! [`OptimizationPolicy`], not directly from user-facing optimization levels.
 
 use nia_function_ir::{FunctionBody, FunctionIrError, validate_function_body};
 use nia_ids::InternedTyId;

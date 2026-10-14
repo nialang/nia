@@ -5,6 +5,28 @@
 //! and backend products inside one [`nia_query::QuerySession`]. Public
 //! fingerprints identify relocatable persisted frontend products; session-local
 //! compiler databases retain query ownership, invalidation, and diagnostics.
+//!
+//! The root query module is only the public database facade and query
+//! registry. Stable identities, stable type graphs, fingerprints,
+//! invalidation, provider settlement, database ownership, and loader/context
+//! input adapters live in dedicated modules, so none of those contracts depend
+//! on facade implementation details. Persistent signature products are
+//! disposable, identity-checked records.
+//!
+//! Providers collect diagnostics in phase order and suppress a derived report
+//! only when a published root has a matching cause identity or applicable
+//! source-span evidence; independent errors in the same module and function
+//! stay visible. Const/static report collection coalesces same-span
+//! generic-call and static-data consequences while retaining their owning root
+//! and independent initializer errors.
+//!
+//! Report products retain immutable source text for every primary and related
+//! diagnostic path in [`DiagnosticSources`]. Providers capture loader text
+//! while producing a report, and certificate hits recover text from the
+//! current checked inputs, so dependency overlays and old reports stay stable
+//! across source edits. Report paths are display paths: source capture matches
+//! a module by its loaded physical path as well as its logical identity,
+//! because toolchain modules such as std differ in the two.
 mod program_diagnostic_bundle;
 mod query;
 mod signature_cache;

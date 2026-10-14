@@ -4,6 +4,11 @@
 //! This crate owns the loader-facing data model. The loader produces these
 //! facts and the compiler consumes them; neither side needs to depend on the
 //! other's orchestration implementation.
+//!
+//! The contract covers loader facts, provider-demand revisions, loaded module
+//! snapshots, loader diagnostics, and frontend cache identities. Both
+//! `nia-loader-query` and `nia-compiler-query` depend on it, and the loader
+//! never depends on compiler orchestration.
 
 mod frontend_fingerprint;
 mod program_diagnostics;

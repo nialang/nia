@@ -4,6 +4,25 @@
 //! The session owns cross-database dependency state and execution resources;
 //! each `QueryDb` owns typed slots for one context. A slot may publish a cached
 //! shared value or transfer one single-consumer value, never both.
+//!
+//! Providers request their dependencies through the database, which records
+//! the dependency edges and fingerprint of each published product. Compiler
+//! crates own query keys and products; invalidation is implemented only here.
+//! Replacing a source revision enters a retirement barrier: new query
+//! admission stops, active work drains, and retired keys, slots, and graph
+//! edges are removed before new queries are admitted.
+//!
+//! Cycles are reported before a thread blocks. Thread-local recursion catches
+//! a query asking for itself, and a process-wide wait-for graph catches
+//! cross-thread waits that would otherwise deadlock.
+//!
+//! Parallel work draws CPU tokens from a jobserver, inherited from the
+//! launching process when one is present. LLVM work additionally holds a
+//! process-wide memory permit: at most four lanes run at once, further capped
+//! by the available CPUs and by half the observable system or cgroup memory
+//! limit at 512 MiB per lane, with one lane when no limit is observable. A
+//! further lane is admitted only while at least 1 GiB (the lane cost plus
+//! 512 MiB headroom) is observed as available.
 
 mod database;
 mod dependency;

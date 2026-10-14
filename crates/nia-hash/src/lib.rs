@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Fast deterministic hash building blocks for compiler identity maps.
+//!
+//! [`FastHasher`] is a compact, non-cryptographic hasher with a fixed seed, so
+//! the same keys hash identically in every process. Each write is mixed with a
+//! domain constant for its kind and width, which keeps byte strings, scalars of
+//! different widths, and 128-bit values from colliding through equal raw bits.
+//! [`FastHashMap`] and [`FastHashSet`] are the standard collections with this
+//! hasher. It is meant for in-memory keys that are already compiler
+//! identities; it is not suitable for untrusted input or for persisted
+//! fingerprints.
 
 use std::hash::{BuildHasherDefault, Hasher};
 

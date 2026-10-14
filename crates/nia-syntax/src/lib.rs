@@ -15,6 +15,21 @@
 //! A few constructs are decided semantically rather than syntactically. Their
 //! grammar node records the syntactic choice, and the other reading of the
 //! same tokens is kept as an [`Alternate`] so lowering never re-reads source.
+//!
+//! The crate does not depend on AST, symbols, item trees, or semantic
+//! products. A [`Parse`] retains the tree, its diagnostics, and the alternate
+//! type/expression readings. Speculation rolls back token position, events,
+//! forward-parent links, and alternate readings together; callers also
+//! discard speculative diagnostics when abandoning a reading. Invalid green
+//! events, including those of alternate trees, are internal failures rather
+//! than silently discarded syntax. Red tokens carry source-versioned child
+//! paths used by diagnostics and AST lowering.
+//!
+//! A detached grammar snapshot retains the nested alternate readings its
+//! children require as well as its own events. Restoring an outer type
+//! interpretation preserves inner const interpretations, such as
+//! `Buffer[COUNT]` inside a call's bracket argument, and clean and incremental
+//! lowering agree on those readings.
 
 mod grammar;
 mod kind;
