@@ -28,9 +28,6 @@ use std::{
     thread,
 };
 
-#[cfg(windows)]
-use std::os::windows::fs::MetadataExt as _;
-
 use nia_compat::formats::RUNNER_CONFIG;
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, LinkExecutableRequest,
@@ -63,72 +60,7 @@ mod runner_cache;
 mod runner_config;
 mod runner_observation;
 
-fn is_link_or_reparse_point(metadata: &fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        metadata.file_attributes()
-            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
-            != 0
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
-}
-
-fn create_real_directory(path: &Path) -> io::Result<()> {
-    let mut missing = Vec::new();
-    let mut current = path.to_path_buf();
-    let existing = loop {
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) => break (current.clone(), metadata),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let name = current.file_name().ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "directory path has no resolvable parent",
-                    )
-                })?;
-                missing.push(name.to_os_string());
-                current = current
-                    .parent()
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "directory path has no resolvable parent",
-                        )
-                    })?
-                    .to_path_buf();
-            }
-            Err(error) => return Err(error),
-        }
-    };
-    validate_real_directory(&existing.0, &existing.1)?;
-    for name in missing.iter().rev() {
-        current.push(name);
-        match fs::create_dir(&current) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
-        }
-        let metadata = fs::symlink_metadata(&current)?;
-        validate_real_directory(&current, &metadata)?;
-    }
-    Ok(())
-}
-
-fn validate_real_directory(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {
-    if is_link_or_reparse_point(metadata) || !metadata.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("`{}` must be a real directory", path.display()),
-        ));
-    }
-    Ok(())
-}
+use nia_compat::{create_real_directory, is_link_or_reparse_point};
 
 use process_output::{
     CaptureFailure, CapturedStream, StreamCapture, capture_stream, join_capture_tail,

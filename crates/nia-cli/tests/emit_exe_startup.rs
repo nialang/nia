@@ -455,6 +455,42 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_creates_missing_relative_output_directories() {
+    let root = temp_dir("emit_exe_creates_missing_relative_output_directories");
+    let main = root.join("main.nia");
+    let exe_name = format!("out/nested/runnable{}", std::env::consts::EXE_SUFFIX);
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    process::ExitCode(7)!
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .current_dir(&root)
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe_name)
+        .output_timeout_for_build("run nia emit --exe -o out/nested/runnable");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(root.join(&exe_name)).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(7));
+}
+
+#[test]
 fn emit_exe_can_emit_optimization_report_to_stderr() {
     let root = temp_dir("emit_exe_can_emit_optimization_report_to_stderr");
     let main = root.join("main.nia");
