@@ -497,6 +497,91 @@ pub fn main(init: process::Init) process::ExitCode!() {{
 }
 
 #[test]
+fn windows_spawn_resolves_programs_like_posix_execution() {
+    let root = temp_dir("windows_spawn_resolution");
+    std::fs::create_dir_all(root.join("tools")).expect("create tool directory");
+    std::fs::create_dir_all(root.join("bin")).expect("create parent directory");
+    let child = emit(
+        &root,
+        "child",
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    process::ExitCode(7)!
+}
+"#,
+    );
+    std::fs::rename(&child, root.join("tools/child.exe")).expect("place child tool");
+    let tools = root.join("tools").to_string_lossy().replace('\\', "\\\\");
+    // The parent image lives outside the working directory, so a lookup that
+    // fell back to the parent's image directory or to Windows' own search
+    // order would resolve differently from the POSIX rules.
+    let parent = emit(
+        &root,
+        "parent",
+        &r#"
+using std;
+using std::process;
+
+fn status(command: process::Command) i32 {
+    let mut attempt = command.spawn();
+    let mut child = match attempt.finish() {
+        !value => value,
+        error! => return -1,
+    };
+    match child.wait() {
+        !term => if term.succeeded() { 0 } else { 7 },
+        error! => -2,
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let env = init.env();
+    // A relative path names a file under the working directory, with either
+    // separator.
+    if status(process::Command::init(std::PathView::init(&"tools/child.exe"), env)) != 7 {
+        return process::ExitCode(1)!;
+    }
+    if status(process::Command::init(std::PathView::init(&"tools\x5cchild.exe"), env)) != 7 {
+        return process::ExitCode(2)!;
+    }
+    // A requested working directory anchors the relative path.
+    let inTools = process::Command::init(std::PathView::init(&"./child.exe"), env)
+        .withCwd(std::PathView::init(&"tools"));
+    if status(inTools) != 7 {
+        return process::ExitCode(3)!;
+    }
+    // A bare name searches the child's `Path`, adding `PATHEXT` extensions.
+    let search: [process::EnvEntry; 1] = [process::EnvEntry::init(&"Path", &"$TOOLS")];
+    let searched = process::Command::init(std::PathView::init(&"child"), env)
+        .withEnvironment(&search);
+    if status(searched) != 7 {
+        return process::ExitCode(4)!;
+    }
+    // A bare name outside that `Path` is not found, even in the working
+    // directory or the parent's image directory.
+    let missing = process::Command::init(std::PathView::init(&"parent.exe"), env)
+        .withEnvironment(&search);
+    if status(missing) != -1 {
+        return process::ExitCode(5)!;
+    }
+    !()
+}
+"#
+        .replace("$TOOLS", &tools),
+    );
+    let placed = root.join("bin/parent.exe");
+    std::fs::rename(&parent, &placed).expect("place parent");
+    std::fs::copy(&placed, root.join("parent.exe")).expect("expose parent beside the cwd");
+    let status = Command::new(&placed)
+        .current_dir(&root)
+        .status_timeout("run Windows spawn resolution regression");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn windows_links_without_an_sdk_and_imports_only_documented_libraries() {
     let root = temp_dir("windows_links_without_an_sdk");
     let empty_kits = root.join("no-windows-kits");

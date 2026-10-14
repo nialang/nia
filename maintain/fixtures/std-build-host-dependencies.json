@@ -118,6 +118,7 @@
     "std/os/windows/mem.nia",
     "std/os/windows/path.nia",
     "std/os/windows/process.nia",
+    "std/os/windows/process/executable.nia",
     "std/os/windows/process/stdio.nia",
     "std/os/windows/random.nia",
     "std/os/windows/stat.nia",
