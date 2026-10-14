@@ -1,6 +1,7 @@
 use crate::LoaderContext;
 use crate::graph::{
-    TraversalResult, add_visible_declared_module_path, mark_process_used_paths_and_process,
+    ReexportStack, TraversalResult, add_visible_declared_module_path,
+    add_visible_declared_module_path_following, mark_process_used_paths_and_process,
     used_path_start,
 };
 use crate::queries::{module_facade_facts_query, provider_summary_query};
@@ -166,7 +167,11 @@ pub(crate) fn add_public_reexport_source_module(
     module_id: nia_imports::ModuleId,
     name: &SymbolId,
     processing: Option<UsedModulePathProcessing>,
+    reexports: &mut ReexportStack,
 ) -> TraversalResult<Option<nia_imports::ModuleId>> {
+    if reexports.contains(&(module_id, *name)) {
+        return Ok(None);
+    }
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
@@ -185,14 +190,18 @@ pub(crate) fn add_public_reexport_source_module(
         let Some(start) = used_path_start(graph, module_id, &source_path) else {
             continue;
         };
-        return add_visible_declared_module_path(
+        reexports.push((module_id, *name));
+        let source = add_visible_declared_module_path_following(
             db,
             graph,
             module_id,
             start,
             source_path.segments(),
             source_path.processing(),
+            reexports,
         );
+        reexports.pop();
+        return source;
     }
     Ok(None)
 }
