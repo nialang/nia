@@ -13,6 +13,18 @@
 //! zero, and payload enums use a tag followed by an aligned union payload.
 //! Arithmetic helpers return `None` on overflow so malformed or target-sized
 //! inputs become diagnostics rather than wrapped layouts.
+//!
+//! Every compiler layout provider derives its target data layout from the
+//! artifact's compiler target query, so all layouts share one pointer size and
+//! alignment. Callable pointees are unsized and have no layout; a callable
+//! view is sized, two target pointer words wide, with target pointer
+//! alignment.
+//!
+//! Closure state layout uses the capture fields. Before a root layout is
+//! published, open-generic detection also checks the closure owner's receiver,
+//! type arguments, and const arguments, even when those arguments occur in
+//! neither the captures nor the call signature; the root becomes eligible only
+//! once that context is concrete.
 
 use std::{
     collections::{HashMap, HashSet},

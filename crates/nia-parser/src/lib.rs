@@ -7,6 +7,17 @@
 //! stable node identities, and records a [`NodeOriginTable`] for every AST
 //! node it creates. It never reads tokens outside the tree and never makes a
 //! parse decision.
+//!
+//! Origin tables map AST spans to red/green child-path ranges. Lowering walks
+//! grammar nodes together with their retained alternate readings. Recovery
+//! regions are skipped, so rejected productions cannot publish partial AST
+//! origins. Grammar diagnostics pass through unchanged, followed by any
+//! AST-construction diagnostics such as symbol collisions. In-memory parsing
+//! helpers use the same syntax owner and lowering path as the loader.
+//!
+//! Expression bracket suffixes are lowered in syntax-preserving form; whether
+//! a suffix is a generic instantiation or an index is decided by later
+//! semantic phases.
 
 mod lower;
 

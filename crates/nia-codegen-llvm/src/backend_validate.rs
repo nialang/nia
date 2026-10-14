@@ -1,4 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Backend IR validation, kept separate from LLVM emission.
+//!
+//! The function-IR boundary is partitioned into call/ABI, atomic, control-flow
+//! and propagation, low-level builtin/SIMD, tagged-union, enum-value,
+//! callable, trait-object, place/assignment, operator/cast, projection/slice,
+//! range/static-pointer, memory-intrinsic, builtin-value, local-storage, and
+//! literal contracts. The root function-IR module only traverses and
+//! dispatches; every validator consumes the same immutable `BackendValidator`
+//! index before any LLVM builder operation is issued.
 mod aggregates;
 mod function_ir;
 mod layouts;

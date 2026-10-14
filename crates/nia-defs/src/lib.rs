@@ -5,6 +5,20 @@
 //! definition identity and namespace membership, but performs neither name
 //! resolution across modules nor type checking. Public-surface facts are a
 //! deliberately reduced projection of this declaration product.
+//!
+//! Collection assigns `DefId`s to active item-tree definitions and tracks the
+//! value, type, module, enum-variant, and method namespaces. It reports
+//! duplicate names within one namespace and duplicate generic parameters. It
+//! does not evaluate const conditions, check bodies, or load other files.
+//!
+//! A `DefId` is derived from canonical structural declaration identity, not
+//! from collection order or source formatting. Top-level namespace, member
+//! ancestry, extension target/trait/generic/where syntax, and a duplicate
+//! ordinal participate in that identity.
+//!
+//! Public-surface persistence uses `PublicSurfaceModuleFacts`, a deterministic
+//! projection containing only declaration, namespace, enum-variant, and
+//! module-using facts.
 use std::collections::{HashMap, HashSet};
 
 mod extensions;

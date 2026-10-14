@@ -3,6 +3,8 @@
 //!
 //! Frontends keep ownership of type resolution and diagnostics. This crate only
 //! operates on canonical constructor identities, field types, and scalar bounds.
+//! It is shared by runtime body checking and const-match typing, and has no
+//! dependency on AST, name resolution, type storage, diagnostics, or lowering.
 //!
 //! # Design References
 //!

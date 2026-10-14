@@ -12,6 +12,24 @@
 //! only after all declaration owners they depend on are visible. `finish`
 //! requires every module in the store to have been published and returns output
 //! sorted by stable codegen-unit key.
+//!
+//! Codegen owns LLVM type construction, function declarations and definitions,
+//! globals and static initializers, instruction emission, control-flow and
+//! `defer` lowering, aggregate operations, and inline assembly. A callable
+//! view lowers to the literal two-field aggregate `{ ptr, ptr }`. One shared
+//! whole-program index is built before validation and serves layout queries
+//! and signature type building for every unit task. The crate also owns the
+//! codegen-unit fingerprint encoding. Whole-program IR, native-object, and LTO
+//! scheduling live in the orchestration module, separate from the partition
+//! emission lanes and work-product cache accounting.
+//!
+//! Without LTO, units are emitted as native objects. For ThinLTO and full LTO,
+//! units are emitted as summary-bearing or regular pre-link bitcode keyed by
+//! the owner-qualified [`CodegenUnitKey`], and compiler builtins join the same
+//! linkage unit. The pre-link product records both the LTO mode and the
+//! freestanding policy, so a later coordinator cannot reinterpret already
+//! optimized IR. Pre-link modules are cached under the normal release and
+//! toolchain identity.
 mod backend_validate;
 mod compiler_builtins;
 mod declaration_membership;

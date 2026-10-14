@@ -1,5 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Stable names for promoted allocations and function-IR locals.
+//!
+//! Body IR and function IR share these identities so a local keeps the same
+//! classification across lowering. A [`LocalName`] is the receiver, a source
+//! symbol, a compiler-generated loop helper, a numbered temporary, or a
+//! deliberately anonymous binding, and each category has a fixed internal
+//! storage-name spelling. A
+//! [`PromotedAllocationId`] identifies a source allocation promoted into static
+//! storage by its owning module and source span.
 
 use nia_symbol::{SymbolId, unresolved_symbol_text};
 

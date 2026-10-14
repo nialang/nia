@@ -1,5 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Module-level item trees for conditional selection and signature queries.
+//!
+//! The item tree is the first semantic-facing representation of a module's
+//! contents. It keeps AST syntax out of long-lived semantic tables while
+//! preserving item boundaries, attributes, visibility, conditional attributes,
+//! and source spans. Items are held as ordered, immutable handles to shared
+//! canonical payloads, so unchanged items are not copied when a tree is
+//! filtered.
+//!
+//! [`ModuleItemTree`] is the tree before conditions are evaluated.
+//! [`ActiveModuleItemTree`] is the tree selected for one target and
+//! configuration, together with the source ranges that were deselected. This
+//! crate does not evaluate conditions itself: callers supply a
+//! [`ConditionResolver`]. It also does not resolve names or types.
+//! [`SignatureItemSet`] selects the subset of an active tree that one kind of
+//! signature query consumes.
 
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, ConditionExpr, ConditionExprKind, EnumItem, EnumVariant,

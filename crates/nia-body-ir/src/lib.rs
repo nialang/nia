@@ -5,6 +5,13 @@
 //! structure for pattern, closure, defer, and aggregate lowering. Consumers
 //! should treat the typed nodes as validated output of body checking rather
 //! than as a recovery-friendly syntax tree.
+//!
+//! [`BodyIr`] is the runtime checked body product of one module: typed
+//! function bodies and static initializers keyed by global identity. It is
+//! source-shaped: blocks, `if` and `match` expressions, and `for` headers still
+//! reflect the checked language form. Explicit control flow appears only after
+//! function lowering. The semantic facts body checking records alongside it
+//! live in `nia-sema-ir`.
 use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};

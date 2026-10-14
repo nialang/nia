@@ -3,6 +3,10 @@
 //!
 //! The lowering pass records every type site, interns types in the caller's
 //! canonical store, and preserves const-expression identities for later phases.
+//!
+//! Lowering covers primitive types, pointers, arrays, slices, thin function
+//! pointer types, unsized callable interfaces and their sized views, nominal
+//! types, generics, enum backing types, and inferred array lengths.
 
 mod context;
 mod core;

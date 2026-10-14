@@ -3,6 +3,9 @@
 //!
 //! The resolver records node-local identities and diagnostics while keeping
 //! module/import visibility decisions in the supplied program context.
+//! Resolution maps type names in active item-tree type syntax to definition
+//! identities or primitive types and validates type paths and generic names;
+//! lowering those references into canonical type ids is `nia-type-lower`'s job.
 use std::sync::Arc;
 
 use nia_ast::{

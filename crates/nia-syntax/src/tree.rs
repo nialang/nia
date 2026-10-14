@@ -5,6 +5,13 @@
 //! ([`SyntaxNode`] and [`SyntaxToken`]) add structural child paths used for
 //! stable node identity. Every tree owns a terminal EOF token so token views
 //! are total at end of input.
+//!
+//! Green nodes share immutable, position-independent storage through `Arc`.
+//! Child offsets are relative to their parent, and positioned handles
+//! materialize borrowed child views lazily. Relocating an untouched subtree
+//! shares its structure in constant time; splicing a block reconstructs its
+//! ancestors while retaining unchanged siblings. Retained snapshots keep their
+//! original spans and source versions.
 
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind};
 use nia_node_id::{NodeChildPath, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};

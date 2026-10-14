@@ -7,6 +7,12 @@
 //! graph through `std::build`; action execution remains in this process.
 //!
 //! See the crate README for the source ownership and persistence boundaries.
+//!
+//! Text diagnostics forward child-process output live. JSON mode disables live
+//! forwarding and keeps bounded captured output in structured failure notes.
+//! Aggregate test failures retain each suite's exit or timeout reason and its
+//! captured streams, prefixed with the suite name. Windows process cleanup
+//! produces no terminal output.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

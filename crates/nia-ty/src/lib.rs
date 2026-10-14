@@ -1,5 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Canonical type-store identities and structural type equivalence.
+//!
+//! [`TyKind`] is the compiler type model, and [`TypeStore`] is the session-wide
+//! canonical store for it. Every compiler pass reads `InternedTyId` handles
+//! from the store and publishes new types through a module-scoped
+//! [`TypeStoreAppend`]. The store is append-only within a session, and every
+//! handle is validated against the store identity it carries, so a handle from
+//! another session is rejected before it is interpreted.
+//!
+//! Canonicalization maps each `TyKind` to one global slot, so the same
+//! primitive or structural kind published from different modules receives the
+//! same id. The kind arena is a sparse four-level `OnceLock` trie that is
+//! lock-free to read once a slot is initialized.
+//!
+//! Callable interfaces have one extra canonicalization rule.
+//! `TyKind::CallablePointee` is the unsized signature-bearing pointee and
+//! `TyKind::Callable` is its sized dynamic view; publishing an ordinary pointer
+//! to a callable pointee yields the corresponding callable view.
 use nia_hash::FastHashMap;
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{

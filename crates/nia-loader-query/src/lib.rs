@@ -5,6 +5,22 @@
 //! frontend products use versioned logical source identities and verify their
 //! source/module-map dependencies before reuse; a cache miss or invalidated
 //! entry falls back to the in-memory query graph.
+//!
+//! The loader resolves logical module paths to physical source files, records
+//! module activation, and builds the compiler source-input manifest with
+//! content fingerprints. It records both the raw module item tree and the
+//! active item tree selected for the current target.
+//!
+//! Source edits reparse incrementally inside the query graph. `set_source`
+//! derives a UTF-8 replacement range; `edit_source` accepts an explicit edit
+//! against a current source version and rejects stale or invalid edits. Under
+//! one query retirement barrier, the loader reads an already-cached syntax
+//! snapshot, prepares its reparse, retires old revision owners, and publishes
+//! the new syntax value with an explicit source-text dependency.
+//! `SyntaxModuleQuery` declares `KeyExecuteOrPublished`: ordinary cache misses
+//! execute the same grammar, while edits may publish an equivalent prepared
+//! value into an empty slot. Unparsed sources stay lazy, and there is no
+//! loader-owned syntax cache outside the query graph.
 
 mod cache_fs;
 mod facade_facts;

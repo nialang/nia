@@ -5,6 +5,22 @@
 //! target, tool, and option components. Executable links are cacheable only
 //! when every external input can be represented by those components; opaque
 //! sysroots, native libraries, and raw arguments deliberately disable reuse.
+//!
+//! The artifact target is not a link option. The driver passes its typed
+//! target to every invocation and cache identity, and the target selects the
+//! default flavor: LLD for its object format (`ld.lld` for ELF, `lld-link`
+//! for COFF, `ld64.lld` for Mach-O). A generic discovered LLD is invoked with
+//! an explicit `-flavor`; dedicated drivers such as `lld-link` use their own
+//! command-line protocol. An explicit program keeps the object format's system
+//! argument contract, and a flavor for another object format is rejected.
+//! System `ld` is an explicit ELF flavor. Bare tool names resolve with the
+//! host executable suffix, so a host never selects a foreign executable
+//! exposed on `PATH`.
+//!
+//! Package inputs are compiled from source for the selected target, profile,
+//! and normal or test mode. Object and executable results may be reused
+//! through private, compiler-version-specific caches, but they are not a
+//! library interchange format.
 
 use std::{
     collections::HashSet,

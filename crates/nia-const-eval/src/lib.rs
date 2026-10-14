@@ -11,6 +11,16 @@
 //! [`ConstEvalBudget`] sessions. Function frames and lexical scopes are restored
 //! before an error or non-local control-flow value is returned, allowing one
 //! environment to serve multiple queries without leaking state between them.
+//!
+//! The evaluator consumes `nia-const-ir`, never AST. It is an evaluator, not
+//! a language semantic pass: it does not load modules, know visibility, own
+//! storage rules, or make backend decisions.
+//!
+//! `const fn` is const-capable rather than const-eval-only. A call in a
+//! constant expression interprets the function's const semantic body here,
+//! while the ordinary body-check, reachability, backend-lowering, and
+//! code-generation pipeline retains the same function when it is reachable
+//! from runtime code.
 mod env;
 mod eval;
 mod literals;

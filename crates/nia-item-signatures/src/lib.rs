@@ -4,6 +4,12 @@
 //! Signatures contain declaration facts needed by later semantic and backend
 //! phases, but not function-body analysis. Program wrappers qualify these facts
 //! with their owning module outside this crate.
+//!
+//! Signatures are collected for functions, methods, globals, structs, enums,
+//! aliases, and extension methods after type lowering. A function signature
+//! records whether the function is `extern`, variadic, or generic, and whether
+//! it has a body. `ItemSignatures` is the declaration surface consumed by
+//! trait solving, layout, ABI, const, and body checking, and backend planning.
 use std::collections::HashMap;
 
 use nia_ast::{

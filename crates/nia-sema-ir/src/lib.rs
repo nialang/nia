@@ -5,6 +5,11 @@
 //! they carry no AST ownership. Node maps retain their owning [`NodeStore`]
 //! explicitly so facts can be merged or rehomed without allowing stale handles
 //! to alias a later syntax revision.
+//!
+//! This is the fact schema shared by name resolution, body checking, const
+//! lowering, reachability, and backend planning. Facts are keyed by global
+//! definitions, locals, or `VersionedNodeKey`. Module-level expressions and
+//! function bodies are separate ownership domains.
 use std::collections::{HashMap, HashSet};
 
 use nia_ast::{BinaryOp, UnaryOp};

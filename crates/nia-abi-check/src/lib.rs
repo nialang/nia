@@ -6,6 +6,15 @@
 //! The checker is intentionally conservative for Nia-specific fat pointers,
 //! tagged values, closures, and aggregates whose representation is not a C
 //! contract.
+//!
+//! The crate owns two separate products. [`AbiCheck`] validates explicit C ABI
+//! declarations: `extern` functions, globals, and structs. It rejects types
+//! with no direct C representation, such as slices, arrays by value, `bool`,
+//! `char`, and variadic function pointers, as well as unsupported extern forms
+//! such as variadic extern definitions with bodies. [`AbiSignature`]
+//! classifies an internal Nia function signature from type and target-layout
+//! facts into direct, indirect, zero-sized, and sret passing modes. Both are
+//! computed on demand from query facts.
 
 use std::collections::HashMap;
 

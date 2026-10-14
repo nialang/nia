@@ -16,6 +16,12 @@
 //! associated-type projections. Projection expansion has an independent
 //! active-set guard: a recursive projection remains symbolic rather than
 //! recursing indefinitely.
+//!
+//! Instantiations are pre-indexed by source definition, and mangled type
+//! symbols are cached during collection. Nested type arguments discovered
+//! while expanding generic bodies are published through the canonical type
+//! store and memoized by a substitution-id cache, so a recursive shape is
+//! instantiated once per substitution map.
 #![warn(missing_docs)]
 
 use std::cell::RefCell;

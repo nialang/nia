@@ -5,6 +5,8 @@
 //! patterns, and missing returns that can be established without typed pattern
 //! semantics. Exhaustiveness over nominal constructors and scalar ranges is
 //! deliberately owned by the typed pattern matrix in `nia-body-check`.
+//! The same rules check ordinary control-flow validity inside deferred
+//! expressions.
 
 use nia_ast::{
     Block, Expr, ExprKind, FunctionItem, IndexArg, MatchArmBody, Module, Pattern, PatternKind,

@@ -4,6 +4,9 @@
 //! Static checking intentionally sits between semantic resolution and static
 //! IR construction: it rejects runtime-only operations while retaining enough
 //! cross-module context to resolve addresses, layouts, and const values.
+//! Static data is distinct from compile-time value bindings, and an address
+//! initializer is accepted only when it can be represented as a target static
+//! relocation.
 use std::sync::Arc;
 
 use nia_ast::{ArrayElements, BindingItem, Block, Expr, ExprKind, IndexArg, StmtKind, UnaryOp};

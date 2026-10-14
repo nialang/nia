@@ -1,5 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Conservative summaries and indexes for extension-method providers.
+//!
+//! A [`ProviderSummary`] lists a module's `extend` blocks from its active item
+//! tree: the target type, the optional trait, and the declared method and
+//! associated-value names. Type references are classified syntactically only;
+//! a generic, structural, aliased, or imported target is marked conservative
+//! rather than resolved. [`NominalProviderCandidateIndex`] maps a definite
+//! nominal name to the modules that may provide extensions for it, so
+//! extension discovery can skip modules that cannot match while still
+//! visiting every conservative provider.
+//!
+//! [`ProviderDemand`] records one cross-module fact requested during semantic
+//! analysis; [`ProviderFactRevision`] is a monotonic revision token for those
+//! facts.
 
 mod demand;
 

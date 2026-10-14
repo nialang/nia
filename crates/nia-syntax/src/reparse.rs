@@ -5,6 +5,16 @@
 //! affected iteration and ends at an unchanged iteration boundary. Recovery
 //! may consume further declarations, so synchronization is decided by the
 //! grammar cursor, never merely by balancing delimiters in edited text.
+//!
+//! `Parse::reparse` first tries the innermost safe function-body block. Its
+//! delimiters must survive the edit, its enclosing grammar must not have
+//! speculatively read its interior, and no alternate interpretation may cross
+//! its boundary. Errors or unsafe boundaries fall back to declaration-region
+//! reparsing: iterations whose consumed or lookahead tokens intersect the edit
+//! are invalidated, and parsing continues until an unchanged declaration
+//! boundary. Reused diagnostics and alternate trees shift with the edit, and
+//! diagnostic child paths are reconstructed for the new revision. Tests
+//! compare continuous edits with clean parses, including AST origins.
 
 use nia_lexer::{LosslessToken, LosslessTokenKind, tokenize_lossless};
 use nia_source::SourceVersion;

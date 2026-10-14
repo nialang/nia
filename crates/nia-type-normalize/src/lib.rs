@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Normalizes interned types by expanding aliases and recursively canonicalizing
 //! nested type and const-argument components.
+//!
+//! Recursive aliases are diagnosed. Normalized type information stays
+//! separate from raw lowered types: `TypeNormalization` contains only
+//! normalized-id facts and diagnostics and never owns a type view.
 use std::collections::{HashMap, HashSet};
 
 use nia_diagnostic::{Diagnostic, codes};

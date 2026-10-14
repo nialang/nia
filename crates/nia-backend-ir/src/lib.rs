@@ -5,6 +5,12 @@
 //! The immutable owner directory and single-consumer readiness stream let
 //! parallel codegen discover exact definition owners without making completion
 //! order observable in stable partition identities.
+//!
+//! Backend IR is the boundary between Nia semantics and LLVM emission. It
+//! holds backend functions, globals, vtables, aggregate instances, and their
+//! metadata. Each function and global carries a [`BackendLinkage`]: canonical
+//! Nia mangling, or a C ABI `ExternImport` or `ExternExport` under an external
+//! symbol.
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},

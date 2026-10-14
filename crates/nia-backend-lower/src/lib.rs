@@ -4,6 +4,14 @@
 //! Planning discovers reachable templates and concrete instances before module
 //! finalization. Cross-module references are routed back to a unique owner;
 //! finalization may run per module, but collection restores source-module order.
+//!
+//! Module-level optimization (leaf inlining, cross-function constant
+//! propagation, and direct trait-call devirtualization) is driven by the
+//! optimization policy, which sets pass depth and budgets rather than an
+//! all-or-nothing switch. An optimization report records which passes ran and
+//! which functions and globals they transformed. Generic type instantiations
+//! are cached while function instances are expanded, so repeated uses under
+//! the same substitutions do not rebuild the same interned type graph.
 
 mod closure_entries;
 mod function_instances;
