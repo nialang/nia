@@ -65,6 +65,83 @@ pub fn replace_path(
     }
 }
 
+/// Creates a directory path without following a symbolic link or reparse
+/// point in any existing or newly-created component.
+///
+/// A relative path whose missing components reach its start is anchored at the
+/// current directory, so `build/out` creates `build` beside the caller. A
+/// missing `.` or `..` component cannot be created and reports `NotFound`.
+pub fn create_real_directory(path: &std::path::Path) -> std::io::Result<()> {
+    use std::{fs, io, path::Path};
+
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let mut missing = Vec::new();
+    let mut current = path.to_path_buf();
+    let existing = loop {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => break (current.clone(), metadata),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let Some(name) = current.file_name() else {
+                    return Err(error);
+                };
+                missing.push(name.to_os_string());
+                current = match current.parent() {
+                    Some(parent) if parent.as_os_str().is_empty() => Path::new(".").to_path_buf(),
+                    Some(parent) => parent.to_path_buf(),
+                    None => return Err(error),
+                };
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    validate_real_directory(&existing.0, &existing.1)?;
+    for name in missing.iter().rev() {
+        current.push(name);
+        match fs::create_dir(&current) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        let metadata = fs::symlink_metadata(&current)?;
+        validate_real_directory(&current, &metadata)?;
+    }
+    Ok(())
+}
+
+/// Reports whether metadata describes a symbolic link or a Windows reparse
+/// point (symbolic links, junctions, and other redirecting entries).
+pub fn is_link_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn validate_real_directory(
+    path: &std::path::Path,
+    metadata: &std::fs::Metadata,
+) -> std::io::Result<()> {
+    if is_link_or_reparse_point(metadata) || !metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("`{}` must be a real directory", path.display()),
+        ));
+    }
+    Ok(())
+}
+
 /// Flushes a directory entry where the host exposes directory fsync.
 /// Windows does not permit opening directories through the standard File API;
 /// file contents and `MoveFileExW(...WRITE_THROUGH)` still provide the
