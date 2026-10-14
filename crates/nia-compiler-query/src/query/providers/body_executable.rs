@@ -1968,6 +1968,9 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     let item_signatures = db.get(ItemSignaturesQuery(module_id))?;
     let type_normalization = db.get(TypeNormalizationQuery(module_id))?;
     let definitions = db.get(FullModuleDefsQuery(module_id))?;
+    // C ABI rules belong to declarations, not to executable reachability: an
+    // extern signature is rejected even when no reachable body calls it.
+    let abi_check = db.get(AbiCheckQuery(module_id))?;
     let flow_diagnostics = db
         .context()
         .diagnostic_store
@@ -2017,9 +2020,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             diagnostics: Vec::new(),
         }),
         layouts: layouts.semantic,
-        abi_check: Arc::new(nia_abi_check::AbiCheck {
-            diagnostics: Vec::new(),
-        }),
+        abi_check: Arc::clone(&abi_check.semantic),
         flow_check: Arc::new(flow_check),
         body_ir: body_check.ir,
         semantic_uses: body_inputs.semantic_uses,
@@ -2043,7 +2044,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         const_diagnostics,
         static_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         layout_diagnostics: layouts.diagnostics,
-        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+        abi_diagnostics: abi_check.diagnostics.clone(),
         flow_diagnostics,
     })
 }
@@ -2071,6 +2072,7 @@ pub(super) fn executable_signature_checked_module(
         nia_item_tree::SignatureItemSet::Types,
     ))?;
     let definitions = db.get(ModuleDefsQuery(module_id))?;
+    let abi_check = db.get(AbiCheckQuery(module_id))?;
     let (array_lengths, enum_values) = with_type_signature_const_input(
         db,
         module_id,
@@ -2117,9 +2119,7 @@ pub(super) fn executable_signature_checked_module(
             diagnostics: Vec::new(),
         }),
         layouts: layouts.semantic,
-        abi_check: Arc::new(nia_abi_check::AbiCheck {
-            diagnostics: Vec::new(),
-        }),
+        abi_check: Arc::clone(&abi_check.semantic),
         flow_check: Arc::new(nia_flow_check::FlowCheck {
             diagnostics: Vec::new(),
         }),
@@ -2146,7 +2146,7 @@ pub(super) fn executable_signature_checked_module(
         const_diagnostics,
         static_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
         layout_diagnostics: layouts.diagnostics,
-        abi_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
+        abi_diagnostics: abi_check.diagnostics.clone(),
         flow_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
     })
 }
