@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Target-configuration evaluation and conditional module pruning.
+//!
+//! Conditions are evaluated against the typed `nia_target::TargetConfig`
+//! (architecture, operating system, vendor, environment, byte order, and
+//! pointer width), a [`BuildProfile`] for `@[debug]` and `@[release]` items,
+//! and a [`CompilationMode`] for `@[test]` items; profile and test selection
+//! are independent. Pruning turns a module item tree into its
+//! `ActiveModuleItemTree`, removing inactive items and the inactive statements
+//! and expressions inside bodies while recording the inactive source spans. Unchanged items
+//! keep their shared payloads. Malformed conditions become diagnostics. Target
+//! identity itself belongs to `nia-target`.
 
 use nia_ast::{
     ArrayElements, Attribute, AttributeKind, Block, ConditionBinaryOp, ConditionExpr,
@@ -959,7 +969,7 @@ mod tests {
 
     #[test]
     fn condition_vocabulary_matches_the_language_specification() {
-        // Mirrors the target table in `docs/language-spec.md`.
+        // Mirrors the target table in `docs/reference/platform-support.md`.
         let expected = [
             ("x86_64-unknown-linux", "x86_64", "unknown", "linux", "", 64),
             ("x86-unknown-linux", "x86", "unknown", "linux", "", 32),

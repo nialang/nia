@@ -15,6 +15,7 @@ cargo maintain audit system-imports
 cargo maintain report crate-boundaries
 cargo maintain report llvm-ir target/nia-perf/runner.ll --limit 20
 cargo maintain baseline compiler
+cargo maintain baseline competitive
 cargo maintain baseline compare <baseline.json> <candidate.json>
 cargo maintain baseline build
 cargo maintain check
@@ -34,8 +35,9 @@ canonical `_N...` symbols when possible. Use `--json` for machine-readable
 attribution; the default text report is limited to the top 20 entries unless a
 different `--limit` is supplied.
 
-Compiler workload definitions, baseline comparison rules, and managed CI trend
-artifacts are documented in [`performance.md`](performance.md).
+Compiler, competitive (Nia, Rust, and Zig), and build workload definitions,
+baseline comparison rules, and managed CI trend artifacts are documented in
+[`performance.md`](performance.md).
 
 Fixtures belong in `maintain/fixtures/`, integration contracts in
 `maintain/tests/`, and implementation tests beside their owning Rust

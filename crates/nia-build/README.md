@@ -5,11 +5,21 @@ invocation, compiles and runs the package's `build.nia`, validates the emitted
 plan, and executes the selected dependency closure. Package registries, version
 solving, downloads, publication, and network trust are outside this crate.
 
-The execution boundary is deliberately split:
+This README is the single owner of build-system internals. Writing build scripts
+is covered for users in [Build scripts](../../docs/guide/build-scripts.md); the
+public `std::build` API and its ownership rules live with the Nia sources in
+[`lib/std/build.nia`](../../lib/std/build.nia) and
+[`lib/std/build/`](../../lib/std/build/). Language-visible build behavior is
+specified in the [language reference](../../docs/reference/language.md); the
+outer CLI and compiler boundary are described in
+[Compiler architecture](../../docs/dev/architecture.md).
+
+## Invocation
 
 ```text
 nia build
-  -> resolve BuildInvocation and ToolchainLayout
+  -> resolve BuildRequest into BuildInvocation and ToolchainLayout
+  -> resolve package manifests and the selected package graph
   -> compile and run build.nia for the host
   -> std::build::Build validates and encodes a draft
   -> BuildPlan::decode validates and freezes the graph
@@ -17,40 +27,38 @@ nia build
   -> typed Driver, linker, process, and filesystem operations
 ```
 
-The generated runner is a configuration process. It can inspect its injected
-package, toolchain, host, artifact-target, optimization, and requested-step
-values and construct a graph through `std::build`; it cannot execute graph
-actions. The decoded immutable `BuildPlan` is the coordinator's only execution
-input.
+`BuildInvocation` is invocation-local: it owns the physical package, build,
+cache, runner, and handoff paths. The generated runner is a configuration
+process. It can inspect its injected package, toolchain, host, artifact-target,
+optimization, and requested-step values and construct a graph through
+`std::build`; it cannot execute graph actions. The runner emits a draft protocol
+payload, and decoding always performs the same semantic freeze and validation
+as an in-process plan. The decoded immutable `BuildPlan` is the coordinator's
+only execution input.
 
-Package manifests are resolved before runner execution. The local package
-resolver fingerprints declared source content, applies explicit dependency
-classes, and keeps filtered optional, lazy, and test dependencies out of the
-selected graph. `LocalPackageGraph::report` exposes declared versus resolved
-edges without loading source modules.
+The runner wrapper is owned by `nia-build`, not the public `std::build` API,
+because it is a private protocol bootstrap: it binds runner-config and plan
+protocol identities, cache inputs, and the host invocation lifecycle. Build
+scripts need only the graph-building types and operations exposed by
+`std::build`; exposing the wrapper would make compiler/build transport details
+part of the language-visible API.
 
-The runner wrapper remains owned by `nia-build`, rather than becoming part of
-the public `std::build` API, because it is a private protocol bootstrap: it
-binds runner-config and plan protocol identities, cache inputs, and the
-host invocation lifecycle. Build scripts need only the stable graph-building
-types and operations exposed by `std::build`; exposing the wrapper would make
-compiler/build transport details part of the language-visible API.
-
-The runner itself is always compiled for the host at O0. The requested
-optimization remains an explicit configuration value used by artifact actions;
-it is not the compilation policy for the short-lived plan constructor. Runner
-cache identity therefore excludes artifact optimization while retaining inputs
-that can change the runner binary, including profile, test mode, host target,
-build source, standard-library source, toolchain identity, and build protocol.
+The runner is always compiled for the host at O0. The requested optimization is
+an explicit configuration value used by artifact actions, not the compilation
+policy for the short-lived plan constructor.
 
 ## Source Ownership
 
 - [`src/lib.rs`](src/lib.rs) owns package discovery, invocation paths, runner
-  generation and execution, and plan handoff.
+  generation and execution, plan handoff, and inspection reports.
 - [`src/runner.nia`](src/runner.nia) is the private generated-runner wrapper,
   and [`src/runner_config.rs`](src/runner_config.rs) owns the private bounded
   configuration passed to it. [`src/runner_cache.rs`](src/runner_cache.rs)
   owns the content-addressed cache for compiled host runners.
+- [`src/configure_cache.rs`](src/configure_cache.rs) owns reusable configure
+  records, and [`src/configure_observation.rs`](src/configure_observation.rs)
+  and [`src/runner_observation.rs`](src/runner_observation.rs) own the
+  observations recorded for them.
 - The immutable plan model lives in the separate
   [`nia-build-plan`](../nia-build-plan/) crate, re-exported from this crate:
   - [`src/lib.rs`](../nia-build-plan/src/lib.rs) owns stable keys, typed
@@ -67,11 +75,13 @@ build source, standard-library source, toolchain identity, and build protocol.
     binary plan protocol. Decoding always returns through semantic freeze.
   - [`src/handoff.rs`](../nia-build-plan/src/handoff.rs) owns durable
     canonical plan publication.
+- Package manifests, source identities, and dependency classes are owned by
+  [`nia-package-metadata`](../nia-package-metadata/).
 - [`src/coordinator.rs`](src/coordinator.rs) owns selected-closure scheduling
   and typed action execution.
 - [`src/action_cache.rs`](src/action_cache.rs) and its child modules own
   build-action records and invalidation reasons. Compiler object, archive, and
-  link products remain owned by `nia-driver` and `nia-linker` caches.
+  link products are owned by `nia-driver` and `nia-linker` caches.
 - [`src/output_recovery.rs`](src/output_recovery.rs) owns recoverable
   multi-output publication, while [`src/lock.rs`](src/lock.rs) owns
   cross-process coordination for equal logical outputs.
@@ -83,12 +93,45 @@ build source, standard-library source, toolchain identity, and build protocol.
   bootstrap and coordinator failures: it assigns stable diagnostic codes and
   bounds child output in text and JSON reports.
 
-The public build-script API and its ownership rules live with the Nia sources
-in [`lib/std/build.nia`](../../lib/std/build.nia) and
-[`lib/std/build/`](../../lib/std/build/). Language-visible build behavior is
-specified in [`docs/language-spec.md`](../../docs/language-spec.md); the outer
-CLI and compiler boundary are described in
-[`docs/architecture.md`](../../docs/architecture.md).
+## Package Metadata
+
+Package manifests are resolved before runner execution. The local package
+resolver fingerprints declared source content, applies explicit dependency
+classes, and keeps filtered optional, lazy, and test dependencies out of the
+selected graph. `LocalPackageGraph::report` exposes declared versus resolved
+edges without loading source modules.
+
+Resolution records each existing dependency checkout root, including roots
+whose edge was filtered from the selected graph. When the coordinator
+constructs a compiler request, it matches build-plan package roots to those
+manifest edges and filters module-map roots by dependency class:
+
+| Dependency class | Visible to artifact compilation |
+| --- | --- |
+| Runtime | Always |
+| Test-only, development | In test mode |
+| Optional, lazy | When explicitly selected by the build |
+| Build-only | Never |
+
+Generated build roots and package roots not declared in `nia.package` keep
+their plan behavior unchanged.
+
+Package source identities walk only the selected roots, skip excluded and
+symlinked entries, and stream file contents into BLAKE3 fingerprints. The walk
+is iterative and rejects source trees with more than one million regular files
+before publishing an identity. Manifest source-root and exclude paths are
+normalized as slash-separated, package-relative lexical paths before they enter
+the identity, so redundant `.` components and separators cannot create a second
+identity for one selection; parent, absolute, drive-prefixed, and backslash
+paths are rejected. Fingerprints frame both the count and the entries of each
+source-root and exclusion list.
+
+Canonical package text escapes each namespace, name, and version component
+before joining them as `namespace/name@version`. Percent signs, delimiters,
+control bytes, and non-ASCII UTF-8 bytes use uppercase percent encoding, so
+distinct component tuples cannot share a text identity. Local `nia.package`
+manifests are limited to 1 MiB; readers consume at most one byte beyond that
+limit and reject oversized input before decoding UTF-8.
 
 ## Plan Contract
 
@@ -110,12 +153,22 @@ matrix; every other target fact is derived from the name, never transported
 beside it. `TargetView` exposes the name, its architecture, vendor, OS, and
 environment components, and the toolchain-derived byte order and pointer width.
 
+The runner receives the toolchain's complete maintained target matrix. An
+artifact without a target builds for the invocation artifact target;
+`forTarget` selects any other member, such as `b.hostTarget()` for a tool the
+build runs or `b.target("x86_64-apple-macos")` for an additional artifact.
+Each compiler action carries its resolved target, and the coordinator creates
+one driver per distinct target in the plan. Run, test, and command programs must
+be built for the host target.
+
+### Encoding bounds
+
 The Nia encoder bounds every collection count by the registered `maxItems`
 limit before narrowing it to the wire `u32` representation. Aggregate counts
 and derived dependency/input/output counts use checked addition, so malformed
 in-memory state is rejected instead of wrapping into a smaller protocol value.
-Generated-file payload lengths are likewise checked before their fixed-width
-length prefix is written.
+Generated-file payload lengths are checked before their fixed-width length
+prefix is written.
 
 The Rust encoder applies the 64 MiB plan budget at each raw write. Once a write
 would exceed that budget it retains the first `TooLarge` error and stops growing
@@ -127,14 +180,31 @@ It grows a list only after each item has consumed and validated its bytes, so a
 truncated count prefix cannot amplify a tiny draft into `count * size_of(T)` of
 host allocation.
 
-The registered protocol identities in `nia-compat` are the only schema and
-namespace authorities. The active `0.2.0-dev` release line uses epoch `2`;
-the published `0.1.0` line used epoch `1`. Internal changes keep the active
-line's epoch fixed. Changing an encoded field or persistent cache input must
-update its owning contract, without promising to read or migrate data from an
-earlier release.
+### Protocol identity
 
-## Execution And Publication
+The registered protocol identities in `nia-compat` are the only schema and
+namespace authorities. One protocol epoch is shared by compiler, toolchain,
+ABI, metadata, runner, and cache products, and it is derived from the compiler
+version's release line: `0.x` versions use epoch `x`, so `0.2.0-dev` and every
+`0.2.x` release use epoch `2`. Internal format changes within a line do not
+change the epoch. Decoders require an exact match; earlier protocols have no
+readers, migrations, or aliases. Payload magic identifies the payload kind; it
+is not an independently bumped version. Owner-local fingerprint domains are
+dependency-invalidation details, never additional user-facing version tracks.
+Changing an encoded field or persistent cache input updates its owning
+contract without promising to read or migrate data from an earlier release.
+
+## Execution
+
+The frozen plan's host and artifact targets must match the current invocation
+before action selection or output preparation. Mismatch reports identify the
+role and show the invocation target as expected and the plan target as found.
+
+The coordinator executes deterministic readiness waves through `QuerySession`,
+so build actions share the process jobserver and compiler resource budgets.
+`Cpu` and `Io` actions reserve one action slot; `Conservative` actions reserve
+the complete action capacity. `--jobs` can reduce ready-action parallelism but
+does not create a separate executor or replace LLVM memory backpressure.
 
 Runner and external-command output is drained concurrently into bounded tails.
 Every started capture worker is joined, including when its sibling fails to
@@ -144,123 +214,186 @@ test-suite and staging-cleanup reports preserve the original action's context.
 Text commands may forward live child output; JSON commands retain it in notes
 without mixing child bytes into the diagnostic envelope.
 
-The frozen plan's host and artifact targets must match the current invocation
-before action selection or output preparation. Mismatch reports identify the
-role and show the invocation target as expected and the plan target as found.
-The CLI freezes a new plan from each invocation. A validated configure record
-may be reused only when its non-poisoned observations recompute against the
-current package root and its plan decodes through semantic freeze; corrupt,
-missing, or changed observations fall back to normal runner configuration.
-`build-plan.bin` remains a durable observation, never an unchecked execution
-input.
+External commands run with standard input closed by default. A command may opt
+into a declared file-backed stdin input from the package or build tree; that
+path is part of the declared input set, command identity, and dependency
+closure. There is no inherited coordinator stdin or interactive input channel.
 
-Filesystem observation records distinguish content, metadata, directory
-entries, and presence. Presence observations preserve an absent optional path
-as a cacheable fact; creating, removing, or changing its entry kind invalidates
-the configuration. Existing ancestors must resolve inside the package root,
-including when several trailing path components are absent. Unresolvable
-symlinks and unreadable paths remain errors rather than recorded absence.
-Cache input files and directory trees also reject Windows reparse points during
-both identity passes, preserving the same boundary on Windows.
-Environment observations use the same explicit-absence rule and reject
-non-UTF-8 values instead of silently changing the cache identity.
+## Caches
+
+| Cache | Stores | Owner |
+| --- | --- | --- |
+| Runner cache | Checked host runner executable | `src/runner_cache.rs` |
+| Configure cache | Frozen plan plus its bounded observation manifest | `src/configure_cache.rs`, `src/configure_observation.rs` |
+| Action cache | Generated files, eligible external-command results, references to compiler products | `src/action_cache.rs` |
+| Test completion cache | Witness of a successful test suite, no output payload | `src/action_cache/test_suite.rs` |
+| Compiler and linker product caches | Objects, archives, link results | `nia-driver`, `nia-linker` |
+
+Cache I/O failures and corruption produce explicit misses and never replace the
+ordinary correctness path.
+
+### Runner cache
+
+Generated runners use content-addressed
+`.nia-cache/runner/protocol/<key>.cache` records. The namespace and payload
+identity are registered in `nia-compat`; there is no runner-local schema
+version. The key includes the generated runner source, build-script bytes,
+standard-library source tree, toolchain identity, host target, runner profile,
+test mode, link-time policy, and build protocol. Artifact optimization is
+transported through the private runner configuration but is excluded from the
+key, because the runner is always compiled at O0. A hit verifies and atomically
+restores the runner executable; malformed or corrupted records are retired as
+misses.
+
+### Configuration cache
+
+The CLI freezes a new plan for each invocation; only a configure miss starts the
+runner. A configure record may be reused only when the runner and invocation
+identities match, every non-poisoned observation recomputes against the current
+package root, and its plan decodes through semantic freeze. A missing, changed,
+poisoned, or corrupt record falls back to normal runner configuration.
+Candidate scans are bounded; an oversized configure namespace is a miss. The
+durable `build-plan.bin` handoff is an atomically published observation of the
+last completed configuration, never an unchecked execution input.
+
 The runner transports bounded file-content, file-presence, directory,
-environment, command, Git, and tool evidence in the draft envelope.
-`Build::probeFile` requires caller-owned bounded storage;
-the host re-reads the reported bytes under the package-root boundary before
-canonicalizing them into the BLAKE3 manifest. `Build::probeFilePresence`
-records absent, file, directory, and other-entry states. Environment records
-distinguish absent and empty values. Malformed records, path escapes, oversized
-values, duplicate facts, and read-after-run changes are rejected and cannot
-enter the configure cache. Command, Git, and tool probes use separate
-executable identity records. Host validation resolves the program through
-`PATH`, runs its canonical path, and fingerprints its contents, request, exit
-status, and bounded output.
+environment, command, Git, and tool evidence in the draft envelope, and the
+host rechecks each reported value before publishing a record:
 
-External-command results are cached only under an explicit policy. Successful
-test suites use a separate completion cache keyed by the executable, source
-manifest, declared inputs, environment, toolchain, and test action contract;
-failed or cancelled suites never publish records. Both
-`DeclaredInputs` and `ToolAndInputs` retain tool content identity and require a
-cleared environment with explicit declarations; the latter builder method also
-selects that environment policy. `FullDeclaredEnvironment` retains a bounded
-inherited environment snapshot and rejects explicit overrides. Oversized
-snapshots execute normally and report an uncacheable miss without publishing
-an external-command entry. Declared directory inputs use a deterministic
-streamed identity with bounded encoded size, depth, and entry count; oversized
-or excessively nested trees fail as typed input errors.
+- Filesystem observations distinguish content, metadata, directory entries,
+  and presence. A missing optional path is a stable `absent` fact, so creating,
+  removing, or changing its entry kind invalidates the record. Existing
+  ancestors must resolve inside the package root, including when several
+  trailing components are absent. Unresolvable symlinks and unreadable paths
+  are errors, not recorded absence. Input files and directory trees reject
+  Windows reparse points during both identity passes.
+- `Build::probeFile` requires caller-owned bounded storage; the host re-reads
+  the reported bytes under the package-root boundary before canonicalizing them
+  into the BLAKE3 manifest. `Build::probeFilePresence` records absent, file,
+  directory, and other-entry states.
+- Environment observations distinguish an absent variable, an empty value, and
+  each UTF-8 value; non-UTF-8 values are rejected rather than silently changing
+  the identity.
+- Command, Git, and tool probes use separate executable identity records. The
+  host resolves the program through `PATH`, runs its canonical path, and
+  fingerprints its contents, request, exit status, and bounded output. They are
+  not package-relative filesystem facts.
 
-For maintenance and CI, `nia build --dry-run` validates the selected closure
-without executing coordinator actions. `--print-plan`, `--explain`,
-`--print-cache`, and `--print-observations` expose deterministic graph and
-cache evidence. `--diagnostics-format=json` switches these inspection products
-to newline-delimited stable JSON records: plan records include all canonical
-graph nodes, explanation records include observations and tools, and action
-cache records include typed decisions and publication state. Dry-run cache
-records explicitly report that lookup and publication were not attempted.
+Malformed records, path escapes, oversized values, duplicate facts, and
+read-after-run changes are rejected and cannot enter the configure cache.
 
-The runner receives the toolchain's complete maintained target matrix. An
-artifact without a target builds for the invocation artifact target;
-`forTarget` selects any other member, such as `b.hostTarget()` for a tool the
-build runs or `b.target("x86_64-apple-macos")` for an additional artifact.
-Each compiler action carries its resolved target, and the coordinator creates
-one driver per distinct target in the plan. Run, test and command programs must
-be built for the host target.
-
-The coordinator executes deterministic readiness waves through `QuerySession`,
-so build actions share the process jobserver and compiler resource budgets.
-`Cpu` and `Io` actions reserve one action slot; `Conservative` actions reserve
-the complete action capacity. `--jobs` can reduce ready-action parallelism but
-does not create a separate executor or replace LLVM memory backpressure.
-
-Actions publish only declared build-root outputs. Equal logical destinations
-share a cross-process lock; unrelated destinations may proceed independently.
-Before staging, every output parent is created and checked component by
-component beneath the invocation build root; symlinks and Windows reparse
-points are rejected so a logical output cannot redirect publication elsewhere.
-A lock is stale only when no live owner holds it: Unix reclaimers take the
-owner's `flock`, and Windows reclaimers need an exclusive open that deletes the
-same file object on close. Neither platform reclaims a live lock by age.
-The bounded owner record is `pid:start-time:sequence`; malformed records,
-including PID-zero records, are rejected and reclaimed as stale instead of
-being treated as live process ownership.
-File and directory outputs use staged same-filesystem transactions. The
-checksummed journal and prepared marker make interrupted publication recoverable
-without guessing which partial destination is valid. Corrupt or contradictory
-recovery state is a typed failure. Recovery rejects a journal namespace that
-exceeds its bounded entry budget, and validates directory outputs with a
-streaming traversal so malformed state cannot force an unbounded per-directory
-allocation.
+### Action cache
 
 Generated-file and eligible external-command entries store complete validated
 payloads. Compiler-check entries record only a prior successful zero-diagnostic
 check against a complete source manifest. Compiler-emit entries bind build
 identity to a Driver-owned executable cache reference rather than duplicating
-the executable. Cache I/O and corruption produce explicit misses and never
-replace the ordinary correctness path. Action, configure, and runner cache
+the executable.
+
+External-command results are cached only under an explicit policy:
+
+| Policy | Identity |
+| --- | --- |
+| `Uncacheable` | Never cached. |
+| `DeclaredInputs` | Tool content identity and declared inputs; requires a cleared environment with explicit declarations. |
+| `ToolAndInputs` | As `DeclaredInputs`; the builder method also selects that environment policy. |
+| `FullDeclaredEnvironment` | A bounded inherited environment snapshot; rejects explicit overrides. Oversized snapshots execute normally and report an uncacheable miss. |
+| `SuccessfulTests` | Test suites only; publishes a completion witness, described below. |
+
+Declared directory inputs use a deterministic streamed identity with bounded
+encoded size, depth, and entry count; oversized or excessively nested trees
+fail as typed input errors.
+
+Successful test suites use a separate completion cache keyed by the test
+executable, source input manifest, declared inputs, effective environment,
+toolchain, and test action contract. Failed or cancelled suites never publish a
+record, and cache failures fall back to running the suite.
+
+## Publication and Locks
+
+Actions publish only declared build-root outputs. Equal logical destinations
+share a cross-process lock; unrelated destinations proceed independently.
+Before staging, every output parent is created and checked component by
+component beneath the invocation build root; symlinks and Windows reparse
+points are rejected so a logical output cannot redirect publication elsewhere.
+
+File and directory outputs use staged same-filesystem transactions. The
+checksummed journal and prepared marker make interrupted publication
+recoverable without guessing which partial destination is valid. Corrupt or
+contradictory recovery state is a typed failure. Recovery rejects a journal
+namespace that exceeds its bounded entry budget and validates directory outputs
+with a streaming traversal, so malformed state cannot force an unbounded
+per-directory allocation.
+
+A lock is stale only when no live owner holds it: Unix reclaimers take the
+owner's `flock`, and Windows reclaimers need an exclusive open that deletes the
+same file object on close. Neither platform reclaims a live lock by age. The
+bounded owner record is `pid:start-time:sequence`; readers require the complete
+record before checking liveness, and malformed records, including PID-zero
+records, are reclaimed as stale.
+
+Action, configure, and runner cache records, recovery journals, and lock-owner
 records are opened as regular files without following symlinks or Windows
-reparse points. Their cache namespaces are also created and traversed component
-by component under the invocation cache root; symlinked or reparse parent
-directories are rejected on both publication and lookup. Recovery journals and
-lock-owner records use the same no-follow rule. A redirected or malformed
-record is rejected and follows the ordinary miss or recovery-error path.
-Mutation locks are held across publication and validation/retirement. This
-prevents a stale reader that observed corruption from deleting a complete
-replacement installed by another invocation. Test-suite completion records use
-the same lock while the coordinator rechecks identity, executes the suite, and
-publishes its successful completion witness.
+reparse points. Cache namespaces are created and traversed component by
+component under the invocation cache root; symlinked or reparse parent
+directories are rejected on both publication and lookup. A redirected or
+malformed record follows the ordinary miss or recovery-error path.
+
+Every mutable cache operation holds the entry's coordination lock: publication
+holds it while installing a complete record, and lookup and namespace scans
+hold it while validating or retiring corruption. A reader that observed
+malformed bytes therefore cannot delete a valid replacement published by
+another invocation after its scan. Test-suite completion records use the same
+lock while the coordinator rechecks identity, executes the suite, and publishes
+its witness. The runner and configure caches use invocation-local lock
+namespaces; compiler and linker product caches keep their owner-specific locks.
+
+## Inspection
+
+`nia build --dry-run` validates the selected closure without executing
+coordinator actions. `--print-plan`, `--explain`, `--print-cache`, and
+`--print-observations` expose deterministic graph and cache state.
+`--diagnostics-format=json` switches these products to newline-delimited
+deterministic JSON records:
+
+| Record | Contents |
+| --- | --- |
+| `build-plan` | Canonical package, module, artifact, action, and step nodes with targets and protocol epoch. |
+| `build-explanation` | The plan, configuration observations, declared tools, package-graph decisions, and selected closure. |
+| `action-cache` | A decision object with status, miss reason, component invalidations, declared outputs, and publication state. |
+
+`--explain` reports each declared dependency's selected-graph resolution, the
+number of its modules represented in the frozen plan, and whether the selected
+action closure owns or references that package. Module counts describe plan
+declarations; closure use follows action and step package ownership plus typed
+module, artifact, and package-path references. JSON dependency entries expose
+these as `resolved`, `loaded_modules`, and `used`. `resolved_dependency_count`
+counts selected dependency edges, while `resolved_count` counts selected
+package nodes including the root. Canonical checkout paths used to join
+metadata edges to plan roots are invocation-local and are not serialized.
+
+Dry runs emit the same action records with `not_consulted` and `not_attempted`
+states and neither consult nor publish any action cache. Explicit command
+environment values are represented by variable name, byte length, and a
+domain-separated fingerprint, never the value itself; inherited variables are
+represented as `inherited`.
+
+## Evolution Rule
+
+New configure observations, package identities, and dependency policies are
+represented as typed inputs registered at the appropriate boundary. They must
+not make the durable plan an implicit source of execution truth, conflate
+package metadata with ABI or type metadata, or bypass freeze-time validation.
 
 ## Verification
 
-Focused owner tests should run before broad workspace gates. Tests that start a
-compiler, LLVM backend, generated runner, nested build, or subprocess must use
-the repository's resource-accounted harness and bounded process-tree cleanup.
-The principal end-to-end contracts live in
-[`nia-cli/tests/build_cases.rs`](../nia-cli/tests/build_cases.rs); the
-representative clean/warm/edit/corruption workload lives under
-[`benchmarks/build/`](../../benchmarks/build/) and is run through
-`cargo maintain baseline build`. The maintenance command is documented in
-[`maintain/README.md`](../../maintain/README.md).
-
-Historical migration matrices, dated measurements, and hosted-run identifiers
-belong in Git history and generated evidence, not in this maintained contract.
+Run focused owner tests before broad workspace gates; the harness rules are in
+[Testing](../../docs/dev/testing.md). The principal end-to-end contracts live in
+[`nia-cli/tests/build_cases.rs`](../nia-cli/tests/build_cases.rs) and the
+`std_build_*` suites. The representative clean/warm/edit/corruption workload
+lives under [`benchmarks/build/`](../../benchmarks/build/) and runs through
+`cargo maintain baseline build`, documented in
+[`maintain/performance.md`](../../maintain/performance.md). Its runner-only
+package measures the fixed cost of configuring through `build_configure_plan`
+and `build_run_runner` timings, alongside exact configure hits and runner
+executions per transition.
