@@ -1,266 +1,139 @@
 # Nia Standard Library
 
-`std/pkg.nia` is the public package root facade. Public submodule facades re-export the
-supported API, while provider and implementation modules remain package-private.
-Importing a facade does not by itself select every provider; loader tests keep
-that dependency closure explicit.
+This directory is the toolchain resource tree. `std/` is the standard library
+that every program can import as `std`. `runtime/` is a private package that
+provides process startup and is linked in only when a program uses Nia startup.
+`imports/` describes the system libraries the library itself calls, so no
+platform SDK is needed to link them. `toolchain.meta` records the compiler
+version and resource protocol this tree belongs to.
 
-The private `runtime/pkg.nia` package is injected only when Nia startup is
-selected. `runtime/main.nia` owns the user entry contract; platform startup
-modules prepare `process::Init` and terminate the process. Architecture entry
-stubs and compiler-required native helpers have separate modules. Required
-helpers are retained by their source module and definition, even without a Nia
-call site. Bare compilation does not inject this package.
+## Modules
 
-The Windows OS facade keeps Win32 declarations in `os/windows/bindings.nia` and
-delegates file, directory, path, encoding, memory, and process operations to
-package-private implementations. Startup does not depend on a C CRT entry.
-Only name-surrogate reparse points (symbolic links and junctions) report
-`Symlink`; cloud placeholders and other reparse points keep the kind of the
-file or directory they store. Startup and child creation size environment
-blocks from their entries, because Windows imposes no total environment limit.
+Each module below is a public facade declared in `std/pkg.nia`. Common types
+are also re-exported at the root: `std::String`, `std::ArrayList`,
+`std::HashMap`, `std::Path`, `std::PathView`, `std::CString`,
+`std::CStringView`, `std::Atomic`, `std::SourceLocation`.
 
-`imports/` describes the system libraries that the standard library and
-runtime import, per platform: `imports/windows/kernel32.def` and
-`bcryptprimitives.def` list exactly the Win32 functions the Windows sources
-declare, and the linker generates their import libraries, so no platform SDK
-is needed. Adding or removing a Windows `extern fn` import requires the same
-change to its description; `cargo maintain check` enforces the match.
-Randomness uses the documented `ProcessPrng`, which never fails. The
-descriptions cover the toolchain's own sources only: a program that declares
-another Win32 function links that function's import library explicitly, like
-any native dependency (`-L <dir> -l <library>`).
+| Module | Purpose |
+| --- | --- |
+| `std::atomic` | `Atomic[T]`, memory orderings, and fences |
+| `std::build` | Declarative build-script API: packages, modules, artifacts, steps, and test suites |
+| `std::builtin` | Compiler-backed intrinsics (layout, bits, memory, SIMD, atomics, `asm`); see [builtins reference](../docs/reference/builtins.md) |
+| `std::cmp` | `Ordering` and `max` |
+| `std::collections` | Allocator-explicit `ArrayList` and `HashMap` with borrowed iterators |
+| `std::cstring` | NUL-terminated `CString` owners and `CStringView` borrows for C interop |
+| `std::error` | Cleanup combinators: `cleanupAfter` and `CleanupAccumulator` |
+| `std::fmt` | `Format` trait, `Formatter`, format specs, and checked template printing |
+| `std::fs` | `Path`/`PathView`, files, directories, metadata, and directory iteration |
+| `std::hash` | `Hash` and `Hasher` traits and the Wyhash hasher |
+| `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, `debugPrint` |
+| `std::iter` | Iterator adapters, ranges, and eager consumers such as `forEach` and `fold` |
+| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...) |
+| `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, and general-purpose allocators, typed owners |
+| `std::option` | Operations on optional values (`?T`) |
+| `std::parse` | `From` and `FromRadix` parsing traits |
+| `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
+| `std::result` | Operations on error unions (`E!T`) |
+| `std::slice` | Borrowed slice operations, iterators, and splitting |
+| `std::source` | `SourceLocation` and `callerLocation` |
+| `std::string` | Owned Unicode text (`String`) and text utilities |
+| `std::test` | Assertions and an explicit in-process test runner |
+| `std::unicode` | UTF-8 decoding and scalar-value validation |
 
-Testing is explicit at two levels. A build script registers each suite with
-`std::build::Build::addTestSuite`; the suite is an ordinary host executable
-and may organize any number of modules. Inside that executable,
-`std::test::Case` and `std::test::Runner` provide named case execution and a
-`RunSummary`. The runner borrows a caller-owned case table, continues after
-failures by default, and offers `withFailFast()` without introducing hidden
-allocation or file discovery.
+## Conventions
 
-The library follows a small set of ownership rules:
+- Explicit allocators. Owned values such as `String`, `fs::Path`, and the
+  collections take the allocator at every call that allocates, grows, copies,
+  or releases. There is no implicit destruction and no hidden allocator state.
+  Release a value with the allocator that produced it.
+- Owners and views. Borrowed forms are views: `&[T]`, `fs::PathView`,
+  `CStringView`. A view never extends the lifetime of its storage.
+  Ownership-transfer constructors consume an existing owner; copying
+  constructors take an allocator. `Allocator::allocSlice` returns a
+  `SliceAllocation[T]` owner rather than a raw slice, and `mem::allocValue`
+  returns an `Allocated[T]` owner.
+- Fallible cleanup. `deinit` and `close` return errors. Cleanup attempts every
+  owned resource and keeps whatever failed to release. After a failed `deinit`,
+  the value is cleanup-only: retry `deinit` with the same allocator instead of
+  using it again. Attempt-style owners (`Command::spawn` returns a
+  `SpawnAttempt`, `Build::init` returns a `BuildInitAttempt`) expose their
+  result from `finish` only after cleanup completes; retry `finish` on a cleanup
+  error. `close` consumes the handle even when it reports an error, so never
+  close twice.
+- Leak reporting. `GeneralPurposeAllocator::deinit` reports
+  `mem::Error::Leak` when user allocations are still live; the allocator is
+  empty at that point and needs no retry. `deinitWithoutLeakCheck` skips the
+  diagnostic. A typical owner uses `defer gpa.deinit().?;`.
+- Error domains. Each module has its own error type that keeps the underlying
+  cause, and owning modules attach context such as the operation and path.
+  `IntoError` converts errors for `.?` propagation. `std::error::cleanupAfter`
+  combines an operation with its cleanup while keeping the operation failure
+  primary.
+- Borrowed callbacks. Callback parameters are borrowed for the duration of the
+  call unless an API explicitly returns an owner such as
+  `mem::CallableAllocation`.
 
-- Owned values such as `String`, `fs::Path`, and collections use explicit
-  allocators for allocation, mutation, and release. Nia does not add implicit
-  destruction or hidden allocator state to these values.
-- Build module imports are module-level declarations. `Build::addTestSuite`
-  uses the same module import model as an ordinary executable and does not
-  introduce a separate `TestImport` namespace. When an application root and a
-  test root both use a package such as `foo`, the same `ModuleImport` descriptors
-  may be reused in both `ModuleOptions`; each root still declares its own
-  visibility explicitly.
-- Borrowed forms use views such as `&[T]`, `fs::PathView`, and `CStringView`.
-  A view never extends the lifetime of its backing storage.
-- `fs::Path::joinComponent` supports components borrowed from its own text. It
-  records their logical offset before growth, rebuilds the slice after any
-  allocation move, and commits only after reserving the complete joined length.
-  The operation does not retain a temporary allocation owner.
-- `PathView::encode` validates NULs, total UTF-8 length, and terminator capacity
-  before changing caller storage. Any encoding error leaves the complete output
-  buffer unchanged rather than publishing a partial native path.
-- Ownership-transfer constructors consume an existing owner. Copying
-  constructors accept an allocator and preserve typed allocation or validation
-  failures.
-- `String::intoOwnedSlice` first retires any pending formatting staging owner;
-  a successful transfer therefore leaves no second allocation behind in the
-  source string.
-- Fallible cleanup attempts every independently owned resource and retains each
-  allocation whose release fails. A partially completed collection `deinit` is
-  cleanup-only state: retry `deinit` with the same allocator rather than using
-  the value again.
-- `if value is pattern` does not create a separate ownership model from
-  `match`. For a fallible teardown, keep the owner active when `deinit` returns
-  an error and mark it inactive only after cleanup succeeds; this preserves a
-  valid retry path. Keep this invariant explicit in the owning implementation
-  and its focused tests.
-- `GeneralPurposeAllocator::deinit` returns `mem::Error!()`. Live user
-  allocations are reported as `mem::Error::Leak` after backing cleanup
-  completes; this diagnostic means the allocator is empty and needs no retry.
-  Pending rollback storage and empty slabs are not user leaks. If a backing
-  release fails, every independent release is still attempted and the first
-  release error takes priority. Failed owners and the detected leak remain on
-  the allocator for cleanup retry; do not resume allocation operations during
-  that retry. Once cleanup succeeds, any previously detected leak is reported.
-  `deinitWithoutLeakCheck` explicitly suppresses the leak diagnostic, including
-  one remembered from a failed checked teardown. Normal deferred cleanup uses
-  `defer allocator.deinit().?;`, with `IntoError` handling error conversion.
-- Nia's general-purpose allocator is intentionally a lightweight, single-owner
-  allocator. Zig 0.17's `SafeAllocator` is a separate diagnostic allocator,
-  not a replacement for its ordinary allocator: it adds allocation footers,
-  checksums and canaries, freed-memory poisoning, stack traces, no-reuse
-  behavior, and thread-aware metadata. Those checks are valuable for compiler
-  and test diagnostics but would impose the wrong cost and synchronization
-  contract on Nia's normal allocator. A future Nia diagnostic allocator should
-  therefore wrap the allocator boundary as a separate type, preserve complete
-  `mem::Error` cleanup propagation, and add these checks incrementally. It must
-  not reintroduce a status-to-error adapter or weaken the existing cleanup
-  retry contract.
-- Hash-map control bytes, keys, and values share one aligned storage block.
-  Rehash keeps the replaced block as a map-owned retired allocation until its
-  release succeeds; a failed release leaves the active table usable but
-  requires cleanup retry before a later rehash or final `deinit`.
-- ArrayList replacement growth and shrink retain a failed temporary replacement
-  `Block` for `deinit` retry instead of dropping it after an old-owner failure;
-  the active allocation keeps its owner in `storageBlock`, even when the
-  logical length or capacity is zero. Later growth replaces that stored owner,
-  not an empty block inferred from the old logical capacity.
-- ArrayList self-aliasing append, insert, and replace operations retain failed
-  temporary-copy `Block`s separately from replacement storage. Borrowed slice
-  views and capacities are never used to recreate release ownership.
-- Hash-map capacity counts logical entries, including slots made reusable by
-  deletion. `insertAssumeCapacity` therefore requires `len < capacity`, not an
-  unused physical empty-slot budget; it may reuse either an empty or deleted
-  control slot without allocating.
-- Build-plan collection counts and derived dependency/input/output counts are
-  checked before narrowing to the fixed-width protocol fields. Generated-file
-  payload lengths are checked before their length prefixes are published.
-- Build graph cleanup releases a containing list only after all owning elements
-  in that list have been released. Failed nested strings, paths, arguments, or
-  imports remain reachable for a later `Build::deinit` retry.
-- `Build::init` returns a `BuildInitAttempt` that owns every partially retained
-  path, target component, and requested-step string. `finish` must be retried
-  after a cleanup failure; it exposes the complete `Build` or primary
-  initialization error only when partial cleanup is complete.
-- Package graph insertion reserves the containing list first and initializes a
-  `Build`-owned pending record. A failed package field release remains attached
-  for retry by the next insertion or `Build::deinit`; no local rollback defer
-  can discard it.
-- Object and static-archive insertion likewise reserve their target list and
-  retain partial name/output-name owners in dedicated `Build` pending slots.
-  Failed releases are retried before the next matching insertion or deinit.
-- Executable insertion extends the pending target to cover its static-archive
-  handle-list backing. Cleanup attempts the list and both strings, retains every
-  failed owner, and blocks the next executable insertion until retry succeeds.
-- Module insertion owns the partial module and all appended import slots on
-  `Build`. The outer and nested lists reserve before initialization; failed
-  import name/path cleanup retains both fields and the containing imports
-  backing for recursive retry.
-- Generated-file and uncacheable insertion keep a kind-correct pending `Step`
-  on `Build`. The steps list reserves first; step name, output/contents, or
-  description owners remain reachable across failed rollback cleanup.
-- Run/test insertion appends empty argument string owners to a reserved nested
-  list before initialization. If dependency insertion fails after step commit,
-  rollback moves the popped step into the pending slot; cleanup failure cannot
-  replace the dependency error or discard its name/arguments.
-- Executable and static-archive install steps retain their step name and
-  destination in kind-specific pending payloads. Producer-edge failure remains
-  primary while rollback keeps both strings reachable for retry.
-- External-command insertion reserves both nested lists and appends kind-correct
-  argument/environment owners before string retention. Multi-producer edge
-  failure removes all newly added edges, preserves the primary error, and moves
-  the command step into pending ownership for recursive cleanup retry.
-- Aggregate, check, and emit step names use the same pre-reserved pending step.
-  Emit-executable archive edges and external-command producer edges use explicit
-  dependency-suffix rollback. The build implementation has no fallible cleanup
-  defer that can hide an owner or replace a primary error.
-- Build dependency validation stores its indegree and ready-list scratch owners
-  on `Build`. Both releases are attempted after every validation pass; a
-  validation error remains primary and failed scratch frees remain retryable on
-  the next pass or `Build::deinit`.
-- Build-plan encoding stores its byte backing on `Build` until publication and
-  cleanup complete. Writer, flush, sync, and close errors keep the first
-  operation error; a failed backing free remains retryable for the next draft
-  or `Build::deinit`.
-- File close paths treat the descriptor as consumed before the OS close result;
-  cleanup defers must not issue a second close after a close error.
-- `FileReader`, `FileWriter`, and `DirIterator` borrow their `File` or `Dir`
-  owner and resolve its live handle before accessing the underlying descriptor.
-  They never retain a copied descriptor that could silently target a different
-  object after close and OS descriptor reuse. Callers must keep the borrowed
-  owner storage alive and stable for the adapter lifetime.
-- Temporary filesystem descriptors are closed after their owning operation. A
-  failed operation remains the primary error; after success, the first close
-  error is returned while every later descriptor is still attempted.
-- Filesystem syscall paths encode into `os::maxPathBytes` caller-stack storage.
-  Scalar and split native paths return `PathError::TooLong` before a syscall
-  when that bound is exceeded; they do not create hidden allocator owners whose
-  fallible cleanup could replace the operation result.
-- Spawn handshake descriptors are consumed and closed exactly once after the
-  handshake result is known. EOF plus close failure is reported as setup error;
-  an earlier handshake/read error remains the primary cause.
-- Linux spawn setup keeps all four pipe pairs in one resource transaction.
-  Every return path closes all untransferred ends; successful child identity
-  and public stdin/stdout/stderr ends transfer out before that cleanup. Because
-  close consumes a descriptor, a close error must not replace the primary spawn
-  error or turn a successfully executed but now unowned child into an error.
-- Failed-child reaping is part of `SpawnAttempt` ownership. A non-interrupted
-  `wait4` failure returns the spawn stage, original cause, reap cause, and pid
-  while retaining that same native attempt for the next `finish`; the original
-  spawn error is exposed only after reaping completes. `ECHILD` confirms that
-  no waitable pid owner remains and therefore completes cleanup.
-- `Command::spawn` returns a `SpawnAttempt` owner. Its `finish` operation tries
-  every argv/envp/path staging release and returns a cleanup error while keeping
-  the pending `Child` or spawn error attached for retry; only complete cleanup
-  exposes that outcome. Custom-allocator attempts require the same allocator on
-  each retry. Owner-discarding `run` shortcuts are not part of the API.
-- Errors retain their domain cause. `IntoError` is for reviewed, infallible
-  propagation; contextual operation, path, subject, and cleanup information is
-  attached by the owning module.
-- Generic I/O adapters preserve the wrapped reader or writer's invalid-transfer
-  error identity while rejecting impossible byte counts before mutating state.
-- Slice iterators validate checked element offsets and addresses before moving
-  their front or back bounds; an impossible address returns `null` without
-  consuming the pending element.
-- General-purpose large allocations validate the backing base plus header offset
-  before publishing allocator metadata, rejecting malformed child addresses.
-- General-purpose allocator rollback retains a pending child block if malformed
-  metadata is rejected but its release fails; later allocation or `deinit`
-  retries that owner and keeps it visible in capacity/emptiness accounting.
-- Over-aligned page allocations may expose an interior aligned pointer, while
-  `mem::Block` retains the complete mmap release range for one exact `free`.
-  Post-`mmap` validation failures release that unpublished range before
-  returning an error.
-- Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
-  and replacement releases fail, its `Rollback` variant carries the replacement
-  block and cleanup error so callers can retry the still-owned allocations.
-  This owner-carrying error has no generic process-exit conversion; callers must
-  match it and retire the original and replacement owners explicitly.
-- Successful allocator remap changes only a block's logical layout. Default and
-  concrete remap paths preserve the original release pointer and length, as do
-  arena backing-chunk resizes.
-- Arena cleanup detaches used and free chunk lists, attempts every child-block
-  release, and links each failed owner back into the arena free list. A later
-  `deinit` retries only those residual chunks; one failed release must not hide
-  a later chunk or erase retained capacity.
-- General-purpose allocator cleanup independently walks small pages and large
-  headers, then releases any pending rollback block. Each failed owner returns
-  to its matching state slot, so capacity/used/emptiness remain truthful and a
-  retry never revisits successfully released owner classes.
-- `Allocator::allocSlice` returns a `SliceAllocation[T]` owner instead of a raw
-  slice. `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
-  `Block` even for a zero-length view, and `ArrayList`/`String` owner-transfer
-  APIs consume that typed owner.
-  Raw-slice ownership constructors are intentionally absent.
-- Staged string formatting preserves format and UTF-8 errors over temporary
-  writer cleanup failures; cleanup allocation errors are reported only when
-  formatting itself succeeds. A backing whose `free` failed before release is
-  transferred to the destination as a pending owner, retried before the next
-  format and during `String::deinit`.
-- Formatter radix methods reject values outside 2, 8, 10, and 16 before writing
-  any output. `FormatSpec`, `FormatPresentation`, and `FormatAlignment` are all
-  available from the public `std::fmt` facade. Specs validate both open-enum
-  fields before output, so unnamed presentation or alignment values are
-  rejected as invalid templates instead of receiving fallback behavior.
-- Callback parameters are borrowed for the duration of a call unless an API
-  explicitly returns an owner such as `mem::CallableAllocation`.
-- `mem::allocValue` is the public construction boundary for allocator-backed
-  typed owners. `Allocated` and `CallableAllocation` retain the returned Block
-  layout and complete allocator release range across callable transfer,
-  including non-empty Blocks for zero-sized values; successful deinit and
-  transfer clear that state so cleanup is single-shot. Implementation modules
-  do not hide the only entry point.
+## Testing
 
-The source files are the API reference: facades state their boundaries and the
-owning modules document type-specific lifetime, error, and cleanup contracts.
-Language-level behavior is specified in `docs/language-spec.md`; implemented
-compiler boundaries are described in `docs/architecture.md`, and Rust build
-ownership lives in [`crates/nia-build/README.md`](../crates/nia-build/README.md)
-and its source modules.
+`std::test` provides assertions (`expect`, `expectEqual`, `expectNotEqual`,
+`fail`) that return `test::Error`, and a runner. A `Case` pairs a name with a
+test function; `Runner` borrows a table of cases, runs each one, and returns a
+`RunSummary`. It continues after failures unless built with `withFailFast()`,
+and it does not allocate or discover files.
 
-Standard-library conformance lives primarily in the `emit_exe_*.rs` and
-`std_*.rs` tests under `crates/nia-cli/tests/`, plus the full-pipeline tests under
-`crates/nia-driver/src/tests/`. The build-host provider audit is maintained by
-`cargo maintain audit std-build-host`; its enforced fixture is
-`maintain/fixtures/std-build-host-dependencies.json`. Run the audit without options
-to check it, or use `--print` to inspect a deliberate closure update.
+```nia
+using std::process;
+using std::test;
+
+fn addsNumbers() test::Error!() {
+    test::expectEqual(2 + 2, 4).?;
+    !()
+}
+
+fn comparesText() test::Error!() {
+    test::expect("nia".len() == 3)
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let cases: [test::Case; 2] = [
+        .init(&"adds numbers", &addsNumbers),
+        .init(&"compares text", &comparesText),
+    ];
+    let summary = test::Runner::init(&cases[..]).run();
+    if not summary.isSuccessful() {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+```
+
+A build script registers each suite with `Build::addTestSuite`. A suite is an
+ordinary host executable whose root module may import any number of test
+modules, using the same module imports as an application. See
+[Build scripts](../docs/guide/build-scripts.md).
+
+## Windows
+
+The library calls Windows directly and does not depend on the C runtime.
+Import descriptions are shipped only for the Win32 functions the toolchain's
+own sources use. A program that declares another Win32 function links that
+function's import library explicitly, like any native dependency
+(`-L <dir> -l <library>`). `Signal::Term` and `Signal::Kill` both terminate the
+child with `TerminateProcess`; see
+[Platform support](../docs/reference/platform-support.md).
+
+## API reference
+
+The source files are the API reference. Each facade under `std/` states its
+boundary in a header comment, and the owning module documents type-specific
+lifetime, error, and cleanup contracts.
+
+## Maintaining the library
+
+- `imports/windows/*.def` must list exactly the Win32 `extern fn`
+  declarations in the Windows sources; `cargo maintain check` enforces it.
+- The build-host provider closure is checked by
+  `cargo maintain audit std-build-host` (`--print` shows a deliberate update);
+  its fixture is `maintain/fixtures/std-build-host-dependencies.json`.
+- Conformance tests are described in [Testing](../docs/dev/testing.md).

@@ -1,0 +1,108 @@
+# Testing
+
+Toolchain prerequisites for the tests (LLD, clang 23, i686 multilib, QEMU) are
+listed in [Development setup](setup.md).
+
+## Gates
+
+Run these before submitting a compiler change. They match the managed
+correctness workflows in `.github/workflows/build-std.yml`.
+
+Linux:
+
+```sh
+cargo maintain check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Windows, from an x64 Developer PowerShell (see [setup](setup.md#windows-msvc)):
+
+```powershell
+cargo maintain check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --no-default-features --target x86_64-pc-windows-msvc -- -D warnings
+cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc
+```
+
+The explicit `--target` keeps the static-CRT flags off host build scripts;
+artifacts land under `target/x86_64-pc-windows-msvc/`.
+
+`cargo maintain check` runs the fast repository audits described in
+[`maintain/README.md`](../../maintain/README.md); Cargo owns compilation,
+Clippy, and tests. CI additionally checks the workspace for
+`i686-unknown-linux-gnu` and the portable semantic crates for
+`wasm32-unknown-unknown`, runs Darwin suites in `.github/workflows/platform.yml`,
+and cross-links and executes probe programs between Linux and Windows.
+
+## Focused Before Broad
+
+Validate from narrow to broad: owner-level tests for the changed contract, then
+direct consumer and cross-phase tests, then the workspace gates, then any
+relevant end-to-end, build, runtime, or performance workflow. Run a single
+integration suite with, for example:
+
+```sh
+cargo test -p nia-cli --test build_cases
+cargo test -p nia-cli --test commands -- readme
+```
+
+On Windows, add `--no-default-features --target x86_64-pc-windows-msvc`.
+
+## Where Tests Live
+
+| Location | Contents |
+| --- | --- |
+| `#[cfg(test)]` modules or `src/tests/` in each crate | Unit and owner tests for the owning crate and module. |
+| `crates/nia-cli/tests/*.rs` | End-to-end suites for the `nia` binary: commands, `emit_exe_*` executable behavior, `std_*` standard-library behavior, C ABI and interop, cross targets, build system (`build_cases`, `std_build_*`), toolchain relocation. |
+| `crates/nia-cli/tests/cases/` | Data-driven fixture trees (`build`, `commands`, `linker`, `optimization`), each described by a `case.meta` manifest. |
+| `crates/nia-driver/tests/cases/` | Driver fixtures for check, codegen, object, executable, LLVM, and persistent-cache cases. |
+| `crates/nia-test-support/` | Shared harness: resource accounting, command helpers, owned scratch directories, case manifests. |
+| `maintain/tests/`, `maintain/fixtures/` | Maintenance tool contracts and fixtures. |
+| `benchmarks/` | Performance workloads; see [`maintain/performance.md`](../../maintain/performance.md). |
+
+Choose a test shape that makes the contract visible. Data-driven suites suit
+repeated compiler matrices, edits, diagnostics, and output comparisons.
+Hand-written tests suit process, filesystem, toolchain, allocator, and
+startup/runtime contracts, where opaque metadata would hide the behavior under
+review. Invalidation tests exercise edit sequences and compare observable
+products against a clean run, not only cache hits.
+
+## Test Profile
+
+The `test` profile uses `opt-level = 1` because integration tests run Nia as a
+compiler, not just a command parser; debug assertions and overflow checks stay
+enabled. The `dev` and `test` profiles keep line tables instead of full
+variable debug information to limit disk use. Cargo does not garbage-collect
+old target variants, so prune `target/` manually when it grows.
+
+## Resource-Accounted Harness
+
+Libtest keeps its normal platform-selected concurrency. Tests that start a
+compiler, LLVM backend, generated build runner, nested build, or other
+subprocess go through `nia-test-support` instead of spawning bare commands:
+
+- Run child commands with the `CommandExt` helpers
+  (`output_timeout_for_compiler`, `output_timeout_for_build`,
+  `output_timeout_for_runtime`, `output_timeout_in_session`). They apply
+  timeouts, bounded output, and process-tree cleanup.
+- A test that issues several compiler or build commands holds one session from
+  `acquire_test_resources(TestWorkload::Compiler | TestWorkload::Build)`.
+  Nested helpers reuse it rather than charging twice. Unit tests that construct
+  a `nia-driver` `Driver` directly acquire the same boundary.
+- Scratch storage has an owner. Use `nia_test_support::test_dir`, whose guard
+  removes the whole tree on drop, including during unwinding. Shared helpers
+  never return an unowned `PathBuf` under the system temporary directory.
+
+Compiler and build work share a cross-process memory budget derived from the
+effective CPU and memory limits (cgroup limits in containers and rental hosts,
+the VM's resources under WSL, system resources on bare hosts). There are no
+per-machine test profiles or private environment switches; if memory cannot be
+detected, compiler-heavy tests run serially. The accounting details are
+documented in `crates/nia-test-support/src/lib.rs`. Set
+`NIA_TEST_RESOURCE_TRACE=1` to print permit waits and per-command peaks when
+tuning a new host.
+
+Tests use the same public compiler, build, and LLVM contracts as production;
+the harness bounds resources but does not change production semantics.

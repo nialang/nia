@@ -41,42 +41,40 @@ baseline builds the repository-default release compiler before measurement;
 `--no-build` is an explicit escape hatch for an externally prepared compiler,
 and the report marks that distinction.
 
-The suite currently fixes twenty-four compiler paths: minimal check, standard-library
-Hello World check and executable emission, strings and slices, ArrayList,
-trait-heavy code, const-eval-heavy code, multi-module backend lowering, small
-and large bounded multi-unit object codegen, and a larger full executable
-emission, plus the 10, 50, 100, and 500-module flat/star synthetic executable
-scales. It also includes two source-volume controls: one single-module curve
-that grows top-level declarations and one comment-padding curve that grows
-source bytes without adding semantic items. Their result records include the
-generated source byte count so source-size effects are not inferred from
-workload names alone. A Nia-only 1000-module flat/star executable extends the
-500-module scale after the medium project, without fabricating Rust or Zig
-counterparts. Benchmark sources live in `benchmarks/`, reuse maintained examples, or
-are generated deterministically by the runner; generated sources, objects,
-executables, and reports remain under temporary or `target/` directories. The
-`codegen_buckets` workload is a single source with eight reachable definitions.
-`codegen_buckets_large` generates sixteen reachable 1 MiB static definitions
-with only one small function body, keeping frontend work out of the object
-codegen comparison. The workloads are rejected unless they compile at least two
-and four LLVM units respectively, so their CPU/RSS trends cannot silently become
-single-unit, cache-hit, or linker measurements. The reports also record the
-bounded LLVM worker lanes and live ready-task submissions separately from stable
-unit count; one lane may consume multiple units without coarsening their
-work-product identities. Object-codegen workloads are rejected unless every
-emitted unit was submitted through the live readiness path, so a synchronous or
-aggregate fallback cannot silently become the benchmark.
-The standard-library Hello World workloads additionally require non-trivial
-checked-body and query-execution counts, and its executable workload must use
-the live multi-unit LLVM path. This prevents the cold standard-library boundary
-from silently disappearing from the measurement through a fixture or cache
-configuration change.
-The four synthetic scales reuse the competitive matrix's Nia source generator
-and compile every module to a native executable. Each sample is rejected unless
-its loaded-module, query-execution, checked-body, reachable-body, LLVM-unit, and
-live ready-task counters retain at least the requested scale. Repeated compiler
-baseline samples therefore provide the internal distributions corresponding to
-the competitive baseline's cold wall, CPU-utilization, and peak-RSS scales.
+The suite fixes twenty-four compiler workloads. Generated sources, objects,
+executables, and reports stay under temporary or `target/` directories; the
+remaining sources live in `benchmarks/` or reuse maintained examples.
+
+| Workload | Command | Source | Purpose and acceptance |
+| --- | --- | --- | --- |
+| `minimal` | `check` | `benchmarks/minimal.nia` | Minimal check. |
+| `std_hello_check` | `check` | `examples/hello.nia` | Cold standard-library boundary; requires non-trivial checked-body and query-execution counts. |
+| `std_hello_exe` | `emit --exe` | `examples/hello.nia` | As above, and must use the live multi-unit LLVM path. |
+| `strings_slices` | `check` | `examples/data.nia` | Strings and slices. |
+| `array_list` | `check` | `examples/collections.nia` | ArrayList. |
+| `traits` | `check` | `examples/generic.nia` | Trait-heavy code. |
+| `const_eval` | `check` | `benchmarks/const_heavy.nia` | Const-eval-heavy code. |
+| `module_backend` | `emit --backend` | `examples/modules/main.nia` | Multi-module backend lowering; records a process-wide live-allocation window around parallel finalization. |
+| `codegen_buckets` | `emit --obj` | `benchmarks/codegen_buckets.nia` | One source with eight reachable definitions; must compile at least two LLVM units. |
+| `codegen_buckets_large` | `emit --obj` | generated | Sixteen reachable 1 MiB static definitions and one small function body; must compile at least four LLVM units. |
+| `emit_exe` | `emit --exe` | `examples/collections.nia` | Larger full executable emission. |
+| `source_volume_{16,64,256,1024}` | `check` | generated | Single-module curve growing top-level declarations. |
+| `source_text_{1,4,16,64}k` | `check` | generated | Comment padding that grows source bytes without semantic items. |
+| `synthetic_{10,50,100,500}_modules` | `emit --exe` | generated | Flat/star executable scales from the competitive matrix's Nia generator. |
+| `synthetic_1000_modules` | `emit --exe` | generated | Nia-only extension of the flat/star scale; no Rust or Zig counterpart. |
+
+Source-volume records include the generated source byte count, so size effects
+are not inferred from workload names. The object-codegen workloads are rejected
+unless every emitted unit was submitted through the live readiness path and
+the minimum unit count is met, so their CPU/RSS trends cannot silently become
+single-unit, cache-hit, linker, or synchronous-fallback measurements. Reports
+record bounded LLVM worker lanes and live ready-task submissions separately
+from stable unit count; one lane may consume several units without coarsening
+their work-product identities. Each synthetic sample is rejected unless its
+loaded-module, query-execution, checked-body, reachable-body, LLVM-unit, and
+live ready-task counters retain at least the requested scale, so repeated
+samples give the internal distributions behind the competitive baseline's cold
+wall, CPU-utilization, and peak-RSS scales.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
@@ -117,6 +115,23 @@ The compiler can also emit one structured timing record directly:
 ```sh
 target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia
 ```
+
+A normal build emits every timing field except the allocation counters, which
+require the `perf-alloc` build above.
+
+To audit persistent frontend reuse across separate compiler processes, give both
+checks the same explicit artifact cache directory:
+
+```sh
+target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
+target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
+```
+
+The detailed counters include executions for parsing, loader item-tree and
+serialized fact queries, compiler module definitions, and public-surface facts.
+Compare those deterministic counts before interpreting wall-time differences.
+A warm frontend cache does not imply that all revision-local semantic products
+are persistent.
 
 ## Competitive Compiler Baseline
 
@@ -197,8 +212,7 @@ change, and executes every artifact. It also proves that each state used a
 different process and that build products were absent only before clean and
 present before both non-cold states.
 
-Project Planner is the first non-generated medium Nia application in the
-suite. It is an ordinary multi-module `nia build` project that reads a plan
+Project Planner is a non-generated medium Nia application. It is an ordinary multi-module `nia build` project that reads a plan
 file, indexes task names, validates references and cycles, computes a
 topological schedule and critical path, and formats a deterministic report.
 The collector copies the complete project, builds it from source, then runs
@@ -232,28 +246,14 @@ identities provide experiment attribution. Summaries report median,
 nearest-rank p95, minimum, and maximum. A report is still published when a
 compiler or acceptance check fails so the failure remains auditable.
 
-To audit persistent frontend reuse across separate compiler processes, give both
-checks the same explicit artifact cache directory:
+## Build Baseline
 
-```sh
-target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
-target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
-```
-
-The detailed counters include executions for parsing, loader item-tree and
-serialized fact queries, compiler module definitions, and public-surface facts.
-Compare those deterministic counts before interpreting wall-time differences.
-A warm frontend cache does not imply that all revision-local semantic products
-are persistent.
-
-A normal build emits all non-allocation timing data with this command;
-allocation counters are present only in the instrumented build above.
-
-The build baseline also measures a runner-only package in independent clean and
+`cargo maintain baseline build` runs the representative package under
+`benchmarks/build/`. It also measures a runner-only package in independent clean and
 warm processes. Its build plan contains one aggregate step and no actions, so
 `build_compile_runner`, `build_run_runner`, query work, and peak RSS expose the
 fixed cost of compiling and executing `build.nia` without application codegen
-or action-cache work. The representative fixture continues to cover clean,
+or action-cache work. The representative fixture covers clean,
 warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
 artifacts, and failed-action behavior.
 
@@ -274,47 +274,12 @@ and report that state separately, and competing tools must use the same state.
 Likewise, SDK/toolchain-cold measurements are a separate claim from the normal
 project-cold baseline.
 
-The current cold-build evidence is split into two different claims. On clean
-revision `8157c8d4`, five accepted runner-only samples measured 2.339 seconds
-median and 2.363 seconds p95, down by more than an order of magnitude from the
-historical 24.5--24.8 second evidence. Every sample compiled the 17,712-byte
-runner from source with one runner-cache miss, 147 native-object not-found
-misses, one link-result not-found miss, and no corresponding hits. The matching
-warm median was 25.4 milliseconds and is reported separately. The final report
-is `target/nia-build-baseline/final-0.2.0-8157c8d4.json`.
-
-The same revision's five-sample competitive matrix measured empty Nia builds
-at 2.113 seconds median in both development and release profiles. This is a
-material build-script result, not a claim that every Nia compilation matches
-Rust or Zig: the complete matrix still shows Nia behind Rust on most nontrivial
-direct and build workloads. Conversely, an unchanged runner rebuild is a warm
-cache case and must not be conflated with cold compilation.
-
-Executable LTO remains an explicit output policy rather than a cold-build
-shortcut. Seven source-cold samples on a 128-module ordinary workload measured
-1.260 seconds with LTO off, 1.530 seconds with ThinLTO, and 1.590 seconds with
-full LTO; the source-only Project Planner build measured 2.560, 2.770, and
-2.860 seconds respectively. ThinLTO's persistent pre-link and backend caches
-bring warm ordinary time close to no-LTO and reduce executable size, but do not
-meet the no-LTO source-cold acceptance criterion. LTO therefore stays off by
-default. Raw evidence is retained under
-`target/nia-perf/lto-formal-20260921-7f36ss/`.
-
-Generated build runners use content-addressed
-`.nia-cache/runner/protocol/<key>.cache` records. The protocol namespace and
-registered payload identity are owned by `nia-compat`; there is no
-runner-local schema version. The key includes the generated source, build-script bytes, standard
-library source tree, toolchain identity, host target, profile, test mode, and
-build protocol. Artifact optimization is transported through the private
-runner configuration but does not alter the runner executable: the short-lived
-host plan constructor is always compiled at O0. A runner-cache hit verifies
-and atomically restores the private runner executable. A separate configure
-cache validates invocation identity and observed inputs before reusing the
-frozen plan; only a configure miss starts the runner. Malformed or corrupted
-records are retired as misses. `build_configure_plan` measures both paths,
-including observation validation; `build_run_runner` appears only when the
-runner executes. The baseline checks exact configure hits and runner
-executions for each transition alongside action and native-product reuse.
+The configure and runner caches are described in the
+[build-system README](../crates/nia-build/README.md#caches).
+`build_configure_plan` measures both the cached and runner paths, including
+observation validation; `build_run_runner` appears only when the runner
+executes. The baseline checks exact configure hits and runner executions for
+each transition alongside action and native-product reuse.
 
 Diagnostics and compiler timing records both use stderr. The baseline runner
 selects a complete structured timing record for the current toolchain rather
@@ -367,8 +332,7 @@ result is itself machine-readable JSON.
 
 `.github/workflows/performance.yml` defines the managed Linux LLVM performance
 job. It follows the newest Rust stable release, reports the resolved toolchain
-identity, and installs the current Fedora-derived LLVM 23 identity on
-`ubuntu-24.04`. It runs every workload three times with
+identity, and installs LLVM 23 from apt.llvm.org on `ubuntu-24.04`. It runs every workload three times with
 the controlled `github-hosted-ubuntu-24.04-x64` runner class, and downloads the
 most recent completed main-branch artifact that contains a fully collected
 `baseline.json`. The candidate must pass the same broad comparator guards before
@@ -395,5 +359,9 @@ Each run also publishes an Actions step summary containing the candidate
 revision, controlled runner class, selected main baseline run and artifact name,
 and comparison result when a prior artifact was available.
 
-Performance evidence is interpreted under the end-to-end acceptance and failed
-experiment rules in [compiler-maintenance.md](../docs/compiler-maintenance.md).
+Draw performance conclusions from the complete workload path, repeated samples,
+and compatible resource identity, and understand the deterministic query,
+cache, allocation, and codegen counters before interpreting wall-time changes.
+Hosted infrastructure, publication, cache reuse, and linking claims need
+results from the managed workflow itself. Engineering principles are in
+[Contributing](../docs/dev/contributing.md#engineering-principles).

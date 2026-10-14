@@ -43,7 +43,7 @@ Run one example from the repository root:
 
 ```sh
 cargo run -p nia-cli -- --resource-root lib check examples/hello.nia --runtime freestanding
-cargo run -p nia-cli -- --resource-root lib emit --exe examples/io.nia -o build/nia-io
+cargo run -p nia-cli -- --resource-root lib emit --exe examples/io.nia -o nia-io
 ```
 
 Check the complete example set:

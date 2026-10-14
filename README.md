@@ -5,10 +5,9 @@ compact standard library. The language is statically typed, expression-oriented,
 and explicit about data representation, resource ownership, modules, and
 runtime entry points.
 
-The repository contains the compiler, standard library, build system, language
-documentation, examples, and their test suites. The `0.1.x` line is Nia's first
-maintained release series; the language and toolchain continue to evolve
-together, with compatibility changes called out in release notes.
+This repository contains the compiler, the standard library, the package build
+system, documentation, and examples. Nia is pre-1.0: the language and toolchain
+evolve together, and compatibility changes are called out in release notes.
 
 ## Example
 
@@ -53,8 +52,8 @@ pub fn main(init: Init) ExitCode!() {
 
 This small program demonstrates nominal structs, extension methods, slices,
 arrays, loops, fallible calls, and the standard freestanding entry contract.
-The [examples](examples/README.md) directory develops these features through
-complete programs.
+The [language tour](docs/guide/tour.md) and the [examples](examples/README.md)
+develop these features through complete programs.
 
 ## Language At A Glance
 
@@ -72,213 +71,61 @@ Nia provides:
 Allocation and resource lifetime are ordinary library operations. The toolchain
 owns startup, linking, package builds, and runtime selection.
 
-## Build The Compiler
-
-The compiler is a Rust workspace and currently uses LLVM 23.1 through
-`llvm-sys`. Install Rust stable, LLVM 23.1, and make `llvm-config` available on
-`PATH`, then run:
-
-```sh
-cargo build --workspace
-```
-
-For an LLVM installation outside the standard layout, set its prefix while
-building:
-
-```sh
-LLVM_SYS_231_PREFIX=/path/to/llvm-23.1 cargo build --workspace
-```
-
-Executables link with LLD for every target. A release archive bundles it; a
-compiler built from source finds `ld.lld` on `PATH` or through `NIA_LLD`.
-Distribution packages often install it only in the versioned LLVM `bin`
-directory, such as `/usr/lib/llvm-23/bin` on Ubuntu:
-
-```sh
-export PATH=/usr/lib/llvm-23/bin:$PATH
-```
-
-On Windows, set the LLVM prefix and `bin` directory once at user scope so new
-PowerShell, Cargo, and IDE processes inherit them:
-
-```powershell
-$llvm = 'C:\Users\you\tools\llvm-23.1.2'
-[Environment]::SetEnvironmentVariable('LLVM_SYS_231_PREFIX', $llvm, 'User')
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-$llvmBin = Join-Path $llvm 'bin'
-if (($userPath -split ';') -notcontains $llvmBin) {
-  [Environment]::SetEnvironmentVariable('Path', "$userPath;$llvmBin", 'User')
-}
-```
-
-Restart existing terminals after changing user environment variables.
-
-For an x64 MSVC build against the prebuilt Windows LLVM archives, start an x64
-Developer PowerShell for Visual Studio (or run `VsDevCmd.bat -arch=x64
--host_arch=x64`) so `cl`, `link`, `LIB`, and `INCLUDE` come from the installed
-MSVC and Windows SDK. The repository Cargo configuration selects the static
-MSVC runtime for the maintained Windows target:
-
-```powershell
-cargo build -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
-```
-
-The executable is `target/x86_64-pc-windows-msvc/debug/nia.exe`. Keep the explicit
-target: it separates target CRT settings from host build scripts and avoids
-requiring global SDK library-search flags. See [Windows development checks](docs/contributing.md)
-for the setup and troubleshooting boundaries.
-
-Set `LLVM_SYS_231_PREFIX` and add its `bin` directory to the user environment
-once, or use the standard LLVM installation path visible to `llvm-config`.
-If an official LLVM Windows archive contains a library path from its build
-machine, set the prefix to a corrected installation rather than relying on a
-temporary process wrapper.
-
-Run the compiler directly from the checkout with the versioned standard-library
-resources:
-
-```sh
-cargo run -p nia-cli -- --resource-root lib check examples/hello.nia \
-  --runtime freestanding
-```
-
-The resource tree includes freestanding startup for Linux x86_64, Linux i686,
-and Windows x86_64. Executables link with LLD for the artifact target. Windows
-links import `kernel32` and `bcryptprimitives` through import descriptions in
-`lib/imports`, so they need no Windows SDK.
-
-For repeated use, build the release binary and keep the checkout's `lib`
-directory beside it:
-
-```sh
-cargo build --release -p nia-cli
-target/release/nia --resource-root "$PWD/lib" --version
-```
-
-To use the latest compiler built from this checkout without repeating the
-resource-root option, run the development launcher:
-
-```sh
-cargo build --release -p nia-cli
-tools/nia-dev check examples/hello.nia --runtime freestanding
-```
-
-The launcher always pairs `target/release/nia` with this checkout's `lib`
-resources, so it is suitable for testing changes before the next release.
-
-## Install A Release
+## Get Started
 
 Linux x86_64 release archives are published on the
 [GitHub Releases](https://github.com/nialang/nia/releases) page. Unpack an
 archive as a complete prefix and keep its `bin`, `lib`, and `libexec`
-directories together:
+directories together; it bundles the standard library and the `ld.lld` linker,
+so no system LLVM is needed:
 
 ```sh
 tar -xzf nia-<version>-linux-x86_64.tar.gz
 ./nia-<version>-linux-x86_64/bin/nia --version
 ```
 
-The archive uses a portable-prefix layout with no second project directory
-inside the prefix:
-
-```text
-nia-<version>-linux-x86_64/
-├── bin/nia
-├── lib/toolchain.meta
-├── lib/std/
-└── libexec/ld.lld
-```
-
-The archive includes the compiler, standard-library resources, and the bundled
-`ld.lld` linker; no system LLVM installation is needed to run the packaged
-compiler. Windows release archives are not published yet; build the Windows
-compiler from source as described above.
-
-## Command Workflows
-
-The executable is named `nia`. Use `nia help` or `nia help <command>` for the
-complete option set.
-
-```text
-nia build [step] [--root <dir>]
-nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast]
-nia check <file-or-package> [--runtime bare|freestanding]
-nia emit --<target> <file-or-package>
-```
-
-`build` discovers a package's `build.nia`, writes build outputs under
-`.nia-build/`, and reuses entries from `.nia-cache/`. A package can be checked
-or emitted from a source file or directory; `main.nia` is the executable entry
-when present, while `pkg.nia` describes a library package. Use `--root` when
-package discovery should start from a different directory.
-
-`test` builds and runs the package's registered test suites. Use `--list` to
-inspect the suites first, `--filter` to select matching suites, and
-`--fail-fast` to stop after the first failure.
-
-`check` performs validation only. The `--runtime` option selects the
-source/runtime boundary used during checking. `emit` can
-print tokens, AST, checked data, backend IR, or LLVM IR, and can write native
-objects or freestanding executables:
+On other hosts, build the compiler from source. It needs Rust stable, LLVM 23.1,
+and LLD; [Development setup](docs/dev/setup.md) covers Linux and Windows in
+detail:
 
 ```sh
-nia --resource-root "$PWD/lib" check examples/hello.nia \
-  --runtime freestanding
-nia --resource-root "$PWD/lib" emit --llvm examples/hello.nia
-nia --resource-root "$PWD/lib" emit --exe examples/hello.nia -o build/hello
+cargo build --release -p nia-cli
+target/release/nia --resource-root "$PWD/lib" check examples/hello.nia   --runtime freestanding
 ```
 
-Global options include optimization levels (`-O0` through `-Oz`), build
-profiles (`--debug`, `--release`, and `--profile`), module aliases, timings,
-the resource root, and the artifact target (`--target aarch64-apple-macos`).
-The CLI help is the authoritative syntax reference.
+[Getting started](docs/guide/getting-started.md) walks through a first package
+and the `nia build`, `nia test`, `nia check`, and `nia emit` commands. Run
+`nia help <command>` for the complete option set.
 
 ## Documentation
 
-Language and library users should start here:
+The [documentation index](docs/README.md) lists everything by reader. The main
+entry points are:
 
-- [Language specification](docs/language-spec.md): syntax and semantics.
-- [Examples](examples/README.md): a guided sequence of complete programs.
-- [Standard library](lib/README.md): library modules and runtime-facing APIs.
-- [Build scripts](lib/std/build.nia): the package build-script API.
-- [ABI reference](docs/nia-abi.md): representation, layout, and calling rules.
-
-Compiler and repository contributors should use:
-
-- [Compiler architecture](docs/architecture.md): phases, products, and crate
-  boundaries.
-- [Build system](crates/nia-build/README.md): package build plans, execution,
-  caching, and publication.
-- [Contributing](docs/contributing.md): change routing and review workflow.
-- [Compiler maintenance](docs/compiler-maintenance.md): cross-cutting
-  correctness and ownership principles.
-- [Platform support](docs/platform-support.md): maintained hosts, targets, and
-  toolchain policy.
-- [Performance maintenance](maintain/performance.md): reproducible workloads
-  and baseline comparisons.
+- [Language tour](docs/guide/tour.md) and [language reference](docs/reference/language.md)
+- [Build scripts](docs/guide/build-scripts.md) and [C interop](docs/guide/c-interop.md)
+- [Standard library](lib/README.md) and [ABI reference](docs/reference/abi.md)
+- [Platform support](docs/reference/platform-support.md)
+- [Contributing](docs/dev/contributing.md) and [compiler architecture](docs/dev/architecture.md)
 
 ## Repository Layout
 
 - `crates/nia-cli/`: the `nia` command-line frontend.
-- `crates/nia-*/`: compiler, query, backend, and support libraries.
+- `crates/nia-*/`: compiler, query, build-system, backend, and support libraries.
 - `lib/`: the standard library and runtime resources.
-- `docs/`: language, ABI, architecture, platform, and project documentation.
+- `docs/`: user guide, reference, and contributor documentation.
 - `examples/`: complete Nia programs arranged as reading material.
+- `benchmarks/`: performance workloads.
 - `maintain/`: repository audits, fixtures, and performance infrastructure.
-- `.github/workflows/`: managed compiler, standard-library, and performance
-  validation.
+- `tools/`: the development launcher, LLVM toolchain, and release scripts.
 
 ## Support And Status
 
-Nia is maintainer-tested. The supported release package targets Linux
-x86_64 on Ubuntu 24.04-class systems; the maintained development environments
-also include the current Fedora Linux x86_64 setup and a Windows x86_64 MSVC
-host. Managed CI runs the full correctness matrix on both Ubuntu 24.04 and
-Windows Server 2022. Freestanding executable coverage targets Linux x86_64 and
-Windows x86_64, with experimental i686 coverage.
-
-The detailed support boundary, LLVM requirements, and target notes live in
-[Platform Support](docs/platform-support.md).
+Nia is maintainer-tested. The published release package targets Linux x86_64;
+the compiler also builds and runs on Windows x86_64 (MSVC) and macOS, and
+generates executables for Linux, Windows, and macOS targets.
+[Platform support](docs/reference/platform-support.md) describes the exact
+boundary.
 
 ## License
 
