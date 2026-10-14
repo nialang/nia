@@ -562,6 +562,71 @@ pub fn build(b: &mut build::Build) build::Error!() {
 }
 
 #[test]
+fn build_file_presence_probe_invalidates_on_create_and_remove() {
+    let root = temp_dir("build_file_presence_probe_invalidates");
+    std::fs::write(
+        root.join("nia.package"),
+        "name=probe\nversion=0.1.0\nexclude=optional\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let present = b.probeFilePresence(fs::PathView::init(&"optional/input")).?;
+    let name: &[char] = if present { &"present" } else { &"absent" };
+    let step = b.addAggregateStep(name).?;
+    b.setDefaultStep(step)
+}
+"#,
+    )
+    .expect("write build script");
+
+    let run = |label: &str| {
+        let output = support::nia_command()
+            .args(["build", "--root"])
+            .arg(&root)
+            .arg("--print-observations")
+            .arg("--print-cache")
+            .output_timeout_for_build(label);
+        assert!(
+            output.status.success(),
+            "{label}: stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    let presence_line = |stdout: &str| {
+        stdout
+            .lines()
+            .find(|line| line.trim_start().starts_with("file-presence optional/input "))
+            .map(str::to_owned)
+            .unwrap_or_else(|| panic!("missing file-presence observation:\n{stdout}"))
+    };
+
+    let first = run("run file presence probe build");
+    let absent = presence_line(&first);
+    let warm = run("reuse unchanged file presence observation");
+    assert!(warm.contains("runner reused"), "{warm}");
+
+    std::fs::create_dir(root.join("optional")).expect("create observed parent");
+    std::fs::write(root.join("optional/input"), b"present").expect("create observed file");
+    let created = run("rerun file presence probe after creation");
+    assert!(created.contains("observation changed"), "{created}");
+    assert_ne!(presence_line(&created), absent);
+
+    // Removal restores the absent fact, so the first configuration is valid again.
+    std::fs::remove_file(root.join("optional/input")).expect("remove observed file");
+    let removed = run("rerun file presence probe after removal");
+    assert!(removed.contains("runner reused"), "{removed}");
+    assert_eq!(presence_line(&removed), absent);
+}
+
+#[test]
 fn directory_iterator_compiles_for_all_linux_targets() {
     let root = temp_dir("directory_iterator_linux_targets");
     let source = root.join("directory.nia");

@@ -391,6 +391,7 @@ probes, such as opening files directly, are not tracked.
 | --- | --- |
 | `b.probeEnv(name)` | an environment variable: `?&[u8]`, `null` when unset |
 | `b.probeFile(path, &mut buffer)` | the contents of a package file that fits in `buffer` (at most 1 MiB) |
+| `b.probeFilePresence(path)` | whether a package-relative path is a regular file: `bool`; creating or removing the file reruns configuration |
 | `b.probeDirectory(path, &mut buffer)` | the entries (names, kinds, sizes) of a package directory |
 | `b.probeCommand(program, &args, &mut buffer)` | the standard output and exit status of a command run in the package root |
 | `b.probeTool(program, &mut buffer)` | the output of `program --version` and the program's identity |

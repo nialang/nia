@@ -70,10 +70,14 @@ extend Build {
         };
         let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
         defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
-        let state = match root.metadata(relative, fs::MetadataOptions::noFollow()) {
+        let state: u8 = match root.metadata(relative, fs::MetadataOptions::noFollow()) {
             !metadata => if metadata.kind() == fs::FileKind::Directory { 2 } else if metadata.kind() == fs::FileKind::File { 1 } else { 3 },
             .System { cause: .NotFound, operation: _ }! => 0,
-            error! => return error!.withBuildContext(Operation::Validate, Subject::BuildPlan)!,
+            cause! => return .Failure {
+                operation: .Validate,
+                subject: Subject::BuildPlan,
+                cause: .FileSystemOperation(cause),
+            }!,
         };
 
         let mut record = collections::ArrayList[u8]::initCapacity(self.allocator, 10 + path.text().len() * 4)
@@ -83,9 +87,9 @@ extend Build {
         appendProbeU32(&mut record, self.allocator, pathUtf8Length(path.text()).? as u32).?;
         appendProbeU32(&mut record, self.allocator, 1).?;
         appendProbePath(&mut record, self.allocator, path.text()).?;
-        record.append(self.allocator, state).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
+        record.push(self.allocator, state).withBuildContext(Operation::Retain, Subject::BuildPlan).?;
         appendObservationRecord(self, &record).?;
-        !state == 1
+        !(state == 1)
     }
 
     /// Records the bounded direct entries of a package-relative directory.
