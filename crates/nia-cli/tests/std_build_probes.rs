@@ -603,7 +603,10 @@ pub fn build(b: &mut build::Build) build::Error!() {
     let presence_line = |stdout: &str| {
         stdout
             .lines()
-            .find(|line| line.trim_start().starts_with("file-presence optional/input "))
+            .find(|line| {
+                line.trim_start()
+                    .starts_with("file-presence optional/input ")
+            })
             .map(str::to_owned)
             .unwrap_or_else(|| panic!("missing file-presence observation:\n{stdout}"))
     };
