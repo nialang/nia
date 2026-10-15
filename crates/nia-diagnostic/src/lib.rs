@@ -1416,6 +1416,29 @@ struct LineInfo {
     column: usize,
 }
 
+/// Describes how a child process ended, as a phrase such as
+/// `exited with status 3` or `was terminated by signal 9`.
+///
+/// `ExitStatus`'s own `Display` already names the kind (`exit code: 3`), so
+/// splicing it into a sentence would say it twice.
+pub fn describe_exit_status(status: std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        if let Some(signal) = status.signal() {
+            return format!("was terminated by signal {signal}");
+        }
+    }
+    match status.code() {
+        // Windows reports crashes as NTSTATUS values, which read as hex.
+        Some(code) if cfg!(windows) && code < 0 => {
+            format!("exited with status {:#x}", code.cast_unsigned())
+        }
+        Some(code) => format!("exited with status {code}"),
+        None => format!("ended with {status}"),
+    }
+}
+
 /// Renders one diagnostic using source labels and explanatory sections.
 pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> String {
     render_diagnostic_with_sources(path, source, diagnostic, &HashMap::new())
@@ -2087,6 +2110,29 @@ mod tests {
             rendered,
             "error internal[I0001]: backend invariant failed\n"
         );
+    }
+
+    #[test]
+    fn exit_statuses_read_as_one_phrase() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt as _;
+            let exited = std::process::ExitStatus::from_raw(3 << 8);
+            assert_eq!(describe_exit_status(exited), "exited with status 3");
+            let killed = std::process::ExitStatus::from_raw(9);
+            assert_eq!(describe_exit_status(killed), "was terminated by signal 9");
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::ExitStatusExt as _;
+            let exited = std::process::ExitStatus::from_raw(3);
+            assert_eq!(describe_exit_status(exited), "exited with status 3");
+            let crashed = std::process::ExitStatus::from_raw(0xC000_0005);
+            assert_eq!(
+                describe_exit_status(crashed),
+                "exited with status 0xc0000005"
+            );
+        }
     }
 
     #[test]

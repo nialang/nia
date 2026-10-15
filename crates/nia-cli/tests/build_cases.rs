@@ -1703,8 +1703,7 @@ fn assert_runner_error(
     }
     assert!(stderr.contains("build runner"), "{stderr}");
     assert!(
-        stderr.contains(&format!("exit status: {runner_status}"))
-            || stderr.contains(&format!("exit code: {runner_status}")),
+        stderr.contains(&format!("exited with status {runner_status}")),
         "{stderr}"
     );
     if contract == "unknown-step" {

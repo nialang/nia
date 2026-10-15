@@ -729,8 +729,9 @@ impl fmt::Display for BuildError {
             } => {
                 write!(
                     f,
-                    "build runner `{}` exited with status {status}",
-                    path.display()
+                    "build runner `{}` {}",
+                    path.display(),
+                    nia_diagnostic::describe_exit_status(*status)
                 )?;
                 write_runner_output(f, "stdout", stdout)?;
                 write_runner_output(f, "stderr", stderr)

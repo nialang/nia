@@ -10,8 +10,8 @@
 use std::path::Path;
 
 use nia_diagnostic::{
-    Diagnostic, DiagnosticReportConfig, build_diagnostic_report, codes, render_diagnostic,
-    render_diagnostics_json,
+    Diagnostic, DiagnosticReportConfig, build_diagnostic_report, codes, describe_exit_status,
+    render_diagnostic, render_diagnostics_json,
 };
 
 use crate::{
@@ -498,7 +498,7 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
             stdout,
             stderr,
         } => {
-            let reason = format!("command exited with status {status}");
+            let reason = format!("command {}", describe_exit_status(*status));
             diagnostic.notes.push(reason);
             append_output_note(&mut diagnostic, "stdout", stdout);
             append_output_note(&mut diagnostic, "stderr", stderr);
@@ -519,8 +519,9 @@ fn runner_failure(
     let mut diagnostic =
         Diagnostic::user_error(codes::BUILD_RUNNER, "build runner exited unsuccessfully")
             .note(format!(
-                "runner `{}` exited with status {status}",
-                path.display()
+                "runner `{}` {}",
+                path.display(),
+                describe_exit_status(status)
             ))
             .finish();
     append_output_note(&mut diagnostic, "stdout", stdout);

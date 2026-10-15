@@ -234,9 +234,14 @@ fn runner_failure_preserves_captured_output_across_workflows() {
                 b"",
             );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains("stderr tail (bounded):"), "{stderr}");
-            assert!(stderr.contains("build error:"), "{stderr}");
-            assert!(stderr.contains("exited with status"), "{stderr}");
+            // Text mode already showed the runner's output; JSON captured it.
+            assert_eq!(stderr.matches("build error:").count(), 1, "{stderr}");
+            assert_eq!(
+                stderr.contains("stderr tail (bounded):"),
+                format == "json",
+                "{stderr}"
+            );
+            assert!(stderr.contains("exited with status 22"), "{stderr}");
         }
     }
 }
@@ -289,14 +294,21 @@ pub fn build(b: &mut build::Build) build::Error!() {
             stdout,
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        for expected in [
-            "stdout tail (bounded):",
-            "external-stdout",
-            "stderr tail (bounded):",
-            "external-stderr",
-            "command exited with status",
-        ] {
-            assert!(stderr.contains(expected), "{stderr}");
+        assert!(stderr.contains("command exited with status 7"), "{stderr}");
+        assert_eq!(stderr.matches("external-stderr").count(), 1, "{stderr}");
+        if format == "json" {
+            // Captured output only reaches the user through the report.
+            for expected in [
+                "stdout tail (bounded):",
+                "external-stdout",
+                "stderr tail (bounded):",
+            ] {
+                assert!(stderr.contains(expected), "{stderr}");
+            }
+        } else {
+            // Forwarded output was already shown and is not repeated.
+            assert!(!stderr.contains("tail (bounded)"), "{stderr}");
+            assert!(!stderr.contains("external-stdout"), "{stderr}");
         }
     }
 }

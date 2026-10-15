@@ -813,7 +813,7 @@ pub(super) fn display_external_command_error(
             stdout,
             stderr,
         } => {
-            write!(f, "exited with status {status}")?;
+            write!(f, "{}", nia_diagnostic::describe_exit_status(*status))?;
             display_output_tails(f, stdout, stderr)
         }
     }
