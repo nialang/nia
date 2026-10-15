@@ -38,6 +38,74 @@ build_cases!(
 );
 
 #[test]
+fn run_steps_get_the_terminal_after_the_build_summary() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("run-step-progress");
+    std::fs::create_dir(root.join("src")).expect("source directory");
+    std::fs::write(
+        root.join("src/main.nia"),
+        r#"using std::io;
+using std::process;
+using process::{Init, ExitCode};
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+    io::debugPrint(&"program-output\n", &[]).?;
+    !()
+}
+"#,
+    )
+    .expect("program source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let app = b.addModule(
+        build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia")),
+    ).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init(&"app", app)).?;
+    let emit = b.addEmitExecutableStep(&"build", exe).?;
+    _ = b.addRunExecutableStep(&"run", build::RunOptions::init(exe)).?;
+    b.setDefaultStep(emit).?;
+    !()
+}
+"#,
+    )
+    .expect("build script");
+
+    let run = support::nia_command()
+        .args(["build", "run", "--progress=plain", "--root"])
+        .arg(&*root)
+        .output_timeout_in_session("run a step at the default progress level");
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(run.status.success(), "{stderr}");
+    let lines = stderr.lines().collect::<Vec<_>>();
+    assert!(
+        lines.len() == 3 && lines[0].starts_with("Finished 1 action in "),
+        "{stderr}"
+    );
+    assert_eq!(
+        lines[1..],
+        ["Running root:run", "program-output"],
+        "{stderr}"
+    );
+
+    // Without a run step the summary closes the build, and phases stay at -v.
+    let build = support::nia_command()
+        .args(["build", "--progress=plain", "--root"])
+        .arg(&*root)
+        .output_timeout_in_session("build at the default progress level");
+    let stderr = String::from_utf8_lossy(&build.stderr);
+    assert!(build.status.success(), "{stderr}");
+    assert!(
+        stderr.lines().count() == 1 && stderr.starts_with("Finished 1 action in "),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn json_progress_keeps_success_and_failure_stderr_machine_readable() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
