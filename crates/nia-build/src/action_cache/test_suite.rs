@@ -19,7 +19,7 @@ use super::{
     ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE, ensure_cache_directory,
     fingerprint_text, read_bounded_cache_entry, validate_cache_namespace,
 };
-use crate::lock::ScopedFileLock;
+use crate::lock::{LockWaitEvent, ScopedFileLock};
 
 const TEST_SUITE_KEY_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.test-suite-key");
 
@@ -108,15 +108,25 @@ impl TestSuiteCache {
         Ok(TestSuiteCacheLookup::Hit)
     }
 
+    #[cfg(test)]
     pub(crate) fn acquire_interruptible(
         &self,
         identity: TestSuiteCacheIdentity,
         is_cancelled: impl FnMut() -> bool,
     ) -> io::Result<Option<ScopedFileLock>> {
+        self.acquire_interruptible_observed(identity, is_cancelled, |_| {})
+    }
+
+    pub(crate) fn acquire_interruptible_observed(
+        &self,
+        identity: TestSuiteCacheIdentity,
+        is_cancelled: impl FnMut() -> bool,
+        on_event: impl FnMut(LockWaitEvent),
+    ) -> io::Result<Option<ScopedFileLock>> {
         let lock = self.root.join("coordination/test-suite-cache");
         ensure_cache_directory(&self.root, &lock)?;
         let lock = lock.join(format!("{}.lock", fingerprint_text(identity.fingerprint)));
-        ScopedFileLock::acquire_interruptible(lock, is_cancelled)
+        ScopedFileLock::acquire_interruptible_observed(lock, is_cancelled, on_event)
     }
 
     #[cfg(test)]
@@ -233,5 +243,71 @@ mod tests {
             TestSuiteCacheIdentity::from_bytes(b"first"),
             TestSuiteCacheIdentity::from_bytes(b"second")
         );
+    }
+
+    #[test]
+    fn suite_cache_observer_balances_contention_on_acquisition_and_cancellation() {
+        let root = root();
+        let cache = TestSuiteCache::new(root.clone());
+        let identity = TestSuiteCacheIdentity::from_bytes(b"observed contention");
+        let mut held = cache.acquire_interruptible(identity, || false).unwrap();
+        let mut events = Vec::new();
+        let acquired = cache
+            .acquire_interruptible_observed(
+                identity,
+                || false,
+                |event| {
+                    events.push(event);
+                    if event == LockWaitEvent::Contended {
+                        drop(held.take());
+                    }
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(events, [LockWaitEvent::Contended, LockWaitEvent::Acquired]);
+        let cancelled = std::cell::Cell::new(false);
+        events.clear();
+        let result = cache
+            .acquire_interruptible_observed(
+                identity,
+                || cancelled.get(),
+                |event| {
+                    events.push(event);
+                    if event == LockWaitEvent::Contended {
+                        cancelled.set(true);
+                    }
+                },
+            )
+            .unwrap();
+        assert!(result.is_none());
+        assert_eq!(events, [LockWaitEvent::Contended, LockWaitEvent::Cancelled]);
+        drop(acquired);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn suite_cache_observer_balances_failure_after_contention() {
+        let root = root();
+        let cache = TestSuiteCache::new(root.clone());
+        let identity = TestSuiteCacheIdentity::from_bytes(b"observed failure");
+        let mut held = cache.acquire_interruptible(identity, || false).unwrap();
+        let parent = root.join("coordination/test-suite-cache");
+        let mut events = Vec::new();
+        let result = cache.acquire_interruptible_observed(
+            identity,
+            || false,
+            |event| {
+                events.push(event);
+                if event == LockWaitEvent::Contended {
+                    drop(held.take());
+                    fs::remove_dir(&parent).unwrap();
+                    fs::write(&parent, b"not a directory").unwrap();
+                }
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(events, [LockWaitEvent::Contended, LockWaitEvent::Failed]);
+        fs::remove_dir_all(root).unwrap();
     }
 }

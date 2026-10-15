@@ -17,7 +17,7 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use crate::{
     BuildInvocation, ConfigureManifest, ObservationValidation,
     action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
-    lock::ScopedFileLock,
+    lock::{LockWaitObserver, ScopedFileLock},
 };
 
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
@@ -243,6 +243,7 @@ impl ConfigureIdentity {
 #[derive(Debug, Clone)]
 pub struct ConfigureCache {
     root: PathBuf,
+    lock_observer: Option<LockWaitObserver>,
 }
 
 impl ConfigureCache {
@@ -250,7 +251,13 @@ impl ConfigureCache {
     pub fn new(invocation: &BuildInvocation) -> Self {
         Self {
             root: invocation.cache_dir.join("configure"),
+            lock_observer: None,
         }
+    }
+
+    pub(crate) fn with_lock_observer(mut self, observer: Option<LockWaitObserver>) -> Self {
+        self.lock_observer = observer;
+        self
     }
 
     fn path(&self, identity: &ConfigureIdentity) -> PathBuf {
@@ -360,8 +367,16 @@ impl ConfigureCache {
         ensure_cache_directory(cache_root, &lock_root)?;
         let [first, second] = builder.finish().parts();
         let lock = lock_root.join(format!("{first:016x}{second:016x}.lock"));
-        ScopedFileLock::acquire_interruptible(lock, || false)?
-            .ok_or_else(|| io::Error::other("configure cache mutation lock was cancelled"))
+        ScopedFileLock::acquire_interruptible_observed(
+            lock,
+            || false,
+            |event| {
+                if let Some(observer) = &self.lock_observer {
+                    observer.observe(event);
+                }
+            },
+        )?
+        .ok_or_else(|| io::Error::other("configure cache mutation lock was cancelled"))
     }
 
     /// Publishes a plan/manifest witness only after the plan has been decoded
@@ -713,7 +728,10 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create cache root");
-        let cache = ConfigureCache { root: root.clone() };
+        let cache = ConfigureCache {
+            root: root.clone(),
+            lock_observer: None,
+        };
         let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
         cache
@@ -769,7 +787,10 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let cache = ConfigureCache { root: root.clone() };
+        let cache = ConfigureCache {
+            root: root.clone(),
+            lock_observer: None,
+        };
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Poison);
         manifest
             .push(
@@ -804,7 +825,10 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let cache = ConfigureCache { root: root.clone() };
+        let cache = ConfigureCache {
+            root: root.clone(),
+            lock_observer: None,
+        };
 
         let mut first_manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
         first_manifest
@@ -855,7 +879,10 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let cache = ConfigureCache { root: root.clone() };
+        let cache = ConfigureCache {
+            root: root.clone(),
+            lock_observer: None,
+        };
         let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
         assert_eq!(cache.status(&identity).unwrap(), ConfigureCacheStatus::Miss);
@@ -888,7 +915,10 @@ mod tests {
         let mut manifest = ConfigureManifest::new(ObservationPolicy::Disallow);
         manifest.push(observation).unwrap();
         let cache_root = checkout.join("cache");
-        let cache = ConfigureCache { root: cache_root };
+        let cache = ConfigureCache {
+            root: cache_root,
+            lock_observer: None,
+        };
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
         cache
             .publish(
@@ -924,6 +954,7 @@ mod tests {
         std::fs::create_dir_all(&checkout).unwrap();
         let cache = ConfigureCache {
             root: checkout.join("cache"),
+            lock_observer: None,
         };
 
         let absent = crate::observe_file_presence(&checkout, "optional/input").unwrap();
@@ -996,6 +1027,7 @@ mod tests {
         std::fs::write(checkout.join("inputs/valid"), b"stable").unwrap();
         let cache = ConfigureCache {
             root: checkout.join("cache"),
+            lock_observer: None,
         };
 
         let changed_observation =
@@ -1076,6 +1108,7 @@ mod tests {
         let checkout = PathBuf::from(std::env::var_os("NIA_TEST_CONFIGURE_ENV_ROOT").unwrap());
         let cache = ConfigureCache {
             root: checkout.join("cache"),
+            lock_observer: None,
         };
         let name = "NIA_TEST_CONFIGURE_ENV";
         let current = crate::observe_environment(name).unwrap();
@@ -1121,6 +1154,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let cache = ConfigureCache {
             root: root.join("cache"),
+            lock_observer: None,
         };
         let manifest = ConfigureManifest::new(ObservationPolicy::Poison);
         let identity = ConfigureIdentity::new("runner", "invocation", &manifest);
@@ -1163,6 +1197,7 @@ mod tests {
 
         let cache = ConfigureCache {
             root: root.join("cache"),
+            lock_observer: None,
         };
         assert_eq!(
             cache

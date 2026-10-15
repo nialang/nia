@@ -38,6 +38,503 @@ build_cases!(
 );
 
 #[test]
+fn json_progress_keeps_success_and_failure_stderr_machine_readable() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
+
+    let success_root = nia_test_support::test_dir("json-progress-success");
+    copy_case_tree(&fixtures.join("configured_success"), &success_root);
+    let success = support::nia_command()
+        .args(["--timings", "build", "-vvv", "--progress=json", "--root"])
+        .arg(&success_root)
+        .output_timeout_in_session("build with JSON progress");
+    assert!(
+        success.status.success(),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    let success_records = parse_json_lines(&success.stderr);
+    let progress = success_records
+        .iter()
+        .filter(|record| record["kind"] == "build-progress")
+        .collect::<Vec<_>>();
+    assert!(progress.iter().all(|record| record["event"].is_string()));
+    assert!(
+        progress
+            .windows(2)
+            .all(|pair| pair[0]["sequence"].as_u64() < pair[1]["sequence"].as_u64())
+    );
+    assert!(
+        progress
+            .iter()
+            .any(|record| record["event"] == "build-started")
+    );
+    assert!(
+        success_records
+            .iter()
+            .any(|record| record["protocol_epoch"].is_number() && record["timings"].is_array())
+    );
+    assert!(progress.iter().any(|record| {
+        record["event"] == "action-started"
+            && record["scheduler_wait_ms"].is_number()
+            && record["resource_wait_ms"].is_number()
+    }));
+    assert!(progress.iter().any(|record| {
+        record["event"] == "resource-usage-changed"
+            && record["capacity"].is_number()
+            && record["used"].is_number()
+            && record["generation"].is_number()
+    }));
+    let terminal = progress
+        .iter()
+        .filter(|record| record["event"] == "action-finished")
+        .collect::<Vec<_>>();
+    let finished = progress
+        .iter()
+        .find(|record| record["event"] == "build-finished")
+        .expect("successful progress stream has a build terminal record");
+    assert_eq!(terminal.len(), finished["total"].as_u64().unwrap() as usize);
+    assert_eq!(finished["completed"], finished["total"]);
+    let terminal_index = success_records
+        .iter()
+        .position(|record| record["event"] == "build-finished")
+        .unwrap();
+    let timings_index = success_records
+        .iter()
+        .position(|record| record["timings"].is_array())
+        .unwrap();
+    assert!(
+        terminal_index < timings_index,
+        "progress must be flushed before timings"
+    );
+
+    // Reuse the configured package so the projection checks do not recompile
+    // the runner. Lower levels must omit detail records completely.
+    for verbosity in ["", "-v"] {
+        let mut command = support::nia_command();
+        command
+            .args(["build", "--progress=json", "--root"])
+            .arg(&success_root);
+        if !verbosity.is_empty() {
+            command.arg(verbosity);
+        }
+        let output = command.output_timeout_in_session("project JSON progress verbosity");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let records = parse_json_lines(&output.stderr);
+        assert!(records.iter().all(|record| record["event"].is_string()));
+        assert_eq!(
+            records
+                .iter()
+                .any(|record| record["event"] == "action-cache-decision"),
+            verbosity == "-v",
+        );
+        assert!(
+            !records
+                .iter()
+                .any(|record| record["event"] == "action-described"
+                    || record["event"] == "action-wait-started"
+                    || record["event"] == "resource-usage-changed")
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record["event"] == "build-finished")
+        );
+        assert!(
+            records
+                .iter()
+                .filter(|record| record["event"] == "action-finished")
+                .all(|record| record["action_kind"].is_string())
+        );
+    }
+
+    let failure_root = nia_test_support::test_dir("json-progress-failure");
+    copy_case_tree(&fixtures.join("missing_script"), &failure_root);
+    let failure = support::nia_command()
+        .args(["build", "--progress=json", "--root"])
+        .arg(&failure_root)
+        .output_timeout_in_session("fail build with JSON progress");
+    assert!(!failure.status.success());
+    let failure_records = parse_json_lines(&failure.stderr);
+    assert!(
+        failure_records.iter().any(|record| {
+            record["kind"] == "build-progress" && record["event"] == "build-failed"
+        })
+    );
+    assert!(
+        failure_records
+            .iter()
+            .any(|record| record["kind"] != "build-progress"),
+        "failure stderr had no structured diagnostic: {}",
+        String::from_utf8_lossy(&failure.stderr)
+    );
+}
+
+fn parse_json_lines(bytes: &[u8]) -> Vec<serde_json::Value> {
+    let stderr = String::from_utf8_lossy(bytes);
+    assert!(
+        !stderr.lines().any(str::is_empty),
+        "unexpected blank stderr record: {stderr}"
+    );
+    stderr
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line)
+                .unwrap_or_else(|error| panic!("stderr was not JSON Lines ({error}): {line:?}"))
+        })
+        .collect()
+}
+
+#[test]
+fn progress_preserves_generated_products_and_warm_cache_decisions() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let off_root = nia_test_support::test_dir("progress-products-off");
+    let on_root = nia_test_support::test_dir("progress-products-on");
+    let script = r#"using std::build;
+pub fn build(b: &mut build::Build) build::Error!() {
+    let first = b.addGeneratedFileStep(&"first", build::BuildPathView::init(&"first.txt"), &b"first\n"[..]).?;
+    let second = b.addGeneratedFileStep(&"second", build::BuildPathView::init(&"second.txt"), &b"second\n"[..]).?;
+    let all = b.addAggregateStep(&"all").?;
+    b.dependOn(all, first).?;
+    b.dependOn(all, second).?;
+    b.setDefaultStep(all).?;
+    !()
+}
+"#;
+    for root in [&off_root, &on_root] {
+        std::fs::write(root.join("build.nia"), script).unwrap();
+    }
+    for (root, mode) in [(&off_root, "none"), (&on_root, "plain")] {
+        let output = support::nia_command()
+            .args(["build", "--progress", mode, "-vvv", "-j", "2", "--root"])
+            .arg(root)
+            .output_timeout_in_session("cold progress product comparison");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output.stderr.contains(&0x1b));
+        if mode == "none" {
+            assert!(output.stderr.is_empty());
+        }
+    }
+    for name in ["first.txt", "second.txt", "build-plan.bin"] {
+        assert_eq!(
+            std::fs::read(off_root.join(".nia-build").join(name)).unwrap(),
+            std::fs::read(on_root.join(".nia-build").join(name)).unwrap(),
+            "different {name}"
+        );
+    }
+    let mut baseline_cache = None;
+    for (sample, (root, mode, jobs)) in [
+        (&off_root, "none", "1"),
+        (&on_root, "plain", "2"),
+        (&on_root, "auto", "1"),
+    ]
+    .into_iter()
+    .cycle()
+    .take(15)
+    .enumerate()
+    {
+        let started = std::time::Instant::now();
+        let output = support::nia_command()
+            .args([
+                "build",
+                "--progress",
+                mode,
+                "--print-cache",
+                "-j",
+                jobs,
+                "--root",
+            ])
+            .arg(root)
+            .output_timeout_in_session("warm progress cache comparison");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output.stderr.contains(&0x1b));
+        if let Some(baseline) = &baseline_cache {
+            assert_eq!(&output.stdout, baseline);
+        } else {
+            baseline_cache = Some(output.stdout.clone());
+        }
+        eprintln!(
+            "warm sample={sample}, progress={mode}, jobs={jobs}: {}ms, stderr={} bytes",
+            started.elapsed().as_millis(),
+            output.stderr.len()
+        );
+    }
+    let quiet = support::nia_command()
+        .args(["build", "-q", "--print-plan", "--root"])
+        .arg(&on_root)
+        .output_timeout_in_session("quiet preserves requested plan output");
+    assert!(quiet.status.success());
+    assert!(quiet.stderr.is_empty());
+    assert!(!quiet.stdout.is_empty());
+    let preview = support::nia_command()
+        .args(["build", "--dry-run", "--progress=plain", "--root"])
+        .arg(&on_root)
+        .output_timeout_in_session("dry run reports configuration instead of execution");
+    assert!(preview.status.success());
+    let stderr = String::from_utf8_lossy(&preview.stderr);
+    assert!(
+        stderr.contains("Configured build"),
+        "dry-run progress: {stderr}"
+    );
+    assert!(!stderr.contains("executed"));
+
+    // Named selection must preserve both the plan and the selected cache records.
+    let mut selected_cache = None;
+    for (root, mode, jobs) in [(&off_root, "none", "1"), (&on_root, "json", "2")] {
+        let selected = support::nia_command()
+            .args([
+                "--diagnostics-format=json",
+                "build",
+                "first",
+                "--progress",
+                mode,
+                "--print-cache",
+                "-j",
+                jobs,
+                "--root",
+            ])
+            .arg(root)
+            .output_timeout_in_session("named selection with progress off/on");
+        assert!(
+            selected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&selected.stderr)
+        );
+        if let Some(cache) = &selected_cache {
+            assert_eq!(&selected.stdout, cache);
+            let records = parse_json_lines(&selected.stderr);
+            assert!(
+                records
+                    .iter()
+                    .any(|record| record["event"] == "selection-ready" && record["total"] == 1)
+            );
+        } else {
+            selected_cache = Some(selected.stdout);
+        }
+    }
+
+    // A successful lookup is not a successful action if restoring the output fails.
+    for root in [&off_root, &on_root] {
+        let output = root.join(".nia-build/first.txt");
+        std::fs::remove_file(&output).unwrap();
+        std::fs::create_dir(&output).unwrap();
+    }
+    let mut failure_diagnostic = None;
+    for (root, mode, verbose) in [
+        (&off_root, "none", "-v"),
+        (&on_root, "json", "-v"),
+        (&on_root, "auto", "-q"),
+    ] {
+        let failure = support::nia_command()
+            .args([
+                "--diagnostics-format=json",
+                "build",
+                "first",
+                "--progress",
+                mode,
+                verbose,
+                "--root",
+            ])
+            .arg(root)
+            .output_timeout_in_session("failed cached output restore with progress off/on");
+        assert!(!failure.status.success());
+        assert!(failure.stdout.is_empty());
+        let records = parse_json_lines(&failure.stderr);
+        let diagnostic = records
+            .iter()
+            .find(|record| record["kind"] != "build-progress")
+            .expect("failure diagnostic");
+        let code = &diagnostic["diagnostics"][0]["code"];
+        // Physical roots differ; compare the stable error code.
+        if let Some(expected) = &failure_diagnostic {
+            assert_eq!(code, expected);
+        } else {
+            assert!(code.is_string(), "{diagnostic}");
+            failure_diagnostic = Some(code.clone());
+        }
+        if mode == "json" && verbose == "-v" {
+            assert!(
+                records
+                    .iter()
+                    .any(|record| record["event"] == "action-cache-decision"
+                        && record["cache"]["status"] == "hit")
+            );
+            assert!(
+                records
+                    .iter()
+                    .any(|record| record["event"] == "action-finished"
+                        && record["outcome"] == "failed"
+                        && record["cache"]["status"] == "hit")
+            );
+            assert!(
+                records
+                    .iter()
+                    .any(|record| record["event"] == "build-failed")
+            );
+        } else {
+            assert!(
+                records
+                    .iter()
+                    .all(|record| record["kind"] != "build-progress")
+            );
+        }
+        assert!(root.join(".nia-build/first.txt").is_dir());
+    }
+}
+
+#[test]
+fn progress_long_parallel_actions_preserve_products_and_report_resources() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("progress-long-parallel");
+    let command = if cfg!(windows) {
+        r#"build::ExternalCommandOptions::search(&"powershell.exe").withArguments(&[
+            build::CommandArgument::literal(&"-NoProfile"),
+            build::CommandArgument::literal(&"-Command"),
+            build::CommandArgument::literal(&"Start-Sleep -Milliseconds 600"),
+        ])"#
+    } else {
+        r#"build::ExternalCommandOptions::search(&"sh").withArguments(&[
+            build::CommandArgument::literal(&"-c"),
+            build::CommandArgument::literal(&"sleep 0.6"),
+        ])"#
+    };
+    std::fs::write(root.join("build.nia"), format!(r#"using std::build;
+pub fn build(b: &mut build::Build) build::Error!() {{
+    let first = b.addExternalCommandStep(&"first", {command}.withResourceClass(build::ActionResourceClass::Io)).?;
+    let second = b.addExternalCommandStep(&"second", {command}.withResourceClass(build::ActionResourceClass::Io)).?;
+    let all = b.addGeneratedFileStep(&"all", build::BuildPathView::init(&"result.txt"), &b"result\n"[..]).?;
+    b.dependOn(all, first).?;
+    b.dependOn(all, second).?;
+    b.setDefaultStep(all).?;
+    !()
+}}
+"#)).unwrap();
+    let mut plans = std::collections::BTreeMap::new();
+    for (step, json) in [
+        ("first", false),
+        ("first", true),
+        ("all", false),
+        ("all", true),
+    ] {
+        let configured = support::nia_command()
+            .args([
+                if json {
+                    "--diagnostics-format=json"
+                } else {
+                    "--diagnostics-format=text"
+                },
+                "build",
+                step,
+                "--dry-run",
+                "--print-plan",
+                "--progress=none",
+                "--root",
+            ])
+            .arg(&root)
+            .output_timeout_in_session("configure long progress workload");
+        assert!(
+            configured.status.success(),
+            "{}",
+            String::from_utf8_lossy(&configured.stderr)
+        );
+        plans.insert((step, json), configured.stdout);
+    }
+    // This file is the configure-runner product. Cache reuse need not publish
+    // it again when another selection becomes active; compare the active plan
+    // through the public inspection above, and preserve this warm product too.
+    let plan_file = std::fs::read(root.join(".nia-build/build-plan.bin")).unwrap();
+    for sample in 0..3 {
+        for (step, mode, jobs) in [
+            ("first", "none", "1"),
+            ("first", "plain", "1"),
+            ("first", "json", "1"),
+            ("all", "none", "1"),
+            ("all", "plain", "1"),
+            ("all", "json", "1"),
+            ("all", "none", "2"),
+            ("all", "plain", "2"),
+            ("all", "json", "2"),
+        ] {
+            let started = std::time::Instant::now();
+            let output = support::nia_command()
+                .args([
+                    "build",
+                    step,
+                    "--progress",
+                    mode,
+                    "--print-plan",
+                    "-vvv",
+                    "-j",
+                    jobs,
+                    "--root",
+                ])
+                .arg(&root)
+                .output_timeout_in_session("long parallel progress acceptance sample");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&plans[&(step, mode == "json")]),
+            );
+            assert!(!output.stderr.contains(&0x1b));
+            if step == "all" {
+                assert_eq!(
+                    std::fs::read(root.join(".nia-build/result.txt")).unwrap(),
+                    b"result\n"
+                );
+            }
+            assert_eq!(
+                std::fs::read(root.join(".nia-build/build-plan.bin")).unwrap(),
+                plan_file
+            );
+            if mode == "none" {
+                assert!(output.stderr.is_empty());
+            } else if mode == "json" {
+                let records = parse_json_lines(&output.stderr);
+                assert_eq!(
+                    records
+                        .iter()
+                        .filter(|record| record["event"] == "action-finished")
+                        .count(),
+                    if step == "all" { 3 } else { 1 }
+                );
+                assert_eq!(
+                    records
+                        .iter()
+                        .filter(|record| record["event"] == "action-finished"
+                            && record["outcome"] == "executed")
+                        .count(),
+                    if step == "all" { 2 } else { 1 }
+                );
+                assert!(records.iter().any(
+                    |record| record["event"] == "resource-usage-changed" && record["used"] == 0
+                ));
+            }
+            eprintln!(
+                "long progress sample={sample}, step={step}, mode={mode}, jobs={jobs}: {}ms, stderr={} bytes",
+                started.elapsed().as_millis(),
+                output.stderr.len()
+            );
+        }
+    }
+}
+
+#[test]
 fn configured_build_fixtures_have_independent_tests() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
     let configured = case_directories(&fixtures, "build")

@@ -8,8 +8,29 @@
 use std::{
     io::{self, Read, Write},
     process::{Child, Command},
+    sync::Arc,
     thread::JoinHandle,
 };
+
+/// Child stream selected for live forwarding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessOutputStream {
+    /// The child's standard output stream.
+    Stdout,
+    /// The child's standard error stream.
+    Stderr,
+}
+
+/// Creates one serialized writer for each forwarded child stream.
+///
+/// Implementations can coordinate subprocess bytes with other invocation-local
+/// output such as an interactive progress display. The default build behavior
+/// writes directly to the matching process stream.
+pub trait ProcessOutputWriter: Send + Sync {
+    /// Opens a writer for one child stream. The returned writer is used only by
+    /// that stream's capture worker and is dropped when the child stream ends.
+    fn open_stream(&self, stream: ProcessOutputStream) -> Box<dyn Write + Send>;
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum CapturedStream {
@@ -94,20 +115,33 @@ pub(crate) fn capture_stream(
     stream: CapturedStream,
     forward_output: bool,
     tail_limit: usize,
+    output_writer: Option<Arc<dyn ProcessOutputWriter>>,
 ) -> StreamCapture {
     let mut tail = Vec::new();
     let mut first_error = None;
+    let mut output = forward_output.then(|| {
+        output_writer.map_or_else(
+            || match stream {
+                CapturedStream::Stdout => Box::new(io::stdout()) as Box<dyn Write + Send>,
+                CapturedStream::Stderr => Box::new(io::stderr()) as Box<dyn Write + Send>,
+            },
+            |writer| {
+                writer.open_stream(match stream {
+                    CapturedStream::Stdout => ProcessOutputStream::Stdout,
+                    CapturedStream::Stderr => ProcessOutputStream::Stderr,
+                })
+            },
+        )
+    });
     let mut buffer = [0u8; 8192];
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(count) => {
                 append_output_tail(&mut tail, &buffer[..count], tail_limit);
-                let forwarded = match (forward_output, stream) {
-                    (false, _) => Ok(()),
-                    (true, CapturedStream::Stdout) => io::stdout().write_all(&buffer[..count]),
-                    (true, CapturedStream::Stderr) => io::stderr().write_all(&buffer[..count]),
-                };
+                let forwarded = output
+                    .as_mut()
+                    .map_or(Ok(()), |output| output.write_all(&buffer[..count]));
                 if first_error.is_none() {
                     first_error = forwarded.err();
                 }
@@ -120,11 +154,8 @@ pub(crate) fn capture_stream(
             }
         }
     }
-    if forward_output {
-        let flushed = match stream {
-            CapturedStream::Stdout => io::stdout().flush(),
-            CapturedStream::Stderr => io::stderr().flush(),
-        };
+    if let Some(output) = output.as_mut() {
+        let flushed = output.flush();
         if first_error.is_none() {
             first_error = flushed.err();
         }
@@ -220,6 +251,28 @@ fn terminate_process_group(group: i32) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl ProcessOutputWriter for RecordingWriter {
+        fn open_stream(&self, _stream: ProcessOutputStream) -> Box<dyn Write + Send> {
+            Box::new(RecordingOutput(Arc::clone(&self.0)))
+        }
+    }
+
+    struct RecordingOutput(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for RecordingOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     pub(crate) fn capture_worker(stream: CapturedStream, fail: bool) -> JoinHandle<StreamCapture> {
         struct FailedRead;
@@ -235,9 +288,9 @@ pub(crate) mod tests {
             };
             let bytes = io::Cursor::new(format!("discarded-prefix/{marker}"));
             if fail {
-                capture_stream(bytes.chain(FailedRead), stream, false, marker.len())
+                capture_stream(bytes.chain(FailedRead), stream, false, marker.len(), None)
             } else {
-                capture_stream(bytes, stream, false, marker.len())
+                capture_stream(bytes, stream, false, marker.len(), None)
             }
         })
     }
@@ -316,5 +369,21 @@ pub(crate) mod tests {
                 _ => panic!("capture failure changed identity"),
             }
         }
+    }
+
+    #[test]
+    fn capture_uses_invocation_writer_without_changing_tail() {
+        let forwarded = Arc::new(Mutex::new(Vec::new()));
+        let writer: Arc<dyn ProcessOutputWriter> =
+            Arc::new(RecordingWriter(Arc::clone(&forwarded)));
+        let result = capture_stream(
+            io::Cursor::new(b"child output".to_vec()),
+            CapturedStream::Stderr,
+            true,
+            5,
+            Some(writer),
+        );
+        assert_eq!(result.tail, b"utput".to_vec());
+        assert_eq!(&*forwarded.lock().unwrap(), b"child output");
     }
 }

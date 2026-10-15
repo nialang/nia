@@ -7,6 +7,8 @@
 
 use super::*;
 use crate::action_cache::CompilerCheckCacheIdentityInput;
+use crate::lock::{LockWaitEvent, LockWaitObserver};
+use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
 use std::io::{Seek as _, SeekFrom};
 
 #[cfg(unix)]
@@ -18,10 +20,31 @@ pub(super) struct DriverActionExecutor {
     invocation: Arc<BuildInvocation>,
     drivers: Arc<BTreeMap<TargetConfig, Arc<Driver>>>,
     package_dependency_selection: Arc<BTreeMap<PackageKey, bool>>,
+    process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
+    progress: Option<ProgressSession>,
 }
 
 impl DriverActionExecutor {
+    #[cfg(test)]
     pub(super) fn new(plan: BuildPlan, invocation: BuildInvocation) -> Self {
+        Self::new_with_output_writer(plan, invocation, None)
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_with_output_writer(
+        plan: BuildPlan,
+        invocation: BuildInvocation,
+        process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
+    ) -> Self {
+        Self::new_with_output_writer_and_progress(plan, invocation, process_output_writer, None)
+    }
+
+    pub(super) fn new_with_output_writer_and_progress(
+        plan: BuildPlan,
+        invocation: BuildInvocation,
+        process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
+        progress: Option<ProgressSession>,
+    ) -> Self {
         let plan = Arc::new(plan);
         let invocation = Arc::new(invocation);
         let mut drivers = BTreeMap::new();
@@ -47,6 +70,8 @@ impl DriverActionExecutor {
             invocation,
             drivers: Arc::new(drivers),
             package_dependency_selection: Arc::new(package_dependency_selection),
+            process_output_writer,
+            progress,
         }
     }
 
@@ -124,21 +149,24 @@ impl DriverActionExecutor {
             return self.execute_external_command_action(action, command, cancellation);
         };
         let cache = TestSuiteCache::new(self.invocation.cache_dir.clone());
-        let _cache_lock =
-            match cache.acquire_interruptible(identity, || cancellation.is_cancelled()) {
-                Ok(Some(lock)) => lock,
-                Ok(None) => {
-                    return Err(CoordinatorError::Cancelled {
-                        action: action.key.clone(),
-                    });
-                }
-                Err(_) => {
-                    self.execute_external_command_action(action, command, cancellation)?;
-                    return Ok(Some(ActionCacheOutcome::Miss(
-                        ActionCacheMissReason::WriteError,
-                    )));
-                }
-            };
+        let _cache_lock = match cache.acquire_interruptible_observed(
+            identity,
+            || cancellation.is_cancelled(),
+            self.lock_observer(action, ProgressWaitKind::CacheLock),
+        ) {
+            Ok(Some(lock)) => lock,
+            Ok(None) => {
+                return Err(CoordinatorError::Cancelled {
+                    action: action.key.clone(),
+                });
+            }
+            Err(_) => {
+                self.execute_external_command_action(action, command, cancellation)?;
+                return Ok(Some(ActionCacheOutcome::Miss(
+                    ActionCacheMissReason::WriteError,
+                )));
+            }
+        };
         // Inputs can change while another invocation owns this identity's lock.
         // Never accept its completion record using the pre-wait observation.
         let Some(current_identity) = self.test_suite_cache_identity(action, command)? else {
@@ -153,10 +181,14 @@ impl DriverActionExecutor {
             });
         }
         let miss_reason = match cache.lookup_locked(identity) {
-            Ok(TestSuiteCacheLookup::Hit) => return Ok(Some(ActionCacheOutcome::Hit)),
+            Ok(TestSuiteCacheLookup::Hit) => {
+                self.observe_cache_decision(action, ActionCacheOutcome::Hit);
+                return Ok(Some(ActionCacheOutcome::Hit));
+            }
             Ok(TestSuiteCacheLookup::Miss(reason)) => reason,
             Err(_) => ActionCacheMissReason::ReadError,
         };
+        self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
         self.execute_external_command_action(action, command, cancellation)?;
         if cancellation.is_cancelled() {
             return Err(CoordinatorError::Cancelled {
@@ -359,7 +391,10 @@ impl DriverActionExecutor {
         };
         let program_text = path_text(action, &resolved_program)?;
 
-        let cache = ExternalCommandCache::new(self.invocation.cache_dir.clone());
+        let cache = ExternalCommandCache::new_with_lock_observer(
+            self.invocation.cache_dir.clone(),
+            self.cache_lock_observer(action),
+        );
         let environment_snapshot = (cache_policy == CommandCachePolicy::FullDeclaredEnvironment)
             .then(snapshot_process_environment)
             .flatten();
@@ -383,6 +418,7 @@ impl DriverActionExecutor {
         if let Some(identity) = cache_identity.as_ref() {
             match cache.lookup(identity) {
                 Ok(ExternalCommandCacheLookup::Hit(hit)) => {
+                    self.observe_cache_decision(action, ActionCacheOutcome::Hit);
                     restore_cached_external_outputs(
                         action,
                         &self.invocation.build_dir,
@@ -396,6 +432,16 @@ impl DriverActionExecutor {
             }
         }
 
+        if cache_policy != CommandCachePolicy::SuccessfulTests {
+            self.observe_cache_decision(
+                action,
+                ActionCacheOutcome::Miss(
+                    miss_reason
+                        .clone()
+                        .unwrap_or(ActionCacheMissReason::Uncacheable),
+                ),
+            );
+        }
         let mut staged = if resolved_outputs.is_empty() {
             None
         } else {
@@ -451,7 +497,7 @@ impl DriverActionExecutor {
                 .map(|()| None);
             }
         };
-        let execution = execute_external_command(
+        let execution = execute_external_command_with_writer(
             action,
             ResolvedExternalCommand {
                 program: &program_text,
@@ -466,6 +512,7 @@ impl DriverActionExecutor {
                 forward_output: self.invocation.forward_output,
                 cancellation: Some(cancellation),
             },
+            self.process_output_writer.clone(),
         );
         let mut cache_outputs = match (execution, staged.as_ref()) {
             (Ok(()), Some(_)) if cancellation.is_cancelled() => {
@@ -585,14 +632,23 @@ impl DriverActionExecutor {
         // The cheap manifest is sufficient for lookup. A successful check may
         // discover a different provider closure, so only its returned manifest
         // is authoritative for the record that gets published below.
-        let precheck_manifest = driver
-            .source_input_manifest(&request)
-            .result
-            .map_err(|error| CoordinatorError::Driver {
-                action: action.key.clone(),
-                error: Box::new(error),
-            })?;
-        let cache = CompilerCheckCache::new(self.invocation.cache_dir.clone());
+        let manifest_activity = self
+            .progress
+            .as_ref()
+            .map(|progress| progress.activity(action.key.clone(), ProgressActivity::Checking));
+        let precheck_manifest = driver.source_input_manifest(&request).result;
+        let manifest_success = precheck_manifest.is_ok();
+        if let Some(activity) = manifest_activity {
+            activity.finish(manifest_success);
+        }
+        let precheck_manifest = precheck_manifest.map_err(|error| CoordinatorError::Driver {
+            action: action.key.clone(),
+            error: Box::new(error),
+        })?;
+        let cache = CompilerCheckCache::new_with_lock_observer(
+            self.invocation.cache_dir.clone(),
+            self.cache_lock_observer(action),
+        );
         let precheck_identity = CompilerCheckCacheIdentity::new(CompilerCheckCacheIdentityInput {
             action: &action.key,
             module,
@@ -608,19 +664,27 @@ impl DriverActionExecutor {
             None => ActionCacheMissReason::Uncacheable,
             Some(identity) => match cache.lookup(identity) {
                 Ok(CompilerCheckCacheLookup::Hit) => {
+                    self.observe_cache_decision(action, ActionCacheOutcome::Hit);
                     return Ok(Some(ActionCacheOutcome::Hit));
                 }
                 Ok(CompilerCheckCacheLookup::Miss(reason)) => reason,
                 Err(_) => ActionCacheMissReason::ReadError,
             },
         };
-        let checked = driver
-            .check_entry_with_source_manifest(request)
-            .result
-            .map_err(|error| CoordinatorError::Driver {
-                action: action.key.clone(),
-                error: Box::new(error),
-            })?;
+        self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
+        let check_activity = self
+            .progress
+            .as_ref()
+            .map(|progress| progress.activity(action.key.clone(), ProgressActivity::Checking));
+        let checked = driver.check_entry_with_source_manifest(request).result;
+        let check_success = checked.is_ok();
+        if let Some(activity) = check_activity {
+            activity.finish(check_success);
+        }
+        let checked = checked.map_err(|error| CoordinatorError::Driver {
+            action: action.key.clone(),
+            error: Box::new(error),
+        })?;
         if !checked.program.diagnostics.is_empty() {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
@@ -757,7 +821,10 @@ impl DriverActionExecutor {
                 error: Box::new(error),
             })?;
         let link_environment = driver.executable_cache_environment_for(&link_options);
-        let cache = CompilerEmitCache::new(self.invocation.cache_dir.clone());
+        let cache = CompilerEmitCache::new_with_lock_observer(
+            self.invocation.cache_dir.clone(),
+            self.cache_lock_observer(action),
+        );
         let precheck_identity = link_environment.and_then(|environment| {
             CompilerEmitCacheIdentity::new(CompilerEmitCacheIdentityInput {
                 action: &action.key,
@@ -781,6 +848,7 @@ impl DriverActionExecutor {
                 Ok(CompilerEmitCacheLookup::Hit(reference)) => {
                     let reason = match driver.restore_executable_cache(reference, &output) {
                         ExecutableCacheRestore::Hit => {
+                            self.observe_cache_decision(action, ActionCacheOutcome::Hit);
                             return Ok(Some(ActionCacheOutcome::Hit));
                         }
                         ExecutableCacheRestore::NotFound => ActionCacheMissReason::NotFound,
@@ -803,17 +871,25 @@ impl DriverActionExecutor {
                 Err(_) => ActionCacheMissReason::ReadError,
             },
         };
+        self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
+        let link_activity = self.progress.as_ref().map(|progress| {
+            progress.activity(action.key.clone(), ProgressActivity::CompilingAndLinking)
+        });
         let linked = driver
             .link_executable_with_source_manifest(
                 LinkExecutableRequest::new(request, output)
                     .with_link_options(link_options.clone())
                     .with_link_time_optimization(self.invocation.link_time_optimization),
             )
-            .result
-            .map_err(|error| CoordinatorError::Driver {
-                action: action.key.clone(),
-                error: Box::new(error),
-            })?;
+            .result;
+        let link_success = linked.is_ok();
+        if let Some(activity) = link_activity {
+            activity.finish(link_success);
+        }
+        let linked = linked.map_err(|error| CoordinatorError::Driver {
+            action: action.key.clone(),
+            error: Box::new(error),
+        })?;
         if !linked.artifact.diagnostics.is_empty() {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
@@ -871,13 +947,21 @@ impl DriverActionExecutor {
             self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
+        let emit_activity = self
+            .progress
+            .as_ref()
+            .map(|progress| progress.activity(action.key.clone(), ProgressActivity::Codegen));
         let emitted = driver
             .emit_native_objects(EmitObjectRequest::new(request))
-            .result
-            .map_err(|error| CoordinatorError::Driver {
-                action: action.key.clone(),
-                error: Box::new(error),
-            })?;
+            .result;
+        let emit_success = emitted.is_ok();
+        if let Some(activity) = emit_activity {
+            activity.finish(emit_success);
+        }
+        let emitted = emitted.map_err(|error| CoordinatorError::Driver {
+            action: action.key.clone(),
+            error: Box::new(error),
+        })?;
         let resolved = [ResolvedTransactionOutput {
             logical: &artifact.output,
             destination: output,
@@ -929,13 +1013,21 @@ impl DriverActionExecutor {
         }];
         let staged = prepare_typed_staged_outputs(action, &self.invocation.build_dir, &resolved)?;
         let temporary = staged.outputs[0].temporary.clone();
+        let archive_activity = self
+            .progress
+            .as_ref()
+            .map(|progress| progress.activity(action.key.clone(), ProgressActivity::Linking));
         let archived = driver
             .archive_static_library_from_objects(&emitted, temporary, ArchiveOptions::default())
-            .result
-            .map_err(|error| CoordinatorError::Driver {
-                action: action.key.clone(),
-                error: Box::new(error),
-            });
+            .result;
+        let archive_success = archived.is_ok();
+        if let Some(activity) = archive_activity {
+            activity.finish(archive_success);
+        }
+        let archived = archived.map_err(|error| CoordinatorError::Driver {
+            action: action.key.clone(),
+            error: Box::new(error),
+        });
         if let Err(error) = archived {
             return cleanup_staged_outputs(action, staged, Some(Box::new(error))).map(|()| None);
         }
@@ -950,7 +1042,10 @@ impl DriverActionExecutor {
         contents: &[u8],
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let output = self.resolve_path(action, logical_output)?;
-        let cache = GeneratedFileCache::new(self.invocation.cache_dir.clone());
+        let cache = GeneratedFileCache::new_with_lock_observer(
+            self.invocation.cache_dir.clone(),
+            self.cache_lock_observer(action),
+        );
         let identity = GeneratedFileCacheIdentity::new(
             &action.key,
             logical_output,
@@ -960,6 +1055,10 @@ impl DriverActionExecutor {
         let lookup = match cache.lookup(&identity) {
             Ok(lookup) => lookup,
             Err(_) => {
+                self.observe_cache_decision(
+                    action,
+                    ActionCacheOutcome::Miss(ActionCacheMissReason::ReadError),
+                );
                 write_generated_file(action, &self.invocation.build_dir, &output, contents)?;
                 return Ok(Some(ActionCacheOutcome::Miss(
                     ActionCacheMissReason::ReadError,
@@ -968,10 +1067,12 @@ impl DriverActionExecutor {
         };
         match lookup {
             GeneratedFileCacheLookup::Hit(payload) => {
+                self.observe_cache_decision(action, ActionCacheOutcome::Hit);
                 write_generated_file(action, &self.invocation.build_dir, &output, &payload)?;
                 Ok(Some(ActionCacheOutcome::Hit))
             }
             GeneratedFileCacheLookup::Miss(reason) => {
+                self.observe_cache_decision(action, ActionCacheOutcome::Miss(reason.clone()));
                 write_generated_file(action, &self.invocation.build_dir, &output, contents)?;
                 let reason = match cache.publish(&identity, contents) {
                     Ok(()) => reason,
@@ -979,6 +1080,15 @@ impl DriverActionExecutor {
                 };
                 Ok(Some(ActionCacheOutcome::Miss(reason)))
             }
+        }
+    }
+
+    fn observe_cache_decision(&self, action: &PlanAction, cache: ActionCacheOutcome) {
+        if let Some(progress) = &self.progress {
+            progress.emit(crate::ProgressEventKind::ActionCacheDecision {
+                action: action.key.clone(),
+                cache,
+            });
         }
     }
 
@@ -1050,20 +1160,78 @@ impl DriverActionExecutor {
         for output in outputs {
             let resolved = self.resolve_path(action, output)?;
             let lock = output_lock_path(&self.invocation.cache_dir, output);
-            let Some(output_lock) =
-                ScopedFileLock::acquire_interruptible(lock.clone(), || cancellation.is_cancelled())
-                    .map_err(|error| CoordinatorError::AcquireOutputLock {
-                        action: action.key.clone(),
-                        output: resolved,
-                        lock,
-                        error,
-                    })?
+            let Some(output_lock) = ScopedFileLock::acquire_interruptible_observed(
+                lock.clone(),
+                || cancellation.is_cancelled(),
+                self.lock_observer(action, ProgressWaitKind::OutputLock),
+            )
+            .map_err(|error| CoordinatorError::AcquireOutputLock {
+                action: action.key.clone(),
+                output: resolved,
+                lock,
+                error,
+            })?
             else {
                 return Ok(None);
             };
             acquired.push(output_lock);
         }
         Ok(Some(acquired))
+    }
+
+    fn lock_observer(
+        &self,
+        action: &PlanAction,
+        kind: ProgressWaitKind,
+    ) -> impl FnMut(LockWaitEvent) + '_ {
+        let action = action.key.clone();
+        let mut wait = None;
+        move |event| match event {
+            LockWaitEvent::Contended => {
+                wait = self
+                    .progress
+                    .as_ref()
+                    .map(|progress| progress.wait(action.clone(), kind));
+            }
+            event => {
+                if let Some(wait) = wait.take() {
+                    wait.finish(match event {
+                        LockWaitEvent::Acquired => ProgressWaitOutcome::Acquired,
+                        LockWaitEvent::Cancelled => ProgressWaitOutcome::Cancelled,
+                        _ => ProgressWaitOutcome::Failed,
+                    });
+                }
+            }
+        }
+    }
+
+    fn cache_lock_observer(&self, action: &PlanAction) -> Option<LockWaitObserver> {
+        let progress = self.progress.clone()?;
+        let action = action.key.clone();
+        let wait = Arc::new(std::sync::Mutex::new(None));
+        let wait_for_callback = Arc::clone(&wait);
+        Some(LockWaitObserver::new(Arc::new(move |event| {
+            let Ok(mut current) = wait_for_callback.lock() else {
+                return;
+            };
+            match event {
+                LockWaitEvent::Contended => {
+                    if current.is_none() {
+                        *current = Some(progress.wait(action.clone(), ProgressWaitKind::CacheLock));
+                    }
+                }
+                LockWaitEvent::Acquired | LockWaitEvent::Cancelled | LockWaitEvent::Failed => {
+                    if let Some(wait) = current.take() {
+                        wait.finish(match event {
+                            LockWaitEvent::Acquired => ProgressWaitOutcome::Acquired,
+                            LockWaitEvent::Cancelled => ProgressWaitOutcome::Cancelled,
+                            LockWaitEvent::Failed => ProgressWaitOutcome::Failed,
+                            LockWaitEvent::Contended => unreachable!(),
+                        });
+                    }
+                }
+            }
+        })))
     }
 
     pub(super) fn check_request(

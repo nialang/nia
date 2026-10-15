@@ -15,7 +15,7 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use crate::{
     BuildError, BuildInvocation, BuildRunnerSource,
     action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
-    lock::ScopedFileLock,
+    lock::{LockWaitObserver, ScopedFileLock},
 };
 
 const CACHE_MAGIC: &[u8; 8] = formats::RUNNER_EXECUTABLE_CACHE.magic;
@@ -53,7 +53,11 @@ pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
 
 /// Restores a validated runner executable from the private build cache.
 /// Invalid records are retired and treated as misses.
-pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io::Result<bool> {
+pub(super) fn restore_executable(
+    invocation: &BuildInvocation,
+    key: &str,
+    observer: Option<&LockWaitObserver>,
+) -> io::Result<bool> {
     let cached = cache_path(invocation, key);
     if let Err(error) = validate_cache_namespace(
         &invocation.cache_dir,
@@ -64,7 +68,7 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
         }
         return Err(error);
     }
-    let _lock = acquire_mutation_lock(invocation, &cached)?;
+    let _lock = acquire_mutation_lock(invocation, &cached, observer)?;
     let metadata = match fs::symlink_metadata(&cached) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
@@ -110,7 +114,11 @@ pub(super) fn restore_executable(invocation: &BuildInvocation, key: &str) -> io:
 }
 
 /// Publishes the linked runner executable as a disposable private cache record.
-pub(super) fn publish_executable(invocation: &BuildInvocation, key: &str) -> io::Result<()> {
+pub(super) fn publish_executable(
+    invocation: &BuildInvocation,
+    key: &str,
+    observer: Option<&LockWaitObserver>,
+) -> io::Result<()> {
     let executable = read_bounded_file(&invocation.runner_executable, MAX_RUNNER_BYTES)?;
     let mut record = Vec::with_capacity(CACHE_HEADER_BYTES + executable.len());
     record.extend_from_slice(CACHE_MAGIC);
@@ -122,11 +130,15 @@ pub(super) fn publish_executable(invocation: &BuildInvocation, key: &str) -> io:
         &invocation.cache_dir,
         path.parent().expect("runner cache parent"),
     )?;
-    let _lock = acquire_mutation_lock(invocation, &path)?;
+    let _lock = acquire_mutation_lock(invocation, &path, observer)?;
     install_file(&path, &record, false)
 }
 
-fn acquire_mutation_lock(invocation: &BuildInvocation, path: &Path) -> io::Result<ScopedFileLock> {
+fn acquire_mutation_lock(
+    invocation: &BuildInvocation,
+    path: &Path,
+    observer: Option<&LockWaitObserver>,
+) -> io::Result<ScopedFileLock> {
     let mut builder = QueryFingerprintBuilder::new(RUNNER_CACHE_MUTATION_LOCK_DOMAIN);
     builder.write_bytes(path.as_os_str().as_encoded_bytes());
     let lock_root = invocation
@@ -136,8 +148,16 @@ fn acquire_mutation_lock(invocation: &BuildInvocation, path: &Path) -> io::Resul
     ensure_cache_directory(&invocation.cache_dir, &lock_root)?;
     let [first, second] = builder.finish().parts();
     let lock = lock_root.join(format!("{first:016x}{second:016x}.lock"));
-    ScopedFileLock::acquire_interruptible(lock, || false)?
-        .ok_or_else(|| io::Error::other("runner cache mutation lock was cancelled"))
+    ScopedFileLock::acquire_interruptible_observed(
+        lock,
+        || false,
+        |event| {
+            if let Some(observer) = observer {
+                observer.observe(event);
+            }
+        },
+    )?
+    .ok_or_else(|| io::Error::other("runner cache mutation lock was cancelled"))
 }
 
 fn decode_record(bytes: &[u8]) -> Option<&[u8]> {
@@ -636,9 +656,9 @@ mod tests {
         let key = "bundle-test";
         fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
         fs::write(&invocation.runner_executable, b"runner executable").unwrap();
-        publish_executable(&invocation, key).expect("publish runner executable");
+        publish_executable(&invocation, key, None).expect("publish runner executable");
         fs::remove_file(&invocation.runner_executable).unwrap();
-        assert!(restore_executable(&invocation, key).expect("restore runner executable"));
+        assert!(restore_executable(&invocation, key, None).expect("restore runner executable"));
         assert_eq!(
             fs::read(&invocation.runner_executable).unwrap(),
             b"runner executable"
@@ -656,7 +676,7 @@ mod tests {
         let mut corrupt = fs::read(&cache).unwrap();
         *corrupt.last_mut().unwrap() ^= 0xff;
         fs::write(&cache, corrupt).unwrap();
-        assert!(!restore_executable(&invocation, key).expect("reject corrupt runner cache"));
+        assert!(!restore_executable(&invocation, key, None).expect("reject corrupt runner cache"));
         assert!(!cache.exists());
     }
 
@@ -672,14 +692,16 @@ mod tests {
         let key = "non-regular";
         fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
         fs::write(&invocation.runner_executable, b"runner executable").unwrap();
-        publish_executable(&invocation, key).expect("publish runner executable");
+        publish_executable(&invocation, key, None).expect("publish runner executable");
         fs::remove_file(&invocation.runner_executable).unwrap();
 
         let cache = cache_path(&invocation, key);
         fs::remove_file(&cache).unwrap();
         fs::create_dir(&cache).unwrap();
 
-        assert!(!restore_executable(&invocation, key).expect("reject non-regular runner cache"));
+        assert!(
+            !restore_executable(&invocation, key, None).expect("reject non-regular runner cache")
+        );
         assert!(cache.exists(), "directories are not removed as files");
         fs::remove_dir_all(root).unwrap();
     }
@@ -724,7 +746,7 @@ mod tests {
         let key = "symlink";
         fs::create_dir_all(invocation.runner_executable.parent().unwrap()).unwrap();
         fs::write(&invocation.runner_executable, b"runner executable").unwrap();
-        publish_executable(&invocation, key).expect("publish runner executable");
+        publish_executable(&invocation, key, None).expect("publish runner executable");
         fs::remove_file(&invocation.runner_executable).unwrap();
 
         let cache = cache_path(&invocation, key);
@@ -733,7 +755,7 @@ mod tests {
         fs::remove_file(&cache).unwrap();
         symlink(&outside, &cache).unwrap();
 
-        assert!(!restore_executable(&invocation, key).expect("reject symlink runner cache"));
+        assert!(!restore_executable(&invocation, key, None).expect("reject symlink runner cache"));
         assert!(!cache.exists(), "symlink cache record must be retired");
         assert!(outside.exists(), "retirement must not remove the target");
         fs::remove_dir_all(root).unwrap();
@@ -770,7 +792,7 @@ mod tests {
             .open(&invocation.runner_executable)
             .unwrap();
         executable.set_len((MAX_RUNNER_BYTES + 1) as u64).unwrap();
-        let error = publish_executable(&invocation, "oversized").unwrap_err();
+        let error = publish_executable(&invocation, "oversized", None).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 

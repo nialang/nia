@@ -18,6 +18,7 @@ pub(crate) use helpers::display_duration;
 use helpers::*;
 use publication::*;
 use scheduling::ActionCancellation;
+pub(crate) use scheduling::execute_build_plan_with_progress;
 #[cfg(test)]
 use scheduling::{
     ActionOutcome, action_resource_capacity, execute_selected_closure, execute_test_closure,

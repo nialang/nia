@@ -554,10 +554,20 @@ pub(super) struct ExternalExecutionPolicy<'a> {
     pub(super) cancellation: Option<&'a ActionCancellation>,
 }
 
+#[cfg(test)]
 pub(super) fn execute_external_command(
     action: &PlanAction,
     request: ResolvedExternalCommand<'_>,
     policy: ExternalExecutionPolicy,
+) -> Result<(), CoordinatorError> {
+    execute_external_command_with_writer(action, request, policy, None)
+}
+
+pub(super) fn execute_external_command_with_writer(
+    action: &PlanAction,
+    request: ResolvedExternalCommand<'_>,
+    policy: ExternalExecutionPolicy,
+    output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
 ) -> Result<(), CoordinatorError> {
     let error = |failure| {
         CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
@@ -618,6 +628,7 @@ pub(super) fn execute_external_command(
     };
     // Capture workers drain both pipes concurrently and retain bounded tails;
     // this prevents pipe deadlock and unbounded failure diagnostics.
+    let stderr_output_writer = output_writer.clone();
     let stdout_reader = match thread::Builder::new()
         .name("nia-build-stdout".to_string())
         .spawn(move || {
@@ -626,6 +637,7 @@ pub(super) fn execute_external_command(
                 CapturedStream::Stdout,
                 policy.forward_output,
                 EXTERNAL_OUTPUT_TAIL_BYTES,
+                output_writer,
             )
         }) {
         Ok(reader) => reader,
@@ -648,6 +660,7 @@ pub(super) fn execute_external_command(
                 CapturedStream::Stderr,
                 policy.forward_output,
                 EXTERNAL_OUTPUT_TAIL_BYTES,
+                stderr_output_writer,
             )
         }) {
         Ok(reader) => reader,

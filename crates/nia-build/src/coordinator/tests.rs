@@ -711,6 +711,88 @@ fn action_resource_capacity_only_reduces_inherited_capacity() {
 }
 
 #[test]
+fn progress_resource_generation_increases_across_waves() {
+    use crate::progress::{ProgressEventKind, ProgressSession};
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let progress = ProgressSession::new(Arc::new(move |event: crate::ProgressEvent| {
+        sender.send(event).unwrap();
+    }));
+    let session = QuerySession::new().unwrap();
+    let budget = Arc::new(ActionResourceBudget::new(1).unwrap());
+    for wave in 0..2 {
+        scheduling::run_action_tasks_with_progress(
+            &session,
+            &budget,
+            std::num::NonZeroUsize::new(1),
+            [(ActionResourceClass::Cpu, action("two-waves"), || ())],
+            Some(&progress),
+            wave,
+        )
+        .unwrap();
+    }
+    drop(progress);
+    let events = receiver.try_iter().collect::<Vec<_>>();
+    let snapshots = events
+        .iter()
+        .filter_map(|event| match event.kind {
+            ProgressEventKind::ResourceUsageChanged {
+                generation, used, ..
+            } => Some((generation, used)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(snapshots.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    assert_eq!(snapshots.last(), Some(&(4, 0)));
+}
+
+#[test]
+fn progress_description_uses_typed_kind_and_bounds_paths_without_command_secrets() {
+    let plan = registered_test_plan();
+    let mut action = plan
+        .actions()
+        .iter()
+        .find(|action| action.kind.is_test())
+        .unwrap()
+        .clone();
+    // Its name is intentionally unhelpful; only the typed operation determines
+    // whether this is a test executable.
+    action.key = ActionKey::new(PackageKey::root(), "unrelated-name").unwrap();
+    let ActionKind::TestExecutable(command) = &mut action.kind else {
+        unreachable!()
+    };
+    command
+        .arguments
+        .push(CommandArgument::Literal("argument-secret".into()));
+    command.environment.push(EnvironmentInput {
+        name: "PRIVATE".into(),
+        value: Some("environment-secret".into()),
+    });
+    command.inputs = (0..20)
+        .map(|index| {
+            LogicalPath::new(
+                LogicalPathRoot::Package(PackageKey::root()),
+                &format!("input-{index}"),
+            )
+            .unwrap()
+        })
+        .collect();
+    command.outputs = (0..20)
+        .map(|index| LogicalPath::new(LogicalPathRoot::Build, &format!("output-{index}")).unwrap())
+        .collect();
+    let description = crate::progress_action_description(&plan, &action);
+    assert_eq!(description.kind, "test-executable");
+    assert_eq!(description.total_inputs, 20);
+    assert_eq!(description.total_outputs, 20);
+    assert_eq!(description.inputs.len(), 8);
+    assert_eq!(description.outputs.len(), 8);
+    let text = format!("{description:?}");
+    assert!(!text.contains("argument-secret"));
+    assert!(!text.contains("environment-secret"));
+}
+
+#[test]
 fn bounded_wide_graph_stress_preserves_deterministic_report() {
     let width = 48usize;
     let leaves = (0..width)
@@ -2297,6 +2379,60 @@ fn generated_file_cache_read_failure_is_an_explicit_nonfatal_miss() {
 }
 
 #[test]
+fn progress_retains_cache_lookup_when_generated_output_publication_fails() {
+    use crate::progress::{ProgressEventKind, ProgressOutcome, ProgressSession};
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
+    for warm in [false, true] {
+        let invocation = test_invocation();
+        let output = invocation.build_dir.join("occupied");
+        let plan = generated_plan(&invocation, "occupied", b"contents");
+        if warm {
+            execute_build_plan(&plan, &invocation).unwrap();
+            fs::remove_file(&output).unwrap();
+        }
+        fs::create_dir_all(&output).unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let progress = ProgressSession::new(Arc::new(move |event: crate::ProgressEvent| {
+            sender.send(event).unwrap();
+        }));
+        assert!(scheduling::execute_build_plan_with_progress(
+            &plan, &invocation, Some(&progress), None,
+        ).is_err());
+        drop(progress);
+        let expected = if warm {
+            ActionCacheOutcome::Hit
+        } else {
+            ActionCacheOutcome::Miss(ActionCacheMissReason::NotFound)
+        };
+        let events = receiver.try_iter().collect::<Vec<_>>();
+        let lookup = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    &event.kind,
+                    ProgressEventKind::ActionCacheDecision { cache, .. } if *cache == expected
+                )
+            })
+            .expect("real cache lookup before publication");
+        let terminal = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    &event.kind,
+                    ProgressEventKind::ActionFinished {
+                        outcome: ProgressOutcome::Failed, cache: Some(cache), ..
+                    } if *cache == expected
+                )
+            })
+            .expect("failed action retains lookup but does not count as cached success");
+        assert!(lookup < terminal);
+        assert!(output.is_dir());
+        assert_no_output_locks(&invocation);
+    }
+}
+
+#[test]
 fn failed_generated_file_publication_cleans_temporary_output() {
     let invocation = test_invocation();
     let output = invocation.build_dir.join("occupied");
@@ -3145,7 +3281,8 @@ fn output_parent_replacement_is_rejected_before_publication() {
     let redirected = invocation.build_dir.join("redirected");
     let second = redirected.join("result.txt");
     fs::create_dir_all(&outside).unwrap();
-    let mut staged = prepare_test_staged_outputs(&invocation, &[first, second]).unwrap();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let staged = prepare_test_staged_outputs(&invocation, &[first, second]).unwrap();
     for output in &staged.outputs {
         fs::write(&output.temporary, b"new").unwrap();
     }
