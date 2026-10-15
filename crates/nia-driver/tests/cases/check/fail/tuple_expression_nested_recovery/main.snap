@@ -5,8 +5,6 @@ label: 32..33 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected expression
   --> fail/tuple_expression_nested_recovery/main.nia:2:18
   |

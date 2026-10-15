@@ -5,8 +5,6 @@ label: 30..31 Primary Source expected `]` after type arguments; found `)`
 help: check that the surrounding delimiters are balanced
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `]` after type arguments; found `)`
   --> fail/unterminated_type_arguments_recovery/main.nia:1:31
   |

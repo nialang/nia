@@ -20,8 +20,6 @@ help: make the associated value public or use it from the defining package
 related: 141..177 the restricted associated value is declared here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: associated value `PRIVATE_LIMIT` is private
   --> fail/restricted_associated_values/main.nia:4:19
   |
@@ -30,7 +28,6 @@ error[E0201]: associated value `PRIVATE_LIMIT` is private
 help: make the associated value public or use it from an allowed scope
 related: fail/restricted_associated_values/dep/model.nia:4:5: the private associated value is declared here
 
-root diagnostic:
 error[E0201]: associated value `PARENT_LIMIT` is restricted to its parent module and descendants
   --> fail/restricted_associated_values/main.nia:8:19
   |
@@ -39,7 +36,6 @@ error[E0201]: associated value `PARENT_LIMIT` is restricted to its parent module
 help: make the associated value public or move this use into its permitted scope
 related: fail/restricted_associated_values/dep/model.nia:5:16: the restricted associated value is declared here
 
-root diagnostic:
 error[E0201]: associated value `PACKAGE_LIMIT` is restricted to its package
    --> fail/restricted_associated_values/main.nia:12:19
    |

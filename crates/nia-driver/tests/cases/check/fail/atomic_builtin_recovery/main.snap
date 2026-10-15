@@ -16,8 +16,6 @@ summary: invalid atomic RMW operation `99` for builtin `atomicRmw`
 label: 156..163 Primary Source invalid atomic RMW operation `99` for builtin `atomicRmw`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown type `Missing`
   --> fail/atomic_builtin_recovery/main.nia:3:34
   |
@@ -25,7 +23,6 @@ error[E0201]: unknown type `Missing`
   |                                  ^^^^^^^
 help: check the type name, module path, and whether the type is public
 
-root diagnostic:
 error[E0201]: unknown type `Missing`
   --> fail/atomic_builtin_recovery/main.nia:4:33
   |
@@ -33,7 +30,6 @@ error[E0201]: unknown type `Missing`
   |                                 ^^^^^^^
 help: check the type name, module path, and whether the type is public
 
-root diagnostic:
 error[E0304]: invalid atomic RMW operation `99` for builtin `atomicRmw`
   --> fail/atomic_builtin_recovery/main.nia:4:54
   |

@@ -4,8 +4,6 @@ summary: expected `,` or `)` after call argument; found `false`
 label: 32..37 Primary Source expected `,` or `)` after call argument; found `false`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `)` after call argument; found `false`
   --> fail/call_argument_delimiter_recovery/main.nia:2:18
   |

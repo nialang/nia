@@ -321,21 +321,7 @@ fn render_program_diagnostic_items(
         suppressed_downstream,
     );
     let mut out = String::new();
-    out.push_str("diagnostics:\n");
     for (index, entry) in report.entries().iter().enumerate() {
-        match report.entry_kind(index) {
-            Some(DiagnosticReportEntryKind::Root) => out.push_str("root diagnostic:\n"),
-            Some(DiagnosticReportEntryKind::Related) => {
-                let parent = report
-                    .entry_parent(index)
-                    .expect("related report entry must have a root");
-                out.push_str(&format!("related to root diagnostic {}:\n", parent + 1));
-            }
-            Some(DiagnosticReportEntryKind::Independent) => {
-                out.push_str("independent diagnostic:\n")
-            }
-            None => unreachable!("report entry kind must match retained entry"),
-        }
         let source = sources.get(entry.path).map(String::as_str).unwrap_or("");
         out.push_str(&nia_diagnostic::render_diagnostic_with_sources(
             entry.path,
@@ -343,9 +329,16 @@ fn render_program_diagnostic_items(
             entry.diagnostic,
             &sources,
         ));
+        // A consequence directly follows its root; the note names that root
+        // so the pair still reads correctly when the output is filtered.
+        if report.entry_kind(index) == Some(DiagnosticReportEntryKind::Related)
+            && let Some(cause) = &entry.diagnostic.cause
+        {
+            out.push_str(&nia_diagnostic::render_cause_note(cause, &sources));
+        }
         out.push('\n');
     }
-    push_report_summary(&mut out, &report);
+    out.push_str(&report.render_footer());
     out
 }
 
@@ -453,8 +446,7 @@ pub fn render_driver_error(
         DriverError::CodegenDiagnostics(diagnostics) => {
             render_codegen_diagnostics(diagnostics, primary_path, primary_source)
         }
-        DriverError::InternalDiagnostic(diagnostic) => render_diagnostics_with_title(
-            "internal diagnostics:",
+        DriverError::InternalDiagnostic(diagnostic) => render_diagnostic_list(
             std::slice::from_ref(diagnostic),
             primary_path,
             primary_source,
@@ -463,8 +455,7 @@ pub fn render_driver_error(
             let diagnostic = Diagnostic::user_error(nia_diagnostic::codes::TARGET_CONFIG, message)
                 .help("choose a supported artifact mode and output combination")
                 .finish();
-            render_diagnostics_with_title(
-                "driver diagnostics:",
+            render_diagnostic_list(
                 std::slice::from_ref(&diagnostic),
                 primary_path,
                 primary_source,
@@ -478,8 +469,7 @@ pub fn render_driver_error(
             .note(error.to_string())
             .help("select a runtime supported by the artifact target")
             .finish();
-            render_diagnostics_with_title(
-                "driver diagnostics:",
+            render_diagnostic_list(
                 std::slice::from_ref(&diagnostic),
                 primary_path,
                 primary_source,
@@ -518,8 +508,7 @@ pub fn render_driver_error(
             primary_source,
         ),
         DriverError::SystemImports(_) | DriverError::SystemImportLibrary { .. } => {
-            render_diagnostics_with_title(
-                "driver diagnostics:",
+            render_diagnostic_list(
                 &driver_error_diagnostics(error),
                 primary_path,
                 primary_source,
@@ -547,8 +536,7 @@ fn render_external_tool_diagnostic(
     primary_source: Option<&str>,
 ) -> String {
     let diagnostic = external_tool_diagnostic(tool_kind, program, status, stdout, stderr);
-    render_diagnostics_with_title(
-        &format!("{tool_kind} diagnostics:"),
+    render_diagnostic_list(
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
@@ -597,8 +585,7 @@ fn render_external_tool_io_diagnostic(
         "install the {tool_kind}, make it executable, or select a different tool"
     ))
     .finish();
-    render_diagnostics_with_title(
-        &format!("{tool_kind} diagnostics:"),
+    render_diagnostic_list(
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
@@ -618,8 +605,7 @@ fn render_linker_config_diagnostic(
     .note(error)
     .help(format!("check the {tool_kind} and target options"))
     .finish();
-    render_diagnostics_with_title(
-        &format!("{tool_kind} diagnostics:"),
+    render_diagnostic_list(
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
@@ -640,26 +626,20 @@ fn render_artifact_io_diagnostic(
     .note(format!("path `{}`: {error}", path.display()))
     .help("check the output directory, permissions, and available disk space")
     .finish();
-    render_diagnostics_with_title(
-        "driver diagnostics:",
+    render_diagnostic_list(
         std::slice::from_ref(&diagnostic),
         primary_path,
         primary_source,
     )
 }
 
-/// Renders backend/codegen diagnostics with a stable title.
+/// Renders backend/codegen diagnostics.
 pub fn render_codegen_diagnostics(
     diagnostics: &[Diagnostic],
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    render_diagnostics_with_title(
-        "codegen diagnostics:",
-        diagnostics,
-        primary_path,
-        primary_source,
-    )
+    render_diagnostic_list(diagnostics, primary_path, primary_source)
 }
 
 /// Renders backend/codegen diagnostics as deterministic JSON.
@@ -836,23 +816,20 @@ fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
     }
 }
 
-fn render_diagnostics_with_title(
-    title: &str,
+fn render_diagnostic_list(
     diagnostics: &[Diagnostic],
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
     let report = build_diagnostic_report(diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
-    out.push_str(title);
-    out.push('\n');
     let path = primary_path.unwrap_or("<codegen>");
     let source = primary_source.unwrap_or("");
     for diagnostic in report.entries() {
         out.push_str(&render_diagnostic(path, source, diagnostic));
         out.push('\n');
     }
-    push_report_summary(&mut out, &report);
+    out.push_str(&report.render_footer());
     out
 }
 
@@ -861,12 +838,11 @@ pub fn render_parse_errors(path: &str, source: &str, errors: &[crate::ParseError
     let diagnostics = parse_error_diagnostics(errors);
     let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
     let mut out = String::new();
-    out.push_str("parse errors:\n");
     for diagnostic in report.entries() {
         out.push_str(&render_diagnostic(path, source, diagnostic));
         out.push('\n');
     }
-    push_report_summary(&mut out, &report);
+    out.push_str(&report.render_footer());
     out
 }
 
@@ -899,38 +875,6 @@ impl DiagnosticReportItem for ProgramDiagnosticReportItem<'_> {
     fn report_path(&self) -> Option<&str> {
         Some(self.path)
     }
-}
-
-fn push_report_summary<T: DiagnosticReportItem>(
-    out: &mut String,
-    report: &nia_diagnostic::DiagnosticReport<'_, T>,
-) {
-    let error_label = if report.error_count() == 1 {
-        "error"
-    } else {
-        "errors"
-    };
-    let warning_label = if report.warning_count() == 1 {
-        "warning"
-    } else {
-        "warnings"
-    };
-    out.push_str(&format!(
-        "summary: {} {error_label}, {} {warning_label}\n",
-        report.error_count(),
-        report.warning_count()
-    ));
-
-    let duplicates = report.suppressed_duplicates();
-    let downstream = report.suppressed_downstream();
-    let by_limit = report.suppressed_by_limit();
-    if duplicates == 0 && downstream == 0 && by_limit == 0 {
-        return;
-    }
-    out.push_str(&format!(
-        "note: suppressed {total} diagnostic(s) ({duplicates} duplicate(s), {downstream} downstream consequence(s), {by_limit} over limit)\n",
-        total = duplicates + downstream + by_limit
-    ));
 }
 
 fn enabled_passes_name(passes: &[&'static str]) -> String {
@@ -1020,8 +964,10 @@ mod tests {
             .expect("internal diagnostic");
         let user = rendered.find("error[E0101]").expect("user diagnostic");
         assert!(internal < user, "{rendered}");
-        assert!(rendered.contains("note: suppressed"), "{rendered}");
-        assert!(rendered.contains("1 duplicate(s)"), "{rendered}");
+        assert!(
+            rendered.contains("note: not shown: 1 duplicate, 7 over the limit\n"),
+            "{rendered}"
+        );
         assert!(
             rendered.contains("summary: 20 errors, 0 warnings"),
             "{rendered}"
@@ -1104,17 +1050,14 @@ mod tests {
             Some("main.nia"),
             Some("fn main() () {}"),
         );
-        assert!(
-            rendered.starts_with("archive tool diagnostics:"),
-            "{rendered}"
-        );
+        assert!(rendered.starts_with("error[E0701]:"), "{rendered}");
         assert!(rendered.contains("archive tool `ar` failed"), "{rendered}");
         assert!(rendered.contains("archive tool output:"), "{rendered}");
         assert!(
             rendered.contains("archive tool stdout:\narchive context"),
             "{rendered}"
         );
-        assert!(!rendered.contains("linker diagnostics:"), "{rendered}");
+        assert!(!rendered.contains("linker"), "{rendered}");
     }
 
     #[test]

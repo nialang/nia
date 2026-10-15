@@ -4,8 +4,6 @@ summary: expected `,` after where predicate; found `U`
 label: 34..35 Primary Source expected `,` after where predicate; found `U`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` after where predicate; found `U`
   --> fail/where_predicate_delimiter_recovery/main.nia:1:35
   |

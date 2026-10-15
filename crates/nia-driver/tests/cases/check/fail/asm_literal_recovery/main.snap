@@ -17,8 +17,6 @@ label: 126..140 Primary Source no value named `missing_option` is visible in thi
 help: check the spelling, import `missing_option`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing_code`
   --> fail/asm_literal_recovery/main.nia:3:15
   |
@@ -26,7 +24,6 @@ error[E0201]: unknown value `missing_code`
   |               ^^^^^^^^^^^^ no value named `missing_code` is visible in this scope
 help: check the spelling, import `missing_code`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_clobber`
   --> fail/asm_literal_recovery/main.nia:4:20
   |
@@ -34,7 +31,6 @@ error[E0201]: unknown value `missing_clobber`
   |                    ^^^^^^^^^^^^^^^ no value named `missing_clobber` is visible in this scope
 help: check the spelling, import `missing_clobber`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_option`
   --> fail/asm_literal_recovery/main.nia:5:19
   |

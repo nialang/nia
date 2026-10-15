@@ -9,15 +9,12 @@ summary: expected `,` or `)` after tuple field; found `bool`
 label: 46..50 Primary Source expected `,` or `)` after tuple field; found `bool`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `)` after tuple field; found `bool`
   --> fail/tuple_payload_delimiter_recovery/main.nia:1:17
   |
 1 | struct Pair(i32 bool)
   |                 ^^^^
 
-root diagnostic:
 error[E0101]: expected `,` or `)` after tuple field; found `bool`
   --> fail/tuple_payload_delimiter_recovery/main.nia:2:25
   |

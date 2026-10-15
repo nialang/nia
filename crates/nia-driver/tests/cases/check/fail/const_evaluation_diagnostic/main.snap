@@ -4,8 +4,6 @@ summary: const expression can only call `const fn`
 label: 79..94 Primary Source const expression can only call `const fn`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0401]: const expression can only call `const fn`
   --> fail/const_evaluation_diagnostic/main.nia:5:25
   |

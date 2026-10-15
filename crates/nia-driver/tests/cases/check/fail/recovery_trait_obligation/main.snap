@@ -24,8 +24,6 @@ label: 172..179 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
    --> fail/recovery_trait_obligation/main.nia:10:13
    |
@@ -33,7 +31,6 @@ error[E0201]: unknown value `missing`
    |             ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
    --> fail/recovery_trait_obligation/main.nia:11:14
    |
@@ -41,7 +38,6 @@ error[E0201]: unknown value `missing`
    |              ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0301]: trait bound not satisfied: i32: Marker
    --> fail/recovery_trait_obligation/main.nia:12:5
    |
@@ -50,7 +46,6 @@ error[E0301]: trait bound not satisfied: i32: Marker
 note: the compiler could not find a visible implementation of `Marker` for `i32`
 help: provide an implementation of `Marker` for `i32`, import the module that defines it, or use a type with a matching implementation
 
-root diagnostic:
 error[E0201]: unknown value `missing`
    --> fail/recovery_trait_obligation/main.nia:13:13
    |

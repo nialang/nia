@@ -1333,7 +1333,7 @@ fn driver_facade_formats_inspection_outputs() {
     let invalid = crate::ast_inspection("fn main(");
     assert!(!invalid.parse_errors.is_empty());
     let rendered = crate::render_parse_errors("main.nia", "fn main(", &invalid.parse_errors);
-    assert!(rendered.contains("parse errors:"), "{rendered}");
+    assert!(rendered.starts_with("error[E0101]:"), "{rendered}");
     assert!(rendered.contains("main.nia"), "{rendered}");
 }
 

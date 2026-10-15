@@ -25,8 +25,6 @@ note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovered_method_receivers/main.nia:4:11
   |
@@ -34,7 +32,6 @@ error[E0201]: unknown value `missing`
   |           ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
   --> fail/recovered_method_receivers/main.nia:4:32
   |
@@ -43,7 +40,6 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovered_method_receivers/main.nia:8:10
   |
@@ -51,7 +47,6 @@ error[E0201]: unknown value `missing`
   |          ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
   --> fail/recovered_method_receivers/main.nia:8:39
   |

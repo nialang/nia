@@ -17,8 +17,6 @@ label: 105..106 Primary Source expected type
 help: provide a type name or type expression here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected generic parameter
   --> fail/generic_parameter_parser_recovery/main.nia:1:13
   |
@@ -26,7 +24,6 @@ error[E0101]: expected generic parameter
   |             ^
 help: use an identifier in this position
 
-root diagnostic:
 error[E0101]: expected type
   --> fail/generic_parameter_parser_recovery/main.nia:3:28
   |
@@ -34,7 +31,6 @@ error[E0101]: expected type
   |                            ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected type
   --> fail/generic_parameter_parser_recovery/main.nia:5:28
   |

@@ -4,8 +4,6 @@ summary: expected associated type binding value
 label: 34..35 Primary Source expected associated type binding value
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected associated type binding value
   --> fail/associated_type_argument_parser_recovery/main.nia:1:35
   |

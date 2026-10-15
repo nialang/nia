@@ -5,8 +5,6 @@ label: 22..29 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/structural_try_recovery/main.nia:2:7
   |

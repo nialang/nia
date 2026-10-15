@@ -7,7 +7,7 @@
 //! and keeps the generated runner from becoming the apparent source of a
 //! failure in `build.nia`.
 
-use std::{fmt::Write as _, path::Path};
+use std::path::Path;
 
 use nia_diagnostic::{
     Diagnostic, DiagnosticReportConfig, build_diagnostic_report, codes, render_diagnostic,
@@ -43,12 +43,7 @@ pub fn render_build_error(
     }
 
     let diagnostics = build_error_diagnostics(error);
-    render_diagnostic_list(
-        "build diagnostics:",
-        &diagnostics,
-        primary_path,
-        primary_source,
-    )
+    render_diagnostic_list(&diagnostics, primary_path, primary_source)
 }
 
 /// Renders a build failure as deterministic machine-readable JSON.
@@ -66,7 +61,6 @@ pub fn render_build_error_json(error: &BuildError) -> String {
 }
 
 fn render_diagnostic_list(
-    title: &str,
     diagnostics: &[Diagnostic],
     primary_path: Option<&str>,
     primary_source: Option<&str>,
@@ -75,37 +69,11 @@ fn render_diagnostic_list(
     let path = primary_path.unwrap_or("<build>");
     let source = primary_source.unwrap_or("");
     let mut output = String::new();
-    output.push_str(title);
-    output.push('\n');
     for diagnostic in report.entries() {
         output.push_str(&render_diagnostic(path, source, diagnostic));
         output.push('\n');
     }
-    let error_label = if report.error_count() == 1 {
-        "error"
-    } else {
-        "errors"
-    };
-    let warning_label = if report.warning_count() == 1 {
-        "warning"
-    } else {
-        "warnings"
-    };
-    let _ = writeln!(
-        output,
-        "summary: {} {error_label}, {} {warning_label}",
-        report.error_count(),
-        report.warning_count()
-    );
-    if report.suppressed_duplicates() > 0 || report.suppressed_by_limit() > 0 {
-        let _ = writeln!(
-            output,
-            "note: suppressed {} diagnostic(s) ({} duplicate(s), {} over limit)",
-            report.suppressed_duplicates() + report.suppressed_by_limit(),
-            report.suppressed_duplicates(),
-            report.suppressed_by_limit()
-        );
-    }
+    output.push_str(&report.render_footer());
     output
 }
 
@@ -826,7 +794,7 @@ pub(crate) mod tests {
                 .iter()
                 .any(|note| note == "command timed out after 7m")
         );
-        let rendered = render_diagnostic_list("build diagnostics:", &[diagnostic], None, None);
+        let rendered = render_diagnostic_list(&[diagnostic], None, None);
         assert!(rendered.contains("command timed out after 7m"));
 
         let coordinator = CoordinatorError::ExternalCommand(Box::new(details));
@@ -918,12 +886,7 @@ pub(crate) mod tests {
                 assert!(diagnostic.notes.contains(&note), "{:?}", diagnostic.notes);
             }
         }
-        let text = render_diagnostic_list(
-            "build diagnostics:",
-            std::slice::from_ref(&diagnostic),
-            None,
-            None,
-        );
+        let text = render_diagnostic_list(std::slice::from_ref(&diagnostic), None, None);
         let json = nia_diagnostic::render_diagnostic_json("<unknown>", &diagnostic);
         for marker in [
             "first-stdout",

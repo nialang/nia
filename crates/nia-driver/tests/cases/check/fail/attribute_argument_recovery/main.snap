@@ -5,8 +5,6 @@ label: 9..10 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected expression
   --> fail/attribute_argument_recovery/main.nia:1:10
   |

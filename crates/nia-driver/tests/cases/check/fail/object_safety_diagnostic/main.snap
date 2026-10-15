@@ -4,8 +4,6 @@ summary: trait `Bad` is not object safe because method `id` has method generics
 label: 57..67 Primary Source trait `Bad` is not object safe because method `id` has method generics
 
 report:
-diagnostics:
-root diagnostic:
 error[E0303]: trait `Bad` is not object safe because method `id` has method generics
   --> fail/object_safety_diagnostic/main.nia:5:9
   |

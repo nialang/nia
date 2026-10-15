@@ -71,8 +71,6 @@ label: 968..979 Primary Source no value named `range_start` is visible in this s
 help: check the spelling, import `range_start`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `optional_missing`
   --> fail/pattern_recovery/main.nia:5:8
   |
@@ -80,7 +78,6 @@ error[E0201]: unknown value `optional_missing`
   |        ^^^^^^^^^^^^^^^^ no value named `optional_missing` is visible in this scope
 help: check the spelling, import `optional_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `error_missing`
    --> fail/pattern_recovery/main.nia:11:11
    |
@@ -88,7 +85,6 @@ error[E0201]: unknown value `error_missing`
    |           ^^^^^^^^^^^^^ no value named `error_missing` is visible in this scope
 help: check the spelling, import `error_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `tuple_missing`
    --> fail/pattern_recovery/main.nia:18:11
    |
@@ -96,7 +92,6 @@ error[E0201]: unknown value `tuple_missing`
    |           ^^^^^^^^^^^^^ no value named `tuple_missing` is visible in this scope
 help: check the spelling, import `tuple_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `pointer_missing`
    --> fail/pattern_recovery/main.nia:24:11
    |
@@ -104,7 +99,6 @@ error[E0201]: unknown value `pointer_missing`
    |           ^^^^^^^^^^^^^^^ no value named `pointer_missing` is visible in this scope
 help: check the spelling, import `pointer_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `null_missing`
    --> fail/pattern_recovery/main.nia:30:11
    |
@@ -112,7 +106,6 @@ error[E0201]: unknown value `null_missing`
    |           ^^^^^^^^^^^^ no value named `null_missing` is visible in this scope
 help: check the spelling, import `null_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `struct_missing`
    --> fail/pattern_recovery/main.nia:36:11
    |
@@ -120,7 +113,6 @@ error[E0201]: unknown value `struct_missing`
    |           ^^^^^^^^^^^^^^ no value named `struct_missing` is visible in this scope
 help: check the spelling, import `struct_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `enum_missing`
    --> fail/pattern_recovery/main.nia:42:11
    |
@@ -128,7 +120,6 @@ error[E0201]: unknown value `enum_missing`
    |           ^^^^^^^^^^^^ no value named `enum_missing` is visible in this scope
 help: check the spelling, import `enum_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `unknown_enum_missing`
    --> fail/pattern_recovery/main.nia:48:11
    |
@@ -136,7 +127,6 @@ error[E0201]: unknown value `unknown_enum_missing`
    |           ^^^^^^^^^^^^^^^^^^^^ no value named `unknown_enum_missing` is visible in this scope
 help: check the spelling, import `unknown_enum_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown namespace `Ghost`
    --> fail/pattern_recovery/main.nia:49:9
    |
@@ -144,7 +134,6 @@ error[E0201]: unknown namespace `Ghost`
    |         ^^^^^
 help: check the path spelling and make sure the module or type is in scope
 
-root diagnostic:
 error[E0201]: unknown value `unknown_struct_missing`
    --> fail/pattern_recovery/main.nia:54:11
    |
@@ -152,7 +141,6 @@ error[E0201]: unknown value `unknown_struct_missing`
    |           ^^^^^^^^^^^^^^^^^^^^^^ no value named `unknown_struct_missing` is visible in this scope
 help: check the spelling, import `unknown_struct_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `range_missing`
    --> fail/pattern_recovery/main.nia:60:11
    |
@@ -160,7 +148,6 @@ error[E0201]: unknown value `range_missing`
    |           ^^^^^^^^^^^^^ no value named `range_missing` is visible in this scope
 help: check the spelling, import `range_missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `range_start`
    --> fail/pattern_recovery/main.nia:61:9
    |
@@ -169,4 +156,4 @@ error[E0201]: unknown value `range_start`
 help: check the spelling, import `range_start`, or declare it before this use
 
 summary: 12 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
+note: not shown: 1 caused by the errors above

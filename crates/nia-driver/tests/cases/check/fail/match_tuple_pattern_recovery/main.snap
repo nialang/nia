@@ -5,8 +5,6 @@ label: 67..68 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected expression
   --> fail/match_tuple_pattern_recovery/main.nia:3:16
   |

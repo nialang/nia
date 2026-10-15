@@ -6,8 +6,6 @@ note: the array layout exceeds the target's representable layout arithmetic
 help: reduce the type size, alignment, or element count
 
 report:
-diagnostics:
-root diagnostic:
 error[E0501]: array layout size overflowed
   --> fail/layout_overflow_diagnostic/main.nia:2:5
   |

@@ -10,8 +10,6 @@ label: 102..106 Primary Source `self` requires a method receiver
 help: use `self` inside a method with a receiver, or pass a value as an explicit parameter
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: no method receiver is available for `self`
   --> fail/local_resolution_diagnostic/main.nia:7:35
   |
@@ -19,7 +17,6 @@ error[E0201]: no method receiver is available for `self`
   |                                   ^^^^ `self` requires a method receiver
 help: use `self` inside a method with a receiver, or pass a value as an explicit parameter
 
-root diagnostic:
 error[E0302]: `self` cannot cross a closure boundary; bind it to a local and capture that local
   --> fail/local_resolution_diagnostic/main.nia:7:35
   |

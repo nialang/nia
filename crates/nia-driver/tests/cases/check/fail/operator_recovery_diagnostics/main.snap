@@ -16,8 +16,6 @@ summary: shift count must be an integer type, got bool
 label: 74..78 Primary Source shift count must be an integer type, got bool
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/operator_recovery_diagnostics/main.nia:2:9
   |
@@ -25,7 +23,6 @@ error[E0201]: unknown value `missing`
   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/operator_recovery_diagnostics/main.nia:3:14
   |
@@ -33,7 +30,6 @@ error[E0201]: unknown value `missing`
   |              ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0301]: shift count must be an integer type, got bool
   --> fail/operator_recovery_diagnostics/main.nia:4:14
   |

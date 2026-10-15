@@ -393,19 +393,18 @@ fn failed_using_use_is_grouped_under_its_root_diagnostic() {
         .output_timeout_for_compiler("group a failed import use in text diagnostics");
     assert_eq!(text.status.code(), Some(1));
     let text = String::from_utf8_lossy(&text.stderr);
-    let root_heading = text.find("root diagnostic:").expect("root heading");
     let root_message = text
         .find("unknown namespace `api`")
         .unwrap_or_else(|| panic!("missing import root message:\n{text}"));
-    let related_heading = text
-        .find("related to root diagnostic 1:")
-        .expect("related heading");
     let use_message = text
         .find("name `missing_value` is unavailable")
         .unwrap_or_else(|| panic!("missing import use error:\n{text}"));
-    assert!(root_heading < root_message, "{text}");
+    let cause_note = text
+        .find("note: caused by error[E0201] at ")
+        .unwrap_or_else(|| panic!("missing cause note:\n{text}"));
+    assert!(!text.contains("root diagnostic"), "{text}");
     assert!(
-        root_message < related_heading && related_heading < use_message,
+        root_message < use_message && use_message < cause_note,
         "{text}"
     );
 

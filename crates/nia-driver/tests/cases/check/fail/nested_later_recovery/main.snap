@@ -23,8 +23,6 @@ label: 254..255 Primary Source expected type
 help: provide a type name or type expression here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected expression
   --> fail/nested_later_recovery/main.nia:3:16
   |
@@ -32,7 +30,6 @@ error[E0101]: expected expression
   |                ^
 help: provide an expression here, such as a literal, name, or call
 
-root diagnostic:
 error[E0101]: expected binding pattern
   --> fail/nested_later_recovery/main.nia:6:17
   |
@@ -40,7 +37,6 @@ error[E0101]: expected binding pattern
   |                 ^
 help: use a name, `_`, or a supported destructuring pattern
 
-root diagnostic:
 error[E0101]: expected expression
   --> fail/nested_later_recovery/main.nia:7:19
   |
@@ -48,7 +44,6 @@ error[E0101]: expected expression
   |                   ^
 help: provide an expression here, such as a literal, name, or call
 
-root diagnostic:
 error[E0101]: expected type
    --> fail/nested_later_recovery/main.nia:11:24
    |

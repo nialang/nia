@@ -257,6 +257,6 @@ fn consume(value: Alias) Alias {
             diagnostics
         );
         let rendered = crate::render_program_diagnostics(&edited, None, None);
-        assert_eq!(rendered.matches("related to root diagnostic").count(), 4);
+        assert_eq!(rendered.matches("note: caused by error[").count(), 4);
     }
 }

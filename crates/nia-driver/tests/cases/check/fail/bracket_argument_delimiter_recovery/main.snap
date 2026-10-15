@@ -4,8 +4,6 @@ summary: expected `,` or `]` after bracket argument; found `false`
 label: 43..48 Primary Source expected `,` or `]` after bracket argument; found `false`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `]` after bracket argument; found `false`
   --> fail/bracket_argument_delimiter_recovery/main.nia:2:29
   |

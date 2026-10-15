@@ -5,8 +5,6 @@ label: 20..21 Primary Source expected type
 help: provide a type name or type expression here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected type
   --> fail/tuple_type_nested_recovery/main.nia:1:21
   |

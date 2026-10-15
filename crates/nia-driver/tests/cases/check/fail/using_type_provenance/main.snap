@@ -24,8 +24,6 @@ related: 0..21 the `using` directive is here
 cause: fail/using_type_provenance/main.nia E0201 13..20
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: `using entry::...` could not be resolved: name `missing` is unavailable because its `using` directive did not find it
   --> fail/using_type_provenance/main.nia:1:14
   |
@@ -34,7 +32,6 @@ error[E0201]: `using entry::...` could not be resolved: name `missing` is unavai
 help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
 
-related to root diagnostic 1:
 error[E0201]: type `missing` is unavailable
   --> fail/using_type_provenance/main.nia:3:16
   |
@@ -43,8 +40,8 @@ error[E0201]: type `missing` is unavailable
 help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:14: the imported type is selected here
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
+note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:14
 
-related to root diagnostic 1:
 error[E0201]: type `missing` is unavailable
   --> fail/using_type_provenance/main.nia:3:25
   |
@@ -53,5 +50,6 @@ error[E0201]: type `missing` is unavailable
 help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:14: the imported type is selected here
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
+note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:14
 
 summary: 3 errors, 0 warnings

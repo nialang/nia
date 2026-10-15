@@ -18,8 +18,6 @@ note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown type `Missing`
   --> fail/nested_required_type_recovery/main.nia:4:29
   |
@@ -27,7 +25,6 @@ error[E0201]: unknown type `Missing`
   |                             ^^^^^^^
 help: check the type name, module path, and whether the type is public
 
-root diagnostic:
 error[E0201]: unknown type `Other`
   --> fail/nested_required_type_recovery/main.nia:5:30
   |
@@ -35,7 +32,6 @@ error[E0201]: unknown type `Other`
   |                              ^^^^^
 help: check the type name, module path, and whether the type is public
 
-root diagnostic:
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
   --> fail/nested_required_type_recovery/main.nia:6:14
   |

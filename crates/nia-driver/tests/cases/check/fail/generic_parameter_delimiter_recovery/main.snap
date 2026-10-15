@@ -9,15 +9,12 @@ summary: expected `,` or `]` after generic parameter; found `M`
 label: 24..25 Primary Source expected `,` or `]` after generic parameter; found `M`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `]` after generic parameter; found `U`
   --> fail/generic_parameter_delimiter_recovery/main.nia:1:15
   |
 1 | fn retained[T U, N: i32 M: bool]() () {}
   |               ^
 
-root diagnostic:
 error[E0101]: expected `,` or `]` after generic parameter; found `M`
   --> fail/generic_parameter_delimiter_recovery/main.nia:1:25
   |
