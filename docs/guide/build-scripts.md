@@ -504,12 +504,19 @@ The build finishes with a summary such as
 and cancelled counts added when there are any. A `--dry-run` or
 `nia test --list` ends with `Configured build in ... (N selected actions)`.
 
+A run step, or any external command that declares no outputs, gets the
+terminal instead: the summary of what finished so far comes before it,
+followed by `Running root:run`, and nothing is printed after the program
+unless the build fails. `nia build run` therefore ends with the program's own
+output, as `cargo run` does. From `-v`, progress keeps reporting every action
+and closes with the full summary.
+
 Repeat `-v` for more detail. Each level includes the one before it:
 
 | Level | Text output |
 | --- | --- |
 | `-q`, `--quiet` | no progress; diagnostics and requested products remain |
-| default | the build phases and the summary |
+| default | the summary, or the summary and `Running` line before a run step |
 | `-v` | whether the build runner and plan were reused, then one line per action in plan order, such as `[1/3] Cached root:app (compiler-emit, 699ms)`; a no-work action is shown as `Complete` |
 | `-vv` | waves of ready actions, each action's start with its queue and resource-permit wait, waits for dependencies, locks, and resource permits, and resource-permit usage |
 | `-vvv` | the cache decision on each completion line, such as `; cache miss: not found`, and the compiler's checking, code generation, and linking activities |

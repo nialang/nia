@@ -59,6 +59,10 @@ struct PlainProgressState {
     resource_used: usize,
     recent_completion: Option<String>,
     build_complete: bool,
+    /// Set once an action that owns the terminal, such as a run step,
+    /// started at the default level. Progress then stays silent unless the
+    /// build fails.
+    handed_over: bool,
 }
 
 #[derive(Clone)]
@@ -148,11 +152,12 @@ impl PlainProgress {
         }
     }
 
-    fn finish_output(&self, summary: String) {
+    /// Writes final lines and stops the interactive status for good.
+    fn finish_output(&self, lines: &[String]) {
         if let Some(screen) = &self.screen {
-            screen.finish(&summary);
+            screen.finish(lines);
         } else {
-            self.write_plain([summary]);
+            self.write_plain(lines.iter().cloned());
         }
     }
 }
@@ -214,7 +219,7 @@ impl InteractiveScreen {
         self.wake.notify_all();
     }
 
-    fn finish(&self, summary: &str) {
+    fn finish(&self, lines: &[String]) {
         let Ok(mut terminal) = self.terminal.lock() else {
             return;
         };
@@ -225,9 +230,13 @@ impl InteractiveScreen {
         let mut stderr = io::stderr().lock();
         if terminal.broken_line {
             let _ = stderr.write_all(b"\r\n");
+            terminal.broken_line = false;
         }
-        if writeln!(stderr, "{summary}").is_err() {
-            terminal.enabled = false;
+        for line in lines {
+            if writeln!(stderr, "{line}").is_err() {
+                terminal.enabled = false;
+                break;
+            }
         }
         let _ = stderr.flush();
         self.wake.notify_all();
@@ -360,6 +369,7 @@ impl nia_build::ProgressObserver for PlainProgress {
         let build_failed = matches!(&event.kind, ProgressEventKind::BuildFailed);
         let mut lines = Vec::new();
         let mut summary = None;
+        let mut handover = None;
         let occurred_at = state
             .started
             .and_then(|start| start.checked_add(event.elapsed))
@@ -472,27 +482,15 @@ impl nia_build::ProgressObserver for PlainProgress {
                 state.build_complete = true;
                 let elapsed = event.elapsed;
                 summary = Some(format!(
-                    "{} {} actions in {} ({} cached, {} executed, {} no-work{}{})",
+                    "{} {} in {} ({})",
                     if build_failed {
                         "Failed after"
                     } else {
                         "Finished"
                     },
-                    state.total,
+                    count_actions(state.total),
                     format_duration(elapsed),
-                    state.cached,
-                    state.executed,
-                    state.no_work,
-                    if state.failed == 0 {
-                        String::new()
-                    } else {
-                        format!(", {} failed", state.failed)
-                    },
-                    if state.cancelled == 0 {
-                        String::new()
-                    } else {
-                        format!(", {} cancelled", state.cancelled)
-                    }
+                    outcome_counts(&state)
                 ));
                 if !state.selection_ready {
                     summary = Some(format!(
@@ -506,6 +504,8 @@ impl nia_build::ProgressObserver for PlainProgress {
                         format_duration(elapsed),
                         state.total
                     ));
+                } else if state.handed_over && !build_failed {
+                    summary = None;
                 }
             }
             ProgressEventKind::PhaseStarted { phase } => {
@@ -513,18 +513,6 @@ impl nia_build::ProgressObserver for PlainProgress {
                     state.execution_started = true;
                 }
                 state.current_phase = Some((phase, occurred_at));
-                if self.verbose == 0
-                    && self.screen.is_none()
-                    && matches!(
-                        phase,
-                        nia_build::ProgressPhase::Resolve
-                            | nia_build::ProgressPhase::Runner
-                            | nia_build::ProgressPhase::Configure
-                            | nia_build::ProgressPhase::Execute
-                    )
-                {
-                    lines.push(phase_name(phase).to_string());
-                }
             }
             ProgressEventKind::PhaseFinished { phase, .. } => {
                 if state
@@ -588,6 +576,25 @@ impl nia_build::ProgressObserver for PlainProgress {
                         resource_wait,
                     },
                 );
+                if self.verbose == 0
+                    && !state.handed_over
+                    && state.descriptions.get(&action).is_some_and(owns_terminal)
+                {
+                    // Like `cargo run`, report the build before the program
+                    // takes over the terminal and say nothing after it.
+                    state.handed_over = true;
+                    let mut lines = Vec::new();
+                    if state.finished > 0 {
+                        lines.push(format!(
+                            "Finished {} in {} ({})",
+                            count_actions(state.finished),
+                            format_duration(event.elapsed),
+                            outcome_counts(&state)
+                        ));
+                    }
+                    lines.push(format!("Running {}", action_progress_label(&action)));
+                    handover = Some(lines);
+                }
                 if self.verbose >= 2 && self.screen.is_none() {
                     lines.push(format!(
                         "Running {} ({}, wave {}, queue {}, permit {})",
@@ -666,10 +673,37 @@ impl nia_build::ProgressObserver for PlainProgress {
             screen.notify();
         }
         self.output_records(lines);
+        if let Some(handover) = handover {
+            self.finish_output(&handover);
+        }
         if let Some(summary) = summary {
-            self.finish_output(summary);
+            self.finish_output(&[summary]);
         }
     }
+}
+
+/// An external command that declares no outputs exists for what it prints,
+/// as a run step does, so it is handed the terminal.
+fn owns_terminal(description: &nia_build::ProgressActionDescription) -> bool {
+    description.kind == "external-command" && description.total_outputs == 0
+}
+
+fn count_actions(count: usize) -> String {
+    format!("{count} action{}", if count == 1 { "" } else { "s" })
+}
+
+fn outcome_counts(state: &PlainProgressState) -> String {
+    let mut counts = format!(
+        "{} cached, {} executed, {} no-work",
+        state.cached, state.executed, state.no_work
+    );
+    if state.failed > 0 {
+        counts.push_str(&format!(", {} failed", state.failed));
+    }
+    if state.cancelled > 0 {
+        counts.push_str(&format!(", {} cancelled", state.cancelled));
+    }
+    counts
 }
 
 fn interactive_refresh_loop(screen: Arc<InteractiveScreen>) {
