@@ -284,6 +284,61 @@ pub fn build(b: &mut build::Build) build::Error!() {
     }
 }
 
+#[cfg(windows)]
+#[test]
+fn external_command_search_tries_pathext_with_and_without_a_cache_policy() {
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
+    let root = temp_dir("external_command_pathext");
+    std::fs::write(root.join("nia.package"), "name=pathext\nversion=0.1.0\n")
+        .expect("package manifest");
+    std::fs::write(root.join("input.txt"), "pathext\n").expect("command input");
+    // `cmd` has no extension, so both steps only resolve through `PATHEXT`.
+    // The cached step also pins the program into its cache identity, and the
+    // uncached one must run the same file the cached lookup chose.
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+pub fn build(b: &mut build::Build) build::Error!() {
+    let plainArgs = [
+        build::CommandArgument::literal(&"/d"),
+        build::CommandArgument::literal(&"/c"),
+        build::CommandArgument::literal(&"exit /b 0"),
+    ];
+    let plain = b.addExternalCommandStep(&"plain", build::ExternalCommandOptions::search(&"cmd").withArguments(&plainArgs)).?;
+    let cachedArgs = [
+        build::CommandArgument::literal(&"/d"),
+        build::CommandArgument::literal(&"/c"),
+        build::CommandArgument::literal(&"copy"),
+        build::CommandArgument::literal(&"/y"),
+        build::CommandArgument::packageInput(b.rootPackage(), std::fs::PathView::init(&"input.txt")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init(&"pathext.txt")),
+    ];
+    let cached = b.addExternalCommandStep(&"cached", build::ExternalCommandOptions::search(&"cmd").withArguments(&cachedArgs).withToolAndInputCache()).?;
+    let all = b.addAggregateStep(&"all").?;
+    b.dependOn(all, plain).?;
+    b.dependOn(all, cached).?;
+    b.setDefaultStep(all).?;
+    !()
+}
+"#,
+    )
+    .expect("build script");
+    let output = support::nia_command()
+        .arg("build")
+        .arg("--root")
+        .arg(&*root)
+        .output_timeout_in_session("run PATHEXT external commands");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let written = std::fs::read_to_string(root.join(".nia-build/pathext.txt"))
+        .expect("cached command output");
+    assert_eq!(written.trim(), "pathext");
+}
+
 #[cfg(unix)]
 #[test]
 fn linker_process_failure_preserves_both_captured_streams() {

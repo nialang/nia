@@ -382,12 +382,14 @@ impl DriverActionExecutor {
             cache_policy,
             CommandCachePolicy::Uncacheable | CommandCachePolicy::SuccessfulTests
         );
+        // Every searched program resolves through the same lookup, so a
+        // command's declared `PATH`/`PATHEXT` select the file it runs whether
+        // or not the step is cached.
         let resolved_program = match program {
             CommandProgram::Path(path) => self.resolve_path(action, path)?,
-            CommandProgram::Search(name) if cacheable => {
+            CommandProgram::Search(name) => {
                 resolve_search_program(action, name, &working_directory, environment)?
             }
-            CommandProgram::Search(name) => PathBuf::from(name),
         };
         let program_text = path_text(action, &resolved_program)?;
 

@@ -52,53 +52,36 @@ pub(super) fn resolve_search_program(
     working_directory: &Path,
     environment: &[EnvironmentInput],
 ) -> Result<PathBuf, CoordinatorError> {
-    let name_path = Path::new(name);
-    if name_path.is_absolute() || name_path.components().count() > 1 {
-        let candidate = if name_path.is_absolute() {
-            name_path.to_path_buf()
-        } else {
-            working_directory.join(name_path)
-        };
-        return executable_candidate(&candidate).ok_or_else(|| {
-            CoordinatorError::ExternalCommandIo {
-                action: action.key.clone(),
-                path: candidate,
-                operation: "resolve",
-                error: io::Error::new(io::ErrorKind::NotFound, "command program is not executable"),
-            }
-        });
-    }
-    // Declared PATH wins even when it is explicitly removed. Falling back to
-    // the host is allowed only when the action did not declare PATH at all.
-    let search_path = match environment
+    use crate::program_search::{ProgramLocation, ProgramSearch, find_program, program_location};
+
+    // A declared variable wins even when it is explicitly removed. Falling
+    // back to the host is allowed only when the action did not declare it.
+    let declared = |variable: &str| match environment
         .iter()
-        .find(|input| environment_name_matches(input.name.as_str(), "PATH"))
+        .find(|input| environment_name_matches(input.name.as_str(), variable))
     {
         Some(input) => input.value.as_deref().map(std::ffi::OsString::from),
-        None => std::env::var_os("PATH"),
+        None => std::env::var_os(variable),
     };
-    if let Some(search_path) = search_path {
-        for directory in std::env::split_paths(&search_path) {
-            let directory = if directory.as_os_str().is_empty() {
-                working_directory.to_path_buf()
-            } else if directory.is_absolute() {
-                directory
-            } else {
-                working_directory.join(directory)
-            };
-            if let Some(candidate) = executable_candidate(&directory.join(name)) {
-                return Ok(candidate);
-            }
-        }
+    let search_path = declared("PATH");
+    let pathext = declared("PATHEXT");
+    let search = ProgramSearch {
+        base: working_directory,
+        path: search_path.as_deref(),
+        pathext: pathext.as_deref(),
+    };
+    if let Some(candidate) = find_program(name, &search, executable_candidate) {
+        return Ok(candidate);
     }
+    let (path, message) = match program_location(name, working_directory) {
+        ProgramLocation::Explicit(path) => (path, "command program is not executable"),
+        ProgramLocation::Searched => (PathBuf::from(name), "command program was not found in PATH"),
+    };
     Err(CoordinatorError::ExternalCommandIo {
         action: action.key.clone(),
-        path: PathBuf::from(name),
+        path,
         operation: "resolve",
-        error: io::Error::new(
-            io::ErrorKind::NotFound,
-            "command program was not found in PATH",
-        ),
+        error: io::Error::new(io::ErrorKind::NotFound, message),
     })
 }
 
@@ -116,18 +99,7 @@ fn environment_name_matches(left: &str, right: &str) -> bool {
 
 fn executable_candidate(path: &Path) -> Option<PathBuf> {
     let metadata = fs::metadata(path).ok()?;
-    if !metadata.is_file() {
-        return None;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        (metadata.permissions().mode() & 0o111 != 0).then(|| path.to_path_buf())
-    }
-    #[cfg(not(unix))]
-    {
-        Some(path.to_path_buf())
-    }
+    crate::program_search::is_executable_file(&metadata).then(|| path.to_path_buf())
 }
 
 pub(super) fn read_external_identity_file(

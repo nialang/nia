@@ -677,63 +677,61 @@ fn run_probe_process(
 
 fn resolve_probe_executable(program: &str, root: &Path) -> io::Result<PathBuf> {
     let search_path = std::env::var_os("PATH").unwrap_or_default();
-    resolve_probe_executable_in_path(program, root, &search_path)
+    let pathext = std::env::var_os("PATHEXT");
+    resolve_probe_executable_in_path(program, root, &search_path, pathext.as_deref())
 }
 
 fn resolve_probe_executable_in_path(
     program: &str,
     root: &Path,
     search_path: &OsStr,
+    pathext: Option<&OsStr>,
 ) -> io::Result<PathBuf> {
-    let program_path = Path::new(program);
-    if program_path.is_absolute() || program_path.components().count() > 1 {
-        if !program_path.is_absolute()
-            && program_path
-                .components()
-                .any(|component| matches!(component, std::path::Component::ParentDir))
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "configuration probe program escapes the package root",
-            ));
-        }
-        let candidate = if program_path.is_absolute() {
-            program_path.to_path_buf()
-        } else {
-            root.join(program_path)
-        };
-        let resolved = executable_probe_candidate(&candidate)?;
-        if !program_path.is_absolute() && !resolved.starts_with(root.canonicalize()?) {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "configuration probe program escapes the package root",
-            ));
-        }
-        return Ok(resolved);
-    }
+    use crate::program_search::{ProgramLocation, ProgramSearch, find_program, program_location};
 
-    for directory in std::env::split_paths(search_path) {
-        let directory = if directory.as_os_str().is_empty() {
-            root.to_path_buf()
-        } else if directory.is_absolute() {
-            directory
-        } else {
-            root.join(directory)
-        };
-        #[cfg(windows)]
-        let candidates = probe_windows_candidates(&directory, program_path);
-        #[cfg(not(windows))]
-        let candidates = vec![directory.join(program_path)];
-        for candidate in candidates {
-            if let Ok(path) = executable_probe_candidate(&candidate) {
-                return Ok(path);
-            }
-        }
+    let program_path = Path::new(program);
+    let explicit = matches!(
+        program_location(program, root),
+        ProgramLocation::Explicit(_)
+    );
+    if explicit
+        && !program_path.is_absolute()
+        && program_path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(probe_escape_error());
     }
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        format!("configuration probe program `{program}` was not found in PATH"),
-    ))
+    let search = ProgramSearch {
+        base: root,
+        path: Some(search_path),
+        pathext,
+    };
+    let Some(resolved) = find_program(program, &search, |candidate| {
+        executable_probe_candidate(candidate).ok()
+    }) else {
+        return Err(match program_location(program, root) {
+            ProgramLocation::Explicit(path) => match executable_probe_candidate(&path) {
+                Err(error) => error,
+                Ok(_) => io::Error::other("configuration probe program changed during lookup"),
+            },
+            ProgramLocation::Searched => io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("configuration probe program `{program}` was not found in PATH"),
+            ),
+        });
+    };
+    if explicit && !program_path.is_absolute() && !resolved.starts_with(root.canonicalize()?) {
+        return Err(probe_escape_error());
+    }
+    Ok(resolved)
+}
+
+fn probe_escape_error() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "configuration probe program escapes the package root",
+    )
 }
 
 fn executable_probe_candidate(path: &Path) -> io::Result<PathBuf> {
@@ -745,38 +743,13 @@ fn executable_probe_candidate(path: &Path) -> io::Result<PathBuf> {
             "configuration probe program is not a file",
         ));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "configuration probe program is not executable",
-            ));
-        }
+    if !crate::program_search::is_executable_file(&metadata) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "configuration probe program is not executable",
+        ));
     }
     Ok(canonical)
-}
-
-#[cfg(windows)]
-fn probe_windows_candidates(directory: &Path, program: &Path) -> Vec<PathBuf> {
-    if program.extension().is_some() {
-        return vec![directory.join(program)];
-    }
-    let extensions = std::env::var_os("PATHEXT").unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
-    let mut candidates = vec![directory.join(program)];
-    candidates.extend(
-        extensions
-            .to_string_lossy()
-            .split(';')
-            .filter(|extension| !extension.is_empty())
-            .map(|extension| {
-                directory
-                    .join(program)
-                    .with_extension(extension.trim_start_matches('.'))
-            }),
-    );
-    candidates
 }
 
 fn probe_executable_identity(path: &Path) -> io::Result<Vec<u8>> {
@@ -1432,7 +1405,7 @@ mod tests {
         }
         let search_path = std::env::join_paths([&bin]).unwrap();
         let resolved =
-            resolve_probe_executable_in_path("nia-probe-test", &root, &search_path).unwrap();
+            resolve_probe_executable_in_path("nia-probe-test", &root, &search_path, None).unwrap();
         assert_eq!(resolved, executable.canonicalize().unwrap());
         let first_identity = probe_executable_identity(&resolved).unwrap();
         let first_fingerprint = probe_fingerprint(
@@ -1483,7 +1456,7 @@ mod tests {
             fs::set_permissions(&outside, permissions).unwrap();
         }
         let program = format!("../{}", outside.file_name().unwrap().to_string_lossy());
-        let error = resolve_probe_executable_in_path(&program, &root, OsStr::new(""))
+        let error = resolve_probe_executable_in_path(&program, &root, OsStr::new(""), None)
             .expect_err("parent traversal must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         fs::remove_file(outside).unwrap();
@@ -1514,7 +1487,7 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&executable, permissions).unwrap();
         symlink(&outside, root.join("linked")).unwrap();
-        let error = resolve_probe_executable_in_path("linked/tool", &root, OsStr::new(""))
+        let error = resolve_probe_executable_in_path("linked/tool", &root, OsStr::new(""), None)
             .expect_err("symlink escape must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         fs::remove_file(root.join("linked")).unwrap();

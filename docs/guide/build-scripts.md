@@ -256,8 +256,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
 ## External Commands
 
-`ExternalCommandOptions::search(program)` runs a program found on the host
-`PATH`. On Windows the name includes its extension, such as `cmd.exe`. The
+`ExternalCommandOptions::search(program)` runs a program found on the `PATH`
+of the command's environment, falling back to the host's when the command
+does not declare one. A name containing a separator is relative to the
+working directory instead. On Windows a name without an extension also tries
+each `PATHEXT` extension, so `search(&"cmd")` finds `cmd.exe`; probes and
+`std::process::Command` follow the same rules. The
 command runs in the package root unless `withPackageWorkingDirectory(path)`
 names a package-relative directory, and its standard input is closed.
 
@@ -294,7 +298,8 @@ A command reruns on every build unless it selects a cache policy:
 
 A cache policy is a promise that the typed arguments describe every file the
 command reads and writes. This step upper-cases a package file into the build
-directory and reruns only when `input.txt` changes:
+directory and reruns only when `input.txt` changes. It needs a POSIX `sh` and
+`tr` on the `PATH`:
 
 ```nia
 using std::build;
