@@ -1,11 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 269 100" role="img" aria-label="Nia">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 197 100" role="img" aria-label="Nia">
 <path d="M20 86 L20 12 L38 30 L62 62 L62 30 L80 12 L80 86 L62 86 L38 54 L38 86 Z" fill="#f0709c" stroke="#f0709c" stroke-width="5" stroke-linejoin="round"/>
 <path d="M23.5 20.45 L32.05 29 L23.5 29 Z M76.5 20.45 L67.95 29 L76.5 29 Z" fill="#ffd0e0" stroke="#ffd0e0" stroke-width="3" stroke-linejoin="round"/>
 <g fill="none" stroke="#ece9ef" stroke-width="16">
-  <path d="M110.5 86 V32 M110.5 58 A18 18 0 0 1 146.5 58 V86"/>
-  <path d="M176.5 86 V34"/>
-  <circle cx="225" cy="60" r="18.5"/>
-  <path d="M243.5 34 V86"/>
+  <path d="M104.5 86 V34"/>
+  <circle cx="153" cy="60" r="18.5"/>
+  <path d="M171.5 34 V86"/>
 </g>
-<rect x="168.5" y="10" width="16" height="16" rx="3" fill="#ece9ef"/>
+<rect x="96.5" y="10" width="16" height="16" rx="3" fill="#ece9ef"/>
 </svg>
