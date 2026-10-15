@@ -138,12 +138,21 @@ pub(crate) fn capture_stream(
         match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(count) => {
-                append_output_tail(&mut tail, &buffer[..count], tail_limit);
-                let forwarded = output
-                    .as_mut()
-                    .map_or(Ok(()), |output| output.write_all(&buffer[..count]));
-                if first_error.is_none() {
-                    first_error = forwarded.err();
+                let forwarded = match output.as_mut() {
+                    Some(output) if first_error.is_none() => {
+                        output.write_all(&buffer[..count]).map(|()| true)
+                    }
+                    _ => Ok(false),
+                };
+                match forwarded {
+                    Ok(true) => {}
+                    // The tail feeds the failure report, so it keeps only
+                    // bytes the user has not already seen.
+                    Ok(false) => append_output_tail(&mut tail, &buffer[..count], tail_limit),
+                    Err(error) => {
+                        append_output_tail(&mut tail, &buffer[..count], tail_limit);
+                        first_error = Some(error);
+                    }
                 }
             }
             Err(error) => {
@@ -372,7 +381,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn capture_uses_invocation_writer_without_changing_tail() {
+    fn forwarded_output_is_not_repeated_in_the_tail() {
         let forwarded = Arc::new(Mutex::new(Vec::new()));
         let writer: Arc<dyn ProcessOutputWriter> =
             Arc::new(RecordingWriter(Arc::clone(&forwarded)));
@@ -383,7 +392,39 @@ pub(crate) mod tests {
             5,
             Some(writer),
         );
-        assert_eq!(result.tail, b"utput".to_vec());
+        assert!(result.tail.is_empty());
+        assert!(result.error.is_none());
         assert_eq!(&*forwarded.lock().unwrap(), b"child output");
+    }
+
+    #[test]
+    fn output_after_a_forwarding_failure_stays_in_the_tail() {
+        struct ClosedWriter;
+        impl ProcessOutputWriter for ClosedWriter {
+            fn open_stream(&self, _stream: ProcessOutputStream) -> Box<dyn Write + Send> {
+                Box::new(ClosedOutput)
+            }
+        }
+        struct ClosedOutput;
+        impl Write for ClosedOutput {
+            fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("closed"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let result = capture_stream(
+            io::Cursor::new(b"child output".to_vec()),
+            CapturedStream::Stdout,
+            true,
+            5,
+            Some(Arc::new(ClosedWriter)),
+        );
+        assert_eq!(result.tail, b"utput".to_vec());
+        assert_eq!(
+            result.error.expect("forwarding error").to_string(),
+            "closed"
+        );
     }
 }

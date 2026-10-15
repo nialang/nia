@@ -487,7 +487,9 @@ products, and command results) are kept in `.nia-cache/`.
 `nia build` and `nia test` report progress on stderr. The products you ask for
 (`--print-plan`, `--print-cache`, `--print-observations`, `--explain`,
 `nia test --list`) go to stdout, as does the standard output of external
-commands and test suites in text modes.
+commands and test suites in text modes. A failed command's report names its
+exit status; it repeats the command's last output only with
+`--diagnostics-format=json`, where that output was captured instead of shown.
 
 Each action the selected steps need is counted once, and ends with one outcome:
 

@@ -554,7 +554,10 @@ fn external_tool_diagnostic(
         nia_diagnostic::codes::LINKER,
         format!("{tool_kind} `{program}` failed"),
     )
-    .note(format!("the {tool_kind} exited with status {status}"))
+    .note(format!(
+        "the {tool_kind} {}",
+        nia_diagnostic::describe_exit_status(status)
+    ))
     .help(format!(
         "inspect the {tool_kind} inputs and the tool output below, then fix the missing or conflicting native dependency"
     ))
