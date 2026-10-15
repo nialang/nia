@@ -1,4 +1,9 @@
-# Nia
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/nia-lockup-dark.svg">
+    <img src="assets/brand/nia-lockup.svg" alt="Nia" width="260">
+  </picture>
+</h1>
 
 Nia is a small systems programming language with an LLVM-backed compiler and a
 compact standard library. The language is statically typed, expression-oriented,
