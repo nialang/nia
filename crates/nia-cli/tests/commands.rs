@@ -810,8 +810,18 @@ fn help_and_version_use_nia_command_name() {
     ] {
         assert!(emit_stdout.contains(target), "{emit_stdout}");
     }
+    // The overview lists the options every target shares and points to each
+    // target's own help for the rest.
     assert!(!emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
     assert!(!emit_stdout.contains("--link-arg <arg>"), "{emit_stdout}");
+    assert!(
+        emit_stdout.contains("-M, --module <name=path>"),
+        "{emit_stdout}"
+    );
+    assert!(
+        emit_stdout.contains("nia help emit --<target>"),
+        "{emit_stdout}"
+    );
 
     let exe_help = support::nia_command()
         .args(["help", "emit", "--exe"])
@@ -903,6 +913,58 @@ fn cli_errors_point_to_the_closest_help_topic() {
     );
     assert!(stderr.contains("run `nia help emit --llvm`"), "{stderr}");
     assert!(!stderr.contains("Targets:"), "{stderr}");
+}
+
+#[test]
+fn usage_errors_exit_with_status_two_before_reading_sources() {
+    let root = temp_dir("usage_errors_exit_with_status_two");
+    let missing = root.join("missing.nia");
+    let missing = missing.to_str().expect("UTF-8 temp path");
+    for (args, expected) in [
+        (
+            vec!["emit", "--exe", missing, "--bogus"],
+            "unknown `nia emit --exe` option `--bogus`",
+        ),
+        (vec!["test", "--root"], "missing value after `--root`"),
+        (
+            vec!["--diagnostics-format", "json", "check", missing, "--bogus"],
+            "\"code\":\"E0105\"",
+        ),
+    ] {
+        let output = support::nia_command()
+            .args(&args)
+            .output_timeout_for_runtime("run malformed nia invocation");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+        assert!(stderr.contains(expected), "{args:?}: {stderr}");
+        // The option error wins over the missing source: nothing was read.
+        assert!(!stderr.contains("failed to read"), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
+fn successful_inspection_writes_nothing_to_stderr() {
+    let root = temp_dir("successful_inspection_writes_nothing_to_stderr");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        "using std::process;\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    !()\n}\n",
+    )
+    .expect("write test source");
+    for format in ["text", "json"] {
+        let output = support::nia_command()
+            .args(["emit", "--llvm"])
+            .arg(&main)
+            .arg(format!("--diagnostics-format={format}"))
+            .output_timeout_for_compiler("run nia emit --llvm");
+        assert!(output.status.success(), "{format}");
+        assert!(
+            output.stderr.is_empty(),
+            "{format}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output.stdout.is_empty(), "{format}");
+    }
 }
 
 #[test]

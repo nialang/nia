@@ -260,6 +260,22 @@ pub fn render_executable_warnings(
     )
 }
 
+/// Renders only the warnings in a diagnostics list as deterministic JSON.
+///
+/// LLVM, object, and executable artifacts retain their warnings in this form;
+/// callers select it when the invocation requests machine-readable output.
+pub fn render_artifact_warnings_json(diagnostics: &[crate::ProgramDiagnostic]) -> String {
+    let items = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .map(|diagnostic| ProgramDiagnosticReportItem {
+            path: diagnostic.path.as_str(),
+            diagnostic: &diagnostic.diagnostic,
+        })
+        .collect::<Vec<_>>();
+    render_diagnostics_json(&items, DiagnosticReportConfig::default())
+}
+
 fn render_program_diagnostic_items(
     diagnostics: &[crate::ProgramDiagnostic],
     diagnostic_sources: &crate::DiagnosticSources,
