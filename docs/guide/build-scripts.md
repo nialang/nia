@@ -214,6 +214,20 @@ pub fn build(b: &mut build::Build) build::Error!() {
 }
 ```
 
+`src/greeting.nia` and `vendor/mathlib/lib.nia` are ordinary modules:
+
+```nia
+// src/greeting.nia
+pub const prefix: [char; 6] = "hello ";
+```
+
+```nia
+// vendor/mathlib/lib.nia
+pub fn square(value: i32) i32 {
+    value * value
+}
+```
+
 `src/main.nia` opens the three imports by name:
 
 ```nia
@@ -229,7 +243,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ?argument => argument,
         null => return process::ExitCode(2)!,
     };
-    let prefix = greeting::prefix();
+    let prefix = greeting::prefix;
     let squared = mathlib::square(7);
     let text = version::text;
     io::debugPrint(&"{}{} {} {}\n", &[&prefix, &name, &squared, &text]).?;
@@ -322,6 +336,9 @@ again until its executable or inputs change. A suite is also a step, so
 | `nia test --list` | prints suite names without running them |
 | `nia test --filter <text>` | runs suites whose names contain the text |
 | `nia test --fail-fast` | stops after the first failing suite |
+
+`nia test` takes the same `-q`, `-v`, and `--progress` options as `nia build`;
+see [Progress output](#progress-output).
 
 A suite is one program, so it may import any number of test modules. Inside
 it, `std::test` provides assertions that return `test::Error!()` and a runner:
@@ -462,24 +479,91 @@ products, and command results) are kept in `.nia-cache/`.
 
 ### Progress output
 
-Progress is written to stderr so stdout remains suitable for plan, observation,
-cache, and test-list output. The default is a compact status and final summary;
-use repeated `-v` for more detail:
+`nia build` and `nia test` report progress on stderr. The products you ask for
+(`--print-plan`, `--print-cache`, `--print-observations`, `--explain`,
+`nia test --list`) go to stdout, as does the standard output of external
+commands and test suites in text modes.
 
-| Option | Effect |
+Each action the selected steps need is counted once, and ends with one outcome:
+
+| Outcome | Meaning |
 | --- | --- |
-| `-q`, `--quiet` | suppress progress only; diagnostics and requested products remain |
-| `-v` | one completion record for every selected action |
-| `-vv` | active actions, waves, and measured waits |
-| `-vvv` | cache decisions, resource snapshots, and coarse compiler activities |
-| `--progress=auto` | use the interactive renderer when stderr is a capable terminal |
-| `--progress=plain` | use append-only text records |
-| `--progress=json` | emit versioned JSON Lines on stderr |
-| `--progress=none` | disable progress output |
+| cached | the result was reused from `.nia-cache/` |
+| executed | the action ran |
+| no-work | the step has nothing of its own to do, such as an aggregate |
+| failed | the action failed |
+| cancelled | the action did not run because another one failed |
 
-The count is based on the selected dependency closure and deduplicates shared
-actions. A cached action is reported as cached, an aggregate with no direct
-work as no-work, and cancelled actions are kept distinct from failures. The
-compiler's checking, code generation, and linking labels are nested details of
-one action. Progress observes real dependency, output-lock, cache-lock, and
-resource waits; it does not change scheduling or cache behavior.
+The build finishes with a summary such as
+`Finished 3 actions in 982ms (1 cached, 1 executed, 1 no-work)`, with failed
+and cancelled counts added when there are any. A `--dry-run` or
+`nia test --list` ends with `Configured build in ... (N selected actions)`.
+
+Repeat `-v` for more detail. Each level includes the one before it:
+
+| Level | Text output |
+| --- | --- |
+| `-q`, `--quiet` | no progress; diagnostics and requested products remain |
+| default | the build phases and the summary |
+| `-v` | whether the build runner and plan were reused, then one line per action in plan order, such as `[1/3] Cached root:app (compiler-emit, 699ms)`; a no-work action is shown as `Complete` |
+| `-vv` | waves of ready actions, each action's start with its queue and resource-permit wait, waits for dependencies, locks, and resource permits, and resource-permit usage |
+| `-vvv` | the cache decision on each completion line, such as `; cache miss: not found`, and the compiler's checking, code generation, and linking activities |
+
+`-q` cannot be combined with `-v`, and the level stops at `-vvv`.
+
+`--progress` (also written `--progress <mode>`) selects the output form:
+
+| Mode | Output |
+| --- | --- |
+| `auto` (default) | a live status that redraws in place, when stderr is a terminal, `TERM` is not `dumb`, and `CI` is unset; plain text otherwise. With `--diagnostics-format=json`, no progress |
+| `plain` | append-only text lines |
+| `json` | JSON Lines, described below |
+| `none` | no progress |
+
+The live status is one line, `Building [completed/total actions, n active]`
+followed by the first active action and the elapsed time. From `-vv` it becomes
+a panel of up to eight rows: the wave and counts, resource-permit usage with
+the number of active, queued, and dependency-blocked actions, then the pending
+actions in plan order with their waits. It first appears after 250ms and
+redraws at most every 100ms, so short builds print only the summary.
+
+### JSON progress
+
+`--progress=json` makes stderr entirely machine-readable: diagnostics default
+to JSON, and timings to JSON when `--timings` is on. Combining it with an
+explicit text format, or with `-q`, is an error, as is `--progress=plain` with
+`--diagnostics-format=json`. External command output is captured rather than
+forwarded.
+
+Every line is one object with `"kind": "build-progress"`, `"schema_version": 1`,
+`event`, `sequence`, and `elapsed_ms`. `sequence` increases but may skip
+numbers. Actions are written as `{"package": ..., "name": ...}`, and an action's
+`ordinal` is its 1-based position in plan order.
+
+| Event | Level | Fields |
+| --- | --- | --- |
+| `build-started` | default | none |
+| `build-finished`, `build-failed` | default | `completed`, `total` (omitted when the build failed before selecting actions) |
+| `phase-started`, `phase-finished` | default | `phase`: `resolve`, `prepare`, `runner`, `configure`, `preview`, or `execute`; finish adds `duration_ms`, `success` |
+| `selection-ready` | default | `total`, `actions` in plan order |
+| `action-finished` | default | `action`, `ordinal`, `action_kind`, `outcome`, `cache` (for cacheable actions), `duration_ms`, `completed`, `total` |
+| `phase-cache-decision` | `-v` | `phase`, `reused` |
+| `action-started` | `-v` | `action`, `resource_class`, `wave`, `scheduler_wait_ms`, `resource_wait_ms` |
+| `action-cache-decision` | `-v` | `action`, `cache` |
+| `wave-started` | `-vv` | `wave` (0-based), `actions` |
+| `action-queued` | `-vv` | `action`, `resource_class`, `wave` |
+| `action-wait-started`, `action-wait-finished`, `phase-wait-started`, `phase-wait-finished` | `-vv` | `wait`, then `outcome` and `duration_ms` |
+| `resource-usage-changed` | `-vv` | `capacity`, `used`, `generation` |
+| `action-described` | `-vvv` | `action_kind`, `inputs`, `outputs`, `total_inputs`, `total_outputs` |
+| `action-activity-started`, `action-activity-finished` | `-vvv` | `activity`: `checking`, `codegen`, `linking`, or `compiling and linking`; finish adds `duration_ms`, `success` |
+
+`outcome` on `action-finished` is `cached`, `executed`, `nowork`, `failed`, or
+`cancelled`. `cache` is `{"status": "hit"}` or `{"status": "miss", "reason":
+...}` with `reason` `not_found`, `invalidated`, `uncacheable`, `corrupt`,
+`read_error`, or `write_error`. `wait` is `dependency`, `resource permit`, `output lock`, or
+`cache lock`, and a wait's `outcome` is `acquired`, `cancelled`, or `failed`.
+`resource_class` is `cpu`, `io`, or `conservative`. Paths in `inputs` and
+`outputs` are `{"root": {"kind": ...}, "path": ...}`, relative to a package,
+the build or cache directory, the toolchain, or an artifact. Progress never
+includes process arguments, environment values, or generated file contents.
+Later releases may add fields within schema version 1.

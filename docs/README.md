@@ -22,8 +22,8 @@ Start with the guide, then use the reference when you need exact rules.
 | [ABI reference](reference/abi.md) | Data representation, layout, and C boundary rules |
 | [Platform support](reference/platform-support.md) | Targets, runtime model, and current limits |
 
-The command-line help (`nia help`, `nia help <command>`) is the reference for
-command options.
+The command-line help (`nia help`, `nia help <command>`, and
+`nia help emit --<kind>`) is the reference for command options.
 
 ## Developing Nia
 
@@ -34,7 +34,7 @@ command options.
 | [Testing](dev/testing.md) | Validation gates, test layout, and harness rules |
 | [Compiler architecture](dev/architecture.md) | Pipeline, query model, crate layers, and data flows |
 | [ABI internals](dev/abi-internals.md) | How the compiler implements the ABI |
-| [Build system internals](../crates/nia-build/README.md) | Build plans, caching, execution, and publication |
+| [Build system internals](../crates/nia-build/README.md) | Build plans, caching, execution, progress observation, and publication |
 | [Repository maintenance](../maintain/README.md) | Audits, reports, and [performance baselines](../maintain/performance.md) |
 | [Release build](../tools/release/README.md) | Building and packaging release archives |
 

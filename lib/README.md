@@ -123,6 +123,13 @@ function's import library explicitly, like any native dependency
 child with `TerminateProcess`; see
 [Platform support](../docs/reference/platform-support.md).
 
+`process::Command` finds its program the same way on every platform: a path
+that contains a separator names that file, relative to the child's working
+directory, and a bare name is searched in the `PATH` of the child's
+environment. On Windows a bare name without an extension also tries each
+`PATHEXT` extension, so `Command::init(fs::PathView::init(&"git"), env)` finds
+`git.exe`.
+
 ## API reference
 
 The source files are the API reference. Each facade under `std/` states its
@@ -131,9 +138,6 @@ lifetime, error, and cleanup contracts.
 
 ## Maintaining the library
 
-- `imports/windows/*.def` must list exactly the Win32 `extern fn`
-  declarations in the Windows sources; `cargo maintain check` enforces it.
-- The build-host provider closure is checked by
-  `cargo maintain audit std-build-host` (`--print` shows a deliberate update);
-  its fixture is `maintain/fixtures/std-build-host-dependencies.json`.
-- Conformance tests are described in [Testing](../docs/dev/testing.md).
+The repository audits that guard these sources are described in
+[Repository maintenance](../maintain/README.md#standard-library-audits), and
+conformance tests in [Testing](../docs/dev/testing.md).

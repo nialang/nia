@@ -221,14 +221,9 @@ CLI and passed through the request; library callers remain silent unless they
 provide an observer. Progress never enters the frozen plan, cache identities,
 resource scheduling, output publication, or diagnostic selection.
 
-The default renderer is intentionally compact. `-v` writes one completion line
-per selected action, `-vv` adds active actions and measured waits, and `-vvv`
-adds cache, resource, and coarse compiler-stage detail. `-q` suppresses only
-progress. `--progress=plain` forces append-only stderr output,
-`--progress=json` emits versioned JSON Lines on stderr, and `--progress=none`
-disables the observer. `auto` selects the interactive single-line/panel
-renderer only when stderr supports it; redirected output degrades to plain
-records.
+The user-facing levels, modes, text formats, and JSON schema are documented in
+[Progress output](../../docs/guide/build-scripts.md#progress-output); this
+section owns the observation contract the CLI renderers rely on.
 
 The selected dependency closure is the accounting boundary. Shared actions are
 counted once, while every selected step remains represented in the final build
@@ -252,31 +247,16 @@ and never invokes a renderer while a build ownership lock is held. Resource
 snapshots and repeated complete
 wait/activity spans are coalesced; lifecycle and terminal events retain their
 sequence order. Renderer failures shut down progress output without changing
-the build result or child-output capture policy. Progress is written to stderr,
-leaving stdout available for plan, observation, cache, and test-list products.
+the build result or child-output capture policy. Progress is written to stderr;
+in text modes the renderer also owns forwarded child output, so a redrawn status
+line is cleared before child bytes are written.
 
-### JSON progress
-
-Every progress line has `kind: "build-progress"`, `schema_version: 1`,
-`event`, `sequence`, and `elapsed_ms`. Elapsed time is measured at the producer,
-before observer delivery. Sequence is monotonic but may have gaps from
-verbosity projection and coalescing. It describes observation order; action
-`ordinal` describes canonical selected order. Identities use separate
-`package`/`name` fields, and logical paths keep a typed `root` and relative
-`path`. No raw process arguments, environment values, or generated payloads
-appear in progress.
-
-Build/phase/selection/action terminal records are available at the default
-level. `-v` adds action starts and `action-cache-decision` records; `-vv` adds
-queues, waves, waits, and resource snapshots; `-vvv` adds bounded action
-descriptions and compiler activities.
-Outcomes are `cached`, `executed`, `nowork`, `failed`, and `cancelled`.
-Wait results are `acquired`, `cancelled`, and `failed`; wait names are
-`dependency`, `resource permit`, `output lock`, and `cache lock`. Unknown action
-totals are omitted on bootstrap failure. Millisecond durations are nonnegative
-integers. Diagnostics and timing records keep their existing schemas and can
-share stderr with progress; build progress is flushed before those final
-records. Compatible additional fields may be added within version 1.
+The JSON form keeps observation semantics visible to consumers. Elapsed time is
+measured at the producer, before observer delivery. `sequence` is observation
+order and may have gaps from verbosity projection and coalescing, while
+`ordinal` is canonical selected order. Diagnostics and timing records keep their
+own schemas and can share stderr with progress; build progress is flushed
+before those final records.
 
 External commands run with standard input closed by default. A command may opt
 into a declared file-backed stdin input from the package or build tree; that
