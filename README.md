@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/nia-lockup-dark.svg">
-    <img src="assets/brand/nia-lockup.svg" alt="Nia" width="260">
+    <img src="assets/brand/nia-lockup.svg" alt="Nia" width="190">
   </picture>
 </h1>
 
