@@ -67,7 +67,9 @@ fn run_check_report(source: &Path, levels: &[String]) {
             .arg("--opt-report")
             .output_timeout_in_session(&format!("run nia {level} check --opt-report"));
         assert_success(level, &output);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        // The report is diagnostic output, on stderr like every other command's.
+        let stdout = String::from_utf8_lossy(&output.stderr);
+        assert!(output.stdout.is_empty(), "{level}: report leaked to stdout");
         assert_contains(&stdout, "backend optimization report:", level);
         match level.as_str() {
             "-O2" => {

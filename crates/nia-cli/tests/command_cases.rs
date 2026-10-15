@@ -128,7 +128,10 @@ fn run_check_configuration(
         .arg("--exe")
         .arg(public_source)
         .output_timeout_in_session("run removed check --exe alias");
-    assert_failure(removed_alias, &["unknown `nia check` option `--exe`"]);
+    assert_failure(
+        removed_alias,
+        &["`--exe` is not an option of `nia check`; it belongs to"],
+    );
 }
 
 fn assert_frontend_cache_kind_has_entry(cache: &Path, kind: &str) {
@@ -209,15 +212,16 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
         .arg("--opt-report")
         .output_timeout_in_session("run trailing optimization option case");
     assert_success(&trailing);
+    // The optimization report is diagnostic output on stderr.
     assert_contains(
-        &trailing.stdout,
+        &trailing.stderr,
         &["policy level=Oz", "prefer_size=true", "llvm_size=tiny"],
     );
 
     let alias = command(["-O", "check", "--opt-report"], source);
     assert_success(&alias);
     assert_contains(
-        &alias.stdout,
+        &alias.stderr,
         &[
             "policy level=O2",
             "inline=normal",

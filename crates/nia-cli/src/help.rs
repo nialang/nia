@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Help text. Option rows come from the option table in [`crate::args`], so
+//! every topic lists exactly the options its command accepts.
+
 use std::io::IsTerminal;
 
-use super::HelpTopic;
+use crate::args::{self, EmitKind, OptionSpec};
+use crate::cli::HelpTopic;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HelpStyle {
@@ -28,7 +32,26 @@ impl HelpStyle {
 }
 
 pub(crate) fn help_text(topic: HelpTopic, style: HelpStyle) -> String {
-    render_help(help_doc(topic), style)
+    let doc = help_doc(topic);
+    let mut out = String::new();
+    push_title(&mut out, doc.title, style);
+    out.push_str(doc.about);
+    out.push_str("\n\n");
+    push_lines(&mut out, "Usage", doc.usage, style);
+    push_rows(&mut out, "Commands", doc.commands, style);
+    let targets = (topic == HelpTopic::Emit)
+        .then(emit_target_rows)
+        .unwrap_or_default();
+    push_rows(&mut out, "Targets", &targets, style);
+    let options = option_rows(topic);
+    push_rows(&mut out, "Options", &options, style);
+    if topic == HelpTopic::Emit {
+        out.push_str(
+            "Each target accepts its own options; run `nia help emit --<target>` to list them.\n\n",
+        );
+    }
+    push_lines(&mut out, "Examples", doc.examples, style);
+    out
 }
 
 pub(crate) fn error_help_text(topic: HelpTopic, style: HelpStyle) -> String {
@@ -36,29 +59,49 @@ pub(crate) fn error_help_text(topic: HelpTopic, style: HelpStyle) -> String {
     let mut out = String::new();
     push_lines(&mut out, "Usage", doc.usage, style);
     out.push_str("For more information, run `");
-    out.push_str(help_command(topic));
+    out.push_str(&help_command(topic));
     out.push_str("`.\n");
     out
 }
 
-pub(crate) fn error_help_command(topic: HelpTopic) -> &'static str {
-    help_command(topic)
+pub(crate) fn help_command(topic: HelpTopic) -> String {
+    match topic {
+        HelpTopic::Main => "nia help".to_string(),
+        HelpTopic::Build => "nia help build".to_string(),
+        HelpTopic::Test => "nia help test".to_string(),
+        HelpTopic::Check => "nia help check".to_string(),
+        HelpTopic::Emit => "nia help emit".to_string(),
+        HelpTopic::EmitKind(kind) => format!("nia help emit {}", kind.flag()),
+    }
 }
+
+/// One rendered help row.
+type Row = (&'static str, &'static str);
 
 struct HelpDoc {
     title: &'static str,
     about: &'static str,
     usage: &'static [&'static str],
-    commands: &'static [HelpRow],
-    targets: &'static [HelpRow],
-    options: &'static [HelpRow],
+    commands: &'static [Row],
     examples: &'static [&'static str],
 }
 
-#[derive(Clone, Copy)]
-struct HelpRow {
-    left: &'static str,
-    right: &'static str,
+fn option_rows(topic: HelpTopic) -> Vec<Row> {
+    args::help_rows(topic.scope(), topic == HelpTopic::Main)
+        .map(|spec: &OptionSpec| (spec.usage, spec.about))
+        .collect()
+}
+
+fn emit_target_rows() -> Vec<Row> {
+    EmitKind::ALL
+        .into_iter()
+        .filter_map(|kind| {
+            args::OPTIONS
+                .iter()
+                .find(|spec| spec.id == args::OptionId::EmitTarget(kind))
+                .map(|spec| (kind.flag(), spec.about))
+        })
+        .collect()
 }
 
 fn help_doc(topic: HelpTopic) -> HelpDoc {
@@ -68,29 +111,12 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             about: "Build, check, and inspect Nia programs.",
             usage: &["nia <command> [options]", "nia help [command]"],
             commands: &[
-                HelpRow {
-                    left: "build [step]",
-                    right: "build the current package",
-                },
-                HelpRow {
-                    left: "test",
-                    right: "run package tests",
-                },
-                HelpRow {
-                    left: "check <path>",
-                    right: "check a package or source file",
-                },
-                HelpRow {
-                    left: "emit --<target> <path>",
-                    right: "inspect or write compiler output",
-                },
-                HelpRow {
-                    left: "help [command]",
-                    right: "show command help",
-                },
+                ("build [step]", "build the current package"),
+                ("test", "run package tests"),
+                ("check <path>", "check a package or source file"),
+                ("emit --<target> <path>", "inspect or write compiler output"),
+                ("help [command]", "show command help"),
             ],
-            targets: &[],
-            options: GLOBAL_OPTIONS,
             examples: &["nia build", "nia check src/main.nia"],
         },
         HelpTopic::Build => HelpDoc {
@@ -98,63 +124,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             about: "Build a package with its build.nia script.",
             usage: &["nia build [step] [--root <dir>] [options]"],
             commands: &[],
-            targets: &[],
-            options: &[
-                HelpRow {
-                    left: "--root <dir>",
-                    right: "start package discovery here instead of the current directory",
-                },
-                HelpRow {
-                    left: "-j, --jobs <count>",
-                    right: "limit concurrent build actions",
-                },
-                HelpRow {
-                    left: "--dry-run",
-                    right: "configure and freeze the plan without executing actions",
-                },
-                HelpRow {
-                    left: "--explain",
-                    right: "show selected graph and configure-cache inputs",
-                },
-                HelpRow {
-                    left: "--print-plan",
-                    right: "print a deterministic frozen-plan summary",
-                },
-                HelpRow {
-                    left: "--print-cache",
-                    right: "print runner, configure, and action cache decisions",
-                },
-                HelpRow {
-                    left: "--print-observations",
-                    right: "print configuration filesystem observations",
-                },
-                HelpRow {
-                    left: "-q, --quiet",
-                    right: "suppress build progress output",
-                },
-                HelpRow {
-                    left: "-v, -vv, -vvv, --verbose",
-                    right: "show action, scheduler, and cache detail",
-                },
-                HelpRow {
-                    left: "--progress <auto|plain|json|none>",
-                    right: "select progress transport",
-                },
-                LTO_ROW,
-                OPTIMIZATION_ROW,
-                PROFILE_ROW,
-                MODULE_ROW,
-                TIMINGS_ROW,
-                TIMING_FORMAT_ROW,
-                DIAGNOSTICS_FORMAT_ROW,
-                TIMING_TRACE_ROW,
-                RESOURCE_ROW,
-                TARGET_ROW,
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help",
-                },
-            ],
             examples: &[
                 "nia build",
                 "nia build check",
@@ -166,54 +135,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             about: "Build and run package test suites.",
             usage: &["nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast] [options]"],
             commands: &[],
-            targets: &[],
-            options: &[
-                HelpRow {
-                    left: "--root <dir>",
-                    right: "start package discovery here instead of the current directory",
-                },
-                HelpRow {
-                    left: "--filter <text>",
-                    right: "select suites whose names contain this text",
-                },
-                HelpRow {
-                    left: "--list",
-                    right: "list selected suites without running them",
-                },
-                HelpRow {
-                    left: "--fail-fast",
-                    right: "stop after the first failed suite",
-                },
-                HelpRow {
-                    left: "-j, --jobs <count>",
-                    right: "limit concurrent test and build actions",
-                },
-                HelpRow {
-                    left: "-q, --quiet",
-                    right: "suppress build progress output",
-                },
-                HelpRow {
-                    left: "-v, -vv, -vvv, --verbose",
-                    right: "show action, scheduler, and cache detail",
-                },
-                HelpRow {
-                    left: "--progress <auto|plain|json|none>",
-                    right: "select progress transport",
-                },
-                OPTIMIZATION_ROW,
-                PROFILE_ROW,
-                MODULE_ROW,
-                TIMINGS_ROW,
-                TIMING_FORMAT_ROW,
-                DIAGNOSTICS_FORMAT_ROW,
-                TIMING_TRACE_ROW,
-                RESOURCE_ROW,
-                TARGET_ROW,
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help",
-                },
-            ],
             examples: &["nia test", "nia test --filter parser", "nia test --list"],
         },
         HelpTopic::Check => HelpDoc {
@@ -221,38 +142,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             about: "Check a package or source file without producing an artifact.",
             usage: &["nia check <path> [options]"],
             commands: &[],
-            targets: &[],
-            options: &[
-                HelpRow {
-                    left: "--runtime <bare|freestanding>",
-                    right: "select the program runtime (default: bare)",
-                },
-                HelpRow {
-                    left: "--opt-report",
-                    right: "print the optimization report",
-                },
-                HelpRow {
-                    left: "--cache-dir <path>",
-                    right: "reuse compiler artifacts from this directory",
-                },
-                HelpRow {
-                    left: "--lto <off|thin|full>",
-                    right: "select final executable link-time optimization",
-                },
-                OPTIMIZATION_ROW,
-                PROFILE_ROW,
-                MODULE_ROW,
-                TIMINGS_ROW,
-                TIMING_FORMAT_ROW,
-                DIAGNOSTICS_FORMAT_ROW,
-                TIMING_TRACE_ROW,
-                RESOURCE_ROW,
-                TARGET_ROW,
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help",
-                },
-            ],
             examples: &[
                 "nia check .",
                 "nia check src/main.nia --runtime freestanding",
@@ -263,366 +152,73 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             about: "Inspect or write one compiler output.",
             usage: &["nia emit --<target> <path> [options]"],
             commands: &[],
-            targets: EMIT_TARGETS,
-            options: &[HELP_ROW],
             examples: &[
                 "nia emit --ast src/main.nia",
                 "nia emit --exe src/main.nia -o build/main",
             ],
         },
-        HelpTopic::EmitTokens => inspection_help(
-            "nia emit --tokens",
-            "Print source tokens and byte spans.",
-            TOKENS_USAGE,
-            TOKENS_EXAMPLES,
-        ),
-        HelpTopic::EmitAst => inspection_help(
-            "nia emit --ast",
-            "Print the parsed syntax tree.",
-            AST_USAGE,
-            AST_EXAMPLES,
-        ),
-        HelpTopic::EmitChecked => HelpDoc {
+        HelpTopic::EmitKind(kind) => emit_kind_doc(kind),
+    }
+}
+
+fn emit_kind_doc(kind: EmitKind) -> HelpDoc {
+    match kind {
+        EmitKind::Tokens => HelpDoc {
+            title: "nia emit --tokens",
+            about: "Print source tokens and byte spans.",
+            usage: &["nia emit --tokens <path> [options]"],
+            commands: &[],
+            examples: &["nia emit --tokens src/main.nia"],
+        },
+        EmitKind::Ast => HelpDoc {
+            title: "nia emit --ast",
+            about: "Print the parsed syntax tree.",
+            usage: &["nia emit --ast <path> [options]"],
+            commands: &[],
+            examples: &["nia emit --ast src/main.nia"],
+        },
+        EmitKind::Checked => HelpDoc {
             title: "nia emit --checked",
             about: "Print the checked program.",
             usage: &["nia emit --checked <path> [options]"],
             commands: &[],
-            targets: &[],
-            options: &[
-                RUNTIME_ROW,
-                OPTIMIZATION_ROW,
-                PROFILE_ROW,
-                MODULE_ROW,
-                TIMINGS_ROW,
-                TIMING_FORMAT_ROW,
-                DIAGNOSTICS_FORMAT_ROW,
-                TIMING_TRACE_ROW,
-                RESOURCE_ROW,
-                TARGET_ROW,
-                HELP_ROW,
-            ],
             examples: &["nia emit --checked src/main.nia"],
         },
-        HelpTopic::EmitBackend => backend_help(
-            "nia emit --backend",
-            "Print optimized Nia backend IR.",
-            BACKEND_USAGE,
-            BACKEND_EXAMPLES,
-        ),
-        HelpTopic::EmitLlvm => backend_help(
-            "nia emit --llvm",
-            "Print LLVM IR.",
-            LLVM_USAGE,
-            LLVM_EXAMPLES,
-        ),
-        HelpTopic::EmitObj => HelpDoc {
+        EmitKind::Backend => HelpDoc {
+            title: "nia emit --backend",
+            about: "Print optimized Nia backend IR.",
+            usage: &["nia emit --backend <path> [options]"],
+            commands: &[],
+            examples: &["nia emit --backend src/main.nia"],
+        },
+        EmitKind::Llvm => HelpDoc {
+            title: "nia emit --llvm",
+            about: "Print LLVM IR.",
+            usage: &["nia emit --llvm <path> [options]"],
+            commands: &[],
+            examples: &["nia emit --llvm src/main.nia"],
+        },
+        EmitKind::Obj => HelpDoc {
             title: "nia emit --obj",
             about: "Write native object files.",
             usage: &["nia emit --obj <path> [-o <file> | --out-dir <dir>] [options]"],
             commands: &[],
-            targets: &[],
-            options: &[
-                HelpRow {
-                    left: "-o <file>",
-                    right: "write a single object file",
-                },
-                HelpRow {
-                    left: "--out-dir <dir>",
-                    right: "write one file per codegen unit",
-                },
-                RUNTIME_ROW,
-                HelpRow {
-                    left: "--cache-dir <path>",
-                    right: "reuse compiler artifacts from this directory",
-                },
-                OPT_REPORT_ROW,
-                OPTIMIZATION_ROW,
-                PROFILE_ROW,
-                MODULE_ROW,
-                TIMINGS_ROW,
-                TIMING_FORMAT_ROW,
-                DIAGNOSTICS_FORMAT_ROW,
-                TIMING_TRACE_ROW,
-                RESOURCE_ROW,
-                TARGET_ROW,
-                HELP_ROW,
-            ],
             examples: &[
                 "nia emit --obj src/main.nia -o build/main.o",
                 "nia emit --obj src/main.nia --out-dir build/obj",
             ],
         },
-        HelpTopic::EmitExe => HelpDoc {
+        EmitKind::Exe => HelpDoc {
             title: "nia emit --exe",
             about: "Build a freestanding executable.",
             usage: &["nia emit --exe <path> [-o <file>] [options]"],
             commands: &[],
-            targets: &[],
-            options: &[
-                HelpRow {
-                    left: "-o <file>",
-                    right: "write the executable to this path",
-                },
-                HelpRow {
-                    left: "--cache-dir <path>",
-                    right: "reuse compiler artifacts from this directory",
-                },
-                HelpRow {
-                    left: "--link-arg <arg>",
-                    right: "pass an argument to the linker; may be repeated",
-                },
-                HelpRow {
-                    left: "--linker <program>",
-                    right: "use this linker program (default: LLD for the target)",
-                },
-                HelpRow {
-                    left: "--linker-flavor <flavor>",
-                    right: "gnu or lld for ELF, lld-link for COFF, ld64.lld for Mach-O",
-                },
-                HelpRow {
-                    left: "--executable <static-pie|static|dynamic>",
-                    right: "select the ELF executable form (default: static-pie)",
-                },
-                HelpRow {
-                    left: "--interpreter <path>",
-                    right: "use this interpreter for a dynamic executable",
-                },
-                HelpRow {
-                    left: "-L, --library-path <dir>",
-                    right: "add a native library search path",
-                },
-                HelpRow {
-                    left: "-l, --library <name>",
-                    right: "link a native library",
-                },
-                HelpRow {
-                    left: "--rpath <path>",
-                    right: "add a runtime library search path (dynamic only)",
-                },
-                OPT_REPORT_ROW,
-                RUNTIME_EXE_ROW,
-                OPTIMIZATION_ROW,
-                PROFILE_ROW,
-                MODULE_ROW,
-                TIMINGS_ROW,
-                TIMING_FORMAT_ROW,
-                DIAGNOSTICS_FORMAT_ROW,
-                TIMING_TRACE_ROW,
-                RESOURCE_ROW,
-                TARGET_ROW,
-                HELP_ROW,
-            ],
             examples: &[
                 "nia emit --exe src/main.nia -o build/main",
                 "nia emit --exe src/main.nia -L vendor/lib -lfoo",
             ],
         },
     }
-}
-
-fn inspection_help(
-    title: &'static str,
-    about: &'static str,
-    usage: &'static [&'static str],
-    examples: &'static [&'static str],
-) -> HelpDoc {
-    HelpDoc {
-        title,
-        about,
-        usage,
-        commands: &[],
-        targets: &[],
-        options: &[
-            OPTIMIZATION_ROW,
-            PROFILE_ROW,
-            MODULE_ROW,
-            TIMINGS_ROW,
-            TIMING_FORMAT_ROW,
-            DIAGNOSTICS_FORMAT_ROW,
-            TIMING_TRACE_ROW,
-            RESOURCE_ROW,
-            TARGET_ROW,
-            HELP_ROW,
-        ],
-        examples,
-    }
-}
-
-fn backend_help(
-    title: &'static str,
-    about: &'static str,
-    usage: &'static [&'static str],
-    examples: &'static [&'static str],
-) -> HelpDoc {
-    HelpDoc {
-        title,
-        about,
-        usage,
-        commands: &[],
-        targets: &[],
-        options: &[
-            RUNTIME_ROW,
-            OPT_REPORT_ROW,
-            OPTIMIZATION_ROW,
-            PROFILE_ROW,
-            MODULE_ROW,
-            TIMINGS_ROW,
-            TIMING_FORMAT_ROW,
-            DIAGNOSTICS_FORMAT_ROW,
-            TIMING_TRACE_ROW,
-            RESOURCE_ROW,
-            TARGET_ROW,
-            HELP_ROW,
-        ],
-        examples,
-    }
-}
-
-fn help_command(topic: HelpTopic) -> &'static str {
-    match topic {
-        HelpTopic::Main => "nia help",
-        HelpTopic::Build => "nia help build",
-        HelpTopic::Test => "nia help test",
-        HelpTopic::Check => "nia help check",
-        HelpTopic::Emit => "nia help emit",
-        HelpTopic::EmitTokens => "nia help emit --tokens",
-        HelpTopic::EmitAst => "nia help emit --ast",
-        HelpTopic::EmitChecked => "nia help emit --checked",
-        HelpTopic::EmitBackend => "nia help emit --backend",
-        HelpTopic::EmitLlvm => "nia help emit --llvm",
-        HelpTopic::EmitObj => "nia help emit --obj",
-        HelpTopic::EmitExe => "nia help emit --exe",
-    }
-}
-
-const EMIT_TARGETS: &[HelpRow] = &[
-    HelpRow {
-        left: "--tokens",
-        right: "print source tokens",
-    },
-    HelpRow {
-        left: "--ast",
-        right: "print the parsed syntax tree",
-    },
-    HelpRow {
-        left: "--checked",
-        right: "print the checked program",
-    },
-    HelpRow {
-        left: "--backend",
-        right: "print optimized Nia backend IR",
-    },
-    HelpRow {
-        left: "--llvm",
-        right: "print LLVM IR",
-    },
-    HelpRow {
-        left: "--obj",
-        right: "write native object files",
-    },
-    HelpRow {
-        left: "--exe",
-        right: "build a freestanding executable",
-    },
-];
-
-const GLOBAL_OPTIONS: &[HelpRow] = &[
-    OPTIMIZATION_ROW,
-    PROFILE_ROW,
-    MODULE_ROW,
-    TIMINGS_ROW,
-    TIMING_FORMAT_ROW,
-    DIAGNOSTICS_FORMAT_ROW,
-    TIMING_TRACE_ROW,
-    RESOURCE_ROW,
-    TARGET_ROW,
-    HelpRow {
-        left: "-h, --help",
-        right: "show help",
-    },
-    HelpRow {
-        left: "-V, --version",
-        right: "show version",
-    },
-];
-
-const OPTIMIZATION_ROW: HelpRow = HelpRow {
-    left: "-O, -O0, -O1, -O2, -O3, -Os, -Oz",
-    right: "set the optimization level (-O means -O2)",
-};
-const PROFILE_ROW: HelpRow = HelpRow {
-    left: "--debug, --release, --profile <debug|release>",
-    right: "select the build profile (default: debug)",
-};
-const LTO_ROW: HelpRow = HelpRow {
-    left: "--lto <off|thin|full>",
-    right: "select final executable link-time optimization",
-};
-const MODULE_ROW: HelpRow = HelpRow {
-    left: "-M, --module <name=path>",
-    right: "map a package name to a source root",
-};
-const TIMINGS_ROW: HelpRow = HelpRow {
-    left: "--timings[=summary|detail]",
-    right: "print compiler timings",
-};
-const TIMING_FORMAT_ROW: HelpRow = HelpRow {
-    left: "--timings-format=<text|json>",
-    right: "select the timing output format",
-};
-const DIAGNOSTICS_FORMAT_ROW: HelpRow = HelpRow {
-    left: "--diagnostics-format=<text|json>",
-    right: "select human or machine-readable diagnostics",
-};
-const TIMING_TRACE_ROW: HelpRow = HelpRow {
-    left: "--timing-trace <off|events>",
-    right: "print individual timing events",
-};
-const RESOURCE_ROW: HelpRow = HelpRow {
-    left: "--resource-root <path>",
-    right: "use resources from this toolchain directory",
-};
-const TARGET_ROW: HelpRow = HelpRow {
-    left: "--target <name>",
-    right: "compile artifacts for a maintained target (default: host)",
-};
-const RUNTIME_ROW: HelpRow = HelpRow {
-    left: "--runtime <bare|freestanding>",
-    right: "select the program runtime (default: bare)",
-};
-const RUNTIME_EXE_ROW: HelpRow = HelpRow {
-    left: "--runtime freestanding",
-    right: "select the executable runtime",
-};
-const OPT_REPORT_ROW: HelpRow = HelpRow {
-    left: "--opt-report",
-    right: "print the optimization report",
-};
-const HELP_ROW: HelpRow = HelpRow {
-    left: "-h, --help",
-    right: "show this help",
-};
-
-const TOKENS_USAGE: &[&str] = &["nia emit --tokens <path> [options]"];
-const TOKENS_EXAMPLES: &[&str] = &["nia emit --tokens src/main.nia"];
-const AST_USAGE: &[&str] = &["nia emit --ast <path> [options]"];
-const AST_EXAMPLES: &[&str] = &["nia emit --ast src/main.nia"];
-const BACKEND_USAGE: &[&str] = &["nia emit --backend <path> [options]"];
-const BACKEND_EXAMPLES: &[&str] = &["nia emit --backend src/main.nia"];
-const LLVM_USAGE: &[&str] = &["nia emit --llvm <path> [options]"];
-const LLVM_EXAMPLES: &[&str] = &["nia emit --llvm src/main.nia"];
-
-fn render_help(doc: HelpDoc, style: HelpStyle) -> String {
-    let mut out = String::new();
-    push_title(&mut out, doc.title, style);
-    out.push_str(doc.about);
-    out.push_str("\n\n");
-    push_lines(&mut out, "Usage", doc.usage, style);
-    push_rows(&mut out, "Commands", doc.commands, style);
-    push_rows(&mut out, "Targets", doc.targets, style);
-    push_rows(&mut out, "Options", doc.options, style);
-    push_lines(&mut out, "Examples", doc.examples, style);
-    out
 }
 
 fn push_title(out: &mut String, title: &str, style: HelpStyle) {
@@ -643,17 +239,17 @@ fn push_lines(out: &mut String, heading: &str, lines: &[&str], style: HelpStyle)
     out.push('\n');
 }
 
-fn push_rows(out: &mut String, heading: &str, rows: &[HelpRow], style: HelpStyle) {
+fn push_rows(out: &mut String, heading: &str, rows: &[Row], style: HelpStyle) {
     if rows.is_empty() {
         return;
     }
     push_heading(out, heading, style);
-    let width = rows.iter().map(|row| row.left.len()).max().unwrap_or(0);
-    for row in rows {
+    let width = rows.iter().map(|(left, _)| left.len()).max().unwrap_or(0);
+    for (left, right) in rows {
         out.push_str("  ");
-        out.push_str(&paint(row.left, StylePart::Usage, style));
-        out.push_str(&" ".repeat(width.saturating_sub(row.left.len()) + 2));
-        out.push_str(row.right);
+        out.push_str(&paint(left, StylePart::Usage, style));
+        out.push_str(&" ".repeat(width.saturating_sub(left.len()) + 2));
+        out.push_str(right);
         out.push('\n');
     }
     out.push('\n');
@@ -680,4 +276,59 @@ fn paint(text: &str, part: StylePart, style: HelpStyle) -> String {
         StylePart::Usage => "32",
     };
     format!("\x1b[{code}m{text}\x1b[0m")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::{OPTIONS, Scope};
+
+    fn topics() -> Vec<HelpTopic> {
+        let mut topics = vec![
+            HelpTopic::Main,
+            HelpTopic::Build,
+            HelpTopic::Test,
+            HelpTopic::Check,
+            HelpTopic::Emit,
+        ];
+        topics.extend(EmitKind::ALL.map(HelpTopic::EmitKind));
+        topics
+    }
+
+    /// Every option a command accepts is listed in its help, and every listed
+    /// option is accepted: both views come from the same table.
+    #[test]
+    fn help_lists_exactly_the_options_each_command_accepts() {
+        for topic in topics() {
+            let text = help_text(topic, HelpStyle::Plain);
+            for spec in OPTIONS {
+                if spec.usage.is_empty() {
+                    continue;
+                }
+                // The emit overview lists only options every emit target accepts.
+                let accepted = spec.scope.contains(Scope::GLOBAL)
+                    || if topic == HelpTopic::Emit {
+                        EmitKind::ALL
+                            .into_iter()
+                            .all(|kind| spec.scope.contains(kind.scope()))
+                    } else {
+                        spec.scope.contains(topic.scope())
+                    };
+                let listed = text.contains(spec.usage);
+                let expected = accepted
+                    && (topic == HelpTopic::Main || spec.id != args::OptionId::Version)
+                    && (topic != HelpTopic::Main || spec.scope.contains(Scope::GLOBAL));
+                assert_eq!(listed, expected, "{topic:?}: `{}`", spec.usage);
+            }
+        }
+    }
+
+    #[test]
+    fn emit_help_lists_targets_and_points_to_target_help() {
+        let text = help_text(HelpTopic::Emit, HelpStyle::Plain);
+        for kind in EmitKind::ALL {
+            assert!(text.contains(kind.flag()), "{text}");
+        }
+        assert!(text.contains("nia help emit --<target>"), "{text}");
+    }
 }

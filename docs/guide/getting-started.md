@@ -198,12 +198,21 @@ nia emit --exe src/main.nia -o hello
 
 `emit` accepts `--tokens`, `--ast`, `--checked`, `--backend`, and `--llvm` to
 print intermediate forms, `--obj` to write object files, and `--exe` to write
-an executable. Outside a build script, `-M <name>=<path>` maps an extra package
-name to a source file or directory, so `using name;` can find it.
+an executable. `-M <name>=<path>` maps an extra package name to a source file
+or directory, so `using name;` can find it; a build script declares its
+packages instead, so `nia build` and `nia test` do not accept `-M`.
 
-Global options apply to every command: `-O0` through `-O3`, `-Os`, `-Oz`
-(`-O` means `-O2`), `--debug` / `--release`, and `--target <name>` to build for
-another [supported target](../reference/platform-support.md#targets).
+Global options apply to every command and may come before or after it:
+`-O0` through `-O3`, `-Os`, `-Oz` (`-O` means `-O2`), `--debug` / `--release`,
+and `--target <name>` to build for another
+[supported target](../reference/platform-support.md#targets).
+
+Every option that takes a value accepts both `--option value` and
+`--option=value`, and the next argument is always the value, even when it
+starts with `-`. When an option is repeated, the last value wins; `-M`, `-L`,
+`-l`, `--link-arg`, and `--rpath` accumulate instead. `--` ends the options, so
+later arguments are taken literally. A malformed command line exits with
+status 2; a failed check, build, or test exits with status 1.
 
 ## Runtimes
 

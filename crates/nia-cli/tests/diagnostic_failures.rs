@@ -13,8 +13,20 @@ fn assert_operational_failure(
     path: &str,
     expected_stdout: &[u8],
 ) {
+    assert_failure_report(output, 1, format, code, summary, path, expected_stdout);
+}
+
+fn assert_failure_report(
+    output: &Output,
+    status: i32,
+    format: &str,
+    code: &str,
+    summary: &str,
+    path: &str,
+    expected_stdout: &[u8],
+) {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert_eq!(output.status.code(), Some(status), "{stderr}");
     assert_eq!(output.stdout, expected_stdout, "{stderr}");
     assert!(!stderr.contains('\x1b'), "{stderr}");
     if format == "text" {
@@ -157,17 +169,22 @@ fn invalid_link_configuration_preserves_both_report_formats() {
         include_str!("cases/linker/selection_errors/main.nia"),
     )
     .expect("valid entry");
-    for (args, code, summary, path) in [
+    // A link configuration the linker rejects is an operational failure; an
+    // option the command does not support is a usage error, reported before
+    // anything is compiled.
+    for (args, status, code, summary, path) in [
         (
             ["--linker-flavor", "self-hosted-elf"],
+            1,
             "E0701",
             "invalid linker configuration",
             main.to_string_lossy().into_owned(),
         ),
         (
             ["--runtime", "bare"],
-            "E0103",
-            "currently supports only",
+            2,
+            "E0105",
+            "supports only `--runtime freestanding`",
             "<command line>".to_string(),
         ),
     ] {
@@ -180,7 +197,7 @@ fn invalid_link_configuration_preserves_both_report_formats() {
                 .arg(root.join("program"))
                 .arg(format!("--diagnostics-format={format}"))
                 .output_timeout_for_compiler("report invalid executable configuration");
-            assert_operational_failure(&output, format, code, summary, &path, b"");
+            assert_failure_report(&output, status, format, code, summary, &path, b"");
         }
     }
 }
