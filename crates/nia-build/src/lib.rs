@@ -54,6 +54,7 @@ mod coordinator;
 mod lock;
 mod output_recovery;
 mod process_output;
+mod program_search;
 mod progress;
 mod report;
 mod resources;
