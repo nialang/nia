@@ -6,8 +6,6 @@ help: construct a value of this type, or use a value name instead
 related: 0..23 the type is declared here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: type `Point` cannot be used as a value
   --> fail/type_as_value/main.nia:2:17
   |

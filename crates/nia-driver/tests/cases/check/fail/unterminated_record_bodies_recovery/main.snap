@@ -17,8 +17,6 @@ label: 90..92 Primary Source expected `}` after enum body; found `fn`
 help: check that the surrounding delimiters are balanced
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `}` after struct body; found `union`
   --> fail/unterminated_record_bodies_recovery/main.nia:2:1
   |
@@ -26,7 +24,6 @@ error[E0101]: expected `}` after struct body; found `union`
   | ^^^^^
 help: check that the surrounding delimiters are balanced
 
-root diagnostic:
 error[E0101]: expected `}` after union body; found `enum`
   --> fail/unterminated_record_bodies_recovery/main.nia:3:1
   |
@@ -34,7 +31,6 @@ error[E0101]: expected `}` after union body; found `enum`
   | ^^^^
 help: check that the surrounding delimiters are balanced
 
-root diagnostic:
 error[E0101]: expected `}` after enum body; found `fn`
   --> fail/unterminated_record_bodies_recovery/main.nia:4:1
   |

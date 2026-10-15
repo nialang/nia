@@ -58,8 +58,6 @@ summary: lexical error: unexpected byte 0x24
 label: 457..458 Primary Source lexical error: unexpected byte 0x24
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `)` after parameters; found `{`
   --> fail/parser_recovery/main.nia:1:25
   |
@@ -67,7 +65,6 @@ error[E0101]: expected `)` after parameters; found `{`
   |                         ^
 help: check that the surrounding delimiters are balanced
 
-root diagnostic:
 error[E0101]: expected `;` after binding; found `value`
   --> fail/parser_recovery/main.nia:6:17
   |
@@ -75,7 +72,6 @@ error[E0101]: expected `;` after binding; found `value`
   |                 ^
 help: add the missing `;` to terminate this declaration or statement
 
-root diagnostic:
 error[E0101]: expected expression
    --> fail/parser_recovery/main.nia:12:1
    |
@@ -83,7 +79,6 @@ error[E0101]: expected expression
    | ^
 help: provide an expression here, such as a literal, name, or call
 
-root diagnostic:
 error[E0101]: expected type; found `)`
    --> fail/parser_recovery/main.nia:14:23
    |
@@ -91,7 +86,6 @@ error[E0101]: expected type; found `)`
    |                       ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected binding pattern
    --> fail/parser_recovery/main.nia:17:9
    |
@@ -99,7 +93,6 @@ error[E0101]: expected binding pattern
    |         ^
 help: use a name, `_`, or a supported destructuring pattern
 
-root diagnostic:
 error[E0101]: expected `)` after parameters; found `{`
    --> fail/parser_recovery/main.nia:20:33
    |
@@ -107,7 +100,6 @@ error[E0101]: expected `)` after parameters; found `{`
    |                                 ^
 help: check that the surrounding delimiters are balanced
 
-root diagnostic:
 error[E0101]: expected type; found `,`
    --> fail/parser_recovery/main.nia:25:14
    |
@@ -115,7 +107,6 @@ error[E0101]: expected type; found `,`
    |              ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected type; found `,`
    --> fail/parser_recovery/main.nia:31:18
    |
@@ -123,7 +114,6 @@ error[E0101]: expected type; found `,`
    |                  ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected function name; found `(`
    --> fail/parser_recovery/main.nia:37:4
    |
@@ -131,7 +121,6 @@ error[E0101]: expected function name; found `(`
    |    ^
 help: use an identifier in this position
 
-root diagnostic:
 error[E0101]: lexical error: unexpected byte 0x24
    --> fail/parser_recovery/main.nia:40:19
    |

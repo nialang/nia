@@ -23,8 +23,6 @@ label: 94..95 Primary Source expected type
 help: provide a type name or type expression here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected type; found `,`
   --> fail/tuple_payload_recovery/main.nia:1:13
   |
@@ -32,7 +30,6 @@ error[E0101]: expected type; found `,`
   |             ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected type; found `,`
   --> fail/tuple_payload_recovery/main.nia:4:12
   |
@@ -40,7 +37,6 @@ error[E0101]: expected type; found `,`
   |            ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected type
   --> fail/tuple_payload_recovery/main.nia:8:23
   |
@@ -48,7 +44,6 @@ error[E0101]: expected type
   |                       ^
 help: provide a type name or type expression here
 
-root diagnostic:
 error[E0101]: expected type
   --> fail/tuple_payload_recovery/main.nia:8:29
   |

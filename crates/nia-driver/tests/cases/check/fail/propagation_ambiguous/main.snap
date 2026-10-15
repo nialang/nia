@@ -9,8 +9,6 @@ note: more than one visible `IntoError` implementation matches this propagation
 help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: ambiguous error propagation conversion from `Source` to `Target`
    --> fail/propagation_ambiguous/main.nia:13:5
    |

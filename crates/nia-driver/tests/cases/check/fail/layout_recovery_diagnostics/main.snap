@@ -5,8 +5,6 @@ label: 44..51 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown type `Missing`
   --> fail/layout_recovery_diagnostics/main.nia:2:24
   |

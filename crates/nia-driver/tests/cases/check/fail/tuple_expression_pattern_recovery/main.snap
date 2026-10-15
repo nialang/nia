@@ -23,8 +23,6 @@ label: 65..66 Primary Source expected binding pattern
 help: use a name, `_`, or a supported destructuring pattern
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected expression
   --> fail/tuple_expression_pattern_recovery/main.nia:2:18
   |
@@ -32,7 +30,6 @@ error[E0101]: expected expression
   |                  ^
 help: provide an expression here, such as a literal, name, or call
 
-root diagnostic:
 error[E0101]: expected expression
   --> fail/tuple_expression_pattern_recovery/main.nia:2:22
   |
@@ -40,7 +37,6 @@ error[E0101]: expected expression
   |                      ^
 help: provide an expression here, such as a literal, name, or call
 
-root diagnostic:
 error[E0101]: expected binding pattern
   --> fail/tuple_expression_pattern_recovery/main.nia:3:10
   |
@@ -48,7 +44,6 @@ error[E0101]: expected binding pattern
   |          ^
 help: use a name, `_`, or a supported destructuring pattern
 
-root diagnostic:
 error[E0101]: expected binding pattern
   --> fail/tuple_expression_pattern_recovery/main.nia:3:21
   |

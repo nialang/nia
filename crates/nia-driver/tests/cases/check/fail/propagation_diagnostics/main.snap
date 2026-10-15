@@ -24,8 +24,6 @@ note: no direct, visible `IntoError` implementation was found for the propagated
 help: implement `IntoError[TargetError]` for `SourceError`, or change the function return error type to `SourceError`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: optional propagation requires an optional function return type
   --> fail/propagation_diagnostics/main.nia:5:5
   |
@@ -38,7 +36,6 @@ error[E0301]: optional propagation requires an optional function return type
 note: the enclosing function returns `i32`, so it cannot return the propagated empty optional
 help: change the function return type to an optional, or handle the empty case before using `.?`
 
-root diagnostic:
 error[E0301]: `.?` requires optional or error union operand, found `i32`
   --> fail/propagation_diagnostics/main.nia:9:5
   |
@@ -50,7 +47,6 @@ error[E0301]: `.?` requires optional or error union operand, found `i32`
   |     ----- this expression has non-propagatable type `i32`
 help: remove `.?`, or make the operand produce an optional or error-union value
 
-root diagnostic:
 error[E0301]: error propagation requires `SourceError` to implement `IntoError[TargetError]`
    --> fail/propagation_diagnostics/main.nia:13:5
    |

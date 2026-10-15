@@ -11,15 +11,12 @@ help: check the module path, spelling, and whether the value is public
 help: did you mean `compute`?
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: generic function pointer requires explicit type arguments
   --> fail/qualified_callable/main.nia:4:34
   |
 4 |     let missing: &fn(i32) i32 = &api::identity;
   |                                  ^^^^^^^^^^^^^
 
-root diagnostic:
 error[E0201]: unknown value `comput`
   --> fail/qualified_callable/main.nia:8:10
   |
@@ -31,4 +28,4 @@ suggestion (maybe-incorrect): replace the unknown member with this spelling
   edit: fail/qualified_callable/main.nia:8:10 replace 175..181 with "compute"
 
 summary: 2 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
+note: not shown: 1 caused by the errors above

@@ -6,8 +6,6 @@ help: select a value from `api` with `::`, or use a value name instead
 related: 0..11 the module is declared here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: module `api` cannot be used as a value
   --> fail/module_as_value/main.nia:2:17
   |

@@ -774,6 +774,37 @@ impl<'a, T> DiagnosticReport<'a, T> {
     pub fn suppressed_total(&self) -> usize {
         self.suppressed_duplicates + self.suppressed_downstream + self.suppressed_by_limit
     }
+
+    /// Renders the text report footer: the error and warning counts, then a
+    /// note naming only the kinds of omitted diagnostics that occurred.
+    pub fn render_footer(&self) -> String {
+        let mut footer = format!(
+            "summary: {}, {}\n",
+            count_noun(self.error_count, "error", "errors"),
+            count_noun(self.warning_count, "warning", "warnings")
+        );
+        let omitted = [
+            (self.suppressed_duplicates, "duplicate", "duplicates"),
+            (
+                self.suppressed_downstream,
+                "caused by the errors above",
+                "caused by the errors above",
+            ),
+            (self.suppressed_by_limit, "over the limit", "over the limit"),
+        ]
+        .into_iter()
+        .filter(|(count, _, _)| *count > 0)
+        .map(|(count, one, many)| count_noun(count, one, many))
+        .collect::<Vec<_>>();
+        if !omitted.is_empty() {
+            footer.push_str(&format!("note: not shown: {}\n", omitted.join(", ")));
+        }
+        footer
+    }
+}
+
+fn count_noun(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
 }
 
 /// Supplies a diagnostic and optional source path to report ordering.
@@ -1410,7 +1441,11 @@ pub fn render_diagnostic_with_sources<'a>(
     ));
 
     if diagnostic.labels.is_empty() {
-        output.push_str(&format!("  --> {path}: no source location available\n"));
+        // A command-line or build-level failure has no file to point at, and
+        // a file-level failure has no line, so neither invents one.
+        if !is_synthetic_path(path) {
+            output.push_str(&format!("  --> {path}\n"));
+        }
     } else {
         for (index, label) in diagnostic.labels.iter().enumerate() {
             render_label(
@@ -1489,6 +1524,27 @@ pub fn render_diagnostic_with_sources<'a>(
         }
     }
     output
+}
+
+/// Renders the note that ties a consequence to the root diagnostic it follows
+/// from. The root location uses `sources` when they cover its span and falls
+/// back to the stable byte range otherwise.
+pub fn render_cause_note(cause: &DiagnosticCause, sources: &HashMap<String, String>) -> String {
+    let path = cause.source_path.as_str();
+    let location = match sources.get(path) {
+        Some(source) if source_covers_span(source, cause.span) => {
+            let line = line_info(source, cause.span.start);
+            format!("{path}:{}:{}", line.number, line.column)
+        }
+        _ => format!("{path}:bytes {}..{}", cause.span.start, cause.span.end),
+    };
+    format!("note: caused by error[{}] at {location}\n", cause.code)
+}
+
+/// Returns whether `path` names an origin such as `<command line>` rather
+/// than a file.
+fn is_synthetic_path(path: &str) -> bool {
+    path.starts_with('<') && path.ends_with('>')
 }
 
 /// Renders one diagnostic as deterministic machine-readable JSON.
@@ -2023,12 +2079,32 @@ mod tests {
         let diagnostic =
             Diagnostic::internal_error(codes::ICE, "backend invariant failed").finish();
         let rendered = render_diagnostic("main.nia", "let x = 1;\n", &diagnostic);
-
-        assert!(
-            rendered.contains("--> main.nia: no source location available"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("  --> main.nia\n"), "{rendered}");
         assert!(!rendered.contains(":1:1"), "{rendered}");
+
+        let rendered = render_diagnostic("<command line>", "", &diagnostic);
+        assert_eq!(
+            rendered,
+            "error internal[I0001]: backend invariant failed\n"
+        );
+    }
+
+    #[test]
+    fn cause_notes_point_at_the_root_location() {
+        let cause = DiagnosticCause {
+            source_path: "main.nia".to_string(),
+            code: "E0201".to_string(),
+            span: Span::new(4, 5),
+        };
+        let sources = HashMap::from([("main.nia".to_string(), "abc\ndef\n".to_string())]);
+        assert_eq!(
+            render_cause_note(&cause, &sources),
+            "note: caused by error[E0201] at main.nia:2:1\n"
+        );
+        assert_eq!(
+            render_cause_note(&cause, &HashMap::new()),
+            "note: caused by error[E0201] at main.nia:bytes 4..5\n"
+        );
     }
 
     #[test]

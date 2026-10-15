@@ -20,8 +20,6 @@ note: the target type is `Point`, and no visible associated function named `miss
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: method `hidden` is private
   --> fail/qualified_associated_callable_visibility/main.nia:5:5
   |
@@ -30,7 +28,6 @@ error[E0201]: method `hidden` is private
 help: make the method public or use it from an allowed scope
 related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restricted method is declared here
 
-root diagnostic:
 error[E0201]: method `hidden` is private
   --> fail/qualified_associated_callable_visibility/main.nia:6:37
   |
@@ -39,7 +36,6 @@ error[E0201]: method `hidden` is private
 help: make the method public or use it from an allowed scope
 related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restricted method is declared here
 
-root diagnostic:
 error[E0301]: unknown associated function `missing`
   --> fail/qualified_associated_callable_visibility/main.nia:7:38
   |

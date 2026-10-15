@@ -29,8 +29,6 @@ label: 237..244 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/builtin_recovery_diagnostics/main.nia:2:31
   |
@@ -38,7 +36,6 @@ error[E0201]: unknown value `missing`
   |                               ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/builtin_recovery_diagnostics/main.nia:3:31
   |
@@ -46,7 +43,6 @@ error[E0201]: unknown value `missing`
   |                               ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown type `MissingVector`
   --> fail/builtin_recovery_diagnostics/main.nia:4:29
   |
@@ -54,7 +50,6 @@ error[E0201]: unknown type `MissingVector`
   |                             ^^^^^^^^^^^^^
 help: check the type name, module path, and whether the type is public
 
-root diagnostic:
 error[E0201]: unknown type `MissingInteger`
   --> fail/builtin_recovery_diagnostics/main.nia:5:27
   |
@@ -62,7 +57,6 @@ error[E0201]: unknown type `MissingInteger`
   |                           ^^^^^^^^^^^^^^
 help: check the type name, module path, and whether the type is public
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/builtin_recovery_diagnostics/main.nia:6:29
   |
@@ -71,4 +65,4 @@ error[E0201]: unknown value `missing`
 help: check the spelling, import `missing`, or declare it before this use
 
 summary: 5 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
+note: not shown: 1 caused by the errors above

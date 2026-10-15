@@ -6,8 +6,6 @@ note: the receiver has type `i32`
 help: check the method name, import a trait that provides `dtaa`, or use a field access
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown method `dtaa`
   --> fail/unknown_method/main.nia:2:5
   |

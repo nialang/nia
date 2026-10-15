@@ -27,8 +27,6 @@ help: make the method public or use it from the defining package
 related: 206..263 the restricted method is declared here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: method `package_make` is restricted to its package
   --> fail/package_restricted_extension_method/main.nia:4:5
   |
@@ -37,7 +35,6 @@ error[E0201]: method `package_make` is restricted to its package
 help: make the method public or use it from the defining package
 related: fail/package_restricted_extension_method/dep/model.nia:10:14: the restricted method is declared here
 
-root diagnostic:
 error[E0201]: method `package_score` is restricted to its package
   --> fail/package_restricted_extension_method/main.nia:8:5
   |
@@ -46,7 +43,6 @@ error[E0201]: method `package_score` is restricted to its package
 help: make the method public or use it from the defining package
 related: fail/package_restricted_extension_method/dep/model.nia:14:14: the restricted method is declared here
 
-root diagnostic:
 error[E0201]: method `package_make` is restricted to its package
    --> fail/package_restricted_extension_method/main.nia:12:40
    |
@@ -55,7 +51,6 @@ error[E0201]: method `package_make` is restricted to its package
 help: make the method public or use it from the defining package
 related: fail/package_restricted_extension_method/dep/model.nia:10:14: the restricted method is declared here
 
-root diagnostic:
 error[E0201]: method `package_score` is restricted to its package
    --> fail/package_restricted_extension_method/main.nia:13:42
    |

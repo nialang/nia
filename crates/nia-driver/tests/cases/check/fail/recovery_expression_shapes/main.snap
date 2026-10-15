@@ -41,8 +41,6 @@ label: 154..161 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:2:9
   |
@@ -50,7 +48,6 @@ error[E0201]: unknown value `missing`
   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:3:9
   |
@@ -58,7 +55,6 @@ error[E0201]: unknown value `missing`
   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:4:9
   |
@@ -66,7 +62,6 @@ error[E0201]: unknown value `missing`
   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:5:10
   |
@@ -74,7 +69,6 @@ error[E0201]: unknown value `missing`
   |          ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:6:9
   |
@@ -82,7 +76,6 @@ error[E0201]: unknown value `missing`
   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:7:9
   |
@@ -90,7 +83,6 @@ error[E0201]: unknown value `missing`
   |         ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/recovery_expression_shapes/main.nia:8:9
   |

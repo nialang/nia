@@ -10,8 +10,6 @@ summary: builtin `sliceLen` requires a slice pointer
 label: 149..155 Primary Source builtin `sliceLen` requires a slice pointer
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing`
   --> fail/slice_len_recovery/main.nia:5:14
   |
@@ -19,7 +17,6 @@ error[E0201]: unknown value `missing`
   |              ^^^^^^^ no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
-root diagnostic:
 error[E0301]: builtin `sliceLen` requires a slice pointer
   --> fail/slice_len_recovery/main.nia:9:14
   |

@@ -6,8 +6,6 @@ help: add an implementation of `Base` for this target type
 related: 63..67 the implemented trait requires `Base` here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: implementation of trait requires explicit implementation of supertrait `Base`
   --> fail/trait_requirement_source/main.nia:5:8
   |

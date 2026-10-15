@@ -28,8 +28,6 @@ summary: non-unit expression result is discarded; assign it to `_` explicitly
 label: 157..158 Primary Source non-unit expression result is discarded; assign it to `_` explicitly
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing_tuple`
   --> fail/structural_recovery_diagnostics/main.nia:2:6
   |
@@ -37,7 +35,6 @@ error[E0201]: unknown value `missing_tuple`
   |      ^^^^^^^^^^^^^ no value named `missing_tuple` is visible in this scope
 help: check the spelling, import `missing_tuple`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_array`
   --> fail/structural_recovery_diagnostics/main.nia:3:6
   |
@@ -45,7 +42,6 @@ error[E0201]: unknown value `missing_array`
   |      ^^^^^^^^^^^^^ no value named `missing_array` is visible in this scope
 help: check the spelling, import `missing_array`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_deferred`
   --> fail/structural_recovery_diagnostics/main.nia:4:12
   |
@@ -53,7 +49,6 @@ error[E0201]: unknown value `missing_deferred`
   |            ^^^^^^^^^^^^^^^^ no value named `missing_deferred` is visible in this scope
 help: check the spelling, import `missing_deferred`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_iterable`
   --> fail/structural_recovery_diagnostics/main.nia:5:18
   |
@@ -61,7 +56,6 @@ error[E0201]: unknown value `missing_iterable`
   |                  ^^^^^^^^^^^^^^^^ no value named `missing_iterable` is visible in this scope
 help: check the spelling, import `missing_iterable`, or declare it before this use
 
-root diagnostic:
 error[E0301]: non-unit expression result is discarded; assign it to `_` explicitly
   --> fail/structural_recovery_diagnostics/main.nia:8:5
   |

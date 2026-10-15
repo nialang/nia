@@ -23,8 +23,6 @@ related: 72..107 candidate `Pair[T, i32]::rank() -> i32` is declared here
 related: 188..223 candidate `Pair[i32, U]::rank() -> i32` is declared here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: ambiguous method `associated_rank`
    --> fail/ambiguous_extension_method/main.nia:27:39
    |
@@ -38,7 +36,6 @@ help: make the receiver type or argument types more specific, or use an explicit
 related: fail/ambiguous_extension_method/main.nia:11:5: candidate `Pair[T, i32]::associated_rank() -> i32` is declared here
 related: fail/ambiguous_extension_method/main.nia:21:5: candidate `Pair[i32, U]::associated_rank() -> i32` is declared here
 
-root diagnostic:
 error[E0301]: ambiguous method `rank`
    --> fail/ambiguous_extension_method/main.nia:29:5
    |

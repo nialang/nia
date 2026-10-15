@@ -4,8 +4,6 @@ summary: expected `,` or `)` after attribute argument; found `false`
 label: 14..19 Primary Source expected `,` or `)` after attribute argument; found `false`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `)` after attribute argument; found `false`
   --> fail/attribute_argument_delimiter_recovery/main.nia:1:15
   |

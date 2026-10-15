@@ -4,8 +4,6 @@ summary: recursive type alias detected: #16371198383977704533
 label: 0..27 Primary Source recursive type alias detected: #16371198383977704533
 
 report:
-diagnostics:
-root diagnostic:
 error[E0202]: recursive type alias detected: #16371198383977704533
   --> fail/recursive_type_alias_diagnostic/main.nia:1:1
   |

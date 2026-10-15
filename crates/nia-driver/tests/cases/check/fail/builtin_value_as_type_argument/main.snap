@@ -5,8 +5,6 @@ label: 71..75 Primary Source generic argument resolved as a value; expected a ty
 help: use a type name in this generic argument
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: generic argument resolved as a value; expected a type
   --> fail/builtin_value_as_type_argument/main.nia:4:27
   |

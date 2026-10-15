@@ -13,8 +13,6 @@ help: make the type public or use it from an allowed scope
 related: 28..44 the private type is declared here
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: value `api::hidden` is private
   --> fail/private_qualified_value/main.nia:4:10
   |
@@ -23,7 +21,6 @@ error[E0201]: value `api::hidden` is private
 help: make the value public or use it from an allowed scope
 related: fail/private_qualified_value/api.nia:1:1: the private value is declared here
 
-root diagnostic:
 error[E0201]: type `api::Secret` is private
   --> fail/private_qualified_value/main.nia:7:36
   |
@@ -33,4 +30,4 @@ help: make the type public or use it from an allowed scope
 related: fail/private_qualified_value/api.nia:5:1: the private type is declared here
 
 summary: 2 errors, 0 warnings
-note: suppressed 1 diagnostic(s) (0 duplicate(s), 1 downstream consequence(s), 0 over limit)
+note: not shown: 1 caused by the errors above

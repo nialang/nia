@@ -4,8 +4,6 @@ summary: expected `,` or `)` after parameter; found `second`
 label: 39..45 Primary Source expected `,` or `)` after parameter; found `second`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `)` after parameter; found `second`
   --> fail/trait_member_parameter_recovery/main.nia:2:23
   |

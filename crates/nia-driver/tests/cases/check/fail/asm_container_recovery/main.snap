@@ -34,8 +34,6 @@ label: 201..216 Primary Source no value named `missing_options` is visible in th
 help: check the spelling, import `missing_options`, or declare it before this use
 
 report:
-diagnostics:
-root diagnostic:
 error[E0201]: unknown value `missing_config`
   --> fail/asm_container_recovery/main.nia:2:23
   |
@@ -43,14 +41,12 @@ error[E0201]: unknown value `missing_config`
   |                       ^^^^^^^^^^^^^^ no value named `missing_config` is visible in this scope
 help: check the spelling, import `missing_config`, or declare it before this use
 
-root diagnostic:
 error[E0301]: builtin `asm` requires a `code` byte string literal
   --> fail/asm_container_recovery/main.nia:3:5
   |
 3 |     std::builtin::asm(.{
   |     ^^^^^^^^^^^^^^^^^
 
-root diagnostic:
 error[E0201]: unknown value `missing_inputs`
   --> fail/asm_container_recovery/main.nia:4:17
   |
@@ -58,7 +54,6 @@ error[E0201]: unknown value `missing_inputs`
   |                 ^^^^^^^^^^^^^^ no value named `missing_inputs` is visible in this scope
 help: check the spelling, import `missing_inputs`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_outputs`
   --> fail/asm_container_recovery/main.nia:5:18
   |
@@ -66,7 +61,6 @@ error[E0201]: unknown value `missing_outputs`
   |                  ^^^^^^^^^^^^^^^ no value named `missing_outputs` is visible in this scope
 help: check the spelling, import `missing_outputs`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_clobbers`
   --> fail/asm_container_recovery/main.nia:6:19
   |
@@ -74,7 +68,6 @@ error[E0201]: unknown value `missing_clobbers`
   |                   ^^^^^^^^^^^^^^^^ no value named `missing_clobbers` is visible in this scope
 help: check the spelling, import `missing_clobbers`, or declare it before this use
 
-root diagnostic:
 error[E0201]: unknown value `missing_options`
   --> fail/asm_container_recovery/main.nia:7:18
   |

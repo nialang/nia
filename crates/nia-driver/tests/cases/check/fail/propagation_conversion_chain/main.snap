@@ -9,8 +9,6 @@ note: Nia requires one direct conversion at the propagation boundary; it does no
 help: add a direct `IntoError[Last]` implementation for `First`, or propagate through the intermediate error type explicitly
 
 report:
-diagnostics:
-root diagnostic:
 error[E0301]: error propagation does not chain `IntoError` conversions from `First` to `Last`
    --> fail/propagation_conversion_chain/main.nia:29:7
    |

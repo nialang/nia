@@ -4,8 +4,6 @@ summary: expected `,` or `)` after tuple element; found `false`
 label: 37..42 Primary Source expected `,` or `)` after tuple element; found `false`
 
 report:
-diagnostics:
-root diagnostic:
 error[E0101]: expected `,` or `)` after tuple element; found `false`
   --> fail/tuple_expression_delimiter_recovery/main.nia:2:23
   |
