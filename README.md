@@ -90,12 +90,13 @@ detail:
 
 ```sh
 cargo build --release -p nia-cli
-target/release/nia --resource-root "$PWD/lib" check examples/hello.nia   --runtime freestanding
+target/release/nia --resource-root "$PWD/lib" check examples/hello.nia --runtime freestanding
 ```
 
 [Getting started](docs/guide/getting-started.md) walks through a first package
 and the `nia build`, `nia test`, `nia check`, and `nia emit` commands. Run
-`nia help <command>` for the complete option set.
+`nia help <command>` for a command's options, or `nia help emit --exe` for one
+emit kind.
 
 ## Documentation
 

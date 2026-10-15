@@ -35,6 +35,20 @@ canonical `_N...` symbols when possible. Use `--json` for machine-readable
 attribution; the default text report is limited to the top 20 entries unless a
 different `--limit` is supplied.
 
+## Standard library audits
+
+- `audit system-imports` requires `lib/imports/windows/*.def` to list exactly
+  the Win32 `extern fn` declarations in the Windows sources, because the linker
+  builds their import libraries from those files.
+- `audit std-build-host` checks the standard-library module closure a build
+  runner compiles against `fixtures/std-build-host-dependencies.json`. A new
+  module on that path changes the closure; review it, then update the fixture
+  from `--print`.
+
+Both run as part of `cargo maintain check`.
+
+## Performance
+
 Compiler, competitive (Nia, Rust, and Zig), and build workload definitions,
 baseline comparison rules, and managed CI trend artifacts are documented in
 [`performance.md`](performance.md).

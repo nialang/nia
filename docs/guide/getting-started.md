@@ -163,7 +163,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 | `nia test` | Builds and runs every registered test suite. |
 | `nia check <path>` | Type-checks a source file or package directory without producing output. |
 | `nia emit --<kind> <path>` | Prints or writes one compiler output. |
-| `nia help [command]` | Shows the complete option set. |
+| `nia help [command]` | Shows a command's options; `nia help emit --exe` shows the options of one emit kind. |
 
 From anywhere inside the package:
 
@@ -182,6 +182,10 @@ under `.nia-build/` in the package root, and reusable results are kept in
 when its executable exits with status 0; a suite that passed is not rerun until
 its inputs change. `--filter <text>` selects suites by name and `--fail-fast`
 stops after the first failure.
+
+Both commands report progress on stderr: a status line and a final summary by
+default, `-q` to silence it, and `-v` through `-vvv` for more detail. See
+[Progress output](build-scripts.md#progress-output).
 
 `nia check` and `nia emit` take a source file or a directory. A directory must
 contain `main.nia` (an executable entry) or `pkg.nia` (a library package):
