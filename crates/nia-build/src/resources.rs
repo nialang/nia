@@ -5,20 +5,32 @@
 //! complete action capacity so an unknown or nested tool cannot overlap another
 //! ready action. This budget does not replace compiler or LLVM memory limits.
 
-use std::sync::{Condvar, Mutex};
+use std::sync::{
+    Condvar, Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 
 use crate::ActionResourceClass;
 
 pub(crate) struct ActionResourceBudget {
     capacity: usize,
     available: Mutex<usize>,
+    generation: AtomicU64,
     failure: Mutex<Option<nia_ice::Ice>>,
     ready: Condvar,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ActionResourceSnapshot {
+    pub(crate) generation: u64,
+    pub(crate) capacity: usize,
+    pub(crate) used: usize,
 }
 
 pub(crate) struct ActionResourcePermit<'a> {
     budget: &'a ActionResourceBudget,
     weight: usize,
+    waited: std::time::Duration,
 }
 
 impl ActionResourceBudget {
@@ -31,21 +43,36 @@ impl ActionResourceBudget {
         Ok(Self {
             capacity,
             available: Mutex::new(capacity),
+            generation: AtomicU64::new(0),
             failure: Mutex::new(None),
             ready: Condvar::new(),
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn acquire(
         &self,
         class: ActionResourceClass,
+    ) -> nia_ice::IceResult<ActionResourcePermit<'_>> {
+        self.acquire_observed(class, || {})
+    }
+
+    pub(crate) fn acquire_observed(
+        &self,
+        class: ActionResourceClass,
+        mut on_contention: impl FnMut(),
     ) -> nia_ice::IceResult<ActionResourcePermit<'_>> {
         let weight = self.weight(class);
         let mut available = self
             .available
             .lock()
             .map_err(|_| nia_ice::Ice::new("action resource budget lock is poisoned"))?;
+        let mut started = None;
         while *available < weight {
+            if started.is_none() {
+                started = Some(std::time::Instant::now());
+                on_contention();
+            }
             if let Some(failure) = self
                 .failure
                 .lock()
@@ -60,9 +87,23 @@ impl ActionResourceBudget {
                 .map_err(|_| nia_ice::Ice::new("action resource budget lock is poisoned"))?;
         }
         *available -= weight;
+        self.generation.fetch_add(1, Ordering::Release);
         Ok(ActionResourcePermit {
             budget: self,
             weight,
+            waited: started.map_or(std::time::Duration::ZERO, |started| started.elapsed()),
+        })
+    }
+
+    pub(crate) fn snapshot(&self) -> nia_ice::IceResult<ActionResourceSnapshot> {
+        let available = self
+            .available
+            .lock()
+            .map_err(|_| nia_ice::Ice::new("action resource budget lock is poisoned"))?;
+        Ok(ActionResourceSnapshot {
+            generation: self.generation.load(Ordering::Acquire),
+            capacity: self.capacity,
+            used: self.capacity - *available,
         })
     }
 
@@ -71,6 +112,12 @@ impl ActionResourceBudget {
             ActionResourceClass::Conservative => self.capacity,
             ActionResourceClass::Cpu | ActionResourceClass::Io => 1,
         }
+    }
+}
+
+impl ActionResourcePermit<'_> {
+    pub(crate) fn wait_duration(&self) -> std::time::Duration {
+        self.waited
     }
 }
 
@@ -99,6 +146,7 @@ impl Drop for ActionResourcePermit<'_> {
             }
         } else {
             *available = next;
+            self.budget.generation.fetch_add(1, Ordering::Release);
         }
         drop(available);
         self.budget.ready.notify_all();
@@ -120,9 +168,22 @@ mod tests {
         let permit = budget
             .acquire(ActionResourceClass::Conservative)
             .expect("acquire conservative permit");
+        assert_eq!(permit.wait_duration(), Duration::ZERO);
         assert_eq!(*budget.available.lock().unwrap(), 0);
+        assert_eq!(
+            budget.snapshot().expect("occupied resource snapshot"),
+            ActionResourceSnapshot {
+                generation: 1,
+                capacity: 4,
+                used: 4,
+            }
+        );
         drop(permit);
         assert_eq!(*budget.available.lock().unwrap(), 4);
+        let snapshot = budget.snapshot().expect("resource snapshot");
+        assert_eq!(snapshot.capacity, 4);
+        assert_eq!(snapshot.used, 0);
+        assert_eq!(snapshot.generation, 2);
     }
 
     #[test]
@@ -153,10 +214,12 @@ mod tests {
         let (acquired_tx, acquired_rx) = mpsc::channel();
         let worker_budget = std::sync::Arc::clone(&budget);
         let worker = std::thread::spawn(move || {
-            attempted_tx.send(()).unwrap();
             let _permit = worker_budget
-                .acquire(ActionResourceClass::Conservative)
+                .acquire_observed(ActionResourceClass::Conservative, || {
+                    attempted_tx.send(()).unwrap();
+                })
                 .expect("acquire conservative permit");
+            assert!(!_permit.wait_duration().is_zero());
             acquired_tx.send(()).unwrap();
         });
 
@@ -165,6 +228,10 @@ mod tests {
         drop(cpu);
         acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         worker.join().unwrap();
+        assert!(
+            attempted_rx.try_recv().is_err(),
+            "contention is entered only once"
+        );
     }
 
     #[test]

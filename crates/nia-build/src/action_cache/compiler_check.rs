@@ -29,7 +29,10 @@ use super::{
     read_fingerprint, read_u64, validate_cache_namespace, validate_compiler_cache_entry_size,
     write_bytes, write_fingerprint, write_text,
 };
-use crate::{ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime, lock::ScopedFileLock};
+use crate::{
+    ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime,
+    lock::{LockWaitObserver, ScopedFileLock},
+};
 use nia_target::TargetConfig;
 
 pub(super) const COMPILER_CHECK_COMPILER_DOMAIN: FingerprintDomain =
@@ -242,11 +245,23 @@ pub(crate) enum CompilerCheckCacheLookup {
 #[derive(Debug)]
 pub(crate) struct CompilerCheckCache {
     root: PathBuf,
+    lock_observer: Option<LockWaitObserver>,
 }
 
 impl CompilerCheckCache {
+    #[cfg(test)]
     pub(crate) fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self::new_with_lock_observer(root, None)
+    }
+
+    pub(crate) fn new_with_lock_observer(
+        root: PathBuf,
+        lock_observer: Option<LockWaitObserver>,
+    ) -> Self {
+        Self {
+            root,
+            lock_observer,
+        }
     }
 
     pub(crate) fn lookup(
@@ -497,8 +512,15 @@ impl CompilerCheckCache {
             .join(COMPILER_CHECK_CACHE.path_component);
         ensure_cache_directory(&self.root, &lock)?;
         let lock = lock.join(format!("{}.lock", fingerprint_text(builder.finish())));
-        ScopedFileLock::acquire_interruptible(lock, || false)?
-            .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
+        let result = match &self.lock_observer {
+            Some(observer) => ScopedFileLock::acquire_interruptible_observed(
+                lock,
+                || false,
+                |event| observer.observe(event),
+            )?,
+            None => ScopedFileLock::acquire_interruptible(lock, || false)?,
+        };
+        result.ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
     }
 }
 

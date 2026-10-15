@@ -23,6 +23,9 @@ nia-source.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
 nia-target-config.workspace = true
+serde_json.workspace = true
+crossterm.workspace = true
+unicode-width.workspace = true
 
 [dev-dependencies]
 libc.workspace = true

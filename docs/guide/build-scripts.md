@@ -459,3 +459,27 @@ Outputs go to `.nia-build/` in the package root: emitted artifacts under their
 output names, plus installed and generated files at the paths the script gave.
 Reusable results (the compiled script, recorded configurations, compiler
 products, and command results) are kept in `.nia-cache/`.
+
+### Progress output
+
+Progress is written to stderr so stdout remains suitable for plan, observation,
+cache, and test-list output. The default is a compact status and final summary;
+use repeated `-v` for more detail:
+
+| Option | Effect |
+| --- | --- |
+| `-q`, `--quiet` | suppress progress only; diagnostics and requested products remain |
+| `-v` | one completion record for every selected action |
+| `-vv` | active actions, waves, and measured waits |
+| `-vvv` | cache decisions, resource snapshots, and coarse compiler activities |
+| `--progress=auto` | use the interactive renderer when stderr is a capable terminal |
+| `--progress=plain` | use append-only text records |
+| `--progress=json` | emit versioned JSON Lines on stderr |
+| `--progress=none` | disable progress output |
+
+The count is based on the selected dependency closure and deduplicates shared
+actions. A cached action is reported as cached, an aggregate with no direct
+work as no-work, and cancelled actions are kept distinct from failures. The
+compiler's checking, code generation, and linking labels are nested details of
+one action. Progress observes real dependency, output-lock, cache-lock, and
+resource waits; it does not change scheduling or cache behavior.

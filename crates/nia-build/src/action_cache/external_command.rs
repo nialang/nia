@@ -34,7 +34,8 @@ use super::{
 use super::{read_bytes, read_fingerprint, read_u64};
 use crate::{
     ActionKey, CommandAction, CommandArgument, CommandProgram, CommandStdin, EnvironmentInput,
-    LogicalPath, LogicalPathRoot, PlanPackage, lock::ScopedFileLock,
+    LogicalPath, LogicalPathRoot, PlanPackage,
+    lock::{LockWaitObserver, ScopedFileLock},
 };
 
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
@@ -508,11 +509,23 @@ impl ExternalCommandCacheHit {
 #[derive(Debug)]
 pub(crate) struct ExternalCommandCache {
     root: PathBuf,
+    lock_observer: Option<LockWaitObserver>,
 }
 
 impl ExternalCommandCache {
+    #[cfg(test)]
     pub(crate) fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self::new_with_lock_observer(root, None)
+    }
+
+    pub(crate) fn new_with_lock_observer(
+        root: PathBuf,
+        lock_observer: Option<LockWaitObserver>,
+    ) -> Self {
+        Self {
+            root,
+            lock_observer,
+        }
     }
 
     pub(crate) fn lookup(
@@ -785,8 +798,15 @@ impl ExternalCommandCache {
             .join(EXTERNAL_COMMAND_CACHE.path_component);
         ensure_cache_directory(&self.root, &lock_root)?;
         let lock = lock_root.join(format!("{}.lock", fingerprint_text(builder.finish())));
-        ScopedFileLock::acquire_interruptible(lock, || false)?
-            .ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
+        let result = match &self.lock_observer {
+            Some(observer) => ScopedFileLock::acquire_interruptible_observed(
+                lock,
+                || false,
+                |event| observer.observe(event),
+            )?,
+            None => ScopedFileLock::acquire_interruptible(lock, || false)?,
+        };
+        result.ok_or_else(|| io::Error::other("action-cache mutation lock was cancelled"))
     }
 }
 

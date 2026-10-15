@@ -3,6 +3,8 @@
 
 use super::*;
 use crate::BuildStepSelection;
+use crate::progress::{ProgressEventKind, ProgressOutcome, ProgressSession};
+use crate::resources::ActionResourcePermit;
 
 /// Validates targets and computes the selected closure without reading sources,
 /// restoring caches, recovering transactions, or executing actions.
@@ -30,39 +32,90 @@ pub fn execute_build_plan(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
 ) -> Result<ExecutionReport, CoordinatorError> {
+    execute_build_plan_with_progress(plan, invocation, None, None)
+}
+
+/// Executes a selected closure while reporting scheduler lifecycle events.
+pub fn execute_build_plan_with_progress(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    progress: Option<&ProgressSession>,
+    process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
+) -> Result<ExecutionReport, CoordinatorError> {
     validate_invocation_targets(plan, invocation)?;
     recover_interrupted_output_transactions(&invocation.cache_dir, &invocation.build_dir)
         .map_err(|error| CoordinatorError::OutputRecovery(Box::new(error)))?;
-    let executor = DriverActionExecutor::new(plan.clone(), invocation.clone());
+    let executor = DriverActionExecutor::new_with_output_writer_and_progress(
+        plan.clone(),
+        invocation.clone(),
+        process_output_writer,
+        progress.cloned(),
+    );
     let session = QuerySession::new().map_err(CoordinatorError::Internal)?;
+    let budget = Arc::new(
+        ActionResourceBudget::new(action_resource_capacity(
+            &session,
+            invocation.max_parallel_actions,
+        ))
+        .map_err(CoordinatorError::Internal)?,
+    );
     nia_timing::emit_counter(
         "build.action_resource_capacity",
         action_resource_capacity(&session, invocation.max_parallel_actions) as u64,
     );
+    let mut wave = 0usize;
     if matches!(&invocation.step, BuildStepSelection::Tests) {
-        execute_test_closure(plan, invocation.test_filter.as_deref(), |actions| {
+        execute_test_closure_with_progress(
+            plan,
+            invocation.test_filter.as_deref(),
+            progress,
+            |actions| {
+                let current_wave = wave;
+                wave += 1;
+                execute_action_batch(
+                    &executor,
+                    (&session, &budget),
+                    invocation,
+                    actions,
+                    invocation.test_fail_fast,
+                    progress,
+                    current_wave,
+                )
+            },
+        )
+    } else {
+        execute_selected_closure_with_progress(plan, progress, |actions| {
+            let current_wave = wave;
+            wave += 1;
             execute_action_batch(
                 &executor,
-                &session,
+                (&session, &budget),
                 invocation,
                 actions,
-                invocation.test_fail_fast,
+                true,
+                progress,
+                current_wave,
             )
-        })
-    } else {
-        execute_selected_closure(plan, |actions| {
-            execute_action_batch(&executor, &session, invocation, actions, true)
         })
     }
 }
 
 fn execute_action_batch(
     executor: &DriverActionExecutor,
-    session: &QuerySession,
+    resources: (&QuerySession, &Arc<ActionResourceBudget>),
     invocation: &BuildInvocation,
     actions: &[&PlanAction],
     cancel_after_failure: bool,
+    progress: Option<&ProgressSession>,
+    wave: usize,
 ) -> Result<Vec<ActionOutcome>, CoordinatorError> {
+    if let Some(progress) = progress {
+        progress.emit(ProgressEventKind::WaveStarted {
+            wave,
+            actions: actions.len(),
+        });
+    }
+    let progress = progress.cloned();
     // Positions follow canonical wave order. Recording the earliest failed
     // position makes cancellation deterministic even when later workers
     // observe their failures first.
@@ -78,18 +131,42 @@ fn execute_action_batch(
                 enabled: cancel_after_failure,
             };
             let action = (*action).clone();
-            (action.resource_class(), move || {
-                execute_scheduled_action(&executor, &action, &cancellation)
+            let action_key = action.key.clone();
+            let resource_class = action.resource_class();
+            let action_progress = progress.clone();
+            (resource_class, action_key, move || {
+                execute_scheduled_action(
+                    &executor,
+                    &action,
+                    &cancellation,
+                    action_progress.as_ref(),
+                )
             })
         })
         .collect::<Vec<_>>();
-    run_action_tasks(session, invocation.max_parallel_actions, tasks)
-        .map_err(CoordinatorError::Internal)
+    run_action_tasks_with_progress(
+        resources.0,
+        resources.1,
+        invocation.max_parallel_actions,
+        tasks,
+        progress.as_ref(),
+        wave,
+    )
+    .map_err(CoordinatorError::Internal)
 }
 
 pub(super) fn execute_test_closure(
     plan: &BuildPlan,
     filter: Option<&str>,
+    execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
+) -> Result<ExecutionReport, CoordinatorError> {
+    execute_test_closure_with_progress(plan, filter, None, execute_batch)
+}
+
+fn execute_test_closure_with_progress(
+    plan: &BuildPlan,
+    filter: Option<&str>,
+    progress: Option<&ProgressSession>,
     mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     let roots = plan
@@ -106,9 +183,10 @@ pub(super) fn execute_test_closure(
         })
         .map(|step| &step.key)
         .collect::<Vec<_>>();
-    execute_roots_closure(plan, roots, &mut execute_batch)
+    execute_roots_closure(plan, roots, progress, &mut execute_batch)
 }
 
+#[cfg(test)]
 pub(super) fn run_action_tasks<T, O>(
     session: &QuerySession,
     max_parallel_actions: Option<std::num::NonZeroUsize>,
@@ -136,6 +214,100 @@ where
         None => session.run_tasks(tasks),
     }?;
     Ok(outcomes)
+}
+
+pub(super) fn run_action_tasks_with_progress<T, O>(
+    session: &QuerySession,
+    budget: &Arc<ActionResourceBudget>,
+    max_parallel_actions: Option<std::num::NonZeroUsize>,
+    tasks: impl IntoIterator<Item = (ActionResourceClass, ActionKey, T)>,
+    progress: Option<&ProgressSession>,
+    wave: usize,
+) -> nia_ice::IceResult<Vec<O>>
+where
+    T: FnOnce() -> O + Send + 'static,
+    O: Send + 'static,
+{
+    let progress = progress.cloned();
+    let tasks = tasks
+        .into_iter()
+        .map(|(resource_class, action, task)| {
+            let budget = Arc::clone(budget);
+            let progress = progress.clone();
+            let queued_at = Instant::now();
+            if let Some(progress) = &progress {
+                progress.emit(ProgressEventKind::ActionQueued {
+                    action: action.clone(),
+                    resource_class,
+                    wave,
+                });
+            }
+            move || -> nia_ice::IceResult<O> {
+                let worker_started = Instant::now();
+                let mut wait = None;
+                let permit = budget.acquire_observed(resource_class, || {
+                    wait = progress.as_ref().map(|progress| {
+                        progress.wait(action.clone(), crate::ProgressWaitKind::ResourcePermit)
+                    });
+                })?;
+                let resource_wait = permit.wait_duration();
+                if let Some(wait) = wait {
+                    wait.finish(crate::ProgressWaitOutcome::Acquired);
+                }
+                let release = ResourceReleaseObserver {
+                    permit: Some(permit),
+                    budget: Arc::clone(&budget),
+                    progress: progress.clone(),
+                };
+                if let Some(progress) = &progress {
+                    if let Ok(snapshot) = budget.snapshot() {
+                        progress.emit(ProgressEventKind::ResourceUsageChanged {
+                            generation: snapshot.generation,
+                            capacity: snapshot.capacity,
+                            used: snapshot.used,
+                        });
+                    }
+                    progress.emit(ProgressEventKind::ActionStarted {
+                        action,
+                        resource_class,
+                        wave,
+                        scheduler_wait: worker_started.duration_since(queued_at),
+                        resource_wait,
+                    });
+                }
+                nia_timing::emit_counter(resource_class_counter(resource_class), 1);
+                let outcome = task();
+                drop(release);
+                Ok(outcome)
+            }
+        })
+        .collect::<Vec<_>>();
+    let outcomes = match max_parallel_actions {
+        Some(limit) => session.run_tasks_bounded(tasks, limit.get()),
+        None => session.run_tasks(tasks),
+    }?;
+    Ok(outcomes)
+}
+
+struct ResourceReleaseObserver<'a> {
+    permit: Option<ActionResourcePermit<'a>>,
+    budget: Arc<ActionResourceBudget>,
+    progress: Option<ProgressSession>,
+}
+
+impl Drop for ResourceReleaseObserver<'_> {
+    fn drop(&mut self) {
+        drop(self.permit.take());
+        if let Some(progress) = &self.progress
+            && let Ok(snapshot) = self.budget.snapshot()
+        {
+            progress.emit(ProgressEventKind::ResourceUsageChanged {
+                generation: snapshot.generation,
+                capacity: snapshot.capacity,
+                used: snapshot.used,
+            });
+        }
+    }
 }
 
 pub(super) fn action_resource_capacity(
@@ -185,22 +357,81 @@ fn execute_scheduled_action(
     executor: &DriverActionExecutor,
     action: &PlanAction,
     cancellation: &ActionCancellation,
+    progress: Option<&ProgressSession>,
 ) -> ActionOutcome {
+    let started = Instant::now();
     if cancellation.is_cancelled() {
-        return ActionOutcome::Cancelled;
+        let outcome = ActionOutcome::Cancelled;
+        emit_finished(
+            progress,
+            action,
+            outcome_kind(&outcome, action),
+            None,
+            started.elapsed(),
+        );
+        return outcome;
     }
-    match executor.execute(action, cancellation) {
+    let outcome = match executor.execute(action, cancellation) {
         Ok(cache) => ActionOutcome::Succeeded(cache),
         Err(error) if is_cancellation_error(&error) => ActionOutcome::Cancelled,
         Err(error) => {
             cancellation.cancel_later_actions();
             ActionOutcome::Failed(error)
         }
+    };
+    emit_finished(
+        progress,
+        action,
+        outcome_kind(&outcome, action),
+        match &outcome {
+            ActionOutcome::Succeeded(cache) => cache.as_ref(),
+            _ => None,
+        },
+        started.elapsed(),
+    );
+    outcome
+}
+
+fn outcome_kind(outcome: &ActionOutcome, action: &PlanAction) -> ProgressOutcome {
+    match outcome {
+        ActionOutcome::Cancelled => ProgressOutcome::Cancelled,
+        ActionOutcome::Failed(_) => ProgressOutcome::Failed,
+        ActionOutcome::Succeeded(Some(ActionCacheOutcome::Hit)) => ProgressOutcome::Cached,
+        ActionOutcome::Succeeded(Some(ActionCacheOutcome::Miss(_))) => ProgressOutcome::Executed,
+        ActionOutcome::Succeeded(None) if matches!(action.kind, ActionKind::Aggregate) => {
+            ProgressOutcome::NoWork
+        }
+        ActionOutcome::Succeeded(None) => ProgressOutcome::Executed,
+    }
+}
+
+fn emit_finished(
+    progress: Option<&ProgressSession>,
+    action: &PlanAction,
+    outcome: ProgressOutcome,
+    cache: Option<&ActionCacheOutcome>,
+    duration: Duration,
+) {
+    if let Some(progress) = progress {
+        progress.emit(ProgressEventKind::ActionFinished {
+            action: action.key.clone(),
+            outcome,
+            cache: cache.cloned(),
+            duration,
+        });
     }
 }
 
 pub(super) fn execute_selected_closure(
     plan: &BuildPlan,
+    execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
+) -> Result<ExecutionReport, CoordinatorError> {
+    execute_selected_closure_with_progress(plan, None, execute_batch)
+}
+
+fn execute_selected_closure_with_progress(
+    plan: &BuildPlan,
+    progress: Option<&ProgressSession>,
     mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     let Some(selected) = plan.selected_step().or_else(|| plan.default_step()) else {
@@ -211,12 +442,13 @@ pub(super) fn execute_selected_closure(
         });
     };
 
-    execute_roots_closure(plan, vec![selected], &mut execute_batch)
+    execute_roots_closure(plan, vec![selected], progress, &mut execute_batch)
 }
 
 fn execute_roots_closure(
     plan: &BuildPlan,
     roots: Vec<&StepKey>,
+    progress: Option<&ProgressSession>,
     execute_batch: &mut impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     if roots.is_empty() {
@@ -275,6 +507,27 @@ fn execute_roots_closure(
         .copied()
         .filter(|index| indegree[*index] == 0)
         .collect();
+    let initial_ready = ready.clone();
+    let mut dependency_waits = BTreeMap::<ActionKey, Instant>::new();
+    if let Some(progress) = progress {
+        let mut initial_actions = BTreeSet::new();
+        for index in &initial_ready {
+            initial_actions.insert(steps[*index].action.clone());
+        }
+        for &index in &closure {
+            let action = steps[index].action.clone();
+            if !initial_actions.contains(&action)
+                && dependency_waits
+                    .insert(action.clone(), Instant::now())
+                    .is_none()
+            {
+                progress.emit(ProgressEventKind::ActionWaitStarted {
+                    action,
+                    kind: crate::progress::ProgressWaitKind::Dependency,
+                });
+            }
+        }
+    }
     let mut executed_actions = BTreeSet::new();
     let mut report = ExecutionReport {
         steps: Vec::with_capacity(closure.len()),
@@ -300,8 +553,34 @@ fn execute_roots_closure(
                 wave_actions.push(action);
             }
         }
-        let outcomes = execute_batch(&wave_actions)?;
+        if let Some(progress) = progress {
+            for action in &wave_actions {
+                finish_wait(
+                    progress,
+                    &mut dependency_waits,
+                    &action.key,
+                    crate::progress::ProgressWaitKind::Dependency,
+                    crate::progress::ProgressWaitOutcome::Acquired,
+                );
+            }
+        }
+        let outcomes = match execute_batch(&wave_actions) {
+            Ok(outcomes) => outcomes,
+            Err(error) => {
+                finish_waits(
+                    progress,
+                    &mut dependency_waits,
+                    crate::progress::ProgressWaitKind::Dependency,
+                );
+                return Err(error);
+            }
+        };
         if outcomes.len() != wave_actions.len() {
+            finish_waits(
+                progress,
+                &mut dependency_waits,
+                crate::progress::ProgressWaitKind::Dependency,
+            );
             return Err(inconsistent(
                 "coordinator action batch",
                 "one outcome per scheduled action".to_string(),
@@ -325,10 +604,22 @@ fn execute_roots_closure(
                         error: Box::new(error),
                     });
                 }
-                ActionOutcome::Failed(error) => return Err(error),
+                ActionOutcome::Failed(error) => {
+                    finish_waits(
+                        progress,
+                        &mut dependency_waits,
+                        crate::progress::ProgressWaitKind::Dependency,
+                    );
+                    return Err(error);
+                }
             }
         }
         if cancelled {
+            finish_waits(
+                progress,
+                &mut dependency_waits,
+                crate::progress::ProgressWaitKind::Dependency,
+            );
             if !test_failures.is_empty() {
                 return Err(CoordinatorError::TestFailures(test_failures));
             }
@@ -351,6 +642,18 @@ fn execute_roots_closure(
                     )
                 })?;
                 if indegree[dependent] == 0 {
+                    let action = steps[dependent].action.clone();
+                    if !executed_actions.contains(&action)
+                        && let Some(progress) = progress
+                        && let Some(started) = dependency_waits.remove(&action)
+                    {
+                        progress.emit(ProgressEventKind::ActionWaitFinished {
+                            action: action.clone(),
+                            kind: crate::progress::ProgressWaitKind::Dependency,
+                            outcome: crate::progress::ProgressWaitOutcome::Acquired,
+                            duration: started.elapsed(),
+                        });
+                    }
                     ready.insert(dependent);
                 }
             }
@@ -358,6 +661,11 @@ fn execute_roots_closure(
     }
 
     if report.steps.len() != closure.len() {
+        finish_waits(
+            progress,
+            &mut dependency_waits,
+            crate::progress::ProgressWaitKind::Dependency,
+        );
         return Err(inconsistent(
             "selected step closure",
             "acyclic dependency order".to_string(),
@@ -367,5 +675,41 @@ fn execute_roots_closure(
         Ok(report)
     } else {
         Err(CoordinatorError::TestFailures(test_failures))
+    }
+}
+
+fn finish_wait(
+    progress: &ProgressSession,
+    waits: &mut BTreeMap<ActionKey, Instant>,
+    action: &ActionKey,
+    kind: crate::progress::ProgressWaitKind,
+    outcome: crate::progress::ProgressWaitOutcome,
+) {
+    if let Some(started) = waits.remove(action) {
+        progress.emit(ProgressEventKind::ActionWaitFinished {
+            action: action.clone(),
+            kind,
+            outcome,
+            duration: started.elapsed(),
+        });
+    }
+}
+
+fn finish_waits(
+    progress: Option<&ProgressSession>,
+    waits: &mut BTreeMap<ActionKey, Instant>,
+    kind: crate::progress::ProgressWaitKind,
+) {
+    let Some(progress) = progress else {
+        waits.clear();
+        return;
+    };
+    for (action, started) in std::mem::take(waits) {
+        progress.emit(ProgressEventKind::ActionWaitFinished {
+            action,
+            kind,
+            outcome: crate::progress::ProgressWaitOutcome::Cancelled,
+            duration: started.elapsed(),
+        });
     }
 }

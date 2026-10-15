@@ -10,7 +10,10 @@ use std::{
     fs,
     io::{self, Read as _, Write as _},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -115,10 +118,40 @@ pub(crate) fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBu
         .join(format!("{first:016x}{second:016x}.lock"))
 }
 
+#[derive(Debug)]
 pub(crate) struct ScopedFileLock {
     path: PathBuf,
     token: String,
     _file: fs::File,
+}
+
+/// Observable boundaries for an interruptible lock acquisition. The callback
+/// is invoked only after the filesystem owner has confirmed contention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LockWaitEvent {
+    Contended,
+    Acquired,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone)]
+pub(crate) struct LockWaitObserver(Arc<dyn Fn(LockWaitEvent) + Send + Sync>);
+
+impl std::fmt::Debug for LockWaitObserver {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LockWaitObserver(..)")
+    }
+}
+
+impl LockWaitObserver {
+    pub(crate) fn new(callback: Arc<dyn Fn(LockWaitEvent) + Send + Sync>) -> Self {
+        Self(callback)
+    }
+
+    pub(crate) fn observe(&self, event: LockWaitEvent) {
+        (self.0)(event);
+    }
 }
 
 impl ScopedFileLock {
@@ -130,17 +163,29 @@ impl ScopedFileLock {
 
     pub(crate) fn acquire_interruptible(
         path: PathBuf,
+        is_cancelled: impl FnMut() -> bool,
+    ) -> io::Result<Option<Self>> {
+        Self::acquire_interruptible_observed(path, is_cancelled, |_| {})
+    }
+
+    pub(crate) fn acquire_interruptible_observed(
+        path: PathBuf,
         mut is_cancelled: impl FnMut() -> bool,
+        mut on_event: impl FnMut(LockWaitEvent),
     ) -> io::Result<Option<Self>> {
         if let Some(parent) = path.parent() {
             crate::create_real_directory(parent)?;
         }
         let start = Instant::now();
         let mut sleep = Duration::from_millis(10);
+        let mut contended = false;
         #[cfg(windows)]
         let mut denied_since = None::<Instant>;
         loop {
             if is_cancelled() {
+                if contended {
+                    on_event(LockWaitEvent::Cancelled);
+                }
                 return Ok(None);
             }
             let mut options = fs::OpenOptions::new();
@@ -157,9 +202,15 @@ impl ScopedFileLock {
                         Ok(owner) => owner,
                         Err(error) => {
                             let _ = fs::remove_file(&path);
+                            if contended {
+                                on_event(LockWaitEvent::Failed);
+                            }
                             return Err(error);
                         }
                     };
+                    if contended {
+                        on_event(LockWaitEvent::Acquired);
+                    }
                     return Ok(Some(Self {
                         path,
                         token,
@@ -167,6 +218,10 @@ impl ScopedFileLock {
                     }));
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    if !contended {
+                        contended = true;
+                        on_event(LockWaitEvent::Contended);
+                    }
                     #[cfg(windows)]
                     {
                         denied_since = None;
@@ -183,15 +238,26 @@ impl ScopedFileLock {
                     if denied_since.get_or_insert_with(Instant::now).elapsed()
                         >= DELETE_PENDING_TOLERANCE
                     {
+                        if contended {
+                            on_event(LockWaitEvent::Failed);
+                        }
                         return Err(error);
                     }
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    if contended {
+                        on_event(LockWaitEvent::Failed);
+                    }
+                    return Err(error);
+                }
             }
             if start.elapsed() >= STALE_AFTER {
                 reclaim_stale_lock(&path, Duration::ZERO);
             }
             if is_cancelled() {
+                if contended {
+                    on_event(LockWaitEvent::Cancelled);
+                }
                 return Ok(None);
             }
             thread::sleep(sleep);
@@ -527,6 +593,34 @@ mod tests {
     }
 
     #[test]
+    fn observed_lock_wait_reports_contention_and_acquisition_once() {
+        let path = test_root("observed").join("output.lock");
+        let first = ScopedFileLock::acquire(path.clone()).unwrap();
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let result = ScopedFileLock::acquire_interruptible_observed(
+                path,
+                || false,
+                |event| event_tx.send(event).unwrap(),
+            );
+            finished_tx.send(result.is_ok()).unwrap();
+        });
+
+        assert_eq!(
+            event_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            LockWaitEvent::Contended
+        );
+        drop(first);
+        assert_eq!(
+            event_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            LockWaitEvent::Acquired
+        );
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn distinct_lock_paths_do_not_serialize() {
         let root = test_root("distinct");
         let first = ScopedFileLock::acquire(root.join("first.lock")).unwrap();
@@ -535,6 +629,70 @@ mod tests {
         assert_ne!(first.token, second.token);
         drop(second);
         drop(first);
+    }
+
+    #[test]
+    fn observed_uncontended_lock_does_not_report_a_wait() {
+        let root = test_root("uncontended-observation");
+        let mut events = Vec::new();
+        let lock = ScopedFileLock::acquire_interruptible_observed(
+            root.join("output.lock"),
+            || false,
+            |event| events.push(event),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(events.is_empty());
+        drop(lock);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn observed_lock_wait_balances_cancellation() {
+        let root = test_root("observed-cancellation");
+        let path = root.join("output.lock");
+        let held = ScopedFileLock::acquire(path.clone()).unwrap();
+        let cancelled = std::cell::Cell::new(false);
+        let mut events = Vec::new();
+        let lock = ScopedFileLock::acquire_interruptible_observed(
+            path,
+            || cancelled.get(),
+            |event| {
+                events.push(event);
+                if event == LockWaitEvent::Contended {
+                    cancelled.set(true);
+                }
+            },
+        )
+        .unwrap();
+        assert!(lock.is_none());
+        assert_eq!(events, [LockWaitEvent::Contended, LockWaitEvent::Cancelled]);
+        drop(held);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn observed_lock_wait_balances_io_failure_after_contention() {
+        let root = test_root("observed-failure");
+        let parent = root.join("locks");
+        let path = parent.join("output.lock");
+        let mut held = Some(ScopedFileLock::acquire(path.clone()).unwrap());
+        let mut events = Vec::new();
+        let result = ScopedFileLock::acquire_interruptible_observed(
+            path,
+            || false,
+            |event| {
+                events.push(event);
+                if event == LockWaitEvent::Contended {
+                    drop(held.take());
+                    fs::remove_dir(&parent).unwrap();
+                    fs::write(&parent, b"not a directory").unwrap();
+                }
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(events, [LockWaitEvent::Contended, LockWaitEvent::Failed]);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -569,7 +727,7 @@ mod tests {
         let path = test_root("stale").join("output.lock");
         let pid = std::process::id();
         let start_time = process_start_time(pid).unwrap();
-        fs::write(&path, format!("{pid}:{}\n", start_time + 1)).unwrap();
+        fs::write(&path, format!("{pid}:{}:0\n", start_time + 1)).unwrap();
 
         let lock = ScopedFileLock::acquire(path.clone()).unwrap();
 

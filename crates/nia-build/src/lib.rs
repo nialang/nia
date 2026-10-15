@@ -54,6 +54,7 @@ mod coordinator;
 mod lock;
 mod output_recovery;
 mod process_output;
+mod progress;
 mod report;
 mod resources;
 mod runner_cache;
@@ -83,11 +84,17 @@ pub use configure_observation::{
 pub use coordinator::*;
 pub use nia_build_plan::*;
 pub use output_recovery::OutputRecoveryError;
+pub use process_output::{ProcessOutputStream, ProcessOutputWriter};
+pub use progress::{
+    ProgressActionDescription, ProgressActivity, ProgressEvent, ProgressEventKind,
+    ProgressObserver, ProgressOutcome, ProgressPhase, ProgressWaitKind, ProgressWaitOutcome,
+};
+use progress::{ProgressBuildGuard, ProgressSession};
 pub use report::{render_build_error, render_build_error_json};
 pub(crate) use runner_observation::decode_and_validate_runner_observations;
 
 /// Inputs and policy knobs for resolving and running one build invocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct BuildRequest {
     /// Toolchain resources used by the host runner and compiler actions.
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -133,6 +140,10 @@ pub struct BuildRequest {
     pub output_json: bool,
     /// Forward child streams while retaining bounded tails for failure reports.
     pub forward_output: bool,
+    /// Optional observer for invocation-local build progress events.
+    pub progress_observer: Option<Arc<dyn ProgressObserver>>,
+    /// Optional coordinator for forwarded child output.
+    pub process_output_writer: Option<Arc<dyn ProcessOutputWriter>>,
 }
 
 impl BuildRequest {
@@ -161,6 +172,8 @@ impl BuildRequest {
             print_cache: false,
             output_json: false,
             forward_output: true,
+            progress_observer: None,
+            process_output_writer: None,
         }
     }
 
@@ -289,7 +302,80 @@ impl BuildRequest {
         self.forward_output = enabled;
         self
     }
+
+    /// Observes build lifecycle and selected action events.
+    pub fn with_progress_observer(mut self, observer: Arc<dyn ProgressObserver>) -> Self {
+        self.progress_observer = Some(observer);
+        self
+    }
+
+    /// Coordinates forwarded child output with an invocation-local renderer.
+    pub fn with_process_output_writer(mut self, writer: Arc<dyn ProcessOutputWriter>) -> Self {
+        self.process_output_writer = Some(writer);
+        self
+    }
 }
+
+impl fmt::Debug for BuildRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BuildRequest")
+            .field("toolchain", &self.toolchain)
+            .field("root", &self.root)
+            .field("step", &self.step)
+            .field("timings", &self.timings)
+            .field("timing_format", &self.timing_format)
+            .field("max_parallel_actions", &self.max_parallel_actions)
+            .field("optimization", &self.optimization)
+            .field("profile", &self.profile)
+            .field("link_time_optimization", &self.link_time_optimization)
+            .field("test_mode", &self.test_mode)
+            .field(
+                "include_optional_dependencies",
+                &self.include_optional_dependencies,
+            )
+            .field("include_lazy_dependencies", &self.include_lazy_dependencies)
+            .field("test_filter", &self.test_filter)
+            .field("test_list", &self.test_list)
+            .field("test_fail_fast", &self.test_fail_fast)
+            .field("dry_run", &self.dry_run)
+            .field("explain", &self.explain)
+            .field("print_plan", &self.print_plan)
+            .field("print_observations", &self.print_observations)
+            .field("print_cache", &self.print_cache)
+            .field("output_json", &self.output_json)
+            .field("forward_output", &self.forward_output)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for BuildRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.toolchain == other.toolchain
+            && self.root == other.root
+            && self.step == other.step
+            && self.timings == other.timings
+            && self.timing_format == other.timing_format
+            && self.max_parallel_actions == other.max_parallel_actions
+            && self.optimization == other.optimization
+            && self.profile == other.profile
+            && self.link_time_optimization == other.link_time_optimization
+            && self.test_mode == other.test_mode
+            && self.include_optional_dependencies == other.include_optional_dependencies
+            && self.include_lazy_dependencies == other.include_lazy_dependencies
+            && self.test_filter == other.test_filter
+            && self.test_list == other.test_list
+            && self.test_fail_fast == other.test_fail_fast
+            && self.dry_run == other.dry_run
+            && self.explain == other.explain
+            && self.print_plan == other.print_plan
+            && self.print_observations == other.print_observations
+            && self.print_cache == other.print_cache
+            && self.output_json == other.output_json
+            && self.forward_output == other.forward_output
+    }
+}
+
+impl Eq for BuildRequest {}
 
 /// Fully resolved, invocation-local paths and build policies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -675,28 +761,41 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     let print_observations = request.print_observations;
     let print_cache = request.print_cache;
     let output_json = request.output_json;
-    nia_timing::collect_to_stderr(
+    let process_output_writer = request.process_output_writer.clone();
+    let mut progress_guard =
+        ProgressBuildGuard::new(request.progress_observer.clone().map(ProgressSession::new));
+    let result = nia_timing::collect_to_stderr(
         TimingOptions::new(request.timings).with_format(request.timing_format),
         || {
-            let timings = request.timings;
-            let invocation = time_summary_stage(timings, "build_resolve_invocation", || {
-                resolve_build_invocation(request)
-            })?;
-            time_summary_stage(timings, "build_prepare_directories", || {
-                prepare_build_directories(&invocation)
-            })?;
-            nia_timing::emit_counter("build.runner_compilations", 1);
-            let runner = time_summary_stage(timings, "build_compile_runner", || {
-                compile_build_runner(&invocation)
-            });
-            if runner.is_err() {
-                nia_timing::emit_counter("build.runner_compile_failures", 1);
-            }
-            let (runner_executable, runner_cache_key) = runner?;
-            let (draft, configure_candidate, runner_reused) =
-                time_summary_stage(timings, "build_configure_plan", || {
-                    let mut configure_candidate =
-                        match configure_cache_candidate(&invocation, &runner_cache_key) {
+            let result = (|| {
+                let timings = request.timings;
+                let invocation = time_summary_stage(timings, "build_resolve_invocation", || {
+                    progress_phase(progress_guard.session(), ProgressPhase::Resolve, || {
+                        resolve_build_invocation(request)
+                    })
+                })?;
+                time_summary_stage(timings, "build_prepare_directories", || {
+                    progress_phase(progress_guard.session(), ProgressPhase::Prepare, || {
+                        prepare_build_directories(&invocation)
+                    })
+                })?;
+                nia_timing::emit_counter("build.runner_compilations", 1);
+                let runner = time_summary_stage(timings, "build_compile_runner", || {
+                    progress_phase(progress_guard.session(), ProgressPhase::Runner, || {
+                        compile_build_runner(&invocation, progress_guard.session())
+                    })
+                });
+                if runner.is_err() {
+                    nia_timing::emit_counter("build.runner_compile_failures", 1);
+                }
+                let (runner_executable, runner_cache_key) = runner?;
+                let configured = time_summary_stage(timings, "build_configure_plan", || {
+                    progress_phase(progress_guard.session(), ProgressPhase::Configure, || {
+                        let mut configure_candidate = match configure_cache_candidate(
+                            &invocation,
+                            &runner_cache_key,
+                            progress_guard.session(),
+                        ) {
                             Ok(ConfigureCacheCandidate::Present) => {
                                 nia_timing::emit_counter("build.configure_cache_candidates", 1);
                                 ConfigureCacheCandidate::Present
@@ -705,180 +804,246 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                             Ok(candidate @ ConfigureCacheCandidate::Miss(_)) => candidate,
                             Err(_) => ConfigureCacheCandidate::None,
                         };
-                    let reusable = ConfigureCache::new(&invocation)
-                        .lookup_reusable(
-                            &runner_cache_key,
-                            &invocation_identity(&invocation),
-                            &invocation.package_root,
-                        )
-                        .inspect(|lookup| {
-                            if let ConfigureCacheLookup::Miss(reason) = lookup
-                                && !matches!(reason, ConfigureCacheMissReason::NotFound)
-                            {
-                                configure_candidate = ConfigureCacheCandidate::Miss(reason.clone());
-                            }
-                        })
-                        .ok();
-                    let mut runner_reused = false;
-                    let draft = match reusable {
-                        Some(ConfigureCacheLookup::Hit(record)) => {
-                            let manifest = record.manifest.encode().ok();
-                            match (ConfigureCache::decode_plan(&record).ok(), manifest) {
-                                (Some(plan), Some(observations)) => {
-                                    runner_reused = true;
-                                    nia_timing::emit_counter("build.configure_cache_hits", 1);
-                                    let cleanup = fs::remove_file(&runner_executable);
-                                    match cleanup {
-                                        Ok(()) => Ok(BuildDraft { plan, observations }),
-                                        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                                            Ok(BuildDraft { plan, observations })
+                        let reusable = ConfigureCache::new(&invocation)
+                            .with_lock_observer(progress_guard.session().map(|progress| {
+                                progress.phase_lock_observer(ProgressPhase::Configure)
+                            }))
+                            .lookup_reusable(
+                                &runner_cache_key,
+                                &invocation_identity(&invocation),
+                                &invocation.package_root,
+                            )
+                            .inspect(|lookup| {
+                                if let ConfigureCacheLookup::Miss(reason) = lookup
+                                    && !matches!(reason, ConfigureCacheMissReason::NotFound)
+                                {
+                                    configure_candidate =
+                                        ConfigureCacheCandidate::Miss(reason.clone());
+                                }
+                            })
+                            .ok();
+                        let mut runner_reused = false;
+                        let draft = match reusable {
+                            Some(ConfigureCacheLookup::Hit(record)) => {
+                                let manifest = record.manifest.encode().ok();
+                                match (ConfigureCache::decode_plan(&record).ok(), manifest) {
+                                    (Some(plan), Some(observations)) => {
+                                        runner_reused = true;
+                                        nia_timing::emit_counter("build.configure_cache_hits", 1);
+                                        let cleanup = fs::remove_file(&runner_executable);
+                                        match cleanup {
+                                            Ok(()) => Ok(BuildDraft { plan, observations }),
+                                            Err(error)
+                                                if error.kind() == io::ErrorKind::NotFound =>
+                                            {
+                                                Ok(BuildDraft { plan, observations })
+                                            }
+                                            Err(error) => {
+                                                Err(BuildError::CleanupRunnerExecutable {
+                                                    path: runner_executable.clone(),
+                                                    error,
+                                                })
+                                            }
                                         }
-                                        Err(error) => Err(BuildError::CleanupRunnerExecutable {
-                                            path: runner_executable.clone(),
-                                            error,
-                                        }),
+                                    }
+                                    _ => {
+                                        nia_timing::emit_counter("build.configure_cache_misses", 1);
+                                        nia_timing::emit_counter("build.runner_executions", 1);
+                                        run_and_cleanup_build_runner_draft(
+                                            &invocation,
+                                            &runner_executable,
+                                            &runner_cache_key,
+                                            process_output_writer.clone(),
+                                            progress_guard.session(),
+                                        )
                                     }
                                 }
-                                _ => {
-                                    nia_timing::emit_counter("build.configure_cache_misses", 1);
-                                    nia_timing::emit_counter("build.runner_executions", 1);
-                                    run_and_cleanup_build_runner_draft(
-                                        &invocation,
-                                        &runner_executable,
-                                        &runner_cache_key,
-                                    )
-                                }
                             }
+                            _ => {
+                                nia_timing::emit_counter("build.configure_cache_misses", 1);
+                                nia_timing::emit_counter("build.runner_executions", 1);
+                                run_and_cleanup_build_runner_draft(
+                                    &invocation,
+                                    &runner_executable,
+                                    &runner_cache_key,
+                                    process_output_writer.clone(),
+                                    progress_guard.session(),
+                                )
+                            }
+                        };
+                        if let Some(progress) = progress_guard.session() {
+                            progress.emit(ProgressEventKind::PhaseCacheDecision {
+                                phase: ProgressPhase::Configure,
+                                reused: runner_reused,
+                            });
                         }
-                        _ => {
-                            nia_timing::emit_counter("build.configure_cache_misses", 1);
-                            nia_timing::emit_counter("build.runner_executions", 1);
-                            run_and_cleanup_build_runner_draft(
-                                &invocation,
-                                &runner_executable,
-                                &runner_cache_key,
-                            )
-                        }
-                    };
-                    (draft, configure_candidate, runner_reused)
+                        draft.map(|draft| (draft, configure_candidate, runner_reused))
+                    })
                 });
-            if draft.is_err() {
-                nia_timing::emit_counter("build.runner_failures", 1);
-            }
-            let draft = draft?;
-            let plan = draft.plan;
-            let preview = preview_build_plan(&plan, &invocation).map_err(|error| {
-                BuildError::ExecuteBuildPlan {
-                    error: Box::new(error),
+                if configured.is_err() {
+                    nia_timing::emit_counter("build.runner_failures", 1);
                 }
-            })?;
-            if print_plan {
-                if output_json {
-                    print!("{}", render_build_plan_json(&plan));
-                } else {
-                    print!("{}", render_build_plan_summary(&plan));
-                }
-            }
-            if explain {
-                if output_json {
-                    print!(
-                        "{}",
-                        render_build_explanation_json_with_observations(
-                            &plan,
-                            &invocation,
-                            configure_candidate.clone(),
-                            &preview,
-                            &draft.observations,
-                        )
-                    );
-                } else {
-                    print!(
-                        "{}",
-                        render_build_explanation_with_observations(
-                            &plan,
-                            &invocation,
-                            configure_candidate.clone(),
-                            &preview,
-                            &draft.observations,
-                        )
-                    );
-                }
-            }
-            if print_observations {
-                if output_json {
-                    print!(
-                        "{}",
-                        render_configure_observations_json(&draft.observations)
-                    );
-                } else {
-                    print!("{}", render_configure_observations(&draft.observations));
-                }
-            }
-            if print_cache || explain {
-                if output_json {
-                    print!(
-                        "{}",
-                        render_configure_cache_json(configure_candidate, runner_reused)
-                    );
-                } else {
-                    println!(
-                        "configure cache: {}; runner {}",
-                        configure_candidate.clone(),
-                        if runner_reused { "reused" } else { "executed" }
-                    );
-                }
-            }
-            if invocation.test_list {
-                for name in test_step_names(&plan, invocation.test_filter.as_deref()) {
-                    println!("{name}");
-                }
-                return Ok(());
-            }
-            if dry_run {
-                if print_cache || explain {
-                    if output_json {
-                        print!("{}", render_action_cache_preview_json(&plan, &preview));
-                    } else {
-                        print!("{}", render_action_cache_preview_summary(&plan, &preview));
-                    }
-                }
-                return Ok(());
-            }
-            if let Some(limit) = invocation.max_parallel_actions {
-                nia_timing::emit_counter("build.action_parallelism_limit", limit.get() as u64);
-            }
-            let result = time_summary_stage(timings, "build_execute_plan", || {
-                execute_build_plan(&plan, &invocation).map_err(|error| {
-                    BuildError::ExecuteBuildPlan {
+                let (draft, configure_candidate, runner_reused) = configured?;
+                let plan = draft.plan;
+                let preview =
+                    progress_phase(progress_guard.session(), ProgressPhase::Preview, || {
+                        preview_build_plan(&plan, &invocation)
+                    })
+                    .map_err(|error| BuildError::ExecuteBuildPlan {
                         error: Box::new(error),
-                    }
-                })
-            });
-            if let Ok(report) = &result {
-                nia_timing::emit_counter("build.steps_executed", report.steps.len() as u64);
-                nia_timing::emit_counter("build.actions_executed", report.actions.len() as u64);
-                emit_action_cache_counters(report);
-                if print_cache || explain {
-                    if output_json {
-                        print!("{}", render_action_cache_json(report, &plan));
-                    } else {
-                        print!("{}", render_action_cache_summary(report));
+                    })?;
+                progress_guard.select(preview.actions.clone());
+                if let Some(progress) = progress_guard.session() {
+                    progress.emit(ProgressEventKind::SelectionReady {
+                        total: preview.actions.len(),
+                        actions: preview.actions.clone(),
+                    });
+                    for key in &preview.actions {
+                        if let Ok(index) = plan
+                            .actions()
+                            .binary_search_by(|action| action.key.cmp(key))
+                        {
+                            let action = &plan.actions()[index];
+                            progress.emit(ProgressEventKind::ActionDescribed {
+                                action: key.clone(),
+                                description: progress_action_description(&plan, action),
+                            });
+                        }
                     }
                 }
-            } else {
-                nia_timing::emit_counter("build.action_failures", 1);
-            }
-            result.map(|_| ())
+                if print_plan {
+                    if output_json {
+                        print!("{}", render_build_plan_json(&plan));
+                    } else {
+                        print!("{}", render_build_plan_summary(&plan));
+                    }
+                }
+                if explain {
+                    if output_json {
+                        print!(
+                            "{}",
+                            render_build_explanation_json_with_observations(
+                                &plan,
+                                &invocation,
+                                configure_candidate.clone(),
+                                &preview,
+                                &draft.observations,
+                            )
+                        );
+                    } else {
+                        print!(
+                            "{}",
+                            render_build_explanation_with_observations(
+                                &plan,
+                                &invocation,
+                                configure_candidate.clone(),
+                                &preview,
+                                &draft.observations,
+                            )
+                        );
+                    }
+                }
+                if print_observations {
+                    if output_json {
+                        print!(
+                            "{}",
+                            render_configure_observations_json(&draft.observations)
+                        );
+                    } else {
+                        print!("{}", render_configure_observations(&draft.observations));
+                    }
+                }
+                if print_cache || explain {
+                    if output_json {
+                        print!(
+                            "{}",
+                            render_configure_cache_json(configure_candidate, runner_reused)
+                        );
+                    } else {
+                        println!(
+                            "configure cache: {}; runner {}",
+                            configure_candidate.clone(),
+                            if runner_reused { "reused" } else { "executed" }
+                        );
+                    }
+                }
+                if invocation.test_list {
+                    for name in test_step_names(&plan, invocation.test_filter.as_deref()) {
+                        println!("{name}");
+                    }
+                    return Ok(());
+                }
+                if dry_run {
+                    if print_cache || explain {
+                        if output_json {
+                            print!("{}", render_action_cache_preview_json(&plan, &preview));
+                        } else {
+                            print!("{}", render_action_cache_preview_summary(&plan, &preview));
+                        }
+                    }
+                    return Ok(());
+                }
+                if let Some(limit) = invocation.max_parallel_actions {
+                    nia_timing::emit_counter("build.action_parallelism_limit", limit.get() as u64);
+                }
+                let result = time_summary_stage(timings, "build_execute_plan", || {
+                    progress_phase(progress_guard.session(), ProgressPhase::Execute, || {
+                        execute_build_plan_with_progress(
+                            &plan,
+                            &invocation,
+                            progress_guard.session(),
+                            process_output_writer.clone(),
+                        )
+                        .map_err(|error| BuildError::ExecuteBuildPlan {
+                            error: Box::new(error),
+                        })
+                    })
+                });
+                if let Ok(report) = &result {
+                    nia_timing::emit_counter("build.steps_executed", report.steps.len() as u64);
+                    nia_timing::emit_counter("build.actions_executed", report.actions.len() as u64);
+                    emit_action_cache_counters(report);
+                    if print_cache || explain {
+                        if output_json {
+                            print!("{}", render_action_cache_json(report, &plan));
+                        } else {
+                            print!("{}", render_action_cache_summary(report));
+                        }
+                    }
+                } else {
+                    nia_timing::emit_counter("build.action_failures", 1);
+                }
+                result.map(|_| ())
+            })();
+            progress_guard.finish(result.is_ok());
+            result
         },
-    )
+    );
+    progress_guard.finish(result.is_ok());
+    result
 }
 
 fn configure_cache_candidate(
     invocation: &BuildInvocation,
     runner_cache_key: &str,
+    progress: Option<&ProgressSession>,
 ) -> io::Result<ConfigureCacheCandidate> {
     ConfigureCache::new(invocation)
+        .with_lock_observer(
+            progress.map(|progress| progress.phase_lock_observer(ProgressPhase::Configure)),
+        )
         .candidate_status(runner_cache_key, &invocation_identity(invocation))
+}
+
+fn progress_phase<T, E>(
+    progress: Option<&ProgressSession>,
+    phase: ProgressPhase,
+    operation: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    match progress {
+        Some(progress) => progress.phase(phase, operation),
+        None => operation(),
+    }
 }
 
 fn test_step_names(plan: &BuildPlan, filter: Option<&str>) -> Vec<String> {
@@ -1838,21 +2003,92 @@ fn environment_json_value(input: &EnvironmentInput) -> serde_json::Value {
 }
 
 fn action_outputs_json(plan: &BuildPlan, action: &PlanAction) -> Vec<serde_json::Value> {
+    action_output_paths(plan, action)
+        .iter()
+        .map(logical_path_json)
+        .collect()
+}
+
+fn action_output_paths<'a>(plan: &'a BuildPlan, action: &'a PlanAction) -> &'a [LogicalPath] {
     match &action.kind {
         ActionKind::CompilerEmit { artifact, .. } => plan
             .artifacts()
-            .iter()
-            .find(|candidate| candidate.key == *artifact)
-            .map(|artifact| vec![logical_path_json(&artifact.output)])
+            .binary_search_by(|candidate| candidate.key.cmp(artifact))
+            .ok()
+            .map(|index| std::slice::from_ref(&plan.artifacts()[index].output))
             .unwrap_or_default(),
         ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
-            command.outputs.iter().map(logical_path_json).collect()
+            &command.outputs
         }
-        ActionKind::GeneratedFile { output, .. } => vec![logical_path_json(output)],
-        ActionKind::InstallArtifact { destination, .. } => vec![logical_path_json(destination)],
+        ActionKind::GeneratedFile { output, .. } => std::slice::from_ref(output),
+        ActionKind::InstallArtifact { destination, .. } => std::slice::from_ref(destination),
         ActionKind::CompilerCheck { .. }
         | ActionKind::Aggregate
-        | ActionKind::Uncacheable { .. } => Vec::new(),
+        | ActionKind::Uncacheable { .. } => &[],
+    }
+}
+
+fn progress_action_description(plan: &BuildPlan, action: &PlanAction) -> ProgressActionDescription {
+    let outputs = action_output_paths(plan, action);
+    let module_source = |module: &ModuleKey| {
+        plan.modules()
+            .binary_search_by(|candidate| candidate.key.cmp(module))
+            .ok()
+            .map(|index| &plan.modules()[index].root_source)
+    };
+    let artifact = |key: &ArtifactKey| {
+        plan.artifacts()
+            .binary_search_by(|candidate| candidate.key.cmp(key))
+            .ok()
+            .map(|index| &plan.artifacts()[index])
+    };
+    let (inputs, total_inputs) = match &action.kind {
+        ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => (
+            command.inputs.iter().take(8).cloned().collect(),
+            command.inputs.len(),
+        ),
+        ActionKind::CompilerCheck { module, .. } => {
+            let inputs = module_source(module)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            let count = inputs.len();
+            (inputs, count)
+        }
+        ActionKind::CompilerEmit {
+            artifact: key,
+            static_archives,
+            ..
+        } => {
+            let inputs = artifact(key)
+                .and_then(|artifact| module_source(&artifact.root_module))
+                .into_iter()
+                .chain(
+                    static_archives
+                        .iter()
+                        .filter_map(|key| artifact(key).map(|artifact| &artifact.output)),
+                )
+                .take(8)
+                .cloned()
+                .collect();
+            (inputs, 1 + static_archives.len())
+        }
+        ActionKind::InstallArtifact { artifact: key, .. } => {
+            let inputs = artifact(key)
+                .map(|artifact| artifact.output.clone())
+                .into_iter()
+                .collect::<Vec<_>>();
+            let count = inputs.len();
+            (inputs, count)
+        }
+        _ => (Vec::new(), 0),
+    };
+    ProgressActionDescription {
+        kind: action_kind_name(action),
+        inputs,
+        total_inputs,
+        outputs: outputs.iter().take(8).cloned().collect(),
+        total_outputs: outputs.len(),
     }
 }
 
@@ -2235,7 +2471,12 @@ fn build_runner_source_for_path(
     Ok(BuildRunnerSource { path, source })
 }
 
-fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String), BuildError> {
+fn compile_build_runner(
+    invocation: &BuildInvocation,
+    progress: Option<&ProgressSession>,
+) -> Result<(PathBuf, String), BuildError> {
+    let lock_observer =
+        progress.map(|progress| progress.phase_lock_observer(ProgressPhase::Runner));
     time_build_stage(invocation.timings, "build_runner_prepare_directory", || {
         create_real_directory(&invocation.runner_dir).map_err(|error| {
             BuildError::CreateRunnerDirectory {
@@ -2258,8 +2499,15 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String
         runner_cache::cache_key(invocation, &runner)
     })?;
     let restored = time_build_stage(invocation.timings, "build_runner_restore_cache", || {
-        runner_cache::restore_executable(invocation, &cache_key).unwrap_or(false)
+        runner_cache::restore_executable(invocation, &cache_key, lock_observer.as_ref())
+            .unwrap_or(false)
     });
+    if let Some(progress) = progress {
+        progress.emit(ProgressEventKind::PhaseCacheDecision {
+            phase: ProgressPhase::Runner,
+            reused: restored,
+        });
+    }
     if restored {
         nia_timing::emit_counter("build.runner_cache_hits", 1);
         return Ok((invocation.runner_executable.clone(), cache_key));
@@ -2363,7 +2611,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<(PathBuf, String
         error: Box::new(error),
     })?;
     let publish_result = time_build_stage(invocation.timings, "build_runner_publish_cache", || {
-        runner_cache::publish_executable(invocation, &cache_key)
+        runner_cache::publish_executable(invocation, &cache_key, lock_observer.as_ref())
     });
     if publish_result.is_err() {
         nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
@@ -2475,6 +2723,8 @@ fn run_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
     runner_cache_key: &str,
+    process_output_writer: Option<Arc<dyn ProcessOutputWriter>>,
+    progress: Option<&ProgressSession>,
 ) -> Result<BuildDraft, BuildError> {
     match fs::remove_file(&invocation.plan_draft) {
         Ok(()) => {}
@@ -2500,7 +2750,11 @@ fn run_build_runner(
         .stderr(Stdio::piped());
     prepare_process_group(&mut command);
     let result = match time_build_stage(invocation.timings, "build_runner_execute_process", || {
-        execute_runner_process(&mut command, invocation.forward_output)
+        execute_runner_process(
+            &mut command,
+            invocation.forward_output,
+            process_output_writer,
+        )
     }) {
         Ok(output) if output.status.success() => {
             let draft = time_build_stage(invocation.timings, "build_runner_read_plan", || {
@@ -2568,6 +2822,9 @@ fn run_build_runner(
                                         &manifest,
                                     );
                                     if ConfigureCache::new(invocation)
+                                        .with_lock_observer(progress.map(|progress| {
+                                            progress.phase_lock_observer(ProgressPhase::Configure)
+                                        }))
                                         .publish_draft(&identity, &draft)
                                         .is_ok()
                                     {
@@ -2677,6 +2934,7 @@ impl From<io::Error> for RunnerProcessError {
 fn execute_runner_process(
     command: &mut Command,
     forward_output: bool,
+    output_writer: Option<Arc<dyn ProcessOutputWriter>>,
 ) -> Result<RunnerProcessOutput, RunnerProcessError> {
     let mut child = command
         .spawn()
@@ -2689,27 +2947,37 @@ fn execute_runner_process(
         terminate_runner(&mut child);
         io::Error::other("build runner stderr pipe was not created")
     })?;
-    let stdout_reader =
-        match spawn_runner_capture(stdout, CapturedStream::Stdout, "stdout", forward_output) {
-            Ok(reader) => reader,
-            Err(error) => {
-                terminate_runner(&mut child);
-                return Err(error.into());
-            }
-        };
-    let stderr_reader =
-        match spawn_runner_capture(stderr, CapturedStream::Stderr, "stderr", forward_output) {
-            Ok(reader) => reader,
-            Err(error) => {
-                terminate_runner(&mut child);
-                let stdout = join_capture_tail(stdout_reader);
-                return Err(RunnerProcessError {
-                    error,
-                    stdout,
-                    stderr: Vec::new(),
-                });
-            }
-        };
+    let stdout_reader = match spawn_runner_capture(
+        stdout,
+        CapturedStream::Stdout,
+        "stdout",
+        forward_output,
+        output_writer.clone(),
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            terminate_runner(&mut child);
+            return Err(error.into());
+        }
+    };
+    let stderr_reader = match spawn_runner_capture(
+        stderr,
+        CapturedStream::Stderr,
+        "stderr",
+        forward_output,
+        output_writer,
+    ) {
+        Ok(reader) => reader,
+        Err(error) => {
+            terminate_runner(&mut child);
+            let stdout = join_capture_tail(stdout_reader);
+            return Err(RunnerProcessError {
+                error,
+                stdout,
+                stderr: Vec::new(),
+            });
+        }
+    };
     let status = match child.wait() {
         Ok(status) => {
             terminate_process_descendants(child.id());
@@ -2767,10 +3035,19 @@ fn spawn_runner_capture(
     stream: CapturedStream,
     name: &'static str,
     forward_output: bool,
+    output_writer: Option<Arc<dyn ProcessOutputWriter>>,
 ) -> io::Result<thread::JoinHandle<StreamCapture>> {
     thread::Builder::new()
         .name(format!("nia-build-runner-{name}"))
-        .spawn(move || capture_stream(reader, stream, forward_output, RUNNER_OUTPUT_TAIL_BYTES))
+        .spawn(move || {
+            capture_stream(
+                reader,
+                stream,
+                forward_output,
+                RUNNER_OUTPUT_TAIL_BYTES,
+                output_writer,
+            )
+        })
         .map_err(|error| {
             io::Error::new(
                 error.kind(),
@@ -2823,7 +3100,7 @@ fn run_and_cleanup_build_runner(
     runner_executable: &Path,
     runner_cache_key: &str,
 ) -> Result<BuildPlan, BuildError> {
-    run_and_cleanup_build_runner_draft(invocation, runner_executable, runner_cache_key)
+    run_and_cleanup_build_runner_draft(invocation, runner_executable, runner_cache_key, None, None)
         .map(|draft| draft.plan)
 }
 
@@ -2831,9 +3108,17 @@ fn run_and_cleanup_build_runner_draft(
     invocation: &BuildInvocation,
     runner_executable: &Path,
     runner_cache_key: &str,
+    process_output_writer: Option<Arc<dyn ProcessOutputWriter>>,
+    progress: Option<&ProgressSession>,
 ) -> Result<BuildDraft, BuildError> {
     let result = time_summary_stage(invocation.timings, "build_run_runner", || {
-        run_build_runner(invocation, runner_executable, runner_cache_key)
+        run_build_runner(
+            invocation,
+            runner_executable,
+            runner_cache_key,
+            process_output_writer,
+            progress,
+        )
     });
     let cleanup = match fs::remove_file(runner_executable) {
         Ok(()) => Ok(()),

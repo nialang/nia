@@ -214,6 +214,70 @@ test-suite and staging-cleanup reports preserve the original action's context.
 Text commands may forward live child output; JSON commands retain it in notes
 without mixing child bytes into the diagnostic envelope.
 
+## Progress Observation
+
+Build progress is an invocation-local observation stream. It is created by the
+CLI and passed through the request; library callers remain silent unless they
+provide an observer. Progress never enters the frozen plan, cache identities,
+resource scheduling, output publication, or diagnostic selection.
+
+The default renderer is intentionally compact. `-v` writes one completion line
+per selected action, `-vv` adds active actions and measured waits, and `-vvv`
+adds cache, resource, and coarse compiler-stage detail. `-q` suppresses only
+progress. `--progress=plain` forces append-only stderr output,
+`--progress=json` emits versioned JSON Lines on stderr, and `--progress=none`
+disables the observer. `auto` selects the interactive single-line/panel
+renderer only when stderr supports it; redirected output degrades to plain
+records.
+
+The selected dependency closure is the accounting boundary. Shared actions are
+counted once, while every selected step remains represented in the final build
+report. A terminal action event is emitted exactly once and distinguishes
+cached, executed, no-work, failed, and cancelled outcomes. Compiler checking,
+code generation, and linking are nested activities of one action. Wait events
+are emitted only by owners that observed real contention: dependency admission,
+output locks, and action-cache mutation locks. Runner/configure cache waits
+use their bootstrap phase context and do not count as selected actions.
+Queue delay and resource permit wait are reported separately after admission,
+and resource snapshots carry an
+owner generation so stale notifications cannot overwrite newer state.
+Cache lookup decisions are observed once at the actual lookup boundary. Failed
+or cancelled actions retain that decision in their terminal record; successful
+actions carry their final cache outcome, including publication fallback. A
+lookup hit followed by a failed output restore remains a failed action and does
+not increase the cached-success count.
+
+The progress worker retains O(selected actions + selected steps) pending data
+and never invokes a renderer while a build ownership lock is held. Resource
+snapshots and repeated complete
+wait/activity spans are coalesced; lifecycle and terminal events retain their
+sequence order. Renderer failures shut down progress output without changing
+the build result or child-output capture policy. Progress is written to stderr,
+leaving stdout available for plan, observation, cache, and test-list products.
+
+### JSON progress
+
+Every progress line has `kind: "build-progress"`, `schema_version: 1`,
+`event`, `sequence`, and `elapsed_ms`. Elapsed time is measured at the producer,
+before observer delivery. Sequence is monotonic but may have gaps from
+verbosity projection and coalescing. It describes observation order; action
+`ordinal` describes canonical selected order. Identities use separate
+`package`/`name` fields, and logical paths keep a typed `root` and relative
+`path`. No raw process arguments, environment values, or generated payloads
+appear in progress.
+
+Build/phase/selection/action terminal records are available at the default
+level. `-v` adds action starts and `action-cache-decision` records; `-vv` adds
+queues, waves, waits, and resource snapshots; `-vvv` adds bounded action
+descriptions and compiler activities.
+Outcomes are `cached`, `executed`, `nowork`, `failed`, and `cancelled`.
+Wait results are `acquired`, `cancelled`, and `failed`; wait names are
+`dependency`, `resource permit`, `output lock`, and `cache lock`. Unknown action
+totals are omitted on bootstrap failure. Millisecond durations are nonnegative
+integers. Diagnostics and timing records keep their existing schemas and can
+share stderr with progress; build progress is flushed before those final
+records. Compatible additional fields may be added within version 1.
+
 External commands run with standard input closed by default. A command may opt
 into a declared file-backed stdin input from the package or build tree; that
 path is part of the declared input set, command identity, and dependency

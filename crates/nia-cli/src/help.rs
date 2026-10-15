@@ -128,6 +128,18 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     left: "--print-observations",
                     right: "print configuration filesystem observations",
                 },
+                HelpRow {
+                    left: "-q, --quiet",
+                    right: "suppress build progress output",
+                },
+                HelpRow {
+                    left: "-v, -vv, -vvv, --verbose",
+                    right: "show action, scheduler, and cache detail",
+                },
+                HelpRow {
+                    left: "--progress <auto|plain|json|none>",
+                    right: "select progress transport",
+                },
                 LTO_ROW,
                 OPTIMIZATION_ROW,
                 PROFILE_ROW,
@@ -175,6 +187,18 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 HelpRow {
                     left: "-j, --jobs <count>",
                     right: "limit concurrent test and build actions",
+                },
+                HelpRow {
+                    left: "-q, --quiet",
+                    right: "suppress build progress output",
+                },
+                HelpRow {
+                    left: "-v, -vv, -vvv, --verbose",
+                    right: "show action, scheduler, and cache detail",
+                },
+                HelpRow {
+                    left: "--progress <auto|plain|json|none>",
+                    right: "select progress transport",
                 },
                 OPTIMIZATION_ROW,
                 PROFILE_ROW,
