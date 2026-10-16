@@ -1274,7 +1274,17 @@ impl BackendValidator<'_> {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 entry.span,
-                "closure entry state type does not match its identity, owner, and ABI signature",
+                format!(
+                    "closure in {} cannot resolve its type parameters: the closure's state type does not match its ABI signature. This may occur with generic closures that capture references. Try simplifying the closure or avoiding capture of generic-typed values.",
+                    match &entry.key.owner {
+                        nia_backend_ir::BackendClosureEntryOwner::Source(def_id) => {
+                            format!("function {def_id:?}")
+                        }
+                        nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(key) => {
+                            format!("function {:?} specialized with type parameters", key.def_id)
+                        }
+                    }
+                ),
             ));
         }
         let state_pointer_matches = match self.index.type_store().get(entry.abi.state_pointer_type)
