@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn query_loader_loads_builtin_trait_provider_from_a_non_std_package() {
+    let root = temp_dir("query_loader_loads_builtin_trait_provider_from_a_non_std_package");
+    let main_path = root.join("main.nia");
+    let pkg_root = root.join("pkg.nia");
+    write(
+        &main_path,
+        r#"
+using dep::types;
+
+fn main(value: types::Widget) usize {
+    value.len()
+}
+"#,
+    );
+    write(&pkg_root, "pub module types;\npub module extensions;");
+    write(
+        &root.join("types.nia"),
+        "pub struct Widget { value: usize }",
+    );
+    fs::create_dir_all(root.join("extensions")).expect("create provider directory");
+    write(&root.join("extensions.nia"), "pub module widgets;");
+    write(
+        &root.join("extensions/widgets.nia"),
+        r#"
+using pkg::types;
+
+extend types::Widget : Len {
+    fn len(&self) usize { self.value }
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
+        .expect("insert module map entry");
+
+    let program =
+        load_program_with_trait_provider_demand(&main_path, module_map, Some("Widget"), "Len", &[]);
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(
+        &program,
+        root.join("extensions/widgets.nia")
+            .to_string_lossy()
+            .as_ref(),
+    );
+}
+
+#[test]
 fn query_loader_loads_package_private_provider_for_reexported_build_type() {
     let root = temp_dir("query_loader_loads_package_private_provider_for_reexported_build_type");
     let main_path = root.join("main.nia");

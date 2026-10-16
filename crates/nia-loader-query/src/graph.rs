@@ -17,13 +17,14 @@ use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
-    ModuleGraph, ModuleGraphError, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
-    module_declaration_visibility_allows,
+    ModuleGraph, ModuleGraphError, ModuleGraphSnapshot, ModuleNode, ModulePath,
+    ResolvedModuleDeclaration, module_declaration_visibility_allows,
 };
 use nia_loader_contract::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use nia_source::{SourceId, SourcePath};
-use nia_symbol::SymbolId;
+use nia_symbol::{SymbolId, ToSymbolId};
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub(crate) enum TraversalError {
@@ -426,6 +427,41 @@ fn apply_provider_demands(
             )?;
             continue;
         }
+        if let nia_loader_contract::ProviderRequest::TraitImpl {
+            target_type_name,
+            trait_name,
+            trait_type_argument_names,
+        } = &demand.request
+            && is_builtin_trait_name(*trait_name)
+        {
+            apply_builtin_trait_demand(
+                db,
+                graph,
+                node,
+                *target_type_name,
+                *trait_name,
+                trait_type_argument_names,
+                diagnostics,
+            )?;
+        }
+        if let nia_loader_contract::ProviderRequest::Method {
+            target_type_name,
+            method_name,
+        } = &demand.request
+            && *method_name == nia_symbol::known::LEN
+        {
+            // `Len` is the one language-owned trait whose public surface is
+            // method-shaped rather than represented as a builtin trait id.
+            apply_builtin_trait_demand(
+                db,
+                graph,
+                node,
+                *target_type_name,
+                nia_symbol::known::LEN_TYPE,
+                &[],
+                diagnostics,
+            )?;
+        }
         for import in imports {
             let processing = match demand.request {
                 nia_loader_contract::ProviderRequest::Method {
@@ -459,6 +495,145 @@ fn apply_provider_demands(
         }
     }
     Ok(())
+}
+
+fn is_builtin_trait_name(name: SymbolId) -> bool {
+    name == nia_symbol::known::LEN_TYPE
+        || nia_ids::BuiltinTrait::ALL
+            .into_iter()
+            .any(|builtin| builtin.symbol_id() == name)
+}
+
+fn apply_builtin_trait_demand(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    requesting_node: &ModuleNode,
+    target_type_name: Option<SymbolId>,
+    trait_name: SymbolId,
+    trait_type_argument_names: &[Option<SymbolId>],
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+) -> QueryResult<()> {
+    let processing = UsedModulePathProcessing::IfProvidesTraitImpl {
+        target_type_name,
+        trait_name,
+        trait_type_argument_names: trait_type_argument_names.to_vec(),
+    };
+    let mut visited = HashSet::new();
+    let mut providers = Vec::new();
+    for (package, package_path) in db.context().module_map.entries() {
+        if nia_imports::is_entry_module_root(package) {
+            continue;
+        }
+        if graph.package_root(&package).is_none() {
+            graph.intern_package_root(&package, package_path.clone())?;
+        }
+        let Some(root_id) = graph.package_root(&package) else {
+            continue;
+        };
+        let Some(root) = graph.get(root_id).cloned() else {
+            continue;
+        };
+        BuiltinTraitProviderSearch {
+            db,
+            graph,
+            package,
+            package_root: root_id,
+            requesting_module: requesting_node.id,
+            target_type_name,
+            trait_name,
+            trait_type_argument_names,
+            visited: &mut visited,
+            providers: &mut providers,
+        }
+        .collect(&root.path, &root.module_path, &mut Vec::new())?;
+    }
+    for (package, segments) in providers {
+        let path = UsedModulePath::Package {
+            package,
+            segments,
+            include_declared_children: false,
+            processing: processing.clone(),
+        };
+        record_traversal_diagnostic(
+            add_used_module_path(db, graph, requesting_node.id, &path),
+            diagnostics,
+            &requesting_node.path,
+        )?;
+    }
+    Ok(())
+}
+
+struct BuiltinTraitProviderSearch<'a> {
+    db: &'a QueryDb<LoaderContext>,
+    graph: &'a ModuleGraph,
+    package: SymbolId,
+    package_root: nia_imports::ModuleId,
+    requesting_module: nia_imports::ModuleId,
+    target_type_name: Option<SymbolId>,
+    trait_name: SymbolId,
+    trait_type_argument_names: &'a [Option<SymbolId>],
+    visited: &'a mut HashSet<String>,
+    providers: &'a mut Vec<(SymbolId, Vec<SymbolId>)>,
+}
+
+impl BuiltinTraitProviderSearch<'_> {
+    fn collect(
+        &mut self,
+        parent_path: &SourcePath,
+        parent_module_path: &ModulePath,
+        segments: &mut Vec<SymbolId>,
+    ) -> QueryResult<()> {
+        let declarations = self
+            .db
+            .get(module_declarations_query(self.db, parent_path)?)?;
+        for declaration in &declarations.semantic.declarations {
+            if segments.is_empty()
+                && !module_declaration_visibility_allows(
+                    declaration.visibility,
+                    self.graph,
+                    self.package_root,
+                    self.requesting_module,
+                )
+            {
+                continue;
+            }
+            let child_path = self.graph.declared_child_source_path_for(
+                parent_path,
+                parent_module_path,
+                declaration.name,
+            );
+            let child_module_path = parent_module_path.child(declaration.name);
+            segments.push(declaration.name);
+
+            // The language-owned `builtin` facade has synthesized providers.
+            // Every source-defined provider, in any package or nesting depth,
+            // is selected solely from its ordinary provider summary.
+            let provides = if declaration.name == nia_symbol::known::BUILTIN {
+                true
+            } else {
+                let summary = self.db.get(crate::queries::provider_summary_query(
+                    self.db,
+                    &child_path,
+                )?)?;
+                summary.defines_trait_impl(
+                    self.target_type_name.as_ref(),
+                    &self.trait_name,
+                    self.trait_type_argument_names,
+                    None,
+                )
+            };
+            if provides {
+                self.providers.push((self.package, segments.clone()));
+            }
+
+            let key = child_path.identity().normalized_path().to_owned();
+            if self.visited.insert(key) {
+                self.collect(&child_path, &child_module_path, segments)?;
+            }
+            segments.pop();
+        }
+        Ok(())
+    }
 }
 
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {

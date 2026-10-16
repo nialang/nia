@@ -149,6 +149,11 @@ impl<'a> BodyChecker<'a> {
         if self.is_error_recovery_ty(iterable_ty) {
             return (self.error(), self.error());
         }
+        self.record_trait_provider_demand(
+            iterable_ty,
+            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
+            &[],
+        );
         if !self.current_context_proves_trait_obligation(
             iterable_ty,
             nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
@@ -166,6 +171,16 @@ impl<'a> BodyChecker<'a> {
         }
         let item_ty = self.iterable_item_projection(iterable_ty);
         let iterator_ty = self.iterable_iter_projection(iterable_ty);
+        if !matches!(
+            self.interner.get(iterator_ty),
+            Some(TyKind::Projection { .. } | TyKind::Error)
+        ) {
+            self.record_trait_provider_demand(
+                iterator_ty,
+                nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+                &[],
+            );
+        }
         self.record_trait_method_ref(SemanticTraitMethodRef {
             module_id: self.timing_module_id,
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
