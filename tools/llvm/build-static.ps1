@@ -130,6 +130,9 @@ $cmakeArgs = @(
     '-DLLVM_BUILD_BENCHMARKS=OFF',
     '-DLLVM_BUILD_EXAMPLES=OFF'
 )
+if ($env:LLVM_CMAKE_FRESH -eq '1') {
+    $cmakeArgs = @('--fresh') + $cmakeArgs
+}
 & $cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'LLVM CMake configuration failed.' }
 & $cmake '--build' $BuildRoot '--parallel' $jobs
