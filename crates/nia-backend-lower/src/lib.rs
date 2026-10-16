@@ -1932,6 +1932,32 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, arg.ty);
                 }
             }
+            Some(TyKind::ClosureState {
+                owner_instance,
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                if let Some(owner) = owner_instance {
+                    if let Some(self_arg) = owner.self_arg {
+                        self.add_ty(lowerer, self_arg);
+                    }
+                    for arg in owner.args {
+                        self.add_ty(lowerer, arg);
+                    }
+                    for arg in owner.const_args {
+                        self.add_ty(lowerer, arg.ty);
+                    }
+                }
+                for capture in captures {
+                    self.add_ty(lowerer, capture);
+                }
+                for param in params {
+                    self.add_ty(lowerer, param);
+                }
+                self.add_ty(lowerer, return_type);
+            }
             Some(
                 TyKind::Error
                 | TyKind::ConstOnly
@@ -1940,8 +1966,7 @@ impl ReachableAggregateRoots {
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::Primitive(_)
-                | TyKind::Vector { .. }
-                | TyKind::ClosureState { .. },
+                | TyKind::Vector { .. },
             )
             | None => {}
         }
@@ -2033,6 +2058,7 @@ pub(crate) struct TypeInstantiationKey {
     ty: InternedTyId,
     substitutions: TypeSubstitutionId,
     current_function: Option<GlobalDefId>,
+    instantiation_module_id: Option<ModuleId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
