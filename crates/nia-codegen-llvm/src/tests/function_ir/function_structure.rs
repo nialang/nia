@@ -605,7 +605,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     assert!(has_internal_diagnostic(
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
-        "closure entry state type does not match its identity, owner, and ABI signature"
+        "closure in function"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,

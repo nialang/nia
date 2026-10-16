@@ -972,6 +972,7 @@ impl<'a> ModuleLowerer<'a> {
             ty,
             substitutions,
             current_function: self.instantiation.function,
+            instantiation_module_id: self.instantiation.instantiation_module_id,
         };
         let can_use_cache = active_projections.is_empty();
         if can_use_cache && let Some(instantiated) = self.type_context.type_instantiation(&key) {
@@ -988,7 +989,12 @@ impl<'a> ModuleLowerer<'a> {
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::SelfParam) => {
-                let instantiated = self.self_substitution(substitutions).unwrap_or(ty);
+                let instantiated = self
+                    .self_substitution(substitutions)
+                    .map(|instantiated| {
+                        self.stamp_current_closure_owner(instantiated, substitutions)
+                    })
+                    .unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Opaque) => self.finish_type_instantiation(key, ty, can_use_cache),
