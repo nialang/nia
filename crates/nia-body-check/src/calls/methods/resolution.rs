@@ -1525,7 +1525,7 @@ impl<'a> BodyChecker<'a> {
         any_strict
     }
 
-    fn method_candidate_param_types(
+    pub(in crate::calls) fn method_candidate_param_types(
         &mut self,
         candidate: &MethodCandidate,
         signature: &FunctionSignature,

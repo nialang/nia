@@ -114,6 +114,58 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_iterator_callbacks_infer_projected_item_parameters() {
+    let root = temp_dir("emit_exe_std_iterator_callbacks_infer_projected_item_parameters");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    // The range provider is loaded by builtin-trait demand, while `fold` is
+    // an extension method and therefore remains explicitly imported.
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let squares = (1..5).iter().fold(0, &\acc, value -> acc + value * value);
+    let add = \acc, value -> acc + value;
+    let sum = (1..5).iter().fold(0, &add);
+    let inclusive = (1..=4).iter().fold(0, &\acc: i32, value -> acc + value);
+    let wide = (1u64..4).iter().fold(0u64, &\acc, value -> acc + value);
+    let prefix = (1..100).iter().take(3).fold(0, &\acc, value -> acc + value);
+    let mut seen = 0;
+    (1..4).iter().forEach(&\[&mut seen] value -> {
+        seen.* += value;
+    });
+    if squares != 30 or sum != 10 or inclusive != 10 or wide != 6 or prefix != 6 or seen != 6 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std iterator callback inference");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_iterator_try_fold_preserves_error_and_stops_consuming() {
     let root = temp_dir("emit_exe_std_iterator_try_fold_preserves_error_and_stops_consuming");
     let main = root.join("main.nia");

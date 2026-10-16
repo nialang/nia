@@ -1459,12 +1459,13 @@ fn curried() i32 {
 ### Parameter Inference
 
 A parameter type may be omitted when it can be determined from the closure's
-uses in the same expression context: an expected callable type or a direct call
-of the closure. Return types are inferred from the body and context; a closure
-has no return annotation. A closure is monomorphic, so all uses must agree on
-its parameter types. A parameter type that appears in neither the body nor the
-context cannot be inferred and must be annotated, as must a parameter whose
-closure is only later passed by address.
+uses in the same function body: an expected callable type, a direct call, or a
+later address conversion to a callable view at a function or method call.
+Generic callable parameters participate in the same inference. Return types are
+inferred from the body and context; a closure has no return annotation. A
+closure is monomorphic, so all uses must agree on its parameter types. A
+parameter type that appears in neither the body nor any callable context cannot
+be inferred and must be annotated.
 
 ```nia
 fn apply(callback: &Fn(i32) i32, value: i32) i32 {
@@ -1481,8 +1482,8 @@ fn inferred() i32 {
 ### Conversion To Views And Function Pointers
 
 A closure is a value with its own anonymous type. It converts in two ways, both
-only through a `&` or `&mut` expression applied directly to the closure while
-the target type is expected:
+through a `&` or `&mut` expression applied to the closure value while the target
+type is expected:
 
 - To a callable view `&Fn(...)` or `&mut Fn(...)`. `&closure` gives only a
   read-only view; `&mut closure` gives either kind. Parameter and return types
@@ -1490,8 +1491,8 @@ the target type is expected:
 - To a thin `&fn(...)` pointer, only for a closure without captures and only
   with `&closure`.
 
-Storing `&closure` in a pointer first and converting later is not a
-conversion. A closure with captures cannot become a `&fn(...)`.
+Storing a callable view first and converting it later is not a conversion. A
+closure with captures cannot become a `&fn(...)`.
 
 ```nia
 fn views() i32 {
@@ -1722,8 +1723,9 @@ allowed. Visibility is written on each member.
 Method calls resolve statically; `.` never implies dynamic dispatch except on
 [trait objects](#trait-object-coercion-and-dispatch). Candidates are the
 methods of visible `extend` blocks for the receiver type: public methods from
-loaded modules, and private methods in their own module. Two visible methods
-with the same name for the same receiver type make a call ambiguous.
+modules reached through `using`, and private methods in their own module. Two
+visible methods with the same name for the same receiver type make a call
+ambiguous.
 
 ```nia
 fn methods() i32 {

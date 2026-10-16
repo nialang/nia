@@ -484,6 +484,48 @@ fn main(box: Box) bool {
 }
 
 #[test]
+fn infers_let_bound_closure_from_method_callable_parameter() {
+    let checked = pipeline(
+        r#"
+struct Box { value: i32 }
+
+extend Box {
+    fn apply(self, callback: &Fn(i32) i32) i32 {
+        callback(self.value)
+    }
+}
+
+fn main() i32 {
+    let increment = \value -> value + 1;
+    Box { value: 1 }.apply(&increment)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_let_bound_closure_from_generic_method_callable_parameter() {
+    let checked = pipeline(
+        r#"
+struct Box {}
+
+extend Box {
+    fn apply[T](self, callback: &Fn(T) T, value: T) T {
+        callback(value)
+    }
+}
+
+fn main() i32 {
+    let identity = \value -> value;
+    Box {}.apply(&identity, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn method_argument_matching_traverses_all_trait_object_associated_bindings() {
     let checked = pipeline(
         r#"

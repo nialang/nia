@@ -92,6 +92,72 @@ mod trait_methods;
 mod type_patterns;
 
 impl<'a> BodyChecker<'a> {
+    /// Returns a unique method candidate's value parameter and return types
+    /// for the closure inference pre-pass. Resolution is shared with ordinary
+    /// method calls; this helper only exposes the signature and does not
+    /// check arguments or record a call.
+    pub(crate) fn method_signature_for_inference(
+        &mut self,
+        receiver: &Expr,
+        receiver_ty: InternedTyId,
+        name: &SymbolId,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        if let Some(signature) =
+            self.builtin_trait_method_signature_for_inference(receiver_ty, name)
+        {
+            return Some(signature);
+        }
+        let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
+        if resolution.candidates.len() + resolution.trait_candidates.len() != 1
+            || !resolution.dynamic_candidates.is_empty()
+        {
+            return None;
+        }
+        if let Some(candidate) = resolution.candidates.first() {
+            let signature = self
+                .resolved_function_signature(candidate.method.def_id)
+                .map(|resolved| resolved.signature)?;
+            let params = self.method_candidate_param_types(candidate, &signature);
+            let return_type = self.substitute_generics_and_consts_with_self(
+                signature.return_type,
+                &candidate.target_substitutions,
+                &candidate.target_const_substitutions,
+                candidate.self_ty,
+            );
+            return Some((params, return_type));
+        }
+
+        let candidate = resolution.trait_candidates.first()?;
+        let target_substitutions =
+            self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        let target_const_substitutions = self.trait_const_substitutions_for_candidate(
+            candidate.trait_id,
+            &candidate.trait_args,
+            &candidate.trait_const_args,
+        );
+        let params = candidate
+            .signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| {
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &target_substitutions,
+                    &target_const_substitutions,
+                    candidate.self_ty,
+                )
+            })
+            .collect();
+        let return_type = self.substitute_generics_and_consts_with_self(
+            candidate.signature.return_type,
+            &target_substitutions,
+            &target_const_substitutions,
+            candidate.self_ty,
+        );
+        Some((params, return_type))
+    }
+
     fn check_contextual_receiver_expr(
         &mut self,
         receiver: &Expr,
