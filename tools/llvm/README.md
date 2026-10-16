@@ -38,9 +38,12 @@ On Windows, use the PowerShell build entry point. It pins the source tree to
 the same LLVM release, configures the MSVC static runtime, and disables
 optional libraries that are not needed by Nia:
 
-    $env:LLVM_SOURCE_ROOT = 'D:\Downloads\llvm-project-23.1.2'
+    $env:LLVM_SOURCE_ROOT = 'D:\Downloads\llvm-project'
+    $env:LLVM_BUILD_ROOT = 'D:\Tools\llvm-build'
+    $env:LLVM_INSTALL_ROOT = 'D:\Tools\llvm'
     .\tools\llvm\build-static.ps1
 
-The source root may be a worktree from the main llvm-project clone. It must be
-checked out at the llvmorg-23.1.2 tag; the LLVM main branch is not used by this
-workspace.
+The source root is a standalone checkout at the `llvmorg-23.1.2` tag; the LLVM
+main branch is not used by this workspace. When moving an existing build tree
+or changing its source path, set `LLVM_CMAKE_FRESH=1` for the first invocation
+to regenerate its CMake cache.

@@ -54,7 +54,7 @@ Set the LLVM prefix and its `bin` directory once at user scope so new
 PowerShell, Cargo, and IDE processes inherit them:
 
 ```powershell
-$llvm = 'C:\Users\you\tools\llvm-23.1.2'
+$llvm = 'D:\Tools\llvm'
 [Environment]::SetEnvironmentVariable('LLVM_SYS_231_PREFIX', $llvm, 'User')
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $llvmBin = Join-Path $llvm 'bin'
