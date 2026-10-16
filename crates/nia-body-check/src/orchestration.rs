@@ -186,6 +186,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         node_resolved_calls: FastHashMap::default(),
         node_function_references: FastHashMap::default(),
         inferred_closures: FastHashMap::default(),
+        inferred_local_closures: FastHashMap::default(),
         generic_instantiations: Vec::new(),
         function_facts: HashMap::new(),
         function_bodies: HashMap::new(),

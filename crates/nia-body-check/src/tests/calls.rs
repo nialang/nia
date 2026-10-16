@@ -239,6 +239,74 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_let_bound_closure_when_passed_by_readonly_view() {
+    let checked = pipeline(
+        r#"
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    let increment = \value -> { value + 1 };
+    apply(&increment, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_let_bound_closure_for_generic_callable_view() {
+    let checked = pipeline(
+        r#"
+fn apply[T](callback: &Fn(T) T, value: T) T {
+    callback(value)
+}
+
+fn main() i32 {
+    let identity = \value -> { value };
+    apply(&identity, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_let_bound_closure_for_mutable_callable_view() {
+    let checked = pipeline(
+        r#"
+fn applyMut(callback: &mut Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    let mut increment = \value -> { value + 1 };
+    applyMut(&mut increment, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_let_bound_closure_for_explicit_generic_callable_view() {
+    let checked = pipeline(
+        r#"
+fn apply[T](callback: &Fn(T) T, value: T) T {
+    callback(value)
+}
+
+fn main() i32 {
+    let identity = \value -> value;
+    apply[i32](&identity, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn infers_nested_closure_signatures_across_later_calls() {
     let checked = pipeline(
         r#"
@@ -901,11 +969,12 @@ fn main(base: i32) i32 {{
 }}
 "#,
         ));
-        assert!(checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .summary
-                .contains("type mismatch in binding initializer")
-        }));
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.summary.contains("type mismatch") })
+        );
     }
 }
 

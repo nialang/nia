@@ -42,10 +42,22 @@ use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{BinaryOp, Block, Expr, ExprKind, Pattern, PatternKind, Stmt, StmtKind, UnaryOp};
 use nia_ids::{InternedTyId, LocalId};
 use nia_node_id::VersionedNodeKey;
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_symbol::SymbolId;
+use nia_ty::{PrimitiveTy, RangeTyKind, TyKind};
 use std::collections::HashMap;
 
 type InferId = usize;
+
+fn closure_expr_key(expr: &Expr) -> Option<VersionedNodeKey> {
+    match &expr.kind {
+        ExprKind::Closure { .. } => Some(expr.node_key.clone()),
+        ExprKind::Unary {
+            op: UnaryOp::Ref | UnaryOp::RefReadOnly,
+            expr,
+        } => closure_expr_key(expr),
+        _ => None,
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct InferredClosureSignature {
@@ -91,7 +103,14 @@ impl BodyChecker<'_> {
             ExprKind::Unary {
                 op: UnaryOp::Ref | UnaryOp::RefReadOnly,
                 expr,
-            } if matches!(expr.kind, ExprKind::Closure { .. }) => expr,
+            } => return self.inferred_closure_signature(expr),
+            ExprKind::Ident(_) => {
+                let local = match self.local_use(expr) {
+                    Some(nia_local_resolve::LocalUse::Local(local)) => local,
+                    _ => return None,
+                };
+                return self.inferred_local_closures.get(&local);
+            }
             _ => return None,
         };
         self.inferred_closures.get(&closure.node_key)
@@ -186,6 +205,7 @@ struct FunctionInference {
     locals: HashMap<LocalId, InferId>,
     exprs: HashMap<VersionedNodeKey, InferId>,
     closures: Vec<ClosureTerms>,
+    closure_locals: HashMap<LocalId, VersionedNodeKey>,
     operators: Vec<OperatorObligation>,
     return_stack: Vec<InferId>,
 }
@@ -218,10 +238,218 @@ impl BodyChecker<'_> {
                 },
             );
         }
+        for (local, key) in inference.closure_locals {
+            if let Some(signature) = self.inferred_closures.get(&key).cloned() {
+                self.inferred_local_closures.insert(local, signature);
+            }
+        }
     }
 }
 
 impl FunctionInference {
+    /// Lower a signature type into the local equality graph. Generic
+    /// parameters become fresh terms for this particular call, so a generic
+    /// callee contributes the same constraints as a concrete callee without
+    /// pretending that its declaration-level type ids are concrete values.
+    fn signature_term(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        ty: InternedTyId,
+        generics: &mut HashMap<SymbolId, InferId>,
+    ) -> InferId {
+        match checker.interner.get(ty).cloned() {
+            Some(TyKind::GenericParam(name)) => {
+                *generics.entry(name).or_insert_with(|| self.fresh())
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                name,
+            }) => {
+                let resolved = checker.resolve_associated_type_projection(
+                    self_ty,
+                    trait_id,
+                    &trait_args,
+                    &trait_const_args,
+                    &name,
+                );
+                match resolved {
+                    Some(resolved)
+                        if resolved != ty
+                            && !matches!(
+                                checker.interner.get(resolved),
+                                Some(TyKind::Projection { .. })
+                            ) =>
+                    {
+                        self.signature_term(checker, resolved, generics)
+                    }
+                    _ => self.known(ty),
+                }
+            }
+            Some(TyKind::Tuple(elems)) => {
+                let elems = elems
+                    .into_iter()
+                    .map(|elem| self.signature_term(checker, elem, generics))
+                    .collect();
+                self.with_shape(InferShape::Tuple(elems))
+            }
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let elem = self.signature_term(checker, elem, generics);
+                self.with_shape(InferShape::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.signature_term(checker, elem, generics);
+                self.with_shape(InferShape::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.signature_term(checker, error, generics);
+                let value = self.signature_term(checker, value, generics);
+                self.with_shape(InferShape::ErrorUnion { error, value })
+            }
+            Some(
+                TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic: false,
+                    ..
+                }
+                | TyKind::FunctionItem {
+                    params,
+                    return_type,
+                    is_variadic: false,
+                    ..
+                }
+                | TyKind::Callable {
+                    params,
+                    return_type,
+                    ..
+                }
+                | TyKind::CallablePointee {
+                    params,
+                    return_type,
+                }
+                | TyKind::ClosureState {
+                    params,
+                    return_type,
+                    ..
+                },
+            ) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.signature_term(checker, param, generics))
+                    .collect();
+                let return_type = self.signature_term(checker, return_type, generics);
+                self.with_shape(InferShape::Callable {
+                    params,
+                    return_type,
+                })
+            }
+            _ => self.known(ty),
+        }
+    }
+
+    fn direct_call_signature_terms(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        callee: &Expr,
+    ) -> Option<(Vec<InferId>, InferId)> {
+        let signature = checker.direct_callee_signature(callee)?.signature;
+        let mut generics = HashMap::new();
+        let params = signature
+            .params
+            .into_iter()
+            .map(|param| self.signature_term(checker, param.ty, &mut generics))
+            .collect();
+        let return_type = self.signature_term(checker, signature.return_type, &mut generics);
+        Some((params, return_type))
+    }
+
+    fn explicit_call_signature_terms(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        callee: &Expr,
+        type_args: &[nia_ast::BracketArg],
+    ) -> Option<(Vec<InferId>, InferId)> {
+        let signature = checker.direct_callee_signature(callee)?.signature;
+        let mut generics = HashMap::new();
+        let mut type_index = 0;
+        for generic in &signature.generic_params {
+            if !matches!(
+                generic.kind,
+                nia_item_signatures::GenericParamSignatureKind::Type
+            ) {
+                continue;
+            }
+            let arg = type_args.get(type_index)?.ty.as_ref()?;
+            let arg = checker.ty_for_type(arg);
+            let term = self.signature_term(checker, arg, &mut generics);
+            generics.insert(generic.name, term);
+            type_index += 1;
+        }
+        let params = signature
+            .params
+            .into_iter()
+            .map(|param| self.signature_term(checker, param.ty, &mut generics))
+            .collect();
+        let return_type = self.signature_term(checker, signature.return_type, &mut generics);
+        Some((params, return_type))
+    }
+
+    fn method_call_signature_terms(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        receiver: &Expr,
+        name: &nia_symbol::SymbolId,
+        receiver_term: InferId,
+    ) -> Option<(Vec<InferId>, InferId)> {
+        let receiver_ty = self.resolve(checker, receiver_term)?;
+        let (params, return_type) =
+            checker.method_signature_for_inference(receiver, receiver_ty, name)?;
+        let mut generics = HashMap::new();
+        let params = params
+            .into_iter()
+            .map(|param| self.signature_term(checker, param, &mut generics))
+            .collect();
+        let return_type = self.signature_term(checker, return_type, &mut generics);
+        Some((params, return_type))
+    }
+
+    fn constrain_method_call(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        callee: &Expr,
+        args: &[Expr],
+        expected: Option<InferId>,
+    ) -> Option<InferId> {
+        let ExprKind::Field { lhs, name } = &callee.kind else {
+            return None;
+        };
+        let receiver = self.constrain_expr(checker, lhs, None);
+        if let Some(receiver_ty) = self.resolve(checker, receiver)
+            && matches!(
+                checker.interner.get(receiver_ty),
+                Some(TyKind::Projection { .. })
+            )
+        {
+            // Associated projections are normalized by the authoritative body
+            // checker once the method call supplies its complete context. The
+            // local pre-pass must not recursively resolve an incomplete
+            // projection chain.
+            return None;
+        }
+        let (params, method_result) =
+            self.method_call_signature_terms(checker, lhs, name, receiver)?;
+        let result = expected.unwrap_or(method_result);
+        self.unify(checker, result, method_result);
+        for (arg, param) in args.iter().zip(params) {
+            let actual = self.constrain_expr(checker, arg, Some(param));
+            self.unify(checker, param, actual);
+        }
+        Some(result)
+    }
+
     /// Allocate an unconstrained equivalence-class representative.
     fn fresh(&mut self) -> InferId {
         let id = self.nodes.len();
@@ -295,6 +523,12 @@ impl FunctionInference {
                 value: self.known(value),
             }),
             Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: false,
+                ..
+            })
+            | Some(TyKind::FunctionItem {
                 params,
                 return_type,
                 is_variadic: false,
@@ -651,6 +885,12 @@ impl FunctionInference {
             StmtKind::Binding(binding) => {
                 self.collect_pattern_locals(checker, &binding.pattern);
                 if let Some(value) = &binding.value {
+                    if let PatternKind::Bind { node_key, .. } = &binding.pattern.kind
+                        && let Some(local) = checker.local_def(node_key)
+                        && let Some(key) = closure_expr_key(value)
+                    {
+                        self.closure_locals.insert(local, key);
+                    }
                     self.collect_expr_locals(checker, value);
                 }
             }
@@ -856,6 +1096,53 @@ impl FunctionInference {
                     .collect();
                 self.with_shape(InferShape::Tuple(elems))
             }
+            ExprKind::Range(range) => {
+                let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+                    (true, true, false) => RangeTyKind::Exclusive,
+                    (true, true, true) => RangeTyKind::Inclusive,
+                    (true, false, false) => RangeTyKind::From,
+                    (false, true, false) => RangeTyKind::To,
+                    (false, true, true) => RangeTyKind::ToInclusive,
+                    (false, false, false) => RangeTyKind::Full,
+                    _ => RangeTyKind::Full,
+                };
+                let start = range
+                    .start
+                    .as_deref()
+                    .map(|start| self.constrain_expr(checker, start, None));
+                let end = range
+                    .end
+                    .as_deref()
+                    .map(|end| self.constrain_expr(checker, end, start));
+                if let (Some(start), Some(end)) = (start, end) {
+                    self.unify(checker, start, end);
+                }
+                let bound = start
+                    .and_then(|start| self.resolve(checker, start))
+                    .or_else(|| end.and_then(|end| self.resolve(checker, end)));
+                let ty = checker.interner.intern(TyKind::Range { kind, bound });
+                self.known(ty)
+            }
+            ExprKind::TypedStructLiteral { ty, fields } => {
+                for field in fields {
+                    self.constrain_expr(checker, &field.value, None);
+                }
+                self.known(checker.ty_for_type(ty))
+            }
+            ExprKind::QualifiedStructLiteral { target, fields } => {
+                for field in fields {
+                    self.constrain_expr(checker, &field.value, None);
+                }
+                if let Some((def_id, args, const_args)) = checker.type_prefix_instance(target) {
+                    self.known(checker.interner.intern(TyKind::Nominal {
+                        def_id,
+                        args,
+                        const_args,
+                    }))
+                } else {
+                    self.fresh()
+                }
+            }
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(ty) = checker.inference_enum_variant_type(expr) {
                     self.known(ty)
@@ -923,6 +1210,15 @@ impl FunctionInference {
                         self.constrain_expr(checker, inner, expected)
                     } else {
                         let elem = self.constrain_expr(checker, inner, None);
+                        if let Some(expected) = expected
+                            && matches!(
+                                self.expanded_shape(checker, expected),
+                                Some(InferShape::Callable { .. })
+                            )
+                        {
+                            self.unify(checker, elem, expected);
+                            return elem;
+                        }
                         self.with_shape(InferShape::Pointer {
                             is_readonly: matches!(op, UnaryOp::RefReadOnly),
                             elem,
@@ -991,6 +1287,17 @@ impl FunctionInference {
                 } = &callee.kind
                     && type_args.iter().all(|arg| arg.expr.is_none())
                 {
+                    if let Some((params, return_type)) =
+                        self.explicit_call_signature_terms(checker, generic_callee, type_args)
+                    {
+                        let result = expected.unwrap_or(return_type);
+                        self.unify(checker, result, return_type);
+                        for (arg, param) in args.iter().zip(params) {
+                            let actual = self.constrain_expr(checker, arg, Some(param));
+                            self.unify(checker, param, actual);
+                        }
+                        return result;
+                    }
                     let result = expected.unwrap_or_else(|| self.fresh());
                     let _ = self.constrain_expr(checker, generic_callee, None);
                     for arg in args {
@@ -1006,9 +1313,41 @@ impl FunctionInference {
                         self.constrain_expr(checker, arg, None);
                     }
                     self.known(ty)
+                } else if let Some(result) =
+                    self.constrain_method_call(checker, callee, args, expected)
+                {
+                    result
                 } else {
-                    let params = (0..args.len()).map(|_| self.fresh()).collect::<Vec<_>>();
-                    let result = expected.unwrap_or_else(|| self.fresh());
+                    let known_signature = self.direct_call_signature_terms(checker, callee);
+                    let known_signature = known_signature.or_else(|| {
+                        checker
+                            .type_lowering
+                            .ty_for_key(&callee.node_key)
+                            .and_then(|ty| checker.interner.get(ty))
+                            .and_then(|ty| match ty {
+                                TyKind::FunctionItem {
+                                    params,
+                                    return_type,
+                                    is_variadic: false,
+                                    ..
+                                } => Some((
+                                    params.iter().map(|param| self.known(*param)).collect(),
+                                    self.known(*return_type),
+                                )),
+                                _ => None,
+                            })
+                    });
+                    let params: Vec<InferId> = known_signature
+                        .as_ref()
+                        .map(|(params, _)| params.clone())
+                        .unwrap_or_else(|| (0..args.len()).map(|_| self.fresh()).collect());
+                    let result = expected
+                        .or_else(|| {
+                            known_signature
+                                .as_ref()
+                                .map(|(_, return_type)| *return_type)
+                        })
+                        .unwrap_or_else(|| self.fresh());
                     let callable = self.with_shape(InferShape::Callable {
                         params: params.clone(),
                         return_type: result,

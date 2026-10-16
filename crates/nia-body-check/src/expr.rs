@@ -571,7 +571,19 @@ impl<'a> BodyChecker<'a> {
             }
         }
         let inferred = self.inferred_closures.get(&expr.node_key).cloned();
-        let expected_signature = expected.and_then(|expected| self.callable_signature(expected));
+        // An expected callback signature often names associated types, as in
+        // `&Fn(A, [I as Iterator]::Item) A`. Normalize them before they become
+        // closure parameter types so an omitted annotation produces the same
+        // closure state and entry ABI as writing the concrete type.
+        let expected_signature = expected
+            .and_then(|expected| self.callable_signature(expected))
+            .map(|(params, return_type)| {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_projection(param))
+                    .collect::<Vec<_>>();
+                (params, self.normalize_projection(return_type))
+            });
         if let Some((expected_params, _)) = &expected_signature
             && expected_params.len() != params.len()
         {

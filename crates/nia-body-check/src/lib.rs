@@ -249,6 +249,7 @@ struct BodyChecker<'a> {
     node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: FastHashMap<VersionedNodeKey, FunctionReference>,
     inferred_closures: FastHashMap<VersionedNodeKey, inference::InferredClosureSignature>,
+    inferred_local_closures: FastHashMap<LocalId, inference::InferredClosureSignature>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,

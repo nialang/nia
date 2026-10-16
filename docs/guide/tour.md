@@ -28,6 +28,7 @@ the formatting implementations available.
 using std::io;
 using std::fmt;
 using std::process;
+using std::iter;
 
 const limit: usize = 3;
 
@@ -182,7 +183,7 @@ extend Point {
         Point { x, y }
     }
 
-    // `&self` borrows the receiver read-only.
+    // `&self` receives a read-only pointer to the receiver.
     fn lengthSquared(&self) i32 {
         self.x * self.x + self.y * self.y
     }
@@ -627,8 +628,9 @@ generic code requires the `Sized` bound on `T`.
 using std::io;
 using std::fmt;
 using std::process;
+using std::iter;
 
-// `&Fn(i32) i32` is a borrowed view of any closure with that signature.
+// `&Fn(i32) i32` is a non-owning view of any closure with that signature.
 fn applyTwice(f: &Fn(i32) i32, value: i32) i32 {
     f(f(value))
 }
@@ -659,7 +661,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let d = pointer(21);
 
     // Iterator adapters take closures too.
-    let squares = (1..5).iter().fold(0, &\total: i32, value: i32 -> total + value * value);
+    let squares = (1..5).iter().fold(0, &\total, value -> total + value * value);
 
     io::debugPrint(&"a={} b={} c={} calls={} d={} squares={}\n", &[
         &a, &b, &c, &calls, &d, &squares,
@@ -677,11 +679,19 @@ module-level items unless it captures locals explicitly: `[name]` copies the
 value, `[&name]` captures a read-only pointer, and `[&mut name]` a writable
 one, used through `.*` in the body.
 
+Parameter types are inferred from how the closure is used. Written directly
+where a callable is expected, as in the `fold` call, it needs no annotations.
+A closure bound with `let` can use the same inference when a later `&` address
+conversion supplies its callable type; an annotation is needed only when the
+body and all callable uses leave a parameter unconstrained.
+
 A function that accepts any closure takes a callable view, `&Fn(Args) Return`
-or `&mut Fn(Args) Return`, made with `&closure`. A view borrows the closure: it
-never allocates and must not outlive the closure, so it cannot be returned or
-stored past the closure's scope. `&fn(Args) Return` is a plain function
-pointer; named functions and closures without captures convert to it.
+or `&mut Fn(Args) Return`, made with `&closure`. A view points at the closure's
+state: it never allocates and must not outlive the closure, so the compiler
+rejects returning it or storing it past the closure's scope. Ordinary pointers
+carry no such check; keeping them valid is the program's job.
+`&fn(Args) Return` is a plain function pointer; named functions and closures
+without captures convert to it.
 
 ## Modules And Visibility
 

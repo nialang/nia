@@ -31,6 +31,7 @@ impl<'a> BodyChecker<'a> {
                         })
                     })
                     .unwrap_or(expected);
+                self.seed_closure_params_from_callable_pattern(expected, arg);
                 let arg_ty = self.check_expr_with_expected(arg, Some(expected));
                 self.expect_expr_type(
                     arg,

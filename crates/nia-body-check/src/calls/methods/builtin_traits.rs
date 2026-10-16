@@ -23,6 +23,36 @@ struct BuiltinAssociatedIntrinsicMethodCall<'a> {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(in crate::calls::methods) fn builtin_trait_method_signature_for_inference(
+        &mut self,
+        receiver_ty: InternedTyId,
+        name: &SymbolId,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let method = crate::symbols::builtin_trait_method_symbol(*name)?;
+        match method {
+            BuiltinTraitMethod::IterableIter => {
+                let iter = self.interner.intern(TyKind::Projection {
+                    self_ty: receiver_ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::Iterable),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                    name: known::ITER,
+                });
+                let iter = self
+                    .resolve_associated_type_projection(
+                        receiver_ty,
+                        TraitId::Builtin(BuiltinTrait::Iterable),
+                        &[],
+                        &[],
+                        &known::ITER,
+                    )
+                    .unwrap_or(iter);
+                Some((Vec::new(), iter))
+            }
+            _ => None,
+        }
+    }
+
     pub(in crate::calls::methods) fn check_builtin_trait_method_call_with_receiver_ty(
         &mut self,
         call: &MethodCall<'_>,
@@ -38,6 +68,13 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
             }
             return Some(self.error());
+        }
+        if method == BuiltinTraitMethod::IterableIter {
+            self.record_trait_provider_demand(
+                call.receiver_ty,
+                TraitId::Builtin(BuiltinTrait::Iterable),
+                &[],
+            );
         }
         if method.is_place_method() {
             return self.check_builtin_trait_place_method_call_with_receiver_ty(

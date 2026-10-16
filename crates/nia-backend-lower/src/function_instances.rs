@@ -1449,6 +1449,7 @@ fn known_backend_function_instance_count(existing: usize, newly_materialized: us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{TypeInstantiationKey, TypeSubstitutionId};
     use nia_defs::DefId;
     use nia_ids::{GlobalDefId, ModuleIdAllocator, TypeStoreIndex};
     use nia_ty::{ArrayLenTy, ConstGenericValue, IntConst, PrimitiveTy};

@@ -1328,14 +1328,30 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         use crate::inference::InferredType;
 
-        let closure = match &expr.kind {
-            ExprKind::Closure { .. } => expr,
+        let closure_key = match &expr.kind {
+            ExprKind::Closure { .. } => Some(expr.node_key.clone()),
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
                 expr,
-            } if matches!(expr.kind, ExprKind::Closure { .. }) => expr,
-            _ => return false,
+            } if matches!(expr.kind, ExprKind::Closure { .. }) => Some(expr.node_key.clone()),
+            _ => None,
         };
+        let local = match &expr.kind {
+            ExprKind::Ident(_) => match self.local_use(expr) {
+                Some(nia_local_resolve::LocalUse::Local(local)) => Some(local),
+                _ => None,
+            },
+            ExprKind::Unary { expr, .. } if matches!(expr.kind, ExprKind::Ident(_)) => {
+                match self.local_use(expr) {
+                    Some(nia_local_resolve::LocalUse::Local(local)) => Some(local),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if closure_key.is_none() && local.is_none() {
+            return false;
+        }
         let pattern = self.normalization.normalize(pattern);
         let params = match self.interner.get(pattern).cloned() {
             Some(TyKind::Callable { params, .. })
@@ -1353,7 +1369,7 @@ impl<'a> BodyChecker<'a> {
         }) {
             return false;
         }
-        let Some(mut signature) = self.inferred_closures.get(&closure.node_key).cloned() else {
+        let Some(mut signature) = self.inferred_closure_signature(expr).cloned() else {
             return false;
         };
         if params.len() != signature.params.len()
@@ -1369,8 +1385,12 @@ impl<'a> BodyChecker<'a> {
         for (inferred, expected) in signature.params.iter_mut().zip(params) {
             *inferred = InferredType::Known(expected);
         }
-        self.inferred_closures
-            .insert(closure.node_key.clone(), signature);
+        if let Some(key) = closure_key {
+            self.inferred_closures.insert(key, signature.clone());
+        }
+        if let Some(local) = local {
+            self.inferred_local_closures.insert(local, signature);
+        }
         true
     }
 
