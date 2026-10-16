@@ -13,7 +13,13 @@ fn main(values: &[u8]) usize {
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("[u8]"),
+        "Len",
+        &[],
+    );
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/builtin.nia");
@@ -56,12 +62,68 @@ fn main() () {
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        None,
+        "Iterable",
+        &[],
+    );
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/iter.nia");
     assert_module_loaded(&program, "lib/std/iter/range.nia");
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
+fn query_loader_loads_range_provider_for_range_methods_without_iter_import() {
+    let root = temp_dir("query_loader_loads_range_provider_for_range_methods_without_iter_import");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+fn main() () {
+    let range = (1..4).iter();
+    _ = range;
+}
+"#,
+    );
+
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        None,
+        "Iterator",
+        &[],
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/iter.nia");
+    assert_module_loaded(&program, "lib/std/iter/range.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
+fn query_loader_does_not_load_iterator_provider_without_builtin_trait_demand() {
+    let root =
+        temp_dir("query_loader_does_not_load_iterator_provider_without_builtin_trait_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+fn main() () {
+    let range = 1usize..4usize;
+    _ = range;
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_not_loaded(&program, "lib/std/iter.nia");
+    assert_module_not_loaded(&program, "lib/std/iter/range.nia");
 }
 
 #[test]
@@ -158,7 +220,13 @@ fn main(init: process::Init) () {
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        None,
+        "Iterator",
+        &[],
+    );
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/process/env.nia");

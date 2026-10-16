@@ -5,7 +5,7 @@ use nia_ast::{
 use nia_ast_walk::{Visitor, walk_expr, walk_generic_params, walk_item, walk_stmt, walk_type};
 use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
-use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
+use nia_symbol::{SymbolId, SymbolMap};
 
 pub(crate) fn collect_used_modules(
     item_tree: &ActiveModuleItemTree,
@@ -210,31 +210,6 @@ impl QualifiedPathModuleCollector<'_> {
             },
         );
     }
-
-    fn collect_implicit_trait_provider(&mut self, trait_name: SymbolId) {
-        for alias in self.using_aliases.values() {
-            self.paths
-                .push(alias.with_appended_segments_with_processing_mode(
-                    &[],
-                    false,
-                    UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name },
-                ));
-        }
-    }
-
-    fn collect_len_prelude(&mut self) {
-        if self.module_map.contains_root(known::STD) {
-            self.packages.push(known::STD);
-            self.paths.push(UsedModulePath::Package {
-                package: known::STD,
-                segments: vec![known::BUILTIN],
-                include_declared_children: false,
-                processing: UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
-                    trait_name: known::LEN_TYPE,
-                },
-            });
-        }
-    }
 }
 
 pub(crate) fn module_using_aliases(
@@ -306,19 +281,10 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
         if let StmtKind::Using(using) = &stmt.kind {
             self.collect_using(using);
         }
-        if let StmtKind::ForIn(_) = &stmt.kind {
-            self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
-            self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterator.symbol_id());
-        }
         walk_stmt(self, stmt);
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
-        if let ExprKind::Call { callee, .. } = &expr.kind
-            && matches!(&callee.kind, ExprKind::Field { name, .. } if *name == known::LEN)
-        {
-            self.collect_len_prelude();
-        }
         if let ExprKind::Call { callee, args } = &expr.kind
             && self.collect_expr_path(callee)
         {
@@ -335,14 +301,6 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
 
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         if let TypeKind::Path { segments } = &ty.kind {
-            if segments.len() == 1
-                && segments
-                    .first()
-                    .and_then(type_path_segment_name)
-                    .is_some_and(|name| name == known::LEN_TYPE)
-            {
-                self.collect_len_prelude();
-            }
             self.collect_type_path(segments);
             for segment in segments {
                 for arg in &segment.args {

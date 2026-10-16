@@ -170,7 +170,13 @@ fn main() i32 {
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program = load_program_with_trait_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        None,
+        "Iterable",
+        &[],
+    );
 
     assert_no_error_diagnostics(&program);
     assert!(

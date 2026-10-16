@@ -647,12 +647,14 @@ fn main() i32 {
 "#,
     );
 
+    // Demand-driven builtin-trait loading finds the range provider, whose
+    // `iter` witness is not a `const fn`; const for-in must reject it.
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("for-in expects an Iterable")),
+            .contains("const Iterable::iter requires a const trait implementation")),
         "{:?}",
         program.diagnostics
     );
