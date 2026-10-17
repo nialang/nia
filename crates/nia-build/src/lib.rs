@@ -3555,9 +3555,12 @@ mod tests {
 
         let root = temp_root("failed_runner_retains_output_context");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        let invocation =
-            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-                .expect("build invocation");
+        let invocation = resolve_build_invocation(
+            BuildRequest::new(test_toolchain_layout())
+                .with_root(&root)
+                .with_forward_output(false),
+        )
+        .expect("build invocation");
         prepare_build_directories(&invocation).expect("prepare build directories");
         std::fs::create_dir_all(&invocation.runner_dir).expect("prepare runner directory");
         std::fs::write(
