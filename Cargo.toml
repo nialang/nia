@@ -77,7 +77,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0-dev"
+version = "0.2.0"
 edition = "2024"
 authors = ["softfault <givenyoung46@gmail.com>"]
 license = "GPL-3.0-or-later"
