@@ -4,6 +4,52 @@
 use super::*;
 
 impl TraitSolver<'_> {
+    pub(crate) fn impl_headers_may_overlap(
+        &mut self,
+        left: &ProgramTraitImplSignature,
+        right: &ProgramTraitImplSignature,
+    ) -> bool {
+        fn matches(
+            solver: &mut TraitSolver<'_>,
+            pattern: &ProgramTraitImplSignature,
+            actual: &ProgramTraitImplSignature,
+        ) -> bool {
+            let mut substitutions = SymbolMap::default();
+            let mut const_substitutions = SymbolMap::default();
+            solver.match_impl_pattern_with_consts(
+                pattern.target_ty,
+                actual.target_ty,
+                &mut substitutions,
+                &mut const_substitutions,
+            ) && pattern
+                .trait_args
+                .iter()
+                .zip(&actual.trait_args)
+                .all(|(pattern, actual)| {
+                    solver.match_impl_pattern_with_consts(
+                        *pattern,
+                        *actual,
+                        &mut substitutions,
+                        &mut const_substitutions,
+                    )
+                })
+                && pattern
+                    .trait_const_args
+                    .iter()
+                    .zip(&actual.trait_const_args)
+                    .all(|(pattern, actual)| {
+                        solver.match_const_impl_pattern(
+                            pattern,
+                            actual,
+                            &mut substitutions,
+                            &mut const_substitutions,
+                        )
+                    })
+        }
+
+        matches(self, left, right) || matches(self, right, left)
+    }
+
     pub(crate) fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
         let mut matches = Vec::new();
         if let Some(index) = self.trait_impl_index {

@@ -8,6 +8,7 @@ mod const_eval;
 mod const_generics;
 mod import_recovery;
 mod imports;
+mod orphan;
 mod recovery_matrix;
 mod report_sources;
 mod soundness;
