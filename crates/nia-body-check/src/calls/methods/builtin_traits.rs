@@ -140,6 +140,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         call: &MethodCall<'_>,
     ) -> Option<InternedTyId> {
+        // The target error type may be inferred from a later field access or
+        // other surrounding use. Discover implementations for this source
+        // type first so that such calls do not depend on an unrelated import
+        // having loaded the conversion provider already.
+        self.record_trait_provider_demand(
+            call.receiver_ty,
+            TraitId::Builtin(BuiltinTrait::IntoError),
+            &[],
+        );
         let target_ty = call.expected.or_else(|| {
             self.unique_visible_builtin_trait_arg_candidate(
                 call.receiver_ty,
@@ -147,6 +156,11 @@ impl<'a> BodyChecker<'a> {
             )
         })?;
         let trait_args = vec![target_ty];
+        self.record_trait_provider_demand(
+            call.receiver_ty,
+            TraitId::Builtin(BuiltinTrait::IntoError),
+            &trait_args,
+        );
         if !self.current_context_proves_trait_obligation(
             call.receiver_ty,
             TraitId::Builtin(BuiltinTrait::IntoError),
