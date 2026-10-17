@@ -278,7 +278,7 @@ pub(super) struct QueryModuleGraphLookup<'a> {
     paths: RefCell<HashMap<ModuleId, Option<nia_imports::ModulePath>>>,
     parents: RefCell<HashMap<ModuleId, Option<ModuleId>>>,
     children: RefCell<ChildModuleLookup>,
-    provider_dependencies: RefCell<HashMap<ModuleId, Vec<ModuleId>>>,
+    provider_dependencies: RefCell<HashMap<(ModuleId, bool), Vec<ModuleId>>>,
 }
 
 impl<'a> QueryModuleGraphLookup<'a> {
@@ -383,13 +383,17 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         child
     }
 
-    fn provider_dependencies(&self, module_id: ModuleId) -> Vec<ModuleId> {
-        if let Some(dependencies) = self.provider_dependencies.borrow().get(&module_id) {
+    fn provider_dependencies(&self, module_id: ModuleId, trait_impls_only: bool) -> Vec<ModuleId> {
+        let key = (module_id, trait_impls_only);
+        if let Some(dependencies) = self.provider_dependencies.borrow().get(&key) {
             return dependencies.clone();
         }
         let stable_dependencies = capture_query_failure(
             &self.failure,
-            self.db.get(ModuleGraphProviderDependenciesQuery(module_id)),
+            self.db.get(ModuleGraphProviderDependenciesQuery(
+                module_id,
+                trait_impls_only,
+            )),
         );
         let mut dependencies = Vec::new();
         if let Some(stable_dependencies) = stable_dependencies {
@@ -409,7 +413,7 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         }
         self.provider_dependencies
             .borrow_mut()
-            .insert(module_id, dependencies.clone());
+            .insert(key, dependencies.clone());
         dependencies
     }
 }

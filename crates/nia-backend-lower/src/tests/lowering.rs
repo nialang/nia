@@ -77,6 +77,7 @@ fn main() i32 {
         type_store: &type_store,
         input_ids: &normalization_input,
         signatures: &signatures,
+        external_alias: None,
     })
     .expect("normalize backend-lower test types");
     let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");

@@ -9,7 +9,6 @@ pub(super) struct ExtensionMethodLookup {
     pub(super) impl_id: nia_ids::TraitImplId,
     pub(super) effective_generics: Vec<SymbolId>,
     pub(super) effective_const_generics: Vec<SymbolId>,
-    pub(super) where_predicates: Vec<nia_defs::WherePredicateSignature>,
 }
 
 pub(super) enum BodyVisibleExtensionSource<'a> {
@@ -101,7 +100,6 @@ impl<'a> BodyChecker<'a> {
                         impl_id: impl_signature.impl_id,
                         effective_generics,
                         effective_const_generics,
-                        where_predicates: impl_signature.where_predicates.clone(),
                     },
                 );
             }
@@ -119,7 +117,6 @@ impl<'a> BodyChecker<'a> {
                         impl_id: method.impl_id,
                         effective_generics: method.effective_generics.clone(),
                         effective_const_generics: method.effective_const_generics.clone(),
-                        where_predicates: method.where_predicates.clone(),
                     });
             }
         }
@@ -161,7 +158,6 @@ impl<'a> BodyChecker<'a> {
             impl_id: method.impl_id,
             effective_generics: method.effective_generics.clone(),
             effective_const_generics: method.effective_const_generics.clone(),
-            where_predicates: method.where_predicates.clone(),
         })
     }
 }

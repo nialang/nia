@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{DefId, InternedTyId, ModuleId};
+use nia_ids::{DefId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature, generic_argument_substitutions};
 use nia_span::Span;
 use nia_symbol::SymbolMap;
@@ -33,6 +33,10 @@ pub struct TypeNormalizationInput<'a> {
     pub input_ids: &'a [InternedTyId],
     /// Signatures supplying type-alias definitions.
     pub signatures: &'a ItemSignatures,
+    /// Raw alias signatures from other modules, without requesting their
+    /// normalization products. This keeps cross-module alias cycles local to
+    /// this normalization traversal.
+    pub external_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<TypeAliasSignature>>,
 }
 
 /// Normalizes the explicit input type set and all nested components.
@@ -44,6 +48,7 @@ pub fn normalize_module_types(
         type_store: input.type_store,
         interner: input.type_store.append_for_module(input.module_id),
         aliases: &input.signatures.type_aliases,
+        external_alias: input.external_alias,
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
         internal_error: None,
@@ -68,6 +73,7 @@ struct TypeNormalizer<'a, 'store> {
     type_store: &'store TypeStore,
     interner: TypeStoreAppend,
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
+    external_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<TypeAliasSignature>>,
     normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
@@ -106,7 +112,7 @@ impl<'a> TypeNormalizer<'a, '_> {
         }
     }
 
-    fn normalize_ty(&mut self, ty_id: InternedTyId, stack: &mut Vec<DefId>) -> InternedTyId {
+    fn normalize_ty(&mut self, ty_id: InternedTyId, stack: &mut Vec<GlobalDefId>) -> InternedTyId {
         if let Some(normalized) = self.normalized.get(&ty_id).copied() {
             return normalized;
         }
@@ -296,16 +302,13 @@ impl<'a> TypeNormalizer<'a, '_> {
                         arg
                     })
                     .collect::<Vec<_>>();
-                if def_id.module_id == self.module_id {
-                    if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
-                        self.normalize_alias(def_id.def_id, &alias, &args, &const_args, stack)
-                    } else {
-                        self.intern(TyKind::Nominal {
-                            def_id,
-                            args,
-                            const_args,
-                        })
-                    }
+                let alias = if def_id.module_id == self.module_id {
+                    self.aliases.get(&def_id.def_id).cloned()
+                } else {
+                    self.external_alias.and_then(|resolve| resolve(def_id))
+                };
+                if let Some(alias) = alias {
+                    self.normalize_alias(def_id, &alias, &args, &const_args, stack)
                 } else {
                     self.intern(TyKind::Nominal {
                         def_id,
@@ -455,11 +458,11 @@ impl<'a> TypeNormalizer<'a, '_> {
 
     fn normalize_alias(
         &mut self,
-        alias_id: DefId,
+        alias_id: GlobalDefId,
         alias: &TypeAliasSignature,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-        stack: &mut Vec<DefId>,
+        stack: &mut Vec<GlobalDefId>,
     ) -> InternedTyId {
         if stack.contains(&alias_id) {
             self.report_recursive_alias(alias.span, stack, alias_id);
@@ -494,7 +497,7 @@ impl<'a> TypeNormalizer<'a, '_> {
         &mut self,
         ty_id: InternedTyId,
         substitutions: &SymbolMap<InternedTyId>,
-        stack: &mut Vec<DefId>,
+        stack: &mut Vec<GlobalDefId>,
     ) -> InternedTyId {
         match self.type_store.get(ty_id).cloned() {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
@@ -698,16 +701,13 @@ impl<'a> TypeNormalizer<'a, '_> {
                         arg
                     })
                     .collect::<Vec<_>>();
-                if def_id.module_id == self.module_id {
-                    if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
-                        self.normalize_alias(def_id.def_id, &alias, &args, &const_args, stack)
-                    } else {
-                        self.intern(TyKind::Nominal {
-                            def_id,
-                            args,
-                            const_args,
-                        })
-                    }
+                let alias = if def_id.module_id == self.module_id {
+                    self.aliases.get(&def_id.def_id).cloned()
+                } else {
+                    self.external_alias.and_then(|resolve| resolve(def_id))
+                };
+                if let Some(alias) = alias {
+                    self.normalize_alias(def_id, &alias, &args, &const_args, stack)
                 } else {
                     self.intern(TyKind::Nominal {
                         def_id,
@@ -861,12 +861,16 @@ impl<'a> TypeNormalizer<'a, '_> {
         }
     }
 
-    fn report_recursive_alias(&mut self, span: Span, stack: &[DefId], alias_id: DefId) {
+    fn report_recursive_alias(&mut self, span: Span, stack: &[GlobalDefId], alias_id: GlobalDefId) {
         let mut seen = HashSet::new();
         let mut cycle = Vec::new();
         for def_id in stack.iter().copied().chain([alias_id]) {
             if seen.insert(def_id) {
-                cycle.push(format!("#{}", def_id.0));
+                cycle.push(if def_id.module_id == self.module_id {
+                    format!("#{}", def_id.def_id.0)
+                } else {
+                    format!("{:?}/#{}", def_id.module_id, def_id.def_id.0)
+                });
             }
         }
         self.diagnostics.push(Diagnostic::user_error_at(
@@ -876,7 +880,7 @@ impl<'a> TypeNormalizer<'a, '_> {
         ));
     }
 
-    fn normalize_array_len(&mut self, len: ArrayLenTy, stack: &mut Vec<DefId>) -> ArrayLenTy {
+    fn normalize_array_len(&mut self, len: ArrayLenTy, stack: &mut Vec<GlobalDefId>) -> ArrayLenTy {
         match len {
             ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
                 builtin,
@@ -896,7 +900,7 @@ impl<'a> TypeNormalizer<'a, '_> {
         &mut self,
         len: ArrayLenTy,
         substitutions: &SymbolMap<InternedTyId>,
-        stack: &mut Vec<DefId>,
+        stack: &mut Vec<GlobalDefId>,
     ) -> ArrayLenTy {
         match len {
             ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
@@ -941,6 +945,7 @@ mod tests {
             type_store,
             input_ids: &input_ids,
             signatures,
+            external_alias: None,
         })
         .expect("normalize test types")
     }
@@ -1449,6 +1454,7 @@ fn take(xs: [u8; 2 + 3]) () {}
             type_store: &type_store,
             input_ids: &[pointer],
             signatures: &signatures,
+            external_alias: None,
         })
         .expect("normalize explicit test types");
 

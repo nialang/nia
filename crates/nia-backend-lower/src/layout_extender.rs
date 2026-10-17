@@ -88,6 +88,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 type_store: self.type_store,
                 input_ids: &normalization_input,
                 signatures: self.input.signatures,
+                external_alias: None,
             },
         )?;
         let input = self.input;

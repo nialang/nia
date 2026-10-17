@@ -1,4 +1,10 @@
 path: fail/propagation_ambiguous/main.nia
+code: E0201
+summary: duplicate trait implementation header
+label: 132..138 Primary Source this unconditional implementation repeats another implementation header
+note: strict specializations are allowed, but these headers describe the same pattern
+
+path: fail/propagation_ambiguous/main.nia
 code: E0301
 summary: ambiguous error propagation conversion from `Source` to `Target`
 label: 264..271 Primary Source ambiguous error propagation conversion from `Source` to `Target`
@@ -9,6 +15,13 @@ note: more than one visible `IntoError` implementation matches this propagation
 help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit
 
 report:
+error[E0201]: duplicate trait implementation header
+  --> fail/propagation_ambiguous/main.nia:8:8
+  |
+8 | extend Source : std::builtin::IntoError[Target] {
+  |        ^^^^^^ this unconditional implementation repeats another implementation header
+note: strict specializations are allowed, but these headers describe the same pattern
+
 error[E0301]: ambiguous error propagation conversion from `Source` to `Target`
    --> fail/propagation_ambiguous/main.nia:13:5
    |
@@ -26,4 +39,4 @@ note: the propagated expression has error type `Source`, while this function ret
 note: more than one visible `IntoError` implementation matches this propagation
 help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit
 
-summary: 1 error, 0 warnings
+summary: 2 errors, 0 warnings

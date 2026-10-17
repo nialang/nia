@@ -382,7 +382,6 @@ trait Root[N: usize] : Left[N] + Right[N] {
 struct Meter {}
 
 extend[N: usize] Meter : Base[N] {}
-extend[N: usize] Meter : BaseAlias[N] {}
 extend Meter : Base[3usize] {}
 extend[N: usize] Meter : Left[N] {}
 extend[N: usize] Meter : Right[N] {}

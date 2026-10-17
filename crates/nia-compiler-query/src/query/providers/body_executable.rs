@@ -977,11 +977,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             .map(|methods| methods.methods.clone())
             .unwrap_or_default()
     };
-    let module_graph = db.get(ModuleGraphQuery)?;
-    let extension_visibility_allows = |visibility, defining_module| {
+    let member_graph = db.get(ModuleGraphQuery)?;
+    let member_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(
             visibility,
-            module_graph.as_ref(),
+            member_graph.as_ref(),
             defining_module,
             module_id,
         )
@@ -1431,7 +1431,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         visible_extensions: Some(&program_visible_extensions),
                         extension_method_by_id: Some(&program_extension_method_by_id),
                         extension_methods_named: Some(&program_extension_methods_named),
-                        extension_visibility_allows: Some(&extension_visibility_allows),
+                        member_visibility_allows: Some(&member_visibility_allows),
                     },
                     program_signatures,
                     function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,

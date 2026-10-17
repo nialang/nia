@@ -99,6 +99,7 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
         crate::ProviderRequest::TraitImpl {
             target_type_name,
             target_package,
+            target_module_segments,
             trait_name,
             trait_package,
             trait_type_argument_names,
@@ -115,6 +116,10 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
                 builder.write_u64(target_package.raw());
             } else {
                 builder.write_u8(0);
+            }
+            builder.write_u64(target_module_segments.len() as u64);
+            for segment in target_module_segments {
+                builder.write_u64(segment.raw());
             }
             builder.write_u64(trait_name.raw());
             if let Some(trait_package) = trait_package {

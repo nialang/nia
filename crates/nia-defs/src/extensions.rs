@@ -117,6 +117,7 @@ pub struct ExtensionMethod {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VisibleExtensionMethods {
     targets: Vec<VisibleExtensionTarget>,
+    candidates_by_name: SymbolMap<Vec<(usize, usize)>>,
     callable_by_name: SymbolMap<Vec<(usize, usize)>>,
     trait_witnesses_by_name: SymbolMap<Vec<(usize, usize)>>,
     trait_witness_impls: HashSet<(ModuleId, TraitImplId)>,
@@ -451,6 +452,10 @@ impl VisibleExtensionMethods {
     ) {
         let target_index = self.target_index(impl_id, target_ty);
         let method_index = self.targets[target_index].methods.len();
+        self.candidates_by_name
+            .entry(method.name)
+            .or_default()
+            .push((target_index, method_index));
         if method.is_callable {
             self.callable_by_name
                 .entry(method.name)
@@ -521,6 +526,22 @@ impl VisibleExtensionMethods {
                 let target = self.targets.get(*target_index)?;
                 let method = target.methods.get(*method_index)?;
                 Some((target.target_ty, method.clone()))
+            })
+            .collect()
+    }
+
+    /// Returns scoped candidates, including inaccessible members for diagnostics.
+    pub fn all_method_candidates_named(
+        &self,
+        name: &SymbolId,
+    ) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
+        self.candidates_by_name
+            .get(name)
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter_map(|(target_index, method_index)| {
+                let target = self.targets.get(*target_index)?;
+                Some((target.target_ty, target.methods.get(*method_index)?.clone()))
             })
             .collect()
     }

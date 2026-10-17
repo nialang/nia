@@ -249,7 +249,7 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ModuleGraphProviderDependenciesQuery(pub(super) ModuleId);
+pub(super) struct ModuleGraphProviderDependenciesQuery(pub(super) ModuleId, pub(super) bool);
 
 impl QueryKey<CompilerContext> for ModuleGraphProviderDependenciesQuery {
     type Value = StableModuleSequence;
@@ -261,17 +261,23 @@ impl QueryKey<CompilerContext> for ModuleGraphProviderDependenciesQuery {
     }
 
     fn description(&self) -> String {
-        format!("module_graph_provider_dependencies({:?})", self.0)
+        format!(
+            "module_graph_provider_dependencies({:?}, {})",
+            self.0, self.1
+        )
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
         stable_module_sequence(
             db,
-            graph
-                .get(self.0)
-                .into_iter()
-                .flat_map(|module| module.provider_dependencies.iter().copied()),
+            graph.get(self.0).into_iter().flat_map(|module| {
+                if self.1 {
+                    module.trait_impl_dependencies.iter().copied()
+                } else {
+                    module.provider_dependencies.iter().copied()
+                }
+            }),
         )
     }
 

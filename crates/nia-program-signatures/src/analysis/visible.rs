@@ -188,7 +188,7 @@ pub fn visible_extensions_for_module(
     extensions.for_each_visible_method(
         module_id,
         imported_visible_modules.iter().copied(),
-        extension_visibility_allows,
+        |_, _| true,
         |method| {
             if resolver_cache
                 .defs(method.def_id.module_id)
@@ -474,7 +474,11 @@ fn declared_module_closure_inner(
     let mut pending_provider_targets = Vec::new();
     let mut resolved_provider_targets = HashSet::new();
     enqueue_using_scope_modules(context.using_scope, &mut queue);
-    queue.extend(context.graph.provider_dependencies(context.module_id));
+    queue.extend(
+        context
+            .graph
+            .provider_dependencies(context.module_id, false),
+    );
     if include_item_target_modules {
         enqueue_using_scope_item_target_modules(context.using_scope, &mut queue);
     }
@@ -500,7 +504,7 @@ fn declared_module_closure_inner(
                     &mut pending_provider_targets,
                 );
             }
-            queue.extend(context.graph.provider_dependencies(visible));
+            queue.extend(context.graph.provider_dependencies(visible, false));
         }
 
         pending_provider_targets.sort();
@@ -518,6 +522,18 @@ fn declared_module_closure_inner(
         pending_provider_targets.clear();
     }
 
+    if include_item_target_modules {
+        // Witness discovery contributes implementation facts, never the
+        // provider module's own imports or inherent extensions.
+        for module in std::iter::once(context.module_id).chain(seen.iter().copied()) {
+            queue.extend(context.graph.provider_dependencies(module, true));
+        }
+        while let Some(module) = queue.pop_front() {
+            if seen.insert(module) {
+                queue.extend(context.graph.provider_dependencies(module, true));
+            }
+        }
+    }
     let mut modules = seen.into_iter().collect::<Vec<_>>();
     modules.sort();
     modules

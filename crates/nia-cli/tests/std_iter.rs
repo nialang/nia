@@ -134,11 +134,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let inclusive = (1..=4).iter().fold(0, &\acc: i32, value -> acc + value);
     let wide = (1u64..4).iter().fold(0u64, &\acc, value -> acc + value);
     let prefix = (1..100).iter().take(3).fold(0, &\acc, value -> acc + value);
+    let values: [i32; 3] = [1, 2, 3];
+    let addItem = \acc, value -> acc + value.*;
+    let sliceSum = (&values).iter().fold(0, &addItem);
+    let sliceSquares = (&values).iter().fold(0, &\acc, value -> acc + value.* * value.*);
     let mut seen = 0;
     (1..4).iter().forEach(&\[&mut seen] value -> {
         seen.* += value;
     });
-    if squares != 30 or sum != 10 or inclusive != 10 or wide != 6 or prefix != 6 or seen != 6 {
+    if squares != 30 or sum != 10 or inclusive != 10 or wide != 6 or prefix != 6 or seen != 6
+        or sliceSum != 6 or sliceSquares != 14
+    {
         return process::ExitCode(1)!;
     }
     !()
@@ -163,6 +169,48 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
+}
+
+#[test]
+fn check_rejects_callable_view_stored_through_parameter_field() {
+    let root = temp_dir("check_rejects_callable_view_stored_through_parameter_field");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+struct Holder { callback: &Fn(i32) i32 }
+
+fn retain(holder: &mut Holder) () {
+    let callback = \value: i32 -> value;
+    holder.callback = &callback;
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut holder = Holder { callback: &\value: i32 -> value };
+    retain(&mut holder);
+    !()
+}
+"#,
+    )
+    .expect("write closure escape source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("reject callable view stored through parameter field");
+    assert!(
+        !output.status.success(),
+        "expected closure escape rejection"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("stack-backed callable view cannot be stored outside its local frame"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

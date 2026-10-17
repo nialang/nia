@@ -6,6 +6,68 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn emit_exe_specializes_user_trait_impls_independent_of_declaration_order() {
+    let root = temp_dir("emit_exe_specializes_user_trait_impls");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    let general = r#"
+extend[T] [T] : Classify
+where T: Sized
+{
+    type Result = i32;
+    fn classify(&self) i32 { 11 }
+}
+"#;
+    let specific = r#"
+extend [char] : Classify {
+    type Result = bool;
+    fn classify(&self) bool { true }
+}
+"#;
+    for (first, second) in [(general, specific), (specific, general)] {
+        std::fs::write(
+            &main,
+            format!(
+                r#"
+using std::process;
+trait Classify {{
+    type Result;
+    fn classify(&self) [Self as Classify]::Result;
+}}
+{first}
+{second}
+pub fn main(init: process::Init) process::ExitCode!() {{
+    _ = init;
+    let text: &[char] = &"nia";
+    let numbers: &[i32] = &[1, 2, 3];
+    let specialized: bool = text.classify();
+    let fallback: i32 = numbers.classify();
+    if not specialized or fallback != 11 {{ return process::ExitCode(1)!; }}
+    !()
+}}
+"#
+            ),
+        )
+        .expect("write specialization source");
+
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit specialized trait executable");
+        assert!(
+            output.status.success(),
+            "stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let run = Command::new(&exe).status_timeout("run specialized trait executable");
+        assert_eq!(run.code(), Some(0));
+    }
+}
+
+#[test]
 fn emit_exe_retains_cross_module_generic_trait_witnesses() {
     let root = temp_dir("emit_exe_retains_cross_module_generic_trait_witnesses");
     let main = root.join("main.nia");

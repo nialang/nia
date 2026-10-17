@@ -875,6 +875,7 @@ mod tests {
             type_store: &type_store,
             input_ids: &normalization_input,
             signatures: &signatures,
+            external_alias: None,
         })
         .expect("normalize module types");
         let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {

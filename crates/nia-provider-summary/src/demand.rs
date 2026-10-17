@@ -96,6 +96,8 @@ pub enum ProviderRequest {
         target_type_name: Option<SymbolId>,
         /// Package that defines the target type, when it is nominal.
         target_package: Option<SymbolId>,
+        /// Module path below the target package that defines the target type.
+        target_module_segments: Vec<SymbolId>,
         /// Trait display identity.
         trait_name: SymbolId,
         /// Package that defines the trait. Builtin traits use the language

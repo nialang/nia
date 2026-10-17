@@ -160,7 +160,7 @@ fn main() () {}
             diagnostic
                 .diagnostic
                 .summary
-                .contains("overlapping trait implementations for the same target and trait")
+                .contains("duplicate trait implementation header")
         }),
         "missing overlap diagnostic: {:?}",
         checked.diagnostics
@@ -168,8 +168,61 @@ fn main() () {}
 }
 
 #[test]
-fn generic_and_concrete_trait_impl_headers_are_rejected_as_overlapping() {
-    let root = temp_dir("generic_and_concrete_trait_impl_headers_are_rejected_as_overlapping");
+fn renamed_generic_parameters_do_not_make_duplicate_headers_distinct() {
+    let root = temp_dir("renamed_generic_parameters_do_not_make_duplicate_headers_distinct");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Marker[T] {}
+struct Value {}
+extend[T] Value : Marker[T] {}
+extend[U] Value : Marker[U] {}
+fn main() () {}
+"#,
+    );
+    let checked = check_program(root.join("main.nia").to_string_lossy());
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("duplicate trait implementation header")),
+        "missing duplicate header diagnostic: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn conditional_trait_impls_with_the_same_pattern_are_selected_by_obligations() {
+    let root =
+        temp_dir("conditional_trait_impls_with_the_same_pattern_are_selected_by_obligations");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Left {}
+trait Right {}
+trait Marker { fn marker(&self) i32; }
+struct Value {}
+extend Value : Left {}
+extend[T] T : Marker where T: Left {
+    fn marker(&self) i32 { 1 }
+}
+extend[T] T : Marker where T: Right {
+    fn marker(&self) i32 { 2 }
+}
+fn main() i32 { Value {}.marker() }
+"#,
+    );
+    let checked = check_program(root.join("main.nia").to_string_lossy());
+    assert!(
+        checked.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn generic_and_concrete_trait_impl_headers_allow_specialization() {
+    let root = temp_dir("generic_and_concrete_trait_impl_headers_allow_specialization");
     write(
         &root.join("main.nia"),
         r#"
@@ -184,13 +237,8 @@ fn main() () {}
     );
     let checked = check_program(root.join("main.nia").to_string_lossy());
     assert!(
-        checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .diagnostic
-                .summary
-                .contains("overlapping trait implementations for the same target and trait")
-        }),
-        "missing generic overlap diagnostic: {:?}",
+        checked.diagnostics.is_empty(),
+        "unexpected diagnostics: {:?}",
         checked.diagnostics
     );
 }

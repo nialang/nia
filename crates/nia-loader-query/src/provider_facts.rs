@@ -257,6 +257,7 @@ mod tests {
             request: ProviderRequest::TraitImpl {
                 target_type_name: None,
                 target_package: None,
+                target_module_segments: Vec::new(),
                 trait_name: SymbolId::default(),
                 trait_package: None,
                 trait_type_argument_names: Vec::new(),
@@ -279,6 +280,7 @@ mod tests {
                     request: ProviderRequest::TraitImpl {
                         target_type_name: None,
                         target_package: None,
+                        target_module_segments: Vec::new(),
                         trait_name: SymbolId::default(),
                         trait_package: None,
                         trait_type_argument_names: Vec::new(),

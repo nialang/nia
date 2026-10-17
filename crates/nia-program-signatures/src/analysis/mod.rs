@@ -23,7 +23,7 @@ use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
-    trait_impl_headers_may_overlap,
+    trait_impl_headers_are_equivalent,
 };
 use nia_ty::{PrimitiveTy, TraitId, TyKind, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
@@ -170,25 +170,40 @@ pub fn collect_valid_program_trait_impls(
             .collect::<Vec<_>>(),
     )
     .into_iter()
-    .filter(|impl_signature| {
-        let Some(module) = modules
+    .filter_map(|mut impl_signature| {
+        let module = modules
             .iter()
-            .find(|module| module.module_id == impl_signature.module_id)
-        else {
-            return false;
-        };
-        let Some(module_impl_signature) =
-            trait_impl_signature_by_id(module.signatures, impl_signature.impl_id)
-        else {
-            return false;
-        };
-        !matches!(impl_signature.trait_id, TraitId::Builtin(trait_id)
+            .find(|module| module.module_id == impl_signature.module_id)?;
+        let module_impl_signature =
+            trait_impl_signature_by_id(module.signatures, impl_signature.impl_id)?;
+        // Solvers consume headers from other modules without those modules'
+        // local alias tables. Publish the provider's normalized identities.
+        impl_signature.target_ty = module.normalization.normalize(impl_signature.target_ty);
+        impl_signature.where_predicates =
+            normalize_where_predicates(module.normalization, &impl_signature.where_predicates);
+        for associated_type in &mut impl_signature.associated_types {
+            associated_type.ty = module.normalization.normalize(associated_type.ty);
+        }
+        for parameter in &mut impl_signature.generic_params {
+            if let GenericParamSignatureKind::Const { ty } = &mut parameter.kind {
+                *ty = module.normalization.normalize(*ty);
+            }
+        }
+        if let Some(trait_ty) = module_impl_signature.trait_ty {
+            let (trait_id, args, const_args) =
+                trait_id_and_args(module.type_store, module.normalization.normalize(trait_ty))?;
+            impl_signature.trait_id = trait_id;
+            impl_signature.trait_args = args;
+            impl_signature.trait_const_args = const_args;
+        }
+        let intrinsic_overlap = matches!(impl_signature.trait_id, TraitId::Builtin(trait_id)
         if builtin_trait_impl_overlaps_intrinsic(
             module,
             impl_signature.target_ty,
             trait_id,
             module_impl_signature,
-        ))
+        ));
+        (!intrinsic_overlap).then_some(impl_signature)
     })
     .collect()
 }
@@ -202,7 +217,8 @@ pub fn collect_invalid_trait_impl_method_ids(
         for impl_signature in &module.signatures.trait_impls {
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             let trait_id = impl_signature.trait_ty.and_then(|trait_ty| {
-                trait_id_and_args(module.type_store, trait_ty).map(|(trait_id, _, _)| trait_id)
+                trait_id_and_args(module.type_store, module.normalization.normalize(trait_ty))
+                    .map(|(trait_id, _, _)| trait_id)
             });
             let is_invalid = matches!(trait_id, Some(TraitId::Builtin(trait_id))
                 if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature));
@@ -331,7 +347,7 @@ pub fn collect_extension_method_diagnostics_for_module(
             None => {}
         }
         if let Some(trait_id) = trait_id {
-            report_trait_impl_overlap(
+            report_duplicate_trait_impl(
                 module,
                 impl_signature,
                 target_ty,
@@ -355,6 +371,12 @@ fn validate_orphan_rule(
     let Some(trait_id) = trait_id else {
         return Ok(());
     };
+    // Compiler-defined traits are language contracts. Their user extensions
+    // are validated against intrinsic implementations below, rather than by
+    // the source-package orphan rule used for declared traits.
+    if matches!(trait_id, TraitId::Builtin(_)) {
+        return Ok(());
+    }
     let current_package = graph
         .module_path(module.module_id)
         .map(|path| path.package)
@@ -437,7 +459,7 @@ fn trait_definition_package(
     }
 }
 
-fn report_trait_impl_overlap(
+fn report_duplicate_trait_impl(
     module: &ExtensionModuleInput<'_>,
     impl_signature: &TraitImplSignature,
     target_ty: InternedTyId,
@@ -445,6 +467,11 @@ fn report_trait_impl_overlap(
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> nia_ice::IceResult<()> {
+    // Conditional implementations are filtered by their obligations during
+    // selection; identical type patterns alone do not make them duplicates.
+    if !impl_signature.where_predicates.is_empty() {
+        return Ok(());
+    }
     let current_package = graph_module_package(
         input.graph,
         module.module_id,
@@ -471,6 +498,7 @@ fn report_trait_impl_overlap(
             if (candidate.module_id, candidate.impl_id)
                 >= (module.module_id, impl_signature.impl_id)
                 || candidate.trait_id != trait_id
+                || !candidate.where_predicates.is_empty()
             {
                 return false;
             }
@@ -488,7 +516,7 @@ fn report_trait_impl_overlap(
                 None => candidate_package == trait_package,
             };
             candidate_allowed
-                && trait_impl_headers_may_overlap(
+                && trait_impl_headers_are_equivalent(
                     module.type_store,
                     module.normalization,
                     module.module_id,
@@ -504,10 +532,12 @@ fn report_trait_impl_overlap(
                         trait_id,
                         trait_args: impl_signature
                             .trait_ty
+                            .map(|trait_ty| module.normalization.normalize(trait_ty))
                             .and_then(|trait_ty| trait_id_and_args(module.type_store, trait_ty))
                             .map_or_else(Vec::new, |(_, args, _)| args),
                         trait_const_args: impl_signature
                             .trait_ty
+                            .map(|trait_ty| module.normalization.normalize(trait_ty))
                             .and_then(|trait_ty| trait_id_and_args(module.type_store, trait_ty))
                             .map_or_else(Vec::new, |(_, _, args)| args),
                         where_predicates: impl_signature.where_predicates.clone(),
@@ -522,13 +552,13 @@ fn report_trait_impl_overlap(
     diagnostics.push(
         Diagnostic::user_error(
             codes::NAME_RESOLUTION,
-            "overlapping trait implementations for the same target and trait",
+            "duplicate trait implementation header",
         )
         .primary(
             impl_signature.span,
-            "this implementation overlaps another implementation",
+            "this unconditional implementation repeats another implementation header",
         )
-        .note("the other implementation is in another package or module")
+        .note("strict specializations are allowed, but these headers describe the same pattern")
         .finish(),
     );
     Ok(())
@@ -1856,7 +1886,7 @@ fn validate_supertrait_impls(
         let Some(supertrait_ty) = substitute_trait_bound(
             &append,
             input.type_store,
-            supertrait.ty,
+            module.normalization.normalize(supertrait.ty),
             &trait_signature.signature.generic_params,
             &trait_goal.trait_args,
             &trait_goal.trait_const_args,

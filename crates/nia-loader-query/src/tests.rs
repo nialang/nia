@@ -508,18 +508,37 @@ fn load_program_with_trait_provider_demand(
     trait_name: &str,
     trait_type_argument_names: &[Option<&str>],
 ) -> LoadedProgram {
+    load_program_with_trait_provider_demand_at_module(
+        entry_path,
+        module_map,
+        target_type_name,
+        trait_name,
+        trait_type_argument_names,
+        Vec::new(),
+    )
+}
+
+pub(super) fn load_program_with_trait_provider_demand_at_module(
+    entry_path: &Path,
+    module_map: ModuleMap,
+    target_type_name: Option<&str>,
+    trait_name: &str,
+    trait_type_argument_names: &[Option<&str>],
+    target_module_segments: Vec<SymbolId>,
+) -> LoadedProgram {
     let target_package = module_map
         .entries()
         .next()
         .map(|(package, _)| package)
         .or(Some(nia_symbol::known::STD));
-    load_program_with_trait_provider_demand_for_package(
+    load_program_with_trait_provider_demand_for_package_and_module(
         entry_path,
         module_map,
         target_type_name,
         target_package,
         trait_name,
         trait_type_argument_names,
+        target_module_segments,
     )
 }
 
@@ -530,6 +549,26 @@ fn load_program_with_trait_provider_demand_for_package(
     target_package: Option<SymbolId>,
     trait_name: &str,
     trait_type_argument_names: &[Option<&str>],
+) -> LoadedProgram {
+    load_program_with_trait_provider_demand_for_package_and_module(
+        entry_path,
+        module_map,
+        target_type_name,
+        target_package,
+        trait_name,
+        trait_type_argument_names,
+        Vec::new(),
+    )
+}
+
+fn load_program_with_trait_provider_demand_for_package_and_module(
+    entry_path: &Path,
+    module_map: ModuleMap,
+    target_type_name: Option<&str>,
+    target_package: Option<SymbolId>,
+    trait_name: &str,
+    trait_type_argument_names: &[Option<&str>],
+    target_module_segments: Vec<SymbolId>,
 ) -> LoadedProgram {
     let source_path = SourcePath::new(entry_path.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
@@ -543,6 +582,7 @@ fn load_program_with_trait_provider_demand_for_package(
             request: nia_compiler_query::ProviderRequest::TraitImpl {
                 target_type_name: target_type_name.map(sym),
                 target_package,
+                target_module_segments,
                 trait_name: sym(trait_name),
                 trait_package: Some(nia_symbol::known::STD),
                 trait_type_argument_names: trait_type_argument_names

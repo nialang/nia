@@ -123,26 +123,35 @@ fn body_check_without_method_lookup_does_not_build_global_extension_method_index
 }
 
 #[test]
-fn body_check_method_lookup_uses_named_extension_method_query() {
+fn body_check_method_lookup_uses_extension_method_identity_query() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module module1; using self::module1::S; pub fn main() i32 { let s = S::make(); 1 }",
+        "module module1; using entry::module1; using module1::S; pub fn main(s: S) i32 { _ = s.make(); 1 }",
     );
     let module_id = fixture.entry_id();
     fixture.add_child(
         module_id,
         "module1",
         "module1.nia",
-        "pub struct S {} extend S { pub fn make() S { {} } }",
+        "pub struct S {} extend S { pub fn make(self) S { self } }",
     );
     let db = query_db(fixture.program());
 
     let checked = db.expect_get(BodyCheckQuery(module_id));
     let trace = db.query_trace().expect("query trace");
 
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics.is_empty(),
+        "{:?}",
+        checked
+            .diagnostics
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.summary.clone())
+            .collect::<Vec<_>>()
+    );
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "body_check" && dependency.to.name == "extension_methods_named"
+        dependency.from.name == "body_check" && dependency.to.name == "extension_method_by_id"
     }));
     assert!(!trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "body_check" && dependency.to.name == "extension_method_index"

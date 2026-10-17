@@ -1,3 +1,4 @@
+using pkg::option;
 using pkg::os::windows::bindings::{
     invalidHandle, maxPathUnits,
     errorNoMoreFiles, errorFileNotFound, findDataNameUnits, findDataAlternateUnits,

@@ -102,12 +102,13 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &SymbolId,
     ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
-        if let Some(signature) =
-            self.builtin_trait_method_signature_for_inference(receiver_ty, name)
-        {
-            return Some(signature);
-        }
         let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
+        if resolution.candidates.is_empty()
+            && resolution.trait_candidates.is_empty()
+            && resolution.dynamic_candidates.is_empty()
+        {
+            return self.builtin_trait_method_signature_for_inference(resolution.receiver_ty, name);
+        }
         if resolution.candidates.len() + resolution.trait_candidates.len() != 1
             || !resolution.dynamic_candidates.is_empty()
         {

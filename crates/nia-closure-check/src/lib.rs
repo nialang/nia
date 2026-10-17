@@ -1447,6 +1447,17 @@ impl<'a> Analyzer<'a> {
                 env.insert(*local_id, value.clone());
             }
             PlaceBase::Local(local_id) => {
+                // A projected place rooted in a parameter or captured input
+                // addresses storage owned by the caller/outer state. Storing a
+                // stack-backed view there is an escape even though the place
+                // is represented as a Local after auto-dereference lowering.
+                if env.get(local_id).is_some_and(|root| {
+                    root.all().iter().any(|origin| {
+                        input_source(origin).is_some() || captured_input_source(origin).is_some()
+                    })
+                }) {
+                    self.record_escape(&value.all(), span, EscapeKind::Store);
+                }
                 let projections = place
                     .elems
                     .iter()

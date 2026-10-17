@@ -143,6 +143,7 @@ fn build_module_graph(
         .validate_for_target(&db.context().target)
         .map_err(|error| db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
     let mut fresh_diagnostics = Vec::new();
+    let mut pending_trait_provider_imports = Vec::new();
     let (mut graph, prior_diagnostics, mut index) = match seed {
         Some(value) => {
             let mut graph = (*value.semantic).clone();
@@ -185,8 +186,15 @@ fn build_module_graph(
                     &declarations.semantic.explicit_imports,
                     new_provider_demands,
                     &mut fresh_diagnostics,
+                    &mut pending_trait_provider_imports,
                 )?;
             }
+            process_pending_trait_provider_imports(
+                db,
+                &mut graph,
+                &mut pending_trait_provider_imports,
+                &mut fresh_diagnostics,
+            )?;
             (graph, value.diagnostics.clone(), existing_modules)
         }
         None => {
@@ -251,6 +259,13 @@ fn build_module_graph(
             &declarations.semantic.explicit_imports,
             new_provider_demands,
             &mut fresh_diagnostics,
+            &mut pending_trait_provider_imports,
+        )?;
+        process_pending_trait_provider_imports(
+            db,
+            &mut graph,
+            &mut pending_trait_provider_imports,
+            &mut fresh_diagnostics,
         )?;
         index += 1;
     }
@@ -265,6 +280,84 @@ fn build_module_graph(
         semantic: ModuleGraphSnapshot::new(graph),
         diagnostics: prior_diagnostics.append(&diagnostics)?,
     })
+}
+
+fn process_pending_trait_provider_imports(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    pending: &mut Vec<nia_imports::ModuleId>,
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+) -> QueryResult<()> {
+    for provider in pending.drain(..) {
+        if let Some(provider_node) = graph.get(provider).cloned() {
+            record_traversal_diagnostic(
+                process_trait_provider_imports(db, graph, provider),
+                diagnostics,
+                &provider_node.path,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Selects the provider's direct semantic imports without promoting its whole
+/// import closure. Trait witnesses contribute facts to the requesting module;
+/// their ordinary extension scope remains lazy and local to the provider.
+fn process_trait_provider_imports(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_id: nia_imports::ModuleId,
+) -> TraversalResult<()> {
+    if !graph.mark_semantic_selected(module_id) {
+        return Ok(());
+    }
+    let Some(node) = graph.get(module_id).cloned() else {
+        return Ok(());
+    };
+    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    for package in &declarations.semantic.package_roots {
+        if graph.package_root(package).is_none()
+            && let Some(path) = db.context().module_map.get_name(package)
+        {
+            graph.intern_package_root(package, path.clone())?;
+        }
+    }
+    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+        if matches!(
+            path.processing(),
+            UsedModulePathProcessing::IfSelectedItem
+                | UsedModulePathProcessing::IfProvidesExtensions
+                | UsedModulePathProcessing::IfProvidesTraitMethod { .. }
+        ) {
+            continue;
+        }
+        let Some(start) = used_path_start(graph, module_id, &path) else {
+            continue;
+        };
+        if let Some(package) = path.activates_package_facade() {
+            activate_package_facade(db, graph, package)?;
+        }
+        let shallow_path = path.with_appended_segments_with_processing_mode(
+            &[],
+            path.include_declared_children(),
+            UsedModulePathProcessing::Never,
+        );
+        let Some(imported) = add_visible_declared_module_path(
+            db,
+            graph,
+            module_id,
+            start,
+            shallow_path.segments(),
+            shallow_path.processing(),
+        )?
+        else {
+            continue;
+        };
+        if shallow_path.include_declared_children() {
+            add_declared_module_children(db, graph, imported)?;
+        }
+    }
+    Ok(())
 }
 
 fn record_traversal_diagnostic(
@@ -338,7 +431,6 @@ fn add_semantic_used_module_path(
     if matches!(
         path.processing(),
         UsedModulePathProcessing::IfProvidesExtensions
-            | UsedModulePathProcessing::IfProvidesTraitImpl { .. }
             | UsedModulePathProcessing::IfProvidesTraitMethod { .. }
     ) {
         return add_used_module_path(db, graph, current_module, path);
@@ -381,6 +473,7 @@ fn apply_provider_demands(
     imports: &[crate::used_paths::ExplicitUsingImport],
     provider_demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+    pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
 ) -> QueryResult<()> {
     let mut demands = provider_demands
         .iter()
@@ -418,7 +511,14 @@ fn apply_provider_demands(
             continue;
         }
         if let nia_loader_contract::ProviderRequest::TraitImpl { .. } = &demand.request {
-            apply_trait_demand(db, graph, node, &demand.request, diagnostics)?;
+            apply_trait_demand(
+                db,
+                graph,
+                node,
+                &demand.request,
+                diagnostics,
+                pending_trait_provider_imports,
+            )?;
 
             // Trait implementations are package-owned facts. Once the two
             // owner packages have been searched, `using` paths must not add a
@@ -435,18 +535,9 @@ fn apply_provider_demands(
                     target_type_name,
                     associated_name: method_name,
                 },
-                nia_loader_contract::ProviderRequest::TraitImpl {
-                    target_type_name,
-                    trait_name,
-                    ref trait_type_argument_names,
-                    ..
-                } => UsedModulePathProcessing::IfProvidesTraitImpl {
-                    target_type_name,
-                    trait_name,
-                    trait_type_argument_names: trait_type_argument_names.clone(),
-                },
                 nia_loader_contract::ProviderRequest::ModuleSemantic { .. } => continue,
                 nia_loader_contract::ProviderRequest::ModuleBody { .. } => continue,
+                nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
             };
             let path =
                 import
@@ -468,21 +559,18 @@ fn apply_trait_demand(
     requesting_node: &ModuleNode,
     request: &nia_loader_contract::ProviderRequest,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+    pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
 ) -> QueryResult<()> {
     let nia_loader_contract::ProviderRequest::TraitImpl {
         target_type_name,
         target_package,
+        target_module_segments,
         trait_name,
         trait_package,
         trait_type_argument_names,
     } = request
     else {
         return Ok(());
-    };
-    let processing = UsedModulePathProcessing::IfProvidesTraitImpl {
-        target_type_name: *target_type_name,
-        trait_name: *trait_name,
-        trait_type_argument_names: trait_type_argument_names.to_vec(),
     };
     let mut visited = HashSet::new();
     let mut providers = Vec::new();
@@ -515,28 +603,57 @@ fn apply_trait_demand(
             db,
             graph,
             package,
-            package_root: root_id,
-            requesting_module: requesting_node.id,
             target_type_name: *target_type_name,
+            target_module_segments,
             trait_name: *trait_name,
             trait_type_argument_names,
             visited: &mut visited,
             providers: &mut providers,
         }
-        .collect(&root.path, &root.module_path, &mut Vec::new())?;
+        .collect(&root.path, &root.module_path, &[])?;
     }
     for (package, segments) in providers {
-        let path = UsedModulePath::Package {
-            package,
-            segments,
-            include_declared_children: false,
-            processing: processing.clone(),
-        };
         record_traversal_diagnostic(
-            add_used_module_path(db, graph, requesting_node.id, &path),
+            add_package_trait_provider(
+                db,
+                graph,
+                requesting_node.id,
+                package,
+                &segments,
+                pending_trait_provider_imports,
+            ),
             diagnostics,
             &requesting_node.path,
         )?;
+    }
+    Ok(())
+}
+
+fn add_package_trait_provider(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    requesting_module: nia_imports::ModuleId,
+    package: SymbolId,
+    segments: &[SymbolId],
+    pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
+) -> TraversalResult<()> {
+    let Some(mut current) = graph.package_root(&package) else {
+        return Ok(());
+    };
+    for segment in segments {
+        // Implementation discovery follows ownership, not the caller's name
+        // visibility. Each declaration is accessed from its own parent.
+        let Some(next) = add_visible_declared_module_child_if_present(
+            db, graph, current, current, segment, false,
+        )?
+        else {
+            return Ok(());
+        };
+        current = next;
+    }
+    graph.add_trait_impl_dependency(requesting_module, current);
+    if !pending_trait_provider_imports.contains(&current) {
+        pending_trait_provider_imports.push(current);
     }
     Ok(())
 }
@@ -545,9 +662,8 @@ struct TraitProviderSearch<'a> {
     db: &'a QueryDb<LoaderContext>,
     graph: &'a ModuleGraph,
     package: SymbolId,
-    package_root: nia_imports::ModuleId,
-    requesting_module: nia_imports::ModuleId,
     target_type_name: Option<SymbolId>,
+    target_module_segments: &'a [SymbolId],
     trait_name: SymbolId,
     trait_type_argument_names: &'a [Option<SymbolId>],
     visited: &'a mut HashSet<String>,
@@ -559,49 +675,46 @@ impl TraitProviderSearch<'_> {
         &mut self,
         parent_path: &SourcePath,
         parent_module_path: &ModulePath,
-        segments: &mut Vec<SymbolId>,
+        segments: &[SymbolId],
     ) -> QueryResult<()> {
-        let declarations = self
-            .db
-            .get(module_declarations_query(self.db, parent_path)?)?;
-        for declaration in &declarations.semantic.declarations {
-            if segments.is_empty()
-                && !module_declaration_visibility_allows(
-                    declaration.visibility,
-                    self.graph,
-                    self.package_root,
-                    self.requesting_module,
-                )
-            {
-                continue;
-            }
-            let child_path = self.graph.declared_child_source_path_for(
-                parent_path,
-                parent_module_path,
-                declaration.name,
-            );
-            let child_module_path = parent_module_path.child(declaration.name);
-            segments.push(declaration.name);
-
-            let summary = self.db.get(crate::queries::provider_summary_query(
-                self.db,
-                &child_path,
-            )?)?;
-            let provides = summary.defines_trait_impl(
+        // Package-owned discovery can walk a large standard or dependency
+        // package. Keep the traversal worklist based so module depth cannot
+        // consume the query worker's stack.
+        let mut pending = vec![(
+            parent_path.clone(),
+            parent_module_path.clone(),
+            segments.to_vec(),
+        )];
+        while let Some((path, module_path, path_segments)) = pending.pop() {
+            let summary = self
+                .db
+                .get(crate::queries::provider_summary_query(self.db, &path)?)?;
+            if summary.defines_trait_impl_at_module(
                 self.target_type_name.as_ref(),
+                self.target_module_segments,
+                &module_path.segments,
                 &self.trait_name,
                 self.trait_type_argument_names,
                 None,
-            );
-            if provides {
-                self.providers.push((self.package, segments.clone()));
+            ) {
+                self.providers.push((self.package, path_segments.clone()));
             }
-
-            let key = child_path.identity().normalized_path().to_owned();
-            if self.visited.insert(key) {
-                self.collect(&child_path, &child_module_path, segments)?;
+            let declarations = self.db.get(module_declarations_query(self.db, &path)?)?;
+            for declaration in declarations.semantic.declarations.iter().rev() {
+                let child_path = self.graph.declared_child_source_path_for(
+                    &path,
+                    &module_path,
+                    declaration.name,
+                );
+                let child_module_path = module_path.child(declaration.name);
+                let key = child_path.identity().normalized_path().to_owned();
+                if !self.visited.insert(key) {
+                    continue;
+                }
+                let mut child_segments = path_segments.clone();
+                child_segments.push(declaration.name);
+                pending.push((child_path, child_module_path, child_segments));
             }
-            segments.pop();
         }
         Ok(())
     }
@@ -727,8 +840,7 @@ fn ordered_used_module_paths(paths: &[UsedModulePath]) -> Vec<UsedModulePath> {
         UsedModulePathProcessing::Never | UsedModulePathProcessing::Always => 0_u8,
         UsedModulePathProcessing::IfSelectedItem => 1,
         UsedModulePathProcessing::IfProvidesExtensions => 2,
-        UsedModulePathProcessing::IfProvidesTraitImpl { .. }
-        | UsedModulePathProcessing::IfProvidesTraitMethod { .. } => 3,
+        UsedModulePathProcessing::IfProvidesTraitMethod { .. } => 3,
     });
     ordered
 }

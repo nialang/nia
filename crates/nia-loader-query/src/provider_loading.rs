@@ -17,23 +17,10 @@ pub(crate) fn process_reexport_provider_request(
     graph: &mut ModuleGraph,
     requesting_module: nia_imports::ModuleId,
     facade_module: nia_imports::ModuleId,
-    exported_name: &SymbolId,
+    _exported_name: &SymbolId,
     processing: &UsedModulePathProcessing,
 ) -> TraversalResult<()> {
     match processing {
-        UsedModulePathProcessing::IfProvidesTraitImpl {
-            target_type_name,
-            trait_name,
-            trait_type_argument_names,
-        } if trait_name == exported_name => add_public_reexport_trait_impl_provider_modules(
-            db,
-            graph,
-            requesting_module,
-            facade_module,
-            target_type_name.as_ref(),
-            trait_name,
-            trait_type_argument_names,
-        ),
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -61,19 +48,6 @@ pub(crate) fn process_provider_request(
         graph.add_provider_dependency(requesting_module, module_id);
     }
     match processing {
-        UsedModulePathProcessing::IfProvidesTraitImpl {
-            target_type_name,
-            trait_name,
-            trait_type_argument_names,
-        } => add_public_reexport_trait_impl_provider_modules(
-            db,
-            graph,
-            requesting_module,
-            module_id,
-            target_type_name.as_ref(),
-            trait_name,
-            trait_type_argument_names,
-        ),
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -102,18 +76,6 @@ fn direct_provider_module_matches_request(
         return Ok(false);
     };
     match processing {
-        UsedModulePathProcessing::IfProvidesTraitImpl {
-            target_type_name,
-            trait_name,
-            trait_type_argument_names,
-        } => provider_candidate_has_trait_impl(
-            db,
-            node.path.clone(),
-            target_type_name.as_ref(),
-            trait_name,
-            trait_type_argument_names,
-            None,
-        ),
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -175,39 +137,6 @@ pub(crate) fn add_public_reexport_source_module(
         return source;
     }
     Ok(None)
-}
-
-fn add_public_reexport_trait_impl_provider_modules(
-    db: &QueryDb<LoaderContext>,
-    graph: &mut ModuleGraph,
-    requesting_module: nia_imports::ModuleId,
-    facade_module: nia_imports::ModuleId,
-    target_type_name: Option<&SymbolId>,
-    trait_name: &SymbolId,
-    trait_type_argument_names: &[Option<SymbolId>],
-) -> TraversalResult<()> {
-    let Some(node) = graph.get(facade_module).cloned() else {
-        return Ok(());
-    };
-    let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
-    add_trait_provider_modules_matching(
-        db,
-        graph,
-        requesting_module,
-        facade_module,
-        &facts,
-        |db, path| {
-            provider_candidate_has_trait_impl(
-                db,
-                path,
-                target_type_name,
-                trait_name,
-                trait_type_argument_names,
-                None,
-            )
-        },
-        false,
-    )
 }
 
 fn add_public_reexport_trait_method_provider_modules(
@@ -443,23 +372,6 @@ fn resolve_child_source_path(
         return Ok(Some(path));
     }
     Ok(graph.get(current).map(|node| node.path.clone()))
-}
-
-fn provider_candidate_has_trait_impl(
-    db: &QueryDb<LoaderContext>,
-    path: SourcePath,
-    target_type_name: Option<&SymbolId>,
-    trait_name: &SymbolId,
-    trait_type_argument_names: &[Option<SymbolId>],
-    associated_name: Option<&SymbolId>,
-) -> TraversalResult<bool> {
-    let summary = db.get(provider_summary_query(db, &path)?)?;
-    Ok(summary.defines_trait_impl(
-        target_type_name,
-        trait_name,
-        trait_type_argument_names,
-        associated_name,
-    ))
 }
 
 fn provider_candidate_has_public_extension_method_for_facade(

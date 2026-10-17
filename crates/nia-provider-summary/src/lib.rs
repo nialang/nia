@@ -4,8 +4,8 @@
 //! A [`ProviderSummary`] lists a module's `extend` blocks from its active item
 //! tree: the target type, the optional trait, and the declared method and
 //! associated-value names. Type references are classified syntactically only;
-//! a generic, structural, aliased, or imported target is marked conservative
-//! rather than resolved. [`NominalProviderCandidateIndex`] maps a definite
+//! local alias chains are followed, while unresolved imports and structural
+//! targets remain conservative. [`NominalProviderCandidateIndex`] maps a definite
 //! nominal name to the modules that may provide extensions for it, so
 //! extension discovery can skip modules that cannot match while still
 //! visiting every conservative provider.
@@ -22,9 +22,7 @@ pub use demand::{
 
 use std::collections::HashSet;
 
-use nia_ast::{
-    GenericParam, PathSegmentKind, TypeArg, TypeKind, TypeRef, UsingGroupItem, UsingSelector,
-};
+use nia_ast::{GenericParam, PathSegmentKind, TypeArg, TypeKind, TypeRef};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::{SymbolId, SymbolMap, SymbolSet, ToSymbolId};
 
@@ -56,6 +54,10 @@ pub struct ProviderTypeRef {
     pub type_argument_names: Vec<Option<SymbolId>>,
     /// Whether the target is generic or structurally shaped.
     pub is_generic_or_structural_target: bool,
+    /// Qualified module path segments before the target name, when explicit.
+    pub target_module_segments: Vec<SymbolId>,
+    /// Whether an unqualified target resolves to a nominal type in this module.
+    pub target_is_local_nominal: bool,
     /// Whether matching must conservatively account for aliases or imports.
     pub semantic_is_conservative: bool,
 }
@@ -132,17 +134,31 @@ impl ProviderSummary {
     /// Extracts extension providers from an active item tree.
     pub fn from_active_item_tree(item_tree: &ActiveModuleItemTree) -> Self {
         let mut local_nominal_names = local_nominal_type_names(item_tree);
+        local_nominal_names.extend(
+            nia_ids::BuiltinTypeAnchor::ALL
+                .iter()
+                .map(|anchor| anchor.symbol_id()),
+        );
         let mut local_trait_names = local_trait_names(item_tree);
-        let mut argument_nominal_names = local_nominal_names.clone();
-        argument_nominal_names.extend(module_using_names(item_tree, false));
-        let using_names = module_using_names(item_tree, true);
-        local_nominal_names.extend(using_names.iter().cloned());
-        local_trait_names.extend(using_names.iter().cloned());
+        // Imported names can themselves denote aliases or reexports. Only
+        // local declarations and language anchors establish an identity
+        // without semantic lookup.
+        let argument_nominal_names = local_nominal_names.clone();
         local_trait_names.extend(
             nia_ids::BuiltinTrait::ALL
                 .iter()
                 .map(|trait_id| trait_id.symbol_id()),
         );
+        let aliases = item_tree
+            .items
+            .iter()
+            .filter_map(|item| {
+                let ItemTreeNodeKind::TypeAlias(alias) = &item.kind else {
+                    return None;
+                };
+                Some((alias.name, alias))
+            })
+            .collect::<SymbolMap<_>>();
         let providers = item_tree
             .items
             .iter()
@@ -168,6 +184,8 @@ impl ProviderSummary {
                             &generic_names,
                             &local_nominal_names,
                             &local_nominal_names,
+                            &aliases,
+                            &mut SymbolSet::default(),
                         ),
                     },
                     trait_ref: extend.trait_ref.as_ref().map(|trait_ref| {
@@ -176,6 +194,8 @@ impl ProviderSummary {
                             &generic_names,
                             &local_trait_names,
                             &argument_nominal_names,
+                            &aliases,
+                            &mut SymbolSet::default(),
                         )
                     }),
                     associated_methods,
@@ -284,13 +304,48 @@ impl ProviderSummary {
         trait_type_argument_names: &[Option<SymbolId>],
         associated_name: Option<&SymbolId>,
     ) -> bool {
+        self.defines_trait_impl_at_module(
+            target_type_name,
+            &[],
+            &[],
+            trait_name,
+            trait_type_argument_names,
+            associated_name,
+        )
+    }
+
+    /// Reports whether a matching implementation may target a type defined in
+    /// the given module path. Unqualified summary paths remain conservative.
+    pub fn defines_trait_impl_at_module(
+        &self,
+        target_type_name: Option<&SymbolId>,
+        target_module_segments: &[SymbolId],
+        provider_module_segments: &[SymbolId],
+        trait_name: &SymbolId,
+        trait_type_argument_names: &[Option<SymbolId>],
+        associated_name: Option<&SymbolId>,
+    ) -> bool {
         self.providers.iter().any(|provider| {
-            target_type_name.is_none_or(|target_type_name| {
-                provider
-                    .target
-                    .ty
-                    .may_match_demand_nominal_name(target_type_name)
-            }) && provider
+            target_type_name.map_or(
+                provider.target.ty.is_generic_or_structural_target
+                    || provider.target.ty.semantic_is_conservative,
+                |target_type_name| {
+                    provider
+                        .target
+                        .ty
+                        .may_match_demand_nominal_name(target_type_name)
+                },
+            ) && {
+                let provider_target_module_segments = if provider.target.ty.target_is_local_nominal
+                {
+                    provider_module_segments
+                } else {
+                    &provider.target.ty.target_module_segments
+                };
+                target_module_segments.is_empty()
+                    || provider_target_module_segments.is_empty()
+                    || provider_target_module_segments == target_module_segments
+            } && provider
                 .trait_ref
                 .as_ref()
                 .is_some_and(|trait_ref| trait_ref.may_match_trait_name(trait_name))
@@ -351,10 +406,63 @@ impl ProviderTypeRef {
         generic_names: &SymbolSet,
         definite_names: &SymbolSet,
         argument_definite_names: &SymbolSet,
+        aliases: &SymbolMap<&nia_ast::TypeAliasItem>,
+        visiting: &mut SymbolSet,
     ) -> Self {
+        if let TypeKind::Path { segments } = &ty.kind
+            && segments.len() == 1
+            && let PathSegmentKind::Name(name) = segments[0].kind
+            && !generic_names.contains(&name)
+            && let Some(alias) = aliases.get(&name)
+        {
+            if visiting.insert(name)
+                && let Some(target) = &alias.ty
+            {
+                let mut generic_names = generic_names.clone();
+                generic_names.extend(generic_param_names(&alias.generics));
+                let resolved = Self::from_type_ref(
+                    target,
+                    &generic_names,
+                    definite_names,
+                    argument_definite_names,
+                    aliases,
+                    visiting,
+                );
+                visiting.remove(&name);
+                return resolved;
+            }
+            return Self {
+                last_name: None,
+                type_argument_names: Vec::new(),
+                is_generic_or_structural_target: true,
+                semantic_is_conservative: true,
+                target_module_segments: Vec::new(),
+                target_is_local_nominal: false,
+            };
+        }
         let last_name = type_ref_last_name(ty);
+        let target_module_segments = match &ty.kind {
+            TypeKind::Path { segments } => segments
+                .iter()
+                .take(segments.len().saturating_sub(1))
+                .filter_map(|segment| match segment.kind {
+                    PathSegmentKind::Name(name) => Some(name),
+                    PathSegmentKind::Package
+                    | PathSegmentKind::Super
+                    | PathSegmentKind::SelfValue => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         let is_generic_or_structural_target =
             type_ref_is_generic_or_structural_provider_target(ty, generic_names);
+        let target_is_local_nominal = matches!(
+            &ty.kind,
+            TypeKind::Path { segments }
+                if segments.len() == 1
+                    && matches!(segments[0].kind, PathSegmentKind::Name(name)
+                        if definite_names.contains(&name) && !generic_names.contains(&name))
+        );
         let semantic_is_conservative =
             !type_ref_is_definite_local_nominal_name(ty, generic_names, definite_names);
         Self {
@@ -366,6 +474,8 @@ impl ProviderTypeRef {
             ),
             is_generic_or_structural_target,
             semantic_is_conservative,
+            target_module_segments,
+            target_is_local_nominal,
         }
     }
 
@@ -377,11 +487,12 @@ impl ProviderTypeRef {
 
     fn may_match_demand_nominal_name(&self, name: &SymbolId) -> bool {
         self.is_generic_or_structural_target
+            || self.semantic_is_conservative
             || self.last_name.as_ref().is_none_or(|last| last == name)
     }
 
     fn may_match_trait_name(&self, name: &SymbolId) -> bool {
-        self.last_name.as_ref().is_none_or(|last| last == name)
+        self.semantic_is_conservative || self.last_name.as_ref().is_none_or(|last| last == name)
     }
 
     fn may_match_type_arguments(&self, names: &[Option<SymbolId>]) -> bool {
@@ -442,62 +553,6 @@ fn local_trait_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
         .collect()
 }
 
-fn module_using_names(item_tree: &ActiveModuleItemTree, include_aliases: bool) -> SymbolSet {
-    let mut names = SymbolSet::default();
-    for item in item_tree.items.iter() {
-        let ItemTreeNodeKind::Using(using) = &item.kind else {
-            continue;
-        };
-        collect_using_selector_names(&using.host, &using.selector, include_aliases, &mut names);
-    }
-    names
-}
-
-fn collect_using_selector_names(
-    host: &[nia_ast::UsingHostSegment],
-    selector: &UsingSelector,
-    include_aliases: bool,
-    names: &mut SymbolSet,
-) {
-    match selector {
-        UsingSelector::SelfName => {
-            if let Some(segment) = host.last()
-                && let PathSegmentKind::Name(name) = segment.kind
-            {
-                names.insert(name);
-            }
-        }
-        UsingSelector::Wildcard { .. } => {}
-        UsingSelector::Single(name) => {
-            if name.alias.is_none() || include_aliases {
-                names.insert(name.alias.unwrap_or(name.name));
-            }
-        }
-        UsingSelector::Group(items) => {
-            for item in items {
-                collect_using_group_item_names(item, include_aliases, names);
-            }
-        }
-    }
-}
-
-fn collect_using_group_item_names(
-    item: &UsingGroupItem,
-    include_aliases: bool,
-    names: &mut SymbolSet,
-) {
-    match item {
-        UsingGroupItem::Name(name) => {
-            if name.alias.is_none() || include_aliases {
-                names.insert(name.alias.unwrap_or(name.name));
-            }
-        }
-        UsingGroupItem::Nested { host, selector } => {
-            collect_using_selector_names(host, selector, include_aliases, names);
-        }
-    }
-}
-
 fn type_ref_last_name(ty: &TypeRef) -> Option<SymbolId> {
     match &ty.kind {
         TypeKind::Path { segments } => segments.last().and_then(|segment| match segment.kind {
@@ -541,15 +596,15 @@ fn type_ref_is_definite_local_nominal_name(
     definite_names: &SymbolSet,
 ) -> bool {
     match &ty.kind {
-        TypeKind::Path { segments } => {
-            segments.len() == 1
-                && segments[0].args.is_empty()
-                && matches!(
-                    segments[0].kind,
-                    PathSegmentKind::Name(name)
-                        if !generic_names.contains(&name) && definite_names.contains(&name)
-                )
-        }
+        TypeKind::Path { segments } => match segments.as_slice() {
+            [segment] => matches!(
+                segment.kind,
+                PathSegmentKind::Name(name)
+                    if !generic_names.contains(&name) && definite_names.contains(&name)
+            ),
+            [.., segment] => matches!(segment.kind, PathSegmentKind::Name(_)),
+            [] => false,
+        },
         _ => false,
     }
 }
@@ -634,7 +689,7 @@ extend Widget : Hash {
 "#,
         );
 
-        assert!(summary.defines_trait_impl(None, &sym("Hash"), &[], None));
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Hash"), &[], None));
         assert!(summary.defines_trait_impl(
             Some(&sym("Widget")),
             &sym("Hash"),
@@ -642,7 +697,12 @@ extend Widget : Hash {
             Some(&sym("hash"))
         ));
         assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Hash"), &[], None));
-        assert!(!summary.defines_trait_impl(None, &sym("Hash"), &[], Some(&sym("finish"))));
+        assert!(!summary.defines_trait_impl(
+            Some(&sym("Widget")),
+            &sym("Hash"),
+            &[],
+            Some(&sym("finish")),
+        ));
         assert_eq!(summary.trait_impl_index_names(), vec![sym("Hash")]);
     }
 
@@ -675,6 +735,105 @@ where Source: IntoError[Target]
     }
 
     #[test]
+    fn trait_provider_summary_matches_structural_target_without_a_name() {
+        let summary = summary_for(
+            r#"
+trait Iterable {}
+extend[T] T..T : Iterable {}
+"#,
+        );
+        assert!(summary.defines_trait_impl(None, &sym("Iterable"), &[], None));
+    }
+
+    #[test]
+    fn trait_provider_summary_resolves_local_alias_targets() {
+        let summary = summary_for(
+            r#"
+struct Widget {}
+type Alias = Widget;
+trait Show {}
+extend Alias : Show {}
+"#,
+        );
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Show"), &[], None));
+        assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Show"), &[], None));
+        assert!(!summary.defines_trait_impl(None, &sym("Show"), &[], None));
+    }
+
+    #[test]
+    fn trait_provider_summary_resolves_local_trait_aliases() {
+        let summary = summary_for(
+            r#"
+struct Widget {}
+trait Show {}
+type Alias = Show;
+extend Widget : Alias {}
+"#,
+        );
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Show"), &[], None));
+        assert!(!summary.defines_trait_impl(Some(&sym("Widget")), &sym("Other"), &[], None));
+    }
+
+    #[test]
+    fn trait_provider_summary_follows_alias_chains_and_structural_aliases() {
+        let summary = summary_for(
+            r#"
+struct Widget[T] {}
+trait Show {}
+type First[T] = Widget[T];
+type Second[T] = First[T];
+type TraitAlias = Show;
+type TraitChain = TraitAlias;
+type Values[T] = [T];
+extend[T] Second[T] : TraitChain {}
+extend[T] Values[T] : Show {}
+"#,
+        );
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Show"), &[], None));
+        assert!(summary.defines_trait_impl(None, &sym("Show"), &[], None));
+        assert!(!summary.defines_trait_impl(Some(&sym("Widget")), &sym("Other"), &[], None));
+        assert_eq!(
+            summary.providers()[0].target.ty.last_name,
+            Some(sym("Widget"))
+        );
+    }
+
+    #[test]
+    fn trait_provider_summary_alias_cycles_terminate_conservatively() {
+        let summary = summary_for("type A = B; type B = A; trait Show {} extend A : Show {}");
+        assert!(summary.defines_trait_impl(None, &sym("Show"), &[], None));
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Show"), &[], None));
+    }
+
+    #[test]
+    fn trait_provider_summary_keeps_qualified_alias_candidates() {
+        let summary = summary_for(
+            "using dep::types; using dep::traits; extend types::Widget : traits::Show {}",
+        );
+        assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Show"), &[], None));
+        // Qualified paths retain their terminal identity; only imported
+        // single-segment aliases remain conservative.
+        assert!(!summary.defines_trait_impl(None, &sym("Show"), &[], None));
+        assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Show"), &[], None));
+        assert!(!summary.defines_trait_impl(Some(&sym("Widget")), &sym("Other"), &[], None));
+    }
+
+    #[test]
+    fn unnamed_structural_demand_does_not_select_nominal_generic_providers() {
+        let summary = summary_for(
+            r#"
+trait Iterator {}
+struct Cursor[T] {}
+extend[T] Cursor[T] : Iterator {}
+"#,
+        );
+
+        assert!(!summary.defines_trait_impl(None, &sym("Iterator"), &[], None));
+        assert!(summary.defines_trait_impl(Some(&sym("Cursor")), &sym("Iterator"), &[], None));
+        assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Iterator"), &[], None));
+    }
+
+    #[test]
     fn nominal_provider_summary_filters_unrelated_plain_targets() {
         let summary = summary_for(
             r#"
@@ -696,7 +855,7 @@ extend Used {
     }
 
     #[test]
-    fn nominal_provider_summary_filters_imported_using_targets_by_name() {
+    fn nominal_provider_summary_keeps_imported_alias_targets() {
         let summary = summary_for(
             r#"
 module types;
@@ -711,7 +870,7 @@ extend Used {
         );
 
         assert!(summary.defines_inherent_associated_item(&sym("Used"), &sym("init")));
-        assert!(!summary.defines_inherent_associated_item(&sym("Other"), &sym("init")));
+        assert!(summary.defines_inherent_associated_item(&sym("Other"), &sym("init")));
     }
 
     #[test]
@@ -727,7 +886,7 @@ extend fs::File {
 "#,
         );
 
-        assert!(summary.defines_public_extension_method_for_facade(
+        assert!(!summary.defines_public_extension_method_for_facade(
             |_| false,
             None,
             &sym("writer")
@@ -740,7 +899,7 @@ extend fs::File {
     }
 
     #[test]
-    fn nominal_provider_summary_keeps_alias_targets_conservative() {
+    fn nominal_provider_summary_indexes_resolved_local_alias_targets() {
         let summary = summary_for(
             r#"
 struct Used {}
@@ -753,14 +912,14 @@ extend Alias {
         );
 
         assert!(summary.may_define_nominal_provider_for(&sym("Used")));
-        assert!(summary.may_define_nominal_provider_for(&sym("Other")));
+        assert!(!summary.may_define_nominal_provider_for(&sym("Other")));
         assert_eq!(
             summary.nominal_provider_candidates(),
-            vec![NominalProviderCandidate::Conservative]
+            vec![NominalProviderCandidate::Named(sym("Used"))]
         );
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert_eq!(index.named(&sym("Alias")), &[0usize]);
-        assert!(index.named(&sym("Used")).is_empty());
+        assert!(index.named(&sym("Alias")).is_empty());
+        assert_eq!(index.named(&sym("Used")), &[0usize]);
     }
 
     #[test]
@@ -851,8 +1010,37 @@ extend SpawnError : error::IntoError {
 "#,
         );
 
-        assert!(summary.defines_trait_impl(None, &sym("IntoError"), &[], None));
+        assert!(
+            summary.defines_trait_impl(Some(&sym("SpawnError")), &sym("IntoError"), &[], None,)
+        );
         assert!(!summary.defines_trait_impl(None, &sym("Iterable"), &[], None));
+    }
+
+    #[test]
+    fn local_nominal_trait_targets_are_anchored_to_the_provider_module() {
+        let summary = summary_for(
+            r#"
+struct Error {}
+trait IntoError {}
+extend Error : IntoError {}
+"#,
+        );
+        assert!(summary.defines_trait_impl_at_module(
+            Some(&sym("Error")),
+            &[sym("process"), sym("types")],
+            &[sym("process"), sym("types")],
+            &sym("IntoError"),
+            &[],
+            None,
+        ));
+        assert!(!summary.defines_trait_impl_at_module(
+            Some(&sym("Error")),
+            &[sym("os")],
+            &[sym("process"), sym("types")],
+            &sym("IntoError"),
+            &[],
+            None,
+        ));
     }
 
     #[test]

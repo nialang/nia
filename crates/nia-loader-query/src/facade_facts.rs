@@ -214,6 +214,10 @@ fn collect_provider_source_paths(
             paths.push(host_path.with_declared_children_and_processing(false, false));
         }
         UsingSelector::Single(name) => {
+            // A selected name can be an item in the host or a child module.
+            // Search summaries for both possible sources; only matching
+            // providers become semantic dependencies.
+            paths.push(host_path.with_declared_children_and_processing(false, false));
             paths.push(host_path.with_appended_segments_with_processing(
                 std::slice::from_ref(&name.name),
                 false,
@@ -235,6 +239,7 @@ fn collect_provider_source_paths_for_group_item(
 ) {
     match item {
         UsingGroupItem::Name(name) => {
+            paths.push(host_path.with_declared_children_and_processing(false, false));
             paths.push(host_path.with_appended_segments_with_processing(
                 std::slice::from_ref(&name.name),
                 false,

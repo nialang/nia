@@ -1150,12 +1150,7 @@ pub(super) fn provide_layout_type_normalization(
 ) -> QueryResult<TypeNormalization> {
     let type_lowering = type_lowering_semantic(db, module_id)?;
     let item_signatures = item_signatures_semantic(db, module_id)?;
-    Ok(normalize_types_in_session_store(
-        db,
-        module_id,
-        &type_lowering,
-        &item_signatures,
-    )?)
+    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
 pub(super) fn provide_signature_type_normalization(
@@ -1184,12 +1179,7 @@ pub(super) fn provide_signature_const_type_normalization(
 ) -> QueryResult<TypeNormalization> {
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let item_signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
-    Ok(normalize_types_in_session_store(
-        db,
-        module_id,
-        &type_lowering,
-        &item_signatures,
-    )?)
+    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
 fn normalize_types_in_session_store(
@@ -1197,15 +1187,43 @@ fn normalize_types_in_session_store(
     module_id: ModuleId,
     type_lowering: &nia_type_lower::TypeLowering,
     item_signatures: &ItemSignatures,
-) -> nia_ice::IceResult<TypeNormalization> {
+) -> QueryResult<TypeNormalization> {
     let mut input_ids = type_lowering.explicit_type_roots();
     input_ids.extend(item_signatures.type_roots());
     input_ids.sort_unstable();
     input_ids.dedup();
-    nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-        module_id,
-        type_store: &db.context().type_store,
-        input_ids: &input_ids,
-        signatures: item_signatures,
-    })
+    let failure = std::cell::RefCell::new(None);
+    let external_alias = |def_id: GlobalDefId| {
+        let defs = capture_query_failure(&failure, module_defs_semantic(db, def_id.module_id))?;
+        if !matches!(
+            defs.defs.get(def_id.def_id)?.kind,
+            nia_defs::DefKind::TypeAlias
+        ) {
+            return None;
+        }
+        let signatures = capture_query_failure(
+            &failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?;
+        signatures
+            .semantic
+            .type_aliases
+            .get(&def_id.def_id)
+            .cloned()
+    };
+    let normalized =
+        nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+            module_id,
+            type_store: &db.context().type_store,
+            input_ids: &input_ids,
+            signatures: item_signatures,
+            external_alias: Some(&external_alias),
+        })?;
+    if let Some(error) = failure.into_inner() {
+        return Err(error);
+    }
+    Ok(normalized)
 }

@@ -163,6 +163,42 @@ impl fmt::Debug for SymbolId {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+/// A language-predeclared trait whose semantic identity and implementation
+/// remain ordinary source definitions, rather than a builtin trait tag.
+pub struct PredeclaredSourceTrait {
+    /// Unqualified type name exposed in every module.
+    pub name: SymbolId,
+    /// Package containing the public source contract.
+    pub package: SymbolId,
+    /// Public facade through which the source contract is materialized lazily.
+    pub module_path: &'static [SymbolId],
+    /// Receiver methods that can request this contract before it is loaded.
+    pub methods: &'static [SymbolId],
+}
+
+impl PredeclaredSourceTrait {
+    /// All source-defined traits predeclared by the language.
+    pub const ALL: &'static [Self] = &[Self {
+        name: known::LEN_TYPE,
+        package: known::STD,
+        module_path: &[known::BUILTIN, known::PLACE_MODULE],
+        methods: &[known::LEN],
+    }];
+
+    /// Finds the language contract for an unqualified type name.
+    pub fn from_symbol(name: SymbolId) -> Option<&'static Self> {
+        Self::ALL.iter().find(|contract| contract.name == name)
+    }
+
+    /// Finds the language contract for an implicitly available receiver method.
+    pub fn for_method(name: SymbolId) -> Option<&'static Self> {
+        Self::ALL
+            .iter()
+            .find(|contract| contract.methods.contains(&name))
+    }
+}
+
 pub mod known {
     //! Canonical symbols shared by parser, semantic, and builtin registries.
     use super::{SymbolId, stable_hash};
@@ -179,6 +215,7 @@ pub mod known {
     known_symbol!(ENTRY, "entry");
     known_symbol!(MODULE, "module");
     known_symbol!(BUILTIN, "builtin");
+    known_symbol!(PLACE_MODULE, "place");
     known_symbol!(STD, "std");
     known_symbol!(RUNTIME, "runtime");
     known_symbol!(NAKED, "naked");
@@ -352,6 +389,7 @@ pub mod known {
         (ENTRY, "entry"),
         (MODULE, "module"),
         (BUILTIN, "builtin"),
+        (PLACE_MODULE, "place"),
         (STD, "std"),
         (RUNTIME, "runtime"),
         (NAKED, "naked"),
