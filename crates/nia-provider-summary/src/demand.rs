@@ -94,8 +94,13 @@ pub enum ProviderRequest {
     TraitImpl {
         /// Optional target type display identity.
         target_type_name: Option<SymbolId>,
+        /// Package that defines the target type, when it is nominal.
+        target_package: Option<SymbolId>,
         /// Trait display identity.
         trait_name: SymbolId,
+        /// Package that defines the trait. Builtin traits use the language
+        /// standard package because their source contract lives in std::builtin.
+        trait_package: Option<SymbolId>,
         /// Nominal identities of the trait's type arguments, when known.
         trait_type_argument_names: Vec<Option<SymbolId>>,
     },

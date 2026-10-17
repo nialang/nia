@@ -23,7 +23,7 @@ use nia_imports::{
 use nia_loader_contract::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use nia_source::{SourceId, SourcePath};
-use nia_symbol::{SymbolId, ToSymbolId};
+use nia_symbol::SymbolId;
 use std::collections::HashSet;
 
 #[derive(Debug)]
@@ -337,18 +337,8 @@ fn add_semantic_used_module_path(
 ) -> TraversalResult<()> {
     if matches!(
         path.processing(),
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
-    ) {
-        // Implicit Iterable/Iterator/Len searches originate in function bodies.
-        // A semantic-only dependency must defer them until that module's body
-        // is activated, otherwise a shallow facade scans unrelated providers.
-        return Ok(());
-    }
-    if matches!(
-        path.processing(),
         UsedModulePathProcessing::IfProvidesExtensions
             | UsedModulePathProcessing::IfProvidesTraitImpl { .. }
-            | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
             | UsedModulePathProcessing::IfProvidesTraitMethod { .. }
     ) {
         return add_used_module_path(db, graph, current_module, path);
@@ -427,40 +417,14 @@ fn apply_provider_demands(
             )?;
             continue;
         }
-        if let nia_loader_contract::ProviderRequest::TraitImpl {
-            target_type_name,
-            trait_name,
-            trait_type_argument_names,
-        } = &demand.request
-            && is_builtin_trait_name(*trait_name)
-        {
-            apply_builtin_trait_demand(
-                db,
-                graph,
-                node,
-                *target_type_name,
-                *trait_name,
-                trait_type_argument_names,
-                diagnostics,
-            )?;
-        }
-        if let nia_loader_contract::ProviderRequest::Method {
-            target_type_name,
-            method_name,
-        } = &demand.request
-            && *method_name == nia_symbol::known::LEN
-        {
-            // `Len` is the one language-owned trait whose public surface is
-            // method-shaped rather than represented as a builtin trait id.
-            apply_builtin_trait_demand(
-                db,
-                graph,
-                node,
-                *target_type_name,
-                nia_symbol::known::LEN_TYPE,
-                &[],
-                diagnostics,
-            )?;
+        if let nia_loader_contract::ProviderRequest::TraitImpl { .. } = &demand.request {
+            apply_trait_demand(db, graph, node, &demand.request, diagnostics)?;
+
+            // Trait implementations are package-owned facts. Once the two
+            // owner packages have been searched, `using` paths must not add a
+            // third package to the candidate set. Ordinary method demands
+            // still use the importing module's extension scope below.
+            continue;
         }
         for import in imports {
             let processing = match demand.request {
@@ -475,6 +439,7 @@ fn apply_provider_demands(
                     target_type_name,
                     trait_name,
                     ref trait_type_argument_names,
+                    ..
                 } => UsedModulePathProcessing::IfProvidesTraitImpl {
                     target_type_name,
                     trait_name,
@@ -497,34 +462,47 @@ fn apply_provider_demands(
     Ok(())
 }
 
-fn is_builtin_trait_name(name: SymbolId) -> bool {
-    name == nia_symbol::known::LEN_TYPE
-        || nia_ids::BuiltinTrait::ALL
-            .into_iter()
-            .any(|builtin| builtin.symbol_id() == name)
-}
-
-fn apply_builtin_trait_demand(
+fn apply_trait_demand(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     requesting_node: &ModuleNode,
-    target_type_name: Option<SymbolId>,
-    trait_name: SymbolId,
-    trait_type_argument_names: &[Option<SymbolId>],
+    request: &nia_loader_contract::ProviderRequest,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
 ) -> QueryResult<()> {
-    let processing = UsedModulePathProcessing::IfProvidesTraitImpl {
+    let nia_loader_contract::ProviderRequest::TraitImpl {
         target_type_name,
+        target_package,
         trait_name,
+        trait_package,
+        trait_type_argument_names,
+    } = request
+    else {
+        return Ok(());
+    };
+    let processing = UsedModulePathProcessing::IfProvidesTraitImpl {
+        target_type_name: *target_type_name,
+        trait_name: *trait_name,
         trait_type_argument_names: trait_type_argument_names.to_vec(),
     };
     let mut visited = HashSet::new();
     let mut providers = Vec::new();
-    for (package, package_path) in db.context().module_map.entries() {
+    let mut packages = Vec::new();
+    if let Some(package) = target_package {
+        packages.push(*package);
+    }
+    if let Some(package) = trait_package {
+        packages.push(*package);
+    }
+    packages.sort();
+    packages.dedup();
+    for package in packages {
         if nia_imports::is_entry_module_root(package) {
-            continue;
-        }
-        if graph.package_root(&package).is_none() {
+            // The entry package is already mounted in the graph and is not
+            // represented in the external module map.
+        } else if graph.package_root(&package).is_none() {
+            let Some(package_path) = db.context().module_map.get_name(&package) else {
+                continue;
+            };
             graph.intern_package_root(&package, package_path.clone())?;
         }
         let Some(root_id) = graph.package_root(&package) else {
@@ -533,14 +511,14 @@ fn apply_builtin_trait_demand(
         let Some(root) = graph.get(root_id).cloned() else {
             continue;
         };
-        BuiltinTraitProviderSearch {
+        TraitProviderSearch {
             db,
             graph,
             package,
             package_root: root_id,
             requesting_module: requesting_node.id,
-            target_type_name,
-            trait_name,
+            target_type_name: *target_type_name,
+            trait_name: *trait_name,
             trait_type_argument_names,
             visited: &mut visited,
             providers: &mut providers,
@@ -563,7 +541,7 @@ fn apply_builtin_trait_demand(
     Ok(())
 }
 
-struct BuiltinTraitProviderSearch<'a> {
+struct TraitProviderSearch<'a> {
     db: &'a QueryDb<LoaderContext>,
     graph: &'a ModuleGraph,
     package: SymbolId,
@@ -576,7 +554,7 @@ struct BuiltinTraitProviderSearch<'a> {
     providers: &'a mut Vec<(SymbolId, Vec<SymbolId>)>,
 }
 
-impl BuiltinTraitProviderSearch<'_> {
+impl TraitProviderSearch<'_> {
     fn collect(
         &mut self,
         parent_path: &SourcePath,
@@ -605,23 +583,16 @@ impl BuiltinTraitProviderSearch<'_> {
             let child_module_path = parent_module_path.child(declaration.name);
             segments.push(declaration.name);
 
-            // The language-owned `builtin` facade has synthesized providers.
-            // Every source-defined provider, in any package or nesting depth,
-            // is selected solely from its ordinary provider summary.
-            let provides = if declaration.name == nia_symbol::known::BUILTIN {
-                true
-            } else {
-                let summary = self.db.get(crate::queries::provider_summary_query(
-                    self.db,
-                    &child_path,
-                )?)?;
-                summary.defines_trait_impl(
-                    self.target_type_name.as_ref(),
-                    &self.trait_name,
-                    self.trait_type_argument_names,
-                    None,
-                )
-            };
+            let summary = self.db.get(crate::queries::provider_summary_query(
+                self.db,
+                &child_path,
+            )?)?;
+            let provides = summary.defines_trait_impl(
+                self.target_type_name.as_ref(),
+                &self.trait_name,
+                self.trait_type_argument_names,
+                None,
+            );
             if provides {
                 self.providers.push((self.package, segments.clone()));
             }
@@ -757,7 +728,6 @@ fn ordered_used_module_paths(paths: &[UsedModulePath]) -> Vec<UsedModulePath> {
         UsedModulePathProcessing::IfSelectedItem => 1,
         UsedModulePathProcessing::IfProvidesExtensions => 2,
         UsedModulePathProcessing::IfProvidesTraitImpl { .. }
-        | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { .. }
         | UsedModulePathProcessing::IfProvidesTraitMethod { .. } => 3,
     });
     ordered

@@ -256,7 +256,9 @@ mod tests {
             source_path: SourcePath::new("main.nia"),
             request: ProviderRequest::TraitImpl {
                 target_type_name: None,
+                target_package: None,
                 trait_name: SymbolId::default(),
+                trait_package: None,
                 trait_type_argument_names: Vec::new(),
             },
         };
@@ -276,7 +278,9 @@ mod tests {
                     source_path: SourcePath::new("main.nia"),
                     request: ProviderRequest::TraitImpl {
                         target_type_name: None,
+                        target_package: None,
                         trait_name: SymbolId::default(),
+                        trait_package: None,
                         trait_type_argument_names: Vec::new(),
                     },
                 }])

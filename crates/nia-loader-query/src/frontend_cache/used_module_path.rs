@@ -106,10 +106,6 @@ fn write_used_module_path_processing(encoded: &mut Vec<u8>, processing: &UsedMod
             encoded.extend_from_slice(&trait_name.raw().to_le_bytes());
             write_optional_symbols(encoded, trait_type_argument_names);
         }
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
-            encoded.push(5);
-            encoded.extend_from_slice(&trait_name.raw().to_le_bytes());
-        }
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -133,9 +129,6 @@ fn read_used_module_path_processing(
             target_type_name: read_optional_symbol(cursor)?,
             trait_name: read_symbol(cursor)?,
             trait_type_argument_names: read_optional_symbols(cursor)?,
-        }),
-        5 => Some(UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
-            trait_name: read_symbol(cursor)?,
         }),
         6 => Some(UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name: read_optional_symbol(cursor)?,
@@ -187,9 +180,6 @@ pub(super) fn collect_used_module_path_symbols(
             symbols.extend(*target_type_name);
             symbols.insert(*trait_name);
             symbols.extend(trait_type_argument_names.iter().flatten().copied());
-        }
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
-            symbols.insert(*trait_name);
         }
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,

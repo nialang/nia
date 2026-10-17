@@ -9,7 +9,7 @@ use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use nia_imports::ModuleGraph;
 use nia_query::QueryDb;
 use nia_source::SourcePath;
-use nia_symbol::{SymbolId, known};
+use nia_symbol::SymbolId;
 use std::collections::HashSet;
 
 pub(crate) fn process_reexport_provider_request(
@@ -34,19 +34,6 @@ pub(crate) fn process_reexport_provider_request(
             trait_name,
             trait_type_argument_names,
         ),
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
-            let prefer_selected = graph.get(facade_module).is_some_and(|node| {
-                !node.module_path.is_package_root() && *trait_name != known::LEN_TYPE
-            });
-            add_implicit_trait_impl_provider_modules(
-                db,
-                graph,
-                requesting_module,
-                facade_module,
-                trait_name,
-                prefer_selected,
-            )
-        }
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -87,19 +74,6 @@ pub(crate) fn process_provider_request(
             trait_name,
             trait_type_argument_names,
         ),
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
-            let prefer_selected = graph.get(module_id).is_some_and(|node| {
-                !node.module_path.is_package_root() && *trait_name != known::LEN_TYPE
-            });
-            add_implicit_trait_impl_provider_modules(
-                db,
-                graph,
-                requesting_module,
-                module_id,
-                trait_name,
-                prefer_selected,
-            )
-        }
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -140,9 +114,6 @@ fn direct_provider_module_matches_request(
             trait_type_argument_names,
             None,
         ),
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
-            provider_candidate_has_trait_impl(db, node.path.clone(), None, trait_name, &[], None)
-        }
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name,
             associated_name,
@@ -236,35 +207,6 @@ fn add_public_reexport_trait_impl_provider_modules(
             )
         },
         false,
-    )
-}
-
-fn add_implicit_trait_impl_provider_modules(
-    db: &QueryDb<LoaderContext>,
-    graph: &mut ModuleGraph,
-    requesting_module: nia_imports::ModuleId,
-    facade_module: nia_imports::ModuleId,
-    trait_name: &SymbolId,
-    prefer_selected_branches: bool,
-) -> TraversalResult<()> {
-    let Some(node) = graph.get(facade_module).cloned() else {
-        return Ok(());
-    };
-    if prefer_selected_branches && node.semantic_selected && !node.process_used_paths {
-        // A shallow facade may be semantic-selected only to resolve a public
-        // name. It must not turn that visibility scaffold into an implicit
-        // sibling-provider search.
-        return Ok(());
-    }
-    let facts = db.get(module_facade_facts_query(db, &node.path)?)?;
-    add_trait_provider_modules_matching(
-        db,
-        graph,
-        requesting_module,
-        facade_module,
-        &facts,
-        |db, path| provider_candidate_has_trait_impl(db, path, None, trait_name, &[], None),
-        prefer_selected_branches,
     )
 }
 
@@ -553,6 +495,7 @@ mod tests {
     use super::*;
     use nia_imports::Visibility;
     use nia_span::Span;
+    use nia_symbol::known;
 
     #[test]
     fn provider_source_resolution_preserves_existing_paths_before_deriving_suffixes() {

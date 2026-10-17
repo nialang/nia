@@ -966,9 +966,6 @@ pub(crate) enum UsedModulePathProcessing {
         trait_name: SymbolId,
         trait_type_argument_names: Vec<Option<SymbolId>>,
     },
-    IfProvidesImplicitTraitImpl {
-        trait_name: SymbolId,
-    },
     IfProvidesTraitMethod {
         target_type_name: Option<SymbolId>,
         associated_name: SymbolId,

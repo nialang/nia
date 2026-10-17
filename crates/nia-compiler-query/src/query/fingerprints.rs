@@ -98,7 +98,9 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
         }
         crate::ProviderRequest::TraitImpl {
             target_type_name,
+            target_package,
             trait_name,
+            trait_package,
             trait_type_argument_names,
         } => {
             builder.write_u8(1);
@@ -108,7 +110,19 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
             } else {
                 builder.write_u8(0);
             }
+            if let Some(target_package) = target_package {
+                builder.write_u8(1);
+                builder.write_u64(target_package.raw());
+            } else {
+                builder.write_u8(0);
+            }
             builder.write_u64(trait_name.raw());
+            if let Some(trait_package) = trait_package {
+                builder.write_u8(1);
+                builder.write_u64(trait_package.raw());
+            } else {
+                builder.write_u8(0);
+            }
             builder.write_u64(trait_type_argument_names.len() as u64);
             for argument in trait_type_argument_names {
                 if let Some(argument) = argument {

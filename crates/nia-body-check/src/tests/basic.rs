@@ -591,6 +591,7 @@ fn propagate(value: SourceError!i32) TargetError!i32 {
                     target_type_name: Some(name),
                     trait_name,
                     ref trait_type_argument_names,
+                    ..
                 } if name == sym("SourceError")
                     && trait_name == nia_symbol::known::INTO_ERROR_TRAIT
                     && *trait_type_argument_names == vec![Some(sym("TargetError"))]

@@ -31,9 +31,6 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
             trait_name: sym("TraitA"),
             trait_type_argument_names: vec![Some(sym("TraitArg")), None],
         },
-        UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
-            trait_name: sym("TraitB"),
-        },
         UsedModulePathProcessing::IfProvidesTraitMethod {
             target_type_name: None,
             associated_name: sym("first"),
@@ -105,8 +102,8 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
         crate::frontend_cache::FacadeFactsCacheLookup::Hit(cached) if cached == facts
     ));
     assert_eq!(
-        loaded_symbols.resolve(sym("segment7")).as_deref(),
-        Some("segment7")
+        loaded_symbols.resolve(sym("segment6")).as_deref(),
+        Some("segment6")
     );
 }
 

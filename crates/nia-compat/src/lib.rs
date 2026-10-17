@@ -319,7 +319,7 @@ pub mod formats {
         PersistedFormat::new("frontend-provider-summary", b"NIAFPS\0\x01");
     /// Persisted fixed-point provider demand plan.
     pub const FRONTEND_PROVIDER_DEMAND_PLAN: PersistedFormat =
-        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD\0\x01");
+        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD\0\x02");
     /// Persisted module public-surface facts.
     pub const FRONTEND_PUBLIC_SURFACE_FACTS: PersistedFormat =
         PersistedFormat::new("frontend-public-surface-facts", b"NIAFPF\0\0");

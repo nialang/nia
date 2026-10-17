@@ -48,8 +48,8 @@ fn main() usize {
 }
 
 #[test]
-fn query_loader_loads_implicit_builtin_trait_provider_from_facade() {
-    let root = temp_dir("query_loader_loads_implicit_builtin_trait_provider_from_facade");
+fn query_loader_loads_builtin_trait_provider_from_facade() {
+    let root = temp_dir("query_loader_loads_builtin_trait_provider_from_facade");
     let main_path = root.join("main.nia");
     write(
         &main_path,
@@ -233,9 +233,8 @@ fn main(init: process::Init) () {
 }
 
 #[test]
-fn query_loader_keeps_implicit_trait_search_on_the_processed_collection_branch() {
-    let root =
-        temp_dir("query_loader_keeps_implicit_trait_search_on_the_processed_collection_branch");
+fn query_loader_keeps_trait_search_on_the_processed_collection_branch() {
+    let root = temp_dir("query_loader_keeps_trait_search_on_the_processed_collection_branch");
     let main_path = root.join("main.nia");
     write(
         &main_path,
