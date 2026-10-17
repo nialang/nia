@@ -398,6 +398,81 @@ pub trait Show {
 }
 
 #[test]
+fn package_trait_discovery_does_not_import_structural_extension_methods() {
+    let root = temp_dir("package_trait_discovery_does_not_import_structural_extension_methods");
+    std::fs::create_dir_all(root.join("dep")).expect("create dependency package");
+    write(
+        &root.join("dep/providers.nia"),
+        r#"
+using pkg::Show;
+extend[T] (T, T) : Show where T: Sized {
+    fn show(&self) i32 { 7 }
+}
+extend[T] (T, T) where T: Sized {
+    pub fn hidden(&self) i32 { 11 }
+}
+"#,
+    );
+    for (import, call, should_succeed) in [
+        ("", "show", true),
+        ("", "hidden", false),
+        ("using dep::providers;", "hidden", true),
+    ] {
+        write(
+            &root.join("dep.nia"),
+            &format!(
+                "{} module providers; pub trait Show {{ fn show(&self) i32; }}",
+                if import.is_empty() { "" } else { "pub" },
+            ),
+        );
+        write(
+            &root.join("main.nia"),
+            &format!(
+                r#"
+using dep::Show;
+{import}
+pub fn prove[T](value: T) i32 where T: Show {{ value.show() }}
+pub fn main(value: (i32, i32)) i32 {{
+    let _ = prove(value);
+    value.{call}()
+}}
+"#
+            ),
+        );
+        let mut module_map = crate::ModuleMap::new();
+        module_map
+            .insert(
+                "dep",
+                crate::SourcePath::new(root.join("dep.nia").to_string_lossy()),
+            )
+            .expect("mount dependency package");
+        let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+        if should_succeed {
+            assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        } else {
+            assert!(
+                program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.diagnostic.summary.contains("hidden")),
+                "structural extension must require its import: {:?}; graph: {:?}",
+                program.diagnostics,
+                program
+                    .graph
+                    .modules()
+                    .map(|module| (
+                        &module.module_path,
+                        module.id,
+                        &module.provider_dependencies,
+                        &module.trait_impl_dependencies,
+                    ))
+                    .collect::<Vec<_>>(),
+            );
+        }
+    }
+}
+
+#[test]
 fn cross_module_receiver_parse_resolves_result_protocol_impl() {
     let root = temp_dir("cross_module_receiver_parse_resolves_result_protocol_impl");
     write(

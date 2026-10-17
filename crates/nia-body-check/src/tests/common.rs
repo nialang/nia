@@ -419,6 +419,7 @@ fn pipeline_with_options_and_trait_impls(
             type_store: &type_store,
             input_ids: &normalization_input,
             signatures: &signatures,
+            external_alias: None,
         })
         .expect("normalize module types");
     assert!(

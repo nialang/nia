@@ -174,6 +174,19 @@ impl QualifiedPathModuleCollector<'_> {
     }
 
     fn collect_type_path(&mut self, segments: &[nia_ast::TypePathSegment]) {
+        // Predeclared source contracts are visible by name in every module.
+        if segments.len() == 1
+            && let PathSegmentKind::Name(name) = segments[0].kind
+            && let Some(contract) = nia_symbol::PredeclaredSourceTrait::from_symbol(name)
+        {
+            self.packages.push(contract.package);
+            self.paths.push(UsedModulePath::Package {
+                package: contract.package,
+                segments: contract.module_path.to_vec(),
+                include_declared_children: false,
+                processing: UsedModulePathProcessing::Always,
+            });
+        }
         let Some((root, segments)) = type_qualified_segments(segments) else {
             return;
         };
@@ -186,29 +199,6 @@ impl QualifiedPathModuleCollector<'_> {
         } else {
             self.collect_path_segments(segments);
         }
-    }
-
-    fn collect_trait_provider_for_type(&mut self, ty: &TypeRef) {
-        let TypeKind::Path { segments } = &ty.kind else {
-            return;
-        };
-        let Some(last) = segments.last() else {
-            return;
-        };
-        let Some(segments) = type_path_names(segments) else {
-            return;
-        };
-        let Some(trait_name) = type_path_segment_name(last) else {
-            return;
-        };
-        self.collect_path_segments_with_processing(
-            segments,
-            UsedModulePathProcessing::IfProvidesTraitImpl {
-                target_type_name: None,
-                trait_name,
-                trait_type_argument_names: Vec::new(),
-            },
-        );
     }
 }
 
@@ -308,7 +298,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
                         nia_ast::TypeArg::Type(ty)
                         | nia_ast::TypeArg::AssocBinding { ty, .. }
                         | nia_ast::TypeArg::TypeOrConst { ty, .. } => {
-                            self.collect_trait_provider_for_type(ty);
+                            self.visit_type(ty);
                         }
                         nia_ast::TypeArg::Const(_) => {}
                     }
@@ -961,11 +951,6 @@ pub(crate) enum UsedModulePathProcessing {
     Always,
     IfSelectedItem,
     IfProvidesExtensions,
-    IfProvidesTraitImpl {
-        target_type_name: Option<SymbolId>,
-        trait_name: SymbolId,
-        trait_type_argument_names: Vec<Option<SymbolId>>,
-    },
     IfProvidesTraitMethod {
         target_type_name: Option<SymbolId>,
         associated_name: SymbolId,
@@ -982,10 +967,7 @@ impl UsedModulePathProcessing {
     }
 
     pub(crate) fn is_provider_demand(&self) -> bool {
-        matches!(
-            self,
-            Self::IfProvidesTraitImpl { .. } | Self::IfProvidesTraitMethod { .. }
-        )
+        matches!(self, Self::IfProvidesTraitMethod { .. })
     }
 }
 
@@ -1250,10 +1232,6 @@ fn type_path_segment_name(segment: &TypePathSegment) -> Option<SymbolId> {
         PathSegmentKind::Name(name) => Some(name),
         PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
-}
-
-fn type_path_names(segments: &[TypePathSegment]) -> Option<Vec<SymbolId>> {
-    segments.iter().map(type_path_segment_name).collect()
 }
 
 pub(crate) fn joined_segments(base: &[SymbolId], extra: &[SymbolId]) -> Vec<SymbolId> {

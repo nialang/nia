@@ -526,6 +526,32 @@ fn main() i32 {
 }
 
 #[test]
+fn closure_inference_uses_ordinary_iter_method_before_builtin_fallback() {
+    let checked = pipeline(
+        r#"
+struct Collection {}
+struct Cursor {}
+
+extend Collection {
+    fn iter(self) Cursor { Cursor {} }
+}
+
+extend Cursor {
+    fn apply[T](self, callback: &Fn(T) T, value: T) T {
+        callback(value)
+    }
+}
+
+fn main() i32 {
+    let increment = \value -> value + 1;
+    Collection {}.iter().apply(&increment, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn method_argument_matching_traverses_all_trait_object_associated_bindings() {
     let checked = pipeline(
         r#"

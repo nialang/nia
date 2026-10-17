@@ -9,6 +9,7 @@ using pkg::os::windows as platform;
 @[if os == "macos"]
 using pkg::os::macos as platform;
 using pkg::builtin;
+using pkg::option;
 
 pub(pkg) const maxPathBytes: usize = platform::maxPathBytes;
 

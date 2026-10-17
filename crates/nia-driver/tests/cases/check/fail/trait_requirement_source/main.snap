@@ -5,6 +5,12 @@ label: 37..42 Primary Source this implementation has no `Base` supertrait witnes
 help: add an implementation of `Base` for this target type
 related: 63..67 the implemented trait requires `Base` here
 
+path: fail/trait_requirement_source/main.nia
+code: E0301
+summary: unknown struct field `child`
+label: 154..165 Primary Source unknown struct field `child`
+note: the receiver has type `Local`
+
 report:
 error[E0201]: implementation of trait requires explicit implementation of supertrait `Base`
   --> fail/trait_requirement_source/main.nia:5:8
@@ -14,4 +20,11 @@ error[E0201]: implementation of trait requires explicit implementation of supert
 help: add an implementation of `Base` for this target type
 related: fail/trait_requirement_source/api.nia:5:19: the implemented trait requires `Base` here
 
-summary: 1 error, 0 warnings
+error[E0301]: unknown struct field `child`
+   --> fail/trait_requirement_source/main.nia:13:5
+   |
+13 |     value.child()
+   |     ^^^^^^^^^^^
+note: the receiver has type `Local`
+
+summary: 2 errors, 0 warnings

@@ -4,50 +4,50 @@
 use super::*;
 
 impl TraitSolver<'_> {
-    pub(crate) fn impl_headers_may_overlap(
+    pub(crate) fn impl_header_subsumes_signatures(
         &mut self,
-        left: &ProgramTraitImplSignature,
-        right: &ProgramTraitImplSignature,
+        general: &ProgramTraitImplSignature,
+        specific: &ProgramTraitImplSignature,
     ) -> bool {
-        fn matches(
-            solver: &mut TraitSolver<'_>,
-            pattern: &ProgramTraitImplSignature,
-            actual: &ProgramTraitImplSignature,
-        ) -> bool {
-            let mut substitutions = SymbolMap::default();
-            let mut const_substitutions = SymbolMap::default();
-            solver.match_impl_pattern_with_consts(
-                pattern.target_ty,
-                actual.target_ty,
-                &mut substitutions,
-                &mut const_substitutions,
-            ) && pattern
-                .trait_args
+        if general.trait_id != specific.trait_id
+            || general.trait_args.len() != specific.trait_args.len()
+            || general.trait_const_args.len() != specific.trait_const_args.len()
+        {
+            return false;
+        }
+        // One substitution map covers the complete header, preserving repeated
+        // parameters across the target and trait arguments.
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
+        self.match_impl_pattern_with_consts(
+            general.target_ty,
+            specific.target_ty,
+            &mut substitutions,
+            &mut const_substitutions,
+        ) && general
+            .trait_args
+            .iter()
+            .zip(&specific.trait_args)
+            .all(|(general, specific)| {
+                self.match_impl_pattern_with_consts(
+                    *general,
+                    *specific,
+                    &mut substitutions,
+                    &mut const_substitutions,
+                )
+            })
+            && general
+                .trait_const_args
                 .iter()
-                .zip(&actual.trait_args)
-                .all(|(pattern, actual)| {
-                    solver.match_impl_pattern_with_consts(
-                        *pattern,
-                        *actual,
+                .zip(&specific.trait_const_args)
+                .all(|(general, specific)| {
+                    self.match_const_impl_pattern(
+                        general,
+                        specific,
                         &mut substitutions,
                         &mut const_substitutions,
                     )
                 })
-                && pattern
-                    .trait_const_args
-                    .iter()
-                    .zip(&actual.trait_const_args)
-                    .all(|(pattern, actual)| {
-                        solver.match_const_impl_pattern(
-                            pattern,
-                            actual,
-                            &mut substitutions,
-                            &mut const_substitutions,
-                        )
-                    })
-        }
-
-        matches(self, left, right) || matches(self, right, left)
     }
 
     pub(crate) fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
@@ -176,51 +176,7 @@ impl TraitSolver<'_> {
     fn impl_header_subsumes(&mut self, general_index: usize, specific_index: usize) -> bool {
         let general = &self.trait_impls[general_index];
         let specific = &self.trait_impls[specific_index];
-        if general.trait_id != specific.trait_id
-            || general.trait_args.len() != specific.trait_args.len()
-            || general.trait_const_args.len() != specific.trait_const_args.len()
-        {
-            return false;
-        }
-        let general_target = general.target_ty;
-        let general_args = general.trait_args.clone();
-        let general_const_args = general.trait_const_args.clone();
-        let specific_target = specific.target_ty;
-        let specific_args = specific.trait_args.clone();
-        let specific_const_args = specific.trait_const_args.clone();
-
-        // The complete impl header is one product pattern. Sharing these maps
-        // across the target and every trait argument preserves equality
-        // constraints such as `T: Relation[T]` and `Box[N]: Rank[N]`.
-        let mut substitutions = SymbolMap::default();
-        let mut const_substitutions = SymbolMap::default();
-        self.match_impl_pattern_with_consts(
-            general_target,
-            specific_target,
-            &mut substitutions,
-            &mut const_substitutions,
-        ) && general_args
-            .iter()
-            .zip(&specific_args)
-            .all(|(general, specific)| {
-                self.match_impl_pattern_with_consts(
-                    *general,
-                    *specific,
-                    &mut substitutions,
-                    &mut const_substitutions,
-                )
-            })
-            && general_const_args
-                .iter()
-                .zip(&specific_const_args)
-                .all(|(general, specific)| {
-                    self.match_const_impl_pattern(
-                        general,
-                        specific,
-                        &mut substitutions,
-                        &mut const_substitutions,
-                    )
-                })
+        self.impl_header_subsumes_signatures(general, specific)
     }
 
     pub(crate) fn impl_where_predicates_hold(

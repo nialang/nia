@@ -1069,11 +1069,21 @@ impl Analyzer<'_> {
                 .and_then(|path| path(def_id.module_id))
                 .map(|path| path.package),
         };
+        let target_module_segments = match self.ty_kind(self_ty) {
+            Some(TyKind::Nominal { def_id, .. }) => self
+                .input
+                .program
+                .module_path
+                .and_then(|path| path(def_id.module_id))
+                .map_or_else(Vec::new, |path| path.segments),
+            _ => Vec::new(),
+        };
         self.provider_demands.insert(ProviderDemand {
             source_path,
             request: ProviderRequest::TraitImpl {
                 target_type_name,
                 target_package,
+                target_module_segments,
                 trait_name,
                 trait_package,
                 trait_type_argument_names: trait_args

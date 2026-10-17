@@ -431,7 +431,10 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
     let trait_impl = crate::ProviderDemand {
         source_path: SourcePath::new("provider.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_package: Some(sym("types")),
+            trait_package: Some(sym("traits")),
             target_type_name: Some(sym("Thing")),
+            target_module_segments: Vec::new(),
             trait_name: sym("Display"),
             trait_type_argument_names: vec![Some(sym("Context")), None],
         },
@@ -453,7 +456,10 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         [crate::ProviderDemand {
             source_path: SourcePath::new("provider.nia"),
             request: crate::ProviderRequest::TraitImpl {
+                target_package: Some(sym("types")),
+                trait_package: Some(sym("traits")),
                 target_type_name: Some(sym("Thing")),
+                target_module_segments: Vec::new(),
                 trait_name: sym("Display"),
                 trait_type_argument_names: vec![Some(sym("Context")), None],
             },
@@ -465,7 +471,10 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         [crate::ProviderDemand {
             source_path: SourcePath::new("provider.nia"),
             request: crate::ProviderRequest::TraitImpl {
+                target_package: Some(sym("types")),
+                trait_package: Some(sym("traits")),
                 target_type_name: Some(sym("Thing")),
+                target_module_segments: Vec::new(),
                 trait_name: sym("Display"),
                 trait_type_argument_names: vec![Some(sym("OtherContext")), None],
             },
@@ -475,6 +484,33 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         provider_fact_worklist_fingerprint(&original_argument),
         provider_fact_worklist_fingerprint(&changed_argument)
     );
+}
+
+#[test]
+fn provider_demand_fingerprint_includes_type_and_trait_owner_packages() {
+    let demand = |target_package, trait_package| crate::ProviderDemand {
+        source_path: SourcePath::new("main.nia"),
+        request: crate::ProviderRequest::TraitImpl {
+            target_package,
+            trait_package,
+            target_type_name: Some(sym("Thing")),
+            target_module_segments: Vec::new(),
+            trait_name: sym("Display"),
+            trait_type_argument_names: Vec::new(),
+        },
+    };
+    let original = provider_demand_fingerprint(&demand(Some(sym("types")), Some(sym("traits"))));
+    for (target_package, trait_package) in [
+        (Some(sym("other_types")), Some(sym("traits"))),
+        (Some(sym("types")), Some(sym("other_traits"))),
+        (None, Some(sym("traits"))),
+        (Some(sym("types")), None),
+    ] {
+        assert_ne!(
+            original,
+            provider_demand_fingerprint(&demand(target_package, trait_package))
+        );
+    }
 }
 
 #[test]
@@ -585,7 +621,10 @@ fn provider_worklist_accumulates_until_consumed() {
     let second_demand = crate::ProviderDemand {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_package: None,
+            trait_package: None,
             target_type_name: None,
+            target_module_segments: Vec::new(),
             trait_name: SymbolId::default(),
             trait_type_argument_names: Vec::new(),
         },
@@ -636,7 +675,10 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
     let stale = crate::ProviderDemand {
         source_path: SourcePath::new("stale.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_package: None,
+            trait_package: Some(sym("traits")),
             target_type_name: None,
+            target_module_segments: Vec::new(),
             trait_name: sym("Stale"),
             trait_type_argument_names: Vec::new(),
         },
@@ -644,7 +686,10 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
     let current = crate::ProviderDemand {
         source_path: SourcePath::new("current.nia"),
         request: crate::ProviderRequest::TraitImpl {
+            target_package: None,
+            trait_package: Some(sym("traits")),
             target_type_name: None,
+            target_module_segments: Vec::new(),
             trait_name: sym("Current"),
             trait_type_argument_names: Vec::new(),
         },

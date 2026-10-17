@@ -1608,6 +1608,11 @@ fn write_provider_type_ref(encoded: &mut Vec<u8>, ty: &ProviderTypeRef) {
     for argument in &ty.type_argument_names {
         write_optional_symbol(encoded, *argument);
     }
+    encoded.extend_from_slice(&(ty.target_module_segments.len() as u64).to_le_bytes());
+    for segment in &ty.target_module_segments {
+        encoded.extend_from_slice(&segment.raw().to_le_bytes());
+    }
+    encoded.push(u8::from(ty.target_is_local_nominal));
     encoded.push(u8::from(ty.is_generic_or_structural_target));
     encoded.push(u8::from(ty.semantic_is_conservative));
 }
@@ -1623,9 +1628,17 @@ fn read_provider_type_ref(cursor: &mut Cursor<&[u8]>) -> Option<ProviderTypeRef>
     for _ in 0..argument_len {
         type_argument_names.push(read_optional_symbol(cursor)?);
     }
+    let module_len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut target_module_segments = Vec::with_capacity(module_len);
+    for _ in 0..module_len {
+        target_module_segments.push(SymbolId::from_stable_hash(read_u64(cursor)?));
+    }
+    let target_is_local_nominal = read_bool(cursor)?;
     Some(ProviderTypeRef {
         last_name,
         type_argument_names,
+        target_module_segments,
+        target_is_local_nominal,
         is_generic_or_structural_target: read_bool(cursor)?,
         semantic_is_conservative: read_bool(cursor)?,
     })
@@ -1644,6 +1657,7 @@ fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
                 .flatten()
                 .copied(),
         );
+        symbols.extend(provider.target.ty.target_module_segments.iter().copied());
         symbols.extend(
             provider
                 .trait_ref
@@ -1652,6 +1666,7 @@ fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
         );
         if let Some(trait_ref) = &provider.trait_ref {
             symbols.extend(trait_ref.type_argument_names.iter().flatten().copied());
+            symbols.extend(trait_ref.target_module_segments.iter().copied());
         }
         symbols.extend(provider.associated_methods.iter().copied());
         symbols.extend(provider.associated_values.iter().copied());
@@ -1988,6 +2003,54 @@ mod tests {
             assert!(!path.exists());
         }
 
+        fs::remove_dir_all(root).expect("remove cache root");
+    }
+
+    #[test]
+    fn trait_provider_demand_plans_restore_both_owner_package_symbols() {
+        let root = test_root("trait-provider-owner-symbols");
+        let cache = PersistentFrontendCache::new(root.clone());
+        let sources = SourceDatabase::new();
+        let entry = SourcePath::new("src/main.nia");
+        sources
+            .set_source(entry.clone(), "fn main() () {}")
+            .expect("install source");
+        let symbols = SymbolTable::new();
+        let demands = HashSet::from([ProviderDemand {
+            source_path: entry.clone(),
+            request: ProviderRequest::TraitImpl {
+                target_type_name: Some(symbols.intern("Widget").unwrap()),
+                target_package: Some(symbols.intern("models").unwrap()),
+                target_module_segments: vec![symbols.intern("types").unwrap()],
+                trait_name: symbols.intern("Show").unwrap(),
+                trait_package: Some(symbols.intern("display").unwrap()),
+                trait_type_argument_names: Vec::new(),
+            },
+        }]);
+        let identity = ProviderDemandPlanIdentity {
+            key: FrontendProviderDemandPlanCacheKey::from_parts([1, 2]),
+            namespace: FrontendCacheNamespace::from_parts([3, 4]),
+            entry: &entry.identity(),
+            module_map: FrontendModuleMapFingerprint::from_parts([5, 6]),
+            package_root_used_paths: false,
+        };
+        cache
+            .publish_provider_demand_plan(
+                identity,
+                std::slice::from_ref(&entry),
+                &demands,
+                &sources,
+                &symbols,
+            )
+            .expect("publish provider plan");
+        let restored_symbols = SymbolTable::new();
+        let restored = cache
+            .load_provider_demand_plan(identity, &[entry], &sources, &restored_symbols)
+            .expect("restore provider plan");
+        let ProviderDemandPlanCacheLookup::Hit(restored) = restored else {
+            panic!("a plan with package ownership must remain reusable");
+        };
+        assert_eq!(restored, demands);
         fs::remove_dir_all(root).expect("remove cache root");
     }
 

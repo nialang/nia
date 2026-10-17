@@ -90,12 +90,14 @@ pub(super) fn encode_provider_demand_plan(
             ProviderRequest::TraitImpl {
                 target_type_name,
                 target_package,
+                ref target_module_segments,
                 trait_name,
                 trait_package,
                 ref trait_type_argument_names,
             } => {
                 demand_symbols.extend(target_type_name);
                 demand_symbols.extend(target_package);
+                demand_symbols.extend(target_module_segments.iter().copied());
                 demand_symbols.insert(trait_name);
                 demand_symbols.extend(trait_package);
                 demand_symbols.extend(trait_type_argument_names.iter().flatten().copied());
@@ -125,6 +127,7 @@ pub(super) fn encode_provider_demand_plan(
             ProviderRequest::TraitImpl {
                 target_type_name,
                 target_package,
+                target_module_segments,
                 trait_name,
                 trait_package,
                 trait_type_argument_names,
@@ -132,6 +135,10 @@ pub(super) fn encode_provider_demand_plan(
                 payload.push(1);
                 write_optional_symbol(&mut payload, *target_type_name);
                 write_optional_symbol(&mut payload, *target_package);
+                payload.extend_from_slice(&(target_module_segments.len() as u64).to_le_bytes());
+                for segment in target_module_segments {
+                    payload.extend_from_slice(&segment.raw().to_le_bytes());
+                }
                 payload.extend_from_slice(&trait_name.raw().to_le_bytes());
                 write_optional_symbol(&mut payload, *trait_package);
                 payload.extend_from_slice(&(trait_type_argument_names.len() as u64).to_le_bytes());
@@ -222,6 +229,11 @@ pub(super) fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProvi
             1 => {
                 let target_type_name = read_optional_symbol(&mut cursor)?;
                 let target_package = read_optional_symbol(&mut cursor)?;
+                let target_module_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+                let mut target_module_segments = Vec::with_capacity(target_module_len);
+                for _ in 0..target_module_len {
+                    target_module_segments.push(read_symbol(&mut cursor)?);
+                }
                 let trait_name = read_symbol(&mut cursor)?;
                 let trait_package = read_optional_symbol(&mut cursor)?;
                 let argument_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
@@ -230,11 +242,15 @@ pub(super) fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProvi
                     trait_type_argument_names.push(read_optional_symbol(&mut cursor)?);
                 }
                 demand_symbols.extend(target_type_name);
+                demand_symbols.extend(target_package);
+                demand_symbols.extend(target_module_segments.iter().copied());
                 demand_symbols.insert(trait_name);
+                demand_symbols.extend(trait_package);
                 demand_symbols.extend(trait_type_argument_names.iter().flatten().copied());
                 ProviderRequest::TraitImpl {
                     target_type_name,
                     target_package,
+                    target_module_segments,
                     trait_name,
                     trait_package,
                     trait_type_argument_names,
@@ -320,10 +336,12 @@ pub(super) fn remap_provider_demands(
                     trait_name,
                     trait_type_argument_names,
                     target_package,
+                    target_module_segments,
                     trait_package,
                 } => ProviderRequest::TraitImpl {
                     target_type_name,
                     target_package,
+                    target_module_segments,
                     trait_name,
                     trait_package,
                     trait_type_argument_names,
@@ -435,6 +453,7 @@ fn compare_provider_requests(
                 ProviderRequest::TraitImpl {
                     target_type_name: left_target,
                     target_package: left_target_package,
+                    target_module_segments: left_module_segments,
                     trait_name: left_trait,
                     trait_package: left_trait_package,
                     trait_type_argument_names: left_arguments,
@@ -443,6 +462,7 @@ fn compare_provider_requests(
                 ProviderRequest::TraitImpl {
                     target_type_name: right_target,
                     target_package: right_target_package,
+                    target_module_segments: right_module_segments,
                     trait_name: right_trait,
                     trait_package: right_trait_package,
                     trait_type_argument_names: right_arguments,
@@ -455,6 +475,12 @@ fn compare_provider_requests(
                     left_target_package
                         .map(SymbolId::raw)
                         .cmp(&right_target_package.map(SymbolId::raw))
+                })
+                .then_with(|| {
+                    left_module_segments
+                        .iter()
+                        .map(|symbol| symbol.raw())
+                        .cmp(right_module_segments.iter().map(|symbol| symbol.raw()))
                 })
                 .then_with(|| left_trait.raw().cmp(&right_trait.raw()))
                 .then_with(|| {

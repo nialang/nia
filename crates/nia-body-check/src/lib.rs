@@ -353,6 +353,7 @@ struct CallableExtensionMethods {
     methods: Vec<CallableExtensionMethod>,
     unbased_methods: Vec<usize>,
     methods_by_base: HashMap<GlobalDefId, Vec<usize>>,
+    owner_targets: HashSet<GlobalDefId>,
 }
 
 pub(crate) fn generic_inst_base(expr: &Expr) -> &Expr {

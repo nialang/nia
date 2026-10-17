@@ -68,6 +68,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         type_store: &type_store,
         input_ids: &normalization_input,
         signatures: &signatures,
+        external_alias: None,
     })
     .expect("normalize backend-lower pipeline test types");
     let target = nia_target::TargetConfig::host().expect("tests run on a maintained host");

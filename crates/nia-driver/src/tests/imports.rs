@@ -1099,12 +1099,9 @@ fn consume(values: ArrayList[i32]) usize {
     assert!(!broad_work.0.is_empty(), "missing semantic std work");
     assert!(!broad_work.1.is_empty(), "missing body std work");
     assert!(!broad_work.2.is_empty(), "missing backend std work");
-    for module in broad_work
-        .0
-        .iter()
-        .chain(&broad_work.1)
-        .chain(&broad_work.2)
-    {
+    // Imported aliases require signature facts before a conservative provider
+    // can be ruled out. They must not cause unrelated executable work.
+    for module in broad_work.1.iter().chain(&broad_work.2) {
         assert!(
             !module.starts_with("toolchain:/std/build")
                 && !module.starts_with("toolchain:/std/collections/hash_map")
@@ -1270,9 +1267,12 @@ pub fn main(init: Init) ExitCode!() {
         .map(|module| ("semantic", module))
         .chain(broad_work.1.iter().map(|module| ("body", module)))
         .chain(broad_work.2.iter().map(|module| ("backend", module)))
-        .filter(|(_, module)| {
-            module.starts_with("toolchain:/std/build")
-                || module.starts_with("toolchain:/std/collections/hash_map")
+        .filter(|(phase, module)| {
+            // Package-wide impl lookup may inspect conservative headers with
+            // aliases or colliding names. It must not demand their bodies.
+            (*phase != "semantic"
+                && (module.starts_with("toolchain:/std/build")
+                    || module.starts_with("toolchain:/std/collections/hash_map")))
                 || (module.starts_with("toolchain:/std/parse")
                     && *module != "toolchain:/std/parse/core.nia")
         })
@@ -1844,8 +1844,165 @@ fn main() mem::Error!usize {
 }
 
 #[test]
-fn hidden_trait_impl_does_not_satisfy_generic_obligation() {
-    let root = temp_dir("hidden_trait_impl_does_not_satisfy_generic_obligation");
+fn package_owned_trait_impl_in_private_modules_satisfies_external_obligations() {
+    let root = temp_dir("package_owned_trait_impl_in_private_modules");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::{Widget, Show};
+fn need[T](value: T) i32 where T: Show[Output = i32] { value.show() }
+fn main(value: Widget) i32 { need(value) }
+"#,
+    );
+    write(
+        &root.join("dep.nia"),
+        "pub module api; module impls; pub using api::{Widget, Show};",
+    );
+    fs::create_dir_all(root.join("dep")).unwrap();
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+pub struct Widget { value: i32 }
+pub trait Show {
+    type Output;
+    fn show(&self) [Self as Show]::Output;
+}
+"#,
+    );
+    write(
+        &root.join("dep/impls.nia"),
+        r#"
+using pkg::api;
+type Alias = api::Widget;
+type ShowAlias = api::Show;
+type StoredOutput = i32;
+extend Alias : ShowAlias {
+    type Output = StoredOutput;
+    fn show(&self) i32 { self.value }
+}
+"#,
+    );
+    let mut module_map = nia_imports::ModuleMap::new();
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep.nia").to_string_lossy()),
+        )
+        .unwrap();
+    let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn package_owned_trait_providers_resolve_qualified_and_imported_aliases() {
+    let root = temp_dir("package_owned_trait_providers_resolve_qualified_and_imported_aliases");
+    fs::create_dir_all(root.join("dep")).expect("create dependency package");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api::{Widget, Show};
+fn need[T](value: T) i32 where T: Show { value.show() }
+fn main(value: Widget) i32 { need(value) }
+"#,
+    );
+    write(&root.join("dep.nia"), "pub module api; module providers;");
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+pub struct Widget { value: i32 }
+pub trait Show { fn show(&self) i32; }
+pub type Alias = Widget;
+pub type TraitAlias = Show;
+"#,
+    );
+    for provider in [
+        "using pkg::api; extend api::Widget : api::Show { fn show(&self) i32 { self.value } }",
+        "using pkg::api::{Alias as Renamed, TraitAlias as RenamedTrait}; extend Renamed : RenamedTrait { fn show(&self) i32 { self.value } }",
+    ] {
+        write(&root.join("dep/providers.nia"), provider);
+        let mut module_map = nia_imports::ModuleMap::new();
+        module_map
+            .insert(
+                "dep",
+                SourcePath::new(root.join("dep.nia").to_string_lossy()),
+            )
+            .expect("mount dependency package");
+        let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+        assert_no_error_diagnostics(&program.diagnostics);
+    }
+}
+
+#[test]
+fn qualified_nominal_members_do_not_import_structural_extensions() {
+    let root = temp_dir("qualified_nominal_members_do_not_import_structural_extensions");
+    write(
+        &root.join("dep.nia"),
+        r#"
+pub struct Widget { value: i32 }
+extend Widget { pub fn own(&self) i32 { self.value } }
+extend &Widget { pub fn hidden(self) i32 { self.value } }
+"#,
+    );
+    for (import, call, should_succeed) in [
+        ("", "value.own()", true),
+        ("", "(&value).hidden()", false),
+        ("using dep;", "(&value).hidden()", true),
+    ] {
+        write(
+            &root.join("main.nia"),
+            &format!("{import} fn main(value: dep::Widget) i32 {{ {call} }}"),
+        );
+        let mut module_map = nia_imports::ModuleMap::new();
+        module_map
+            .insert(
+                "dep",
+                SourcePath::new(root.join("dep.nia").to_string_lossy()),
+            )
+            .expect("mount dependency package");
+        let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+        if should_succeed {
+            assert_no_error_diagnostics(&program.diagnostics);
+        } else {
+            assert!(
+                program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.diagnostic.summary.contains("hidden")),
+                "structural extension must require its import: {:?}",
+                program.diagnostics,
+            );
+        }
+    }
+}
+
+#[test]
+fn predeclared_trait_method_names_still_load_scoped_user_extensions() {
+    let root = temp_dir("predeclared_trait_method_names_still_load_scoped_user_extensions");
+    write(
+        &root.join("main.nia"),
+        r#"
+module types;
+module extensions;
+using entry::types;
+using entry::extensions;
+fn main(value: types::Widget) usize { value.len() }
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        "pub struct Widget { value: usize }",
+    );
+    write(
+        &root.join("extensions.nia"),
+        "using entry::types; extend types::Widget { pub fn len(&self) usize { self.value } }",
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn package_owned_trait_impl_satisfies_generic_obligation_without_using() {
+    let root = temp_dir("package_owned_trait_impl_satisfies_generic_obligation_without_using");
     write(
         &root.join("main.nia"),
         r#"
@@ -1891,16 +2048,7 @@ extend types::Box : api::Show {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .diagnostic
-                .summary
-                .contains("trait bound not satisfied: Box: Show")
-        }),
-        "{:?}",
-        program.diagnostics
-    );
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]

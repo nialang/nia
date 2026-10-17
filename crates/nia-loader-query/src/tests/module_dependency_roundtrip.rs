@@ -53,10 +53,9 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
         UsedModulePath::Local {
             segments: vec![sym("four")],
             include_declared_children: false,
-            processing: UsedModulePathProcessing::IfProvidesTraitImpl {
+            processing: UsedModulePathProcessing::IfProvidesTraitMethod {
                 target_type_name: None,
-                trait_name: sym("Trait"),
-                trait_type_argument_names: vec![Some(sym("TraitArg")), None],
+                associated_name: sym("Trait"),
             },
         },
     ];

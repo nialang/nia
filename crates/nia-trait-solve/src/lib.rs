@@ -328,11 +328,10 @@ impl<'a> TraitSolverContext<'a> {
     }
 }
 
-/// Reports whether two source implementation headers can match one trait goal.
-///
-/// This uses the same structural matcher as trait selection, so generic and
-/// concrete headers are compared consistently with normal resolution.
-pub fn trait_impl_headers_may_overlap(
+/// Reports whether two implementation headers describe the same pattern,
+/// including renamed parameters. Strict specializations and incomparable
+/// headers are left to normal trait selection.
+pub fn trait_impl_headers_are_equivalent(
     type_store: &TypeStore,
     normalization: &TypeNormalization,
     local_module_id: ModuleId,
@@ -358,7 +357,10 @@ pub fn trait_impl_headers_may_overlap(
         const_expr_value: None,
         impl_is_visible: None,
     };
-    context.solver(&[]).impl_headers_may_overlap(left, right)
+    let mut solver = context.solver(&[]);
+    let left_subsumes_right = solver.impl_header_subsumes_signatures(left, right);
+    let right_subsumes_left = solver.impl_header_subsumes_signatures(right, left);
+    left_subsumes_right && right_subsumes_left
 }
 
 #[cfg(test)]

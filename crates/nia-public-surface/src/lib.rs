@@ -28,9 +28,7 @@ use nia_imports::{
     ModuleGraph, ModuleRootSegment, module_declaration_visibility_allows, visibility_allows,
 };
 use nia_span::Span;
-use nia_symbol::{
-    KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, symbol_text_or_unresolved,
-};
+use nia_symbol::{KnownSymbolText, SymbolId, SymbolMap, SymbolText, symbol_text_or_unresolved};
 
 mod index;
 mod lexical;
@@ -515,11 +513,16 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
             (defs.module_id, defs)
         })
         .collect::<HashMap<_, _>>();
-    let len_prelude = graph
-        .std_package_root()
-        .and_then(|std| graph.get(std))
-        .and_then(|std| std.children.get(&known::BUILTIN).copied())
-        .and_then(|builtin| surfaces.public_type(builtin, &known::LEN_TYPE));
+    let predeclared_traits = nia_symbol::PredeclaredSourceTrait::ALL
+        .iter()
+        .filter_map(|contract| {
+            let mut module = graph.package_root(&contract.package)?;
+            for segment in contract.module_path {
+                module = *graph.get(module)?.children.get(segment)?;
+            }
+            Some((contract.name, surfaces.public_type(module, &contract.name)?))
+        })
+        .collect::<Vec<_>>();
     let mut using_scopes: HashMap<ModuleId, ModuleUsingScope> = HashMap::new();
     // Public surfaces are already closed over re-exports. Resolve each local
     // using declaration against that immutable snapshot, recording aliases in
@@ -624,20 +627,15 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                 }
             }
         }
-        if !scope.types.contains_key(&known::LEN_TYPE)
-            && let Some(item) = &len_prelude
-        {
-            scope.types.insert(
-                known::LEN_TYPE,
-                UsingEntry {
-                    target_module: item.target_module,
-                    target_def_id: item.target_def_id,
-                    namespace: PublicNamespace::Type,
-                    directive_span: Span::default(),
-                    name_span: item.name_span,
-                    parent_enum: None,
-                },
-            );
+        for (name, item) in &predeclared_traits {
+            scope.types.entry(*name).or_insert_with(|| UsingEntry {
+                target_module: item.target_module,
+                target_def_id: item.target_def_id,
+                namespace: PublicNamespace::Type,
+                directive_span: Span::default(),
+                name_span: item.name_span,
+                parent_enum: None,
+            });
         }
         using_scopes.insert(defs.module_id, scope);
     }

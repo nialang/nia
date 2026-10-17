@@ -4,6 +4,7 @@ pub(pkg) module bindings;
 using pkg::os::macos::bindings;
 using pkg::error;
 using pkg::math;
+using pkg::option;
 
 // Keep parity with Darwin's PATH_MAX-sized syscall buffers. The shorter
 // fcntl(F_GETPATH) buffer below is only used for capability containment.

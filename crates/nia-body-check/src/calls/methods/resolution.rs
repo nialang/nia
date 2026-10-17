@@ -492,18 +492,18 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         let target_type_name = self.provider_target_type_name(receiver_ty);
-        if method_name == nia_symbol::known::LEN {
+        if let Some(contract) = nia_symbol::PredeclaredSourceTrait::for_method(method_name) {
             self.record_provider_demand(crate::ProviderDemand {
                 source_path: self.source_path.clone(),
                 request: crate::ProviderRequest::TraitImpl {
                     target_type_name,
                     target_package: self.provider_target_package(receiver_ty),
-                    trait_name: nia_symbol::known::LEN_TYPE,
-                    trait_package: Some(nia_symbol::known::STD),
+                    target_module_segments: self.provider_target_module_segments(receiver_ty),
+                    trait_name: contract.name,
+                    trait_package: Some(contract.package),
                     trait_type_argument_names: Vec::new(),
                 },
             });
-            return;
         }
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
@@ -538,6 +538,7 @@ impl<'a> BodyChecker<'a> {
             request: crate::ProviderRequest::TraitImpl {
                 target_type_name,
                 target_package: self.provider_target_package(self_ty),
+                target_module_segments: self.provider_target_module_segments(self_ty),
                 trait_name,
                 trait_package: self.provider_trait_package(trait_id),
                 trait_type_argument_names: trait_args
@@ -566,14 +567,24 @@ impl<'a> BodyChecker<'a> {
                 .module_path
                 .and_then(|module_path| module_path(def_id.module_id))
                 .map(|path| path.package),
-            // Primitive and language-owned aggregate types are defined by the
-            // standard contract package. This is the only language-level
-            // builtin ownership rule; user packages remain ordinary.
-            Some(TyKind::Primitive(_)) => Some(nia_symbol::known::STD),
             Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
                 self.provider_target_package(*elem)
             }
             _ => None,
+        }
+    }
+
+    fn provider_target_module_segments(&self, ty: InternedTyId) -> Vec<SymbolId> {
+        match self.interner.get(ty) {
+            Some(TyKind::Nominal { def_id, .. }) => self
+                .program
+                .module_path
+                .and_then(|module_path| module_path(def_id.module_id))
+                .map_or_else(Vec::new, |path| path.segments),
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                self.provider_target_module_segments(*elem)
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -624,70 +635,25 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         let mut methods = self
-            .with_visible_extensions(|extensions| extensions.all_methods_named(name))
+            .with_visible_extensions(|extensions| extensions.all_method_candidates_named(name))
             .into_iter()
-            .filter(|(_, method)| !method.is_trait_witness)
-            .map(|(target_ty, method)| crate::CallableExtensionMethod {
-                target_ty,
-                method,
-                inaccessible_visibility: None,
-            })
-            .collect::<Vec<_>>();
-        let program_methods = self
-            .program
-            .extension_methods_named
-            .map(|methods_named| methods_named(name))
-            .unwrap_or_else(|| {
-                self.program_extension_methods
-                    .methods_named(name)
-                    .cloned()
-                    .collect()
-            })
-            .into_iter()
-            .filter(|method| method.trait_id.is_none() && &method.name == name)
-            .collect::<Vec<_>>();
-        for method in program_methods {
-            if methods
-                .iter()
-                .any(|existing| existing.method.def_id == method.def_id)
-            {
-                continue;
-            }
-            let lookup =
-                if let Some(lookup) = self.extension_method_lookup_for_id(method.def_id).cloned() {
-                    lookup
+            .filter(|(_, method)| method.trait_id.is_none())
+            .filter_map(|(target_ty, method)| {
+                let inaccessible_visibility = if method.is_callable {
+                    None
+                } else if method.def_id.module_id == self.defs.module_id {
+                    Some(self.defs.defs.get(method.def_id.def_id)?.visibility)
                 } else {
-                    let Some(lookup) = self.program_extension_method_lookup(&method) else {
-                        continue;
-                    };
-                    self.extension_method_lookup_cache
-                        .insert(method.def_id, lookup.clone());
-                    lookup
+                    let defs = self.program.defs?(method.def_id.module_id)?;
+                    Some(defs.defs.get(method.def_id.def_id)?.visibility)
                 };
-            let callable = method.def_id.module_id == self.defs.module_id
-                || self
-                    .program
-                    .extension_visibility_allows
-                    .map(|allows| allows(method.visibility, method.def_id.module_id))
-                    .unwrap_or(method.visibility == Visibility::Public);
-            methods.push(crate::CallableExtensionMethod {
-                target_ty: lookup.target_ty,
-                method: VisibleExtensionMethod {
-                    name: method.name,
-                    def_id: method.def_id,
-                    impl_id: method.impl_id,
-                    effective_generics: lookup.effective_generics.clone(),
-                    effective_const_generics: lookup.effective_const_generics.clone(),
-                    trait_id: method.trait_id,
-                    trait_args: Vec::new(),
-                    trait_const_args: Vec::new(),
-                    where_predicates: lookup.where_predicates.clone(),
-                    is_callable: callable,
-                    is_trait_witness: false,
-                },
-                inaccessible_visibility: (!callable).then_some(method.visibility),
-            });
-        }
+                Some(crate::CallableExtensionMethod {
+                    target_ty,
+                    method,
+                    inaccessible_visibility,
+                })
+            })
+            .collect::<Vec<_>>();
         let mut seen = std::collections::HashSet::new();
         methods.retain(|method| seen.insert(method.method.def_id));
         let mut indexed = crate::CallableExtensionMethods {
@@ -707,6 +673,75 @@ impl<'a> BodyChecker<'a> {
         }
         self.callable_extension_methods_by_name
             .insert(*name, indexed);
+    }
+
+    fn ensure_nominal_owner_methods(&mut self, receiver_ty: InternedTyId, name: &SymbolId) {
+        let Some(base) = self.receiver_base_type(receiver_ty) else {
+            return;
+        };
+        if base.def_id.module_id == self.defs.module_id {
+            return;
+        }
+        let Some(indexed) = self.callable_extension_methods_by_name.get_mut(name) else {
+            return;
+        };
+        if !indexed.owner_targets.insert(base.def_id) {
+            return;
+        }
+        let Some(load_extensions) = self.program.visible_extensions else {
+            return;
+        };
+        let Some(extensions) = load_extensions(base.def_id.module_id) else {
+            return;
+        };
+        let Some(defs) = self
+            .program
+            .defs
+            .and_then(|load| load(base.def_id.module_id))
+        else {
+            return;
+        };
+        // A nominal type's own members are available through its qualified
+        // type path. This does not import unrelated extensions from that
+        // module, or extensions contributed by its dependencies.
+        for (target_ty, mut method) in extensions.all_method_candidates_named(name) {
+            if method.trait_id.is_some()
+                || method.def_id.module_id != base.def_id.module_id
+                || !matches!(self.interner.get(target_ty),
+                    Some(TyKind::Nominal { def_id, .. }) if *def_id == base.def_id)
+            {
+                continue;
+            }
+            let Some(def) = defs.defs.get(method.def_id.def_id) else {
+                continue;
+            };
+            method.is_callable = self
+                .program
+                .member_visibility_allows
+                .is_some_and(|allows| allows(def.visibility, method.def_id.module_id));
+            let Some(indexed) = self.callable_extension_methods_by_name.get_mut(name) else {
+                return;
+            };
+            if indexed
+                .methods
+                .iter()
+                .any(|existing| existing.method.def_id == method.def_id)
+            {
+                continue;
+            }
+            let index = indexed.methods.len();
+            let inaccessible_visibility = (!method.is_callable).then_some(def.visibility);
+            indexed.methods.push(crate::CallableExtensionMethod {
+                target_ty,
+                method,
+                inaccessible_visibility,
+            });
+            indexed
+                .methods_by_base
+                .entry(base.def_id)
+                .or_default()
+                .push(index);
+        }
     }
 
     pub(in crate::calls) fn method_candidates_for_target(
@@ -734,6 +769,7 @@ impl<'a> BodyChecker<'a> {
         self.profile_stage("body_check.profile.method.callable_named", |this| {
             this.ensure_callable_extension_methods_named(name)
         });
+        self.ensure_nominal_owner_methods(target_ty, name);
         let methods_len = self
             .callable_extension_methods_by_name
             .get(name)
@@ -789,6 +825,7 @@ impl<'a> BodyChecker<'a> {
         self.profile_stage("body_check.profile.method.callable_named", |this| {
             this.ensure_callable_extension_methods_named(name)
         });
+        self.ensure_nominal_owner_methods(receiver_ty, name);
         let mut receiver_ty = self.normalize_aliases_in_type(receiver_ty);
         loop {
             let receiver_base = self.receiver_base_type(receiver_ty);
