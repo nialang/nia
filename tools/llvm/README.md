@@ -41,7 +41,11 @@ optional libraries that are not needed by Nia:
     $env:LLVM_SOURCE_ROOT = 'D:\Downloads\llvm-project'
     $env:LLVM_BUILD_ROOT = 'D:\Tools\llvm-build'
     $env:LLVM_INSTALL_ROOT = 'D:\Tools\llvm'
+    $env:LLVM_ENABLE_PROJECTS = 'clang;lld'
     .\tools\llvm\build-static.ps1
+
+Including Clang in this prefix also provides the matching compiler required by
+the C ABI and interoperability tests.
 
 The source root is a standalone checkout at the `llvmorg-23.1.2` tag; the LLVM
 main branch is not used by this workspace. When moving an existing build tree

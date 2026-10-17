@@ -573,7 +573,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-query` | Query storage, dependency tracking, invalidation, cycle detection, bounded parallelism. |
 | `nia-ty` | Type model and session-wide canonical `TypeStore`. |
 | `nia-ids` | Session-local typed ids and the builtin registry. |
-| `nia-symbol` | Stable hashed symbol identities and the known-symbol registry. |
+| `nia-symbol` | Stable hashed symbol identities, known symbols, and source-defined predeclared trait contracts. |
 | `nia-symbol-table` | Concurrent reverse text storage for symbols. |
 | `nia-source` | Source identities, revisions, paths, and concurrent source storage. |
 | `nia-span` | Half-open source ranges. |
