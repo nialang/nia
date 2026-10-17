@@ -1089,6 +1089,7 @@ fn emit_exe_std_fs_owner_adapters_reject_reused_descriptors() {
         &main,
         r#"
 using std::fs;
+using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
