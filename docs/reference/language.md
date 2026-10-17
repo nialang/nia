@@ -1474,8 +1474,9 @@ fn apply(callback: &Fn(i32) i32, value: i32) i32 {
 
 fn inferred() i32 {
     let double = \value -> value * 2;
+    let increment = \value -> value + 1;
     let direct = double(3);
-    direct + apply(&\value -> value + 1, 1)
+    direct + apply(&increment, 1)
 }
 ```
 
@@ -1727,6 +1728,10 @@ modules reached through `using`, and private methods in their own module. Two
 visible methods with the same name for the same receiver type make a call
 ambiguous.
 
+A nominal type also exposes public inherent members declared in its defining
+module, including through a qualified type path. This does not bring that
+module's imports or extensions on other targets into scope.
+
 ```nia
 fn methods() i32 {
     let mut v = Vec2::new(3, 4);
@@ -1777,14 +1782,23 @@ A structural target is named in a path by wrapping it in brackets:
 `[&u8]::is_null`, `[&[char]]::name`. This is only a path to the target's
 members; it neither captures a receiver nor creates a short name.
 
-Trait implementations are package-owned facts. An implementation for a
-nominal type may be declared only in the package that defines the type or in
-the package that defines the trait. Structural types have no defining package,
-so their implementations must be declared in the trait's package. The
-compiler searches those owner packages directly; a `using` declaration does
-not change which implementations exist or make a third package eligible.
-Implementations with overlapping headers are rejected, because trait
-selection must have one unambiguous result. Ordinary inherent extensions and
+Implementations of source-defined traits are package-owned facts. An
+implementation for a nominal type may be declared only in the package that
+defines the type or in the package that defines the trait. Primitive and
+structural types have no defining package, so their implementations must be
+declared in the trait's package. The compiler searches those owner packages
+directly; a `using` declaration does not change which implementations exist or
+make a third package eligible. Compiler-defined [built-in traits](#built-in-traits)
+follow the language's intrinsic-implementation rules.
+
+When two implementation headers overlap, a strictly more-specific header may
+specialize the general one and is selected for matching types. A header is
+more specific when every type and const-argument combination it matches also
+matches the general header, but the reverse does not hold. Declaration order
+does not affect selection. Duplicate unconditional headers are rejected.
+Conditional implementations are filtered by their `where` requirements, and
+multiple applicable candidates without a unique most-specific header are
+ambiguous. Ordinary inherent extensions and
 extension methods remain scoped by `using` as described above.
 
 ### Contextual Receiver Inference
@@ -1967,9 +1981,10 @@ extend Point : Lanes {
 
 In generic code a trait method call is resolved through the bound that
 provides it; for a concrete instantiation the selected implementation supplies
-the body and the associated types. Implementations may not overlap the
-operations the language provides for primitive and structural types, such as
-equality on pointers.
+the body and the associated types. User implementations may use strict
+specialization, but they may not overlap the intrinsic implementations the
+language provides for primitive and structural types, such as equality on
+pointers.
 
 ### Trait Object Coercion And Dispatch
 

@@ -642,12 +642,12 @@ fn double(x: i32) i32 {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    let increment = \x: i32 -> x + 1;
+    let increment = \x -> x + 1;
     let step = 10;
-    let addStep = \[step] x: i32 -> x + step;      // captures `step` by value
+    let addStep = \[step] x -> x + step;           // captures `step` by value
 
     let mut calls = 0;
-    let counted = \[&mut calls] x: i32 -> {        // captures a writable pointer
+    let counted = \[&mut calls] x -> {            // captures a writable pointer
         calls.* += 1;
         x
     };
