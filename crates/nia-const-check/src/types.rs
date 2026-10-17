@@ -272,6 +272,8 @@ pub struct ConstProgramContext<'a> {
     pub module: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>>,
     /// Lazily loads another module's source path.
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
+    /// Resolves another module's stable package identity.
+    pub module_path: Option<&'a dyn Fn(ModuleId) -> Option<nia_imports::ModulePath>>,
     /// Lazily loads another module's exact source text.
     pub source_text: Option<&'a dyn Fn(ModuleId) -> Option<Arc<str>>>,
     /// Lazily loads another module's definitions.
@@ -303,6 +305,7 @@ impl fmt::Debug for ConstProgramContext<'_> {
         f.debug_struct("ConstProgramContext")
             .field("module", &self.module.is_some())
             .field("source_path", &self.source_path.is_some())
+            .field("module_path", &self.module_path.is_some())
             .field("source_text", &self.source_text.is_some())
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
@@ -326,6 +329,7 @@ impl<'a> ConstProgramContext<'a> {
         Self {
             module: None,
             source_path: None,
+            module_path: None,
             source_text: None,
             defs: None,
             type_normalizations: None,

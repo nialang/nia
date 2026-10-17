@@ -13,6 +13,7 @@ using dep::types;
 fn main(value: types::Widget) usize {
     value.len()
 }
+
 "#,
     );
     write(&pkg_root, "pub module types;\npub module extensions;");
@@ -44,6 +45,73 @@ extend types::Widget : Len {
     assert_module_loaded(
         &program,
         root.join("extensions/widgets.nia")
+            .to_string_lossy()
+            .as_ref(),
+    );
+}
+
+#[test]
+fn query_loader_does_not_search_a_third_package_for_trait_implementations() {
+    let root = temp_dir("query_loader_does_not_search_a_third_package_for_trait_implementations");
+    let main_path = root.join("main.nia");
+    let dep_root = root.join("dep.nia");
+    let extra_root = root.join("extra.nia");
+    write(
+        &main_path,
+        r#"
+using dep::types;
+using extra::facade;
+
+fn main(value: types::Widget) usize {
+    _ = value;
+    0usize
+}
+"#,
+    );
+    write(&dep_root, "pub module types;");
+    fs::create_dir_all(root.join("dep")).expect("create target package directory");
+    write(
+        &root.join("dep/types.nia"),
+        "pub struct Widget { value: usize }",
+    );
+    write(&extra_root, "pub module facade;");
+    fs::create_dir_all(root.join("extra/facade")).expect("create unrelated provider directory");
+    write(&root.join("extra/facade.nia"), "pub module providers;");
+    write(
+        &root.join("extra/facade/providers.nia"),
+        r#"
+using dep::types;
+
+extend types::Widget : Len {
+    fn len(&self) usize { self.value }
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+        .expect("insert target package");
+    module_map
+        .insert("extra", SourcePath::new(extra_root.to_string_lossy()))
+        .expect("insert unrelated package");
+
+    let program = load_program_with_trait_provider_demand_for_package(
+        &main_path,
+        module_map,
+        Some("Widget"),
+        Some(sym("dep")),
+        "Len",
+        &[],
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(
+        &program,
+        root.join("extra/facade.nia").to_string_lossy().as_ref(),
+    );
+    assert_module_not_loaded(
+        &program,
+        root.join("extra/facade/providers.nia")
             .to_string_lossy()
             .as_ref(),
     );

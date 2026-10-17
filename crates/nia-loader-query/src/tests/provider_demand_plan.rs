@@ -214,7 +214,9 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
             source_path: entry.clone(),
             request: nia_compiler_query::ProviderRequest::TraitImpl {
                 target_type_name: Some(target),
+                target_package: None,
                 trait_name,
+                trait_package: None,
                 trait_type_argument_names: vec![Some(trait_argument), None],
             },
         },

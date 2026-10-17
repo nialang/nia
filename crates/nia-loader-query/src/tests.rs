@@ -508,6 +508,29 @@ fn load_program_with_trait_provider_demand(
     trait_name: &str,
     trait_type_argument_names: &[Option<&str>],
 ) -> LoadedProgram {
+    let target_package = module_map
+        .entries()
+        .next()
+        .map(|(package, _)| package)
+        .or(Some(nia_symbol::known::STD));
+    load_program_with_trait_provider_demand_for_package(
+        entry_path,
+        module_map,
+        target_type_name,
+        target_package,
+        trait_name,
+        trait_type_argument_names,
+    )
+}
+
+fn load_program_with_trait_provider_demand_for_package(
+    entry_path: &Path,
+    module_map: ModuleMap,
+    target_type_name: Option<&str>,
+    target_package: Option<SymbolId>,
+    trait_name: &str,
+    trait_type_argument_names: &[Option<&str>],
+) -> LoadedProgram {
     let source_path = SourcePath::new(entry_path.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
         LoadRequest::new(entry_path.to_string_lossy().into_owned())
@@ -519,7 +542,9 @@ fn load_program_with_trait_provider_demand(
             source_path,
             request: nia_compiler_query::ProviderRequest::TraitImpl {
                 target_type_name: target_type_name.map(sym),
+                target_package,
                 trait_name: sym(trait_name),
+                trait_package: Some(nia_symbol::known::STD),
                 trait_type_argument_names: trait_type_argument_names
                     .iter()
                     .map(|name| name.map(sym))

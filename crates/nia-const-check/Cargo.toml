@@ -16,6 +16,7 @@ nia-ids.workspace = true
 nia-item-signatures.workspace = true
 nia-item-tree.workspace = true
 nia-ice.workspace = true
+nia-imports.workspace = true
 nia-layout.workspace = true
 nia-literals.workspace = true
 nia-local-resolve.workspace = true

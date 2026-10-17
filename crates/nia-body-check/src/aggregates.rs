@@ -1673,6 +1673,7 @@ impl<'a> BodyChecker<'a> {
                 source_path: self.source_path,
                 source_text: self.source_text,
                 program: nia_const_check::ConstProgramContext {
+                    module_path: None,
                     module: Some(self.program_const_module),
                     source_path: self.program.module_source_path,
                     source_text: self.program.module_source_text,
@@ -1739,6 +1740,7 @@ impl<'a> BodyChecker<'a> {
             source_path: self.source_path,
             source_text: self.source_text,
             program: nia_const_check::ConstProgramContext {
+                module_path: None,
                 module: Some(self.program_const_module),
                 source_path: self.program.module_source_path,
                 source_text: self.program.module_source_text,

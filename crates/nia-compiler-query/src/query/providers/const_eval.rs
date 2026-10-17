@@ -147,6 +147,10 @@ pub(super) fn with_const_input_and_program_facts<T>(
         capture_query_failure(&query_failure, db.get(ModulePathQuery(module_id)))
             .map(|path| path.as_ref().clone())
     };
+    let program_module_path = |module_id| {
+        capture_query_failure(&query_failure, db.context().loader_facts().module_graph())
+            .and_then(|graph| graph.module_path(module_id))
+    };
     let program_source_text = |module_id| {
         capture_query_failure(
             &query_failure,
@@ -293,6 +297,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
         program: nia_const_check::ConstProgramContext {
             module: Some(&program_module),
             source_path: Some(&program_source_path),
+            module_path: Some(&program_module_path),
             source_text: Some(&program_source_text),
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),

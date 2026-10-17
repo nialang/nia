@@ -1050,11 +1050,32 @@ impl Analyzer<'_> {
                 .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.name)),
             _ => None,
         };
+        let target_package = match self.ty_kind(self_ty) {
+            Some(TyKind::Primitive(_)) => Some(nia_symbol::known::STD),
+            Some(TyKind::Nominal { def_id, .. }) => self
+                .input
+                .program
+                .module_path
+                .and_then(|path| path(def_id.module_id))
+                .map(|path| path.package),
+            _ => None,
+        };
+        let trait_package = match trait_id {
+            TraitId::Builtin(_) => Some(nia_symbol::known::STD),
+            TraitId::Source(def_id) => self
+                .input
+                .program
+                .module_path
+                .and_then(|path| path(def_id.module_id))
+                .map(|path| path.package),
+        };
         self.provider_demands.insert(ProviderDemand {
             source_path,
             request: ProviderRequest::TraitImpl {
                 target_type_name,
+                target_package,
                 trait_name,
+                trait_package,
                 trait_type_argument_names: trait_args
                     .iter()
                     .map(|arg| match self.ty_kind(*arg) {

@@ -492,6 +492,19 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         let target_type_name = self.provider_target_type_name(receiver_ty);
+        if method_name == nia_symbol::known::LEN {
+            self.record_provider_demand(crate::ProviderDemand {
+                source_path: self.source_path.clone(),
+                request: crate::ProviderRequest::TraitImpl {
+                    target_type_name,
+                    target_package: self.provider_target_package(receiver_ty),
+                    trait_name: nia_symbol::known::LEN_TYPE,
+                    trait_package: Some(nia_symbol::known::STD),
+                    trait_type_argument_names: Vec::new(),
+                },
+            });
+            return;
+        }
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
             request: crate::ProviderRequest::Method {
@@ -524,7 +537,9 @@ impl<'a> BodyChecker<'a> {
             source_path: self.source_path.clone(),
             request: crate::ProviderRequest::TraitImpl {
                 target_type_name,
+                target_package: self.provider_target_package(self_ty),
                 trait_name,
+                trait_package: self.provider_trait_package(trait_id),
                 trait_type_argument_names: trait_args
                     .iter()
                     .map(|arg| self.provider_target_type_name(*arg))
@@ -541,6 +556,35 @@ impl<'a> BodyChecker<'a> {
                 self.provider_target_type_name(*elem)
             }
             _ => None,
+        }
+    }
+
+    fn provider_target_package(&self, ty: InternedTyId) -> Option<nia_symbol::SymbolId> {
+        match self.interner.get(ty) {
+            Some(TyKind::Nominal { def_id, .. }) => self
+                .program
+                .module_path
+                .and_then(|module_path| module_path(def_id.module_id))
+                .map(|path| path.package),
+            // Primitive and language-owned aggregate types are defined by the
+            // standard contract package. This is the only language-level
+            // builtin ownership rule; user packages remain ordinary.
+            Some(TyKind::Primitive(_)) => Some(nia_symbol::known::STD),
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                self.provider_target_package(*elem)
+            }
+            _ => None,
+        }
+    }
+
+    fn provider_trait_package(&self, trait_id: TraitId) -> Option<nia_symbol::SymbolId> {
+        match trait_id {
+            TraitId::Builtin(_) => Some(nia_symbol::known::STD),
+            TraitId::Source(def_id) => self
+                .program
+                .module_path
+                .and_then(|module_path| module_path(def_id.module_id))
+                .map(|path| path.package),
         }
     }
 

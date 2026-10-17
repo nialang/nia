@@ -104,6 +104,8 @@ pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     /// Loads another module's source path.
     pub module_source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
+    /// Loads the stable package/module identity for another module.
+    pub module_path: Option<&'a dyn Fn(ModuleId) -> Option<nia_imports::ModulePath>>,
     /// Loads another module's exact source text.
     pub module_source_text: Option<&'a dyn Fn(ModuleId) -> Option<Arc<str>>>,
     /// Loads normalized types for another module.
@@ -131,6 +133,7 @@ impl BodyProgramContext<'_> {
         Self {
             defs: None,
             module_source_path: None,
+            module_path: None,
             module_source_text: None,
             type_normalizations: None,
             extension_type_normalizations: None,
@@ -149,6 +152,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
         f.debug_struct("BodyProgramContext")
             .field("defs", &self.defs.is_some())
             .field("module_source_path", &self.module_source_path.is_some())
+            .field("module_path", &self.module_path.is_some())
             .field("module_source_text", &self.module_source_text.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field(
