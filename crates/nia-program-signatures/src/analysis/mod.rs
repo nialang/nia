@@ -18,10 +18,12 @@ use nia_item_signatures::{
     ProgramTypeAliasSignature, ProgramUnionSignature, TraitImplSignature, TraitSignature,
     generic_argument_substitutions,
 };
+use nia_symbol::known;
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
+    trait_impl_headers_may_overlap,
 };
 use nia_ty::{PrimitiveTy, TraitId, TyKind, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
@@ -287,6 +289,14 @@ pub fn collect_extension_method_diagnostics_for_module(
             continue;
         }
         let trait_id = impl_trait_id(module, impl_signature, input.trait_defs, &mut diagnostics);
+        validate_orphan_rule(
+            module,
+            impl_signature,
+            target_ty,
+            trait_id,
+            input.graph,
+            &mut diagnostics,
+        )?;
         if trait_id.is_none() {
             for associated_type in &impl_signature.associated_types {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -320,8 +330,208 @@ pub fn collect_extension_method_diagnostics_for_module(
             }
             None => {}
         }
+        if let Some(trait_id) = trait_id {
+            report_trait_impl_overlap(
+                module,
+                impl_signature,
+                target_ty,
+                trait_id,
+                input,
+                &mut diagnostics,
+            )?;
+        }
     }
     Ok(diagnostics)
+}
+
+fn validate_orphan_rule(
+    module: &ExtensionModuleInput<'_>,
+    impl_signature: &TraitImplSignature,
+    target_ty: InternedTyId,
+    trait_id: Option<TraitId>,
+    graph: &dyn nia_imports::ModuleGraphLookup,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> nia_ice::IceResult<()> {
+    let Some(trait_id) = trait_id else {
+        return Ok(());
+    };
+    let current_package = graph
+        .module_path(module.module_id)
+        .map(|path| path.package)
+        .ok_or_else(|| {
+            nia_ice::Ice::new(format!(
+                "missing module path for extension implementation module {:?}",
+                module.module_id
+            ))
+        })?;
+    let target_package = nominal_target_def_id(module.type_store, target_ty)
+        .map(|def_id| {
+            graph
+                .module_path(def_id.module_id)
+                .map(|path| path.package)
+                .ok_or_else(|| {
+                    nia_ice::Ice::new(format!(
+                        "missing module path for extension target module {:?}",
+                        def_id.module_id
+                    ))
+                })
+        })
+        .transpose()?;
+    let trait_package = match trait_id {
+        TraitId::Source(def_id) => graph
+            .module_path(def_id.module_id)
+            .map(|path| path.package)
+            .ok_or_else(|| {
+                nia_ice::Ice::new(format!(
+                    "missing module path for trait definition module {:?}",
+                    def_id.module_id
+                ))
+            })?,
+        TraitId::Builtin(_) => known::STD,
+    };
+    let allowed = match target_package {
+        Some(target_package) => {
+            current_package == target_package || current_package == trait_package
+        }
+        None => current_package == trait_package,
+    };
+    if allowed {
+        return Ok(());
+    }
+    let message = match target_package {
+        Some(_) => "trait implementation violates the package orphan rule",
+        None => "structural trait implementations must be declared in the trait package",
+    };
+    diagnostics.push(
+        Diagnostic::user_error(codes::NAME_RESOLUTION, message)
+            .primary(
+                impl_signature.span,
+                "the implementation package owns neither the target type nor the trait",
+            )
+            .help("move the implementation into the target type's package or the trait's package")
+            .finish(),
+    );
+    Ok(())
+}
+
+fn graph_module_package(
+    graph: &dyn nia_imports::ModuleGraphLookup,
+    module_id: nia_ids::ModuleId,
+    role: &str,
+) -> nia_ice::IceResult<nia_symbol::SymbolId> {
+    graph
+        .module_path(module_id)
+        .map(|path| path.package)
+        .ok_or_else(|| nia_ice::Ice::new(format!("missing module path for {role} {module_id:?}")))
+}
+
+fn trait_definition_package(
+    graph: &dyn nia_imports::ModuleGraphLookup,
+    trait_id: TraitId,
+) -> nia_ice::IceResult<nia_symbol::SymbolId> {
+    match trait_id {
+        TraitId::Source(def_id) => {
+            graph_module_package(graph, def_id.module_id, "trait definition module")
+        }
+        TraitId::Builtin(_) => Ok(known::STD),
+    }
+}
+
+fn report_trait_impl_overlap(
+    module: &ExtensionModuleInput<'_>,
+    impl_signature: &TraitImplSignature,
+    target_ty: InternedTyId,
+    trait_id: TraitId,
+    input: ExtensionMethodValidationInput<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> nia_ice::IceResult<()> {
+    let current_package = graph_module_package(
+        input.graph,
+        module.module_id,
+        "extension implementation module",
+    )?;
+    let target_package = nominal_target_def_id(module.type_store, target_ty)
+        .map(|def_id| {
+            graph_module_package(input.graph, def_id.module_id, "extension target module")
+        })
+        .transpose()?;
+    let trait_package = trait_definition_package(input.graph, trait_id)?;
+    let current_allowed = match target_package {
+        Some(target_package) => {
+            current_package == target_package || current_package == trait_package
+        }
+        None => current_package == trait_package,
+    };
+    if !current_allowed {
+        return Ok(());
+    }
+    let duplicate = (input.trait_impls_for_trait)(trait_id)
+        .into_iter()
+        .find(|candidate| {
+            if (candidate.module_id, candidate.impl_id)
+                >= (module.module_id, impl_signature.impl_id)
+                || candidate.trait_id != trait_id
+            {
+                return false;
+            }
+            let Ok(candidate_package) = graph_module_package(
+                input.graph,
+                candidate.module_id,
+                "trait implementation module",
+            ) else {
+                return false;
+            };
+            let candidate_allowed = match target_package {
+                Some(target_package) => {
+                    candidate_package == target_package || candidate_package == trait_package
+                }
+                None => candidate_package == trait_package,
+            };
+            candidate_allowed
+                && trait_impl_headers_may_overlap(
+                    module.type_store,
+                    module.normalization,
+                    module.module_id,
+                    &module.signatures.enums,
+                    candidate,
+                    &ProgramTraitImplSignature {
+                        module_id: module.module_id,
+                        impl_id: impl_signature.impl_id,
+                        builtin: None,
+                        generics: impl_signature.generics.clone(),
+                        generic_params: impl_signature.generic_params.clone(),
+                        target_ty,
+                        trait_id,
+                        trait_args: impl_signature
+                            .trait_ty
+                            .and_then(|trait_ty| trait_id_and_args(module.type_store, trait_ty))
+                            .map_or_else(Vec::new, |(_, args, _)| args),
+                        trait_const_args: impl_signature
+                            .trait_ty
+                            .and_then(|trait_ty| trait_id_and_args(module.type_store, trait_ty))
+                            .map_or_else(Vec::new, |(_, _, args)| args),
+                        where_predicates: impl_signature.where_predicates.clone(),
+                        associated_types: Vec::new(),
+                        associated_values: Vec::new(),
+                    },
+                )
+        });
+    let Some(_duplicate) = duplicate else {
+        return Ok(());
+    };
+    diagnostics.push(
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            "overlapping trait implementations for the same target and trait",
+        )
+        .primary(
+            impl_signature.span,
+            "this implementation overlaps another implementation",
+        )
+        .note("the other implementation is in another package or module")
+        .finish(),
+    );
+    Ok(())
 }
 
 /// Builds the extension-method index for one module.

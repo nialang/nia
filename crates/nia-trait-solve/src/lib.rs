@@ -328,6 +328,39 @@ impl<'a> TraitSolverContext<'a> {
     }
 }
 
+/// Reports whether two source implementation headers can match one trait goal.
+///
+/// This uses the same structural matcher as trait selection, so generic and
+/// concrete headers are compared consistently with normal resolution.
+pub fn trait_impl_headers_may_overlap(
+    type_store: &TypeStore,
+    normalization: &TypeNormalization,
+    local_module_id: ModuleId,
+    local_enums: &HashMap<DefId, EnumSignature>,
+    left: &ProgramTraitImplSignature,
+    right: &ProgramTraitImplSignature,
+) -> bool {
+    if left.trait_id != right.trait_id
+        || left.trait_args.len() != right.trait_args.len()
+        || left.trait_const_args.len() != right.trait_const_args.len()
+    {
+        return false;
+    }
+    let context = TraitSolverContext {
+        type_store,
+        normalization,
+        trait_impls: &[],
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id,
+        local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    context.solver(&[]).impl_headers_may_overlap(left, right)
+}
+
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

@@ -1777,6 +1777,16 @@ A structural target is named in a path by wrapping it in brackets:
 `[&u8]::is_null`, `[&[char]]::name`. This is only a path to the target's
 members; it neither captures a receiver nor creates a short name.
 
+Trait implementations are package-owned facts. An implementation for a
+nominal type may be declared only in the package that defines the type or in
+the package that defines the trait. Structural types have no defining package,
+so their implementations must be declared in the trait's package. The
+compiler searches those owner packages directly; a `using` declaration does
+not change which implementations exist or make a third package eligible.
+Implementations with overlapping headers are rejected, because trait
+selection must have one unambiguous result. Ordinary inherent extensions and
+extension methods remain scoped by `using` as described above.
+
 ### Contextual Receiver Inference
 
 When a call chain starts with an omitted associated call, or contains a
