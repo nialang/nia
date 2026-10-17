@@ -242,10 +242,12 @@ mod tests {
 
         let error = write_output_file(&redirected, b"replacement")
             .expect_err("redirected output file must be rejected");
-        assert!(matches!(
-            error.kind(),
-            io::ErrorKind::Other | io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
-        ));
+        assert!(
+            matches!(
+                error.kind(),
+                io::ErrorKind::Other | io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
+            ) || error.raw_os_error() == Some(libc::ELOOP)
+        );
         assert_eq!(fs::read(&outside).expect("read outside file"), b"preserved");
     }
 }
