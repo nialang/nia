@@ -8,6 +8,7 @@ using pkg::process::types;
 using pkg::test;
 
 using types::{Error, ExitCode, SpawnError, SystemError};
+using io::DebugPrintError;
 
 extend test::Error : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
@@ -17,7 +18,7 @@ extend test::Error : builtin::IntoError[ExitCode] {
     }
 }
 
-extend io::DebugPrintError : builtin::IntoError[ExitCode] {
+extend DebugPrintError : builtin::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Format(cause) => cause.intoError(),
