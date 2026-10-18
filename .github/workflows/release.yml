@@ -163,7 +163,7 @@ jobs:
           cd nia-source
           cargo build --release -p nia-cli --no-default-features --features llvm-static
           LLVM_SYS_231_PREFIX="${LLVM_SYS_231_PREFIX}" NIA_REPO_ROOT="$GITHUB_WORKSPACE/nia-source" \
-            NIA_RELEASE_PLATFORM='${{ matrix.platform }}' release-tools/tools/release/package.sh
+            NIA_RELEASE_PLATFORM='${{ matrix.platform }}' ../release-tools/tools/release/package.sh
           archive_root="target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}"
           "${archive_root}/bin/nia" --resource-root "${archive_root}/lib" --version
       - name: Verify LLVM and build compiler on Windows
