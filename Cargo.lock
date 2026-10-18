@@ -932,6 +932,7 @@ name = "nia-llvm"
 version = "0.2.0"
 dependencies = [
  "cc",
+ "libc",
  "llvm-sys",
  "nia-compat",
  "nia-diagnostic",
