@@ -17,23 +17,22 @@ The release compiler still has normal host dependencies such as libc and the
 C++ runtime. Target programs may additionally require a target sysroot, CRT,
 and linker runtime; those are separate from the compiler's LLVM linkage.
 
-## Linux package
+## Platform packages
 
-`package.sh` assembles the relocatable `linux-x86_64` archive used by the
-GitHub release workflow and runs only on a Linux host. It invokes `build.sh`,
-copies the compiler into `bin/nia`, the standard-library resources into
-`lib/`, and the bundled LLD into `libexec/ld.lld`, then writes a reproducible
-tarball and `SHA256SUMS`:
+`package.sh` assembles relocatable Unix archives for `linux-x86_64`,
+`linux-aarch64`, `darwin-x86_64`, and `darwin-aarch64`. It runs on the matching host, invokes
+`build.sh`, copies the compiler into `bin/nia`, the standard-library resources
+into `lib/`, and the bundled LLD into `libexec/ld.lld`:
 
 ```sh
-tools/release/package.sh
+NIA_RELEASE_PLATFORM=darwin-aarch64 tools/release/package.sh
 ```
 
 Set `NIA_RELEASE_OUTPUT` to choose another output directory. The package is
 intended to be unpacked as a complete, portable prefix:
 
 ```text
-nia-<version>-linux-x86_64/
+nia-<version>-<platform>/
 ├── bin/nia
 ├── lib/toolchain.meta
 ├── lib/std/
@@ -41,8 +40,8 @@ nia-<version>-linux-x86_64/
 └── libexec/ld.lld
 ```
 
-Keep the relative `bin`, `lib`, and `libexec` layout intact so compiler
-relocation remains supported. The bundled LLD links every target: the
-compiler selects the ELF, COFF, or Mach-O flavor for the artifact target. A
-Windows toolchain resolves `libexec/ld.lld.exe`, but no Windows archive is
-packaged or published yet.
+`package.ps1` assembles the matching `windows-x86_64` ZIP archive on a Windows
+MSVC host. It uses `bin/nia.exe`, `lib/`, and `libexec/ld.lld.exe` with the same
+relative layout. Keep that layout intact so compiler relocation remains
+supported. The bundled LLD links every target: the compiler selects the ELF,
+COFF, or Mach-O flavor for the artifact target.

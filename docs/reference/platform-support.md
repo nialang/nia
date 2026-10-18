@@ -121,10 +121,10 @@ macOS entry symbol `main` (`_main` in Mach-O) is Nia startup, not a C runtime
 | Configuration | Compiler host | Executables run | Notes |
 | --- | --- | --- | --- |
 | Linux x86_64 (Ubuntu 24.04-class, current Fedora) | full test suite | freestanding executables and standard library | release archive published |
-| Windows x86_64, MSVC toolchain | full test suite | freestanding executables, including child processes with redirected streams | build from source |
-| macOS Intel and Apple silicon | executable and standard-library suites | native executables | build from source |
-| Linux i686 | experimental | selected freestanding executables | needs an LLVM with 32-bit target headers |
-| Linux AArch64 | not tested | not tested | target and startup provided |
+| Linux AArch64 | native release build and CLI smoke test; cross-target executable tests under user-mode QEMU | selected freestanding executables | release archive published |
+| Windows x86_64, MSVC toolchain | full test suite | freestanding executables, including child processes with redirected streams | release archive published |
+| macOS Intel and Apple silicon | executable and standard-library suites | native executables | release archives published |
+| Linux i686 target | cross-linked and executed in the Linux matrix | selected freestanding executables | target output; no separate compiler host archive |
 
 Darwin executables can be cross-linked from Linux and Windows; running them is
 tested only for executables linked on macOS.
@@ -154,7 +154,6 @@ Nia does not support:
 - POSIX signals on Windows: `Signal::Term` and `Signal::Kill` are termination
   requests implemented with `TerminateProcess`, and the result reports the
   Windows exit code rather than a signal;
-- Windows or macOS release archives; only Linux x86_64 is packaged;
 - running Darwin executables that were cross-linked on Linux or Windows;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or wasm32 executables;

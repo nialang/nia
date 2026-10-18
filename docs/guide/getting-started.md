@@ -5,12 +5,21 @@ package with a build script and tests.
 
 ## Install
 
-### Release archive (Linux x86_64)
+### Release archive
 
-Linux x86_64 archives are published on the
-[GitHub Releases](https://github.com/nialang/nia/releases) page. Unpack one as
-a complete prefix and keep its `bin`, `lib`, and `libexec` directories
-together:
+Archives for the supported compiler hosts are published on the
+[GitHub Releases](https://github.com/nialang/nia/releases) page:
+
+| Host | Archive |
+| --- | --- |
+| Linux x86_64 | `nia-<version>-linux-x86_64.tar.gz` |
+| Linux AArch64 | `nia-<version>-linux-aarch64.tar.gz` |
+| Windows x86_64 | `nia-<version>-windows-x86_64.zip` |
+| macOS Intel | `nia-<version>-darwin-x86_64.tar.gz` |
+| macOS Apple silicon | `nia-<version>-darwin-aarch64.tar.gz` |
+
+Unpack an archive as a complete prefix and keep its `bin`, `lib`, and `libexec`
+directories together:
 
 ```sh
 tar -xzf nia-<version>-linux-x86_64.tar.gz
@@ -25,15 +34,19 @@ nia-<version>-linux-x86_64/
 └── libexec/ld.lld
 ```
 
-The archive contains the compiler, the standard library, and the bundled
-`ld.lld` linker. No system LLVM installation is needed. Add `bin` to `PATH` to
-run `nia` directly.
+Each archive contains the compiler, standard library, and host LLD linker. No
+system LLVM installation is needed. Add `bin` to `PATH` to run `nia` directly.
+
+Windows archives contain `bin/nia.exe` and `libexec/ld.lld.exe`; Unix archives
+contain `bin/nia` and `libexec/ld.lld`. The bundled linker selects the target
+flavor automatically, so a host archive can generate any supported target
+listed in [Platform support](../reference/platform-support.md#targets).
 
 ### Build from source
 
-Other hosts, including Windows and macOS, build the compiler from source. With
-Rust stable, LLVM 23.1 (`llvm-config` on `PATH` or `LLVM_SYS_231_PREFIX` set),
-and `ld.lld` available on `PATH` or through `NIA_LLD`:
+Source builds are useful for development. With Rust stable, LLVM 23.1
+(`llvm-config` on `PATH` or `LLVM_SYS_231_PREFIX` set), and `ld.lld` available
+on `PATH` or through `NIA_LLD`:
 
 ```sh
 cargo build --release -p nia-cli
