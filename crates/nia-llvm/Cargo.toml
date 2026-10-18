@@ -15,6 +15,7 @@ nia-compat.workspace = true
 nia-diagnostic.workspace = true
 nia-ice.workspace = true
 nia-span.workspace = true
+libc.workspace = true
 llvm-sys.workspace = true
 
 [build-dependencies]
