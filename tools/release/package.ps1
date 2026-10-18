@@ -12,7 +12,8 @@ if ($Platform -ne 'windows-x86_64') {
 $repoRoot = (Resolve-Path $RepositoryRoot).Path
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 Push-Location $repoRoot
-$version = (& cargo pkgid -p nia-cli | Select-String -Pattern '#nia-cli@(.+)$').Matches.Groups[1].Value
+$pkgid = (& cargo pkgid -p nia-cli | Select-Object -Last 1).Trim()
+$version = ($pkgid -split '#')[-1]
 Pop-Location
 if (-not $version) { throw 'failed to determine nia-cli version' }
 

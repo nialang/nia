@@ -175,7 +175,9 @@ fn release_workflow_publishes_the_supported_host_matrix() {
     assert!(workflow.contains("ubuntu-24.04-arm"));
     assert!(workflow.contains("Validate formal release tag"));
     assert!(workflow.contains("^v[0-9]+\\.[0-9]+\\.0$"));
-    assert!(workflow.contains("github.event_name == 'workflow_dispatch' && github.sha || needs.validate.outputs.tag"));
+    assert!(workflow.contains(
+        "github.event_name == 'workflow_dispatch' && github.sha || needs.validate.outputs.tag"
+    ));
     assert!(workflow.contains("../release-tools/tools/release/package.sh"));
     assert!(workflow.contains("release-tools\\tools\\release\\package.ps1"));
     for platform in [
@@ -196,6 +198,15 @@ fn release_workflow_publishes_the_supported_host_matrix() {
     assert!(workflow.contains("gh release create"));
     assert!(workflow.contains("--verify-tag"));
     assert!(workflow.contains("--generate-notes"));
+}
+
+#[test]
+fn windows_release_packager_parses_cargo_pkgid_path_form() {
+    let script = fs::read_to_string(repository_root().join("tools/release/package.ps1"))
+        .expect("read Windows release packaging script");
+    assert!(script.contains("$pkgid = (& cargo pkgid -p nia-cli | Select-Object -Last 1).Trim()"));
+    assert!(script.contains("$version = ($pkgid -split '#')[-1]"));
+    assert!(!script.contains("nia-cli@"));
 }
 
 #[test]
