@@ -5,6 +5,7 @@
 //! Unsafe GEP helpers require callers to pass element types and indices that
 //! match the pointee/object being addressed.
 
+use libc::c_char;
 use llvm_sys::LLVMTypeKind;
 use llvm_sys::core::{
     LLVMAddCase, LLVMBuildAShr, LLVMBuildAdd, LLVMBuildAlloca, LLVMBuildAnd,
@@ -25,7 +26,7 @@ use llvm_sys::core::{
     LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
-use std::{marker::PhantomData, os::raw::c_char};
+use std::marker::PhantomData;
 
 use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
