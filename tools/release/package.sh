@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Assemble the relocatable Linux release archive after building the compiler.
+# Assemble a relocatable Unix release archive after building the compiler.
 # The archive intentionally contains the compiler, Nia resources, and bundled
 # linker only; LLVM's build tree remains a release-build input.
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_root="${NIA_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+repo_root="$(cd "${repo_root}" && pwd)"
 output_root="${NIA_RELEASE_OUTPUT:-${repo_root}/target/release-package}"
 platform="${NIA_RELEASE_PLATFORM:-linux-x86_64}"
 
@@ -14,14 +15,32 @@ fi
 mkdir -p "${output_root}"
 output_root="$(cd "${output_root}" && pwd)"
 
-if [[ "${platform}" != linux-x86_64 ]]; then
-    printf 'unsupported release platform: %s\n' "${platform}" >&2
-    exit 1
-fi
-# The archive name and bundled linker describe the host build, so a
-# linux-x86_64 archive can only be produced on that host.
-if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
-    printf 'linux-x86_64 archives must be packaged on a Linux x86_64 host\n' >&2
+case "${platform}" in
+    linux-x86_64)
+        expected_os=Linux
+        expected_arch=x86_64
+        ;;
+    linux-aarch64)
+        expected_os=Linux
+        expected_arch=aarch64
+        ;;
+    darwin-x86_64)
+        expected_os=Darwin
+        expected_arch=x86_64
+        ;;
+    darwin-aarch64)
+        expected_os=Darwin
+        expected_arch=arm64
+        ;;
+    *)
+        printf 'unsupported release platform: %s\n' "${platform}" >&2
+        exit 1
+        ;;
+esac
+# The archive name and bundled linker describe the host build.
+if [[ "$(uname -s)" != "${expected_os}" || "$(uname -m)" != "${expected_arch}" ]]; then
+    printf '%s archives must be packaged on a %s %s host\n' \
+        "${platform}" "${expected_os}" "${expected_arch}" >&2
     exit 1
 fi
 
@@ -46,7 +65,7 @@ for required in "${binary}" "${lld}" "${resource_root}/toolchain.meta" \
 done
 stage_root="${output_root}/nia-${version}-${platform}"
 archive="${output_root}/nia-${version}-${platform}.tar.gz"
-checksums="${output_root}/SHA256SUMS"
+checksums="${output_root}/SHA256SUMS-${platform}"
 rm -rf "${stage_root}" "${archive}" "${checksums}"
 mkdir -p "${stage_root}/bin" "${stage_root}/lib" "${stage_root}/libexec"
 
@@ -65,9 +84,17 @@ llvm_version="$("${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}
     printf 'llvm-version=%s\n' "${llvm_version}"
 } > "${stage_root}/release-manifest.txt"
 
-tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
-    -czf "${archive}" -C "${output_root}" "$(basename "${stage_root}")"
-sha256sum "${archive}" | sed "s#${output_root}/##" > "${checksums}"
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+    tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+        -czf "${archive}" -C "${output_root}" "$(basename "${stage_root}")"
+else
+    tar -czf "${archive}" -C "${output_root}" "$(basename "${stage_root}")"
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${archive}" | sed "s#${output_root}/##" > "${checksums}"
+else
+    shasum -a 256 "${archive}" | sed "s#${output_root}/##" > "${checksums}"
+fi
 
 printf 'release archive: %s\n' "${archive}"
 printf 'checksums: %s\n' "${checksums}"

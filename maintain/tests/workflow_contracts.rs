@@ -164,19 +164,37 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
 }
 
 #[test]
-fn release_workflow_publishes_only_versioned_linux_archives() {
+fn release_workflow_publishes_the_supported_host_matrix() {
     let workflow = workflow("release.yml");
     assert!(workflow.contains("      - \"v*\""));
+    assert!(workflow.contains("  workflow_dispatch:"));
     assert!(workflow.contains("permissions:\n  contents: write"));
     assert!(workflow.contains("tools/llvm/build-static.sh"));
+    assert!(workflow.contains("tools/llvm/build-static.ps1"));
+    assert!(workflow.contains("cargo maintain check"));
+    assert!(workflow.contains("ubuntu-24.04-arm"));
     assert!(workflow.contains("Validate formal release tag"));
     assert!(workflow.contains("^v[0-9]+\\.[0-9]+\\.0$"));
     assert!(workflow.contains("tools/release/package.sh"));
+    assert!(workflow.contains("release-tools\\tools\\release\\package.ps1"));
+    for platform in [
+        "linux-x86_64",
+        "linux-aarch64",
+        "windows-x86_64",
+        "darwin-x86_64",
+        "darwin-aarch64",
+    ] {
+        assert!(
+            workflow.contains(platform),
+            "missing release platform {platform}"
+        );
+    }
+    assert!(workflow.contains("name: nia-release-${{ matrix.platform }}"));
     assert!(workflow.contains("SHA256SUMS"));
+    assert!(workflow.contains("gh release upload"));
     assert!(workflow.contains("gh release create"));
     assert!(workflow.contains("--verify-tag"));
     assert!(workflow.contains("--generate-notes"));
-    assert!(!workflow.contains("workflow_dispatch"));
 }
 
 #[test]

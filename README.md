@@ -78,20 +78,22 @@ owns startup, linking, package builds, and runtime selection.
 
 ## Get Started
 
-Linux x86_64 release archives are published on the
+Release archives for Linux x86_64 and AArch64, Windows x86_64, macOS Intel, and
+macOS Apple silicon are published on the
 [GitHub Releases](https://github.com/nialang/nia/releases) page. Unpack an
 archive as a complete prefix and keep its `bin`, `lib`, and `libexec`
-directories together; it bundles the standard library and the `ld.lld` linker,
-so no system LLVM is needed:
+directories together; it bundles the standard library and LLD, so no system
+LLVM installation is needed. The archive name identifies the compiler host,
+while `--target` selects any supported artifact target.
 
 ```sh
 tar -xzf nia-<version>-linux-x86_64.tar.gz
 ./nia-<version>-linux-x86_64/bin/nia --version
 ```
 
-On other hosts, build the compiler from source. It needs Rust stable, LLVM 23.1,
-and LLD; [Development setup](docs/dev/setup.md) covers Linux and Windows in
-detail:
+The published archive is the normal installation path. A compiler can also be
+built from source; [Development setup](docs/dev/setup.md) covers the required
+Rust, LLVM, and LLD inputs:
 
 ```sh
 cargo build --release -p nia-cli
@@ -127,9 +129,10 @@ entry points are:
 
 ## Support And Status
 
-Nia is maintainer-tested. The published release package targets Linux x86_64;
-the compiler also builds and runs on Windows x86_64 (MSVC) and macOS, and
-generates executables for Linux, Windows, and macOS targets.
+Nia is maintainer-tested. Release archives cover Linux x86_64 and AArch64,
+Windows x86_64, macOS Intel, and macOS Apple silicon. The compiler also
+generates executables for the Linux, Windows, and macOS targets listed in the
+platform reference.
 [Platform support](docs/reference/platform-support.md) describes the exact
 boundary.
 

@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing formal release tag to package
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,59 +19,220 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  package:
-    name: Linux x86_64 release package
+  validate:
+    name: Validate release source
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      CARGO_TERM_COLOR: always
-      LLVM_SYS_231_PREFIX: ${{ github.workspace }}/target/llvm-static/install
-
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Check out repository
+      - name: Check out release source
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-
-      - name: Install Rust and build dependencies
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+          path: nia-source
+      - name: Check out release tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+          path: release-tools
+      - name: Install Rust
+        shell: bash
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
-          sudo apt-get update
-          sudo apt-get install --yes cmake ninja-build gcc g++ make curl git
-
-      - name: Validate formal release tag
+      - name: Run release maintenance audit
+        shell: bash
         run: |
+          cd release-tools
+          cargo maintain check
+      - name: Validate formal release tag
+        id: release
+        shell: bash
+        run: |
+          cd nia-source
           version="$(cargo pkgid -p nia-cli | sed -n 's/.*#//p')"
           tag="v${version}"
-          if [[ "${GITHUB_REF_NAME}" != "${tag}" || ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.0$ ]]; then
-            echo "formal releases require a vX.Y.0 tag matching package version; got ${GITHUB_REF_NAME} for ${version}" >&2
+          selected_tag="${RELEASE_TAG}"
+          if [[ "${selected_tag}" != "${tag}" || ! "${selected_tag}" =~ ^v[0-9]+\.[0-9]+\.0$ ]]; then
+            echo "formal releases require a vX.Y.0 tag matching package version; got ${selected_tag} for ${version}" >&2
             exit 1
           fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
-      - name: Build pinned static LLVM
-        run: tools/llvm/build-static.sh
-
-      - name: Run release maintenance audit
-        run: cargo maintain check
-
-      - name: Build release archive
-        run: tools/release/package.sh
-
-      - name: Verify archive layout
+  package:
+    name: Package ${{ matrix.platform }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: windows-x86_64
+            runner: windows-2022
+          - platform: darwin-x86_64
+            runner: macos-15-intel
+          - platform: darwin-aarch64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: always
+      LLVM_TARGETS_TO_BUILD: X86;AArch64
+      LLVM_ENABLE_PROJECTS: clang;lld
+      LLVM_SYS_231_PREFIX: ${{ github.workspace }}/nia-source/target/llvm-static/install
+      LLVM_SOURCE_ROOT: ${{ github.workspace }}/nia-source/target/llvm-source
+      LLVM_BUILD_ROOT: ${{ github.workspace }}/nia-source/target/llvm-static/build
+      LLVM_INSTALL_ROOT: ${{ github.workspace }}/nia-source/target/llvm-static/install
+    steps:
+      - name: Check out release tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+          path: release-tools
+      - name: Check out release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          path: nia-source
+      - name: Install Rust
+        shell: bash
         run: |
-          archive="target/release-package/nia-$(cargo pkgid -p nia-cli | sed -n 's/.*#//p')-linux-x86_64.tar.gz"
-          tar -tzf "${archive}" | grep -E '/(bin/nia|lib/toolchain.meta|libexec/ld.lld)$'
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake ninja-build gcc g++ make curl git
+      - name: Cache Windows static LLVM
+        if: runner.os == 'Windows'
+        id: windows-llvm-cache
+        uses: actions/cache@v6
+        with:
+          path: nia-source/target/llvm-static/install
+          key: nia-llvm-23.1.2-Windows-X64-${{ hashFiles('release-tools/tools/llvm/build-static.ps1') }}
+      - name: Cache Darwin static LLVM
+        if: runner.os == 'macOS'
+        id: darwin-llvm-cache
+        uses: actions/cache@v6
+        with:
+          path: nia-source/target/llvm-static/install
+          key: nia-llvm-23.1.2-X86;AArch64-clang;lld-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('release-tools/tools/llvm/build-static.sh') }}
+      - name: Build pinned static LLVM on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: release-tools/tools/llvm/build-static.sh
+      - name: Build pinned static LLVM on Windows
+        if: runner.os == 'Windows' && steps.windows-llvm-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: release-tools/tools/llvm/build-static.ps1
+      - name: Build pinned static LLVM on Darwin
+        if: runner.os == 'macOS' && steps.darwin-llvm-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: release-tools/tools/llvm/build-static.sh
+      - name: Configure MSVC environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsRoot = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+          if (-not $vsRoot) { throw 'Visual Studio with the x64 MSVC tools was not found.' }
+          $vsDevCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
+          $environment = & cmd.exe /d /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 && set"
+          if ($LASTEXITCODE -ne 0) { throw 'Visual Studio environment initialization failed.' }
+          foreach ($line in $environment) {
+            if ($line -match '^(?<name>[^=]+)=(?<value>.*)$') { Set-Item -Path "Env:$($Matches.name)" -Value $Matches.value }
+          }
+          $env:LLVM_SYS_231_PREFIX = "$env:GITHUB_WORKSPACE\nia-source\target\llvm-static\install"
+          $env:Path = "$env:LLVM_SYS_231_PREFIX\bin;$env:Path"
+          @("LLVM_SYS_231_PREFIX=$env:LLVM_SYS_231_PREFIX", "LIB=$env:LIB", "INCLUDE=$env:INCLUDE", "PATH=$env:PATH") |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify LLVM and build compiler on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)" = 23.1.2
+          test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --shared-mode)" = static
+          cd nia-source
+          cargo build --release -p nia-cli --no-default-features --features llvm-static
+          LLVM_SYS_231_PREFIX="${LLVM_SYS_231_PREFIX}" NIA_REPO_ROOT="$GITHUB_WORKSPACE/nia-source" \
+            NIA_RELEASE_PLATFORM='${{ matrix.platform }}' release-tools/tools/release/package.sh
+          archive_root="target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}"
+          "${archive_root}/bin/nia" --resource-root "${archive_root}/lib" --version
+      - name: Verify LLVM and build compiler on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $llvmConfig = Join-Path $env:LLVM_SYS_231_PREFIX 'bin\llvm-config.exe'
+          if ((& $llvmConfig --version).Trim() -ne '23.1.2') { throw 'unexpected LLVM version' }
+          if ((& $llvmConfig --shared-mode).Trim() -ne 'static') { throw 'release LLVM must be static' }
+          Push-Location nia-source
+          cargo build --release -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release compiler build failed' }
+          Pop-Location
+          $env:NIA_REPO_ROOT = "$env:GITHUB_WORKSPACE\nia-source"
+          $env:NIA_RELEASE_OUTPUT = "$env:GITHUB_WORKSPACE\nia-source\target\release-package"
+          & .\release-tools\tools\release\package.ps1
+          & ".\nia-source\target\release-package\nia-${{ needs.validate.outputs.version }}-windows-x86_64\bin\nia.exe" --resource-root ".\nia-source\target\release-package\nia-${{ needs.validate.outputs.version }}-windows-x86_64\lib" --version
+          if ($LASTEXITCODE -ne 0) { throw 'packaged Windows compiler failed to start' }
+      - name: Verify Unix archive layout
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          archive="nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.tar.gz"
+          entries="$(tar -tzf "${archive}")"
+          grep -Eq '/bin/nia$' <<<"${entries}"
+          grep -Eq '/lib/toolchain.meta$' <<<"${entries}"
+          grep -Eq '/libexec/ld.lld$' <<<"${entries}"
+      - name: Verify Windows archive layout
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.zip"
+          $entries = @(tar -tf $archive)
+          foreach ($suffix in @('/bin/nia.exe', '/lib/toolchain.meta', '/libexec/ld.lld.exe')) {
+            if (-not ($entries -match [regex]::Escape($suffix) + '$')) { throw "archive is missing $suffix" }
+          }
+      - name: Upload platform release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-release-${{ matrix.platform }}
+          path: nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.*
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Publish GitHub release
+  publish:
+    name: Publish release matrix
+    needs: [validate, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: nia-release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Build aggregate checksums
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum nia-* > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          version="$(cargo pkgid -p nia-cli | sed -n 's/.*#//p')"
-          tag="v${version}"
-          gh release create "${tag}" \
-            "target/release-package/nia-${version}-linux-x86_64.tar.gz" \
-            "target/release-package/SHA256SUMS" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --verify-tag \
-            --generate-notes
+          if gh release view '${{ needs.validate.outputs.tag }}' --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload '${{ needs.validate.outputs.tag }}' release-assets/* --clobber --repo "${GITHUB_REPOSITORY}"
+          else
+            gh release create '${{ needs.validate.outputs.tag }}' release-assets/* \
+              --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes
+          fi
