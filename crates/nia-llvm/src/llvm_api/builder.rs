@@ -25,7 +25,7 @@ use llvm_sys::core::{
     LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, os::raw::c_char};
 
 use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
@@ -1944,7 +1944,12 @@ fn cmpxchg_order_allowed(success: AtomicOrdering, failure: AtomicOrdering) -> bo
 
 fn build_int_bin<'ctx>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMValueRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     lhs: IntValue<'ctx>,
     rhs: IntValue<'ctx>,
     name: &str,
@@ -2038,7 +2043,12 @@ fn integer_cast_shape(ty: LLVMTypeRef) -> LlvmResult<(LLVMTypeKind, u32, u32)> {
 
 fn build_float_bin<'ctx>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMValueRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     lhs: FloatValue<'ctx>,
     rhs: FloatValue<'ctx>,
     name: &str,
@@ -2062,7 +2072,12 @@ fn build_float_bin<'ctx>(
 
 fn build_basic_bin<'ctx>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMValueRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     lhs: BasicValueEnum<'ctx>,
     rhs: BasicValueEnum<'ctx>,
     name: &str,
@@ -2174,7 +2189,12 @@ fn is_floating_bin_type(ty: LLVMTypeRef) -> bool {
 
 fn cast_int<'ctx>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMTypeRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     value: IntValue<'ctx>,
     target: IntType<'ctx>,
     kind: IntegerCastKind,
@@ -2199,7 +2219,12 @@ fn cast_int<'ctx>(
 
 fn cast_basic<'ctx>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMTypeRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     value: BasicValueEnum<'ctx>,
     target: BasicTypeEnum<'ctx>,
     kind: IntegerCastKind,
@@ -2223,7 +2248,12 @@ fn cast_basic<'ctx>(
 
 fn cast_float<'ctx, V: AsValueRef>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMTypeRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     value: V,
     target: FloatType<'ctx>,
     name: &str,
@@ -2242,7 +2272,12 @@ fn cast_float<'ctx, V: AsValueRef>(
 
 fn cast_int_from_float<'ctx>(
     builder: LLVMBuilderRef,
-    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
+    f: unsafe extern "C" fn(
+        LLVMBuilderRef,
+        LLVMValueRef,
+        LLVMTypeRef,
+        *const c_char,
+    ) -> LLVMValueRef,
     value: FloatValue<'ctx>,
     target: IntType<'ctx>,
     name: &str,
