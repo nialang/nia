@@ -201,16 +201,105 @@ pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::
         return checkout_git(source, revision, destination);
     }
     if source.starts_with("ssh://") || source.starts_with("git@") {
-        let _ = ssh::parse_ssh_url(source)?;
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "SSH Git transport negotiation is not enabled yet",
-        ));
+        return checkout_ssh(source, revision, destination);
     }
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         format!("Git transport is not implemented for `{source}`"),
     ))
+}
+
+fn checkout_ssh(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
+    let url = ssh::parse_ssh_url(source)?;
+    let ssh_directory = ssh_directory()?;
+    let known_hosts_path = ssh_directory.join("known_hosts");
+    let identity_path = ssh_directory.join("id_ed25519");
+    let known_hosts =
+        ssh::KnownHosts::parse(&std::fs::read(&known_hosts_path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "could not read SSH known_hosts at {}: {error}",
+                    known_hosts_path.display()
+                ),
+            )
+        })?)?;
+    let identity_bytes = std::fs::read(&identity_path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "could not read SSH identity at {}: {error}",
+                identity_path.display()
+            ),
+        )
+    })?;
+    verify_ssh_identity_permissions(&identity_path)?;
+    let identity = ssh::SshEd25519Identity::parse_openssh(&identity_bytes)?;
+
+    let address = (url.host.as_str(), url.port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "SSH host has no address"))?;
+    let mut stream = TcpStream::connect_timeout(&address, std::time::Duration::from_secs(15))?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
+    let mut keys = ssh::perform_ssh_key_exchange(&mut stream, &url, &known_hosts)?;
+    ssh::authenticate_publickey(&mut stream, &mut keys, &url.user, &identity)?;
+    let mut channel = ssh::open_git_upload_pack(&mut stream, &mut keys, &url.path)?;
+
+    let advertisement = read_packet_section(&mut channel)?;
+    let refs = parse_advertised_refs(&advertisement)?;
+    let commit = select_advertised_revision(&refs, revision)?;
+    let mut request = Vec::new();
+    encode_packet_line(
+        format!("want {} ofs-delta side-band-64k\n", encode_hex(&commit)).as_bytes(),
+        &mut request,
+    )?;
+    request.extend_from_slice(b"0000");
+    encode_packet_line(b"done\n", &mut request)?;
+    channel.write_all(&request)?;
+    channel.flush()?;
+    channel.finish_writing()?;
+    let mut response = Vec::new();
+    channel
+        .take((MAX_HTTP_RESPONSE + 1) as u64)
+        .read_to_end(&mut response)?;
+    if response.len() > MAX_HTTP_RESPONSE {
+        return Err(invalid_packet("Git response is too large"));
+    }
+    let pack = parse_upload_pack_response(&response)?;
+    write_pack_checkout(&pack, &commit, destination)
+}
+
+fn ssh_directory() -> io::Result<PathBuf> {
+    let home = if cfg!(windows) {
+        std::env::var_os("USERPROFILE")
+    } else {
+        std::env::var_os("HOME")
+    }
+    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "home directory is not configured"))?;
+    Ok(PathBuf::from(home).join(".ssh"))
+}
+
+#[cfg(unix)]
+fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path)?.permissions().mode();
+    if mode & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "SSH identity at {} is accessible by group or others",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn verify_ssh_identity_permissions(_path: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 mod ssh {
@@ -2849,21 +2938,20 @@ mod tests {
     }
 
     #[test]
-    fn ssh_sources_are_validated_before_transport_is_reported_unavailable() {
+    fn ssh_sources_reject_invalid_urls_before_loading_credentials() {
         let destination =
-            std::env::temp_dir().join(format!("nia-git-ssh-unsupported-{}", std::process::id()));
-        let error = checkout_source(
-            "ssh://git@example.test/org/repository.git",
-            "HEAD",
-            &destination,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-        assert!(error.to_string().contains("negotiation is not enabled"));
-        let error = checkout_source("git@example.test:org/repository.git", "HEAD", &destination)
-            .unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-        assert!(checkout_source("ssh://host", "HEAD", &destination).is_err());
+            std::env::temp_dir().join(format!("nia-git-ssh-invalid-{}", std::process::id()));
+        for source in [
+            "ssh://user:password@example.test/repository.git",
+            "ssh://example.test/repository.git?query",
+            "ssh://example.test:0/repository.git",
+            "git@example.test:",
+        ] {
+            assert!(
+                checkout_source(source, "HEAD", &destination).is_err(),
+                "{source}"
+            );
+        }
     }
 
     #[test]
