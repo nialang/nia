@@ -223,7 +223,7 @@ mod ssh {
         MAX_SSH_IDENTIFICATION_LINE, MAX_SSH_PACKET_BYTES, MAX_SSH_PRE_IDENTIFICATION_LINES, Read,
         Write, invalid_packet, io,
     };
-    use ring::{agreement, digest, rand};
+    use ring::{agreement, digest, rand, signature};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct SshUrl {
@@ -610,6 +610,58 @@ mod ssh {
             .as_ref()
             .try_into()
             .expect("SHA-256 digests are 32 bytes"))
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) struct SshKexEcdhReply {
+        pub(super) server_host_key: Vec<u8>,
+        pub(super) server_public: Vec<u8>,
+        pub(super) signature: Vec<u8>,
+    }
+
+    pub(super) fn parse_ssh_kex_ecdh_reply(payload: &[u8]) -> io::Result<SshKexEcdhReply> {
+        if payload.first().copied() != Some(31) {
+            return Err(invalid_packet("SSH payload is not KEX_ECDH_REPLY"));
+        }
+        let mut reader = SshReader::new(&payload[1..]);
+        let server_host_key = reader.string()?.to_vec();
+        let server_public = reader.string()?.to_vec();
+        let signature = reader.string()?.to_vec();
+        reader.finish()?;
+        if server_host_key.is_empty() || server_public.is_empty() || signature.is_empty() {
+            return Err(invalid_packet("SSH KEX_ECDH_REPLY contains an empty field"));
+        }
+        Ok(SshKexEcdhReply {
+            server_host_key,
+            server_public,
+            signature,
+        })
+    }
+
+    pub(super) fn verify_ssh_ed25519_host_key(
+        host_key_blob: &[u8],
+        signature_blob: &[u8],
+        exchange_hash: &[u8; 32],
+    ) -> io::Result<()> {
+        let mut host_key_reader = SshReader::new(host_key_blob);
+        let algorithm = host_key_reader.string()?;
+        let public_key = host_key_reader.string()?;
+        host_key_reader.finish()?;
+        if algorithm != b"ssh-ed25519" || public_key.len() != 32 {
+            return Err(invalid_packet("SSH server host key is not ssh-ed25519"));
+        }
+
+        let mut signature_reader = SshReader::new(signature_blob);
+        let signature_algorithm = signature_reader.string()?;
+        let signature = signature_reader.string()?;
+        signature_reader.finish()?;
+        if signature_algorithm != b"ssh-ed25519" || signature.len() != 64 {
+            return Err(invalid_packet("SSH server signature is not ssh-ed25519"));
+        }
+
+        signature::UnparsedPublicKey::new(&signature::ED25519, public_key)
+            .verify(exchange_hash, signature)
+            .map_err(|_| invalid_packet("SSH server host key signature is invalid"))
     }
 
     fn encode_ssh_string(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
@@ -1676,6 +1728,7 @@ fn encode_hex(bytes: &[u8]) -> String {
 mod tests {
     use super::ssh::*;
     use super::*;
+    use ring::signature::KeyPair;
 
     #[test]
     fn loose_objects_validate_type_size_and_git_object_identity() {
@@ -1880,6 +1933,65 @@ mod tests {
         let mut trailing = payload;
         trailing.push(0);
         assert!(parse_ssh_kexinit(&trailing).is_err());
+    }
+
+    #[test]
+    fn ssh_kex_ecdh_reply_verifies_ed25519_host_key_signature() {
+        fn put_string(value: &[u8], output: &mut Vec<u8>) {
+            output.extend_from_slice(&(value.len() as u32).to_be_bytes());
+            output.extend_from_slice(value);
+        }
+
+        let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7u8; 32]).unwrap();
+        let mut host_key = Vec::new();
+        put_string(b"ssh-ed25519", &mut host_key);
+        put_string(key_pair.public_key().as_ref(), &mut host_key);
+        let exchange_hash = [11u8; 32];
+        let signature = key_pair.sign(&exchange_hash);
+        let mut signature_blob = Vec::new();
+        put_string(b"ssh-ed25519", &mut signature_blob);
+        put_string(signature.as_ref(), &mut signature_blob);
+
+        let mut reply_payload = vec![31];
+        put_string(&host_key, &mut reply_payload);
+        put_string(&[13u8; 32], &mut reply_payload);
+        put_string(&signature_blob, &mut reply_payload);
+        let reply = parse_ssh_kex_ecdh_reply(&reply_payload).unwrap();
+        assert_eq!(reply.server_host_key, host_key);
+        assert_eq!(reply.server_public, vec![13u8; 32]);
+        verify_ssh_ed25519_host_key(&reply.server_host_key, &reply.signature, &exchange_hash)
+            .unwrap();
+
+        let mut wrong_hash = exchange_hash;
+        wrong_hash[0] ^= 1;
+        assert!(
+            verify_ssh_ed25519_host_key(&reply.server_host_key, &reply.signature, &wrong_hash,)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ssh_kex_ecdh_reply_rejects_malformed_host_key_and_signature() {
+        fn put_string(value: &[u8], output: &mut Vec<u8>) {
+            output.extend_from_slice(&(value.len() as u32).to_be_bytes());
+            output.extend_from_slice(value);
+        }
+
+        let mut payload = vec![31];
+        put_string(b"host-key", &mut payload);
+        put_string(&[1u8; 32], &mut payload);
+        put_string(b"signature", &mut payload);
+        assert!(parse_ssh_kex_ecdh_reply(&payload).is_ok());
+        payload.push(0);
+        assert!(parse_ssh_kex_ecdh_reply(&payload).is_err());
+
+        let mut host_key = Vec::new();
+        put_string(b"ssh-rsa", &mut host_key);
+        put_string(&[1u8; 32], &mut host_key);
+        let mut signature = Vec::new();
+        put_string(b"ssh-ed25519", &mut signature);
+        put_string(&[2u8; 64], &mut signature);
+        assert!(verify_ssh_ed25519_host_key(&host_key, &signature, &[0; 32]).is_err());
     }
 
     #[test]
