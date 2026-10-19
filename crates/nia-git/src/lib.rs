@@ -225,7 +225,7 @@ mod ssh {
     };
     use aes::Aes128;
     use ctr::cipher::{KeyIvInit, StreamCipher};
-    use ring::{agreement, digest, hmac, rand, rand::SecureRandom, signature};
+    use ring::{agreement, digest, hmac, rand, rand::SecureRandom, signature, signature::KeyPair};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct SshUrl {
@@ -1124,6 +1124,144 @@ mod ssh {
             return Err(invalid_packet("SSH known_hosts base64 has invalid padding"));
         }
         Ok(output)
+    }
+
+    pub(super) struct SshEd25519Identity {
+        public_key: Vec<u8>,
+        private_key: signature::Ed25519KeyPair,
+    }
+
+    impl std::fmt::Debug for SshEd25519Identity {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("SshEd25519Identity")
+                .field("public_key", &self.public_key)
+                .field("private_key", &"<hidden>")
+                .finish()
+        }
+    }
+
+    impl SshEd25519Identity {
+        pub(super) fn parse_openssh(input: &[u8]) -> io::Result<Self> {
+            let text = std::str::from_utf8(input)
+                .map_err(|_| invalid_packet("SSH private key is not UTF-8"))?;
+            let mut encoded = String::new();
+            let mut inside = false;
+            for line in text.lines() {
+                let line = line.trim();
+                if line == "-----BEGIN OPENSSH PRIVATE KEY-----" {
+                    if inside {
+                        return Err(invalid_packet("SSH private key has duplicate headers"));
+                    }
+                    inside = true;
+                    continue;
+                }
+                if line == "-----END OPENSSH PRIVATE KEY-----" {
+                    inside = false;
+                    break;
+                }
+                if inside {
+                    if !line
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"+/=".contains(&byte))
+                    {
+                        return Err(invalid_packet("SSH private key base64 is malformed"));
+                    }
+                    encoded.push_str(line);
+                }
+            }
+            if inside || encoded.is_empty() {
+                return Err(invalid_packet("SSH private key is incomplete"));
+            }
+            let decoded = decode_base64(&encoded)?;
+            let magic = b"openssh-key-v1\0";
+            if !decoded.starts_with(magic) {
+                return Err(invalid_packet("SSH private key format is unsupported"));
+            }
+            let mut outer = SshReader::new(&decoded[magic.len()..]);
+            let cipher = outer.string()?;
+            let kdf = outer.string()?;
+            let kdf_options = outer.string()?;
+            let key_count = outer.u32()?;
+            if cipher != b"none" || kdf != b"none" || !kdf_options.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "encrypted OpenSSH private keys are not supported yet",
+                ));
+            }
+            if key_count != 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "OpenSSH private keys must contain exactly one identity",
+                ));
+            }
+            let public_blob = outer.string()?.to_vec();
+            let private_block = outer.string()?;
+            outer.finish()?;
+
+            let mut public_reader = SshReader::new(&public_blob);
+            let public_algorithm = public_reader.string()?;
+            let public_key = public_reader.string()?.to_vec();
+            public_reader.finish()?;
+            if public_algorithm != b"ssh-ed25519" || public_key.len() != 32 {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "OpenSSH identity is not Ed25519",
+                ));
+            }
+
+            let mut private_reader = SshReader::new(private_block);
+            let check_a = private_reader.u32()?;
+            let check_b = private_reader.u32()?;
+            if check_a != check_b {
+                return Err(invalid_packet(
+                    "SSH private key check integers do not match",
+                ));
+            }
+            if private_reader.string()? != b"ssh-ed25519" {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "OpenSSH identity is not Ed25519",
+                ));
+            }
+            let private_public = private_reader.string()?;
+            let private_key = private_reader.string()?;
+            let _comment = private_reader.string()?;
+            let padding =
+                private_reader.take(private_reader.bytes.len() - private_reader.offset)?;
+            if padding.is_empty()
+                || padding
+                    .iter()
+                    .enumerate()
+                    .any(|(index, byte)| *byte != (index as u8 + 1))
+                || private_key.len() != 64
+                || private_key[32..] != public_key
+                || private_public != public_key
+            {
+                return Err(invalid_packet(
+                    "SSH Ed25519 private key contents are invalid",
+                ));
+            }
+            let key_pair = signature::Ed25519KeyPair::from_seed_unchecked(&private_key[..32])
+                .map_err(|_| invalid_packet("SSH Ed25519 private key seed is invalid"))?;
+            if key_pair.public_key().as_ref() != public_key {
+                return Err(invalid_packet(
+                    "SSH Ed25519 public and private keys do not match",
+                ));
+            }
+            Ok(Self {
+                public_key: public_blob,
+                private_key: key_pair,
+            })
+        }
+
+        pub(super) fn public_key_blob(&self) -> &[u8] {
+            &self.public_key
+        }
+
+        pub(super) fn sign(&self, message: &[u8]) -> signature::Signature {
+            self.private_key.sign(message)
+        }
     }
 
     fn encode_ssh_string(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
@@ -2810,6 +2948,89 @@ mod tests {
                 .kex_algorithms
                 .contains(&"curve25519-sha256".to_string())
         );
+    }
+
+    #[test]
+    fn openssh_unencrypted_ed25519_private_key_is_strictly_parsed() {
+        fn put_string(value: &[u8], output: &mut Vec<u8>) {
+            output.extend_from_slice(&(value.len() as u32).to_be_bytes());
+            output.extend_from_slice(value);
+        }
+
+        fn base64(input: &[u8]) -> String {
+            const TABLE: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut output = String::new();
+            for chunk in input.chunks(3) {
+                let first = chunk[0];
+                output.push(TABLE[(first >> 2) as usize] as char);
+                let second = chunk.get(1).copied();
+                output.push(
+                    TABLE[((first & 3) << 4 | second.map_or(0, |byte| byte >> 4)) as usize] as char,
+                );
+                if let Some(second) = second {
+                    let third = chunk.get(2).copied();
+                    output.push(
+                        TABLE[((second & 15) << 2 | third.map_or(0, |byte| byte >> 6)) as usize]
+                            as char,
+                    );
+                    output.push(third.map_or('=', |byte| TABLE[(byte & 63) as usize] as char));
+                } else {
+                    output.push_str("==");
+                }
+            }
+            output
+        }
+
+        let seed = [23u8; 32];
+        let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+        let public = key_pair.public_key().as_ref();
+        let mut public_blob = Vec::new();
+        put_string(b"ssh-ed25519", &mut public_blob);
+        put_string(public, &mut public_blob);
+        let mut private_block = Vec::new();
+        private_block.extend_from_slice(&0x1234_5678u32.to_be_bytes());
+        private_block.extend_from_slice(&0x1234_5678u32.to_be_bytes());
+        put_string(b"ssh-ed25519", &mut private_block);
+        put_string(public, &mut private_block);
+        let mut private_key = seed.to_vec();
+        private_key.extend_from_slice(public);
+        put_string(&private_key, &mut private_block);
+        put_string(b"test identity", &mut private_block);
+        let padding_len = 8 - (private_block.len() % 8);
+        private_block.extend((1..=padding_len).map(|byte| byte as u8));
+
+        let mut encoded = b"openssh-key-v1\0".to_vec();
+        put_string(b"none", &mut encoded);
+        put_string(b"none", &mut encoded);
+        put_string(b"", &mut encoded);
+        encoded.extend_from_slice(&1u32.to_be_bytes());
+        put_string(&public_blob, &mut encoded);
+        put_string(&private_block, &mut encoded);
+        let pem = format!(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----\n",
+            base64(&encoded)
+        );
+        let identity = SshEd25519Identity::parse_openssh(pem.as_bytes()).unwrap();
+        assert_eq!(identity.public_key_blob(), public_blob);
+        let signature = identity.sign(b"signed test data");
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public)
+            .verify(b"signed test data", signature.as_ref())
+            .unwrap();
+
+        private_block[4] ^= 1;
+        let mut malformed = b"openssh-key-v1\0".to_vec();
+        put_string(b"none", &mut malformed);
+        put_string(b"none", &mut malformed);
+        put_string(b"", &mut malformed);
+        malformed.extend_from_slice(&1u32.to_be_bytes());
+        put_string(&public_blob, &mut malformed);
+        put_string(&private_block, &mut malformed);
+        let malformed_pem = format!(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----\n",
+            base64(&malformed)
+        );
+        assert!(SshEd25519Identity::parse_openssh(malformed_pem.as_bytes()).is_err());
     }
 
     #[test]
