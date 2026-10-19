@@ -1022,6 +1022,15 @@ impl RawDependency {
                         format!("invalid Git source for dependency `{name}`"),
                     ));
                 }
+                if let Some(rev) = self.rev.as_deref() {
+                    validate_git_revision(rev, name)?;
+                }
+                if let Some(tag) = self.tag.as_deref() {
+                    validate_git_ref(tag, "tag", name)?;
+                }
+                if let Some(branch) = self.branch.as_deref() {
+                    validate_git_ref(branch, "branch", name)?;
+                }
                 Ok(DependencySource::Git {
                     url: if scp_style {
                         let (host, path) = url.split_once(':').expect("scp-style URL has a colon");
@@ -1040,6 +1049,35 @@ impl RawDependency {
             )),
         }
     }
+}
+
+fn validate_git_revision(revision: &str, name: &str) -> io::Result<()> {
+    if revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Git revision for dependency `{name}` must be a full hexadecimal commit"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_git_ref(value: &str, kind: &str, name: &str) -> io::Result<()> {
+    if value.is_empty()
+        || value.len() > 1024
+        || value.bytes().any(|byte| byte < 0x20 || byte == 0x7f)
+        || value.contains(['\\', ':', '?', '*', '[', '^'])
+        || value.contains("..")
+        || value.contains("@{")
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value.ends_with('.')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid Git {kind} selector for dependency `{name}`"),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_dependency_name(name: &str) -> io::Result<()> {
@@ -3227,6 +3265,29 @@ mod tests {
         )
         .unwrap();
         assert!(PackageManifest::read(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_rejects_malformed_git_revision_and_refs() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-git-manifest-invalid-selectors-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        for declaration in [
+            "dep = { git = \"https://example.test/dep.git\", rev = \"abc\" }",
+            "dep = { git = \"https://example.test/dep.git\", branch = \"../main\" }",
+            "dep = { git = \"https://example.test/dep.git\", tag = \"release@{1}\" }",
+            "dep = { git = \"https://example.test/dep.git\", branch = \"main\\\\next\" }",
+        ] {
+            std::fs::write(
+                root.join("nia.toml"),
+                format!("[package]\nname = \"root\"\n[dependencies]\n{declaration}\n"),
+            )
+            .unwrap();
+            assert!(PackageManifest::read(&root).is_err(), "{declaration}");
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
