@@ -9,4 +9,5 @@ license.workspace = true
 flate2.workspace = true
 sha1.workspace = true
 rustls.workspace = true
+ring.workspace = true
 webpki-roots.workspace = true

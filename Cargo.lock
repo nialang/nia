@@ -903,6 +903,7 @@ name = "nia-git"
 version = "0.3.0-dev"
 dependencies = [
  "flate2",
+ "ring",
  "rustls",
  "sha1",
  "webpki-roots",

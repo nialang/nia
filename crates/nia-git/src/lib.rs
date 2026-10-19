@@ -223,6 +223,7 @@ mod ssh {
         MAX_SSH_IDENTIFICATION_LINE, MAX_SSH_PACKET_BYTES, MAX_SSH_PRE_IDENTIFICATION_LINES, Read,
         Write, invalid_packet, io,
     };
+    use ring::{agreement, digest, rand};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct SshUrl {
@@ -513,6 +514,121 @@ mod ssh {
             )?
             .to_string(),
         })
+    }
+
+    /// Client side `curve25519-sha256` exchange state.
+    ///
+    /// The private key is kept inside ring's opaque type until the peer key is
+    /// validated and the one-shot agreement consumes it. This prevents callers
+    /// from accidentally reusing an ephemeral key across sessions.
+    pub(super) struct Curve25519ClientKex {
+        private: Option<agreement::EphemeralPrivateKey>,
+        client_public: [u8; 32],
+    }
+
+    impl std::fmt::Debug for Curve25519ClientKex {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter
+                .debug_struct("Curve25519ClientKex")
+                .field("private", &"<hidden>")
+                .field("client_public", &self.client_public)
+                .finish()
+        }
+    }
+
+    impl Curve25519ClientKex {
+        pub(super) fn generate() -> io::Result<Self> {
+            let rng = rand::SystemRandom::new();
+            let private = agreement::EphemeralPrivateKey::generate(&agreement::X25519, &rng)
+                .map_err(|_| io::Error::other("SSH X25519 key generation failed"))?;
+            let public = private
+                .compute_public_key()
+                .map_err(|_| io::Error::other("SSH X25519 public key generation failed"))?;
+            let client_public = public
+                .as_ref()
+                .try_into()
+                .map_err(|_| invalid_packet("SSH X25519 public key has invalid length"))?;
+            Ok(Self {
+                private: Some(private),
+                client_public,
+            })
+        }
+
+        pub(super) fn client_public(&self) -> &[u8; 32] {
+            &self.client_public
+        }
+
+        pub(super) fn complete(mut self, server_public: &[u8]) -> io::Result<Vec<u8>> {
+            if server_public.len() != 32 {
+                return Err(invalid_packet("SSH X25519 server key has invalid length"));
+            }
+            let private = self
+                .private
+                .take()
+                .ok_or_else(|| invalid_packet("SSH X25519 exchange was already completed"))?;
+            let peer = agreement::UnparsedPublicKey::new(&agreement::X25519, server_public);
+            agreement::agree_ephemeral(private, &peer, |shared| shared.to_vec())
+                .map_err(|_| invalid_packet("SSH X25519 server key is invalid"))
+        }
+    }
+
+    pub(super) struct Curve25519ExchangeHashInput<'a> {
+        pub(super) client_identification: &'a [u8],
+        pub(super) server_identification: &'a [u8],
+        pub(super) client_kexinit: &'a [u8],
+        pub(super) server_kexinit: &'a [u8],
+        pub(super) server_host_key: &'a [u8],
+        pub(super) client_public: &'a [u8; 32],
+        pub(super) server_public: &'a [u8],
+        pub(super) shared_secret: &'a [u8],
+    }
+
+    /// Compute the RFC 4253 exchange hash for `curve25519-sha256`.
+    pub(super) fn curve25519_exchange_hash(
+        input: Curve25519ExchangeHashInput<'_>,
+    ) -> io::Result<[u8; 32]> {
+        if input.server_public.len() != 32 || input.shared_secret.len() != 32 {
+            return Err(invalid_packet(
+                "SSH X25519 exchange value has invalid length",
+            ));
+        }
+        let mut encoded = Vec::new();
+        for value in [
+            input.client_identification,
+            input.server_identification,
+            input.client_kexinit,
+            input.server_kexinit,
+            input.server_host_key,
+            input.client_public.as_slice(),
+            input.server_public,
+        ] {
+            encode_ssh_string(value, &mut encoded)?;
+        }
+        encode_ssh_mpint(input.shared_secret, &mut encoded)?;
+        let digest = digest::digest(&digest::SHA256, &encoded);
+        Ok(digest
+            .as_ref()
+            .try_into()
+            .expect("SHA-256 digests are 32 bytes"))
+    }
+
+    fn encode_ssh_string(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
+        let length = u32::try_from(value.len())
+            .map_err(|_| invalid_packet("SSH string exceeds uint32 length"))?;
+        output.extend_from_slice(&length.to_be_bytes());
+        output.extend_from_slice(value);
+        Ok(())
+    }
+
+    fn encode_ssh_mpint(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
+        let first = value.iter().position(|byte| *byte != 0);
+        let value = first.map_or(&[][..], |index| &value[index..]);
+        let mut encoded = Vec::with_capacity(value.len() + 1);
+        if value.first().is_some_and(|byte| *byte & 0x80 != 0) {
+            encoded.push(0);
+        }
+        encoded.extend_from_slice(value);
+        encode_ssh_string(&encoded, output)
     }
 
     struct SshReader<'a> {
@@ -1764,6 +1880,65 @@ mod tests {
         let mut trailing = payload;
         trailing.push(0);
         assert!(parse_ssh_kexinit(&trailing).is_err());
+    }
+
+    #[test]
+    fn ssh_curve25519_exchange_agrees_and_rejects_low_order_points() {
+        let client = Curve25519ClientKex::generate().unwrap();
+        let server = Curve25519ClientKex::generate().unwrap();
+        let client_public = *client.client_public();
+        let server_public = *server.client_public();
+        let client_shared = client.complete(&server_public).unwrap();
+        let server_shared = server.complete(&client_public).unwrap();
+        assert_eq!(client_shared, server_shared);
+        assert_eq!(client_shared.len(), 32);
+
+        let invalid = Curve25519ClientKex::generate().unwrap();
+        assert!(invalid.complete(&[0; 32]).is_err());
+        let invalid = Curve25519ClientKex::generate().unwrap();
+        assert!(invalid.complete(&[1; 31]).is_err());
+    }
+
+    #[test]
+    fn ssh_curve25519_exchange_hash_is_length_checked_and_ordered() {
+        let public = [7u8; 32];
+        let shared = [9u8; 32];
+        let first = curve25519_exchange_hash(Curve25519ExchangeHashInput {
+            client_identification: b"SSH-2.0-client",
+            server_identification: b"SSH-2.0-server",
+            client_kexinit: b"client-kex",
+            server_kexinit: b"server-kex",
+            server_host_key: b"host-key",
+            client_public: &public,
+            server_public: &public,
+            shared_secret: &shared,
+        })
+        .unwrap();
+        let second = curve25519_exchange_hash(Curve25519ExchangeHashInput {
+            client_identification: b"SSH-2.0-server",
+            server_identification: b"SSH-2.0-client",
+            client_kexinit: b"client-kex",
+            server_kexinit: b"server-kex",
+            server_host_key: b"host-key",
+            client_public: &public,
+            server_public: &public,
+            shared_secret: &shared,
+        })
+        .unwrap();
+        assert_ne!(first, second);
+        assert!(
+            curve25519_exchange_hash(Curve25519ExchangeHashInput {
+                client_identification: b"client",
+                server_identification: b"server",
+                client_kexinit: b"client-kex",
+                server_kexinit: b"server-kex",
+                server_host_key: b"host-key",
+                client_public: &public,
+                server_public: &[0; 31],
+                shared_secret: &shared,
+            })
+            .is_err()
+        );
     }
 
     #[test]
