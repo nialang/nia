@@ -1247,8 +1247,8 @@ mod ssh {
     }
 
     pub(super) struct SshEd25519Identity {
-        public_key: Vec<u8>,
-        private_key: signature::Ed25519KeyPair,
+        pub(super) public_key: Vec<u8>,
+        pub(super) private_key: signature::Ed25519KeyPair,
     }
 
     impl std::fmt::Debug for SshEd25519Identity {
@@ -2931,6 +2931,15 @@ mod tests {
             output.extend_from_slice(value);
         }
 
+        fn take_string<'a>(bytes: &'a [u8], offset: &mut usize) -> &'a [u8] {
+            let length =
+                u32::from_be_bytes(bytes[*offset..*offset + 4].try_into().unwrap()) as usize;
+            *offset += 4;
+            let value = &bytes[*offset..*offset + length];
+            *offset += length;
+            value
+        }
+
         fn base64(input: &[u8]) -> String {
             const TABLE: &[u8; 64] =
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -3016,10 +3025,52 @@ mod tests {
             let derive = |letter, length| {
                 derive_ssh_key(&shared_secret, &exchange_hash, &session_id, letter, length).unwrap()
             };
+            let mut inbound =
+                SshAes128CtrDirection::new(&derive(b'C', 16), &derive(b'A', 16), &derive(b'E', 32))
+                    .unwrap();
             let mut outbound =
                 SshAes128CtrDirection::new(&derive(b'D', 16), &derive(b'B', 16), &derive(b'F', 32))
                     .unwrap();
-            let wire = outbound.encode(&[2, 1], &[42; 9]).unwrap();
+
+            let service_request = inbound.read_packet(&mut stream).unwrap().payload;
+            assert_eq!(service_request[0], 5);
+            let mut offset = 1;
+            assert_eq!(take_string(&service_request, &mut offset), b"ssh-userauth");
+            let mut service_accept = vec![6];
+            put_string(b"ssh-userauth", &mut service_accept);
+            let wire = outbound.encode(&service_accept, &[42; 10]).unwrap();
+            stream.write_all(&wire).unwrap();
+
+            let auth_request = inbound.read_packet(&mut stream).unwrap().payload;
+            assert_eq!(auth_request[0], 50);
+            let mut offset = 1;
+            assert_eq!(take_string(&auth_request, &mut offset), b"git");
+            assert_eq!(take_string(&auth_request, &mut offset), b"ssh-connection");
+            assert_eq!(take_string(&auth_request, &mut offset), b"publickey");
+            assert_eq!(auth_request[offset], 1);
+            offset += 1;
+            assert_eq!(take_string(&auth_request, &mut offset), b"ssh-ed25519");
+            let public_key_blob = take_string(&auth_request, &mut offset);
+            let signature_field_offset = offset;
+            let signature_blob = take_string(&auth_request, &mut offset);
+            assert_eq!(offset, auth_request.len());
+            let mut sig_offset = 0;
+            assert_eq!(take_string(signature_blob, &mut sig_offset), b"ssh-ed25519");
+            let signature = take_string(signature_blob, &mut sig_offset);
+            let mut signed = Vec::new();
+            put_string(&session_id, &mut signed);
+            signed.extend_from_slice(&auth_request[..signature_field_offset]);
+            let mut key_offset = 0;
+            assert_eq!(
+                take_string(public_key_blob, &mut key_offset),
+                b"ssh-ed25519"
+            );
+            let public_key = take_string(public_key_blob, &mut key_offset);
+            assert_eq!(key_offset, public_key_blob.len());
+            ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
+                .verify(&signed, signature)
+                .unwrap();
+            let wire = outbound.encode(&[52], &[43; 10]).unwrap();
             stream.write_all(&wire).unwrap();
             client_proposals
         });
@@ -3056,11 +3107,18 @@ mod tests {
             path: "/repo.git".to_string(),
         };
         let mut keys = perform_ssh_key_exchange(&mut stream, &url, &known_hosts).unwrap();
-        assert_eq!(
-            keys.inbound.read_packet(&mut stream).unwrap().payload,
-            [2, 1]
-        );
-        assert_eq!(keys.outbound.sequence(), 0);
+        let auth_key_pair =
+            ring::signature::Ed25519KeyPair::from_seed_unchecked(&[37; 32]).unwrap();
+        let mut auth_public_blob = Vec::new();
+        put_string(b"ssh-ed25519", &mut auth_public_blob);
+        put_string(auth_key_pair.public_key().as_ref(), &mut auth_public_blob);
+        let identity = SshEd25519Identity {
+            public_key: auth_public_blob,
+            private_key: auth_key_pair,
+        };
+        authenticate_publickey(&mut stream, &mut keys, "git", &identity).unwrap();
+        assert_eq!(keys.inbound.sequence(), 2);
+        assert_eq!(keys.outbound.sequence(), 2);
         assert!(
             server
                 .join()
