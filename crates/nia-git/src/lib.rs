@@ -223,7 +223,7 @@ mod ssh {
         MAX_SSH_IDENTIFICATION_LINE, MAX_SSH_PACKET_BYTES, MAX_SSH_PRE_IDENTIFICATION_LINES, Read,
         Write, invalid_packet, io,
     };
-    use ring::{agreement, digest, rand, signature};
+    use ring::{agreement, digest, hmac, rand, signature};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct SshUrl {
@@ -662,6 +662,199 @@ mod ssh {
         signature::UnparsedPublicKey::new(&signature::ED25519, public_key)
             .verify(exchange_hash, signature)
             .map_err(|_| invalid_packet("SSH server host key signature is invalid"))
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) struct KnownHostEntry {
+        patterns: Vec<String>,
+        host_key: Vec<u8>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Default)]
+    pub(super) struct KnownHosts {
+        entries: Vec<KnownHostEntry>,
+    }
+
+    impl KnownHosts {
+        pub(super) fn parse(input: &[u8]) -> io::Result<Self> {
+            let text = std::str::from_utf8(input)
+                .map_err(|_| invalid_packet("SSH known_hosts is not UTF-8"))?;
+            let mut entries = Vec::new();
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let mut fields = line.split_whitespace();
+                let first = fields
+                    .next()
+                    .ok_or_else(|| invalid_packet("SSH known_hosts line is empty"))?;
+                let hosts = if first.starts_with('@') {
+                    return Err(invalid_packet("SSH known_hosts markers are unsupported"));
+                } else {
+                    first
+                };
+                let algorithm = fields
+                    .next()
+                    .ok_or_else(|| invalid_packet("SSH known_hosts line has no key type"))?;
+                let encoded_key = fields
+                    .next()
+                    .ok_or_else(|| invalid_packet("SSH known_hosts line has no key"))?;
+                if fields.next().is_some() && !line.contains(" ") && !line.contains('\t') {
+                    return Err(invalid_packet("SSH known_hosts line is malformed"));
+                }
+                let host_key = decode_base64(encoded_key)?;
+                let mut key_blob = Vec::new();
+                encode_ssh_string(algorithm.as_bytes(), &mut key_blob)?;
+                encode_ssh_string(&host_key, &mut key_blob)?;
+                if host_key.is_empty() {
+                    return Err(invalid_packet("SSH known_hosts key is empty"));
+                }
+                let patterns = hosts
+                    .split(',')
+                    .filter(|pattern| !pattern.is_empty())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                if patterns.is_empty() {
+                    return Err(invalid_packet("SSH known_hosts host pattern is empty"));
+                }
+                entries.push(KnownHostEntry {
+                    patterns,
+                    host_key: key_blob,
+                });
+            }
+            Ok(Self { entries })
+        }
+
+        pub(super) fn verify(&self, host: &str, port: u16, host_key: &[u8]) -> io::Result<()> {
+            let host_port = if port == 22 {
+                host.to_owned()
+            } else {
+                format!("[{host}]:{port}")
+            };
+            let mut matched = false;
+            for entry in &self.entries {
+                if !entry
+                    .patterns
+                    .iter()
+                    .filter(|pattern| !pattern.starts_with('!'))
+                    .any(|pattern| known_host_pattern_matches(pattern, &host_port, host, port))
+                {
+                    continue;
+                }
+                if entry.patterns.iter().any(|pattern| {
+                    pattern.starts_with('!')
+                        && known_host_pattern_matches(pattern, &host_port, host, port)
+                }) {
+                    continue;
+                }
+                matched = true;
+                if entry.host_key == host_key {
+                    return Ok(());
+                }
+            }
+            if matched {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "SSH host key does not match known_hosts",
+                ))
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "SSH host is not present in known_hosts",
+                ))
+            }
+        }
+    }
+
+    fn known_host_pattern_matches(pattern: &str, host_port: &str, host: &str, port: u16) -> bool {
+        let pattern = pattern.strip_prefix('!').unwrap_or(pattern);
+        if pattern.starts_with("|1|") {
+            return hashed_known_host_matches(pattern, host_port)
+                || (port == 22 && hashed_known_host_matches(pattern, host));
+        }
+        let candidate = if pattern.starts_with('[') {
+            host_port
+        } else {
+            host
+        };
+        glob_match(pattern.as_bytes(), candidate.as_bytes())
+    }
+
+    fn hashed_known_host_matches(pattern: &str, candidate: &str) -> bool {
+        let mut fields = pattern.split('|');
+        let _ = fields.next();
+        let version = fields.next();
+        let salt = fields.next().and_then(|value| decode_base64(value).ok());
+        let digest = fields.next().and_then(|value| decode_base64(value).ok());
+        let (Some("1"), Some(salt), Some(expected)) = (version, salt, digest) else {
+            return false;
+        };
+        let key = hmac::Key::new(hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, &salt);
+        hmac::verify(&key, candidate.as_bytes(), &expected).is_ok()
+    }
+
+    fn glob_match(pattern: &[u8], candidate: &[u8]) -> bool {
+        let mut states = vec![(0usize, 0usize)];
+        while let Some((pattern_index, candidate_index)) = states.pop() {
+            if pattern_index == pattern.len() {
+                if candidate_index == candidate.len() {
+                    return true;
+                }
+                continue;
+            }
+            match pattern[pattern_index] {
+                b'*' => {
+                    states.push((pattern_index + 1, candidate_index));
+                    if candidate_index < candidate.len() {
+                        states.push((pattern_index, candidate_index + 1));
+                    }
+                }
+                b'?' if candidate_index < candidate.len() => {
+                    states.push((pattern_index + 1, candidate_index + 1));
+                }
+                byte if candidate_index < candidate.len()
+                    && byte.eq_ignore_ascii_case(&candidate[candidate_index]) =>
+                {
+                    states.push((pattern_index + 1, candidate_index + 1));
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn decode_base64(input: &str) -> io::Result<Vec<u8>> {
+        if input.is_empty() || input.len() % 4 == 1 {
+            return Err(invalid_packet("SSH known_hosts base64 is malformed"));
+        }
+        let mut output = Vec::with_capacity(input.len() * 3 / 4);
+        let mut buffer = 0u32;
+        let mut bits = 0u8;
+        for byte in input.bytes() {
+            if byte == b'=' {
+                break;
+            }
+            let value = match byte {
+                b'A'..=b'Z' => byte - b'A',
+                b'a'..=b'z' => byte - b'a' + 26,
+                b'0'..=b'9' => byte - b'0' + 52,
+                b'+' => 62,
+                b'/' => 63,
+                _ => return Err(invalid_packet("SSH known_hosts base64 is malformed")),
+            };
+            buffer = (buffer << 6) | u32::from(value);
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                output.push((buffer >> bits) as u8);
+                buffer &= (1 << bits) - 1;
+            }
+        }
+        if bits >= 6 || (bits > 0 && buffer != 0) {
+            return Err(invalid_packet("SSH known_hosts base64 has invalid padding"));
+        }
+        Ok(output)
     }
 
     fn encode_ssh_string(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
@@ -1992,6 +2185,67 @@ mod tests {
         put_string(b"ssh-ed25519", &mut signature);
         put_string(&[2u8; 64], &mut signature);
         assert!(verify_ssh_ed25519_host_key(&host_key, &signature, &[0; 32]).is_err());
+    }
+
+    #[test]
+    fn ssh_known_hosts_matches_plain_and_negated_patterns() {
+        fn base64(input: &[u8]) -> String {
+            const TABLE: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut output = String::new();
+            for chunk in input.chunks(3) {
+                let first = chunk[0];
+                output.push(TABLE[(first >> 2) as usize] as char);
+                let second = chunk.get(1).copied();
+                output.push(
+                    TABLE[((first & 3) << 4 | second.map_or(0, |byte| byte >> 4)) as usize] as char,
+                );
+                if let Some(second) = second {
+                    let third = chunk.get(2).copied();
+                    output.push(
+                        TABLE[((second & 15) << 2 | third.map_or(0, |byte| byte >> 6)) as usize]
+                            as char,
+                    );
+                    output.push(third.map_or('=', |byte| TABLE[(byte & 63) as usize] as char));
+                } else {
+                    output.push_str("==");
+                }
+            }
+            output
+        }
+
+        let public = [7u8; 32];
+        let line = format!(
+            "*.example.test,!bad.example.test ssh-ed25519 {}\n",
+            base64(&public)
+        );
+        let known_hosts = KnownHosts::parse(line.as_bytes()).unwrap();
+        let mut key_blob = Vec::new();
+        fn put_string(value: &[u8], output: &mut Vec<u8>) {
+            output.extend_from_slice(&(value.len() as u32).to_be_bytes());
+            output.extend_from_slice(value);
+        }
+        put_string(b"ssh-ed25519", &mut key_blob);
+        put_string(&public, &mut key_blob);
+        known_hosts
+            .verify("good.example.test", 22, &key_blob)
+            .unwrap();
+        assert_eq!(
+            known_hosts
+                .verify("bad.example.test", 22, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        let mut wrong = key_blob.clone();
+        *wrong.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            known_hosts
+                .verify("good.example.test", 22, &wrong)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
     }
 
     #[test]
