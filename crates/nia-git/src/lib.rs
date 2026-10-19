@@ -660,6 +660,126 @@ mod ssh {
         pub(super) session_id: [u8; 32],
     }
 
+    pub(super) fn build_publickey_auth_request(
+        username: &str,
+        session_id: &[u8; 32],
+        identity: &SshEd25519Identity,
+    ) -> io::Result<Vec<u8>> {
+        if username.is_empty() || username.len() > 256 || username.contains(['\0', '\r', '\n']) {
+            return Err(invalid_packet("SSH username is invalid"));
+        }
+        let mut signed = Vec::new();
+        encode_ssh_string(session_id, &mut signed)?;
+        signed.push(50);
+        encode_ssh_string(username.as_bytes(), &mut signed)?;
+        encode_ssh_string(b"ssh-connection", &mut signed)?;
+        encode_ssh_string(b"publickey", &mut signed)?;
+        signed.push(1);
+        encode_ssh_string(b"ssh-ed25519", &mut signed)?;
+        encode_ssh_string(identity.public_key_blob(), &mut signed)?;
+        let signature = identity.sign(&signed);
+
+        let mut signature_blob = Vec::new();
+        encode_ssh_string(b"ssh-ed25519", &mut signature_blob)?;
+        encode_ssh_string(signature.as_ref(), &mut signature_blob)?;
+        let mut request = vec![50];
+        encode_ssh_string(username.as_bytes(), &mut request)?;
+        encode_ssh_string(b"ssh-connection", &mut request)?;
+        encode_ssh_string(b"publickey", &mut request)?;
+        request.push(1);
+        encode_ssh_string(b"ssh-ed25519", &mut request)?;
+        encode_ssh_string(identity.public_key_blob(), &mut request)?;
+        encode_ssh_string(&signature_blob, &mut request)?;
+        Ok(request)
+    }
+
+    pub(super) fn authenticate_publickey(
+        stream: &mut (impl Read + Write),
+        keys: &mut SshTransportKeys,
+        username: &str,
+        identity: &SshEd25519Identity,
+    ) -> io::Result<()> {
+        let mut service_request = vec![5];
+        encode_ssh_string(b"ssh-userauth", &mut service_request)?;
+        write_encrypted_ssh_packet(stream, &mut keys.outbound, &service_request)?;
+        let service_accept = read_expected_encrypted_ssh_message(stream, &mut keys.inbound, 6)?;
+        let mut reader = SshReader::new(&service_accept[1..]);
+        if reader.string()? != b"ssh-userauth" {
+            return Err(invalid_packet("SSH server accepted the wrong service"));
+        }
+        reader.finish()?;
+
+        let request = build_publickey_auth_request(username, &keys.session_id, identity)?;
+        write_encrypted_ssh_packet(stream, &mut keys.outbound, &request)?;
+        match read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)? {
+            payload if payload.first() == Some(&52) => Ok(()),
+            payload if payload.first() == Some(&51) => {
+                let mut reader = SshReader::new(&payload[1..]);
+                let methods = String::from_utf8_lossy(reader.string()?).into_owned();
+                let partial = reader.boolean()?;
+                reader.finish()?;
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "SSH public-key authentication failed (methods: {methods}, partial: {partial})"
+                    ),
+                ))
+            }
+            _ => Err(invalid_packet(
+                "SSH server returned an unexpected authentication response",
+            )),
+        }
+    }
+
+    fn write_encrypted_ssh_packet(
+        stream: &mut impl Write,
+        direction: &mut SshAes128CtrDirection,
+        payload: &[u8],
+    ) -> io::Result<()> {
+        let mut padding_len = 16 - ((payload.len() + 5) % 16);
+        if padding_len < 4 {
+            padding_len += 16;
+        }
+        let mut padding = vec![0u8; padding_len];
+        rand::SystemRandom::new()
+            .fill(&mut padding)
+            .map_err(|_| io::Error::other("SSH packet padding generation failed"))?;
+        let packet = direction.encode(payload, &padding)?;
+        stream.write_all(&packet)?;
+        stream.flush()
+    }
+
+    fn read_expected_encrypted_ssh_message(
+        stream: &mut impl Read,
+        direction: &mut SshAes128CtrDirection,
+        expected: u8,
+    ) -> io::Result<Vec<u8>> {
+        loop {
+            let payload = read_expected_encrypted_ssh_message_any(stream, direction)?;
+            if payload.first() == Some(&expected) {
+                return Ok(payload);
+            }
+            if payload.first() == Some(&1) {
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "SSH server disconnected during authentication",
+                ));
+            }
+            if !matches!(payload.first(), Some(2 | 4)) {
+                return Err(invalid_packet(
+                    "SSH server sent an unexpected service message",
+                ));
+            }
+        }
+    }
+
+    fn read_expected_encrypted_ssh_message_any(
+        stream: &mut impl Read,
+        direction: &mut SshAes128CtrDirection,
+    ) -> io::Result<Vec<u8>> {
+        Ok(direction.read_packet(stream)?.payload)
+    }
+
     pub(super) fn perform_ssh_key_exchange(
         stream: &mut (impl Read + Write),
         url: &SshUrl,
@@ -2957,6 +3077,15 @@ mod tests {
             output.extend_from_slice(value);
         }
 
+        fn take_string<'a>(bytes: &'a [u8], offset: &mut usize) -> &'a [u8] {
+            let length =
+                u32::from_be_bytes(bytes[*offset..*offset + 4].try_into().unwrap()) as usize;
+            *offset += 4;
+            let value = &bytes[*offset..*offset + length];
+            *offset += length;
+            value
+        }
+
         fn base64(input: &[u8]) -> String {
             const TABLE: &[u8; 64] =
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -3016,6 +3145,34 @@ mod tests {
         let signature = identity.sign(b"signed test data");
         ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public)
             .verify(b"signed test data", signature.as_ref())
+            .unwrap();
+
+        let session_id = [29u8; 32];
+        let request = build_publickey_auth_request("git", &session_id, &identity).unwrap();
+        assert_eq!(request[0], 50);
+        let mut offset = 1;
+        assert_eq!(take_string(&request, &mut offset), b"git");
+        assert_eq!(take_string(&request, &mut offset), b"ssh-connection");
+        assert_eq!(take_string(&request, &mut offset), b"publickey");
+        assert_eq!(request[offset], 1);
+        offset += 1;
+        assert_eq!(take_string(&request, &mut offset), b"ssh-ed25519");
+        assert_eq!(take_string(&request, &mut offset), public_blob);
+        let signature_field_offset = offset;
+        let signature_blob = take_string(&request, &mut offset);
+        assert_eq!(offset, request.len());
+        let mut signature_blob_offset = 0;
+        assert_eq!(
+            take_string(signature_blob, &mut signature_blob_offset),
+            b"ssh-ed25519"
+        );
+        let auth_signature = take_string(signature_blob, &mut signature_blob_offset);
+        assert_eq!(signature_blob_offset, signature_blob.len());
+        let mut signed = Vec::new();
+        put_string(&session_id, &mut signed);
+        signed.extend_from_slice(&request[..signature_field_offset]);
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public)
+            .verify(&signed, auth_signature)
             .unwrap();
 
         private_block[4] ^= 1;
