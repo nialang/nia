@@ -13,3 +13,4 @@ ctr.workspace = true
 rustls.workspace = true
 ring.workspace = true
 webpki-roots.workspace = true
+zeroize.workspace = true
