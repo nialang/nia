@@ -210,8 +210,17 @@ pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::
 }
 
 fn checkout_ssh(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
-    let url = ssh::parse_ssh_url(source)?;
     let ssh_directory = ssh_directory()?;
+    checkout_ssh_with_config(source, revision, destination, &ssh_directory)
+}
+
+fn checkout_ssh_with_config(
+    source: &str,
+    revision: &str,
+    destination: &Path,
+    ssh_directory: &Path,
+) -> io::Result<String> {
+    let url = ssh::parse_ssh_url(source)?;
     let known_hosts_path = ssh_directory.join("known_hosts");
     let identity_path = ssh_directory.join("id_ed25519");
     let known_hosts =
@@ -1029,6 +1038,81 @@ mod ssh {
                 }
             }
         }
+
+        fn wait_for_remote_window(&mut self) -> io::Result<()> {
+            while self.remote_window == 0 {
+                let packet = self.inbound.read_packet(&mut *self.stream)?;
+                let Some(message) = packet.payload.first().copied() else {
+                    return Err(invalid_packet("SSH channel packet is empty"));
+                };
+                let mut reader = SshReader::new(&packet.payload[1..]);
+                match message {
+                    93 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet(
+                                "SSH window adjustment has the wrong recipient",
+                            ));
+                        }
+                        self.remote_window = self
+                            .remote_window
+                            .checked_add(reader.u32()?)
+                            .ok_or_else(|| invalid_packet("SSH remote channel window overflows"))?;
+                        reader.finish()?;
+                    }
+                    94 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet("SSH channel data has the wrong recipient"));
+                        }
+                        let data = reader.string()?;
+                        reader.finish()?;
+                        if data.is_empty() || data.len() > self.local_window as usize {
+                            return Err(invalid_packet("SSH channel data exceeds its window"));
+                        }
+                        self.local_window -= data.len() as u32;
+                        self.pending.extend_from_slice(data);
+                    }
+                    95 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet(
+                                "SSH extended channel data has the wrong recipient",
+                            ));
+                        }
+                        let _data_type = reader.u32()?;
+                        let data = reader.string()?;
+                        reader.finish()?;
+                        if data.len() > self.local_window as usize {
+                            return Err(invalid_packet("SSH extended data exceeds its window"));
+                        }
+                        self.local_window -= data.len() as u32;
+                        self.local_window += data.len() as u32;
+                        let mut adjust = vec![93];
+                        adjust.extend_from_slice(&self.remote_channel.to_be_bytes());
+                        adjust.extend_from_slice(&(data.len() as u32).to_be_bytes());
+                        write_encrypted_ssh_packet(self.stream, self.outbound, &adjust)?;
+                    }
+                    96 | 97 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet(
+                                "SSH channel closure has the wrong recipient",
+                            ));
+                        }
+                        self.eof = true;
+                        return Err(io::Error::new(
+                            io::ErrorKind::BrokenPipe,
+                            "SSH server closed the channel while awaiting window space",
+                        ));
+                    }
+                    98 => continue,
+                    2 | 4 => continue,
+                    _ => {
+                        return Err(invalid_packet(
+                            "SSH server sent an unexpected channel message",
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
     }
 
     impl<S: Read + Write> Read for SshExecChannel<'_, S> {
@@ -1040,10 +1124,12 @@ mod ssh {
                 self.pending.clear();
                 self.pending_offset = 0;
                 if self.eof {
+                    self.send_channel_close()?;
                     return Ok(0);
                 }
                 self.receive_data()?;
                 if self.eof && self.pending.is_empty() {
+                    self.send_channel_close()?;
                     return Ok(0);
                 }
             }
@@ -1077,10 +1163,7 @@ mod ssh {
                 ));
             }
             if self.remote_window == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "SSH server channel window is exhausted",
-                ));
+                self.wait_for_remote_window()?;
             }
             let amount = input
                 .len()
@@ -1096,6 +1179,12 @@ mod ssh {
 
         fn flush(&mut self) -> io::Result<()> {
             self.stream.flush()
+        }
+    }
+
+    impl<S: Read + Write> Drop for SshExecChannel<'_, S> {
+        fn drop(&mut self) {
+            let _ = self.send_channel_close();
         }
     }
 
@@ -3292,6 +3381,7 @@ mod tests {
     #[test]
     fn ssh_key_exchange_authenticates_and_opens_git_exec_channel() {
         use std::net::TcpListener;
+        use std::process::{Command, Stdio};
 
         fn put_string(value: &[u8], output: &mut Vec<u8>) {
             output.extend_from_slice(&(value.len() as u32).to_be_bytes());
@@ -3332,8 +3422,118 @@ mod tests {
             output
         }
 
+        fn openssh_private_key(seed: &[u8; 32]) -> Vec<u8> {
+            let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(seed).unwrap();
+            let mut public_blob = Vec::new();
+            put_string(b"ssh-ed25519", &mut public_blob);
+            put_string(key_pair.public_key().as_ref(), &mut public_blob);
+            let mut private_block = Vec::new();
+            private_block.extend_from_slice(&0x1122_3344u32.to_be_bytes());
+            private_block.extend_from_slice(&0x1122_3344u32.to_be_bytes());
+            put_string(b"ssh-ed25519", &mut private_block);
+            put_string(key_pair.public_key().as_ref(), &mut private_block);
+            let mut private = seed.to_vec();
+            private.extend_from_slice(key_pair.public_key().as_ref());
+            put_string(&private, &mut private_block);
+            put_string(b"test identity", &mut private_block);
+            let padding_len = 8 - (private_block.len() % 8);
+            private_block.extend((1..=padding_len).map(|byte| byte as u8));
+
+            let mut encoded = b"openssh-key-v1\0".to_vec();
+            put_string(b"none", &mut encoded);
+            put_string(b"none", &mut encoded);
+            put_string(b"", &mut encoded);
+            encoded.extend_from_slice(&1u32.to_be_bytes());
+            put_string(&public_blob, &mut encoded);
+            put_string(&private_block, &mut encoded);
+            format!(
+                "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----\n",
+                base64(&encoded)
+            )
+            .into_bytes()
+        }
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("nia-ssh-checkout-{nonce}"));
+        let repository = root.join("repository");
+        std::fs::create_dir_all(&repository).unwrap();
+        assert!(
+            Command::new("git")
+                .args(["init", "--quiet", "--initial-branch=main"])
+                .arg(&repository)
+                .status()
+                .unwrap()
+                .success()
+        );
+        for (key, value) in [
+            ("user.name", "Nia Test"),
+            ("user.email", "nia@example.test"),
+            ("core.autocrlf", "false"),
+        ] {
+            assert!(
+                Command::new("git")
+                    .args(["-C"])
+                    .arg(&repository)
+                    .args(["config", key, value])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        std::fs::write(repository.join("file.txt"), b"native SSH checkout\n").unwrap();
+        assert!(
+            Command::new("git")
+                .args(["-C"])
+                .arg(&repository)
+                .args(["add", "file.txt"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("git")
+                .args(["-C"])
+                .arg(&repository)
+                .args(["commit", "--quiet", "-m", "fixture"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let commit_output = Command::new("git")
+            .args(["-C"])
+            .arg(&repository)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(commit_output.status.success());
+        let commit_id = String::from_utf8(commit_output.stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        let mut pack_process = Command::new("git")
+            .args(["-C"])
+            .arg(&repository)
+            .args(["pack-objects", "--stdout", "--revs"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        pack_process
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{commit_id}\n").as_bytes())
+            .unwrap();
+        let pack_output = pack_process.wait_with_output().unwrap();
+        assert!(pack_output.status.success());
+        let pack = pack_output.stdout;
+
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        let server_commit_id = commit_id.clone();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             stream
@@ -3447,7 +3647,7 @@ mod tests {
             let mut confirmation = vec![91];
             confirmation.extend_from_slice(&client_channel.to_be_bytes());
             confirmation.extend_from_slice(&7u32.to_be_bytes());
-            confirmation.extend_from_slice(&2_097_152u32.to_be_bytes());
+            confirmation.extend_from_slice(&0u32.to_be_bytes());
             confirmation.extend_from_slice(&32_768u32.to_be_bytes());
             write_encrypted_ssh_packet(&mut stream, &mut outbound, &confirmation).unwrap();
 
@@ -3470,31 +3670,85 @@ mod tests {
             let mut success = vec![99];
             success.extend_from_slice(&client_channel.to_be_bytes());
             write_encrypted_ssh_packet(&mut stream, &mut outbound, &success).unwrap();
-            let eof = inbound.read_packet(&mut stream).unwrap().payload;
-            assert_eq!(eof, [96, 0, 0, 0, 7]);
 
-            let mut git_data = Vec::new();
-            encode_packet_line(b"hello from git\n", &mut git_data).unwrap();
-            git_data.extend_from_slice(b"0000");
+            let mut advertisement = Vec::new();
+            encode_packet_line(
+                format!("{server_commit_id} HEAD\0side-band-64k ofs-delta\n").as_bytes(),
+                &mut advertisement,
+            )
+            .unwrap();
+            advertisement.extend_from_slice(b"0000");
             let mut channel_data = vec![94];
             channel_data.extend_from_slice(&client_channel.to_be_bytes());
-            put_string(&git_data, &mut channel_data);
+            put_string(&advertisement, &mut channel_data);
             write_encrypted_ssh_packet(&mut stream, &mut outbound, &channel_data).unwrap();
+
+            let mut adjust = vec![93];
+            adjust.extend_from_slice(&client_channel.to_be_bytes());
+            adjust.extend_from_slice(&4096u32.to_be_bytes());
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &adjust).unwrap();
+            let mut client_git_request = Vec::new();
+            loop {
+                let packet = inbound.read_packet(&mut stream).unwrap().payload;
+                match packet.first().copied() {
+                    Some(93) => assert_eq!(packet.len(), 9),
+                    Some(94) => {
+                        let mut offset = 1;
+                        assert_eq!(
+                            u32::from_be_bytes(packet[offset..offset + 4].try_into().unwrap()),
+                            7
+                        );
+                        offset += 4;
+                        client_git_request.extend_from_slice(take_string(&packet, &mut offset));
+                        assert_eq!(offset, packet.len());
+                    }
+                    Some(96) => {
+                        assert_eq!(packet, [96, 0, 0, 0, 7]);
+                        break;
+                    }
+                    _ => panic!("unexpected SSH channel message: {packet:?}"),
+                }
+            }
+            let request_packets = decode_packet_lines(&client_git_request).unwrap();
+            assert!(request_packets.iter().any(|packet| matches!(packet, PacketLine::Data(data) if String::from_utf8_lossy(data).contains(&format!("want {server_commit_id}")))));
+            assert!(
+                request_packets
+                    .iter()
+                    .any(|packet| matches!(packet, PacketLine::Data(data) if data == b"done\n"))
+            );
+
+            let mut git_response = Vec::new();
+            for chunk in pack.chunks(60_000) {
+                let mut sideband = Vec::with_capacity(chunk.len() + 1);
+                sideband.push(1);
+                sideband.extend_from_slice(chunk);
+                encode_packet_line(&sideband, &mut git_response).unwrap();
+            }
+            git_response.extend_from_slice(b"0000");
+            for chunk in git_response.chunks(30_000) {
+                let mut channel_data = vec![94];
+                channel_data.extend_from_slice(&client_channel.to_be_bytes());
+                put_string(chunk, &mut channel_data);
+                write_encrypted_ssh_packet(&mut stream, &mut outbound, &channel_data).unwrap();
+            }
             let window_adjust = inbound.read_packet(&mut stream).unwrap().payload;
             assert_eq!(window_adjust[0], 93);
             let mut eof = vec![96];
             eof.extend_from_slice(&client_channel.to_be_bytes());
             write_encrypted_ssh_packet(&mut stream, &mut outbound, &eof).unwrap();
+            loop {
+                let close = inbound.read_packet(&mut stream).unwrap().payload;
+                if close[0] == 93 {
+                    continue;
+                }
+                assert_eq!(close, [97, 0, 0, 0, 7]);
+                break;
+            }
             client_proposals
         });
 
-        let mut stream = TcpStream::connect(address).unwrap();
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-            .unwrap();
-        stream
-            .set_write_timeout(Some(std::time::Duration::from_secs(5)))
-            .unwrap();
+        let ssh_config = root.join("ssh");
+        std::fs::create_dir_all(&ssh_config).unwrap();
         let mut host_key = Vec::new();
         put_string(b"ssh-ed25519", &mut host_key);
         put_string(
@@ -3504,46 +3758,41 @@ mod tests {
                 .as_ref(),
             &mut host_key,
         );
-        let known_hosts = KnownHosts::parse(
+        std::fs::write(
+            ssh_config.join("known_hosts"),
             format!(
-                "[localhost]:{} ssh-ed25519 {}\n",
+                "[127.0.0.1]:{} ssh-ed25519 {}\n",
                 address.port(),
                 base64(&host_key)
-            )
-            .as_bytes(),
+            ),
         )
         .unwrap();
-        let url = SshUrl {
-            user: "git".to_string(),
-            host: "localhost".to_string(),
-            port: address.port(),
-            path: "/repo.git".to_string(),
-        };
-        let mut keys = perform_ssh_key_exchange(&mut stream, &url, &known_hosts).unwrap();
-        let auth_key_pair =
-            ring::signature::Ed25519KeyPair::from_seed_unchecked(&[37; 32]).unwrap();
-        let mut auth_public_blob = Vec::new();
-        put_string(b"ssh-ed25519", &mut auth_public_blob);
-        put_string(auth_key_pair.public_key().as_ref(), &mut auth_public_blob);
-        let identity = SshEd25519Identity {
-            public_key: auth_public_blob,
-            private_key: auth_key_pair,
-        };
-        authenticate_publickey(&mut stream, &mut keys, "git", &identity).unwrap();
-        let mut channel = open_git_upload_pack(&mut stream, &mut keys, "/org/repo.git").unwrap();
-        channel.finish_writing().unwrap();
-        let mut git_data = Vec::new();
-        if let Err(error) = channel.read_to_end(&mut git_data) {
-            let server_result = server.join();
-            panic!("SSH exec channel read failed: {error}; server={server_result:?}");
+        std::fs::write(
+            ssh_config.join("id_ed25519"),
+            openssh_private_key(&[37; 32]),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                ssh_config.join("id_ed25519"),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
         }
-        let mut expected = Vec::new();
-        encode_packet_line(b"hello from git\n", &mut expected).unwrap();
-        expected.extend_from_slice(b"0000");
-        assert_eq!(git_data, expected);
-        drop(channel);
-        assert_eq!(keys.inbound.sequence(), 6);
-        assert_eq!(keys.outbound.sequence(), 6);
+        let destination = root.join("checkout");
+        let source = format!("ssh://git@127.0.0.1:{}/org/repo.git", address.port());
+        let checked_out = match checkout_ssh_with_config(&source, "HEAD", &destination, &ssh_config)
+        {
+            Ok(checked_out) => checked_out,
+            Err(error) => panic!("SSH checkout failed: {error}; server={:?}", server.join()),
+        };
+        assert_eq!(checked_out, commit_id);
+        assert_eq!(
+            std::fs::read(destination.join("file.txt")).unwrap(),
+            b"native SSH checkout\n"
+        );
         assert!(
             server
                 .join()
@@ -3551,6 +3800,7 @@ mod tests {
                 .kex_algorithms
                 .contains(&"curve25519-sha256".to_string())
         );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
