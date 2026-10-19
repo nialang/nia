@@ -11,6 +11,7 @@ use std::sync::Arc;
 use flate2::read::ZlibDecoder;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_types::ServerName};
 use sha1::{Digest, Sha1};
+use zeroize::Zeroizing;
 
 const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_HTTP_RESPONSE: usize = 128 * 1024 * 1024;
@@ -223,8 +224,8 @@ fn checkout_ssh_with_config(
     let url = ssh::parse_ssh_url(source)?;
     let known_hosts_path = ssh_directory.join("known_hosts");
     let identity_path = ssh_directory.join("id_ed25519");
-    let known_hosts =
-        ssh::KnownHosts::parse(&std::fs::read(&known_hosts_path).map_err(|error| {
+    let known_hosts = ssh::KnownHosts::parse(
+        &read_limited_file(&known_hosts_path, 16 * 1024 * 1024).map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
@@ -232,17 +233,20 @@ fn checkout_ssh_with_config(
                     known_hosts_path.display()
                 ),
             )
-        })?)?;
-    let identity_bytes = std::fs::read(&identity_path).map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!(
-                "could not read SSH identity at {}: {error}",
-                identity_path.display()
-            ),
-        )
-    })?;
+        })?,
+    )?;
     verify_ssh_identity_permissions(&identity_path)?;
+    let identity_bytes = Zeroizing::new(read_limited_file(&identity_path, 1024 * 1024).map_err(
+        |error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "could not read SSH identity at {}: {error}",
+                    identity_path.display()
+                ),
+            )
+        },
+    )?);
     let identity = ssh::SshEd25519Identity::parse_openssh(&identity_bytes)?;
 
     let address = (url.host.as_str(), url.port)
@@ -278,6 +282,25 @@ fn checkout_ssh_with_config(
     }
     let pack = parse_upload_pack_response(&response)?;
     write_pack_checkout(&pack, &commit, destination)
+}
+
+fn read_limited_file(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+    let file = std::fs::File::open(path)?;
+    if file.metadata()?.len() > limit {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("SSH configuration file at {} is too large", path.display()),
+        ));
+    }
+    let mut contents = Vec::new();
+    file.take(limit + 1).read_to_end(&mut contents)?;
+    if contents.len() as u64 > limit {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("SSH configuration file at {} is too large", path.display()),
+        ));
+    }
+    Ok(contents)
 }
 
 fn ssh_directory() -> io::Result<PathBuf> {
@@ -324,6 +347,10 @@ mod ssh {
     use aes::Aes128;
     use ctr::cipher::{KeyIvInit, StreamCipher};
     use ring::{agreement, digest, hmac, rand, rand::SecureRandom, signature, signature::KeyPair};
+    use zeroize::Zeroizing;
+
+    const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
+    const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct SshUrl {
@@ -353,8 +380,10 @@ mod ssh {
         if user.is_empty()
             || user.len() > 128
             || host.is_empty()
+            || host.len() > 255
             || host.contains(['/', '?', '#', '@', '\0', '\r', '\n'])
             || path.is_empty()
+            || path.len() > 4096
             || path.contains(['?', '#', '\0', '\r', '\n'])
             || user.contains(['/', ':', '@', '\0', '\r', '\n'])
         {
@@ -841,8 +870,8 @@ mod ssh {
         let mut open = vec![90];
         encode_ssh_string(b"session", &mut open)?;
         open.extend_from_slice(&local_channel.to_be_bytes());
-        open.extend_from_slice(&2_097_152u32.to_be_bytes());
-        open.extend_from_slice(&32_768u32.to_be_bytes());
+        open.extend_from_slice(&SSH_CHANNEL_WINDOW.to_be_bytes());
+        open.extend_from_slice(&(SSH_CHANNEL_MAX_PACKET as u32).to_be_bytes());
         write_encrypted_ssh_packet(stream, &mut keys.outbound, &open)?;
         let confirmation = read_expected_encrypted_ssh_message(stream, &mut keys.inbound, 91)?;
         let mut reader = SshReader::new(&confirmation[1..]);
@@ -896,7 +925,8 @@ mod ssh {
             remote_window,
             remote_max_packet: usize::try_from(remote_max_packet)
                 .map_err(|_| invalid_packet("SSH channel packet limit overflows usize"))?,
-            local_window: 2_097_152,
+            local_window: SSH_CHANNEL_WINDOW,
+            local_max_packet: SSH_CHANNEL_MAX_PACKET,
             pending: Vec::new(),
             pending_offset: 0,
             eof: false,
@@ -918,6 +948,7 @@ mod ssh {
         remote_window: u32,
         remote_max_packet: usize,
         local_window: u32,
+        local_max_packet: usize,
         pending: Vec<u8>,
         pending_offset: usize,
         eof: bool,
@@ -960,7 +991,10 @@ mod ssh {
                         }
                         let data = reader.string()?;
                         reader.finish()?;
-                        if data.is_empty() || data.len() > self.local_window as usize {
+                        if data.is_empty()
+                            || data.len() > self.local_window as usize
+                            || data.len() > self.local_max_packet
+                        {
                             return Err(invalid_packet("SSH channel data exceeds its window"));
                         }
                         self.local_window -= data.len() as u32;
@@ -977,7 +1011,9 @@ mod ssh {
                         let _data_type = reader.u32()?;
                         let data = reader.string()?;
                         reader.finish()?;
-                        if data.len() > self.local_window as usize {
+                        if data.len() > self.local_window as usize
+                            || data.len() > self.local_max_packet
+                        {
                             return Err(invalid_packet("SSH extended data exceeds its window"));
                         }
                         self.local_window -= data.len() as u32;
@@ -1065,7 +1101,10 @@ mod ssh {
                         }
                         let data = reader.string()?;
                         reader.finish()?;
-                        if data.is_empty() || data.len() > self.local_window as usize {
+                        if data.is_empty()
+                            || data.len() > self.local_window as usize
+                            || data.len() > self.local_max_packet
+                        {
                             return Err(invalid_packet("SSH channel data exceeds its window"));
                         }
                         self.local_window -= data.len() as u32;
@@ -1080,11 +1119,16 @@ mod ssh {
                         let _data_type = reader.u32()?;
                         let data = reader.string()?;
                         reader.finish()?;
-                        if data.len() > self.local_window as usize {
+                        if data.len() > self.local_window as usize
+                            || data.len() > self.local_max_packet
+                        {
                             return Err(invalid_packet("SSH extended data exceeds its window"));
                         }
                         self.local_window -= data.len() as u32;
-                        self.local_window += data.len() as u32;
+                        self.local_window = self
+                            .local_window
+                            .checked_add(data.len() as u32)
+                            .ok_or_else(|| invalid_packet("SSH channel window overflows"))?;
                         let mut adjust = vec![93];
                         adjust.extend_from_slice(&self.remote_channel.to_be_bytes());
                         adjust.extend_from_slice(&(data.len() as u32).to_be_bytes());
@@ -1276,7 +1320,7 @@ mod ssh {
         let client_public = *client_kex.client_public();
         write_plain_ssh_packet(&mut *stream, &build_client_kex_ecdh_init(&client_public))?;
         let reply = parse_ssh_kex_ecdh_reply(&read_expected_ssh_message(&mut *stream, 31)?)?;
-        let shared_secret = client_kex.complete(&reply.server_public)?;
+        let shared_secret = Zeroizing::new(client_kex.complete(&reply.server_public)?);
         let exchange_hash = curve25519_exchange_hash(Curve25519ExchangeHashInput {
             client_identification,
             server_identification: &server_identification,
@@ -1294,18 +1338,48 @@ mod ssh {
         let _ = read_expected_ssh_message(&mut *stream, 21)?;
 
         let session_id = exchange_hash;
-        let iv_client_to_server =
-            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'A', 16)?;
-        let iv_server_to_client =
-            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'B', 16)?;
-        let key_client_to_server =
-            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'C', 16)?;
-        let key_server_to_client =
-            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'D', 16)?;
-        let mac_client_to_server =
-            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'E', 32)?;
-        let mac_server_to_client =
-            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'F', 32)?;
+        let iv_client_to_server = Zeroizing::new(derive_ssh_key(
+            &shared_secret,
+            &exchange_hash,
+            &session_id,
+            b'A',
+            16,
+        )?);
+        let iv_server_to_client = Zeroizing::new(derive_ssh_key(
+            &shared_secret,
+            &exchange_hash,
+            &session_id,
+            b'B',
+            16,
+        )?);
+        let key_client_to_server = Zeroizing::new(derive_ssh_key(
+            &shared_secret,
+            &exchange_hash,
+            &session_id,
+            b'C',
+            16,
+        )?);
+        let key_server_to_client = Zeroizing::new(derive_ssh_key(
+            &shared_secret,
+            &exchange_hash,
+            &session_id,
+            b'D',
+            16,
+        )?);
+        let mac_client_to_server = Zeroizing::new(derive_ssh_key(
+            &shared_secret,
+            &exchange_hash,
+            &session_id,
+            b'E',
+            32,
+        )?);
+        let mac_server_to_client = Zeroizing::new(derive_ssh_key(
+            &shared_secret,
+            &exchange_hash,
+            &session_id,
+            b'F',
+            32,
+        )?);
         Ok(SshTransportKeys {
             outbound: SshAes128CtrDirection::new(
                 &key_client_to_server,
@@ -1435,7 +1509,7 @@ mod ssh {
                 "SSH X25519 exchange value has invalid length",
             ));
         }
-        let mut encoded = Vec::new();
+        let mut encoded = Zeroizing::new(Vec::new());
         for value in [
             input.client_identification,
             input.server_identification,
@@ -1511,6 +1585,7 @@ mod ssh {
     pub(super) struct KnownHostEntry {
         patterns: Vec<String>,
         host_key: Vec<u8>,
+        revoked: bool,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -1532,10 +1607,19 @@ mod ssh {
                 let first = fields
                     .next()
                     .ok_or_else(|| invalid_packet("SSH known_hosts line is empty"))?;
-                let hosts = if first.starts_with('@') {
-                    return Err(invalid_packet("SSH known_hosts markers are unsupported"));
+                let (revoked, hosts) = if first.starts_with('@') {
+                    match first {
+                        "@revoked" => (
+                            true,
+                            fields.next().ok_or_else(|| {
+                                invalid_packet("SSH revoked known_hosts line has no host")
+                            })?,
+                        ),
+                        "@cert-authority" => continue,
+                        _ => return Err(invalid_packet("SSH known_hosts marker is unsupported")),
+                    }
                 } else {
-                    first
+                    (false, first)
                 };
                 let algorithm = fields
                     .next()
@@ -1543,9 +1627,6 @@ mod ssh {
                 let encoded_key = fields
                     .next()
                     .ok_or_else(|| invalid_packet("SSH known_hosts line has no key"))?;
-                if fields.next().is_some() && !line.contains(" ") && !line.contains('\t') {
-                    return Err(invalid_packet("SSH known_hosts line is malformed"));
-                }
                 let key_blob = decode_base64(encoded_key)?;
                 let mut key_reader = SshReader::new(&key_blob);
                 if key_reader.string()? != algorithm.as_bytes() {
@@ -1567,6 +1648,7 @@ mod ssh {
                 entries.push(KnownHostEntry {
                     patterns,
                     host_key: key_blob,
+                    revoked,
                 });
             }
             Ok(Self { entries })
@@ -1579,6 +1661,7 @@ mod ssh {
                 format!("[{host}]:{port}")
             };
             let mut matched = false;
+            let mut trusted_key = false;
             for entry in &self.entries {
                 if !entry
                     .patterns
@@ -1596,10 +1679,18 @@ mod ssh {
                 }
                 matched = true;
                 if entry.host_key == host_key {
-                    return Ok(());
+                    if entry.revoked {
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "SSH host key is revoked",
+                        ));
+                    }
+                    trusted_key = true;
                 }
             }
-            if matched {
+            if trusted_key {
+                Ok(())
+            } else if matched {
                 Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "SSH host key does not match known_hosts",
@@ -1641,46 +1732,56 @@ mod ssh {
     }
 
     fn glob_match(pattern: &[u8], candidate: &[u8]) -> bool {
-        let mut states = vec![(0usize, 0usize)];
-        while let Some((pattern_index, candidate_index)) = states.pop() {
-            if pattern_index == pattern.len() {
-                if candidate_index == candidate.len() {
-                    return true;
-                }
-                continue;
-            }
-            match pattern[pattern_index] {
-                b'*' => {
-                    states.push((pattern_index + 1, candidate_index));
-                    if candidate_index < candidate.len() {
-                        states.push((pattern_index, candidate_index + 1));
-                    }
-                }
-                b'?' if candidate_index < candidate.len() => {
-                    states.push((pattern_index + 1, candidate_index + 1));
-                }
-                byte if candidate_index < candidate.len()
-                    && byte.eq_ignore_ascii_case(&candidate[candidate_index]) =>
-                {
-                    states.push((pattern_index + 1, candidate_index + 1));
-                }
-                _ => {}
+        let mut pattern_index = 0;
+        let mut candidate_index = 0;
+        let mut last_star = None;
+        let mut star_match = 0;
+        while candidate_index < candidate.len() {
+            if pattern.get(pattern_index).is_some_and(|byte| {
+                *byte == b'?' || byte.eq_ignore_ascii_case(&candidate[candidate_index])
+            }) {
+                pattern_index += 1;
+                candidate_index += 1;
+            } else if pattern.get(pattern_index) == Some(&b'*') {
+                last_star = Some(pattern_index);
+                pattern_index += 1;
+                star_match = candidate_index;
+            } else if let Some(star_index) = last_star {
+                star_match += 1;
+                candidate_index = star_match;
+                pattern_index = star_index + 1;
+            } else {
+                return false;
             }
         }
-        false
+        while pattern.get(pattern_index) == Some(&b'*') {
+            pattern_index += 1;
+        }
+        pattern_index == pattern.len()
     }
 
     fn decode_base64(input: &str) -> io::Result<Vec<u8>> {
-        if input.is_empty() || input.len() % 4 == 1 {
+        let padding_start = input.find('=').unwrap_or(input.len());
+        let data = &input[..padding_start];
+        let padding = &input[padding_start..];
+        let expected_padding = match data.len() % 4 {
+            0 => 0,
+            2 => 2,
+            3 => 1,
+            _ => return Err(invalid_packet("SSH known_hosts base64 is malformed")),
+        };
+        if data.is_empty()
+            || padding.len() > 2
+            || padding.bytes().any(|byte| byte != b'=')
+            || (!padding.is_empty()
+                && (!input.len().is_multiple_of(4) || padding.len() != expected_padding))
+        {
             return Err(invalid_packet("SSH known_hosts base64 is malformed"));
         }
-        let mut output = Vec::with_capacity(input.len() * 3 / 4);
+        let mut output = Vec::with_capacity(data.len() * 3 / 4);
         let mut buffer = 0u32;
         let mut bits = 0u8;
-        for byte in input.bytes() {
-            if byte == b'=' {
-                break;
-            }
+        for byte in data.bytes() {
             let value = match byte {
                 b'A'..=b'Z' => byte - b'A',
                 b'a'..=b'z' => byte - b'a' + 26,
@@ -1722,7 +1823,7 @@ mod ssh {
         pub(super) fn parse_openssh(input: &[u8]) -> io::Result<Self> {
             let text = std::str::from_utf8(input)
                 .map_err(|_| invalid_packet("SSH private key is not UTF-8"))?;
-            let mut encoded = String::new();
+            let mut encoded = Zeroizing::new(String::new());
             let mut inside = false;
             for line in text.lines() {
                 let line = line.trim();
@@ -1750,7 +1851,7 @@ mod ssh {
             if inside || encoded.is_empty() {
                 return Err(invalid_packet("SSH private key is incomplete"));
             }
-            let decoded = decode_base64(&encoded)?;
+            let decoded = Zeroizing::new(decode_base64(&encoded)?);
             let magic = b"openssh-key-v1\0";
             if !decoded.starts_with(magic) {
                 return Err(invalid_packet("SSH private key format is unsupported"));
@@ -1870,9 +1971,9 @@ mod ssh {
         if shared_secret.len() != 32 || length > 1024 * 1024 {
             return Err(invalid_packet("SSH key derivation input is invalid"));
         }
-        let mut encoded_secret = Vec::new();
+        let mut encoded_secret = Zeroizing::new(Vec::new());
         encode_ssh_mpint(shared_secret, &mut encoded_secret)?;
-        let mut output = Vec::with_capacity(length);
+        let mut output = Zeroizing::new(Vec::with_capacity(length));
         let mut first = true;
         while output.len() < length {
             let mut context = digest::Context::new(&digest::SHA256);
@@ -1888,7 +1989,7 @@ mod ssh {
             output.extend_from_slice(context.finish().as_ref());
         }
         output.truncate(length);
-        Ok(output)
+        Ok(output.to_vec())
     }
 
     struct SshReader<'a> {
@@ -3302,6 +3403,46 @@ mod tests {
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::PermissionDenied
+        );
+
+        let encoded_blob = base64(&key_blob);
+        let malformed = format!("host.example.test ssh-ed25519 {encoded_blob}x\n");
+        assert!(KnownHosts::parse(malformed.as_bytes()).is_err());
+
+        let pathological_pattern = format!("{}b", "*a".repeat(25));
+        let bounded_matcher = KnownHosts::parse(
+            format!("{pathological_pattern} ssh-ed25519 {encoded_blob}\n").as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(
+            bounded_matcher
+                .verify(&format!("{}c", "a".repeat(25)), 22, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+
+        let revoked = KnownHosts::parse(
+            format!("@revoked good.example.test ssh-ed25519 {encoded_blob}\n").as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(
+            revoked
+                .verify("good.example.test", 22, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        let ca_only = KnownHosts::parse(
+            format!("@cert-authority *.example.test ssh-ed25519 {encoded_blob}\n").as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(
+            ca_only
+                .verify("good.example.test", 22, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
         );
     }
 
