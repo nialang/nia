@@ -624,6 +624,35 @@ mod ssh {
         })
     }
 
+    pub(super) fn build_client_kexinit(cookie: &[u8; 16]) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(256);
+        payload.push(20);
+        payload.extend_from_slice(cookie);
+        for names in [
+            b"curve25519-sha256".as_slice(),
+            b"ssh-ed25519".as_slice(),
+            b"aes128-ctr".as_slice(),
+            b"aes128-ctr".as_slice(),
+            b"hmac-sha2-256".as_slice(),
+            b"hmac-sha2-256".as_slice(),
+            b"none".as_slice(),
+            b"none".as_slice(),
+            b"".as_slice(),
+            b"".as_slice(),
+        ] {
+            encode_ssh_string(names, &mut payload).expect("static SSH names fit uint32");
+        }
+        payload.push(0);
+        payload.extend_from_slice(&0u32.to_be_bytes());
+        payload
+    }
+
+    pub(super) fn build_client_kex_ecdh_init(client_public: &[u8; 32]) -> Vec<u8> {
+        let mut payload = vec![30];
+        encode_ssh_string(client_public, &mut payload).expect("X25519 key fits uint32");
+        payload
+    }
+
     /// Client side `curve25519-sha256` exchange state.
     ///
     /// The private key is kept inside ring's opaque type until the peer key is
@@ -2298,6 +2327,19 @@ mod tests {
         let mut trailing = payload;
         trailing.push(0);
         assert!(parse_ssh_kexinit(&trailing).is_err());
+
+        let generated = build_client_kexinit(&[42; 16]);
+        let parsed = parse_ssh_kexinit(&generated).unwrap();
+        assert_eq!(parsed.kex_algorithms, ["curve25519-sha256"]);
+        assert_eq!(parsed.host_key_algorithms, ["ssh-ed25519"]);
+        assert_eq!(parsed.encryption_client_to_server, ["aes128-ctr"]);
+        assert_eq!(parsed.mac_client_to_server, ["hmac-sha2-256"]);
+        assert_eq!(parsed.compression_client_to_server, ["none"]);
+
+        let init = build_client_kex_ecdh_init(&[17; 32]);
+        assert_eq!(init[0], 30);
+        assert_eq!(&init[1..5], &32u32.to_be_bytes());
+        assert_eq!(&init[5..], &[17; 32]);
     }
 
     #[test]
