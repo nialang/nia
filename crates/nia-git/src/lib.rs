@@ -731,7 +731,286 @@ mod ssh {
         }
     }
 
-    fn write_encrypted_ssh_packet(
+    pub(super) fn open_git_upload_pack<'a, S: Read + Write>(
+        stream: &'a mut S,
+        keys: &'a mut SshTransportKeys,
+        repository_path: &str,
+    ) -> io::Result<SshExecChannel<'a, S>> {
+        if repository_path.is_empty() || repository_path.contains(['\0', '\r', '\n']) {
+            return Err(invalid_packet("SSH Git repository path is invalid"));
+        }
+        let local_channel = 0u32;
+        let mut open = vec![90];
+        encode_ssh_string(b"session", &mut open)?;
+        open.extend_from_slice(&local_channel.to_be_bytes());
+        open.extend_from_slice(&2_097_152u32.to_be_bytes());
+        open.extend_from_slice(&32_768u32.to_be_bytes());
+        write_encrypted_ssh_packet(stream, &mut keys.outbound, &open)?;
+        let confirmation = read_expected_encrypted_ssh_message(stream, &mut keys.inbound, 91)?;
+        let mut reader = SshReader::new(&confirmation[1..]);
+        if reader.u32()? != local_channel {
+            return Err(invalid_packet(
+                "SSH channel confirmation has the wrong recipient",
+            ));
+        }
+        let remote_channel = reader.u32()?;
+        let remote_window = reader.u32()?;
+        let remote_max_packet = reader.u32()?;
+        reader.finish()?;
+        if remote_max_packet == 0 {
+            return Err(invalid_packet("SSH server channel packet limit is zero"));
+        }
+
+        let command = format!("git-upload-pack {}", shell_quote(repository_path));
+        let mut request = vec![98];
+        request.extend_from_slice(&remote_channel.to_be_bytes());
+        encode_ssh_string(b"exec", &mut request)?;
+        request.push(1);
+        encode_ssh_string(command.as_bytes(), &mut request)?;
+        write_encrypted_ssh_packet(stream, &mut keys.outbound, &request)?;
+        let response = read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)?;
+        match response.first().copied() {
+            Some(99) => {
+                let mut reader = SshReader::new(&response[1..]);
+                if reader.u32()? != local_channel {
+                    return Err(invalid_packet("SSH exec success has the wrong recipient"));
+                }
+                reader.finish()?;
+            }
+            Some(100) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "SSH server rejected the git-upload-pack command",
+                ));
+            }
+            _ => {
+                return Err(invalid_packet(
+                    "SSH server returned an unexpected exec response",
+                ));
+            }
+        }
+        Ok(SshExecChannel {
+            stream,
+            outbound: &mut keys.outbound,
+            inbound: &mut keys.inbound,
+            local_channel,
+            remote_channel,
+            remote_window,
+            remote_max_packet: usize::try_from(remote_max_packet)
+                .map_err(|_| invalid_packet("SSH channel packet limit overflows usize"))?,
+            local_window: 2_097_152,
+            pending: Vec::new(),
+            pending_offset: 0,
+            eof: false,
+            eof_sent: false,
+            close_sent: false,
+        })
+    }
+
+    fn shell_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+
+    pub(super) struct SshExecChannel<'a, S: Read + Write> {
+        stream: &'a mut S,
+        outbound: &'a mut SshAes128CtrDirection,
+        inbound: &'a mut SshAes128CtrDirection,
+        local_channel: u32,
+        remote_channel: u32,
+        remote_window: u32,
+        remote_max_packet: usize,
+        local_window: u32,
+        pending: Vec<u8>,
+        pending_offset: usize,
+        eof: bool,
+        eof_sent: bool,
+        close_sent: bool,
+    }
+
+    impl<S: Read + Write> SshExecChannel<'_, S> {
+        pub(super) fn finish_writing(&mut self) -> io::Result<()> {
+            if !self.eof_sent {
+                let mut payload = vec![96];
+                payload.extend_from_slice(&self.remote_channel.to_be_bytes());
+                write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
+                self.eof_sent = true;
+            }
+            Ok(())
+        }
+
+        fn send_channel_close(&mut self) -> io::Result<()> {
+            if !self.close_sent {
+                let mut payload = vec![97];
+                payload.extend_from_slice(&self.remote_channel.to_be_bytes());
+                write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
+                self.close_sent = true;
+            }
+            Ok(())
+        }
+
+        fn receive_data(&mut self) -> io::Result<()> {
+            loop {
+                let packet = self.inbound.read_packet(&mut *self.stream)?;
+                let Some(message) = packet.payload.first().copied() else {
+                    return Err(invalid_packet("SSH channel packet is empty"));
+                };
+                let mut reader = SshReader::new(&packet.payload[1..]);
+                match message {
+                    94 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet("SSH channel data has the wrong recipient"));
+                        }
+                        let data = reader.string()?;
+                        reader.finish()?;
+                        if data.is_empty() || data.len() > self.local_window as usize {
+                            return Err(invalid_packet("SSH channel data exceeds its window"));
+                        }
+                        self.local_window -= data.len() as u32;
+                        self.pending.extend_from_slice(data);
+                        self.pending_offset = 0;
+                        return Ok(());
+                    }
+                    95 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet(
+                                "SSH extended channel data has the wrong recipient",
+                            ));
+                        }
+                        let _data_type = reader.u32()?;
+                        let data = reader.string()?;
+                        reader.finish()?;
+                        if data.len() > self.local_window as usize {
+                            return Err(invalid_packet("SSH extended data exceeds its window"));
+                        }
+                        self.local_window -= data.len() as u32;
+                        self.local_window = self
+                            .local_window
+                            .checked_add(data.len() as u32)
+                            .ok_or_else(|| invalid_packet("SSH channel window overflows"))?;
+                        let mut adjust = vec![93];
+                        adjust.extend_from_slice(&self.remote_channel.to_be_bytes());
+                        adjust.extend_from_slice(&(data.len() as u32).to_be_bytes());
+                        write_encrypted_ssh_packet(self.stream, self.outbound, &adjust)?;
+                    }
+                    93 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet(
+                                "SSH window adjustment has the wrong recipient",
+                            ));
+                        }
+                        let adjustment = reader.u32()?;
+                        reader.finish()?;
+                        self.remote_window = self
+                            .remote_window
+                            .checked_add(adjustment)
+                            .ok_or_else(|| invalid_packet("SSH remote channel window overflows"))?;
+                    }
+                    96 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet("SSH channel EOF has the wrong recipient"));
+                        }
+                        reader.finish()?;
+                        self.eof = true;
+                        return Ok(());
+                    }
+                    97 => {
+                        if reader.u32()? != self.local_channel {
+                            return Err(invalid_packet(
+                                "SSH channel close has the wrong recipient",
+                            ));
+                        }
+                        reader.finish()?;
+                        self.eof = true;
+                        self.send_channel_close()?;
+                        return Ok(());
+                    }
+                    98 => continue,
+                    1 => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            "SSH server disconnected during Git transfer",
+                        ));
+                    }
+                    2 | 4 => continue,
+                    _ => {
+                        return Err(invalid_packet(
+                            "SSH server sent an unexpected channel message",
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    impl<S: Read + Write> Read for SshExecChannel<'_, S> {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            if output.is_empty() {
+                return Ok(0);
+            }
+            if self.pending_offset == self.pending.len() {
+                self.pending.clear();
+                self.pending_offset = 0;
+                if self.eof {
+                    return Ok(0);
+                }
+                self.receive_data()?;
+                if self.eof && self.pending.is_empty() {
+                    return Ok(0);
+                }
+            }
+            let amount = output.len().min(self.pending.len() - self.pending_offset);
+            output[..amount]
+                .copy_from_slice(&self.pending[self.pending_offset..self.pending_offset + amount]);
+            self.pending_offset += amount;
+            let adjustment = u32::try_from(amount)
+                .map_err(|_| invalid_packet("SSH channel read length overflows uint32"))?;
+            self.local_window = self
+                .local_window
+                .checked_add(adjustment)
+                .ok_or_else(|| invalid_packet("SSH local channel window overflows"))?;
+            let mut payload = vec![93];
+            payload.extend_from_slice(&self.remote_channel.to_be_bytes());
+            payload.extend_from_slice(&adjustment.to_be_bytes());
+            write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
+            Ok(amount)
+        }
+    }
+
+    impl<S: Read + Write> Write for SshExecChannel<'_, S> {
+        fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+            if input.is_empty() {
+                return Ok(0);
+            }
+            if self.eof_sent {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "SSH channel write side is closed",
+                ));
+            }
+            if self.remote_window == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "SSH server channel window is exhausted",
+                ));
+            }
+            let amount = input
+                .len()
+                .min(self.remote_max_packet)
+                .min(self.remote_window as usize);
+            let mut payload = vec![94];
+            payload.extend_from_slice(&self.remote_channel.to_be_bytes());
+            encode_ssh_string(&input[..amount], &mut payload)?;
+            write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
+            self.remote_window -= amount as u32;
+            Ok(amount)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.stream.flush()
+        }
+    }
+
+    pub(super) fn write_encrypted_ssh_packet(
         stream: &mut impl Write,
         direction: &mut SshAes128CtrDirection,
         payload: &[u8],
@@ -2923,7 +3202,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh_initial_key_exchange_verifies_host_and_switches_to_encryption() {
+    fn ssh_key_exchange_authenticates_and_opens_git_exec_channel() {
         use std::net::TcpListener;
 
         fn put_string(value: &[u8], output: &mut Vec<u8>) {
@@ -3038,8 +3317,7 @@ mod tests {
             assert_eq!(take_string(&service_request, &mut offset), b"ssh-userauth");
             let mut service_accept = vec![6];
             put_string(b"ssh-userauth", &mut service_accept);
-            let wire = outbound.encode(&service_accept, &[42; 10]).unwrap();
-            stream.write_all(&wire).unwrap();
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &service_accept).unwrap();
 
             let auth_request = inbound.read_packet(&mut stream).unwrap().payload;
             assert_eq!(auth_request[0], 50);
@@ -3070,8 +3348,55 @@ mod tests {
             ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
                 .verify(&signed, signature)
                 .unwrap();
-            let wire = outbound.encode(&[52], &[43; 10]).unwrap();
-            stream.write_all(&wire).unwrap();
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &[52]).unwrap();
+
+            let open = inbound.read_packet(&mut stream).unwrap().payload;
+            assert_eq!(open[0], 90);
+            let mut offset = 1;
+            assert_eq!(take_string(&open, &mut offset), b"session");
+            let client_channel = u32::from_be_bytes(open[offset..offset + 4].try_into().unwrap());
+            assert_eq!(client_channel, 0);
+            let mut confirmation = vec![91];
+            confirmation.extend_from_slice(&client_channel.to_be_bytes());
+            confirmation.extend_from_slice(&7u32.to_be_bytes());
+            confirmation.extend_from_slice(&2_097_152u32.to_be_bytes());
+            confirmation.extend_from_slice(&32_768u32.to_be_bytes());
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &confirmation).unwrap();
+
+            let exec = inbound.read_packet(&mut stream).unwrap().payload;
+            assert_eq!(exec[0], 98);
+            let mut offset = 1;
+            assert_eq!(
+                u32::from_be_bytes(exec[offset..offset + 4].try_into().unwrap()),
+                7
+            );
+            offset += 4;
+            assert_eq!(take_string(&exec, &mut offset), b"exec");
+            assert_eq!(exec[offset], 1);
+            offset += 1;
+            assert_eq!(
+                take_string(&exec, &mut offset),
+                b"git-upload-pack '/org/repo.git'"
+            );
+            assert_eq!(offset, exec.len());
+            let mut success = vec![99];
+            success.extend_from_slice(&client_channel.to_be_bytes());
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &success).unwrap();
+            let eof = inbound.read_packet(&mut stream).unwrap().payload;
+            assert_eq!(eof, [96, 0, 0, 0, 7]);
+
+            let mut git_data = Vec::new();
+            encode_packet_line(b"hello from git\n", &mut git_data).unwrap();
+            git_data.extend_from_slice(b"0000");
+            let mut channel_data = vec![94];
+            channel_data.extend_from_slice(&client_channel.to_be_bytes());
+            put_string(&git_data, &mut channel_data);
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &channel_data).unwrap();
+            let window_adjust = inbound.read_packet(&mut stream).unwrap().payload;
+            assert_eq!(window_adjust[0], 93);
+            let mut eof = vec![96];
+            eof.extend_from_slice(&client_channel.to_be_bytes());
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &eof).unwrap();
             client_proposals
         });
 
@@ -3117,8 +3442,20 @@ mod tests {
             private_key: auth_key_pair,
         };
         authenticate_publickey(&mut stream, &mut keys, "git", &identity).unwrap();
-        assert_eq!(keys.inbound.sequence(), 2);
-        assert_eq!(keys.outbound.sequence(), 2);
+        let mut channel = open_git_upload_pack(&mut stream, &mut keys, "/org/repo.git").unwrap();
+        channel.finish_writing().unwrap();
+        let mut git_data = Vec::new();
+        if let Err(error) = channel.read_to_end(&mut git_data) {
+            let server_result = server.join();
+            panic!("SSH exec channel read failed: {error}; server={server_result:?}");
+        }
+        let mut expected = Vec::new();
+        encode_packet_line(b"hello from git\n", &mut expected).unwrap();
+        expected.extend_from_slice(b"0000");
+        assert_eq!(git_data, expected);
+        drop(channel);
+        assert_eq!(keys.inbound.sequence(), 6);
+        assert_eq!(keys.outbound.sequence(), 6);
         assert!(
             server
                 .join()
