@@ -811,11 +811,14 @@ mod ssh {
                 if fields.next().is_some() && !line.contains(" ") && !line.contains('\t') {
                     return Err(invalid_packet("SSH known_hosts line is malformed"));
                 }
-                let host_key = decode_base64(encoded_key)?;
-                let mut key_blob = Vec::new();
-                encode_ssh_string(algorithm.as_bytes(), &mut key_blob)?;
-                encode_ssh_string(&host_key, &mut key_blob)?;
-                if host_key.is_empty() {
+                let key_blob = decode_base64(encoded_key)?;
+                let mut key_reader = SshReader::new(&key_blob);
+                if key_reader.string()? != algorithm.as_bytes() {
+                    return Err(invalid_packet(
+                        "SSH known_hosts key type does not match its blob",
+                    ));
+                }
+                if key_blob.is_empty() {
                     return Err(invalid_packet("SSH known_hosts key is empty"));
                 }
                 let patterns = hosts
@@ -2383,19 +2386,19 @@ mod tests {
             output
         }
 
-        let public = [7u8; 32];
-        let line = format!(
-            "*.example.test,!bad.example.test ssh-ed25519 {}\n",
-            base64(&public)
-        );
-        let known_hosts = KnownHosts::parse(line.as_bytes()).unwrap();
-        let mut key_blob = Vec::new();
         fn put_string(value: &[u8], output: &mut Vec<u8>) {
             output.extend_from_slice(&(value.len() as u32).to_be_bytes());
             output.extend_from_slice(value);
         }
+        let public = [7u8; 32];
+        let mut key_blob = Vec::new();
         put_string(b"ssh-ed25519", &mut key_blob);
         put_string(&public, &mut key_blob);
+        let line = format!(
+            "*.example.test,!bad.example.test ssh-ed25519 {}\n",
+            base64(&key_blob)
+        );
+        let known_hosts = KnownHosts::parse(line.as_bytes()).unwrap();
         known_hosts
             .verify("good.example.test", 22, &key_blob)
             .unwrap();
