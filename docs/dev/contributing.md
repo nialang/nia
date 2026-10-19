@@ -26,7 +26,7 @@ important boundary, never as a compatibility feature.
 Formal releases are minor baselines named `0.x.0`, published from a `vX.Y.0`
 tag that matches the `nia-cli` package version; the release workflow rejects
 other tag shapes. Between releases, `main` carries the next minor development
-version (for example `0.2.0-dev`) across ordinary commits. Patch releases are
+version (for example `0.3.0-dev`) across ordinary commits. Patch releases are
 reserved for important fixes to a released minor line and are maintained on a
 dedicated release branch. The build and cache protocol epoch follows the
 release line; see [Protocol identity](../../crates/nia-build/README.md#protocol-identity).

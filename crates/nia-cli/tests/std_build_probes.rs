@@ -191,8 +191,8 @@ fn command_and_tool_probes_reuse_and_invalidate_on_tool_change() {
         probe_tool_fixture(&root);
     std::fs::create_dir_all(root.join("src")).expect("create source directory");
     std::fs::write(
-        root.join("nia.package"),
-        "name=probe\nversion=0.1.0\nsource-root=src\nexclude=tools\n",
+        root.join("nia.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n[source]\nroots = [\"src\"]\nexclude = [\"tools\"]\n",
     )
     .expect("write package manifest");
     std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n")
@@ -287,8 +287,8 @@ fn git_state_probe_reuses_and_invalidates_when_repository_state_changes() {
     let root = temp_dir("build_git_state_probe");
     std::fs::create_dir_all(root.join("src")).expect("create source directory");
     std::fs::write(
-        root.join("nia.package"),
-        "name=probe\nversion=0.1.0\nsource-root=src\n",
+        root.join("nia.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n[source]\nroots = [\"src\"]\n",
     )
     .expect("write package manifest");
     std::fs::write(root.join(".gitignore"), ".nia-build\n.nia-cache\n").expect("write gitignore");
@@ -471,8 +471,8 @@ fn build_directory_probe_records_entry_size_and_invalidates_on_resize() {
     let root = temp_dir("build_directory_probe_records_entry_size");
     std::fs::create_dir(root.join("inputs")).expect("create observed directory");
     std::fs::write(
-        root.join("nia.package"),
-        "name=probe\nversion=0.1.0\nexclude=inputs\n",
+        root.join("nia.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n[source]\nexclude = [\"inputs\"]\n",
     )
     .expect("write package manifest");
     std::fs::write(
@@ -565,8 +565,8 @@ pub fn build(b: &mut build::Build) build::Error!() {
 fn build_file_presence_probe_invalidates_on_create_and_remove() {
     let root = temp_dir("build_file_presence_probe_invalidates");
     std::fs::write(
-        root.join("nia.package"),
-        "name=probe\nversion=0.1.0\nexclude=optional\n",
+        root.join("nia.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n[source]\nexclude = [\"optional\"]\n",
     )
     .expect("write package manifest");
     std::fs::write(

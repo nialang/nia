@@ -4,4 +4,6 @@
 **/.nia-build/
 /.nia-cache/
 **/.nia-cache/
+/.nia/
+**/.nia/
 /.claude/

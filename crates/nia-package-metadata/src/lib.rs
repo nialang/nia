@@ -6,10 +6,10 @@
 //! [`PackageSourceIdentity`] fingerprints only the declared package content:
 //! files are selected by [`PackageSourceSelection`], recorded by normalized
 //! relative path, and hashed with BLAKE3, so moving a checkout does not change
-//! the identity. Local manifests and their path dependencies resolve into a
-//! bounded [`LocalPackageGraph`] without loading source modules; a
-//! [`DependencyClass`] policy decides which declared edges are selected, and
-//! [`LocalPackageGraphReport`] explains those decisions.
+//! the identity. Package manifests and their dependencies resolve into a
+//! bounded [`PackageGraph`] without loading source modules; a
+//! [`DependencyScope`] policy decides which declared edges are selected, and
+//! [`PackageGraphReport`] explains those decisions.
 //!
 //! Stable module and definition identities, and the canonical
 //! [`StableTypeGraph`], are the session-independent forms that compiler-owned
@@ -18,14 +18,16 @@
 //! epoch.
 
 use std::{
-    collections::BTreeSet,
-    fs::File,
-    io::{self, Cursor, Read},
-    path::Path,
+    collections::{BTreeMap, BTreeSet},
+    fs::{self, File, OpenOptions},
+    io::{self, Cursor, Read, Write},
+    path::{Path, PathBuf},
 };
 
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
+use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
+use serde::{Deserialize, Serialize};
 
 /// Protocol epoch for stable compiler-owned metadata.
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
@@ -37,8 +39,8 @@ const MAX_SOURCE_FILES: usize = MAX_ITEMS;
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_MANIFEST_ENTRIES: usize = 1024;
 const MAX_DEFINITION_DEPTH: usize = 256;
-const PACKAGE_GRAPH_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.package.graph");
-const PACKAGE_SOURCE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.package.source");
+const PACKAGE_GRAPH_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.toml.graph");
+const PACKAGE_SOURCE_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.toml.source");
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP\0\0";
 const TYPE_GRAPH_SCHEMA: u32 = PROTOCOL_EPOCH;
 
@@ -118,42 +120,68 @@ pub struct PackageSourceSelection {
     pub excludes: Vec<String>,
 }
 
-/// Dependency class used by local package graph resolution.
+/// Dependency scope used by package resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DependencyClass {
-    BuildOnly,
+pub enum DependencyScope {
+    Build,
     Runtime,
-    TestOnly,
     Development,
-    Optional,
-    Lazy,
 }
 
-/// A local path dependency declared by a package manifest.
+/// Where a dependency is obtained from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPackageDependency {
+pub enum DependencySource {
+    Path(String),
+    Git {
+        url: String,
+        rev: Option<String>,
+        tag: Option<String>,
+        branch: Option<String>,
+    },
+}
+
+/// A package dependency and the compilation environment that can use it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageDependency {
     pub name: String,
-    pub path: String,
-    pub class: DependencyClass,
+    pub source: DependencySource,
+    pub scope: DependencyScope,
+}
+
+/// Dependency scope policy for constructing a package graph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PackageGraphOptions {
+    pub include_development: bool,
+}
+
+impl PackageGraphOptions {
+    fn includes(self, scope: DependencyScope) -> bool {
+        match scope {
+            DependencyScope::Build | DependencyScope::Runtime => true,
+            DependencyScope::Development => self.include_development,
+        }
+    }
 }
 
 /// Declarative local package manifest used to name and select package content.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPackageManifest {
+pub struct PackageManifest {
     /// Stable package namespace/name identity.
     pub package: PackageId,
     /// Exact compiler protocol epoch required by this package.
     pub protocol_epoch: Option<u32>,
+    /// Module file exported by this package, when it defines a library entry.
+    pub library_path: Option<String>,
     /// Source selection rules.
     pub source: PackageSourceSelection,
-    /// Local path dependencies.
-    pub dependencies: Vec<LocalPackageDependency>,
+    /// Dependencies selected for this package.
+    pub dependencies: Vec<PackageDependency>,
 }
 
 /// Resolves local path dependencies without loading their source modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPackageGraphNode {
-    pub manifest: LocalPackageManifest,
+pub struct PackageGraphNode {
+    pub manifest: PackageManifest,
     /// Stable dependency-qualified node name, not a filesystem path.
     pub root: String,
     pub source_fingerprint: [u8; 32],
@@ -161,84 +189,454 @@ pub struct LocalPackageGraphNode {
 
 /// A bounded package graph assembled from local manifests.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPackageGraph {
-    /// Dependency-class policy used to produce this graph.
-    pub options: LocalPackageGraphOptions,
-    pub nodes: Vec<LocalPackageGraphNode>,
+pub struct PackageGraph {
+    /// Dependency-scope policy used to produce this graph.
+    pub options: PackageGraphOptions,
+    pub nodes: Vec<PackageGraphNode>,
     /// Declared edges and their actual resolver-selected targets.
-    pub dependencies: Vec<LocalPackageDependencyReport>,
+    pub dependencies: Vec<PackageDependencyReport>,
 }
 
 /// A stable summary of package-graph selection decisions.
 ///
 /// The package graph is intentionally resolved without loading source
-/// modules. This report lets callers explain which dependency classes were
+/// modules. This report lets callers explain which dependency scopes were
 /// eligible and which package roots were actually selected.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPackageGraphReport {
-    /// Dependency classes enabled while resolving the graph.
-    pub options: LocalPackageGraphOptions,
+pub struct PackageGraphReport {
+    /// Dependency scopes enabled while resolving the graph.
+    pub options: PackageGraphOptions,
     /// Package nodes selected by the resolver, in canonical root order.
-    pub resolved: Vec<LocalPackageGraphNode>,
-    /// Declared dependencies from every resolved package, including classes
+    pub resolved: Vec<PackageGraphNode>,
+    /// Declared dependencies from every resolved package, including scopes
     /// that were not selected by `options`.
-    pub declared: Vec<LocalPackageDependencyReport>,
+    pub declared: Vec<PackageDependencyReport>,
 }
 
 /// One declared dependency and whether its target entered the selected graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalPackageDependencyReport {
+pub struct PackageDependencyReport {
     /// Package root that owns the declaration.
     pub owner_root: String,
     /// Original dependency declaration.
-    pub dependency: LocalPackageDependency,
+    pub dependency: PackageDependency,
     /// Canonical package root selected for this dependency, when resolved.
     pub resolved_root: Option<String>,
     /// Canonical checkout path when the declared target currently exists.
     ///
     /// This is invocation-local evidence used to match build-plan package
-    /// roots back to manifest dependency classes. It is not part of package
+    /// roots back to manifest dependency declarations. It is not part of package
     /// identity and may be present even when the dependency was filtered.
     pub source_root: Option<std::path::PathBuf>,
 }
 
-/// Selection policy for constructing a package graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct LocalPackageGraphOptions {
-    pub include_tests: bool,
-    pub include_optional: bool,
-    pub include_lazy: bool,
+/// Current on-disk lockfile schema.
+pub const LOCKFILE_VERSION: u32 = 1;
+const MAX_LOCKFILE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Reproducible package source selections recorded in `nia.lock`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackageLock {
+    pub version: u32,
+    #[serde(default)]
+    pub package: Vec<LockedPackage>,
 }
 
-impl LocalPackageGraphOptions {
-    fn includes(self, class: DependencyClass) -> bool {
-        match class {
-            DependencyClass::TestOnly => self.include_tests,
-            DependencyClass::Development => self.include_tests,
-            DependencyClass::Optional => self.include_optional,
-            DependencyClass::Lazy => self.include_lazy,
-            DependencyClass::BuildOnly | DependencyClass::Runtime => true,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LockedPackage {
+    pub name: String,
+    pub source: String,
+    pub selector: String,
+    pub rev: String,
+    pub content_hash: String,
+}
+
+impl Default for PackageLock {
+    fn default() -> Self {
+        Self {
+            version: LOCKFILE_VERSION,
+            package: Vec::new(),
         }
     }
 }
 
-impl LocalPackageGraph {
+impl PackageLock {
+    fn validate(&self, error_kind: io::ErrorKind) -> io::Result<()> {
+        if self.version != LOCKFILE_VERSION {
+            return Err(io::Error::new(
+                error_kind,
+                format!("unsupported nia.lock version {}", self.version),
+            ));
+        }
+        let mut identities = BTreeSet::new();
+        for package in &self.package {
+            validate_dependency_name(&package.name).map_err(|error| {
+                io::Error::new(
+                    error_kind,
+                    format!("invalid lockfile package name: {error}"),
+                )
+            })?;
+            if package.source.is_empty() || package.source.contains(['\r', '\n']) {
+                return Err(io::Error::new(error_kind, "lockfile source is invalid"));
+            }
+            if package.selector.is_empty() || package.selector.contains(['\r', '\n']) {
+                return Err(io::Error::new(error_kind, "lockfile selector is invalid"));
+            }
+            if package.rev.len() != 40 || !package.rev.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(io::Error::new(
+                    error_kind,
+                    "lockfile revision must be a full hexadecimal commit",
+                ));
+            }
+            if !package.content_hash.starts_with("blake3:") || package.content_hash.len() != 71 {
+                return Err(io::Error::new(
+                    error_kind,
+                    "lockfile content hash must be a blake3 digest",
+                ));
+            }
+            if !package.content_hash[7..]
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(io::Error::new(
+                    error_kind,
+                    "lockfile content hash must be hexadecimal",
+                ));
+            }
+            if !identities.insert((
+                package.name.as_str(),
+                package.source.as_str(),
+                package.selector.as_str(),
+            )) {
+                return Err(io::Error::new(
+                    error_kind,
+                    "lockfile contains duplicate package selectors",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Read a bounded, strict TOML lockfile. A missing lockfile is empty.
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let mut bytes = Vec::new();
+        match File::open(path) {
+            Ok(file) => file
+                .take((MAX_LOCKFILE_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) => return Err(error),
+        };
+        if bytes.len() > MAX_LOCKFILE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "package lockfile is too large",
+            ));
+        }
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let lock: Self = toml::from_str(text)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        lock.validate(io::ErrorKind::InvalidData)?;
+        Ok(lock)
+    }
+
+    /// Atomically replace a lockfile, creating its parent directory as needed.
+    pub fn write_atomic(&self, path: &Path) -> io::Result<()> {
+        self.validate(io::ErrorKind::InvalidInput)?;
+        let text = toml::to_string_pretty(self)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(parent)?;
+        let mut temporary = None;
+        for suffix in 0..32 {
+            let temp = parent.join(format!(".nia.lock.{}.{}.tmp", std::process::id(), suffix));
+            match OpenOptions::new().create_new(true).write(true).open(&temp) {
+                Ok(file) => {
+                    temporary = Some((temp, file));
+                    break;
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let (temp, mut file) = temporary.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "could not allocate lockfile temporary path",
+            )
+        })?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        if let Err(error) = fs::rename(&temp, path) {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                fs::remove_file(path)?;
+                fs::rename(&temp, path)?;
+            } else {
+                let _ = fs::remove_file(&temp);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Resolves supported Git dependencies into an immutable, project-local cache.
+///
+/// Resolves supported Git dependencies into an immutable, project-local cache.
+#[derive(Debug)]
+struct PackageFetcher {
+    cache_root: PathBuf,
+    lock_path: PathBuf,
+    lock: PackageLock,
+    dirty: bool,
+}
+
+impl PackageFetcher {
+    fn for_root(root: &Path) -> io::Result<Self> {
+        let lock_path = root.join("nia.lock");
+        Ok(Self {
+            cache_root: root.join(".nia/packages"),
+            lock: PackageLock::read(&lock_path)?,
+            lock_path,
+            dirty: false,
+        })
+    }
+
+    fn resolve(&mut self, owner: &Path, dependency: &PackageDependency) -> io::Result<PathBuf> {
+        match &dependency.source {
+            DependencySource::Path(path) => Ok(owner.join(path)),
+            DependencySource::Git {
+                url,
+                rev,
+                tag,
+                branch,
+            } => {
+                let source = canonical_git_source(url)?;
+                let requested = rev
+                    .clone()
+                    .or_else(|| tag.clone())
+                    .or_else(|| branch.clone());
+                let selector = if rev.is_some() {
+                    format!("rev:{}", rev.as_deref().unwrap_or_default())
+                } else if let Some(tag) = tag {
+                    format!("tag:{tag}")
+                } else if let Some(branch) = branch {
+                    format!("branch:{branch}")
+                } else {
+                    "head".to_string()
+                };
+                if let Some(entry) = self.lock.package.iter().find(|entry| {
+                    entry.name == dependency.name
+                        && entry.source == source
+                        && entry.selector == selector
+                }) {
+                    let destination = self.cache_root.join(&entry.content_hash[7..]);
+                    if destination.is_dir() {
+                        let manifest = PackageManifest::read(&destination)?;
+                        let identity = package_source_identity_with_selection(
+                            &destination,
+                            manifest.package.clone(),
+                            &manifest.source,
+                        )?;
+                        if format!("blake3:{}", hex_digest(&identity.source_fingerprint))
+                            == entry.content_hash
+                        {
+                            return Ok(destination);
+                        }
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!(
+                                "cached Git dependency `{}` failed its content hash check",
+                                dependency.name
+                            ),
+                        ));
+                    }
+                }
+                let locked_rev = self
+                    .lock
+                    .package
+                    .iter()
+                    .find(|entry| {
+                        entry.name == dependency.name
+                            && entry.source == source
+                            && entry.selector == selector
+                    })
+                    .map(|entry| entry.rev.clone());
+                let fetch_rev = rev.clone().or(locked_rev);
+                let key = blake3::hash(
+                    format!(
+                        "{source}\0{}",
+                        fetch_rev
+                            .as_deref()
+                            .or(requested.as_deref())
+                            .unwrap_or("HEAD")
+                    )
+                    .as_bytes(),
+                );
+                let destination = self.cache_root.join(key.to_hex().as_str());
+                if !destination.is_dir() {
+                    fs::create_dir_all(&self.cache_root)?;
+                    let staging = allocate_package_staging(&self.cache_root)?;
+                    let fetched_revision = match checkout_source(
+                        &source,
+                        fetch_rev
+                            .as_deref()
+                            .or(requested.as_deref())
+                            .unwrap_or("HEAD"),
+                        &staging,
+                    ) {
+                        Ok(revision) => revision,
+                        Err(error) => {
+                            let _ = fs::remove_dir_all(&staging);
+                            return Err(error);
+                        }
+                    };
+                    if let Err(error) = fs::rename(&staging, &destination) {
+                        let _ = fs::remove_dir_all(&staging);
+                        if !destination.is_dir() {
+                            return Err(error);
+                        }
+                    }
+                    self.lock.package.retain(|entry| {
+                        !(entry.name == dependency.name
+                            && entry.source == source
+                            && entry.selector == selector)
+                    });
+                    self.lock.package.push(LockedPackage {
+                        name: dependency.name.clone(),
+                        source: source.clone(),
+                        selector: selector.clone(),
+                        rev: fetched_revision,
+                        content_hash: String::new(),
+                    });
+                }
+                let manifest = PackageManifest::read(&destination)?;
+                let identity = package_source_identity_with_selection(
+                    &destination,
+                    manifest.package.clone(),
+                    &manifest.source,
+                )?;
+                let rev = self
+                    .lock
+                    .package
+                    .iter()
+                    .find(|entry| {
+                        entry.name == dependency.name
+                            && entry.source == source
+                            && entry.selector == selector
+                    })
+                    .map(|entry| entry.rev.clone())
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "Git revision was not recorded")
+                    })?;
+                let content_hash = format!("blake3:{}", hex_digest(&identity.source_fingerprint));
+                let final_destination = self.cache_root.join(&content_hash[7..]);
+                if final_destination != destination {
+                    if final_destination.exists() {
+                        let _ = fs::remove_dir_all(&destination);
+                    } else {
+                        fs::rename(&destination, &final_destination)?;
+                    }
+                }
+                self.lock.package.retain(|entry| {
+                    !(entry.name == dependency.name
+                        && entry.source == source
+                        && entry.selector == selector)
+                });
+                self.lock.package.push(LockedPackage {
+                    name: dependency.name.clone(),
+                    source,
+                    selector,
+                    rev,
+                    content_hash,
+                });
+                self.lock.package.sort_by(|left, right| {
+                    (&left.name, &left.source, &left.selector).cmp(&(
+                        &right.name,
+                        &right.source,
+                        &right.selector,
+                    ))
+                });
+                self.dirty = true;
+                Ok(final_destination)
+            }
+        }
+    }
+
+    fn finish(self) -> io::Result<()> {
+        if self.dirty {
+            self.lock.write_atomic(&self.lock_path)?;
+        }
+        Ok(())
+    }
+}
+
+fn allocate_package_staging(cache_root: &Path) -> io::Result<PathBuf> {
+    static NEXT_STAGING_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    for _ in 0..32 {
+        let sequence = NEXT_STAGING_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = cache_root.join(format!(".fetch-{}-{sequence}.tmp", std::process::id()));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate package staging directory",
+    ))
+}
+
+fn canonical_git_source(url: &str) -> io::Result<String> {
+    let mut canonical = url.trim_end_matches('/').to_string();
+    if matches!(
+        canonical.split_once("://").map(|(scheme, _)| scheme),
+        Some("http" | "https" | "git")
+    ) && canonical
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split('/').next())
+        .is_some_and(|authority| authority.contains('@'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Git credentials are not allowed in dependency URLs",
+        ));
+    }
+    if let Some((scheme, rest)) = canonical.split_once("://") {
+        canonical = format!("{}://{}", scheme.to_ascii_lowercase(), rest);
+    }
+    Ok(canonical)
+}
+
+fn hex_digest(bytes: &[u8; 32]) -> String {
+    let mut result = String::with_capacity(64);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(result, "{byte:02x}");
+    }
+    result
+}
+
+impl PackageGraph {
     /// Discovers the root package and selected dependency classes.
-    pub fn resolve(root: &Path, include_tests: bool) -> io::Result<Self> {
+    pub fn resolve(root: &Path, include_development: bool) -> io::Result<Self> {
         Self::resolve_with_options(
             root,
-            LocalPackageGraphOptions {
-                include_tests,
-                ..LocalPackageGraphOptions::default()
+            PackageGraphOptions {
+                include_development,
             },
         )
     }
 
-    /// Discovers a package graph under an explicit dependency-class policy.
-    pub fn resolve_with_options(
-        root: &Path,
-        options: LocalPackageGraphOptions,
-    ) -> io::Result<Self> {
+    /// Discovers a package graph under an explicit dependency-scope policy.
+    pub fn resolve_with_options(root: &Path, options: PackageGraphOptions) -> io::Result<Self> {
+        let mut fetcher = PackageFetcher::for_root(root)?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
         let mut seen = std::collections::BTreeMap::new();
@@ -255,9 +653,9 @@ impl LocalPackageGraph {
                 continue;
             }
             seen.insert(canonical.clone(), logical_root.clone());
-            let manifest = LocalPackageManifest::read(&canonical).or_else(|error| {
+            let manifest = PackageManifest::read(&canonical).or_else(|error| {
                 if error.kind() == io::ErrorKind::NotFound && is_root {
-                    Ok(LocalPackageManifest::implicit(
+                    Ok(PackageManifest::implicit(
                         canonical
                             .file_name()
                             .and_then(|v| v.to_str())
@@ -274,16 +672,19 @@ impl LocalPackageGraph {
                 &manifest.source,
             )?;
             for dependency in &manifest.dependencies {
-                if !options.includes(dependency.class) {
-                    edges.push((
-                        logical_root.clone(),
-                        dependency.clone(),
-                        None,
-                        canonical.join(&dependency.path).canonicalize().ok(),
-                    ));
+                if !options.includes(dependency.scope) {
+                    let source_root = match &dependency.source {
+                        DependencySource::Path(_) => {
+                            dependency_path(&mut fetcher, &canonical, dependency)
+                                .ok()
+                                .and_then(|path| path.canonicalize().ok())
+                        }
+                        DependencySource::Git { .. } => None,
+                    };
+                    edges.push((logical_root.clone(), dependency.clone(), None, source_root));
                     continue;
                 }
-                let path = canonical.join(&dependency.path).canonicalize()?;
+                let path = dependency_path(&mut fetcher, &canonical, dependency)?.canonicalize()?;
                 edges.push((
                     logical_root.clone(),
                     dependency.clone(),
@@ -299,7 +700,7 @@ impl LocalPackageGraph {
                 };
                 pending.push((path, child_root, false, next_ancestors));
             }
-            nodes.push(LocalPackageGraphNode {
+            nodes.push(PackageGraphNode {
                 manifest,
                 root: logical_root,
                 source_fingerprint: source.source_fingerprint,
@@ -315,7 +716,7 @@ impl LocalPackageGraph {
         let mut dependencies = edges
             .into_iter()
             .map(
-                |(owner_root, dependency, target, source_root)| LocalPackageDependencyReport {
+                |(owner_root, dependency, target, source_root)| PackageDependencyReport {
                     owner_root,
                     dependency,
                     resolved_root: target.and_then(|path| seen.get(&path).cloned()),
@@ -327,6 +728,7 @@ impl LocalPackageGraph {
             (&left.owner_root, &left.dependency.name)
                 .cmp(&(&right.owner_root, &right.dependency.name))
         });
+        fetcher.finish()?;
         Ok(Self {
             options,
             nodes,
@@ -339,9 +741,7 @@ impl LocalPackageGraph {
         let mut encoded = Vec::new();
         encoded.extend_from_slice(PACKAGE_GRAPH_DOMAIN.as_str().as_bytes());
         encoded.extend_from_slice(b"\0\x01");
-        encoded.push(u8::from(self.options.include_tests));
-        encoded.push(u8::from(self.options.include_optional));
-        encoded.push(u8::from(self.options.include_lazy));
+        encoded.push(u8::from(self.options.include_development));
         for node in &self.nodes {
             write_fingerprint_field(&mut encoded, node.root.as_bytes());
             write_fingerprint_field(
@@ -352,14 +752,33 @@ impl LocalPackageGraph {
             encoded.extend_from_slice(&(node.manifest.dependencies.len() as u64).to_le_bytes());
             for dependency in &node.manifest.dependencies {
                 write_fingerprint_field(&mut encoded, dependency.name.as_bytes());
-                write_fingerprint_field(&mut encoded, dependency.path.as_bytes());
-                encoded.push(match dependency.class {
-                    DependencyClass::BuildOnly => 0,
-                    DependencyClass::Runtime => 1,
-                    DependencyClass::TestOnly => 2,
-                    DependencyClass::Development => 3,
-                    DependencyClass::Optional => 4,
-                    DependencyClass::Lazy => 5,
+                match &dependency.source {
+                    DependencySource::Path(path) => {
+                        encoded.push(0);
+                        write_fingerprint_field(&mut encoded, path.as_bytes());
+                    }
+                    DependencySource::Git {
+                        url,
+                        rev,
+                        tag,
+                        branch,
+                    } => {
+                        encoded.push(1);
+                        write_fingerprint_field(&mut encoded, url.as_bytes());
+                        for reference in [rev, tag, branch] {
+                            if let Some(reference) = reference {
+                                encoded.push(1);
+                                write_fingerprint_field(&mut encoded, reference.as_bytes());
+                            } else {
+                                encoded.push(0);
+                            }
+                        }
+                    }
+                }
+                encoded.push(match dependency.scope {
+                    DependencyScope::Build => 0,
+                    DependencyScope::Runtime => 1,
+                    DependencyScope::Development => 2,
                 });
             }
         }
@@ -367,8 +786,8 @@ impl LocalPackageGraph {
     }
 
     /// Returns the resolver's actual dependency selection decisions.
-    pub fn report(&self) -> LocalPackageGraphReport {
-        LocalPackageGraphReport {
+    pub fn report(&self) -> PackageGraphReport {
+        PackageGraphReport {
             options: self.options,
             resolved: self.nodes.clone(),
             declared: self.dependencies.clone(),
@@ -381,7 +800,7 @@ fn write_fingerprint_field(encoded: &mut Vec<u8>, value: &[u8]) {
     encoded.extend_from_slice(value);
 }
 
-impl LocalPackageManifest {
+impl PackageManifest {
     /// Creates the implicit manifest used when no manifest file exists.
     pub fn implicit(root_name: impl Into<String>) -> Self {
         Self {
@@ -391,18 +810,15 @@ impl LocalPackageManifest {
                 version: "0.0.0".into(),
             },
             protocol_epoch: None,
+            library_path: None,
             source: PackageSourceSelection::default(),
             dependencies: Vec::new(),
         }
     }
 
-    /// Reads a bounded, line-oriented `nia.package` manifest.
-    ///
-    /// The format intentionally stays smaller than TOML until dependency
-    /// resolution has a defined owner. Supported keys are `namespace`,
-    /// `name`, `version`, `protocol-epoch`, `source-root`, and `exclude`.
+    /// Reads a bounded `nia.toml` package manifest.
     pub fn read(root: &Path) -> io::Result<Self> {
-        let path = root.join(concat!("nia", ".package"));
+        let path = root.join("nia.toml");
         let mut contents = Vec::new();
         File::open(path)?
             .take((MAX_MANIFEST_BYTES + 1) as u64)
@@ -413,7 +829,9 @@ impl LocalPackageManifest {
                 "package manifest is too large",
             ));
         }
-        let text = String::from_utf8(contents)
+        let text = std::str::from_utf8(&contents)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let raw: RawPackageManifest = toml::from_str(text)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let mut manifest = Self::implicit(
             root.file_name()
@@ -421,93 +839,39 @@ impl LocalPackageManifest {
                 .unwrap_or("root")
                 .to_ascii_lowercase(),
         );
-        let mut source_roots = Vec::new();
-        let mut excludes = Vec::new();
+        manifest.package = PackageId {
+            namespace: raw.package.namespace.unwrap_or_else(|| "local".into()),
+            name: raw.package.name,
+            version: raw.package.version.unwrap_or_else(|| "0.0.0".into()),
+        };
+        manifest.protocol_epoch = raw.package.protocol_epoch;
+        manifest.library_path = raw.library.path;
+        manifest.source = PackageSourceSelection {
+            source_roots: if raw.source.roots.is_empty() {
+                vec![".".into()]
+            } else {
+                raw.source.roots
+            },
+            excludes: raw.source.exclude,
+        };
         let mut dependencies = Vec::new();
-        for (line_number, line) in text.lines().enumerate() {
-            let line = line.split('#').next().unwrap_or("").trim();
-            if line.is_empty() {
-                continue;
-            }
-            let (key, value) = line.split_once('=').ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("invalid package manifest line {}", line_number + 1),
-                )
-            })?;
-            let key = key.trim();
-            let value = value.trim().trim_matches('"');
-            match key {
-                "namespace" => manifest.package.namespace = value.to_string(),
-                "name" => manifest.package.name = value.to_string(),
-                "version" => manifest.package.version = value.to_string(),
-                "protocol-epoch" => {
-                    manifest.protocol_epoch = Some(value.parse().map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "protocol-epoch must be an integer",
-                        )
-                    })?);
-                }
-                "source-root" => source_roots.push(value.to_string()),
-                "exclude" => excludes.push(value.to_string()),
-                "dependency" => {
-                    let (declaration, class_name) = value.rsplit_once(':').ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "dependency must be name:path:class",
-                        )
-                    })?;
-                    let (name, path) = declaration.split_once(':').ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "dependency must be name:path:class",
-                        )
-                    })?;
-                    let name = name.trim();
-                    let path = path.trim();
-                    let class = match class_name.trim() {
-                        "build" | "build-only" => DependencyClass::BuildOnly,
-                        "runtime" => DependencyClass::Runtime,
-                        "test" | "test-only" => DependencyClass::TestOnly,
-                        "dev" | "development" => DependencyClass::Development,
-                        "optional" => DependencyClass::Optional,
-                        "lazy" => DependencyClass::Lazy,
-                        _ => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "invalid dependency class",
-                            ));
-                        }
-                    };
-                    if name.is_empty()
-                        || path.is_empty()
-                        || Path::new(path).is_absolute()
-                        || path.starts_with('/')
-                        || path.starts_with('\\')
-                        || path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
-                    {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "dependency must be name:path:class",
-                        ));
-                    }
-                    dependencies.push(LocalPackageDependency {
-                        name: name.to_string(),
-                        path: path.to_string(),
-                        class,
-                    });
-                }
-                _ => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("unknown package manifest key `{key}`"),
-                    ));
-                }
+        for (scope, declarations) in [
+            (DependencyScope::Build, raw.build_dependencies),
+            (DependencyScope::Runtime, raw.dependencies),
+            (DependencyScope::Development, raw.dev_dependencies),
+        ] {
+            for (name, declaration) in declarations {
+                let source = declaration.into_source(&name)?;
+                validate_dependency_name(&name)?;
+                dependencies.push(PackageDependency {
+                    name,
+                    source,
+                    scope,
+                });
             }
         }
-        if source_roots.len() > MAX_MANIFEST_ENTRIES
-            || excludes.len() > MAX_MANIFEST_ENTRIES
+        if manifest.source.source_roots.len() > MAX_MANIFEST_ENTRIES
+            || manifest.source.excludes.len() > MAX_MANIFEST_ENTRIES
             || dependencies.len() > MAX_MANIFEST_ENTRIES
         {
             return Err(io::Error::new(
@@ -515,23 +879,13 @@ impl LocalPackageManifest {
                 "package manifest has too many declarations",
             ));
         }
-        if !source_roots.is_empty() {
-            manifest.source.source_roots = source_roots;
-        }
-        manifest.source.excludes = excludes;
         dependencies.sort_by(|left, right| left.name.cmp(&right.name));
         let mut names = BTreeSet::new();
         for dependency in &dependencies {
-            if dependency.name.len() > 128
-                || !dependency
-                    .name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-                || !names.insert(&dependency.name)
-            {
+            if !names.insert(&dependency.name) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "invalid or duplicate dependency name",
+                    "dependency names must be unique across dependency scopes",
                 ));
             }
         }
@@ -554,6 +908,161 @@ impl LocalPackageManifest {
         }
         Ok(())
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPackageManifest {
+    package: RawPackageIdentity,
+    #[serde(default)]
+    source: RawPackageSource,
+    #[serde(default)]
+    library: RawPackageLibrary,
+    #[serde(default, rename = "build-dependencies")]
+    build_dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default, rename = "dev-dependencies")]
+    dev_dependencies: BTreeMap<String, RawDependency>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPackageIdentity {
+    name: String,
+    #[serde(default)]
+    namespace: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default, rename = "protocol-epoch")]
+    protocol_epoch: Option<u32>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RawPackageSource {
+    #[serde(default)]
+    roots: Vec<String>,
+    #[serde(default)]
+    exclude: Vec<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RawPackageLibrary {
+    #[serde(default)]
+    path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawDependency {
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    git: Option<String>,
+    #[serde(default)]
+    rev: Option<String>,
+    #[serde(default)]
+    tag: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+}
+
+impl RawDependency {
+    fn into_source(self, name: &str) -> io::Result<DependencySource> {
+        match (self.path, self.git) {
+            (Some(path), None)
+                if self.rev.is_none() && self.tag.is_none() && self.branch.is_none() =>
+            {
+                if path.is_empty()
+                    || Path::new(&path).is_absolute()
+                    || path.starts_with('/')
+                    || path.starts_with('\\')
+                    || path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("invalid path source for dependency `{name}`"),
+                    ));
+                }
+                Ok(DependencySource::Path(path))
+            }
+            (None, Some(url)) => {
+                let selector_count = [
+                    self.rev.is_some(),
+                    self.tag.is_some(),
+                    self.branch.is_some(),
+                ]
+                .into_iter()
+                .filter(|selected| *selected)
+                .count();
+                let scp_style = url.starts_with("git@")
+                    && url
+                        .split_once(':')
+                        .is_some_and(|(_, path)| !path.is_empty() && !path.starts_with('/'));
+                if (!scp_style
+                    && !matches!(
+                        url.split_once(":").map(|(scheme, _)| scheme),
+                        Some("https" | "http" | "ssh" | "git" | "file")
+                    ))
+                    || selector_count > 1
+                    || (!scp_style
+                        && matches!(
+                            url.split_once("://").map(|(scheme, _)| scheme),
+                            Some("http" | "https" | "git")
+                        )
+                        && url
+                            .split_once("://")
+                            .and_then(|(_, rest)| rest.split('/').next())
+                            .is_some_and(|authority| authority.contains('@')))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("invalid Git source for dependency `{name}`"),
+                    ));
+                }
+                Ok(DependencySource::Git {
+                    url: if scp_style {
+                        let (host, path) = url.split_once(':').expect("scp-style URL has a colon");
+                        format!("ssh://{host}/{path}")
+                    } else {
+                        url
+                    },
+                    rev: self.rev,
+                    tag: self.tag,
+                    branch: self.branch,
+                })
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("dependency `{name}` must specify exactly one of `path` or `git`"),
+            )),
+        }
+    }
+}
+
+fn validate_dependency_name(name: &str) -> io::Result<()> {
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid dependency name",
+        ));
+    }
+    Ok(())
+}
+
+fn dependency_path(
+    fetcher: &mut PackageFetcher,
+    root: &Path,
+    dependency: &PackageDependency,
+) -> io::Result<std::path::PathBuf> {
+    fetcher.resolve(root, dependency)
 }
 
 fn validate_package_id(package: &PackageId) -> io::Result<()> {
@@ -787,8 +1296,10 @@ fn fingerprint_source_file(path: &Path) -> io::Result<(u64, [u8; 32])> {
 fn excluded_source_component(path: &Path) -> bool {
     static EXCLUDED: &[&str] = &[
         ".git",
+        ".nia",
         ".nia-build",
         ".nia-cache",
+        "nia.lock",
         "target",
         "build",
         "dist",
@@ -2096,6 +2607,153 @@ mod tests {
         assert_ne!(canonical_component("%40"), canonical_component("@"));
     }
 
+    #[test]
+    fn lockfile_round_trips_and_rejects_unknown_schema() {
+        let root = std::env::temp_dir().join(format!("nia-lock-roundtrip-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("nia.lock");
+        let lock = PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![LockedPackage {
+                name: "regex".into(),
+                source: "https://example.com/regex.git".into(),
+                selector: "branch:main".into(),
+                rev: "0123456789012345678901234567890123456789".into(),
+                content_hash: format!("blake3:{}", "a".repeat(64)),
+            }],
+        };
+        lock.write_atomic(&path).unwrap();
+        assert_eq!(PackageLock::read(&path).unwrap(), lock);
+        fs::write(&path, "version = 99\n").unwrap();
+        assert_eq!(
+            PackageLock::read(&path).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lockfile_allows_distinct_selectors_and_rejects_duplicate_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-lock-selectors-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("nia.lock");
+        let entry = |selector: &str| LockedPackage {
+            name: "regex".into(),
+            source: "https://example.com/regex.git".into(),
+            selector: selector.into(),
+            rev: "0123456789012345678901234567890123456789".into(),
+            content_hash: format!("blake3:{}", "a".repeat(64)),
+        };
+        let lock = PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![entry("tag:v1"), entry("branch:main")],
+        };
+        lock.write_atomic(&path).unwrap();
+        assert_eq!(PackageLock::read(&path).unwrap(), lock);
+
+        let duplicate = PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![entry("branch:main"), entry("branch:main")],
+        };
+        assert_eq!(
+            duplicate.write_atomic(&path).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        let duplicate_text = toml::to_string(&duplicate).unwrap();
+        fs::write(&path, duplicate_text).unwrap();
+        assert_eq!(
+            PackageLock::read(&path).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fetching_selector_preserves_other_lock_entries_for_same_source() {
+        use std::process::Command;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "nia-fetch-selectors-{}-{nonce}",
+            std::process::id()
+        ));
+        let repository = root.join("upstream");
+        let consumer = root.join("consumer");
+        fs::create_dir_all(repository.join("src")).unwrap();
+        fs::create_dir_all(&consumer).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&repository)
+                .output()
+                .expect("Git executable is required for the test fixture");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+        git(&["-c", "init.defaultBranch=main", "init", "-q"]);
+        git(&["config", "user.email", "nia-test@example.invalid"]);
+        git(&["config", "user.name", "Nia Test"]);
+        fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+        fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
+        git(&["add", "nia.toml", "src"]);
+        git(&["commit", "-qm", "fixture"]);
+        let repository_url = format!(
+            "file:///{}",
+            repository.to_string_lossy().replace('\\', "/")
+        );
+        let old_entry = LockedPackage {
+            name: "dep".into(),
+            source: repository_url.clone(),
+            selector: "tag:previous".into(),
+            rev: "0123456789012345678901234567890123456789".into(),
+            content_hash: format!("blake3:{}", "b".repeat(64)),
+        };
+        PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![old_entry.clone()],
+        }
+        .write_atomic(&consumer.join("nia.lock"))
+        .unwrap();
+
+        let dependency = PackageDependency {
+            name: "dep".into(),
+            source: DependencySource::Git {
+                url: repository_url,
+                rev: None,
+                tag: None,
+                branch: Some("main".into()),
+            },
+            scope: DependencyScope::Runtime,
+        };
+        let mut fetcher = PackageFetcher::for_root(&consumer).unwrap();
+        fetcher.resolve(&consumer, &dependency).unwrap();
+        assert!(fetcher.lock.package.contains(&old_entry));
+        assert!(
+            fetcher
+                .lock
+                .package
+                .iter()
+                .any(|entry| entry.name == "dep" && entry.selector == "branch:main")
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn definition(name: &str, kind: u8, owner: Option<DefinitionId>) -> DefinitionId {
         DefinitionId {
             module: ModuleId {
@@ -2445,26 +3103,26 @@ mod tests {
         let root = std::env::temp_dir().join(format!("nia-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("nia.package"),
+            root.join("nia.toml"),
             format!(
-                "namespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nprotocol-epoch = {PROTOCOL_EPOCH}\nsource-root = \"src\"\nexclude = \"src/generated\"\ndependency = helper:../helper:build-only\n"
+                "[package]\nnamespace = \"acme\"\nname = \"demo\"\nversion = \"1.2.3\"\nprotocol-epoch = {PROTOCOL_EPOCH}\n[source]\nroots = [\"src\"]\nexclude = [\"src/generated\"]\n[build-dependencies]\nhelper = {{ path = \"../helper\" }}\n"
             ),
         )
         .unwrap();
-        let manifest = LocalPackageManifest::read(&root).unwrap();
+        let manifest = PackageManifest::read(&root).unwrap();
         assert_eq!(manifest.package.canonical_text(), "acme/demo@1.2.3");
         assert_eq!(manifest.source.source_roots, vec!["src"]);
         assert_eq!(manifest.source.excludes, vec!["src/generated"]);
-        assert_eq!(manifest.dependencies[0].class, DependencyClass::BuildOnly);
+        assert_eq!(manifest.dependencies[0].scope, DependencyScope::Build);
         manifest.validate_protocol_epoch().unwrap();
         for epoch in [PROTOCOL_EPOCH - 1, PROTOCOL_EPOCH + 1] {
             std::fs::write(
-                root.join("nia.package"),
-                format!("protocol-epoch = {epoch}\n"),
+                root.join("nia.toml"),
+                format!("[package]\nname = \"demo\"\nprotocol-epoch = {epoch}\n"),
             )
             .unwrap();
             assert!(
-                LocalPackageManifest::read(&root)
+                PackageManifest::read(&root)
                     .unwrap()
                     .validate_protocol_epoch()
                     .is_err()
@@ -2484,20 +3142,20 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("nia.package");
-        let mut contents = vec![b' '; MAX_MANIFEST_BYTES];
+        let path = root.join("nia.toml");
+        let mut contents = vec![b'#'; MAX_MANIFEST_BYTES];
         std::fs::write(&path, &contents).unwrap();
-        assert!(LocalPackageManifest::read(&root).is_ok());
+        assert!(PackageManifest::read(&root).is_err());
 
         contents.push(0xff);
         std::fs::write(&path, &contents).unwrap();
-        let error = LocalPackageManifest::read(&root).unwrap_err();
+        let error = PackageManifest::read(&root).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(error.to_string(), "package manifest is too large");
 
         std::fs::write(&path, [0xff]).unwrap();
         assert_eq!(
-            LocalPackageManifest::read(&root).unwrap_err().kind(),
+            PackageManifest::read(&root).unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -2508,19 +3166,139 @@ mod tests {
         let root = std::env::temp_dir().join(format!("nia-dependency-path-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("nia.package"),
-            "dependency = helper:../third:party:runtime\n",
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nhelper = { path = \"../third:party\" }\n",
         )
         .unwrap();
-        let manifest = LocalPackageManifest::read(&root).unwrap();
+        let manifest = PackageManifest::read(&root).unwrap();
         assert_eq!(manifest.dependencies[0].name, "helper");
-        assert_eq!(manifest.dependencies[0].path, "../third:party");
+        assert_eq!(
+            manifest.dependencies[0].source,
+            DependencySource::Path("../third:party".into())
+        );
         std::fs::write(
-            root.join("nia.package"),
-            "dependency = helper:/tmp/helper:runtime\n",
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nhelper = { path = \"/tmp/helper\" }\n",
         )
         .unwrap();
-        assert!(LocalPackageManifest::read(&root).is_err());
+        assert!(PackageManifest::read(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_accepts_git_sources_with_one_optional_revision_selector() {
+        let root = std::env::temp_dir().join(format!("nia-git-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[build-dependencies]\njson = { git = \"https://example.test/json.git\", tag = \"v1\" }\n[dependencies]\nregex = { git = \"ssh://git@example.test/regex.git\", rev = \"0123456789abcdef0123456789abcdef01234567\" }\n",
+        )
+        .unwrap();
+        let manifest = PackageManifest::read(&root).unwrap();
+        assert_eq!(
+            manifest.dependencies[0].source,
+            DependencySource::Git {
+                url: "https://example.test/json.git".into(),
+                rev: None,
+                tag: Some("v1".into()),
+                branch: None,
+            }
+        );
+        assert_eq!(manifest.dependencies[0].scope, DependencyScope::Build);
+        assert_eq!(manifest.dependencies[1].scope, DependencyScope::Runtime);
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nregex = { git = \"git@example.test:org/regex.git\" }\n",
+        )
+        .unwrap();
+        let manifest = PackageManifest::read(&root).unwrap();
+        assert_eq!(
+            manifest.dependencies[0].source,
+            DependencySource::Git {
+                url: "ssh://git@example.test/org/regex.git".into(),
+                rev: None,
+                tag: None,
+                branch: None,
+            }
+        );
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\ninvalid = { git = \"https://example.test/x.git\", rev = \"a\", branch = \"main\" }\n",
+        )
+        .unwrap();
+        assert!(PackageManifest::read(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_fetches_and_locks_a_local_git_dependency() {
+        use std::process::Command;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-git-graph-{}-{nonce}",
+            std::process::id()
+        ));
+        let repository = root.join("upstream");
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(repository.join("src")).unwrap();
+        std::fs::create_dir_all(&consumer).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&repository)
+                .output()
+                .expect("Git executable is required for the test fixture");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["-c", "init.defaultBranch=main", "init", "-q"]);
+        git(&["config", "user.email", "nia-test@example.invalid"]);
+        git(&["config", "user.name", "Nia Test"]);
+        std::fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+        std::fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
+        git(&["add", "nia.toml", "src"]);
+        git(&["commit", "-qm", "fixture"]);
+        let repository_url = format!(
+            "file:///{}",
+            repository.to_string_lossy().replace('\\', "/")
+        );
+        std::fs::write(
+            consumer.join("nia.toml"),
+            format!(
+                "[package]\nname = \"consumer\"\n[dependencies]\ndep = {{ git = \"{repository_url}\", branch = \"main\" }}\n"
+            ),
+        )
+        .unwrap();
+
+        let graph = PackageGraph::resolve(&consumer, false).unwrap();
+        assert_eq!(graph.nodes.len(), 2);
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.manifest.package.name == "dep")
+        );
+        let dependency_cache = consumer.join(".nia/packages");
+        assert!(dependency_cache.is_dir());
+        assert!(
+            std::fs::read_dir(dependency_cache)
+                .unwrap()
+                .next()
+                .is_some()
+        );
+        let lock = PackageLock::read(&consumer.join("nia.lock")).unwrap();
+        assert_eq!(lock.package.len(), 1);
+        assert_eq!(lock.package[0].selector, "branch:main");
+        assert_eq!(lock.package[0].rev.len(), 40);
+        assert!(lock.package[0].content_hash.starts_with("blake3:"));
+
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2530,12 +3308,12 @@ mod tests {
         let dep = root.join("dep");
         std::fs::create_dir_all(&dep).unwrap();
         std::fs::write(
-            root.join("nia.package"),
-            "name = \"root\"\ndependency = dep:dep:runtime\n",
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\ndep = { path = \"dep\" }\n",
         )
         .unwrap();
-        std::fs::write(dep.join("nia.package"), "name = \"dep\"\n").unwrap();
-        let graph = LocalPackageGraph::resolve(&root, false).unwrap();
+        std::fs::write(dep.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+        let graph = PackageGraph::resolve(&root, false).unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert!(
             graph
@@ -2545,7 +3323,7 @@ mod tests {
         );
         let first_fingerprint = graph.fingerprint();
         std::fs::write(dep.join("src.nia"), "changed").unwrap();
-        let changed = LocalPackageGraph::resolve(&root, false).unwrap();
+        let changed = PackageGraph::resolve(&root, false).unwrap();
         assert_ne!(first_fingerprint, changed.fingerprint());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2555,87 +3333,88 @@ mod tests {
         let root = std::env::temp_dir().join(format!("nia-cycle-{}", std::process::id()));
         let dep = root.join("dep");
         std::fs::create_dir_all(&dep).unwrap();
-        std::fs::write(root.join("nia.package"), "dependency = dep:dep:runtime\n").unwrap();
-        std::fs::write(dep.join("nia.package"), "dependency = root:..:runtime\n").unwrap();
-        let error = LocalPackageGraph::resolve(&root, false).unwrap_err();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\ndep = { path = \"dep\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dep.join("nia.toml"),
+            "[package]\nname = \"dep\"\n[dependencies]\nroot = { path = \"..\" }\n",
+        )
+        .unwrap();
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
         assert!(error.to_string().contains("dependency cycle"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn optional_and_lazy_dependencies_require_explicit_selection() {
-        let root = std::env::temp_dir().join(format!("nia-optional-{}", std::process::id()));
-        let optional = root.join("optional");
-        let lazy = root.join("lazy");
-        let test = root.join("test");
+    fn dependency_scopes_require_explicit_development_selection() {
+        let root = std::env::temp_dir().join(format!("nia-scopes-{}", std::process::id()));
+        let build = root.join("build");
+        let runtime = root.join("runtime");
         let development = root.join("development");
-        std::fs::create_dir_all(&optional).unwrap();
-        std::fs::create_dir_all(&lazy).unwrap();
-        std::fs::create_dir_all(&test).unwrap();
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::create_dir_all(&runtime).unwrap();
         std::fs::create_dir_all(&development).unwrap();
-        std::fs::write(
-            root.join("nia.package"),
-            "dependency = optional:optional:optional\ndependency = lazy:lazy:lazy\ndependency = test:test:test-only\ndependency = development:development:development\n",
-        )
-        .unwrap();
-        std::fs::write(optional.join("nia.package"), "name = \"optional\"\n").unwrap();
-        std::fs::write(lazy.join("nia.package"), "name = \"lazy\"\n").unwrap();
-        std::fs::write(test.join("nia.package"), "name = \"test\"\n").unwrap();
-        std::fs::write(development.join("nia.package"), "name = \"development\"\n").unwrap();
-        let ordinary = LocalPackageGraph::resolve(&root, false).unwrap();
-        assert_eq!(ordinary.nodes.len(), 1);
-        let tests = LocalPackageGraph::resolve(&root, true).unwrap();
-        assert_eq!(tests.nodes.len(), 3);
-        assert!(tests.nodes.iter().any(|node| node.root == "test"));
+        std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\nruntime = { path = \"runtime\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").unwrap();
+        for (dir, name) in [
+            (&build, "build"),
+            (&runtime, "runtime"),
+            (&development, "development"),
+        ] {
+            std::fs::write(
+                dir.join("nia.toml"),
+                format!("[package]\nname = \"{name}\"\n"),
+            )
+            .unwrap();
+        }
+        let ordinary = PackageGraph::resolve(&root, false).unwrap();
+        assert_eq!(ordinary.nodes.len(), 3);
+        let tests = PackageGraph::resolve(&root, true).unwrap();
+        assert_eq!(tests.nodes.len(), 4);
         assert!(tests.nodes.iter().any(|node| node.root == "development"));
-        let selected = LocalPackageGraph::resolve_with_options(
-            &root,
-            LocalPackageGraphOptions {
-                include_tests: true,
-                include_optional: true,
-                include_lazy: true,
-            },
-        )
-        .unwrap();
-        assert_eq!(selected.nodes.len(), 5);
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn graph_report_preserves_filtered_dependency_decisions() {
         let root = std::env::temp_dir().join(format!("nia-report-{}", std::process::id()));
-        let optional = root.join("optional");
-        std::fs::create_dir_all(&optional).unwrap();
+        let development = root.join("development");
+        std::fs::create_dir_all(&development).unwrap();
         std::fs::write(
-            root.join("nia.package"),
-            "dependency = optional:optional:optional\n",
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
         )
         .unwrap();
-        std::fs::write(optional.join("nia.package"), "name = \"optional\"\n").unwrap();
-        let graph = LocalPackageGraph::resolve(&root, false).unwrap();
+        std::fs::write(
+            development.join("nia.toml"),
+            "[package]\nname = \"development\"\n",
+        )
+        .unwrap();
+        let graph = PackageGraph::resolve(&root, false).unwrap();
         let report = graph.report();
         assert_eq!(report.resolved.len(), 1);
         assert_eq!(report.declared.len(), 1);
         assert_eq!(
-            report.declared[0].dependency.class,
-            DependencyClass::Optional
+            report.declared[0].dependency.scope,
+            DependencyScope::Development
         );
         assert_eq!(report.declared[0].resolved_root, None);
         assert_eq!(
             report.declared[0].source_root,
-            Some(optional.canonicalize().unwrap())
+            Some(development.canonicalize().unwrap())
         );
-        let selected = LocalPackageGraph::resolve_with_options(
+        let selected = PackageGraph::resolve_with_options(
             &root,
-            LocalPackageGraphOptions {
-                include_optional: true,
-                ..LocalPackageGraphOptions::default()
+            PackageGraphOptions {
+                include_development: true,
             },
         )
         .unwrap();
         assert_eq!(
             selected.report().declared[0].resolved_root.as_deref(),
-            Some("optional")
+            Some("development")
         );
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2653,15 +3432,14 @@ mod tests {
         let shared = root.join("shared");
         std::fs::create_dir_all(&shared).unwrap();
         std::fs::write(
-            root.join("nia.package"),
-            "dependency = runtime:shared:runtime\ndependency = optional:shared:optional\n",
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nruntime = { path = \"shared\" }\n[dev-dependencies]\ndevelopment = { path = \"shared\" }\n",
         )
         .unwrap();
-        std::fs::write(shared.join("nia.package"), "name = \"shared\"\n").unwrap();
+        std::fs::write(shared.join("nia.toml"), "[package]\nname = \"shared\"\n").unwrap();
 
         let graph =
-            LocalPackageGraph::resolve_with_options(&root, LocalPackageGraphOptions::default())
-                .unwrap();
+            PackageGraph::resolve_with_options(&root, PackageGraphOptions::default()).unwrap();
         assert_eq!(
             graph.nodes.len(),
             2,
@@ -2676,7 +3454,7 @@ mod tests {
         let optional = report
             .declared
             .iter()
-            .find(|edge| edge.dependency.name == "optional")
+            .find(|edge| edge.dependency.name == "development")
             .unwrap();
         let shared_root = graph
             .nodes
@@ -2704,21 +3482,23 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("nia.package"),
-            "dependency = optional:optional:optional\n",
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
         )
         .unwrap();
-        std::fs::create_dir_all(root.join("optional")).unwrap();
-        std::fs::write(root.join("optional/nia.package"), "name = \"optional\"\n").unwrap();
+        std::fs::create_dir_all(root.join("development")).unwrap();
+        std::fs::write(
+            root.join("development/nia.toml"),
+            "[package]\nname = \"development\"\n",
+        )
+        .unwrap();
 
         let ordinary =
-            LocalPackageGraph::resolve_with_options(&root, LocalPackageGraphOptions::default())
-                .unwrap();
-        let selected = LocalPackageGraph::resolve_with_options(
+            PackageGraph::resolve_with_options(&root, PackageGraphOptions::default()).unwrap();
+        let selected = PackageGraph::resolve_with_options(
             &root,
-            LocalPackageGraphOptions {
-                include_optional: true,
-                ..LocalPackageGraphOptions::default()
+            PackageGraphOptions {
+                include_development: true,
             },
         )
         .unwrap();

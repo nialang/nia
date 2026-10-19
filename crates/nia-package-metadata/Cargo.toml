@@ -10,6 +10,10 @@ blake3.workspace = true
 nia-compat = { workspace = true }
 nia-ids = { workspace = true }
 nia-query = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
+flate2.workspace = true
+nia-git.workspace = true
 
 [lib]
 path = "src/lib.rs"

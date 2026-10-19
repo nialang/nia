@@ -148,7 +148,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 "could not resolve the local package graph",
             )
             .note(format!("package root `{}`: {error}", path.display()))
-            .help("check nia.package dependency paths, classes, and protocol epoch")
+            .help("check nia.toml dependency sources, scopes, and protocol epoch")
             .finish(),
         ],
         BuildError::CreateRunnerDirectory { path, error } => {

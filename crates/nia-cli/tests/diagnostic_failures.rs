@@ -319,8 +319,11 @@ fn external_command_search_tries_pathext_with_and_without_a_cache_policy() {
     let _resources =
         nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
     let root = temp_dir("external_command_pathext");
-    std::fs::write(root.join("nia.package"), "name=pathext\nversion=0.1.0\n")
-        .expect("package manifest");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"pathext\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("package manifest");
     std::fs::write(root.join("input.txt"), "pathext\n").expect("command input");
     // `cmd` has no extension, so both steps only resolve through `PATHEXT`.
     // The cached step also pins the program into its cache identity, and the
