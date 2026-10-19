@@ -47,6 +47,12 @@ the declared build libraries by dependency name. The script still owns the
 dynamic build graph; the manifest only defines package identity and dependency
 inputs.
 
+Git dependencies support HTTPS and SSH without invoking a system Git client.
+SSH sources use `ssh://` or SCP-style URLs and verify server keys against
+`~/.ssh/known_hosts` (or `%USERPROFILE%/.ssh/known_hosts` on Windows). Nia
+authenticates with `~/.ssh/id_ed25519` (or `%USERPROFILE%/.ssh/id_ed25519` on
+Windows); the key must be unencrypted. Unknown or changed host keys are rejected.
+
 ## The Build Function
 
 The script defines one public function:
