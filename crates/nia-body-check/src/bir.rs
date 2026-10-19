@@ -1800,6 +1800,11 @@ impl<'a> BodyChecker<'a> {
         index: usize,
     ) -> Option<nia_ids::GlobalDefId> {
         let ty = self.normalization.normalize(ty);
+        if let Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) =
+            self.interner.get(ty)
+        {
+            return self.tuple_struct_field_def(*elem, index);
+        }
         let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
             return None;
         };

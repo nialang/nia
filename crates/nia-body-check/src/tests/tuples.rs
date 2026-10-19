@@ -148,6 +148,28 @@ fn main() i32 {
 }
 
 #[test]
+fn tuple_struct_fields_autoderef_pointer_receivers() {
+    let checked = pipeline(
+        r#"
+struct Meters(i32)
+
+extend Meters {
+    fn value(&self) i32 {
+        self.0
+    }
+}
+
+fn main() i32 {
+    let meters = Meters(42);
+    meters.value()
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn const_tuple_projection_supports_nested_fields() {
     let checked = pipeline(
         r#"

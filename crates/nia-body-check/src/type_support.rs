@@ -49,6 +49,9 @@ impl<'a> BodyChecker<'a> {
             .get(self.normalization.normalize(lhs_ty))
             .cloned()
         {
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                self.tuple_field_type(span, elem, index)
+            }
             Some(TyKind::Tuple(elems)) => elems.get(index).copied().unwrap_or_else(|| {
                 let arity = elems.len();
                 let summary = format!(
