@@ -176,7 +176,7 @@ pub fn sync_file(path: &std::path::Path) -> std::io::Result<()> {
 
 /// Release-line compatibility shared by every persisted compiler product and
 /// ABI boundary. The active development line has the compatibility of the
-/// release it is preparing (`0.2.0-dev` therefore uses epoch 2); a formal
+/// release it is preparing (`0.3.0-dev` therefore uses epoch 3); a formal
 /// release keeps that epoch for its patch line.
 pub const PROTOCOL_EPOCH: u32 = release_compatibility(COMPILER_VERSION);
 /// Stable directory component for persistent namespaces.
@@ -503,15 +503,15 @@ mod tests {
     #[test]
     fn protocol_epoch_tracks_the_active_release_line() {
         assert_eq!(super::release_compatibility("0.1.0"), 1);
-        assert_eq!(super::release_compatibility("0.2.0-dev"), 2);
-        assert_eq!(super::release_compatibility("0.2.0-dev.1"), 2);
-        assert_eq!(super::release_compatibility("0.2.0"), 2);
-        assert_eq!(super::release_compatibility("0.2.1"), 2);
+        assert_eq!(super::release_compatibility("0.3.0-dev"), 3);
+        assert_eq!(super::release_compatibility("0.3.0-dev.1"), 3);
+        assert_eq!(super::release_compatibility("0.3.0"), 3);
+        assert_eq!(super::release_compatibility("0.3.1"), 3);
         assert_eq!(
             super::release_compatibility(COMPILER_VERSION),
             PROTOCOL_EPOCH
         );
-        assert_eq!(PROTOCOL_EPOCH, 2);
+        assert_eq!(PROTOCOL_EPOCH, 3);
     }
 
     #[test]

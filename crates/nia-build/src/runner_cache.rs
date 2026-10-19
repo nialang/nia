@@ -562,8 +562,8 @@ mod tests {
             toolchain,
             package_root: package_root.clone(),
             package_source_fingerprint: [0; 32],
-            package_graph_report: nia_package_metadata::LocalPackageGraphReport {
-                options: nia_package_metadata::LocalPackageGraphOptions::default(),
+            package_graph_report: nia_package_metadata::PackageGraphReport {
+                options: nia_package_metadata::PackageGraphOptions::default(),
                 resolved: Vec::new(),
                 declared: Vec::new(),
             },

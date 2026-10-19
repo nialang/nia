@@ -61,8 +61,8 @@ fn test_invocation() -> BuildInvocation {
         build_dir,
         package_root,
         package_source_fingerprint: [0; 32],
-        package_graph_report: nia_package_metadata::LocalPackageGraphReport {
-            options: nia_package_metadata::LocalPackageGraphOptions::default(),
+        package_graph_report: nia_package_metadata::PackageGraphReport {
+            options: nia_package_metadata::PackageGraphOptions::default(),
             resolved: Vec::new(),
             declared: Vec::new(),
         },
@@ -288,7 +288,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
 
 #[test]
 fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
-    use nia_package_metadata::{DependencyClass, LocalPackageGraph, LocalPackageGraphOptions};
+    use nia_package_metadata::{DependencyScope, PackageGraph, PackageGraphOptions};
 
     let root = std::env::temp_dir().join(format!(
         "nia-build-package-selection-{}-{}",
@@ -298,43 +298,28 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
             .expect("test clock must follow the Unix epoch")
             .as_nanos()
     ));
-    let dependency_classes = [
-        ("build", DependencyClass::BuildOnly),
-        ("corelib", DependencyClass::Runtime),
-        ("test", DependencyClass::TestOnly),
-        ("development", DependencyClass::Development),
-        ("optional", DependencyClass::Optional),
-        ("lazy", DependencyClass::Lazy),
+    let dependency_scopes = [
+        ("build", DependencyScope::Build),
+        ("corelib", DependencyScope::Runtime),
+        ("development", DependencyScope::Development),
     ];
-    for (name, _) in dependency_classes {
+    for (name, _) in dependency_scopes {
         std::fs::create_dir_all(root.join(name)).expect("create dependency root");
-        std::fs::write(root.join(name).join("nia.package"), "").expect("write dependency manifest");
+        std::fs::write(
+            root.join(name).join("nia.toml"),
+            format!("[package]\nname = \"{name}\"\n"),
+        )
+        .expect("write dependency manifest");
     }
-    let manifest = dependency_classes
-        .iter()
-        .map(|(name, class)| {
-            let class = match class {
-                DependencyClass::BuildOnly => "build-only",
-                DependencyClass::Runtime => "runtime",
-                DependencyClass::TestOnly => "test-only",
-                DependencyClass::Development => "development",
-                DependencyClass::Optional => "optional",
-                DependencyClass::Lazy => "lazy",
-            };
-            format!("dependency = {name}:{name}:{class}\n")
-        })
-        .collect::<String>();
     std::fs::create_dir_all(&root).expect("create package root");
-    std::fs::write(root.join("nia.package"), manifest).expect("write root manifest");
+    std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
 
-    let compile_request = |test_mode: bool, include_optional: bool, include_lazy: bool| {
-        let options = LocalPackageGraphOptions {
-            include_tests: test_mode,
-            include_optional,
-            include_lazy,
+    let compile_request = |test_mode: bool| {
+        let options = PackageGraphOptions {
+            include_development: test_mode,
         };
         let graph =
-            LocalPackageGraph::resolve_with_options(&root, options).expect("resolve package graph");
+            PackageGraph::resolve_with_options(&root, options).expect("resolve package graph");
         let root_package = PackageKey::root();
         let module_key = ModuleKey::new(root_package.clone(), "app").unwrap();
         let mut packages = vec![PlanPackage {
@@ -342,7 +327,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
             root: String::new(),
         }];
         let mut imports = Vec::new();
-        for (name, _) in dependency_classes {
+        for (name, _) in dependency_scopes {
             let package = PackageKey::new(name).unwrap();
             packages.push(PlanPackage {
                 key: package.clone(),
@@ -397,17 +382,17 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
             .expect("construct selected check request")
     };
 
-    let ordinary = compile_request(false, false, false);
+    let ordinary = compile_request(false);
     assert!(ordinary.module_map.get("corelib").is_some());
-    for filtered in ["build", "test", "development", "optional", "lazy"] {
+    for filtered in ["build", "development"] {
         assert!(
             ordinary.module_map.get(filtered).is_none(),
             "ordinary compile unexpectedly mapped {filtered} dependency"
         );
     }
 
-    let selected = compile_request(true, true, true);
-    for included in ["corelib", "test", "development", "optional", "lazy"] {
+    let selected = compile_request(true);
+    for included in ["corelib", "development"] {
         assert!(
             selected.module_map.get(included).is_some(),
             "selected compile did not map {included} dependency"

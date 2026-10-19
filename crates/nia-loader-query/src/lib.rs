@@ -305,11 +305,7 @@ impl LoaderDatabase {
         let cached_provider_demands = frontend_cache
             .as_ref()
             .zip(provider_demand_plan_key)
-            .filter(|_| {
-                !request.include_test_modules
-                    && !request.include_optional_packages
-                    && !request.include_lazy_packages
-            })
+            .filter(|_| !request.include_test_modules)
             .and_then(|(cache, key)| {
                 let identity = frontend_cache::ProviderDemandPlanIdentity {
                     key,
@@ -855,10 +851,8 @@ pub struct LoadRequest {
     pub verify_frontend_cache: bool,
     /// Optional resolved toolchain supplying std modules and identity.
     pub toolchain: Option<Arc<ToolchainLayout>>,
-    /// Dependency classes selected by package discovery for this load.
+    /// Whether development dependencies selected by package discovery are enabled.
     pub include_test_modules: bool,
-    pub include_optional_packages: bool,
-    pub include_lazy_packages: bool,
 }
 
 impl LoadRequest {
@@ -883,8 +877,6 @@ impl LoadRequest {
             verify_frontend_cache: false,
             toolchain: None,
             include_test_modules: false,
-            include_optional_packages: false,
-            include_lazy_packages: false,
         }
     }
 
@@ -924,14 +916,12 @@ impl LoadRequest {
         self
     }
 
-    /// Selects the dependency classes already resolved by package discovery.
+    /// Selects the dependency scopes already resolved by package discovery.
     pub fn with_package_graph_options(
         mut self,
-        options: nia_package_metadata::LocalPackageGraphOptions,
+        options: nia_package_metadata::PackageGraphOptions,
     ) -> Self {
-        self.include_test_modules = options.include_tests;
-        self.include_optional_packages = options.include_optional;
-        self.include_lazy_packages = options.include_lazy;
+        self.include_test_modules = options.include_development;
         self
     }
 

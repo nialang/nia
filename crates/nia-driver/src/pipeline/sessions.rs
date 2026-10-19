@@ -6,7 +6,7 @@ use std::fmt;
 use nia_compiler_query::CompilerDatabase;
 use nia_imports::ModuleMap;
 use nia_loader_query::LoaderDatabase;
-use nia_package_metadata::LocalPackageGraphOptions;
+use nia_package_metadata::PackageGraphOptions;
 use nia_source::SourcePath;
 use nia_target::TargetConfig;
 use nia_target_config::{BuildProfile, CompilationMode};
@@ -21,7 +21,7 @@ pub(super) struct LoaderKey {
     pub(super) profile: BuildProfile,
     pub(super) compilation_mode: CompilationMode,
     pub(super) runtime: RuntimeSpec,
-    pub(super) package_graph_options: LocalPackageGraphOptions,
+    pub(super) package_graph_options: PackageGraphOptions,
 }
 
 #[derive(Clone)]

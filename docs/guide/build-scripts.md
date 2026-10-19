@@ -24,6 +24,29 @@ artifact targets, and the facts it records through
 produce the same graph. When none of those inputs change, the next invocation
 reuses the recorded graph without running the script again.
 
+Before compiling `build.nia`, Nia reads the package's `nia.toml`. Dependency
+scope is declared outside the build script: `[build-dependencies]` is available
+only to the host build runner, `[dependencies]` is available to package targets,
+and `[dev-dependencies]` is selected by test builds. A build dependency package
+exports its build-time module through `[library].path`:
+
+```toml
+[package]
+name = "app"
+version = "0.1.0"
+
+[build-dependencies]
+json = { path = "vendor/json" }
+
+[dependencies]
+regex = { git = "https://example.com/regex.git", rev = "<commit>" }
+```
+
+The runner resolves these declarations before compiling the script and exposes
+the declared build libraries by dependency name. The script still owns the
+dynamic build graph; the manifest only defines package identity and dependency
+inputs.
+
 ## The Build Function
 
 The script defines one public function:

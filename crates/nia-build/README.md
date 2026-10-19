@@ -95,25 +95,36 @@ policy for the short-lived plan constructor.
 
 ## Package Metadata
 
-Package manifests are resolved before runner execution. The local package
-resolver fingerprints declared source content, applies explicit dependency
-classes, and keeps filtered optional, lazy, and test dependencies out of the
-selected graph. `LocalPackageGraph::report` exposes declared versus resolved
-edges without loading source modules.
+Package manifests are resolved before runner execution. The package resolver
+fingerprints declared source content and applies the explicit `build`,
+`runtime`, and `development` dependency scopes. `PackageGraph::report` exposes
+declared versus resolved edges without loading source modules.
+
+Git dependencies are fetched through the Nia-owned `nia-git` transport for
+local repositories, the Git TCP protocol, and HTTP(S). The `git://` transport
+is unauthenticated and unencrypted; use HTTPS when transport confidentiality
+and server authentication are required. SSH identification, packet framing,
+and KEXINIT negotiation are implemented as transport foundations, while
+encrypted key exchange and user authentication remain gated on host-key policy.
+Resolved commits and BLAKE3 source
+hashes are recorded in `nia.lock`; fetched trees are kept below the ignored
+`.nia/packages` directory and are checked against the recorded content hash
+before reuse. SSH sources are parsed in manifests, but fetching remains
+disabled until encrypted key exchange, host verification, and authentication
+are complete.
 
 Resolution records each existing dependency checkout root, including roots
 whose edge was filtered from the selected graph. When the coordinator
 constructs a compiler request, it matches build-plan package roots to those
 manifest edges and filters module-map roots by dependency class:
 
-| Dependency class | Visible to artifact compilation |
+| Dependency scope | Visible to artifact compilation |
 | --- | --- |
 | Runtime | Always |
-| Test-only, development | In test mode |
-| Optional, lazy | When explicitly selected by the build |
-| Build-only | Never |
+| Development | In test mode |
+| Build | To the host build runner |
 
-Generated build roots and package roots not declared in `nia.package` keep
+Generated build roots and package roots not declared in `nia.toml` keep
 their plan behavior unchanged.
 
 Package source identities walk only the selected roots, skip excluded and
@@ -129,7 +140,7 @@ source-root and exclusion list.
 Canonical package text escapes each namespace, name, and version component
 before joining them as `namespace/name@version`. Percent signs, delimiters,
 control bytes, and non-ASCII UTF-8 bytes use uppercase percent encoding, so
-distinct component tuples cannot share a text identity. Local `nia.package`
+distinct component tuples cannot share a text identity. Local `nia.toml`
 manifests are limited to 1 MiB; readers consume at most one byte beyond that
 limit and reject oversized input before decoding UTF-8.
 
@@ -185,8 +196,8 @@ host allocation.
 The registered protocol identities in `nia-compat` are the only schema and
 namespace authorities. One protocol epoch is shared by compiler, toolchain,
 ABI, metadata, runner, and cache products, and it is derived from the compiler
-version's release line: `0.x` versions use epoch `x`, so `0.2.0-dev` and every
-`0.2.x` release use epoch `2`. Internal format changes within a line do not
+version's release line: `0.x` versions use epoch `x`, so `0.3.0-dev` and every
+`0.3.x` release use epoch `3`. Internal format changes within a line do not
 change the epoch. Decoders require an exact match; earlier protocols have no
 readers, migrations, or aliases. Payload magic identifies the payload kind; it
 is not an independently bumped version. Owner-local fingerprint domains are

@@ -46,7 +46,7 @@ use nia_driver::{
     RuntimeSpec, SourceInputContent, SourcePath,
 };
 use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
-use nia_package_metadata::DependencyClass;
+use nia_package_metadata::DependencyScope;
 use nia_query::{QueryFingerprintBytesWriter, QuerySession};
 use nia_target::TargetConfig;
 use nia_target_config::{BuildProfile, CompilationMode};
@@ -100,7 +100,7 @@ pub(crate) fn package_dependency_selection(
                     .declared
                     .iter()
                     .filter(|dependency| dependency.source_root.as_deref() == Some(&package_root))
-                    .map(|dependency| dependency.dependency.class)
+                    .map(|dependency| dependency.dependency.scope)
                     .collect::<BTreeSet<_>>()
             });
             let selected = classes
@@ -108,7 +108,7 @@ pub(crate) fn package_dependency_selection(
                 .map(|classes| {
                     classes
                         .iter()
-                        .any(|class| dependency_class_selected(invocation, *class))
+                        .any(|scope| dependency_scope_selected(invocation, *scope))
                 })
                 .unwrap_or(true);
             (package.key.clone(), selected)
@@ -116,17 +116,15 @@ pub(crate) fn package_dependency_selection(
         .collect()
 }
 
-fn dependency_class_selected(invocation: &BuildInvocation, class: DependencyClass) -> bool {
+fn dependency_scope_selected(invocation: &BuildInvocation, scope: DependencyScope) -> bool {
     let options = invocation.package_graph_report.options;
-    match class {
-        DependencyClass::BuildOnly => false,
-        DependencyClass::Runtime => true,
-        DependencyClass::TestOnly | DependencyClass::Development => {
-            options.include_tests
+    match scope {
+        DependencyScope::Build => false,
+        DependencyScope::Runtime => true,
+        DependencyScope::Development => {
+            options.include_development
                 && invocation.compilation_mode == nia_target_config::CompilationMode::Test
         }
-        DependencyClass::Optional => options.include_optional,
-        DependencyClass::Lazy => options.include_lazy,
     }
 }
 

@@ -19,8 +19,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
 `init` gives access to arguments and the environment. The return type
 `ExitCode!()` is an error union: `!()` is success, and `process::ExitCode(1)!`
 exits with status 1. The examples print with `std::io::debugPrint`, which takes
-a format string and a slice of pointers to the values; `using std::fmt;` makes
-the formatting implementations available.
+a format string and a slice of pointers to the values. Formatting
+implementations are discovered from the value and trait packages automatically;
+no `using std::fmt;` declaration is required.
 
 ## Values And Types
 

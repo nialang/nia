@@ -1,0 +1,12 @@
+[package]
+name = "nia-git"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+flate2.workspace = true
+sha1.workspace = true
+rustls.workspace = true
+webpki-roots.workspace = true

@@ -117,10 +117,6 @@ pub struct BuildRequest {
     pub link_time_optimization: LinkTimeOptimization,
     /// Select test executable actions instead of the declared default step.
     pub test_mode: bool,
-    /// Include optional package dependencies in graph resolution.
-    pub include_optional_dependencies: bool,
-    /// Include lazy package dependencies in graph resolution.
-    pub include_lazy_dependencies: bool,
     /// Optional substring filter applied to test step names.
     pub test_filter: Option<String>,
     /// List matching test steps without executing them.
@@ -161,8 +157,6 @@ impl BuildRequest {
             profile: BuildProfile::Debug,
             link_time_optimization: LinkTimeOptimization::Off,
             test_mode: false,
-            include_optional_dependencies: false,
-            include_lazy_dependencies: false,
             test_filter: None,
             test_list: false,
             test_fail_fast: false,
@@ -229,18 +223,6 @@ impl BuildRequest {
     /// Selects the test action set for this invocation.
     pub fn with_test_mode(mut self, enabled: bool) -> Self {
         self.test_mode = enabled;
-        self
-    }
-
-    /// Includes optional package dependencies in the selected package graph.
-    pub fn with_optional_dependencies(mut self, enabled: bool) -> Self {
-        self.include_optional_dependencies = enabled;
-        self
-    }
-
-    /// Includes lazy package dependencies in the selected package graph.
-    pub fn with_lazy_dependencies(mut self, enabled: bool) -> Self {
-        self.include_lazy_dependencies = enabled;
         self
     }
 
@@ -330,11 +312,6 @@ impl fmt::Debug for BuildRequest {
             .field("profile", &self.profile)
             .field("link_time_optimization", &self.link_time_optimization)
             .field("test_mode", &self.test_mode)
-            .field(
-                "include_optional_dependencies",
-                &self.include_optional_dependencies,
-            )
-            .field("include_lazy_dependencies", &self.include_lazy_dependencies)
             .field("test_filter", &self.test_filter)
             .field("test_list", &self.test_list)
             .field("test_fail_fast", &self.test_fail_fast)
@@ -361,8 +338,6 @@ impl PartialEq for BuildRequest {
             && self.profile == other.profile
             && self.link_time_optimization == other.link_time_optimization
             && self.test_mode == other.test_mode
-            && self.include_optional_dependencies == other.include_optional_dependencies
-            && self.include_lazy_dependencies == other.include_lazy_dependencies
             && self.test_filter == other.test_filter
             && self.test_list == other.test_list
             && self.test_fail_fast == other.test_fail_fast
@@ -388,7 +363,7 @@ pub struct BuildInvocation {
     /// Relocation-independent local package source identity.
     pub package_source_fingerprint: [u8; 32],
     /// Package selection report shown by build inspection.
-    pub package_graph_report: nia_package_metadata::LocalPackageGraphReport,
+    pub package_graph_report: nia_package_metadata::PackageGraphReport,
     /// Physical path to the package's `build.nia` source.
     pub build_script: PathBuf,
     /// Invocation-local build output directory.
@@ -1173,8 +1148,8 @@ pub fn render_build_explanation_with_observations(
     let graph = &invocation.package_graph_report;
     let _ = writeln!(
         output,
-        "  package graph selection: tests={}, optional={}, lazy={}",
-        graph.options.include_tests, graph.options.include_optional, graph.options.include_lazy
+        "  package graph selection: development={}",
+        graph.options.include_development
     );
     let _ = writeln!(
         output,
@@ -1199,7 +1174,7 @@ pub fn render_build_explanation_with_observations(
             "    {}::{} ({:?}) -> {} [resolved={}, loaded_modules={}, used={}]",
             owner,
             dependency.dependency.name,
-            dependency.dependency.class,
+            dependency.dependency.scope,
             dependency.resolved_root.as_deref().unwrap_or("filtered"),
             usage.resolved,
             usage.loaded_modules,
@@ -1251,7 +1226,7 @@ pub fn render_build_explanation_with_observations(
 }
 
 struct BuildExplanationDependencyUsage<'a> {
-    dependency: &'a nia_package_metadata::LocalPackageDependencyReport,
+    dependency: &'a nia_package_metadata::PackageDependencyReport,
     resolved: bool,
     loaded_modules: usize,
     used: bool,
@@ -1676,7 +1651,7 @@ pub fn render_build_explanation_json_with_observations(
             serde_json::json!({
                 "owner": &dependency.owner_root,
                 "name": &dependency.dependency.name,
-                "class": format!("{:?}", dependency.dependency.class),
+                "scope": format!("{:?}", dependency.dependency.scope),
                 "resolved_root": dependency.resolved_root.as_deref(),
                 "resolved": usage.resolved,
                 "loaded_modules": usage.loaded_modules,
@@ -1691,9 +1666,7 @@ pub fn render_build_explanation_json_with_observations(
         "package_graph_fingerprint": hex_fingerprint(&invocation.package_source_fingerprint),
         "package_graph": {
             "selection": {
-                "tests": invocation.package_graph_report.options.include_tests,
-                "optional": invocation.package_graph_report.options.include_optional,
-                "lazy": invocation.package_graph_report.options.include_lazy,
+                "development": invocation.package_graph_report.options.include_development,
             },
             "declared": dependencies,
             "resolved_count": invocation.package_graph_report.resolved.len(),
@@ -2361,12 +2334,10 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
-    let package_graph = nia_package_metadata::LocalPackageGraph::resolve_with_options(
+    let package_graph = nia_package_metadata::PackageGraph::resolve_with_options(
         &package_root,
-        nia_package_metadata::LocalPackageGraphOptions {
-            include_tests: request.test_mode,
-            include_optional: request.include_optional_dependencies,
-            include_lazy: request.include_lazy_dependencies,
+        nia_package_metadata::PackageGraphOptions {
+            include_development: request.test_mode,
         },
     )
     .map_err(|error| BuildError::ResolvePackageGraph {
@@ -2705,6 +2676,31 @@ fn build_runner_module_map(invocation: &BuildInvocation) -> nia_ice::IceResult<M
             SourcePath::new(invocation.build_script.to_string_lossy().into_owned()),
         )
         .map_err(nia_ice::Ice::new)?;
+    for dependency in &invocation.package_graph_report.declared {
+        if dependency.owner_root.is_empty()
+            && dependency.dependency.scope == nia_package_metadata::DependencyScope::Build
+        {
+            let Some(package_root) = &dependency.source_root else {
+                continue;
+            };
+            let manifest = nia_package_metadata::PackageManifest::read(package_root)
+                .map_err(|error| nia_ice::Ice::new(error.to_string()))?;
+            let Some(library_path) = manifest.library_path else {
+                continue;
+            };
+            module_map
+                .insert(
+                    &dependency.dependency.name,
+                    SourcePath::new(
+                        package_root
+                            .join(library_path)
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
+                )
+                .map_err(nia_ice::Ice::new)?;
+        }
+    }
     Ok(module_map)
 }
 
@@ -3883,29 +3879,69 @@ mod tests {
     }
 
     #[test]
+    fn build_runner_module_map_exposes_declared_build_dependency_libraries() {
+        let root = temp_root("build_runner_build_dependencies");
+        let dependency = root.join("vendor/json");
+        std::fs::create_dir_all(&dependency).expect("create build dependency");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\n[build-dependencies]\njson = { path = \"vendor/json\" }\n",
+        )
+        .expect("write root manifest");
+        std::fs::write(
+            dependency.join("nia.toml"),
+            "[package]\nname = \"json\"\n[library]\npath = \"src/json.nia\"\n",
+        )
+        .expect("write dependency manifest");
+        std::fs::create_dir_all(dependency.join("src")).expect("create library source directory");
+        std::fs::write(
+            dependency.join("src/json.nia"),
+            "pub const value: u8 = 1;\n",
+        )
+        .expect("write library source");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("resolve build invocation");
+        let module_map = build_runner_module_map(&invocation).expect("runner module map");
+        assert_eq!(
+            module_map
+                .get("json")
+                .map(|path| path.as_str().replace('\\', "/")),
+            Some(
+                dependency
+                    .join("src/json.nia")
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            )
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
     fn build_explanation_distinguishes_dependency_resolution_loading_and_use() {
         use nia_package_metadata::{
-            DependencyClass, LocalPackageDependency, LocalPackageDependencyReport,
-            LocalPackageGraphNode, LocalPackageGraphOptions, LocalPackageGraphReport,
-            LocalPackageManifest,
+            DependencyScope, PackageDependency, PackageDependencyReport, PackageGraphNode,
+            PackageGraphOptions, PackageGraphReport, PackageManifest,
         };
 
         let root = temp_root("build_explanation_dependency_usage");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
-        for name in ["runtime", "cold", "lazy", "orphan"] {
+        for name in ["runtime", "development", "orphan"] {
             std::fs::create_dir_all(root.join(name)).expect("create dependency root");
         }
         let mut invocation =
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
                 .expect("build invocation");
 
-        let dependency = |name: &str, class: DependencyClass, resolved_root: Option<&str>| {
-            LocalPackageDependencyReport {
+        let dependency = |name: &str, scope: DependencyScope, resolved_root: Option<&str>| {
+            PackageDependencyReport {
                 owner_root: String::new(),
-                dependency: LocalPackageDependency {
+                dependency: PackageDependency {
                     name: name.to_string(),
-                    path: name.to_string(),
-                    class,
+                    source: nia_package_metadata::DependencySource::Path(name.to_string()),
+                    scope,
                 },
                 resolved_root: resolved_root.map(str::to_string),
                 source_root: Some(
@@ -3915,39 +3951,34 @@ mod tests {
                 ),
             }
         };
-        let graph_node = |name: &str, graph_root: &str| LocalPackageGraphNode {
-            manifest: LocalPackageManifest::implicit(name),
+        let graph_node = |name: &str, graph_root: &str| PackageGraphNode {
+            manifest: PackageManifest::implicit(name),
             root: graph_root.to_string(),
             source_fingerprint: [0; 32],
         };
-        invocation.package_graph_report = LocalPackageGraphReport {
-            options: LocalPackageGraphOptions {
-                include_tests: false,
-                include_optional: true,
-                include_lazy: false,
+        invocation.package_graph_report = PackageGraphReport {
+            options: PackageGraphOptions {
+                include_development: false,
             },
             resolved: vec![
                 graph_node("root", ""),
                 graph_node("runtime", "runtime"),
-                graph_node("cold", "cold"),
+                graph_node("development", "development"),
                 graph_node("orphan", "orphan"),
             ],
             declared: vec![
-                dependency("runtime", DependencyClass::Runtime, Some("runtime")),
-                dependency("cold", DependencyClass::Optional, Some("cold")),
-                dependency("lazy", DependencyClass::Lazy, None),
-                dependency("orphan", DependencyClass::Optional, Some("orphan")),
+                dependency("runtime", DependencyScope::Runtime, Some("runtime")),
+                dependency("development", DependencyScope::Development, None),
+                dependency("orphan", DependencyScope::Runtime, Some("orphan")),
             ],
         };
 
         let root_package = PackageKey::root();
         let runtime_package = PackageKey::new("runtime").unwrap();
-        let cold_package = PackageKey::new("cold").unwrap();
-        let lazy_package = PackageKey::new("lazy").unwrap();
+        let development_package = PackageKey::new("development").unwrap();
         let root_module = ModuleKey::new(root_package.clone(), "main").unwrap();
         let runtime_module = ModuleKey::new(runtime_package.clone(), "lib").unwrap();
-        let cold_module = ModuleKey::new(cold_package.clone(), "lib").unwrap();
-        let lazy_module = ModuleKey::new(lazy_package.clone(), "lib").unwrap();
+        let development_module = ModuleKey::new(development_package.clone(), "lib").unwrap();
         let check_action = ActionKey::new(root_package.clone(), "check").unwrap();
         let check_step = StepKey::new(root_package.clone(), "check").unwrap();
         let target = *invocation.toolchain.host_target();
@@ -3966,12 +3997,8 @@ mod tests {
                     root: "runtime".to_string(),
                 },
                 PlanPackage {
-                    key: cold_package.clone(),
-                    root: "cold".to_string(),
-                },
-                PlanPackage {
-                    key: lazy_package.clone(),
-                    root: "lazy".to_string(),
+                    key: development_package.clone(),
+                    root: "development".to_string(),
                 },
             ],
             host_target: target,
@@ -3987,8 +4014,8 @@ mod tests {
                             path: package_path(runtime_package.clone(), "src/lib.nia"),
                         },
                         ModuleImport {
-                            name: "lazy".to_string(),
-                            path: package_path(lazy_package.clone(), "src/lib.nia"),
+                            name: "development".to_string(),
+                            path: package_path(development_package.clone(), "src/lib.nia"),
                         },
                     ],
                 },
@@ -3999,14 +4026,8 @@ mod tests {
                     imports: Vec::new(),
                 },
                 PlanModule {
-                    key: cold_module,
-                    root_source: package_path(cold_package, "src/lib.nia"),
-                    optimization: OptimizationMode::O0,
-                    imports: Vec::new(),
-                },
-                PlanModule {
-                    key: lazy_module,
-                    root_source: package_path(lazy_package, "src/lib.nia"),
+                    key: development_module,
+                    root_source: package_path(development_package, "src/lib.nia"),
                     optimization: OptimizationMode::O0,
                     imports: Vec::new(),
                 },
@@ -4038,19 +4059,16 @@ mod tests {
         let text =
             render_build_explanation(&plan, &invocation, ConfigureCacheCandidate::None, &preview);
         assert!(text.contains(
-            "package graph: declared_dependencies=4, resolved_dependencies=3, selected_packages=4"
+            "package graph: declared_dependencies=3, resolved_dependencies=2, selected_packages=4"
         ));
         assert!(text.contains(
             "root::runtime (Runtime) -> runtime [resolved=true, loaded_modules=1, used=true]"
         ));
         assert!(text.contains(
-            "root::cold (Optional) -> cold [resolved=true, loaded_modules=1, used=false]"
+            "root::development (Development) -> filtered [resolved=false, loaded_modules=1, used=false]"
         ));
         assert!(text.contains(
-            "root::lazy (Lazy) -> filtered [resolved=false, loaded_modules=1, used=false]"
-        ));
-        assert!(text.contains(
-            "root::orphan (Optional) -> orphan [resolved=true, loaded_modules=0, used=false]"
+            "root::orphan (Runtime) -> orphan [resolved=true, loaded_modules=0, used=false]"
         ));
 
         let json: serde_json::Value = serde_json::from_str(&render_build_explanation_json(
@@ -4064,7 +4082,7 @@ mod tests {
             .as_array()
             .expect("declared dependency list");
         assert_eq!(json["package_graph"]["resolved_count"], 4);
-        assert_eq!(json["package_graph"]["resolved_dependency_count"], 3);
+        assert_eq!(json["package_graph"]["resolved_dependency_count"], 2);
         let dependency = |name: &str| {
             dependencies
                 .iter()
@@ -4073,10 +4091,8 @@ mod tests {
         };
         assert_eq!(dependency("runtime")["loaded_modules"], 1);
         assert_eq!(dependency("runtime")["used"], true);
-        assert_eq!(dependency("cold")["resolved"], true);
-        assert_eq!(dependency("cold")["used"], false);
-        assert_eq!(dependency("lazy")["resolved"], false);
-        assert_eq!(dependency("lazy")["loaded_modules"], 1);
+        assert_eq!(dependency("development")["resolved"], false);
+        assert_eq!(dependency("development")["loaded_modules"], 1);
         assert_eq!(dependency("orphan")["loaded_modules"], 0);
         assert!(
             dependencies

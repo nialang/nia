@@ -426,11 +426,15 @@ fn test_only_source_edits_do_not_invalidate_ordinary_build_artifacts() {
     fs::create_dir_all(workspace.join("src")).unwrap();
     fs::create_dir_all(workspace.join("tests/src")).unwrap();
     fs::write(
-        workspace.join("nia.package"),
-        "name = \"root\"\ndependency = tests:tests:test-only\n",
+        workspace.join("nia.toml"),
+        "[package]\nname = \"root\"\n[dev-dependencies]\ntests = { path = \"tests\" }\n",
     )
     .unwrap();
-    fs::write(workspace.join("tests/nia.package"), "name = \"tests\"\n").unwrap();
+    fs::write(
+        workspace.join("tests/nia.toml"),
+        "[package]\nname = \"tests\"\n",
+    )
+    .unwrap();
     fs::write(
         workspace.join("build.nia"),
         r#"using std::build;
