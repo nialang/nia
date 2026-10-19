@@ -225,7 +225,7 @@ mod ssh {
     };
     use aes::Aes128;
     use ctr::cipher::{KeyIvInit, StreamCipher};
-    use ring::{agreement, digest, hmac, rand, signature};
+    use ring::{agreement, digest, hmac, rand, rand::SecureRandom, signature};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(super) struct SshUrl {
@@ -651,6 +651,135 @@ mod ssh {
         let mut payload = vec![30];
         encode_ssh_string(client_public, &mut payload).expect("X25519 key fits uint32");
         payload
+    }
+
+    #[derive(Debug)]
+    pub(super) struct SshTransportKeys {
+        pub(super) outbound: SshAes128CtrDirection,
+        pub(super) inbound: SshAes128CtrDirection,
+        pub(super) session_id: [u8; 32],
+    }
+
+    pub(super) fn perform_ssh_key_exchange(
+        stream: &mut (impl Read + Write),
+        url: &SshUrl,
+        known_hosts: &KnownHosts,
+    ) -> io::Result<SshTransportKeys> {
+        write_ssh_identification(&mut *stream)?;
+        stream.flush()?;
+        let client_identification = b"SSH-2.0-NiaGit_0.3";
+        let server_identification = read_ssh_identification(&mut *stream)?;
+
+        let mut cookie = [0u8; 16];
+        rand::SystemRandom::new()
+            .fill(&mut cookie)
+            .map_err(|_| io::Error::other("SSH KEXINIT cookie generation failed"))?;
+        let client_kexinit = build_client_kexinit(&cookie);
+        write_plain_ssh_packet(&mut *stream, &client_kexinit)?;
+        let server_kexinit = read_expected_ssh_message(&mut *stream, 20)?;
+        let client_algorithms = parse_ssh_kexinit(&client_kexinit)?;
+        let server_algorithms = parse_ssh_kexinit(&server_kexinit)?;
+        let negotiated = negotiate_ssh_algorithms(&client_algorithms, &server_algorithms)?;
+        if negotiated.kex != "curve25519-sha256"
+            || negotiated.host_key != "ssh-ed25519"
+            || negotiated.cipher_client_to_server != "aes128-ctr"
+            || negotiated.cipher_server_to_client != "aes128-ctr"
+            || negotiated.mac_client_to_server != "hmac-sha2-256"
+            || negotiated.mac_server_to_client != "hmac-sha2-256"
+            || negotiated.compression_client_to_server != "none"
+            || negotiated.compression_server_to_client != "none"
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "SSH server selected an unsupported transport algorithm",
+            ));
+        }
+
+        let client_kex = Curve25519ClientKex::generate()?;
+        let client_public = *client_kex.client_public();
+        write_plain_ssh_packet(&mut *stream, &build_client_kex_ecdh_init(&client_public))?;
+        let reply = parse_ssh_kex_ecdh_reply(&read_expected_ssh_message(&mut *stream, 31)?)?;
+        let shared_secret = client_kex.complete(&reply.server_public)?;
+        let exchange_hash = curve25519_exchange_hash(Curve25519ExchangeHashInput {
+            client_identification,
+            server_identification: &server_identification,
+            client_kexinit: &client_kexinit,
+            server_kexinit: &server_kexinit,
+            server_host_key: &reply.server_host_key,
+            client_public: &client_public,
+            server_public: &reply.server_public,
+            shared_secret: &shared_secret,
+        })?;
+        verify_ssh_ed25519_host_key(&reply.server_host_key, &reply.signature, &exchange_hash)?;
+        known_hosts.verify(&url.host, url.port, &reply.server_host_key)?;
+
+        write_plain_ssh_packet(&mut *stream, &[21])?;
+        let _ = read_expected_ssh_message(&mut *stream, 21)?;
+
+        let session_id = exchange_hash;
+        let iv_client_to_server =
+            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'A', 16)?;
+        let iv_server_to_client =
+            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'B', 16)?;
+        let key_client_to_server =
+            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'C', 16)?;
+        let key_server_to_client =
+            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'D', 16)?;
+        let mac_client_to_server =
+            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'E', 32)?;
+        let mac_server_to_client =
+            derive_ssh_key(&shared_secret, &exchange_hash, &session_id, b'F', 32)?;
+        Ok(SshTransportKeys {
+            outbound: SshAes128CtrDirection::new(
+                &key_client_to_server,
+                &iv_client_to_server,
+                &mac_client_to_server,
+            )?,
+            inbound: SshAes128CtrDirection::new(
+                &key_server_to_client,
+                &iv_server_to_client,
+                &mac_server_to_client,
+            )?,
+            session_id,
+        })
+    }
+
+    pub(super) fn write_plain_ssh_packet(
+        stream: &mut impl Write,
+        payload: &[u8],
+    ) -> io::Result<()> {
+        let mut padding_len = 8 - ((payload.len() + 5) % 8);
+        if padding_len < 4 {
+            padding_len += 8;
+        }
+        let mut padding = vec![0u8; padding_len];
+        rand::SystemRandom::new()
+            .fill(&mut padding)
+            .map_err(|_| io::Error::other("SSH packet padding generation failed"))?;
+        let packet = encode_ssh_packet(payload, 8, &padding)?;
+        stream.write_all(&packet)?;
+        stream.flush()
+    }
+
+    fn read_expected_ssh_message(stream: &mut impl Read, expected: u8) -> io::Result<Vec<u8>> {
+        loop {
+            let packet = read_ssh_packet(&mut *stream, 8)?;
+            match packet.payload.first().copied() {
+                Some(message) if message == expected => return Ok(packet.payload),
+                Some(2 | 4) => continue,
+                Some(1) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::ConnectionAborted,
+                        "SSH server disconnected during key exchange",
+                    ));
+                }
+                _ => {
+                    return Err(invalid_packet(
+                        "SSH server sent an unexpected key exchange message",
+                    ));
+                }
+            }
+        }
     }
 
     /// Client side `curve25519-sha256` exchange state.
@@ -2533,6 +2662,154 @@ mod tests {
         assert_eq!(&extended[..16], client_iv);
         assert_eq!(extended.len(), 64);
         assert!(derive_ssh_key(&shared[..31], &exchange_hash, &session_id, b'A', 16).is_err());
+    }
+
+    #[test]
+    fn ssh_initial_key_exchange_verifies_host_and_switches_to_encryption() {
+        use std::net::TcpListener;
+
+        fn put_string(value: &[u8], output: &mut Vec<u8>) {
+            output.extend_from_slice(&(value.len() as u32).to_be_bytes());
+            output.extend_from_slice(value);
+        }
+
+        fn base64(input: &[u8]) -> String {
+            const TABLE: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut output = String::new();
+            for chunk in input.chunks(3) {
+                let first = chunk[0];
+                output.push(TABLE[(first >> 2) as usize] as char);
+                let second = chunk.get(1).copied();
+                output.push(
+                    TABLE[((first & 3) << 4 | second.map_or(0, |byte| byte >> 4)) as usize] as char,
+                );
+                if let Some(second) = second {
+                    let third = chunk.get(2).copied();
+                    output.push(
+                        TABLE[((second & 15) << 2 | third.map_or(0, |byte| byte >> 6)) as usize]
+                            as char,
+                    );
+                    output.push(third.map_or('=', |byte| TABLE[(byte & 63) as usize] as char));
+                } else {
+                    output.push_str("==");
+                }
+            }
+            output
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            assert!(
+                read_ssh_identification(&mut stream)
+                    .unwrap()
+                    .starts_with(b"SSH-2.0-NiaGit")
+            );
+            stream.write_all(b"SSH-2.0-TestServer\r\n").unwrap();
+
+            let client_kexinit = read_ssh_packet(&mut stream, 8).unwrap().payload;
+            let client_proposals = parse_ssh_kexinit(&client_kexinit).unwrap();
+            let server_kexinit = build_client_kexinit(&[31; 16]);
+            write_plain_ssh_packet(&mut stream, &server_kexinit).unwrap();
+
+            let client_init = read_ssh_packet(&mut stream, 8).unwrap().payload;
+            assert_eq!(client_init[0], 30);
+            let client_public: [u8; 32] = client_init[5..37].try_into().unwrap();
+            let server_kex = Curve25519ClientKex::generate().unwrap();
+            let server_public = *server_kex.client_public();
+            let shared_secret = server_kex.complete(&client_public).unwrap();
+            let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[19; 32]).unwrap();
+            let mut host_key = Vec::new();
+            put_string(b"ssh-ed25519", &mut host_key);
+            put_string(key_pair.public_key().as_ref(), &mut host_key);
+            let exchange_hash = curve25519_exchange_hash(Curve25519ExchangeHashInput {
+                client_identification: b"SSH-2.0-NiaGit_0.3",
+                server_identification: b"SSH-2.0-TestServer",
+                client_kexinit: &client_kexinit,
+                server_kexinit: &server_kexinit,
+                server_host_key: &host_key,
+                client_public: &client_public,
+                server_public: &server_public,
+                shared_secret: &shared_secret,
+            })
+            .unwrap();
+            let signature = key_pair.sign(&exchange_hash);
+            let mut signature_blob = Vec::new();
+            put_string(b"ssh-ed25519", &mut signature_blob);
+            put_string(signature.as_ref(), &mut signature_blob);
+            let mut reply = vec![31];
+            put_string(&host_key, &mut reply);
+            put_string(&server_public, &mut reply);
+            put_string(&signature_blob, &mut reply);
+            write_plain_ssh_packet(&mut stream, &reply).unwrap();
+
+            assert_eq!(read_ssh_packet(&mut stream, 8).unwrap().payload, [21]);
+            write_plain_ssh_packet(&mut stream, &[21]).unwrap();
+
+            let session_id = exchange_hash;
+            let derive = |letter, length| {
+                derive_ssh_key(&shared_secret, &exchange_hash, &session_id, letter, length).unwrap()
+            };
+            let mut outbound =
+                SshAes128CtrDirection::new(&derive(b'D', 16), &derive(b'B', 16), &derive(b'F', 32))
+                    .unwrap();
+            let wire = outbound.encode(&[2, 1], &[42; 9]).unwrap();
+            stream.write_all(&wire).unwrap();
+            client_proposals
+        });
+
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let mut host_key = Vec::new();
+        put_string(b"ssh-ed25519", &mut host_key);
+        put_string(
+            ring::signature::Ed25519KeyPair::from_seed_unchecked(&[19; 32])
+                .unwrap()
+                .public_key()
+                .as_ref(),
+            &mut host_key,
+        );
+        let known_hosts = KnownHosts::parse(
+            format!(
+                "[localhost]:{} ssh-ed25519 {}\n",
+                address.port(),
+                base64(&host_key)
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let url = SshUrl {
+            user: "git".to_string(),
+            host: "localhost".to_string(),
+            port: address.port(),
+            path: "/repo.git".to_string(),
+        };
+        let mut keys = perform_ssh_key_exchange(&mut stream, &url, &known_hosts).unwrap();
+        assert_eq!(
+            keys.inbound.read_packet(&mut stream).unwrap().payload,
+            [2, 1]
+        );
+        assert_eq!(keys.outbound.sequence(), 0);
+        assert!(
+            server
+                .join()
+                .unwrap()
+                .kex_algorithms
+                .contains(&"curve25519-sha256".to_string())
+        );
     }
 
     #[test]
