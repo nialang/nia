@@ -984,6 +984,37 @@ mod ssh {
         encode_ssh_string(&encoded, output)
     }
 
+    pub(super) fn derive_ssh_key(
+        shared_secret: &[u8],
+        exchange_hash: &[u8; 32],
+        session_id: &[u8; 32],
+        purpose: u8,
+        length: usize,
+    ) -> io::Result<Vec<u8>> {
+        if shared_secret.len() != 32 || length > 1024 * 1024 {
+            return Err(invalid_packet("SSH key derivation input is invalid"));
+        }
+        let mut encoded_secret = Vec::new();
+        encode_ssh_mpint(shared_secret, &mut encoded_secret)?;
+        let mut output = Vec::with_capacity(length);
+        let mut first = true;
+        while output.len() < length {
+            let mut context = digest::Context::new(&digest::SHA256);
+            context.update(&encoded_secret);
+            context.update(exchange_hash);
+            if first {
+                context.update(&[purpose]);
+                context.update(session_id);
+                first = false;
+            } else {
+                context.update(&output);
+            }
+            output.extend_from_slice(context.finish().as_ref());
+        }
+        output.truncate(length);
+        Ok(output)
+    }
+
     struct SshReader<'a> {
         bytes: &'a [u8],
         offset: usize,
@@ -2443,6 +2474,20 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn ssh_key_derivation_is_role_separated_and_extends_hash_output() {
+        let shared = [9u8; 32];
+        let exchange_hash = [10u8; 32];
+        let session_id = [11u8; 32];
+        let client_iv = derive_ssh_key(&shared, &exchange_hash, &session_id, b'A', 16).unwrap();
+        let server_iv = derive_ssh_key(&shared, &exchange_hash, &session_id, b'B', 16).unwrap();
+        assert_ne!(client_iv, server_iv);
+        let extended = derive_ssh_key(&shared, &exchange_hash, &session_id, b'A', 64).unwrap();
+        assert_eq!(&extended[..16], client_iv);
+        assert_eq!(extended.len(), 64);
+        assert!(derive_ssh_key(&shared[..31], &exchange_hash, &session_id, b'A', 16).is_err());
     }
 
     #[test]
