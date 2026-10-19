@@ -97,6 +97,8 @@ unicode-width = "0.2.0"
 toml = "1.1.4"
 flate2 = "1.1.5"
 sha1 = "0.10.6"
+aes = "0.9.3"
+ctr = "0.10.1"
 rustls = { version = "0.23.35", default-features = false, features = ["std", "ring", "tls12"] }
 ring = "0.17.14"
 webpki-roots = "1.0.3"

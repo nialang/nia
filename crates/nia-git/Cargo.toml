@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 flate2.workspace = true
 sha1.workspace = true
+aes.workspace = true
+ctr.workspace = true
 rustls.workspace = true
 ring.workspace = true
 webpki-roots.workspace = true
