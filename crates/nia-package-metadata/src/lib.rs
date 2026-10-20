@@ -451,15 +451,7 @@ impl PackageFetcher {
                     .clone()
                     .or_else(|| tag.clone())
                     .or_else(|| branch.clone());
-                let selector = if rev.is_some() {
-                    format!("rev:{}", rev.as_deref().unwrap_or_default())
-                } else if let Some(tag) = tag {
-                    format!("tag:{tag}")
-                } else if let Some(branch) = branch {
-                    format!("branch:{branch}")
-                } else {
-                    "head".to_string()
-                };
+                let selector = git_lock_selector(rev, tag, branch);
                 if let Some(entry) = self.lock.package.iter().find(|entry| {
                     entry.name == dependency.name
                         && entry.source == source
@@ -618,11 +610,118 @@ impl PackageFetcher {
         Ok(())
     }
 
+    /// Drops lock entries that no manifest under the state root can reach.
+    ///
+    /// The walk covers every workspace member and every dependency scope and
+    /// follows Git dependencies through their cached checkouts, so building
+    /// one member or a non-test build never drops another member's or a
+    /// development dependency's entry. When any part of that graph cannot be
+    /// read offline, the lock is left unchanged.
+    fn prune_unreachable(&mut self) -> io::Result<()> {
+        if self.lock.package.is_empty() {
+            return Ok(());
+        }
+        let Some(state_root) = self.lock_path.parent().map(Path::to_path_buf) else {
+            return Ok(());
+        };
+        self.lock_state()?;
+        let Some(reachable) = self.reachable_lock_keys(&state_root) else {
+            return Ok(());
+        };
+        let before = self.lock.package.len();
+        self.lock.package.retain(|entry| {
+            reachable.contains(&(
+                entry.name.clone(),
+                entry.source.clone(),
+                entry.selector.clone(),
+            ))
+        });
+        if self.lock.package.len() != before {
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
+    fn reachable_lock_keys(&self, state_root: &Path) -> Option<BTreeSet<(String, String, String)>> {
+        let mut reachable = BTreeSet::new();
+        if !state_root.join("nia.toml").is_file() {
+            // A root package without a manifest declares no dependencies.
+            return Some(reachable);
+        }
+        let mut pending = Vec::new();
+        let raw = read_raw_manifest(state_root).ok()?;
+        if raw.workspace.is_some() {
+            let workspace = WorkspaceManifest::read(state_root).ok()?;
+            pending.extend(
+                workspace
+                    .member_packages()
+                    .ok()?
+                    .into_iter()
+                    .map(|member| member.root),
+            );
+            if raw.package.is_some() {
+                pending.push(state_root.to_path_buf());
+            }
+        } else {
+            pending.push(state_root.to_path_buf());
+        }
+        let mut seen = BTreeSet::new();
+        while let Some(root) = pending.pop() {
+            let root = root.canonicalize().ok()?;
+            if !seen.insert(root.clone()) {
+                continue;
+            }
+            if seen.len() > 1024 || !root.join("nia.toml").is_file() {
+                return None;
+            }
+            let manifest = PackageManifest::read(&root).ok()?;
+            for dependency in &manifest.dependencies {
+                match &dependency.source {
+                    DependencySource::Path(path) => pending.push(root.join(path)),
+                    DependencySource::Git {
+                        url,
+                        rev,
+                        tag,
+                        branch,
+                    } => {
+                        let source = canonical_git_source(url).ok()?;
+                        let selector = git_lock_selector(rev, tag, branch);
+                        let entry = self.lock.package.iter().find(|entry| {
+                            entry.name == dependency.name
+                                && entry.source == source
+                                && entry.selector == selector
+                        })?;
+                        pending.push(self.cache_root.join(entry.content_hash.get(7..)?));
+                        reachable.insert((dependency.name.clone(), source, selector));
+                    }
+                }
+            }
+        }
+        Some(reachable)
+    }
+
     fn finish(self) -> io::Result<()> {
         if self.dirty {
             self.lock.write_atomic(&self.lock_path)?;
         }
         Ok(())
+    }
+}
+
+/// The `nia.lock` selector recorded for a Git dependency.
+fn git_lock_selector(
+    rev: &Option<String>,
+    tag: &Option<String>,
+    branch: &Option<String>,
+) -> String {
+    if let Some(rev) = rev {
+        format!("rev:{rev}")
+    } else if let Some(tag) = tag {
+        format!("tag:{tag}")
+    } else if let Some(branch) = branch {
+        format!("branch:{branch}")
+    } else {
+        "head".to_string()
     }
 }
 
@@ -811,6 +910,7 @@ impl PackageGraph {
             (&left.owner_root, &left.dependency.name)
                 .cmp(&(&right.owner_root, &right.dependency.name))
         });
+        fetcher.prune_unreachable()?;
         fetcher.finish()?;
         Ok(Self {
             options,
@@ -4337,6 +4437,145 @@ mod tests {
             .unwrap();
             assert!(PackageManifest::read(&root).is_err(), "{declaration}");
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Creates a one-commit Git repository holding package `name` and returns
+    /// its `file:///` URL.
+    fn local_git_package(parent: &Path, name: &str) -> String {
+        use std::process::Command;
+
+        let repository = parent.join(name);
+        std::fs::create_dir_all(repository.join("src")).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&repository)
+                .output()
+                .expect("Git executable is required for the test fixture");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["-c", "init.defaultBranch=main", "init", "-q"]);
+        git(&["config", "user.email", "nia-test@example.invalid"]);
+        git(&["config", "user.name", "Nia Test"]);
+        std::fs::write(
+            repository.join("nia.toml"),
+            format!("[package]\nname = \"{name}\"\n"),
+        )
+        .unwrap();
+        std::fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
+        git(&["add", "nia.toml", "src"]);
+        git(&["commit", "-qm", "fixture"]);
+        format!(
+            "file:///{}",
+            repository.to_string_lossy().replace('\\', "/")
+        )
+    }
+
+    fn lock_test_root(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("nia-lock-{label}-{}-{nonce}", std::process::id()))
+    }
+
+    fn locked_names(root: &Path) -> Vec<String> {
+        PackageLock::read(&root.join("nia.lock"))
+            .unwrap()
+            .package
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect()
+    }
+
+    #[test]
+    fn package_graph_prunes_lock_entries_for_removed_dependencies() {
+        let root = lock_test_root("prune");
+        let upstream = root.join("upstream");
+        let first = local_git_package(&upstream, "first");
+        let second = local_git_package(&upstream, "second");
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        let manifest = |dependencies: &str| {
+            std::fs::write(
+                consumer.join("nia.toml"),
+                format!("[package]\nname = \"consumer\"\n[dependencies]\n{dependencies}"),
+            )
+            .unwrap();
+        };
+        manifest(&format!(
+            "first = {{ git = \"{first}\" }}\nsecond = {{ git = \"{second}\" }}\n"
+        ));
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert_eq!(locked_names(&consumer), ["first", "second"]);
+
+        manifest(&format!("first = {{ git = \"{first}\" }}\n"));
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert_eq!(locked_names(&consumer), ["first"]);
+
+        manifest("");
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert!(locked_names(&consumer).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_keeps_development_entries_outside_test_builds() {
+        let root = lock_test_root("dev");
+        let fixtures = local_git_package(&root.join("upstream"), "fixtures");
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        std::fs::write(
+            consumer.join("nia.toml"),
+            format!(
+                "[package]\nname = \"consumer\"\n[dev-dependencies]\nfixtures = {{ git = \"{fixtures}\" }}\n"
+            ),
+        )
+        .unwrap();
+        PackageGraph::resolve(&consumer, true).unwrap();
+        assert_eq!(locked_names(&consumer), ["fixtures"]);
+
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert_eq!(locked_names(&consumer), ["fixtures"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_keeps_other_workspace_member_entries() {
+        let root = lock_test_root("workspace");
+        let upstream = root.join("upstream");
+        let left_dep = local_git_package(&upstream, "leftdep");
+        let right_dep = local_git_package(&upstream, "rightdep");
+        let workspace = root.join("workspace");
+        for (member, dependency, url) in [
+            ("left", "leftdep", &left_dep),
+            ("right", "rightdep", &right_dep),
+        ] {
+            std::fs::create_dir_all(workspace.join(member)).unwrap();
+            std::fs::write(
+                workspace.join(member).join("nia.toml"),
+                format!(
+                    "[package]\nname = \"{member}\"\n[dependencies]\n{dependency} = {{ git = \"{url}\" }}\n"
+                ),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            workspace.join("nia.toml"),
+            "[workspace]\nmembers = [\"left\", \"right\"]\n",
+        )
+        .unwrap();
+        PackageGraph::resolve(&workspace.join("left"), false).unwrap();
+        PackageGraph::resolve(&workspace.join("right"), false).unwrap();
+        assert_eq!(locked_names(&workspace), ["leftdep", "rightdep"]);
+
+        PackageGraph::resolve(&workspace.join("left"), false).unwrap();
+        assert_eq!(locked_names(&workspace), ["leftdep", "rightdep"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 
