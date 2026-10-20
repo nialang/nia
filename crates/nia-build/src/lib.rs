@@ -85,6 +85,7 @@ pub use configure_observation::{
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
+pub use nia_package_metadata::{LockPolicy, LockUpdate};
 pub use output_recovery::OutputRecoveryError;
 pub use process_output::{ProcessOutputStream, ProcessOutputWriter};
 pub use progress::{
@@ -106,6 +107,8 @@ pub struct BuildRequest {
     pub packages: Vec<String>,
     /// Selects all members of the discovered workspace.
     pub workspace_all: bool,
+    /// How dependency resolution may change `nia.lock` and the package cache.
+    pub lock_policy: nia_package_metadata::LockPolicy,
     /// Optional named build step; `None` selects the plan default.
     pub step: Option<String>,
     /// Whether compiler timing information is emitted.
@@ -156,6 +159,7 @@ impl BuildRequest {
             root: None,
             packages: Vec::new(),
             workspace_all: false,
+            lock_policy: nia_package_metadata::LockPolicy::default(),
             step: None,
             timings: TimingMode::Off,
             timing_format: TimingFormat::Text,
@@ -236,6 +240,12 @@ impl BuildRequest {
     /// Selects cross-module optimization for runners and executable actions.
     pub fn with_link_time_optimization(mut self, policy: LinkTimeOptimization) -> Self {
         self.link_time_optimization = policy;
+        self
+    }
+
+    /// Restricts how dependency resolution may change `nia.lock`.
+    pub fn with_lock_policy(mut self, policy: nia_package_metadata::LockPolicy) -> Self {
+        self.lock_policy = policy;
         self
     }
 
@@ -325,6 +335,7 @@ impl fmt::Debug for BuildRequest {
             .field("root", &self.root)
             .field("packages", &self.packages)
             .field("workspace_all", &self.workspace_all)
+            .field("lock_policy", &self.lock_policy)
             .field("step", &self.step)
             .field("timings", &self.timings)
             .field("timing_format", &self.timing_format)
@@ -353,6 +364,7 @@ impl PartialEq for BuildRequest {
             && self.root == other.root
             && self.packages == other.packages
             && self.workspace_all == other.workspace_all
+            && self.lock_policy == other.lock_policy
             && self.step == other.step
             && self.timings == other.timings
             && self.timing_format == other.timing_format
@@ -519,6 +531,13 @@ pub enum BuildError {
         /// Package root where graph resolution began.
         path: PathBuf,
         /// Underlying manifest, path, protocol identity, or graph error.
+        error: io::Error,
+    },
+    /// Refreshing `nia.lock` for `nia update` failed.
+    UpdateLock {
+        /// Directory from which the manifest search began.
+        path: PathBuf,
+        /// Underlying manifest, fetch, or lock file error.
         error: io::Error,
     },
     /// Workspace members could not be selected for this build request.
@@ -693,6 +712,11 @@ impl fmt::Display for BuildError {
                 "failed to resolve package graph at `{}`: {error}",
                 path.display()
             ),
+            Self::UpdateLock { path, error } => write!(
+                f,
+                "failed to update nia.lock from `{}`: {error}",
+                path.display()
+            ),
             Self::WorkspaceSelection { path, detail } => write!(
                 f,
                 "failed to select workspace packages from `{}`: {detail}",
@@ -829,6 +853,24 @@ fn write_runner_output(f: &mut fmt::Formatter<'_>, stream: &str, bytes: &[u8]) -
 }
 
 impl std::error::Error for BuildError {}
+
+/// Fetches Git dependency selectors again and rewrites `nia.lock` for
+/// `nia update`. `root` defaults to the current directory; an empty `names`
+/// updates every locked dependency.
+pub fn run_update(
+    root: Option<PathBuf>,
+    names: &[String],
+) -> Result<Vec<nia_package_metadata::LockUpdate>, BuildError> {
+    let start = match root {
+        Some(root) if root.is_absolute() => root,
+        Some(root) => env::current_dir()
+            .map_err(|error| BuildError::CurrentDirectory { error })?
+            .join(root),
+        None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
+    };
+    nia_package_metadata::update_lock(&start, names)
+        .map_err(|error| BuildError::UpdateLock { path: start, error })
+}
 
 /// Runs one build request from package discovery through action publication.
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
@@ -2558,11 +2600,12 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
-    let package_graph = nia_package_metadata::PackageGraph::resolve_with_options(
+    let package_graph = nia_package_metadata::PackageGraph::resolve_with_policy(
         &package_root,
         nia_package_metadata::PackageGraphOptions {
             include_development: request.test_mode,
         },
+        request.lock_policy,
     )
     .map_err(|error| BuildError::ResolvePackageGraph {
         path: package_root.clone(),

@@ -23,6 +23,7 @@ pub(crate) enum HelpTopic {
     Main,
     Build,
     Test,
+    Update,
     Check,
     Emit,
     EmitKind(EmitKind),
@@ -34,6 +35,7 @@ impl HelpTopic {
             Self::Main => Scope::GLOBAL,
             Self::Build => Scope::BUILD,
             Self::Test => Scope::TEST,
+            Self::Update => Scope::UPDATE,
             Self::Check => Scope::CHECK,
             Self::Emit => Scope::EMIT_ANY,
             Self::EmitKind(kind) => kind.scope(),
@@ -91,6 +93,8 @@ pub(crate) struct PackageOptions {
     pub(crate) root: Option<PathBuf>,
     pub(crate) packages: Vec<String>,
     pub(crate) workspace_all: bool,
+    pub(crate) locked: bool,
+    pub(crate) offline: bool,
     pub(crate) jobs: Option<NonZeroUsize>,
     pub(crate) quiet: u8,
     pub(crate) verbose: u8,
@@ -114,6 +118,10 @@ pub(crate) enum CliCommand {
         filter: Option<String>,
         list: bool,
         fail_fast: bool,
+    },
+    Update {
+        root: Option<PathBuf>,
+        names: Vec<String>,
     },
     Check {
         path: String,
@@ -232,6 +240,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
         "help" => return help_topic(rest).map(CliAction::Help),
         "build" => HelpTopic::Build,
         "test" => HelpTopic::Test,
+        "update" => HelpTopic::Update,
         "check" => HelpTopic::Check,
         "emit" => HelpTopic::Emit,
         _ => {
@@ -257,6 +266,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
     let command = match topic {
         HelpTopic::Build => parse_build(&scanned)?,
         HelpTopic::Test => parse_test(&scanned)?,
+        HelpTopic::Update => parse_update(&scanned),
         HelpTopic::Check => parse_check(&scanned)?,
         HelpTopic::Emit => {
             if rest.is_empty() {
@@ -329,6 +339,7 @@ fn topic_name(topic: HelpTopic) -> String {
         HelpTopic::Main => "`nia`".to_string(),
         HelpTopic::Build => "`nia build`".to_string(),
         HelpTopic::Test => "`nia test`".to_string(),
+        HelpTopic::Update => "`nia update`".to_string(),
         HelpTopic::Check => "`nia check`".to_string(),
         HelpTopic::Emit => "`nia emit`".to_string(),
         HelpTopic::EmitKind(kind) => format!("`nia emit {}`", kind.flag()),
@@ -400,6 +411,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
         [] => Ok(HelpTopic::Main),
         ["build"] => Ok(HelpTopic::Build),
         ["test"] => Ok(HelpTopic::Test),
+        ["update"] => Ok(HelpTopic::Update),
         ["check"] => Ok(HelpTopic::Check),
         ["emit"] => Ok(HelpTopic::Emit),
         ["emit", target] => match EmitKind::from_flag(target) {
@@ -583,6 +595,8 @@ fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<Packa
             .map(|occurrence| value(occurrence).to_owned())
             .collect(),
         workspace_all: scanned.has(OptionId::Workspace),
+        locked: scanned.has(OptionId::Locked),
+        offline: scanned.has(OptionId::Offline),
         jobs,
         quiet: u8::from(quiet > 0),
         verbose: verbose as u8,
@@ -643,6 +657,15 @@ fn parse_test(scanned: &Scanned) -> CliResult<CliCommand> {
         list: scanned.has(OptionId::List),
         fail_fast: scanned.has(OptionId::FailFast),
     })
+}
+
+fn parse_update(scanned: &Scanned) -> CliCommand {
+    CliCommand::Update {
+        root: scanned
+            .last(OptionId::Root)
+            .map(|occurrence| PathBuf::from(value(occurrence))),
+        names: scanned.positionals.clone(),
+    }
 }
 
 fn single_path(scanned: &Scanned, topic: HelpTopic) -> CliResult<String> {
@@ -1200,6 +1223,25 @@ mod tests {
                     && package.root.as_deref() == Some(std::path::Path::new("tests"))
         ));
         assert_errors(&[(&["test", "extra"], "unexpected argument `extra`")]);
+    }
+
+    #[test]
+    fn lock_options_and_update_are_typed() {
+        let cli = run(&["build", "--locked", "--offline"]);
+        assert!(matches!(
+            &cli.command,
+            CliCommand::Build { package, .. } if package.locked && package.offline
+        ));
+        let cli = run(&["update", "regex", "json", "--root", "app"]);
+        assert!(matches!(
+            &cli.command,
+            CliCommand::Update { root: Some(root), names }
+                if root == std::path::Path::new("app") && names == &["regex", "json"]
+        ));
+        assert!(matches!(
+            &run(&["update"]).command,
+            CliCommand::Update { root: None, names } if names.is_empty()
+        ));
     }
 
     #[test]

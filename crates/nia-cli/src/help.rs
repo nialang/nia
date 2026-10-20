@@ -69,6 +69,7 @@ pub(crate) fn help_command(topic: HelpTopic) -> String {
         HelpTopic::Main => "nia help".to_string(),
         HelpTopic::Build => "nia help build".to_string(),
         HelpTopic::Test => "nia help test".to_string(),
+        HelpTopic::Update => "nia help update".to_string(),
         HelpTopic::Check => "nia help check".to_string(),
         HelpTopic::Emit => "nia help emit".to_string(),
         HelpTopic::EmitKind(kind) => format!("nia help emit {}", kind.flag()),
@@ -113,6 +114,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             commands: &[
                 ("build [step]", "build the current package"),
                 ("test", "run package tests"),
+                (
+                    "update [name ...]",
+                    "fetch Git dependencies again and rewrite nia.lock",
+                ),
                 ("check <path>", "check a package or source file"),
                 ("emit --<target> <path>", "inspect or write compiler output"),
                 ("help [command]", "show command help"),
@@ -139,6 +144,13 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             commands: &[],
             examples: &["nia test", "nia test --filter parser", "nia test --list"],
+        },
+        HelpTopic::Update => HelpDoc {
+            title: "nia update",
+            about: "Fetch Git dependency selectors again and rewrite nia.lock.",
+            usage: &["nia update [name ...] [--root <dir>]"],
+            commands: &[],
+            examples: &["nia update", "nia update regex"],
         },
         HelpTopic::Check => HelpDoc {
             title: "nia check",
@@ -291,6 +303,7 @@ mod tests {
             HelpTopic::Main,
             HelpTopic::Build,
             HelpTopic::Test,
+            HelpTopic::Update,
             HelpTopic::Check,
             HelpTopic::Emit,
         ];

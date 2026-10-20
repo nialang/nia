@@ -48,6 +48,7 @@ impl Scope {
     pub(crate) const EMIT_CODEGEN: Self = Self(1 << 6);
     pub(crate) const EMIT_OBJ: Self = Self(1 << 7);
     pub(crate) const EMIT_EXE: Self = Self(1 << 8);
+    pub(crate) const UPDATE: Self = Self(1 << 9);
     /// Every emit kind, used before the kind is known.
     pub(crate) const EMIT_ANY: Self = Self::EMIT_INSPECT
         .or(Self::EMIT_CHECKED)
@@ -142,6 +143,8 @@ pub(crate) enum OptionId {
     Root,
     Package,
     Workspace,
+    Locked,
+    Offline,
     Jobs,
     Quiet,
     Verbose,
@@ -256,7 +259,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Root,
         names: &["--root"],
         arity: Arity::Value,
-        scope: BUILD_TEST,
+        scope: BUILD_TEST.or(Scope::UPDATE),
         usage: "--root <dir>",
         about: "start package discovery here instead of the current directory",
     },
@@ -275,6 +278,22 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         scope: BUILD_TEST,
         usage: "--workspace",
         about: "select every workspace member",
+    },
+    OptionSpec {
+        id: OptionId::Locked,
+        names: &["--locked"],
+        arity: Arity::Flag,
+        scope: BUILD_TEST,
+        usage: "--locked",
+        about: "fail instead of changing nia.lock",
+    },
+    OptionSpec {
+        id: OptionId::Offline,
+        names: &["--offline"],
+        arity: Arity::Flag,
+        scope: BUILD_TEST,
+        usage: "--offline",
+        about: "fail instead of fetching Git dependencies that are not cached",
     },
     OptionSpec {
         id: OptionId::Filter,

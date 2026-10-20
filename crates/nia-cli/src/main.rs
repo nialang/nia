@@ -304,6 +304,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             let request = request.with_test_list(list).with_test_fail_fast(fail_fast);
             run_package_request(request, diagnostics_format)
         }
+        CliCommand::Update { root, names } => run_update(root, &names, diagnostics_format),
         CliCommand::Check {
             path,
             opt_report,
@@ -459,7 +460,12 @@ fn package_request(
     for name in &package.packages {
         request = request.with_package(name.clone());
     }
-    request = request.with_workspace_all(package.workspace_all);
+    request = request
+        .with_workspace_all(package.workspace_all)
+        .with_lock_policy(nia_build::LockPolicy {
+            locked: package.locked,
+            offline: package.offline,
+        });
     if let Some(jobs) = package.jobs {
         request = request.with_max_parallel_actions(jobs);
     }
@@ -473,6 +479,55 @@ fn package_request(
 fn run_package_request(request: nia_build::BuildRequest, format: DiagnosticsFormat) -> ExitCode {
     match nia_build::run_build(request) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            let rendered = match format {
+                DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),
+                DiagnosticsFormat::Json => nia_build::render_build_error_json(&error),
+            };
+            write_diagnostic_report(&rendered, format);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_update(root: Option<PathBuf>, names: &[String], format: DiagnosticsFormat) -> ExitCode {
+    match nia_build::run_update(root, names) {
+        Ok(updates) => {
+            let short = |rev: &str| rev.get(..12).unwrap_or(rev).to_owned();
+            for update in &updates {
+                let label = format!("{} ({})", update.name, update.selector);
+                match (&update.old_rev, &update.new_rev) {
+                    (Some(old), Some(new)) => write_stderr(format_args!(
+                        "Updated {label} {} -> {}
+",
+                        short(old),
+                        short(new)
+                    )),
+                    (None, Some(new)) => {
+                        write_stderr(format_args!(
+                            "Added {label} {}
+",
+                            short(new)
+                        ));
+                    }
+                    (Some(old), None) => {
+                        write_stderr(format_args!(
+                            "Removed {label} {}
+",
+                            short(old)
+                        ));
+                    }
+                    (None, None) => {}
+                }
+            }
+            if updates.is_empty() {
+                write_stderr(format_args!(
+                    "nia.lock is up to date
+"
+                ));
+            }
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             let rendered = match format {
                 DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),

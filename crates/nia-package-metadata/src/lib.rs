@@ -411,26 +411,42 @@ impl PackageLock {
     }
 }
 
-/// Resolves supported Git dependencies into an immutable, project-local cache.
+/// How resolution may change `nia.lock` and the package cache.
 ///
+/// The policy never changes which packages are selected, so it is not part of
+/// [`PackageGraphOptions`] or the graph fingerprint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LockPolicy {
+    /// Fail instead of adding, changing, or removing a `nia.lock` entry.
+    pub locked: bool,
+    /// Fail instead of fetching a Git dependency that is not cached.
+    pub offline: bool,
+}
+
 /// Resolves supported Git dependencies into an immutable, project-local cache.
 #[derive(Debug)]
 struct PackageFetcher {
     cache_root: PathBuf,
     lock_path: PathBuf,
     lock: PackageLock,
+    /// Entries as read from disk, for `--locked` and for skipping no-op writes.
+    original: Vec<LockedPackage>,
+    policy: LockPolicy,
     dirty: bool,
     state_lock: Option<File>,
 }
 
 impl PackageFetcher {
-    fn for_root(root: &Path) -> io::Result<Self> {
+    fn for_root(root: &Path, policy: LockPolicy) -> io::Result<Self> {
         let state_root = workspace_state_root(root)?;
         let lock_path = state_root.join("nia.lock");
+        let lock = PackageLock::read(&lock_path)?;
         Ok(Self {
             cache_root: state_root.join(".nia/packages"),
-            lock: PackageLock::read(&lock_path)?,
+            original: lock.package.clone(),
+            lock,
             lock_path,
+            policy,
             dirty: false,
             state_lock: None,
         })
@@ -502,6 +518,24 @@ impl PackageFetcher {
                 );
                 let destination = self.cache_root.join(key.to_hex().as_str());
                 if !destination.is_dir() {
+                    if self.policy.locked && fetch_rev.is_none() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!(
+                                "Git dependency `{}` ({selector}) is not recorded in nia.lock, and `--locked` forbids adding it",
+                                dependency.name
+                            ),
+                        ));
+                    }
+                    if self.policy.offline {
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            format!(
+                                "Git dependency `{}` is not in the package cache, and `--offline` forbids fetching it",
+                                dependency.name
+                            ),
+                        ));
+                    }
                     fs::create_dir_all(&self.cache_root)?;
                     let staging = allocate_package_staging(&self.cache_root)?;
                     let fetched_revision = match checkout_source(
@@ -605,6 +639,7 @@ impl PackageFetcher {
                 .open(state_directory.join("packages.lock"))?;
             lock.lock()?;
             self.lock = PackageLock::read(&self.lock_path)?;
+            self.original = self.lock.package.clone();
             self.state_lock = Some(lock);
         }
         Ok(())
@@ -701,11 +736,137 @@ impl PackageFetcher {
     }
 
     fn finish(self) -> io::Result<()> {
-        if self.dirty {
-            self.lock.write_atomic(&self.lock_path)?;
+        if !self.dirty {
+            return Ok(());
         }
-        Ok(())
+        let key = |entry: &LockedPackage| {
+            (
+                entry.name.clone(),
+                entry.source.clone(),
+                entry.selector.clone(),
+                entry.rev.clone(),
+                entry.content_hash.clone(),
+            )
+        };
+        let mut before = self.original.iter().map(key).collect::<Vec<_>>();
+        let mut after = self.lock.package.iter().map(key).collect::<Vec<_>>();
+        before.sort();
+        after.sort();
+        if before == after {
+            return Ok(());
+        }
+        if self.policy.locked {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "nia.lock needs to be updated, but `--locked` forbids changing it",
+            ));
+        }
+        self.lock.write_atomic(&self.lock_path)
     }
+}
+
+/// One `nia.lock` entry changed by [`update_lock`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockUpdate {
+    pub name: String,
+    pub selector: String,
+    /// `None` when the entry was added.
+    pub old_rev: Option<String>,
+    /// `None` when the entry was removed.
+    pub new_rev: Option<String>,
+}
+
+/// Fetches the selectors of the named Git dependencies again, or of every
+/// locked dependency when `names` is empty, and rewrites `nia.lock`.
+///
+/// `start` is any directory inside a package or workspace. Every package that
+/// shares the lock file is resolved with all dependency scopes, so updating
+/// from one member refreshes entries for the whole workspace.
+pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>> {
+    let start = start.canonicalize()?;
+    let manifest_root = start
+        .ancestors()
+        .find(|directory| directory.join("nia.toml").is_file())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no nia.toml found at or above `{}`", display_path(&start)),
+            )
+        })?;
+    let state_root = workspace_state_root(manifest_root)?;
+    let before = {
+        let mut fetcher = PackageFetcher::for_root(&state_root, LockPolicy::default())?;
+        fetcher.lock_state()?;
+        let before = fetcher.lock.package.clone();
+        for name in names {
+            if !before.iter().any(|entry| &entry.name == name) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("`{name}` is not a locked Git dependency"),
+                ));
+            }
+        }
+        fetcher
+            .lock
+            .package
+            .retain(|entry| !names.is_empty() && !names.contains(&entry.name));
+        fetcher.dirty = true;
+        fetcher.finish()?;
+        before
+        // The cache lock is released here; resolution below takes it again.
+    };
+    let raw = read_raw_manifest(&state_root)?;
+    let mut roots = Vec::new();
+    if raw.workspace.is_some() {
+        let workspace = WorkspaceManifest::read(&state_root)?;
+        roots.extend(
+            workspace
+                .member_packages()?
+                .into_iter()
+                .map(|member| member.root),
+        );
+        if raw.package.is_some() && !roots.contains(&state_root) {
+            roots.push(state_root.clone());
+        }
+    } else {
+        roots.push(state_root.clone());
+    }
+    for root in roots {
+        PackageGraph::resolve(&root, true)?;
+    }
+    let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
+    let key = |entry: &LockedPackage| {
+        (
+            entry.name.clone(),
+            entry.source.clone(),
+            entry.selector.clone(),
+        )
+    };
+    let mut updates = Vec::new();
+    for old in &before {
+        let new = after.iter().find(|entry| key(entry) == key(old));
+        if new.map(|entry| &entry.rev) != Some(&old.rev) {
+            updates.push(LockUpdate {
+                name: old.name.clone(),
+                selector: old.selector.clone(),
+                old_rev: Some(old.rev.clone()),
+                new_rev: new.map(|entry| entry.rev.clone()),
+            });
+        }
+    }
+    for new in &after {
+        if !before.iter().any(|entry| key(entry) == key(new)) {
+            updates.push(LockUpdate {
+                name: new.name.clone(),
+                selector: new.selector.clone(),
+                old_rev: None,
+                new_rev: Some(new.rev.clone()),
+            });
+        }
+    }
+    updates
+        .sort_by(|left, right| (&left.name, &left.selector).cmp(&(&right.name, &right.selector)));
+    Ok(updates)
 }
 
 /// The `nia.lock` selector recorded for a Git dependency.
@@ -785,7 +946,16 @@ impl PackageGraph {
 
     /// Discovers a package graph under an explicit dependency-scope policy.
     pub fn resolve_with_options(root: &Path, options: PackageGraphOptions) -> io::Result<Self> {
-        let mut fetcher = PackageFetcher::for_root(root)?;
+        Self::resolve_with_policy(root, options, LockPolicy::default())
+    }
+
+    /// Discovers a package graph, changing `nia.lock` only as `policy` allows.
+    pub fn resolve_with_policy(
+        root: &Path,
+        options: PackageGraphOptions,
+        policy: LockPolicy,
+    ) -> io::Result<Self> {
+        let mut fetcher = PackageFetcher::for_root(root, policy)?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
         let mut seen = BTreeSet::new();
@@ -3654,7 +3824,7 @@ mod tests {
             },
             scope: DependencyScope::Runtime,
         };
-        let mut fetcher = PackageFetcher::for_root(&consumer).unwrap();
+        let mut fetcher = PackageFetcher::for_root(&consumer, LockPolicy::default()).unwrap();
         fetcher.resolve(&consumer, &dependency).unwrap();
         assert!(fetcher.lock.package.contains(&old_entry));
         assert!(
@@ -4191,7 +4361,7 @@ mod tests {
         .unwrap();
         std::fs::write(member.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
 
-        let fetcher = PackageFetcher::for_root(&member).unwrap();
+        let fetcher = PackageFetcher::for_root(&member, LockPolicy::default()).unwrap();
         assert_eq!(
             fetcher.lock_path,
             root.canonicalize().unwrap().join("nia.lock")
@@ -4474,6 +4644,161 @@ mod tests {
             "file:///{}",
             repository.to_string_lossy().replace('\\', "/")
         )
+    }
+
+    /// Adds a commit to a repository made by [`local_git_package`].
+    fn commit_upstream_change(repository: &Path, contents: &str) {
+        use std::process::Command;
+
+        std::fs::write(repository.join("src/lib.nia"), contents).unwrap();
+        for args in [&["add", "src"][..], &["commit", "-qm", "change"][..]] {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(repository)
+                .output()
+                .expect("Git executable is required for the test fixture");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    fn locked_rev(root: &Path, name: &str) -> String {
+        PackageLock::read(&root.join("nia.lock"))
+            .unwrap()
+            .package
+            .into_iter()
+            .find(|entry| entry.name == name)
+            .unwrap()
+            .rev
+    }
+
+    #[test]
+    fn update_lock_refetches_moved_selectors() {
+        let root = lock_test_root("update");
+        let upstream = root.join("upstream");
+        let first = local_git_package(&upstream, "first");
+        let second = local_git_package(&upstream, "second");
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        std::fs::write(
+            consumer.join("nia.toml"),
+            format!(
+                "[package]\nname = \"consumer\"\n[dependencies]\nfirst = {{ git = \"{first}\", branch = \"main\" }}\nsecond = {{ git = \"{second}\" }}\n"
+            ),
+        )
+        .unwrap();
+        PackageGraph::resolve(&consumer, false).unwrap();
+        let first_rev = locked_rev(&consumer, "first");
+        let second_rev = locked_rev(&consumer, "second");
+        commit_upstream_change(&upstream.join("first"), "pub fn changed() {}\n");
+        commit_upstream_change(&upstream.join("second"), "pub fn changed() {}\n");
+
+        // An ordinary resolve keeps the locked commits.
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert_eq!(locked_rev(&consumer, "first"), first_rev);
+
+        // Updating one name leaves the other entry alone.
+        let updates = update_lock(&consumer, &["first".into()]).unwrap();
+        assert_eq!(updates.len(), 1, "{updates:?}");
+        assert_eq!(updates[0].name, "first");
+        assert_eq!(updates[0].old_rev.as_deref(), Some(first_rev.as_str()));
+        assert_ne!(locked_rev(&consumer, "first"), first_rev);
+        assert_eq!(locked_rev(&consumer, "second"), second_rev);
+
+        // Updating everything picks up the rest, and a second run is a no-op.
+        let updates = update_lock(&consumer, &[]).unwrap();
+        assert_eq!(
+            updates
+                .iter()
+                .map(|update| update.name.as_str())
+                .collect::<Vec<_>>(),
+            ["second"]
+        );
+        assert!(update_lock(&consumer, &[]).unwrap().is_empty());
+
+        let error = update_lock(&consumer, &["missing".into()]).unwrap_err();
+        assert!(error.to_string().contains("`missing`"), "{error}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn locked_policy_rejects_lockfile_changes() {
+        let root = lock_test_root("locked");
+        let upstream = root.join("upstream");
+        let first = local_git_package(&upstream, "first");
+        let second = local_git_package(&upstream, "second");
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        let manifest = |dependencies: &str| {
+            std::fs::write(
+                consumer.join("nia.toml"),
+                format!("[package]\nname = \"consumer\"\n[dependencies]\n{dependencies}"),
+            )
+            .unwrap();
+        };
+        let locked = LockPolicy {
+            locked: true,
+            offline: false,
+        };
+        let options = PackageGraphOptions::default();
+
+        // A dependency missing from the lock cannot be added.
+        manifest(&format!("first = {{ git = \"{first}\" }}\n"));
+        let error = PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap_err();
+        assert!(error.to_string().contains("--locked"), "{error}");
+        assert!(!consumer.join("nia.lock").exists());
+
+        // A matching lock resolves, even after the cache is cleared.
+        PackageGraph::resolve(&consumer, false).unwrap();
+        let lock = std::fs::read(consumer.join("nia.lock")).unwrap();
+        PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap();
+        std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
+        PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap();
+        assert_eq!(std::fs::read(consumer.join("nia.lock")).unwrap(), lock);
+
+        // Neither adding nor removing an entry is allowed.
+        manifest(&format!(
+            "first = {{ git = \"{first}\" }}\nsecond = {{ git = \"{second}\" }}\n"
+        ));
+        assert!(PackageGraph::resolve_with_policy(&consumer, options, locked).is_err());
+        manifest("");
+        let error = PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap_err();
+        assert!(error.to_string().contains("--locked"), "{error}");
+        assert_eq!(std::fs::read(consumer.join("nia.lock")).unwrap(), lock);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn offline_policy_uses_only_the_package_cache() {
+        let root = lock_test_root("offline");
+        let first = local_git_package(&root.join("upstream"), "first");
+        let consumer = root.join("consumer");
+        std::fs::create_dir_all(&consumer).unwrap();
+        std::fs::write(
+            consumer.join("nia.toml"),
+            format!(
+                "[package]\nname = \"consumer\"\n[dependencies]\nfirst = {{ git = \"{first}\" }}\n"
+            ),
+        )
+        .unwrap();
+        let offline = LockPolicy {
+            locked: false,
+            offline: true,
+        };
+        let options = PackageGraphOptions::default();
+
+        let error = PackageGraph::resolve_with_policy(&consumer, options, offline).unwrap_err();
+        assert!(error.to_string().contains("--offline"), "{error}");
+
+        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve_with_policy(&consumer, options, offline).unwrap();
+        std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
+        let error = PackageGraph::resolve_with_policy(&consumer, options, offline).unwrap_err();
+        assert!(error.to_string().contains("--offline"), "{error}");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn lock_test_root(label: &str) -> PathBuf {
