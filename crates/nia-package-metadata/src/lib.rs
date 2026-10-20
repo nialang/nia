@@ -489,8 +489,9 @@ impl PackageFetcher {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             format!(
-                                "cached Git dependency `{}` failed its content hash check",
-                                dependency.name
+                                "cached Git dependency `{}` at `{}` does not match the content hash in nia.lock; delete that directory to fetch the locked commit again",
+                                dependency.name,
+                                display_path(&destination)
                             ),
                         ));
                     }
@@ -2321,10 +2322,7 @@ fn collect_source_files(
                     )
                 })?
                 .replace('\\', "/");
-            let source_relative = path
-                .strip_prefix(&directory)
-                .expect("source path under selected source root");
-            if excluded_source_component(source_relative)
+            if excluded_source_entry(relative)
                 || excludes
                     .iter()
                     .any(|exclude| name == *exclude || name.starts_with(&format!("{exclude}/")))
@@ -2377,21 +2375,21 @@ fn fingerprint_source_file(path: &Path) -> io::Result<(u64, [u8; 32])> {
     Ok((byte_len, *hasher.finalize().as_bytes()))
 }
 
-fn excluded_source_component(path: &Path) -> bool {
-    static EXCLUDED: &[&str] = &[
-        ".git",
-        ".nia",
-        ".nia-build",
-        ".nia-cache",
-        "nia.lock",
-        "target",
-        "build",
-        "dist",
-    ];
-    path.components().any(|component| {
-        let value = component.as_os_str().to_string_lossy();
-        EXCLUDED.iter().any(|excluded| value == *excluded)
-    })
+/// Whether a package-relative entry is skipped by default.
+///
+/// VCS, Nia state, and lock files are never package content. Conventional
+/// output directories of other tools are skipped only directly under the
+/// package root: a nested `build/` or `target/` can hold child modules, which
+/// the identity must cover because they are compiled. A selected source root
+/// is never itself checked, so `roots = ["build"]` still selects that tree.
+fn excluded_source_entry(relative: &Path) -> bool {
+    static EXCLUDED_ANYWHERE: &[&str] = &[".git", ".nia", ".nia-build", ".nia-cache", "nia.lock"];
+    static EXCLUDED_AT_ROOT: &[&str] = &["target", "build", "dist"];
+    let Some(name) = relative.file_name().map(|name| name.to_string_lossy()) else {
+        return false;
+    };
+    EXCLUDED_ANYWHERE.contains(&name.as_ref())
+        || (relative.components().count() == 1 && EXCLUDED_AT_ROOT.contains(&name.as_ref()))
 }
 
 /// Relocation-independent identity of one module within a package.
@@ -4126,6 +4124,50 @@ mod tests {
     }
 
     #[test]
+    fn source_identity_covers_nested_output_named_modules() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-nested-output-names-{}",
+            std::process::id()
+        ));
+        for directory in [
+            "src/lib/build",
+            "src/target",
+            "src/dist",
+            "target",
+            "build",
+            "src/.git",
+        ] {
+            std::fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        std::fs::write(root.join("src/lib/build/util.nia"), "one").unwrap();
+        std::fs::write(root.join("src/target/x.nia"), "x").unwrap();
+        std::fs::write(root.join("src/dist/y.nia"), "y").unwrap();
+        std::fs::write(root.join("target/out"), "out").unwrap();
+        std::fs::write(root.join("build/out"), "out").unwrap();
+        std::fs::write(root.join("src/.git/HEAD"), "head").unwrap();
+        std::fs::write(root.join("src/nia.lock"), "lock").unwrap();
+
+        let first = package_source_identity(&root, package()).unwrap();
+        let paths = first
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            [
+                "src/dist/y.nia",
+                "src/lib/build/util.nia",
+                "src/target/x.nia"
+            ]
+        );
+        std::fs::write(root.join("src/lib/build/util.nia"), "two").unwrap();
+        let changed = package_source_identity(&root, package()).unwrap();
+        assert_ne!(first.source_fingerprint, changed.source_fingerprint);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn explicitly_selected_reserved_source_root_is_included() {
         let root = std::env::temp_dir().join(format!(
             "nia-package-reserved-source-root-{}",
@@ -4138,20 +4180,30 @@ mod tests {
         std::fs::write(root.join("src/build/ignored.nia"), "ignored").unwrap();
 
         let package = package();
+        let paths = |identity: &PackageSourceIdentity| {
+            identity
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>()
+        };
+        // Only the package-root `build/` is skipped; nested ones are modules.
         let default_identity = package_source_identity(&root, package.clone()).unwrap();
-        assert!(default_identity.files.is_empty());
+        assert_eq!(paths(&default_identity), ["src/build/ignored.nia"]);
 
         let selected = PackageSourceSelection {
             source_roots: vec!["build".into(), "src/build".into()],
             excludes: Vec::new(),
         };
         let identity = package_source_identity_with_selection(&root, package, &selected).unwrap();
-        let paths = identity
-            .files
-            .iter()
-            .map(|file| file.path.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(paths, ["build/main.nia", "src/build/ignored.nia"]);
+        assert_eq!(
+            paths(&identity),
+            [
+                "build/main.nia",
+                "build/nested/target/generated.nia",
+                "src/build/ignored.nia"
+            ]
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

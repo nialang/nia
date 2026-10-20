@@ -57,6 +57,10 @@ fixtures = { path = "tests/fixtures" }
 | `library.path` | the file that other packages open with `using <dependency>;` |
 | `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |
 
+A package's files always leave out `.git`, `.nia`, `.nia-build`, `.nia-cache`,
+and `nia.lock`, and leave out `build/`, `dist/`, and `target/` directly under
+the package root. Name one of those three in `source.roots` to include it.
+
 A dependency's scope is the table it appears in:
 
 | Table | Available to |
