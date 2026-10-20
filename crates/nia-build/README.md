@@ -101,17 +101,14 @@ fingerprints declared source content and applies the explicit `build`,
 declared versus resolved edges without loading source modules.
 
 Git dependencies are fetched through the Nia-owned `nia-git` transport for
-local repositories, the Git TCP protocol, and HTTP(S). The `git://` transport
-is unauthenticated and unencrypted; use HTTPS when transport confidentiality
-and server authentication are required. SSH identification, packet framing,
-and KEXINIT negotiation are implemented as transport foundations, while
-encrypted key exchange and user authentication remain gated on host-key policy.
-Resolved commits and BLAKE3 source
-hashes are recorded in `nia.lock`; fetched trees are kept below the ignored
+local repositories, the Git TCP protocol, HTTP(S), and SSH. The `git://`
+transport is unauthenticated and unencrypted; use HTTPS or verified SSH when
+transport confidentiality and server authentication are required. SSH checks
+server keys against OpenSSH `known_hosts` entries and authenticates with an
+unencrypted Ed25519 identity. Resolved commits and BLAKE3 source hashes are
+recorded in `nia.lock`; fetched trees are kept below the ignored
 `.nia/packages` directory and are checked against the recorded content hash
-before reuse. SSH sources are parsed in manifests, but fetching remains
-disabled until encrypted key exchange, host verification, and authentication
-are complete.
+before reuse.
 
 Resolution records each existing dependency checkout root, including roots
 whose edge was filtered from the selected graph. When the coordinator
