@@ -586,6 +586,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-compat` | Protocol registry: format magic and the release-derived protocol epoch. |
 | `nia-opt` | Declarative optimization policy matrix. |
 | `nia-package-metadata` | Relocation-independent package, module, and definition identities; stable type graphs. |
+| `nia-git` | Nia-owned Git transports (local, `git://`, HTTP(S), SSH) and verified checkout of package dependencies. |
 | `nia-toolchain` | Toolchain resource layout discovery and compatibility identity. |
 | **Test infrastructure** | |
 | `nia-test-support` | Resource-accounted child-process helpers for workspace tests. |
