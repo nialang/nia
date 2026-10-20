@@ -1373,11 +1373,12 @@ impl DriverActionExecutor {
                         action: action.key.clone(),
                         package: package.clone(),
                     })?;
-                let mut root = self.invocation.package_root.clone();
-                if !package.root.is_empty() {
-                    root.extend(package.root.split('/'));
-                }
-                root
+                crate::package_source_root(&self.invocation, package).ok_or_else(|| {
+                    CoordinatorError::UnmappedPackage {
+                        action: action.key.clone(),
+                        package: package.key.clone(),
+                    }
+                })?
             }
             LogicalPathRoot::Build => self.invocation.build_dir.clone(),
             LogicalPathRoot::Cache => self.invocation.cache_dir.clone(),

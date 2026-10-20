@@ -946,8 +946,8 @@ fn assert_configured_build_success(
         .packages()
         .iter()
         .find(|package| package.key.as_str() == "assets")
-        .expect("declared local package");
-    assert_eq!(assets.root, "packages/assets");
+        .expect("manifest dependency");
+    assert_eq!(assets.root, "assets");
     let root = plan
         .packages()
         .iter()

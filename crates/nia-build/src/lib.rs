@@ -406,6 +406,45 @@ pub struct BuildInvocation {
     pub compilation_mode: CompilationMode,
 }
 
+pub(crate) fn package_source_root(
+    invocation: &BuildInvocation,
+    package: &PlanPackage,
+) -> Option<PathBuf> {
+    if package.key == PackageKey::root() {
+        return Some(invocation.package_root.clone());
+    }
+    if let Some(dependency) = invocation
+        .package_graph_report
+        .declared
+        .iter()
+        .find(|dependency| {
+            dependency.owner_root.is_empty() && dependency.dependency.name == package.key.as_str()
+        })
+    {
+        return dependency.source_root.clone().map(normalize_host_path);
+    }
+    let mut root = invocation.package_root.clone();
+    root.extend(package.root.split('/'));
+    Some(root)
+}
+
+#[cfg(windows)]
+fn normalize_host_path(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(path) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{path}"))
+    } else if let Some(path) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(path)
+    } else {
+        path
+    }
+}
+
+#[cfg(not(windows))]
+fn normalize_host_path(path: PathBuf) -> PathBuf {
+    path
+}
+
 /// How the coordinator selects a step from a frozen build plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildStepSelection {
@@ -1239,13 +1278,9 @@ fn build_explanation_dependency_usage<'a>(
 ) -> Vec<BuildExplanationDependencyUsage<'a>> {
     let mut packages_by_source_root: BTreeMap<PathBuf, Vec<&PlanPackage>> = BTreeMap::new();
     for package in plan.packages() {
-        let mut source_root = invocation.package_root.clone();
-        for component in package.root.split('/') {
-            if !component.is_empty() {
-                source_root.push(component);
-            }
-        }
-        if let Ok(source_root) = source_root.canonicalize() {
+        if let Some(source_root) =
+            package_source_root(invocation, package).and_then(|path| path.canonicalize().ok())
+        {
             packages_by_source_root
                 .entry(source_root)
                 .or_default()
@@ -3166,6 +3201,19 @@ fn time_build_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -
 mod tests {
     use super::*;
     use std::sync::OnceLock;
+
+    #[cfg(windows)]
+    #[test]
+    fn package_checkout_paths_drop_windows_extended_prefixes() {
+        assert_eq!(
+            normalize_host_path(PathBuf::from(r"\\?\C:\packages\json")),
+            PathBuf::from(r"C:\packages\json")
+        );
+        assert_eq!(
+            normalize_host_path(PathBuf::from(r"\\?\UNC\server\share\json")),
+            PathBuf::from(r"\\server\share\json")
+        );
+    }
 
     #[test]
     fn build_reports_redact_declared_environment_values() {

@@ -95,7 +95,7 @@ A module is a root source file plus the names it can import.
 | Constructor | Root source |
 | --- | --- |
 | `ModuleOptions::init(name, path)` | a file in the root package |
-| `ModuleOptions::fromPackage(name, package, path)` | a file in another package declared with `addPackage` |
+| `ModuleOptions::fromPackage(name, package, path)` | a file in another package selected with `addDependency` or declared with `addPackage` |
 | `ModuleOptions::fromBuild(name, buildPath)` | a generated file under `.nia-build/` |
 
 `withOptimization(build::OptimizationMode::O2)` fixes the optimization level
@@ -116,14 +116,18 @@ application and its tests. Each module still declares its own imports.
 
 ## Packages
 
-`b.rootPackage()` is the package that contains `build.nia`. `addPackage`
-declares another source tree, such as a vendored library, by name and
-package-relative root:
+`b.rootPackage()` is the package that contains `build.nia`. Package sources
+declared in `nia.toml` are resolved and fetched by Nia. Use `addDependency`
+to select one of those dependencies for a build module; it takes only the
+manifest dependency name, so path, Git, and SSH dependencies use the same API:
+
+```toml
+[dependencies]
+mathlib = { path = "vendor/mathlib" }
+```
 
 ```nia
-let mathlib = b.addPackage(
-    build::PackageOptions::init(&"mathlib", fs::PathView::init(&"vendor/mathlib")),
-).?;
+let mathlib = b.addDependency(&"mathlib").?;
 let imports = [
     build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"lib.nia")),
 ];
@@ -131,6 +135,8 @@ let imports = [
 
 A module with these imports can then write `using mathlib;`. Inside the
 imported package, `pkg::...` refers to that package's own modules.
+`addPackage(PackageOptions)` is reserved for temporary local source trees
+that are not declared or managed by `nia.toml`.
 
 ## Artifacts
 
@@ -205,9 +211,7 @@ using std::build;
 using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!() {
-    let mathlib = b.addPackage(
-        build::PackageOptions::init(&"mathlib", fs::PathView::init(&"vendor/mathlib")),
-    ).?;
+    let mathlib = b.addDependency(&"mathlib").?;
     let imports = [
         build::ModuleImport::init(&"greeting", fs::PathView::init(&"src/greeting.nia")),
         build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"lib.nia")),
