@@ -3041,10 +3041,13 @@ mod tests {
 
     #[cfg(feature = "test-support")]
     type SshFixtureCallback = Box<dyn FnOnce(&Path, &str, &Path, &Path)>;
+    #[cfg(feature = "test-support")]
+    type SshFixtureRepositoryMutator = Box<dyn FnOnce(&Path)>;
 
     #[cfg(feature = "test-support")]
     thread_local! {
         static SSH_FIXTURE_CALLBACK: std::cell::RefCell<Option<SshFixtureCallback>> = const { std::cell::RefCell::new(None) };
+        static SSH_FIXTURE_REPOSITORY_MUTATOR: std::cell::RefCell<Option<SshFixtureRepositoryMutator>> = const { std::cell::RefCell::new(None) };
         static SSH_FIXTURE_SKIP_CLIENT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
 
@@ -3052,8 +3055,19 @@ mod tests {
     pub(super) fn with_ssh_checkout_fixture(
         callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static,
     ) {
+        with_ssh_checkout_fixture_mutating_repository(|_| {}, callback);
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(super) fn with_ssh_checkout_fixture_mutating_repository(
+        mutator: impl FnOnce(&Path) + 'static,
+        callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static,
+    ) {
         SSH_FIXTURE_CALLBACK.with(|slot| {
             assert!(slot.borrow_mut().replace(Box::new(callback)).is_none());
+        });
+        SSH_FIXTURE_REPOSITORY_MUTATOR.with(|slot| {
+            assert!(slot.borrow_mut().replace(Box::new(mutator)).is_none());
         });
         SSH_FIXTURE_SKIP_CLIENT.with(|skip| skip.set(true));
         ssh_key_exchange_authenticates_and_opens_git_exec_channel_impl();
@@ -3706,11 +3720,17 @@ mod tests {
             b"pub const value: u8 = 7;\n",
         )
         .unwrap();
+        #[cfg(feature = "test-support")]
+        SSH_FIXTURE_REPOSITORY_MUTATOR.with(|slot| {
+            if let Some(mutator) = slot.borrow_mut().take() {
+                mutator(&repository);
+            }
+        });
         assert!(
             Command::new("git")
                 .args(["-C"])
                 .arg(&repository)
-                .args(["add", "file.txt", "nia.toml", "src"])
+                .args(["add", "-A"])
                 .status()
                 .unwrap()
                 .success()
@@ -4476,4 +4496,12 @@ mod tests {
 #[cfg(feature = "test-support")]
 pub fn with_test_ssh_checkout_fixture(callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static) {
     tests::with_ssh_checkout_fixture(callback);
+}
+
+#[cfg(feature = "test-support")]
+pub fn with_test_ssh_checkout_fixture_mutating_repository(
+    mutator: impl FnOnce(&Path) + 'static,
+    callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static,
+) {
+    tests::with_ssh_checkout_fixture_mutating_repository(mutator, callback);
 }

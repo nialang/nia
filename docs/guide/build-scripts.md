@@ -47,6 +47,15 @@ the declared build libraries by dependency name. The script still owns the
 dynamic build graph; the manifest only defines package identity and dependency
 inputs.
 
+Artifact source imports use the package graph directly. A resolved runtime
+dependency is available under its manifest name, and each dependency's own
+runtime dependencies are resolved from that package's manifest. Development
+dependencies are available to test builds. Ordinary source imports therefore
+do not repeat dependency names or library paths in `build.nia`.
+The compiler currently uses one named module-root namespace per build request;
+if selected dependencies use the same name for different package instances,
+Nia reports the conflicting root instead of choosing one implicitly.
+
 Git dependencies support HTTPS and SSH without invoking a system Git client.
 SSH sources use `ssh://` or SCP-style URLs and verify server keys against
 `~/.ssh/known_hosts` (or `%USERPROFILE%/.ssh/known_hosts` on Windows). Nia
@@ -118,8 +127,9 @@ application and its tests. Each module still declares its own imports.
 
 `b.rootPackage()` is the package that contains `build.nia`. Package sources
 declared in `nia.toml` are resolved and fetched by Nia. Use `addDependency`
-to select one of those dependencies for a build module; it takes only the
-manifest dependency name, so path, Git, and SSH dependencies use the same API:
+when a manifest package must appear explicitly as a build-graph package for a
+module or command. It takes only the manifest dependency name, so path, Git,
+and SSH dependencies use the same API:
 
 ```toml
 [dependencies]

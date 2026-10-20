@@ -130,6 +130,15 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                     .finish(),
             ],
         },
+        BuildError::InvalidBuildModuleRoot { name, reason } => vec![
+            Diagnostic::user_error(
+                codes::BUILD_PLAN,
+                format!("manifest package root `{name}` is ambiguous"),
+            )
+            .note(reason.clone())
+            .help("use distinct dependency names for packages in the build module namespace")
+            .finish(),
+        ],
         BuildError::CurrentDirectory { error } => io_diagnostic(
             codes::BUILD_ACTION,
             "could not determine the current directory",
@@ -690,6 +699,19 @@ pub(crate) mod tests {
         assert!(
             json.contains(source_path) && json.contains(runner_path),
             "{json}"
+        );
+    }
+
+    #[test]
+    fn ambiguous_build_dependency_names_are_user_diagnostics() {
+        let error = BuildError::InvalidBuildModuleRoot {
+            name: "shared".to_owned(),
+            reason: "package root `shared` resolves to multiple package instances".to_owned(),
+        };
+        assert_operational_report(
+            &error,
+            nia_diagnostic::codes::BUILD_PLAN.as_str(),
+            &["shared", "multiple package instances"],
         );
     }
 

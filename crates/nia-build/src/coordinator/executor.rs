@@ -9,6 +9,8 @@ use super::*;
 use crate::action_cache::CompilerCheckCacheIdentityInput;
 use crate::lock::{LockWaitEvent, LockWaitObserver};
 use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
+use crate::{insert_module_root, manifest_module_roots};
+use nia_package_metadata::DependencyScope;
 use std::io::{Seek as _, SeekFrom};
 
 #[cfg(unix)]
@@ -1251,21 +1253,37 @@ impl DriverActionExecutor {
         })?;
         let entry = self.resolve_source_path(action, &module.root_source)?;
         let mut module_map = ModuleMap::new();
+        if module.key.package() == self.plan.root_package() {
+            let imports = manifest_module_roots(
+                &self.invocation.package_graph_report,
+                &[DependencyScope::Runtime, DependencyScope::Development],
+                self.invocation.compilation_mode,
+            )
+            .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
+            for (name, path) in imports {
+                insert_module_root(&mut module_map, &name, path).map_err(|reason| {
+                    CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
+                        action: action.key.clone(),
+                        module: module.key.clone(),
+                        name,
+                        reason,
+                    }))
+                })?;
+            }
+        }
         for import in &module.imports {
             if !self.package_dependency_selected(import.path.root()) {
                 continue;
             }
             let path = self.resolve_source_path(action, &import.path)?;
-            module_map
-                .try_insert(&import.name, path)
-                .map_err(|reason| {
-                    CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
-                        action: action.key.clone(),
-                        module: module.key.clone(),
-                        name: import.name.clone(),
-                        reason,
-                    }))
-                })?;
+            insert_module_root(&mut module_map, &import.name, path).map_err(|reason| {
+                CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
+                    action: action.key.clone(),
+                    module: module.key.clone(),
+                    name: import.name.clone(),
+                    reason,
+                }))
+            })?;
         }
         let target = *target;
         let runtime =
@@ -1392,6 +1410,102 @@ impl DriverActionExecutor {
             path.push(component);
         }
         Ok(path)
+    }
+}
+
+#[cfg(test)]
+mod package_manifest_import_tests {
+    use super::*;
+    use nia_package_metadata::PackageGraphReport;
+
+    #[test]
+    fn manifest_import_roots_are_selected_for_their_owner_and_scope() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-imports-{}-{unique}",
+            std::process::id()
+        ));
+        let runtime = root.join("runtime");
+        let build = root.join("build");
+        let development = root.join("development");
+        for package in [&runtime, &build, &development] {
+            std::fs::create_dir_all(package.join("src")).unwrap();
+            std::fs::write(
+                package.join("nia.toml"),
+                format!(
+                    "[package]\nname = \"{}\"\n[library]\npath = \"src/lib.nia\"\n",
+                    package.file_name().unwrap().to_string_lossy()
+                ),
+            )
+            .unwrap();
+            std::fs::write(package.join("src/lib.nia"), "pub const value: u8 = 1;\n").unwrap();
+        }
+        let edge = |name: &str, scope, package: &std::path::Path| {
+            nia_package_metadata::PackageDependencyReport {
+                owner_root: "owner".into(),
+                dependency: nia_package_metadata::PackageDependency {
+                    name: name.into(),
+                    source: nia_package_metadata::DependencySource::Path(name.into()),
+                    scope,
+                },
+                resolved_root: Some(format!("owner/{name}")),
+                source_root: Some(package.canonicalize().unwrap()),
+            }
+        };
+        let report = PackageGraphReport {
+            options: nia_package_metadata::PackageGraphOptions {
+                include_development: true,
+            },
+            resolved: Vec::new(),
+            declared: vec![
+                edge("runtime", DependencyScope::Runtime, &runtime),
+                edge("build", DependencyScope::Build, &build),
+                edge("development", DependencyScope::Development, &development),
+            ],
+        };
+
+        let source_scopes = [DependencyScope::Runtime, DependencyScope::Development];
+        let ordinary =
+            manifest_module_roots(&report, &source_scopes, CompilationMode::Normal).unwrap();
+        assert_eq!(ordinary.len(), 1);
+        assert_eq!(ordinary[0].0, "runtime");
+        assert!(ordinary[0].1.as_str().ends_with("runtime/src/lib.nia"));
+        assert_eq!(
+            ordinary[0].1.identity().normalized_path(),
+            "build-package:owner/runtime:/src/lib.nia"
+        );
+
+        let tests = manifest_module_roots(&report, &source_scopes, CompilationMode::Test).unwrap();
+        assert_eq!(tests.len(), 2);
+        assert!(tests.iter().any(|(name, _)| name == "runtime"));
+        assert!(tests.iter().any(|(name, _)| name == "development"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn conflicting_manifest_module_aliases_are_rejected() {
+        let mut module_map = ModuleMap::new();
+        insert_module_root(
+            &mut module_map,
+            "shared",
+            SourcePath::with_identity("/packages/first/src/lib.nia", "package:first:/src/lib.nia"),
+        )
+        .unwrap();
+        assert!(
+            insert_module_root(
+                &mut module_map,
+                "shared",
+                SourcePath::with_identity(
+                    "/packages/second/src/lib.nia",
+                    "package:second:/src/lib.nia"
+                ),
+            )
+            .unwrap_err()
+            .contains("multiple package instances")
+        );
     }
 }
 
