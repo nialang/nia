@@ -178,6 +178,32 @@ pub struct PackageManifest {
     pub dependencies: Vec<PackageDependency>,
 }
 
+/// Workspace membership and shared declarations from a workspace root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceManifest {
+    pub root: PathBuf,
+    pub members: Vec<String>,
+    pub default_members: Option<Vec<String>>,
+    pub exclude: Vec<String>,
+    pub package: WorkspacePackageFields,
+    pub dependencies: BTreeMap<String, DependencySource>,
+}
+
+/// One validated package selected from a workspace member list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMember {
+    pub name: String,
+    pub root: PathBuf,
+}
+
+/// Package identity fields available for explicit member inheritance.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspacePackageFields {
+    pub namespace: Option<String>,
+    pub version: Option<String>,
+    pub protocol_epoch: Option<u32>,
+}
+
 /// Resolves local path dependencies without loading their source modules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageGraphNode {
@@ -394,16 +420,19 @@ struct PackageFetcher {
     lock_path: PathBuf,
     lock: PackageLock,
     dirty: bool,
+    state_lock: Option<File>,
 }
 
 impl PackageFetcher {
     fn for_root(root: &Path) -> io::Result<Self> {
-        let lock_path = root.join("nia.lock");
+        let state_root = workspace_state_root(root)?;
+        let lock_path = state_root.join("nia.lock");
         Ok(Self {
-            cache_root: root.join(".nia/packages"),
+            cache_root: state_root.join(".nia/packages"),
             lock: PackageLock::read(&lock_path)?,
             lock_path,
             dirty: false,
+            state_lock: None,
         })
     }
 
@@ -416,6 +445,7 @@ impl PackageFetcher {
                 tag,
                 branch,
             } => {
+                self.lock_state()?;
                 let source = canonical_git_source(url)?;
                 let requested = rev
                     .clone()
@@ -566,6 +596,26 @@ impl PackageFetcher {
                 Ok(final_destination)
             }
         }
+    }
+
+    fn lock_state(&mut self) -> io::Result<()> {
+        if self.state_lock.is_none() {
+            let state_directory = self
+                .cache_root
+                .parent()
+                .expect("package cache has a state directory");
+            fs::create_dir_all(state_directory)?;
+            let lock = OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(state_directory.join("packages.lock"))?;
+            lock.lock()?;
+            self.lock = PackageLock::read(&self.lock_path)?;
+            self.state_lock = Some(lock);
+        }
+        Ok(())
     }
 
     fn finish(self) -> io::Result<()> {
@@ -902,21 +952,13 @@ impl PackageManifest {
 
     /// Reads a bounded `nia.toml` package manifest.
     pub fn read(root: &Path) -> io::Result<Self> {
-        let path = root.join("nia.toml");
-        let mut contents = Vec::new();
-        File::open(path)?
-            .take((MAX_MANIFEST_BYTES + 1) as u64)
-            .read_to_end(&mut contents)?;
-        if contents.len() > MAX_MANIFEST_BYTES {
-            return Err(io::Error::new(
+        let (raw, workspace) = read_package_manifest(root)?;
+        let raw_package = raw.package.ok_or_else(|| {
+            io::Error::new(
                 io::ErrorKind::InvalidData,
-                "package manifest is too large",
-            ));
-        }
-        let text = std::str::from_utf8(&contents)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let raw: RawPackageManifest = toml::from_str(text)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                "workspace root does not declare a package",
+            )
+        })?;
         let mut manifest = Self::implicit(
             root.file_name()
                 .and_then(|name| name.to_str())
@@ -924,11 +966,27 @@ impl PackageManifest {
                 .to_ascii_lowercase(),
         );
         manifest.package = PackageId {
-            namespace: raw.package.namespace.unwrap_or_else(|| "local".into()),
-            name: raw.package.name,
-            version: raw.package.version.unwrap_or_else(|| "0.0.0".into()),
+            namespace: resolve_inheritable(
+                raw_package.namespace,
+                workspace
+                    .as_ref()
+                    .and_then(|ws| ws.package.namespace.clone()),
+                "package.namespace",
+            )?
+            .unwrap_or_else(|| "local".into()),
+            name: raw_package.name,
+            version: resolve_inheritable(
+                raw_package.version,
+                workspace.as_ref().and_then(|ws| ws.package.version.clone()),
+                "package.version",
+            )?
+            .unwrap_or_else(|| "0.0.0".into()),
         };
-        manifest.protocol_epoch = raw.package.protocol_epoch;
+        manifest.protocol_epoch = resolve_inheritable(
+            raw_package.protocol_epoch,
+            workspace.as_ref().and_then(|ws| ws.package.protocol_epoch),
+            "package.protocol-epoch",
+        )?;
         manifest.library_path = raw
             .library
             .path
@@ -958,7 +1016,30 @@ impl PackageManifest {
             (DependencyScope::Development, raw.dev_dependencies),
         ] {
             for (name, declaration) in declarations {
-                let source = declaration.into_source(&name)?;
+                let source = match declaration.workspace {
+                    Some(true) => {
+                        let source = workspace
+                            .as_ref()
+                            .and_then(|ws| ws.dependencies.get(&name))
+                            .cloned()
+                            .ok_or_else(|| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!(
+                                        "dependency `{name}` inherits from `workspace.dependencies`, but that entry is not defined"
+                                    ),
+                                )
+                            })?;
+                        rebase_workspace_dependency(source, root, workspace.as_ref().unwrap())?
+                    }
+                    Some(false) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "dependency `workspace` must be true when specified",
+                        ));
+                    }
+                    None => declaration.into_source(&name)?,
+                };
                 validate_dependency_name(&name)?;
                 dependencies.push(PackageDependency {
                     name,
@@ -1007,10 +1088,519 @@ impl PackageManifest {
     }
 }
 
+impl WorkspaceManifest {
+    /// Reads and validates a workspace manifest at its root directory.
+    pub fn read(root: &Path) -> io::Result<Self> {
+        let raw = read_raw_manifest(root)?;
+        let workspace = raw.workspace.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "manifest does not declare a `[workspace]` table",
+            )
+        })?;
+        if workspace.members.len() > MAX_MANIFEST_ENTRIES
+            || workspace.exclude.len() > MAX_MANIFEST_ENTRIES
+            || workspace.dependencies.len() > MAX_MANIFEST_ENTRIES
+            || workspace
+                .default_members
+                .as_ref()
+                .is_some_and(|members| members.len() > MAX_MANIFEST_ENTRIES)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "workspace manifest has too many declarations",
+            ));
+        }
+        let canonical_root = root.canonicalize()?;
+        let exclude = workspace
+            .exclude
+            .iter()
+            .map(|path| {
+                let path = normalize_workspace_path(path, "workspace exclusion")?;
+                glob::Pattern::new(&path)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                Ok(path)
+            })
+            .collect::<io::Result<Vec<_>>>()?;
+        let mut members =
+            expand_workspace_paths(&canonical_root, &workspace.members, "workspace member")?;
+        members.retain(|member| !workspace_path_excluded(member, &exclude));
+        if members.is_empty() && raw.package.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "virtual workspace must declare at least one member",
+            ));
+        }
+        if raw.package.is_some() && workspace_path_excluded(".", &exclude) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "workspace root package cannot be excluded",
+            ));
+        }
+        if raw.package.is_some() && !members.iter().any(|member| member == ".") {
+            members.push(".".to_owned());
+            members.sort();
+        }
+        let mut physical_members = BTreeSet::new();
+        for member in &members {
+            let member_path = if member == "." {
+                canonical_root.clone()
+            } else {
+                canonical_root.join(member)
+            };
+            if !member_path.join("nia.toml").is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("workspace member `{member}` does not contain nia.toml"),
+                ));
+            }
+            let physical_root = member_path.canonicalize()?;
+            if !physical_root.starts_with(&canonical_root) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("workspace member `{member}` resolves outside the workspace root"),
+                ));
+            }
+            if !physical_members.insert(physical_root.clone()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("workspace member `{member}` aliases another member"),
+                ));
+            }
+            if member != "." {
+                let mut cursor = Some(member_path.as_path());
+                while let Some(directory) = cursor.filter(|path| *path != canonical_root) {
+                    if directory.join("nia.toml").is_file()
+                        && read_raw_manifest(directory)?.workspace.is_some()
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("workspace member `{member}` belongs to a nested workspace"),
+                        ));
+                    }
+                    cursor = directory.parent();
+                }
+            }
+        }
+        let default_members = workspace
+            .default_members
+            .map(|paths| {
+                expand_workspace_paths(&canonical_root, &paths, "workspace default member")
+            })
+            .transpose()?;
+        if let Some(defaults) = &default_members {
+            if defaults.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "workspace.default-members must select at least one member",
+                ));
+            }
+            for member in defaults {
+                if !members.contains(member) && !(member == "." && raw.package.is_some()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("default workspace member `{member}` is not a member"),
+                    ));
+                }
+            }
+        }
+        let package = workspace
+            .package
+            .map_or_else(WorkspacePackageFields::default, |package| {
+                WorkspacePackageFields {
+                    namespace: package.namespace,
+                    version: package.version,
+                    protocol_epoch: package.protocol_epoch,
+                }
+            });
+        let mut dependencies = BTreeMap::new();
+        for (name, dependency) in workspace.dependencies {
+            validate_dependency_name(&name)?;
+            if dependency.workspace.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("workspace dependency `{name}` cannot inherit another dependency"),
+                ));
+            }
+            dependencies.insert(name.clone(), dependency.into_source(&name)?);
+        }
+        Ok(Self {
+            root: root.canonicalize()?,
+            members,
+            default_members,
+            exclude,
+            package,
+            dependencies,
+        })
+    }
+
+    /// Finds the nearest workspace containing `package_root` as a declared member.
+    pub fn discover_for_package(package_root: &Path) -> io::Result<Option<Self>> {
+        let package_root = package_root.canonicalize()?;
+        let mut cursor = package_root.parent();
+        while let Some(root) = cursor {
+            let manifest_path = root.join("nia.toml");
+            if manifest_path.is_file() {
+                let raw = read_raw_manifest(root)?;
+                if raw.workspace.is_some() {
+                    let workspace = Self::read(root)?;
+                    let relative = package_root.strip_prefix(&workspace.root).map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidData, "invalid workspace member path")
+                    })?;
+                    let relative = relative.to_string_lossy().replace('\\', "/");
+                    let relative = if relative.is_empty() { "." } else { &relative };
+                    if Path::new(relative).starts_with(".nia")
+                        || workspace_path_excluded(relative, &workspace.exclude)
+                    {
+                        return Ok(None);
+                    }
+                    if workspace.members.iter().any(|member| member == relative) {
+                        return Ok(Some(workspace));
+                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "package `{relative}` is under a workspace but is not listed in `workspace.members`"
+                        ),
+                    ));
+                }
+            }
+            cursor = root.parent();
+        }
+        Ok(None)
+    }
+
+    /// Finds the nearest workspace at or above a directory.
+    pub fn discover(start: &Path) -> io::Result<Option<Self>> {
+        let start = if start.is_file() {
+            start.parent().unwrap_or(start).to_path_buf()
+        } else {
+            start.to_path_buf()
+        };
+        let start = start.canonicalize()?;
+        let mut cursor = Some(start.as_path());
+        let mut package_root = None;
+        while let Some(root) = cursor {
+            let manifest = root.join("nia.toml");
+            if manifest.is_file() && read_raw_manifest(root)?.workspace.is_some() {
+                if let Some(package_root) = package_root {
+                    return Self::discover_for_package(package_root);
+                }
+                return Self::read(root).map(Some);
+            }
+            if package_root.is_none()
+                && (manifest.is_file()
+                    || root.join("build.nia").is_file()
+                    || root.join("pkg.nia").is_file())
+            {
+                package_root = Some(root);
+            }
+            cursor = root.parent();
+        }
+        Ok(None)
+    }
+
+    /// Loads all declared member packages and rejects ambiguous package names.
+    pub fn member_packages(&self) -> io::Result<Vec<WorkspaceMember>> {
+        let mut members = Vec::with_capacity(self.members.len());
+        let mut names = BTreeSet::new();
+        for member in &self.members {
+            let root = if member == "." {
+                self.root.clone()
+            } else {
+                self.root.join(member)
+            };
+            let manifest = PackageManifest::read(&root)?;
+            if !names.insert(manifest.package.name.clone()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "workspace contains more than one package named `{}`",
+                        manifest.package.name
+                    ),
+                ));
+            }
+            members.push(WorkspaceMember {
+                name: manifest.package.name,
+                root: root.canonicalize()?,
+            });
+        }
+        Ok(members)
+    }
+}
+
+fn workspace_state_root(package_root: &Path) -> io::Result<PathBuf> {
+    if !package_root.join("nia.toml").is_file() {
+        return package_root.canonicalize();
+    }
+    let raw = read_raw_manifest(package_root)?;
+    if raw.workspace.is_some() {
+        return package_root.canonicalize();
+    }
+    Ok(WorkspaceManifest::discover_for_package(package_root)?
+        .map(|workspace| workspace.root)
+        .unwrap_or(package_root.canonicalize()?))
+}
+
+fn read_package_manifest(
+    root: &Path,
+) -> io::Result<(RawPackageManifest, Option<WorkspaceManifest>)> {
+    let raw = read_raw_manifest(root)?;
+    let workspace = if raw.workspace.is_some() {
+        Some(WorkspaceManifest::read(root)?)
+    } else {
+        WorkspaceManifest::discover_for_package(root)?
+    };
+    if let Some(workspace) = &workspace {
+        let relative = root
+            .canonicalize()?
+            .strip_prefix(&workspace.root)
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "package is outside its workspace",
+                )
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let relative = if relative.is_empty() { "." } else { &relative };
+        if relative != "."
+            && (!workspace.members.iter().any(|member| member == relative)
+                || workspace_path_excluded(relative, &workspace.exclude))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("package `{relative}` is not a member of workspace"),
+            ));
+        }
+    }
+    Ok((raw, workspace))
+}
+
+fn read_raw_manifest(root: &Path) -> io::Result<RawPackageManifest> {
+    let path = root.join("nia.toml");
+    let mut contents = Vec::new();
+    File::open(path)?
+        .take((MAX_MANIFEST_BYTES + 1) as u64)
+        .read_to_end(&mut contents)?;
+    if contents.len() > MAX_MANIFEST_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "package manifest is too large",
+        ));
+    }
+    let text = std::str::from_utf8(&contents)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    toml::from_str(text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn resolve_inheritable<T>(
+    value: Option<Inheritable<T>>,
+    inherited: Option<T>,
+    field: &str,
+) -> io::Result<Option<T>> {
+    match value {
+        Some(Inheritable::Value(value)) => Ok(Some(value)),
+        Some(Inheritable::Workspace { workspace: true }) => inherited.map(Some).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("`{field}` inherits from workspace.package, but that field is not defined"),
+            )
+        }),
+        Some(Inheritable::Workspace { workspace: false }) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("`{field}.workspace` must be true when specified"),
+        )),
+        None => Ok(None),
+    }
+}
+
+fn rebase_workspace_dependency(
+    source: DependencySource,
+    package_root: &Path,
+    workspace: &WorkspaceManifest,
+) -> io::Result<DependencySource> {
+    let DependencySource::Path(path) = source else {
+        return Ok(source);
+    };
+    let target = normalize_path(&workspace.root.join(path));
+    let package_root = package_root.canonicalize()?;
+    let from = package_root.components().collect::<Vec<_>>();
+    let to = target.components().collect::<Vec<_>>();
+    let common = from
+        .iter()
+        .zip(&to)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut relative = PathBuf::new();
+    for _ in common..from.len() {
+        relative.push("..");
+    }
+    for component in &to[common..] {
+        relative.push(component.as_os_str());
+    }
+    let relative = relative.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "workspace dependency path is not UTF-8",
+        )
+    })?;
+    Ok(DependencySource::Path(relative.replace('\\', "/")))
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut output = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !output.pop() {
+                    output.push(component.as_os_str());
+                }
+            }
+            other => output.push(other.as_os_str()),
+        }
+    }
+    output
+}
+
+fn normalize_workspace_path(path: &str, role: &str) -> io::Result<String> {
+    let path = path.replace('\\', "/");
+    let value = Path::new(&path);
+    if path.is_empty()
+        || value.is_absolute()
+        || value.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        })
+        || path.starts_with('\\')
+        || path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid {role} path `{path}`"),
+        ));
+    }
+    let normalized = value
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(segment) => segment.to_str(),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(if normalized.is_empty() {
+        ".".to_owned()
+    } else {
+        normalized
+    })
+}
+
+fn expand_workspace_paths(root: &Path, patterns: &[String], role: &str) -> io::Result<Vec<String>> {
+    let mut matches = BTreeSet::new();
+    for pattern in patterns {
+        let pattern = normalize_workspace_path(pattern, role)?;
+        let has_wildcard = pattern
+            .bytes()
+            .any(|byte| matches!(byte, b'*' | b'?' | b'['));
+        let paths = if has_wildcard {
+            let root_text = root.to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{role} pattern is not UTF-8"),
+                )
+            })?;
+            let root_text = if let Some(unc) = root_text.strip_prefix(r"\\?\UNC\") {
+                format!("//{unc}")
+            } else {
+                root_text
+                    .strip_prefix(r"\\?\")
+                    .unwrap_or(root_text)
+                    .to_owned()
+            };
+            let full_pattern = format!(
+                "{}/{}",
+                glob::Pattern::escape(&root_text.replace('\\', "/")),
+                pattern
+            );
+            glob::glob(&full_pattern)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                .take(MAX_MANIFEST_ENTRIES + 1)
+                .map(|path| path.map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error)))
+                .collect::<io::Result<Vec<_>>>()?
+        } else if pattern == "." {
+            vec![root.to_path_buf()]
+        } else {
+            vec![root.join(&pattern)]
+        };
+        if paths.len() > MAX_MANIFEST_ENTRIES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "workspace pattern expands to too many paths",
+            ));
+        }
+        let mut found = false;
+        for path in paths {
+            if !path.is_dir() || !path.join("nia.toml").is_file() {
+                continue;
+            }
+            let canonical = path.canonicalize()?;
+            let relative = canonical.strip_prefix(root).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{role} `{pattern}` resolves outside the workspace root"),
+                )
+            })?;
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let relative = if relative.is_empty() {
+                ".".to_owned()
+            } else {
+                relative
+            };
+            matches.insert(relative);
+            if matches.len() > MAX_MANIFEST_ENTRIES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "workspace has too many members",
+                ));
+            }
+            found = true;
+        }
+        if !found {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{role} pattern `{pattern}` does not match a package manifest"),
+            ));
+        }
+    }
+    Ok(matches.into_iter().collect())
+}
+
+fn workspace_path_excluded(path: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|pattern| {
+        glob::Pattern::new(pattern).is_ok_and(|pattern| {
+            Path::new(path).ancestors().any(|ancestor| {
+                pattern.matches_path_with(
+                    ancestor,
+                    glob::MatchOptions {
+                        require_literal_separator: true,
+                        ..glob::MatchOptions::new()
+                    },
+                )
+            })
+        })
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawPackageManifest {
-    package: RawPackageIdentity,
+    #[serde(default)]
+    package: Option<RawPackageIdentity>,
+    #[serde(default)]
+    workspace: Option<RawWorkspace>,
     #[serde(default)]
     source: RawPackageSource,
     #[serde(default)]
@@ -1028,11 +1618,44 @@ struct RawPackageManifest {
 struct RawPackageIdentity {
     name: String,
     #[serde(default)]
+    namespace: Option<Inheritable<String>>,
+    #[serde(default)]
+    version: Option<Inheritable<String>>,
+    #[serde(default, rename = "protocol-epoch")]
+    protocol_epoch: Option<Inheritable<u32>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWorkspace {
+    #[serde(default)]
+    members: Vec<String>,
+    #[serde(default, rename = "default-members")]
+    default_members: Option<Vec<String>>,
+    #[serde(default)]
+    exclude: Vec<String>,
+    #[serde(default)]
+    package: Option<RawWorkspacePackage>,
+    #[serde(default)]
+    dependencies: BTreeMap<String, RawDependency>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWorkspacePackage {
+    #[serde(default)]
     namespace: Option<String>,
     #[serde(default)]
     version: Option<String>,
     #[serde(default, rename = "protocol-epoch")]
     protocol_epoch: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+enum Inheritable<T> {
+    Value(T),
+    Workspace { workspace: bool },
 }
 
 #[derive(Deserialize, Default)]
@@ -1054,6 +1677,8 @@ struct RawPackageLibrary {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawDependency {
+    #[serde(default)]
+    workspace: Option<bool>,
     #[serde(default)]
     path: Option<String>,
     #[serde(default)]
@@ -1260,11 +1885,19 @@ pub fn package_source_identity_with_selection(
             "package has no source roots",
         ));
     }
-    let excludes = selection
+    let mut excludes = selection
         .excludes
         .iter()
         .map(|value| validate_selection_path(value))
         .collect::<io::Result<BTreeSet<_>>>()?;
+    if root.join("nia.toml").is_file() && read_raw_manifest(&root)?.workspace.is_some() {
+        let workspace = WorkspaceManifest::read(&root)?;
+        for member in workspace.members {
+            if member != "." {
+                excludes.insert(validate_selection_path(&member)?);
+            }
+        }
+    }
     let mut files = Vec::new();
     let mut seen_files = BTreeSet::new();
     for source_root in &selected_roots {
@@ -3317,6 +3950,279 @@ mod tests {
         )
         .unwrap();
         assert!(PackageManifest::read(&root).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_members_inherit_package_fields_and_dependencies_explicitly() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-workspace-inheritance-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let member = root.join("packages/app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"packages/app\"]\n[workspace.package]\nnamespace = \"example\"\nversion = \"0.3.0-dev\"\nprotocol-epoch = 1\n[workspace.dependencies]\njson = { path = \"vendor/json\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nnamespace.workspace = true\nversion.workspace = true\nprotocol-epoch.workspace = true\n[dependencies]\njson.workspace = true\n",
+        )
+        .unwrap();
+
+        let workspace = WorkspaceManifest::read(&root).unwrap();
+        assert_eq!(workspace.members, ["packages/app"]);
+        assert_eq!(workspace.package.namespace.as_deref(), Some("example"));
+        let manifest = PackageManifest::read(&member).unwrap();
+        assert_eq!(manifest.package.namespace, "example");
+        assert_eq!(manifest.package.version, "0.3.0-dev");
+        assert_eq!(manifest.protocol_epoch, Some(1));
+        assert_eq!(manifest.dependencies[0].name, "json");
+        assert_eq!(
+            manifest.dependencies[0].source,
+            DependencySource::Path("../../vendor/json".into())
+        );
+        assert_eq!(
+            WorkspaceManifest::discover_for_package(&member)
+                .unwrap()
+                .unwrap()
+                .root,
+            root.canonicalize().unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_can_also_be_a_package_and_inherit_its_own_fields() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-workspace-root-package-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\".\"]\ndefault-members = [\".\"]\n[workspace.package]\nnamespace = \"example\"\nversion = \"1.2.3\"\n[package]\nname = \"root-app\"\nnamespace.workspace = true\nversion.workspace = true\n",
+        )
+        .unwrap();
+
+        let workspace = WorkspaceManifest::read(&root).unwrap();
+        let package = PackageManifest::read(&root).unwrap();
+        assert_eq!(
+            workspace.default_members.as_deref(),
+            Some([".".to_owned()].as_slice())
+        );
+        assert_eq!(package.package.namespace, "example");
+        assert_eq!(package.package.version, "1.2.3");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_members_share_lock_and_package_cache_roots() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-workspace-state-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let member = root.join("crates/app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"crates/app\"]\n",
+        )
+        .unwrap();
+        std::fs::write(member.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+
+        let fetcher = PackageFetcher::for_root(&member).unwrap();
+        assert_eq!(
+            fetcher.lock_path,
+            root.canonicalize().unwrap().join("nia.lock")
+        );
+        assert_eq!(
+            fetcher.cache_root,
+            root.canonicalize().unwrap().join(".nia/packages")
+        );
+        let cached = fetcher.cache_root.join("cached");
+        fs::create_dir_all(&cached).unwrap();
+        fs::write(cached.join("nia.toml"), "[package]\nname = \"cached\"\n").unwrap();
+        assert!(PackageManifest::read(&cached).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_globs_exclusions_and_independent_nested_workspaces() {
+        let root = std::env::temp_dir().join(format!("nia-workspace-globs-{}", std::process::id()));
+        for name in ["app", "core", "excluded"] {
+            fs::create_dir_all(root.join("packages").join(name)).unwrap();
+            fs::write(
+                root.join("packages").join(name).join("nia.toml"),
+                format!("[package]\nname = \"{name}\"\n"),
+            )
+            .unwrap();
+        }
+        fs::write(root.join("nia.toml"), "[workspace]\nmembers = [\"packages/*\"]\ndefault-members = [\"packages/a*\"]\nexclude = [\"packages/excluded\"]\n").unwrap();
+        let workspace = WorkspaceManifest::read(&root).unwrap();
+        assert_eq!(workspace.members, ["packages/app", "packages/core"]);
+        assert_eq!(workspace.default_members.unwrap(), ["packages/app"]);
+        assert!(
+            WorkspaceManifest::discover(&root.join("packages/excluded"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(PackageManifest::read(&root.join("packages/excluded")).is_ok());
+
+        fs::write(
+            root.join("packages/excluded/nia.toml"),
+            "[workspace]\n[package]\nname = \"excluded\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            WorkspaceManifest::discover(&root.join("packages/excluded"))
+                .unwrap()
+                .unwrap()
+                .root,
+            root.join("packages/excluded").canonicalize().unwrap()
+        );
+        fs::write(
+            root.join("packages/core/nia.toml"),
+            "[workspace]\n[package]\nname = \"core\"\n",
+        )
+        .unwrap();
+        assert!(
+            WorkspaceManifest::read(&root)
+                .unwrap_err()
+                .to_string()
+                .contains("nested workspace")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_rejects_unlisted_packages_invalid_patterns_and_ambiguous_names() {
+        let root =
+            std::env::temp_dir().join(format!("nia-workspace-invalid-{}", std::process::id()));
+        for name in ["app", "other"] {
+            fs::create_dir_all(root.join(name)).unwrap();
+            fs::write(
+                root.join(name).join("nia.toml"),
+                "[package]\nname = \"app\"\n",
+            )
+            .unwrap();
+        }
+        fs::write(root.join("nia.toml"), "[workspace]\nmembers = [\"app\"]\n").unwrap();
+        assert!(
+            WorkspaceManifest::discover(&root.join("other"))
+                .unwrap_err()
+                .to_string()
+                .contains("not listed")
+        );
+        for pattern in ["../app", "..\\app", "[", "absent/*"] {
+            fs::write(
+                root.join("nia.toml"),
+                format!("[workspace]\nmembers = ['{pattern}']\n"),
+            )
+            .unwrap();
+            assert!(WorkspaceManifest::read(&root).is_err(), "{pattern}");
+        }
+        fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"app\", \"other\"]\n",
+        )
+        .unwrap();
+        assert!(
+            WorkspaceManifest::read(&root)
+                .unwrap()
+                .member_packages()
+                .unwrap_err()
+                .to_string()
+                .contains("more than one package")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn root_package_source_identity_excludes_workspace_member_trees() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-workspace-source-identity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("crates/lib/src")).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"crates/lib\"]\n[package]\nname = \"root\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("crates/lib/nia.toml"),
+            "[package]\nname = \"lib\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/main.nia"), "root").unwrap();
+        std::fs::write(root.join("crates/lib/src/lib.nia"), "one").unwrap();
+        let first = package_source_identity(&root, package()).unwrap();
+        std::fs::write(root.join("crates/lib/src/lib.nia"), "two").unwrap();
+        let second = package_source_identity(&root, package()).unwrap();
+        assert_eq!(first.source_fingerprint, second.source_fingerprint);
+        assert!(
+            !first
+                .files
+                .iter()
+                .any(|file| file.path.starts_with("crates/lib/"))
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_inheritance_requires_an_explicit_existing_value() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-workspace-invalid-inheritance-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let member = root.join("app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"app\"]\n[workspace.package]\nnamespace = \"example\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+        let error = PackageManifest::read(&member).unwrap_err();
+        assert!(
+            error.to_string().contains("workspace.package"),
+            "unexpected error: {error}"
+        );
+
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion.workspace = false\n",
+        )
+        .unwrap();
+        assert!(PackageManifest::read(&member).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 
