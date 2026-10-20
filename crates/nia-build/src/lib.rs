@@ -102,6 +102,10 @@ pub struct BuildRequest {
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
     /// Optional package or workspace root. `None` searches from the current directory.
     pub root: Option<PathBuf>,
+    /// Package names selected from a workspace. Repeated selectors are additive.
+    pub packages: Vec<String>,
+    /// Selects all members of the discovered workspace.
+    pub workspace_all: bool,
     /// Optional named build step; `None` selects the plan default.
     pub step: Option<String>,
     /// Whether compiler timing information is emitted.
@@ -150,6 +154,8 @@ impl BuildRequest {
         Self {
             toolchain,
             root: None,
+            packages: Vec::new(),
+            workspace_all: false,
             step: None,
             timings: TimingMode::Off,
             timing_format: TimingFormat::Text,
@@ -176,6 +182,18 @@ impl BuildRequest {
     /// Selects the package root from which `build.nia` is discovered.
     pub fn with_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = Some(root.into());
+        self
+    }
+
+    /// Adds a workspace member package to the invocation.
+    pub fn with_package(mut self, package: impl Into<String>) -> Self {
+        self.packages.push(package.into());
+        self
+    }
+
+    /// Selects every workspace member.
+    pub fn with_workspace_all(mut self, enabled: bool) -> Self {
+        self.workspace_all = enabled;
         self
     }
 
@@ -305,6 +323,8 @@ impl fmt::Debug for BuildRequest {
         f.debug_struct("BuildRequest")
             .field("toolchain", &self.toolchain)
             .field("root", &self.root)
+            .field("packages", &self.packages)
+            .field("workspace_all", &self.workspace_all)
             .field("step", &self.step)
             .field("timings", &self.timings)
             .field("timing_format", &self.timing_format)
@@ -331,6 +351,8 @@ impl PartialEq for BuildRequest {
     fn eq(&self, other: &Self) -> bool {
         self.toolchain == other.toolchain
             && self.root == other.root
+            && self.packages == other.packages
+            && self.workspace_all == other.workspace_all
             && self.step == other.step
             && self.timings == other.timings
             && self.timing_format == other.timing_format
@@ -499,6 +521,13 @@ pub enum BuildError {
         /// Underlying manifest, path, protocol identity, or graph error.
         error: io::Error,
     },
+    /// Workspace members could not be selected for this build request.
+    WorkspaceSelection {
+        /// Directory from which workspace discovery began.
+        path: PathBuf,
+        /// Selection or manifest validation failure.
+        detail: String,
+    },
     /// A build plan references a dependency that is not available from the root manifest.
     InvalidDependencyReference {
         /// Plan draft containing the invalid reference.
@@ -664,6 +693,11 @@ impl fmt::Display for BuildError {
                 "failed to resolve package graph at `{}`: {error}",
                 path.display()
             ),
+            Self::WorkspaceSelection { path, detail } => write!(
+                f,
+                "failed to select workspace packages from `{}`: {detail}",
+                path.display()
+            ),
             Self::InvalidDependencyReference { path, detail } => write!(
                 f,
                 "build plan `{}` has an invalid manifest dependency reference: {detail}",
@@ -798,6 +832,126 @@ impl std::error::Error for BuildError {}
 
 /// Runs one build request from package discovery through action publication.
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
+    let Some(selected) = select_workspace_members(&request)? else {
+        return run_build_single(request);
+    };
+    let mut first_error = None;
+    for member in selected {
+        let mut member_request = request.clone();
+        member_request.root = Some(member.root);
+        member_request.packages.clear();
+        member_request.workspace_all = false;
+        if let Err(error) = run_build_single(member_request) {
+            if !request.test_mode || request.test_fail_fast {
+                return Err(error);
+            }
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+fn select_workspace_members(
+    request: &BuildRequest,
+) -> Result<Option<Vec<nia_package_metadata::WorkspaceMember>>, BuildError> {
+    if request.workspace_all && !request.packages.is_empty() {
+        return Err(BuildError::WorkspaceSelection {
+            path: request.root.clone().unwrap_or_default(),
+            detail: "`--workspace` cannot be combined with `--package`".to_owned(),
+        });
+    }
+    let start = match &request.root {
+        Some(root) if root.is_absolute() => root.clone(),
+        Some(root) => env::current_dir()
+            .map_err(|error| BuildError::CurrentDirectory { error })?
+            .join(root),
+        None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
+    };
+    let workspace = nia_package_metadata::WorkspaceManifest::discover(&start).map_err(|error| {
+        BuildError::WorkspaceSelection {
+            path: start.clone(),
+            detail: error.to_string(),
+        }
+    })?;
+    let Some(workspace) = workspace else {
+        if request.workspace_all || !request.packages.is_empty() {
+            return Err(BuildError::WorkspaceSelection {
+                path: start,
+                detail: "`--workspace` and `--package` require a workspace manifest".to_owned(),
+            });
+        }
+        return Ok(None);
+    };
+    let members = workspace
+        .member_packages()
+        .map_err(|error| BuildError::WorkspaceSelection {
+            path: workspace.root.clone(),
+            detail: error.to_string(),
+        })?;
+    let selected_names = if !request.packages.is_empty() {
+        let mut selected = Vec::with_capacity(request.packages.len());
+        for name in &request.packages {
+            let Some(member) = members.iter().find(|member| member.name == *name) else {
+                return Err(BuildError::WorkspaceSelection {
+                    path: workspace.root.clone(),
+                    detail: format!("package `{name}` is not a workspace member"),
+                });
+            };
+            if !selected
+                .iter()
+                .any(|selected: &String| selected == &member.name)
+            {
+                selected.push(member.name.clone());
+            }
+        }
+        selected
+    } else if request.workspace_all {
+        members.iter().map(|member| member.name.clone()).collect()
+    } else if start
+        .canonicalize()
+        .is_ok_and(|start| start == workspace.root)
+    {
+        let roots = workspace
+            .default_members
+            .as_ref()
+            .unwrap_or(&workspace.members)
+            .iter()
+            .map(|path| {
+                if path == "." {
+                    workspace.root.clone()
+                } else {
+                    workspace.root.join(path)
+                }
+            })
+            .collect::<Vec<_>>();
+        members
+            .iter()
+            .filter(|member| roots.contains(&member.root))
+            .map(|member| member.name.clone())
+            .collect()
+    } else {
+        let start = start.canonicalize().unwrap_or(start);
+        members
+            .iter()
+            .filter(|member| start.starts_with(&member.root))
+            .max_by_key(|member| member.root.components().count())
+            .map(|member| vec![member.name.clone()])
+            .unwrap_or_default()
+    };
+    if selected_names.is_empty() {
+        return Err(BuildError::WorkspaceSelection {
+            path: workspace.root.clone(),
+            detail: "the selected workspace configuration contains no packages".to_owned(),
+        });
+    }
+    let selected = selected_names
+        .iter()
+        .filter_map(|name| members.iter().find(|member| member.name == *name).cloned())
+        .collect();
+    Ok(Some(selected))
+}
+
+fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
     let dry_run = request.dry_run;
     let explain = request.explain;
     let print_plan = request.print_plan;
@@ -3313,7 +3467,7 @@ fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
         // A package root is a hard discovery boundary. Do not accidentally
         // run a parent package's build script for a child package that has no
         // build script of its own.
-        if cursor.join("pkg.nia").is_file() {
+        if cursor.join("pkg.nia").is_file() || cursor.join("nia.toml").is_file() {
             return Err(BuildError::MissingBuildScript {
                 start: start.to_path_buf(),
             });
@@ -4025,6 +4179,71 @@ mod tests {
     }
 
     #[test]
+    fn workspace_selection_uses_defaults_members_and_explicit_packages() {
+        let root = temp_root("workspace_selection");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"core\", \"cli\"]\ndefault-members = [\"core\"]\n",
+        )
+        .expect("write workspace manifest");
+        for (directory, name) in [("core", "core"), ("cli", "cli")] {
+            let member = root.join(directory);
+            std::fs::create_dir_all(&member).expect("create workspace member");
+            std::fs::write(
+                member.join("nia.toml"),
+                format!("[package]\nname = \"{name}\"\n"),
+            )
+            .expect("write member manifest");
+            std::fs::write(member.join("build.nia"), "").expect("write build script");
+        }
+
+        let select = |request: BuildRequest| {
+            select_workspace_members(&request)
+                .expect("select workspace members")
+                .expect("workspace discovered")
+                .into_iter()
+                .map(|member| member.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            select(BuildRequest::new(test_toolchain_layout()).with_root(&root)),
+            ["core"]
+        );
+        assert_eq!(
+            select(BuildRequest::new(test_toolchain_layout()).with_root(root.join("cli"))),
+            ["cli"]
+        );
+        assert_eq!(
+            select(
+                BuildRequest::new(test_toolchain_layout())
+                    .with_root(&root)
+                    .with_package("cli")
+            ),
+            ["cli"]
+        );
+        assert_eq!(
+            select(
+                BuildRequest::new(test_toolchain_layout())
+                    .with_root(&root)
+                    .with_workspace_all(true)
+            ),
+            ["cli", "core"]
+        );
+    }
+
+    #[test]
+    fn workspace_selection_flags_require_a_workspace() {
+        let root = temp_root("workspace_selection_requires_workspace");
+        let error = select_workspace_members(
+            &BuildRequest::new(test_toolchain_layout())
+                .with_root(&root)
+                .with_package("core"),
+        )
+        .expect_err("package selector needs workspace");
+        assert!(error.to_string().contains("require a workspace manifest"));
+    }
+
+    #[test]
     fn prepares_build_and_cache_directories() {
         let root = temp_root("prepares_build_and_cache_directories");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
@@ -4295,7 +4514,7 @@ mod tests {
     }
 
     #[test]
-    fn ssh_build_dependency_fetches_locks_and_runs_build_script() {
+    fn workspace_ssh_build_dependency_fetches_locks_and_runs_build_script() {
         let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
         let toolchain = test_toolchain_layout();
         nia_git::with_test_ssh_checkout_fixture_mutating_repository(
@@ -4322,8 +4541,14 @@ mod tests {
                     .expect("write nested library");
             },
             move |_repository, source, ssh_config, _repo| {
-                let consumer = nia_test_support::test_dir("ssh-build-dependency-consumer");
-                let ssh_home = consumer.join("ssh-home");
+                let workspace =
+                    nia_test_support::test_dir("workspace-ssh-build-dependency-consumer");
+                let consumer = workspace.join("app");
+                std::fs::create_dir_all(&consumer).expect("create workspace member");
+                std::fs::write(workspace.join("nia.toml"), format!(
+                    "[workspace]\nmembers = [\"app\"]\n[workspace.dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
+                )).expect("write workspace manifest");
+                let ssh_home = workspace.join("ssh-home");
                 let ssh_directory = ssh_home.join(".ssh");
                 std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
                 std::fs::copy(
@@ -4346,9 +4571,7 @@ mod tests {
 
                 std::fs::write(
                 consumer.join("nia.toml"),
-                format!(
-                    "[package]\nname = \"consumer\"\n[build-dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
-                ),
+                "[package]\nname = \"consumer\"\n[build-dependencies]\nsshdep.workspace = true\n",
             )
             .expect("write consumer manifest");
                 std::fs::write(
@@ -4371,11 +4594,14 @@ pub fn build(b: &mut build::Build) build::Error!() {
 "#,
                 )
                 .expect("write consumer build script");
-                let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
+                let result = run_build(BuildRequest::new(toolchain).with_root(&*workspace));
                 restore_environment();
                 result.expect("build with SSH dependency");
                 assert!(consumer.join(".nia-build/generated.txt").is_file());
-                let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
+                assert!(!consumer.join("nia.lock").exists());
+                assert!(!consumer.join(".nia/packages").exists());
+                assert!(workspace.join(".nia/packages").is_dir());
+                let lock = nia_package_metadata::PackageLock::read(&workspace.join("nia.lock"))
                     .expect("read generated lockfile");
                 assert_eq!(lock.package.len(), 1);
                 assert_eq!(lock.package[0].name, "sshdep");

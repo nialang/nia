@@ -89,6 +89,8 @@ impl Cli {
 #[derive(Debug)]
 pub(crate) struct PackageOptions {
     pub(crate) root: Option<PathBuf>,
+    pub(crate) packages: Vec<String>,
+    pub(crate) workspace_all: bool,
     pub(crate) jobs: Option<NonZeroUsize>,
     pub(crate) quiet: u8,
     pub(crate) verbose: u8,
@@ -544,6 +546,11 @@ fn value(occurrence: &Occurrence) -> &str {
 
 fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<PackageOptions> {
     let err = |message: String| CliError::new(message, topic);
+    if scanned.has(OptionId::Workspace) && scanned.has(OptionId::Package) {
+        return Err(err(
+            "`--workspace` cannot be combined with `--package`".to_string()
+        ));
+    }
     let jobs = scanned
         .last(OptionId::Jobs)
         .map(|occurrence| parse_jobs(value(occurrence)).map_err(err))
@@ -571,6 +578,11 @@ fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<Packa
         root: scanned
             .last(OptionId::Root)
             .map(|occurrence| PathBuf::from(value(occurrence))),
+        packages: scanned
+            .all(OptionId::Package)
+            .map(|occurrence| value(occurrence).to_owned())
+            .collect(),
+        workspace_all: scanned.has(OptionId::Workspace),
         jobs,
         quiet: u8::from(quiet > 0),
         verbose: verbose as u8,
@@ -1115,6 +1127,25 @@ mod tests {
             assert_eq!(package(&cli).progress, ProgressMode::Plain);
             assert_eq!(package(&run(&[command, "-qq"])).quiet, 1);
         }
+    }
+
+    #[test]
+    fn workspace_package_selection_options_are_typed_and_repeatable() {
+        let cli = run(&["build", "-p", "core", "--package=cli"]);
+        assert_eq!(package(&cli).packages, ["core", "cli"]);
+        assert!(!package(&cli).workspace_all);
+
+        let cli = run(&["test", "--workspace"]);
+        assert!(package(&cli).workspace_all);
+        assert!(package(&cli).packages.is_empty());
+
+        assert_errors(&[
+            (
+                &["build", "--workspace", "-p", "core"],
+                "cannot be combined",
+            ),
+            (&["test", "--package="], "cannot be empty"),
+        ]);
     }
 
     #[test]

@@ -47,6 +47,45 @@ the declared build libraries by dependency name. The script still owns the
 dynamic build graph; the manifest only defines package identity and dependency
 inputs.
 
+## Workspaces
+
+A workspace groups packages under one root `nia.toml`. The root can be virtual
+or can also declare a package. Members remain ordinary packages with their own
+`nia.toml` and `build.nia` files:
+
+```toml
+[workspace]
+members = ["crates/core", "crates/cli"]
+default-members = ["crates/cli"]
+exclude = ["vendor"]
+
+[workspace.package]
+namespace = "acme"
+version = "0.1.0"
+
+[workspace.dependencies]
+json = { path = "vendor/json" }
+```
+
+Members opt into shared identity fields and dependencies with
+`{ workspace = true }`. A workspace dependency's path is rooted at the
+workspace directory. For example, a member can place `json = { workspace =
+true }` under `[dependencies]` or `[build-dependencies]` to select the shared
+source in that scope.
+
+Member and default-member paths accept glob patterns such as `crates/*`.
+Exclusions apply to matching directories and their descendants. A package
+under the workspace directory must be listed as a member or explicitly
+excluded; an excluded package builds independently. A nested workspace
+cannot also be a member of its parent workspace.
+
+Running `nia build` or `nia test` inside a member selects that package. Running
+from the workspace root selects `default-members`, or all members when that
+field is omitted. `--workspace` selects every member, and repeatable
+`-p`/`--package <name>` selects named members. Workspace members share the
+root `nia.lock` and `.nia/packages` cache while keeping their build outputs
+package-local.
+
 Artifact source imports use the package graph directly. A resolved runtime
 dependency is available under its manifest name, and each dependency's own
 runtime dependencies are resolved from that package's manifest. Development

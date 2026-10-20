@@ -160,6 +160,12 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             .help("check nia.toml dependency sources, scopes, and protocol epoch")
             .finish(),
         ],
+        BuildError::WorkspaceSelection { path, detail } => vec![
+            Diagnostic::user_error(codes::BUILD_PLAN, "could not select workspace packages")
+                .note(format!("workspace discovery from `{}`: {detail}", path.display()))
+                .help("check workspace.members, workspace.default-members, and the selected package names")
+                .finish(),
+        ],
         BuildError::InvalidDependencyReference { path, detail } => vec![
             Diagnostic::user_error(
                 codes::BUILD_PLAN,
