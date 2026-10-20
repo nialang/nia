@@ -102,8 +102,9 @@ The first build records each Git dependency's commit and content hash in
 stores the checkout under `.nia/packages` beside it.
 Later builds reuse the locked commit, even when a `branch` or `tag` has moved,
 and reject a cached checkout whose contents no longer match the recorded hash.
-Delete the entry, or `nia.lock`, to fetch the selector again. Commit `nia.lock`
-and ignore `.nia/`.
+Delete the entry, or `nia.lock`, to fetch the selector again. Entries that no
+manifest in the package or workspace still reaches, in any dependency scope,
+are removed on the next build. Commit `nia.lock` and ignore `.nia/`.
 
 ## Workspaces
 
