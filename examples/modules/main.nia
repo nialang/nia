@@ -4,7 +4,6 @@ pub module config;
 pub module geometry;
 
 using std::io;
-using std::fmt;
 using std::process;
 using entry::api;
 using entry::config;

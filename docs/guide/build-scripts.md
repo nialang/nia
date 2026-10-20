@@ -318,7 +318,6 @@ pub fn square(value: i32) i32 {
 `src/main.nia` opens the three imports by name:
 
 ```nia
-using std::fmt;
 using std::io;
 using std::process;
 using greeting;
@@ -451,7 +450,6 @@ A failed assertion records the source location of the failing call, which
 `failed()`, `skipped()`, and `isSuccessful()`.
 
 ```nia
-using std::fmt;
 using std::io;
 using std::process;
 using std::test;
