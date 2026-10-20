@@ -309,14 +309,22 @@ pub struct PlanModule {
     pub imports: Vec<ModuleImport>,
 }
 
-/// Package identity and logical checkout root.
+/// Source selected for a build-plan package.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PlanPackageSource {
+    /// Source tree outside the manifest dependency graph, relative to the root package.
+    Local(String),
+    /// Direct dependency alias declared in the root package manifest.
+    Dependency(String),
+}
+
+/// Package identity and its explicitly selected source.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanPackage {
     /// Stable package identity.
     pub key: PackageKey,
-    /// Package root relative to the invocation's root package.
-    /// The root package is represented by the empty path.
-    pub root: String,
+    /// Root package uses `Local("")`; dependencies carry their manifest alias.
+    pub source: PlanPackageSource,
 }
 
 /// Usage summary for one package in a frozen plan.
@@ -1309,18 +1317,21 @@ mod tests {
         let mut value = draft(false);
         value.packages.push(PlanPackage {
             key: PackageKey::new("assets").unwrap(),
-            root: "packages/assets".to_string(),
+            source: crate::PlanPackageSource::Local("packages/assets".to_string()),
         });
         let plan = BuildPlan::freeze(value.clone()).unwrap();
         assert_eq!(plan.packages()[0].key.as_str(), "assets");
-        assert_eq!(plan.packages()[0].root, "packages/assets");
+        assert_eq!(
+            plan.packages()[0].source,
+            PlanPackageSource::Local("packages/assets".into())
+        );
 
         value
             .packages
             .iter_mut()
             .find(|package| package.key == PackageKey::root())
             .unwrap()
-            .root = "moved-root".to_string();
+            .source = PlanPackageSource::Local("moved-root".to_string());
         assert!(matches!(
             BuildPlan::freeze(value),
             Err(PlanError::InvalidPackageRoot {
@@ -1332,7 +1343,7 @@ mod tests {
         let mut value = draft(false);
         value.packages.push(PlanPackage {
             key: PackageKey::new("assets").unwrap(),
-            root: "packages/../assets".to_string(),
+            source: crate::PlanPackageSource::Local("packages/../assets".to_string()),
         });
         assert!(matches!(
             BuildPlan::freeze(value),
@@ -1345,7 +1356,7 @@ mod tests {
         let mut value = draft(false);
         value.packages.push(PlanPackage {
             key: PackageKey::new("assets").unwrap(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         });
         assert!(matches!(
             BuildPlan::freeze(value),

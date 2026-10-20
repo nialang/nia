@@ -90,7 +90,7 @@ fn aggregate_plan(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),
@@ -138,7 +138,7 @@ fn registered_test_plan() -> BuildPlan {
         root_package: package.clone(),
         packages: vec![PlanPackage {
             key: package.clone(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),
@@ -201,7 +201,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),
@@ -324,14 +324,14 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         let module_key = ModuleKey::new(root_package.clone(), "app").unwrap();
         let mut packages = vec![PlanPackage {
             key: root_package.clone(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }];
         let mut imports = Vec::new();
         for (name, _) in dependency_scopes {
             let package = PackageKey::new(name).unwrap();
             packages.push(PlanPackage {
                 key: package.clone(),
-                root: name.to_string(),
+                source: crate::PlanPackageSource::Local(name.to_string()),
             });
             imports.push(ModuleImport {
                 name: name.to_string(),
@@ -811,7 +811,7 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),
@@ -926,7 +926,7 @@ fn empty_plan_executes_nothing() {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),
@@ -972,7 +972,7 @@ fn explicit_uncacheable_action_has_no_legacy_execution_fallback() {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target,
         artifact_target: target,
@@ -1023,7 +1023,7 @@ fn invocation_target_mismatch_is_rejected_before_actions() {
                 root_package: PackageKey::root(),
                 packages: vec![PlanPackage {
                     key: PackageKey::root(),
-                    root: String::new(),
+                    source: crate::PlanPackageSource::Local(String::new()),
                 }],
                 host_target: host,
                 artifact_target: artifact,
@@ -1079,7 +1079,7 @@ fn generated_plan(invocation: &BuildInvocation, output: &str, contents: &[u8]) -
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: host,
         artifact_target: artifact,
@@ -1206,7 +1206,7 @@ fn compiler_check_plan_with_runtime(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: host,
         artifact_target: artifact,
@@ -1290,7 +1290,7 @@ fn compiler_emit_plan_kind(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: host,
         artifact_target,
@@ -1338,7 +1338,7 @@ fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: *invocation.toolchain.host_target(),
         artifact_target,
@@ -1410,7 +1410,7 @@ fn mixed_generated_source_emit_plan(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: host,
         artifact_target,
@@ -2512,7 +2512,7 @@ fn staged_command_plan_outputs(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: *invocation.toolchain.host_target(),
         artifact_target: *invocation.toolchain.artifact_target(),
@@ -2619,7 +2619,7 @@ fn cacheable_command_plan_with_input_and_stdin(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: *invocation.toolchain.host_target(),
         artifact_target: *invocation.toolchain.artifact_target(),
@@ -2665,7 +2665,7 @@ fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: *invocation.toolchain.host_target(),
         artifact_target: *invocation.toolchain.artifact_target(),

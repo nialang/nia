@@ -97,8 +97,8 @@ pub(crate) fn package_dependency_selection(
                 .declared
                 .iter()
                 .find(|dependency| {
-                    dependency.owner_root.is_empty()
-                        && dependency.dependency.name == package.key.as_str()
+                    matches!(&package.source, crate::PlanPackageSource::Dependency(name)
+                        if dependency.owner_root.is_empty() && dependency.dependency.name == *name)
                 });
             let classes = declared
                 .map(|dependency| BTreeSet::from([dependency.dependency.scope]))

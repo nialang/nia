@@ -340,7 +340,16 @@ pub(super) fn package_roots_identity<'a>(
     for key in keys {
         let package = packages.iter().find(|package| &package.key == key)?;
         write_text(&mut encoded, key.as_str());
-        write_text(&mut encoded, &package.root);
+        match &package.source {
+            crate::PlanPackageSource::Local(root) => {
+                encoded.push(1);
+                write_text(&mut encoded, root);
+            }
+            crate::PlanPackageSource::Dependency(name) => {
+                encoded.push(2);
+                write_text(&mut encoded, name);
+            }
+        }
     }
     Some(encoded)
 }
