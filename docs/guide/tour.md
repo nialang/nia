@@ -27,7 +27,6 @@ no `using std::fmt;` declaration is required.
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 using std::iter;
 
@@ -85,7 +84,6 @@ answer=43 wide=43 code=110 count=3 first=42
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 
 fn square(x: i32) i32 {
@@ -170,7 +168,6 @@ Logical operators are the keywords `and`, `or`, and `not`. `~` is bitwise not.
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 
 struct Point {
@@ -232,7 +229,6 @@ dereferences it automatically; otherwise dereference explicitly with `p.*`.
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 
 enum Band: u8 {
@@ -307,7 +303,6 @@ binding, so constants are matched through a path such as `Color::Red`.
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 
 fn sum(values: &[i32]) i32 {
@@ -373,7 +368,6 @@ all=15 partial=9 filled=14 text=5 bytes=4 third=?
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 
 enum ParseError {
@@ -455,7 +449,6 @@ Patterns take these values apart: `?x` and `null` for optionals, `!x` and
 
 ```nia
 using std::io;
-using std::fmt;
 using std::mem;
 using std::process;
 
@@ -527,7 +520,6 @@ after creating a value keeps that order correct. `std::mem` provides
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 
 // A generic struct and generic methods.
@@ -627,7 +619,6 @@ generic code requires the `Sized` bound on `T`.
 
 ```nia
 using std::io;
-using std::fmt;
 using std::process;
 using std::iter;
 
@@ -711,7 +702,6 @@ geometry/shapes.nia
 module geometry;
 
 using std::io;
-using std::fmt;
 using std::process;
 using geometry::{Point, origin};
 using geometry::shapes::Rect;
@@ -794,7 +784,6 @@ same facts are constants in `std::builtin::target`:
 ```nia
 using std::builtin::target;
 using std::io;
-using std::fmt;
 using std::process;
 
 @[if os == "windows"]

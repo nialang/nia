@@ -1,5 +1,4 @@
 using std::io;
-using std::fmt;
 using std::process;
 using process::{Init, ExitCode};
 
