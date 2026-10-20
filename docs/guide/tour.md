@@ -771,7 +771,7 @@ package. `pub module` makes a child module part of the public surface, and
 `using` paths start from a module in scope or from a root: `std` for the
 standard library, `pkg` for the current package, `entry` for the program's
 entry package, `self` and `super` for the current and parent modules, or a
-package name declared by the build script. `using` accepts groups
+dependency name declared in `nia.toml`. `using` accepts groups
 (`using std::{io, fmt};`), renames (`using geometry::origin as zero;`), and
 wildcards (`using geometry::*;`).
 
