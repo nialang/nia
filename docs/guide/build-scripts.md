@@ -51,7 +51,8 @@ Git dependencies support HTTPS and SSH without invoking a system Git client.
 SSH sources use `ssh://` or SCP-style URLs and verify server keys against
 `~/.ssh/known_hosts` (or `%USERPROFILE%/.ssh/known_hosts` on Windows). Nia
 authenticates with `~/.ssh/id_ed25519` (or `%USERPROFILE%/.ssh/id_ed25519` on
-Windows); the key must be unencrypted. Unknown or changed host keys are rejected.
+Windows); the key must be unencrypted. Plain and hashed OpenSSH host entries are
+supported. Unknown or changed host keys are rejected.
 
 ## The Build Function
 

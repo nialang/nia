@@ -3444,6 +3444,50 @@ mod tests {
                 .kind(),
             io::ErrorKind::NotFound
         );
+
+        let salt = [23u8; 20];
+        let hashed_host = |candidate: &str| {
+            let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY, &salt);
+            let digest = ring::hmac::sign(&key, candidate.as_bytes());
+            format!("|1|{}|{}", base64(&salt), base64(digest.as_ref()))
+        };
+        let hashed_default = KnownHosts::parse(
+            format!(
+                "{} ssh-ed25519 {encoded_blob}\n",
+                hashed_host("hashed.example.test")
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        hashed_default
+            .verify("hashed.example.test", 22, &key_blob)
+            .unwrap();
+        assert_eq!(
+            hashed_default
+                .verify("other.example.test", 22, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+
+        let hashed_non_default = KnownHosts::parse(
+            format!(
+                "{} ssh-ed25519 {encoded_blob}\n",
+                hashed_host("[hashed.example.test]:2222")
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        hashed_non_default
+            .verify("hashed.example.test", 2222, &key_blob)
+            .unwrap();
+        assert_eq!(
+            hashed_non_default
+                .verify("hashed.example.test", 22, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
     }
 
     #[test]
