@@ -122,18 +122,21 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Build => HelpDoc {
             title: "nia build",
             about: "Build a package with its build.nia script.",
-            usage: &["nia build [step] [--root <dir>] [options]"],
+            usage: &["nia build [step] [--root <dir>] [-p <name> ... | --workspace] [options]"],
             commands: &[],
             examples: &[
                 "nia build",
                 "nia build check",
                 "nia build install --root tools/example",
+                "nia build --workspace",
             ],
         },
         HelpTopic::Test => HelpDoc {
             title: "nia test",
             about: "Build and run package test suites.",
-            usage: &["nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast] [options]"],
+            usage: &[
+                "nia test [--root <dir>] [-p <name> ... | --workspace] [--filter <text>] [--list] [--fail-fast] [options]",
+            ],
             commands: &[],
             examples: &["nia test", "nia test --filter parser", "nia test --list"],
         },

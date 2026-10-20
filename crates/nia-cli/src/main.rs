@@ -456,6 +456,10 @@ fn package_request(
     if let Some(root) = &package.root {
         request = request.with_root(root.clone());
     }
+    for name in &package.packages {
+        request = request.with_package(name.clone());
+    }
+    request = request.with_workspace_all(package.workspace_all);
     if let Some(jobs) = package.jobs {
         request = request.with_max_parallel_actions(jobs);
     }
