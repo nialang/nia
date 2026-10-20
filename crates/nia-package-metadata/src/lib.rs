@@ -850,6 +850,32 @@ fn validate_library_entry(root: &Path, library_path: &str) -> io::Result<()> {
     Ok(())
 }
 
+fn validate_library_selection(
+    library_path: &str,
+    selection: &PackageSourceSelection,
+) -> io::Result<()> {
+    let selected = selection.source_roots.iter().any(|root| {
+        root == "."
+            || library_path == root
+            || library_path
+                .strip_prefix(root)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    });
+    let excluded = selection.excludes.iter().any(|exclude| {
+        library_path == exclude
+            || library_path
+                .strip_prefix(exclude)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    });
+    if !selected || excluded {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "package library path must be included by source roots and not excluded",
+        ));
+    }
+    Ok(())
+}
+
 impl PackageManifest {
     /// Creates the implicit manifest used when no manifest file exists.
     pub fn implicit(root_name: impl Into<String>) -> Self {
@@ -914,6 +940,9 @@ impl PackageManifest {
             },
             excludes: raw.source.exclude,
         };
+        if let Some(library_path) = &manifest.library_path {
+            validate_library_selection(library_path, &manifest.source)?;
+        }
         let mut dependencies = Vec::new();
         for (scope, declarations) in [
             (DependencyScope::Build, raw.build_dependencies),
@@ -3680,6 +3709,29 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("invalid package library path"));
 
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_manifest_requires_library_entry_in_selected_sources() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-library-selection-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        for manifest in [
+            "[package]\nname = \"root\"\n[library]\npath = \"lib.nia\"\n[source]\nroots = [\"src\"]\n",
+            "[package]\nname = \"root\"\n[library]\npath = \"src/lib.nia\"\n[source]\nroots = [\"src\"]\nexclude = [\"src/lib.nia\"]\n",
+        ] {
+            std::fs::write(root.join("nia.toml"), manifest).unwrap();
+            let error = PackageManifest::read(&root).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains("included by source roots"));
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
