@@ -86,6 +86,10 @@ field is omitted. `--workspace` selects every member, and repeatable
 root `nia.lock` and `.nia/packages` cache while keeping their build outputs
 package-local.
 
+Workspace tests run selected members in manifest order and continue after a
+member fails, reporting an unsuccessful result after the remaining members
+finish. `nia test --fail-fast` stops after the first failing member.
+
 Artifact source imports use the package graph directly. A resolved runtime
 dependency is available under its manifest name, and each dependency's own
 runtime dependencies are resolved from that package's manifest. Development
