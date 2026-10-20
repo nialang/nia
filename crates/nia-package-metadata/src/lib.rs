@@ -666,6 +666,9 @@ impl PackageGraph {
                 }
             })?;
             manifest.validate_protocol_epoch()?;
+            if let Some(library_path) = &manifest.library_path {
+                validate_library_entry(&canonical, library_path)?;
+            }
             let source = package_source_identity_with_selection(
                 &canonical,
                 manifest.package.clone(),
@@ -748,6 +751,29 @@ impl PackageGraph {
                 &mut encoded,
                 node.manifest.package.canonical_text().as_bytes(),
             );
+            match node.manifest.protocol_epoch {
+                Some(epoch) => {
+                    encoded.push(1);
+                    encoded.extend_from_slice(&epoch.to_le_bytes());
+                }
+                None => encoded.push(0),
+            }
+            match &node.manifest.library_path {
+                Some(path) => {
+                    encoded.push(1);
+                    write_fingerprint_field(&mut encoded, path.as_bytes());
+                }
+                None => encoded.push(0),
+            }
+            encoded
+                .extend_from_slice(&(node.manifest.source.source_roots.len() as u64).to_le_bytes());
+            for root in &node.manifest.source.source_roots {
+                write_fingerprint_field(&mut encoded, root.as_bytes());
+            }
+            encoded.extend_from_slice(&(node.manifest.source.excludes.len() as u64).to_le_bytes());
+            for exclude in &node.manifest.source.excludes {
+                write_fingerprint_field(&mut encoded, exclude.as_bytes());
+            }
             encoded.extend_from_slice(&node.source_fingerprint);
             encoded.extend_from_slice(&(node.manifest.dependencies.len() as u64).to_le_bytes());
             for dependency in &node.manifest.dependencies {
@@ -800,6 +826,30 @@ fn write_fingerprint_field(encoded: &mut Vec<u8>, value: &[u8]) {
     encoded.extend_from_slice(value);
 }
 
+fn validate_library_entry(root: &Path, library_path: &str) -> io::Result<()> {
+    let path = root.join(library_path);
+    let metadata = fs::symlink_metadata(&path).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("package library entry `{library_path}` is unavailable: {error}"),
+        )
+    })?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("package library entry `{library_path}` must be a regular file"),
+        ));
+    }
+    let canonical = path.canonicalize()?;
+    if !canonical.starts_with(root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("package library entry `{library_path}` escapes the package root"),
+        ));
+    }
+    Ok(())
+}
+
 impl PackageManifest {
     /// Creates the implicit manifest used when no manifest file exists.
     pub fn implicit(root_name: impl Into<String>) -> Self {
@@ -845,7 +895,17 @@ impl PackageManifest {
             version: raw.package.version.unwrap_or_else(|| "0.0.0".into()),
         };
         manifest.protocol_epoch = raw.package.protocol_epoch;
-        manifest.library_path = raw.library.path;
+        manifest.library_path = raw
+            .library
+            .path
+            .map(|path| validate_selection_path(&path))
+            .transpose()
+            .map_err(|error| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid package library path: {error}"),
+                )
+            })?;
         manifest.source = PackageSourceSelection {
             source_roots: if raw.source.roots.is_empty() {
                 vec![".".into()]
@@ -3566,5 +3626,90 @@ mod tests {
         assert_ne!(ordinary.fingerprint(), selected.fingerprint());
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_fingerprint_includes_library_manifest_semantics() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-graph-library-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[library]\npath = \"src/first.nia\"\n[source]\nroots = [\"src\"]\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("src/first.nia"), "pub const value: u8 = 1;").unwrap();
+        std::fs::write(root.join("src/second.nia"), "pub const value: u8 = 1;").unwrap();
+        let first = PackageGraph::resolve(&root, false).unwrap().fingerprint();
+
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[library]\npath = \"src/second.nia\"\n[source]\nroots = [\"src\"]\n",
+        )
+        .unwrap();
+        let second = PackageGraph::resolve(&root, false).unwrap().fingerprint();
+
+        assert_ne!(first, second);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_manifest_rejects_library_paths_outside_the_package() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-library-path-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[library]\npath = \"../outside.nia\"\n",
+        )
+        .unwrap();
+
+        let error = PackageManifest::read(&root).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("invalid package library path"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_graph_rejects_library_symlinks_outside_the_package() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-graph-library-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let outside = root.with_extension("outside.nia");
+        std::fs::write(&outside, "pub const value: u8 = 1;").unwrap();
+        symlink(&outside, root.join("src/lib.nia")).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[library]\npath = \"src/lib.nia\"\n",
+        )
+        .unwrap();
+
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        assert!(error.to_string().contains("must be a regular file"));
+
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_file(outside).unwrap();
     }
 }

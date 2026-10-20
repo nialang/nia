@@ -323,6 +323,11 @@ pub(super) fn cache_key(
     );
     hash_field(&mut hasher, b"runner-source", runner.source.as_bytes());
     hash_file(&mut hasher, &invocation.build_script, runner)?;
+    hash_field(
+        &mut hasher,
+        b"package-graph",
+        &invocation.package_source_fingerprint,
+    );
     hash_field(&mut hasher, b"tree", b"std-source-tree");
     hash_directory(
         &mut hasher,
@@ -852,6 +857,26 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("too many entries"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn resolved_package_graph_is_part_of_runner_cache_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-runner-cache-package-graph-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let mut invocation = invocation(&root);
+        let runner = BuildRunnerSource {
+            path: "runner.nia".into(),
+            source: "using std;".into(),
+        };
+        let first = cache_key(&invocation, &runner).unwrap();
+        invocation.package_source_fingerprint = [1; 32];
+        let changed_dependency_graph = cache_key(&invocation, &runner).unwrap();
+
+        assert_ne!(first, changed_dependency_graph);
         let _ = fs::remove_dir_all(root);
     }
 
