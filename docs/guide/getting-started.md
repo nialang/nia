@@ -188,6 +188,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 | --- | --- |
 | `nia build [step]` | Runs `build.nia`, then the named step, or the default step when none is named. |
 | `nia test` | Builds and runs every registered test suite. |
+| `nia update [name ...]` | Fetches Git dependencies again and rewrites `nia.lock`. |
 | `nia check <path>` | Type-checks a source file or package directory without producing output. |
 | `nia emit --<kind> <path>` | Prints or writes one compiler output. |
 | `nia help [command]` | Shows a command's options; `nia help emit --exe` shows the options of one emit kind. |

@@ -102,9 +102,17 @@ The first build records each Git dependency's commit and content hash in
 stores the checkout under `.nia/packages` beside it.
 Later builds reuse the locked commit, even when a `branch` or `tag` has moved,
 and reject a cached checkout whose contents no longer match the recorded hash.
-Delete the entry, or `nia.lock`, to fetch the selector again. Entries that no
-manifest in the package or workspace still reaches, in any dependency scope,
-are removed on the next build. Commit `nia.lock` and ignore `.nia/`.
+Entries that no manifest in the package or workspace still reaches, in any
+dependency scope, are removed on the next build. Commit `nia.lock` and ignore
+`.nia/`.
+
+`nia update` fetches every locked selector again and rewrites `nia.lock`;
+`nia update <name> ...` refreshes only those dependencies. It resolves every
+package that shares the lock file, so running it from one workspace member
+updates the whole workspace. `nia build` and `nia test` accept `--locked`,
+which fails instead of adding, changing, or removing a lock entry, and
+`--offline`, which fails instead of fetching a dependency that is not cached.
+CI builds should pass `--locked`.
 
 ## Workspaces
 
@@ -600,6 +608,8 @@ named, after the steps it depends on.
 | --- | --- |
 | `-p, --package <name>` | selects a workspace member; repeatable |
 | `--workspace` | selects every workspace member |
+| `--locked` | fails instead of changing `nia.lock` |
+| `--offline` | fails instead of fetching a Git dependency that is not cached |
 | `--dry-run` | configures and validates the graph without running any step |
 | `--explain` | shows the selected step, targets, action closure, and configure-cache decision |
 | `--print-plan` | prints the frozen graph: modules, artifacts, actions, and steps |
