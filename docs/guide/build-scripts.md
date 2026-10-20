@@ -90,10 +90,10 @@ Artifact source imports use the package graph directly. A resolved runtime
 dependency is available under its manifest name, and each dependency's own
 runtime dependencies are resolved from that package's manifest. Development
 dependencies are available to test builds. Ordinary source imports therefore
-do not repeat dependency names or library paths in `build.nia`.
-The compiler currently uses one named module-root namespace per build request;
-if selected dependencies use the same name for different package instances,
-Nia reports the conflicting root instead of choosing one implicitly.
+do not repeat dependency names or library paths in `build.nia`. Dependency
+aliases are local to the package that declares them, so separate packages can
+use the same alias for different package instances without ambiguity. A single
+package still cannot resolve one alias to multiple package instances.
 
 Git dependencies support HTTPS and SSH without invoking a system Git client.
 SSH sources use `ssh://` or SCP-style URLs and verify server keys against
