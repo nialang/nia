@@ -3033,11 +3033,31 @@ fn encode_hex(bytes: &[u8]) -> String {
     output
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 mod tests {
     use super::ssh::*;
     use super::*;
     use ring::signature::KeyPair;
+
+    #[cfg(feature = "test-support")]
+    type SshFixtureCallback = Box<dyn FnOnce(&Path, &str, &Path, &Path)>;
+
+    #[cfg(feature = "test-support")]
+    thread_local! {
+        static SSH_FIXTURE_CALLBACK: std::cell::RefCell<Option<SshFixtureCallback>> = const { std::cell::RefCell::new(None) };
+        static SSH_FIXTURE_SKIP_CLIENT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(super) fn with_ssh_checkout_fixture(
+        callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static,
+    ) {
+        SSH_FIXTURE_CALLBACK.with(|slot| {
+            assert!(slot.borrow_mut().replace(Box::new(callback)).is_none());
+        });
+        SSH_FIXTURE_SKIP_CLIENT.with(|skip| skip.set(true));
+        ssh_key_exchange_authenticates_and_opens_git_exec_channel_impl();
+    }
 
     #[test]
     fn loose_objects_validate_type_size_and_git_object_identity() {
@@ -3563,8 +3583,14 @@ mod tests {
         assert!(derive_ssh_key(&shared[..31], &exchange_hash, &session_id, b'A', 16).is_err());
     }
 
+    #[cfg(test)]
     #[test]
     fn ssh_key_exchange_authenticates_and_opens_git_exec_channel() {
+        ssh_key_exchange_authenticates_and_opens_git_exec_channel_impl();
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn ssh_key_exchange_authenticates_and_opens_git_exec_channel_impl() {
         use std::net::TcpListener;
         use std::process::{Command, Stdio};
 
@@ -3669,11 +3695,22 @@ mod tests {
             );
         }
         std::fs::write(repository.join("file.txt"), b"native SSH checkout\n").unwrap();
+        std::fs::create_dir_all(repository.join("src")).unwrap();
+        std::fs::write(
+            repository.join("nia.toml"),
+            "[package]\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repository.join("src/lib.nia"),
+            b"pub const value: u8 = 7;\n",
+        )
+        .unwrap();
         assert!(
             Command::new("git")
                 .args(["-C"])
                 .arg(&repository)
-                .args(["add", "file.txt"])
+                .args(["add", "file.txt", "nia.toml", "src"])
                 .status()
                 .unwrap()
                 .success()
@@ -3968,6 +4005,18 @@ mod tests {
         }
         let destination = root.join("checkout");
         let source = format!("ssh://git@127.0.0.1:{}/org/repo.git", address.port());
+        #[cfg(feature = "test-support")]
+        SSH_FIXTURE_CALLBACK.with(|slot| {
+            if let Some(callback) = slot.borrow_mut().take() {
+                callback(&root, &source, &ssh_config, &repository);
+            }
+        });
+        #[cfg(feature = "test-support")]
+        if SSH_FIXTURE_SKIP_CLIENT.with(std::cell::Cell::get) {
+            server.join().unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            return;
+        }
         let checked_out = match checkout_ssh_with_config(&source, "HEAD", &destination, &ssh_config)
         {
             Ok(checked_out) => checked_out,
@@ -4422,4 +4471,9 @@ mod tests {
         server.join().unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[cfg(feature = "test-support")]
+pub fn with_test_ssh_checkout_fixture(callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static) {
+    tests::with_ssh_checkout_fixture(callback);
 }
