@@ -696,33 +696,46 @@ impl PackageGraph {
             if ancestors.iter().any(|ancestor| ancestor == &canonical) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("package dependency cycle at `{}`", canonical.display()),
+                    format!("package dependency cycle at `{}`", display_path(&canonical)),
                 ));
             }
             if !seen.insert((canonical.clone(), logical_root.clone())) {
                 continue;
             }
-            let manifest = PackageManifest::read(&canonical).or_else(|error| {
-                if error.kind() == io::ErrorKind::NotFound && is_root {
-                    Ok(PackageManifest::implicit(
-                        canonical
-                            .file_name()
-                            .and_then(|v| v.to_str())
-                            .unwrap_or("root"),
-                    ))
-                } else {
-                    Err(error)
-                }
-            })?;
-            manifest.validate_protocol_epoch()?;
+            if !is_root && !canonical.join("nia.toml").is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "dependency `{logical_root}` at `{}` does not contain nia.toml",
+                        display_path(&canonical)
+                    ),
+                ));
+            }
+            let in_node = |error| dependency_context(&logical_root, error);
+            let manifest = PackageManifest::read(&canonical)
+                .or_else(|error| {
+                    if error.kind() == io::ErrorKind::NotFound && is_root {
+                        Ok(PackageManifest::implicit(
+                            canonical
+                                .file_name()
+                                .and_then(|v| v.to_str())
+                                .unwrap_or("root"),
+                        ))
+                    } else {
+                        Err(error)
+                    }
+                })
+                .map_err(in_node)?;
+            manifest.validate_protocol_epoch().map_err(in_node)?;
             if let Some(library_path) = &manifest.library_path {
-                validate_library_entry(&canonical, library_path)?;
+                validate_library_entry(&canonical, library_path).map_err(in_node)?;
             }
             let source = package_source_identity_with_selection(
                 &canonical,
                 manifest.package.clone(),
                 &manifest.source,
-            )?;
+            )
+            .map_err(in_node)?;
             for dependency in &manifest.dependencies {
                 let child_root = if logical_root.is_empty() {
                     dependency.name.clone()
@@ -747,7 +760,16 @@ impl PackageGraph {
                     ));
                     continue;
                 }
-                let path = dependency_path(&mut fetcher, &canonical, dependency)?.canonicalize()?;
+                let path = dependency_path(&mut fetcher, &canonical, dependency)
+                    .and_then(|path| {
+                        path.canonicalize().map_err(|error| {
+                            io::Error::new(
+                                error.kind(),
+                                format!("`{}`: {error}", display_path(&path)),
+                            )
+                        })
+                    })
+                    .map_err(|error| dependency_context(&child_root, error))?;
                 edges.push((
                     logical_root.clone(),
                     dependency.clone(),
@@ -1815,6 +1837,30 @@ fn validate_dependency_name(name: &str) -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Names the dependency chain (`json/regex`) that a package graph error came
+/// from. The root package is reported by its caller, so its errors pass through.
+fn dependency_context(logical_root: &str, error: io::Error) -> io::Error {
+    if logical_root.is_empty() {
+        return error;
+    }
+    io::Error::new(
+        error.kind(),
+        format!("dependency `{logical_root}`: {error}"),
+    )
+}
+
+/// Formats a canonical path for diagnostics without the Windows verbatim
+/// prefix that `canonicalize` adds.
+fn display_path(path: &Path) -> String {
+    let text = path.display().to_string();
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{share}");
+    }
+    text.strip_prefix(r"\\?\")
+        .map(str::to_owned)
+        .unwrap_or(text)
 }
 
 fn dependency_path(
@@ -4409,6 +4455,70 @@ mod tests {
         .unwrap();
         let error = PackageGraph::resolve(&root, false).unwrap_err();
         assert!(error.to_string().contains("dependency cycle"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_package_graph_names_dependency_without_manifest() {
+        let root = std::env::temp_dir().join(format!("nia-no-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("vendor/mathlib")).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
+        )
+        .unwrap();
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        let message = error.to_string();
+        assert!(message.contains("dependency `mathlib`"), "{message}");
+        assert!(message.contains("does not contain nia.toml"), "{message}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_package_graph_names_missing_dependency_path() {
+        let root = std::env::temp_dir().join(format!("nia-missing-dep-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
+        )
+        .unwrap();
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        let message = error.to_string();
+        assert!(message.contains("dependency `mathlib`"), "{message}");
+        assert!(message.contains("mathlib`:"), "{message}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_package_graph_names_nested_dependency_chain() {
+        let root = std::env::temp_dir().join(format!("nia-nested-dep-{}", std::process::id()));
+        let json = root.join("vendor/json");
+        let regex = json.join("vendor/regex");
+        std::fs::create_dir_all(&regex).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            json.join("nia.toml"),
+            "[package]\nname = \"json\"\n[dependencies]\nregex = { path = \"vendor/regex\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            regex.join("nia.toml"),
+            "[package]\nname = \"regex\"\nunknown = 1\n",
+        )
+        .unwrap();
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error.to_string().contains("dependency `json/regex`"),
+            "{error}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
