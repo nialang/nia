@@ -35,6 +35,7 @@ windows-sys.workspace = true
 [dev-dependencies]
 nia-span.workspace = true
 nia-test-support.workspace = true
+nia-git = { workspace = true, features = ["test-support"] }
 
 [lib]
 path = "src/lib.rs"

@@ -573,6 +573,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-driver",
+ "nia-git",
  "nia-ice",
  "nia-imports",
  "nia-linker",

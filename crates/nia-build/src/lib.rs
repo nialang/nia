@@ -3920,6 +3920,77 @@ mod tests {
     }
 
     #[test]
+    fn ssh_build_dependency_fetches_locks_and_runs_build_script() {
+        use std::sync::Mutex;
+
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _environment = ENV_LOCK.lock().unwrap();
+        let toolchain = test_toolchain_layout();
+        nia_git::with_test_ssh_checkout_fixture(move |_repository, source, ssh_config, _repo| {
+            let consumer = nia_test_support::test_dir("ssh-build-dependency-consumer");
+            let ssh_home = consumer.join("ssh-home");
+            let ssh_directory = ssh_home.join(".ssh");
+            std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
+            std::fs::copy(
+                ssh_config.join("known_hosts"),
+                ssh_directory.join("known_hosts"),
+            )
+            .expect("copy known_hosts");
+            std::fs::copy(
+                ssh_config.join("id_ed25519"),
+                ssh_directory.join("id_ed25519"),
+            )
+            .expect("copy SSH identity");
+
+            let previous_userprofile = std::env::var_os("USERPROFILE");
+            unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
+            let restore_environment = || match previous_userprofile {
+                Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
+                None => unsafe { std::env::remove_var("USERPROFILE") },
+            };
+
+            std::fs::write(
+                consumer.join("nia.toml"),
+                format!(
+                    "[package]\nname = \"consumer\"\n[build-dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
+                ),
+            )
+            .expect("write consumer manifest");
+            std::fs::write(
+                consumer.join("build.nia"),
+                r#"using std::build;
+using std::fs;
+using sshdep;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let value: u8 = sshdep::value;
+    let output = b.addGeneratedFileStep(
+        &"generated",
+        build::BuildPathView::init(&"generated.txt"),
+        &b"ssh dependency loaded\n"[..],
+    ).?;
+    _ = value;
+    b.setDefaultStep(output).?;
+    !()
+}
+"#,
+            )
+            .expect("write consumer build script");
+
+            let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
+            restore_environment();
+            result.expect("build with SSH dependency");
+            assert!(consumer.join(".nia-build/generated.txt").is_file());
+            let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
+                .expect("read generated lockfile");
+            assert_eq!(lock.package.len(), 1);
+            assert_eq!(lock.package[0].name, "sshdep");
+            assert_eq!(lock.package[0].rev.len(), 40);
+            assert!(lock.package[0].content_hash.starts_with("blake3:"));
+        });
+    }
+
+    #[test]
     fn build_explanation_distinguishes_dependency_resolution_loading_and_use() {
         use nia_package_metadata::{
             DependencyScope, PackageDependency, PackageDependencyReport, PackageGraphNode,
