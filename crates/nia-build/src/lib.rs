@@ -529,6 +529,13 @@ pub enum BuildError {
         /// Underlying compiler-driver error.
         error: Box<DriverError>,
     },
+    /// Manifest dependencies expose the same module name from different packages.
+    InvalidBuildModuleRoot {
+        /// Conflicting package module name.
+        name: String,
+        /// Explanation for the conflict.
+        reason: String,
+    },
     /// Starting, waiting for, or capturing the generated build runner failed.
     RunRunner {
         /// Runner executable path.
@@ -686,6 +693,9 @@ impl fmt::Display for BuildError {
                     "failed to compile build runner `{path}`\n{}",
                     nia_driver::render_driver_error(error, Some(path), Some(source))
                 )
+            }
+            Self::InvalidBuildModuleRoot { name, reason } => {
+                write!(f, "manifest package root `{name}` is ambiguous: {reason}")
             }
             Self::RunRunner {
                 path,
@@ -2565,12 +2575,17 @@ fn compile_build_runner(
             })
     })?;
     let module_map = time_build_stage(invocation.timings, "build_runner_build_module_map", || {
-        build_runner_module_map(invocation).map_err(|error| BuildError::CompileRunner {
-            path: runner.path.clone(),
-            source: runner.source.clone(),
-            error: Box::new(DriverError::InternalDiagnostic(
-                nia_diagnostic::Diagnostic::from(error),
-            )),
+        build_runner_module_map(invocation).map_err(|error| match error {
+            BuildRunnerModuleMapError::InvalidRoot { name, reason } => {
+                BuildError::InvalidBuildModuleRoot { name, reason }
+            }
+            BuildRunnerModuleMapError::Manifest(error) => BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(DriverError::InternalDiagnostic(
+                    nia_diagnostic::Diagnostic::from(nia_ice::Ice::new(error.to_string())),
+                )),
+            },
         })
     })?;
     let check = CheckRequest::new(runner.path.clone())
@@ -2728,40 +2743,94 @@ fn build_runner_driver_config(invocation: &BuildInvocation) -> DriverConfig {
     .with_artifact_target(*invocation.toolchain.host_target())
 }
 
-fn build_runner_module_map(invocation: &BuildInvocation) -> nia_ice::IceResult<ModuleMap> {
+#[derive(Debug)]
+enum BuildRunnerModuleMapError {
+    InvalidRoot { name: String, reason: String },
+    Manifest(io::Error),
+}
+
+fn build_runner_module_map(
+    invocation: &BuildInvocation,
+) -> Result<ModuleMap, BuildRunnerModuleMapError> {
     let mut module_map = ModuleMap::new();
     module_map
         .insert(
             "buildScript",
             SourcePath::new(invocation.build_script.to_string_lossy().into_owned()),
         )
-        .map_err(nia_ice::Ice::new)?;
-    for dependency in &invocation.package_graph_report.declared {
-        if dependency.owner_root.is_empty()
-            && dependency.dependency.scope == nia_package_metadata::DependencyScope::Build
-        {
-            let Some(package_root) = &dependency.source_root else {
-                continue;
-            };
-            let manifest = nia_package_metadata::PackageManifest::read(package_root)
-                .map_err(|error| nia_ice::Ice::new(error.to_string()))?;
-            let Some(library_path) = manifest.library_path else {
-                continue;
-            };
-            module_map
-                .insert(
-                    &dependency.dependency.name,
-                    SourcePath::new(
-                        package_root
-                            .join(library_path)
-                            .to_string_lossy()
-                            .into_owned(),
-                    ),
-                )
-                .map_err(nia_ice::Ice::new)?;
-        }
+        .map_err(|error| BuildRunnerModuleMapError::InvalidRoot {
+            name: "buildScript".to_owned(),
+            reason: error,
+        })?;
+    for (name, path) in manifest_module_roots(
+        &invocation.package_graph_report,
+        &[DependencyScope::Build],
+        CompilationMode::Normal,
+    )
+    .map_err(BuildRunnerModuleMapError::Manifest)?
+    {
+        insert_module_root(&mut module_map, &name, path)
+            .map_err(|reason| BuildRunnerModuleMapError::InvalidRoot { name, reason })?;
     }
     Ok(module_map)
+}
+
+pub(crate) fn manifest_module_roots(
+    report: &nia_package_metadata::PackageGraphReport,
+    scopes: &[DependencyScope],
+    compilation_mode: CompilationMode,
+) -> io::Result<Vec<(String, SourcePath)>> {
+    let mut imports = Vec::new();
+    for edge in &report.declared {
+        let selected = match edge.dependency.scope {
+            DependencyScope::Build => scopes.contains(&DependencyScope::Build),
+            DependencyScope::Runtime => scopes.contains(&DependencyScope::Runtime),
+            DependencyScope::Development => {
+                scopes.contains(&DependencyScope::Development)
+                    && report.options.include_development
+                    && compilation_mode == CompilationMode::Test
+            }
+        };
+        let Some(logical_root) = edge.resolved_root.as_deref() else {
+            continue;
+        };
+        if !selected {
+            continue;
+        }
+        let Some(package_root) = &edge.source_root else {
+            continue;
+        };
+        let manifest = nia_package_metadata::PackageManifest::read(package_root)?;
+        let Some(library_path) = manifest.library_path else {
+            continue;
+        };
+        let path = package_root.join(&library_path);
+        imports.push((
+            edge.dependency.name.clone(),
+            SourcePath::with_identity(
+                path.to_string_lossy().into_owned(),
+                format!("build-package:{logical_root}:/{library_path}"),
+            ),
+        ));
+    }
+    Ok(imports)
+}
+
+pub(crate) fn insert_module_root(
+    module_map: &mut ModuleMap,
+    name: &str,
+    path: SourcePath,
+) -> Result<(), String> {
+    if let Some(existing) = module_map.get(name) {
+        return if existing == &path {
+            Ok(())
+        } else {
+            Err(format!(
+                "package root `{name}` resolves to multiple package instances in the global module namespace"
+            ))
+        };
+    }
+    module_map.try_insert(name, path)
 }
 
 fn validate_manifest_dependency_references(
@@ -4038,6 +4107,59 @@ mod tests {
     }
 
     #[test]
+    fn build_runner_rejects_ambiguous_transitive_dependency_names() {
+        let root = temp_root("build_runner_ambiguous_transitive_dependency_names");
+        let first = root.join("first");
+        let second = root.join("second");
+        let shared_first = root.join("shared-first");
+        let shared_second = root.join("shared-second");
+        for package in [&first, &second, &shared_first, &shared_second] {
+            std::fs::create_dir_all(package.join("src")).expect("create package source");
+            std::fs::write(package.join("src/lib.nia"), "pub const value: u8 = 1;\n")
+                .expect("write package library");
+        }
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\n[build-dependencies]\nfirst = { path = \"first\" }\nsecond = { path = \"second\" }\n",
+        )
+        .expect("write root manifest");
+        for (package, name, shared_path) in [
+            (&first, "first", "../shared-first"),
+            (&second, "second", "../shared-second"),
+        ] {
+            std::fs::write(
+                package.join("nia.toml"),
+                format!(
+                    "[package]\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nshared = {{ path = \"{shared_path}\" }}\n"
+                ),
+            )
+            .expect("write dependency manifest");
+        }
+        for (package, name) in [
+            (&shared_first, "shared-first"),
+            (&shared_second, "shared-second"),
+        ] {
+            std::fs::write(
+                package.join("nia.toml"),
+                format!("[package]\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n"),
+            )
+            .expect("write transitive manifest");
+        }
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("resolve build invocation");
+        let error = build_runner_module_map(&invocation).expect_err("reject conflicting names");
+        assert!(matches!(
+            error,
+            BuildRunnerModuleMapError::InvalidRoot { ref name, ref reason }
+                if name == "shared" && reason.contains("multiple package instances")
+        ));
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
     fn manifest_dependency_references_enforce_declaration_and_scope() {
         use nia_package_metadata::{
             DependencyScope, PackageDependency, PackageDependencyReport, PackageGraphOptions,
@@ -4176,39 +4298,62 @@ mod tests {
     fn ssh_build_dependency_fetches_locks_and_runs_build_script() {
         let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
         let toolchain = test_toolchain_layout();
-        nia_git::with_test_ssh_checkout_fixture(move |_repository, source, ssh_config, _repo| {
-            let consumer = nia_test_support::test_dir("ssh-build-dependency-consumer");
-            let ssh_home = consumer.join("ssh-home");
-            let ssh_directory = ssh_home.join(".ssh");
-            std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
-            std::fs::copy(
-                ssh_config.join("known_hosts"),
-                ssh_directory.join("known_hosts"),
-            )
-            .expect("copy known_hosts");
-            std::fs::copy(
-                ssh_config.join("id_ed25519"),
-                ssh_directory.join("id_ed25519"),
-            )
-            .expect("copy SSH identity");
+        nia_git::with_test_ssh_checkout_fixture_mutating_repository(
+            |repository| {
+                let nested = repository.join("nested");
+                std::fs::create_dir_all(nested.join("src"))
+                    .expect("create nested build dependency");
+                std::fs::write(
+                    repository.join("nia.toml"),
+                    "[package]\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nnested = { path = \"nested\" }\n",
+                )
+                .expect("write SSH package manifest");
+                std::fs::write(
+                    repository.join("src/lib.nia"),
+                    "using nested;\npub const value: u8 = nested::value;\n",
+                )
+                .expect("write SSH package library");
+                std::fs::write(
+                    nested.join("nia.toml"),
+                    "[package]\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
+                )
+                .expect("write nested manifest");
+                std::fs::write(nested.join("src/lib.nia"), "pub const value: u8 = 7;\n")
+                    .expect("write nested library");
+            },
+            move |_repository, source, ssh_config, _repo| {
+                let consumer = nia_test_support::test_dir("ssh-build-dependency-consumer");
+                let ssh_home = consumer.join("ssh-home");
+                let ssh_directory = ssh_home.join(".ssh");
+                std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
+                std::fs::copy(
+                    ssh_config.join("known_hosts"),
+                    ssh_directory.join("known_hosts"),
+                )
+                .expect("copy known_hosts");
+                std::fs::copy(
+                    ssh_config.join("id_ed25519"),
+                    ssh_directory.join("id_ed25519"),
+                )
+                .expect("copy SSH identity");
 
-            let previous_userprofile = std::env::var_os("USERPROFILE");
-            unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
-            let restore_environment = || match previous_userprofile {
-                Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
-                None => unsafe { std::env::remove_var("USERPROFILE") },
-            };
+                let previous_userprofile = std::env::var_os("USERPROFILE");
+                unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
+                let restore_environment = || match previous_userprofile {
+                    Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
+                    None => unsafe { std::env::remove_var("USERPROFILE") },
+                };
 
-            std::fs::write(
+                std::fs::write(
                 consumer.join("nia.toml"),
                 format!(
                     "[package]\nname = \"consumer\"\n[build-dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
                 ),
             )
             .expect("write consumer manifest");
-            std::fs::write(
-                consumer.join("build.nia"),
-                r#"using std::build;
+                std::fs::write(
+                    consumer.join("build.nia"),
+                    r#"using std::build;
 using std::fs;
 using sshdep;
 
@@ -4224,107 +4369,109 @@ pub fn build(b: &mut build::Build) build::Error!() {
     !()
 }
 "#,
-            )
-            .expect("write consumer build script");
-            let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
-            restore_environment();
-            result.expect("build with SSH dependency");
-            assert!(consumer.join(".nia-build/generated.txt").is_file());
-            let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
-                .expect("read generated lockfile");
-            assert_eq!(lock.package.len(), 1);
-            assert_eq!(lock.package[0].name, "sshdep");
-            assert_eq!(lock.package[0].rev.len(), 40);
-            assert!(lock.package[0].content_hash.starts_with("blake3:"));
-        });
+                )
+                .expect("write consumer build script");
+                let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
+                restore_environment();
+                result.expect("build with SSH dependency");
+                assert!(consumer.join(".nia-build/generated.txt").is_file());
+                let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
+                    .expect("read generated lockfile");
+                assert_eq!(lock.package.len(), 1);
+                assert_eq!(lock.package[0].name, "sshdep");
+                assert_eq!(lock.package[0].rev.len(), 40);
+                assert!(lock.package[0].content_hash.starts_with("blake3:"));
+            },
+        );
     }
 
     #[test]
-    fn ssh_runtime_dependency_is_added_to_the_compilation_plan() {
+    fn ssh_runtime_dependency_and_transitive_imports_are_manifest_driven() {
         let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
         let toolchain = test_toolchain_layout();
-        nia_git::with_test_ssh_checkout_fixture(move |_repository, source, ssh_config, _repo| {
-            let consumer = nia_test_support::test_dir("ssh-runtime-dependency-consumer");
-            let ssh_home = consumer.join("ssh-home");
-            let ssh_directory = ssh_home.join(".ssh");
-            std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
-            std::fs::copy(
-                ssh_config.join("known_hosts"),
-                ssh_directory.join("known_hosts"),
-            )
-            .expect("copy known_hosts");
-            std::fs::copy(
-                ssh_config.join("id_ed25519"),
-                ssh_directory.join("id_ed25519"),
-            )
-            .expect("copy SSH identity");
+        nia_git::with_test_ssh_checkout_fixture_mutating_repository(
+            |repository| {
+                let nested = repository.join("nested");
+                std::fs::create_dir_all(nested.join("src")).expect("create nested dependency");
+                std::fs::write(
+                    repository.join("nia.toml"),
+                    "[package]\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[dependencies]\nnested = { path = \"nested\" }\n",
+                )
+                .expect("write SSH package manifest");
+                std::fs::write(
+                    repository.join("src/lib.nia"),
+                    "using nested;\npub const value: u8 = nested::value;\n",
+                )
+                .expect("write SSH package library");
+                std::fs::write(
+                    nested.join("nia.toml"),
+                    "[package]\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
+                )
+                .expect("write transitive manifest");
+                std::fs::write(nested.join("src/lib.nia"), "pub const value: u8 = 7;\n")
+                    .expect("write transitive library");
+            },
+            move |_repository, source, ssh_config, _repo| {
+                let consumer = nia_test_support::test_dir("ssh-runtime-dependency-consumer");
+                let ssh_home = consumer.join("ssh-home");
+                let ssh_directory = ssh_home.join(".ssh");
+                std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
+                std::fs::copy(
+                    ssh_config.join("known_hosts"),
+                    ssh_directory.join("known_hosts"),
+                )
+                .expect("copy known_hosts");
+                std::fs::copy(
+                    ssh_config.join("id_ed25519"),
+                    ssh_directory.join("id_ed25519"),
+                )
+                .expect("copy SSH identity");
 
-            let previous_userprofile = std::env::var_os("USERPROFILE");
-            unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
-            let restore_environment = || match previous_userprofile {
-                Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
-                None => unsafe { std::env::remove_var("USERPROFILE") },
-            };
+                let previous_userprofile = std::env::var_os("USERPROFILE");
+                unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
+                let restore_environment = || match previous_userprofile {
+                    Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
+                    None => unsafe { std::env::remove_var("USERPROFILE") },
+                };
 
-            std::fs::write(
-                consumer.join("nia.toml"),
-                format!(
-                    "[package]\nname = \"consumer\"\n[dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
-                ),
-            )
-            .expect("write consumer manifest");
-            std::fs::create_dir_all(consumer.join("src")).expect("create consumer sources");
-            std::fs::write(
-                consumer.join("src/main.nia"),
-                "using std::process;\nusing sshdep;\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    let value: u8 = sshdep::value;\n    _ = value;\n    !()\n}\n",
-            )
-            .expect("write consumer source");
-            std::fs::write(
-                consumer.join("build.nia"),
-                r#"using std::build;
+                std::fs::write(
+                    consumer.join("nia.toml"),
+                    format!(
+                        "[package]\nname = \"consumer\"\n[dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
+                    ),
+                )
+                .expect("write consumer manifest");
+                std::fs::create_dir_all(consumer.join("src")).expect("create consumer sources");
+                std::fs::write(
+                    consumer.join("src/main.nia"),
+                    "using std::process;\nusing sshdep;\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    let value: u8 = sshdep::value;\n    _ = value;\n    !()\n}\n",
+                )
+                .expect("write consumer source");
+                std::fs::write(
+                    consumer.join("build.nia"),
+                    r#"using std::build;
 using std::fs;
 
 pub fn build(b: &mut build::Build) build::Error!() {
-    let dependency = b.addDependency(&"sshdep").?;
-    let imports = [build::ModuleImport::fromPackage(
-        &"sshdep",
-        dependency,
-        fs::PathView::init(&"src/lib.nia"),
-    )];
-    let root = b.addModule(
-        build::ModuleOptions::init(&"main", fs::PathView::init(&"src/main.nia"))
-            .withImports(&imports[..]),
-    ).?;
+    let root = b.addModule(build::ModuleOptions::init(&"main", fs::PathView::init(&"src/main.nia"))).?;
     let app = b.addExecutable(build::ExecutableOptions::init(&"app", root)).?;
     let check = b.addCheckExecutableStep(&"check", app).?;
     b.setDefaultStep(check).?;
     !()
 }
 "#,
-            )
-            .expect("write build script");
+                )
+                .expect("write build script");
 
-            let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
-            restore_environment();
-            result.expect("build with SSH runtime dependency");
-            let plan = read_build_plan(&consumer.join(".nia-build/build-plan.bin"))
-                .expect("read published plan");
-            assert!(plan.packages().iter().any(|package| {
-                package.key.as_str() == "sshdep"
-                    && package.source == PlanPackageSource::Dependency("sshdep".into())
-            }));
-            assert!(plan.modules().iter().any(|module| {
-                module.imports.iter().any(|import| {
-                    import.name == "sshdep"
-                        && matches!(import.path.root(), LogicalPathRoot::Package(package)
-                            if package.as_str() == "sshdep")
-                })
-            }));
-            let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
-                .expect("read generated lockfile");
-            assert_eq!(lock.package.len(), 1);
-            assert_eq!(lock.package[0].name, "sshdep");
-        });
+                let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
+                restore_environment();
+                result.expect("build with SSH runtime dependency");
+                let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
+                    .expect("read generated lockfile");
+                assert_eq!(lock.package.len(), 1);
+                assert!(lock.package.iter().any(|package| package.name == "sshdep"));
+            },
+        );
     }
 
     #[test]
