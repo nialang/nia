@@ -94,18 +94,23 @@ extend ModuleOptions {
 
 extend PackageOptions {
     pub fn init(name: &[char], root: fs::PathView) PackageOptions {
-        .{ name, root }
+        .{ name, root, manifestDependency: false }
+    }
+
+    pub(pkg) fn dependency(name: &[char]) PackageOptions {
+        .{ name, root: fs::PathView::init(&""), manifestDependency: true }
     }
 }
 
 extend Package {
     pub(pkg) fn init(index: usize) Package {
-        .{ index, name: .init(), root: .init() }
+        .{ index, name: .init(), root: .init(), manifestDependency: false }
     }
 
     pub(pkg) fn initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
         self.name = string::String::fromSlice(allocator, options.name).withBuildContext(.Retain, .Package(self.index)).?;
         self.root = fs::Path::fromView(allocator, options.root).withBuildContext(.Retain, .Package(self.index)).?;
+        self.manifestDependency = options.manifestDependency;
         !()
     }
 

@@ -110,10 +110,12 @@ recorded in `nia.lock`; fetched trees are kept below the ignored
 `.nia/packages` directory and are checked against the recorded content hash
 before reuse.
 
-Resolution records each existing dependency checkout root, including roots
-whose edge was filtered from the selected graph. When the coordinator
-constructs a compiler request, it matches build-plan package roots to those
-manifest edges and filters module-map roots by dependency class:
+Resolution records each dependency's logical graph root and checkout, including
+checkouts whose edge was filtered from the selected graph. Build plans encode
+manifest dependencies by declared alias and local source trees by relative
+path, so the host resolves each package instance without guessing from a path.
+When the coordinator constructs a compiler request, it filters module-map roots
+by dependency class:
 
 | Dependency scope | Visible to artifact compilation |
 | --- | --- |

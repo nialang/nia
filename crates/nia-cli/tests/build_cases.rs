@@ -947,13 +947,19 @@ fn assert_configured_build_success(
         .iter()
         .find(|package| package.key.as_str() == "assets")
         .expect("manifest dependency");
-    assert_eq!(assets.root, "assets");
+    assert_eq!(
+        assets.source,
+        nia_build::PlanPackageSource::Dependency("assets".into())
+    );
     let root = plan
         .packages()
         .iter()
         .find(|package| package.key.as_str() == "root")
         .expect("root package");
-    assert!(root.root.is_empty());
+    assert_eq!(
+        root.source,
+        nia_build::PlanPackageSource::Local(String::new())
+    );
     assert_eq!(plan.modules().len(), 4);
     assert_eq!(plan.modules()[0].key.name(), "app");
     assert_eq!(

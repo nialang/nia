@@ -566,10 +566,17 @@ extend PlanEncoder {
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;
         self.writeCount(packageCount).?;
         self.writeRootPackage().?;
+        self.writeU8(1).?;
         self.writeString(&"").?;
         for &package in build.packages.iter() {
             self.writeString(package.name.text()).?;
-            self.writeString(package.root.text()).?;
+            if package.manifestDependency {
+                self.writeU8(2).?;
+                self.writeString(package.name.text()).?;
+            } else {
+                self.writeU8(1).?;
+                self.writeString(package.root.text()).?;
+            }
         }
         self.writeTarget(build.hostTarget()).?;
         self.writeTarget(build.artifactTarget()).?;

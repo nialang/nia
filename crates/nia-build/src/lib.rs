@@ -34,6 +34,7 @@ use nia_driver::{
     LinkTimeOptimization, ProgramDiagnostic, TimingMode,
 };
 use nia_imports::ModuleMap;
+use nia_package_metadata::DependencyScope;
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_source::SourcePath;
 use nia_target_config::{BuildProfile, CompilationMode};
@@ -413,18 +414,22 @@ pub(crate) fn package_source_root(
     if package.key == PackageKey::root() {
         return Some(invocation.package_root.clone());
     }
-    if let Some(dependency) = invocation
-        .package_graph_report
-        .declared
-        .iter()
-        .find(|dependency| {
-            dependency.owner_root.is_empty() && dependency.dependency.name == package.key.as_str()
-        })
-    {
-        return dependency.source_root.clone().map(normalize_host_path);
+    if let PlanPackageSource::Dependency(name) = &package.source {
+        return invocation
+            .package_graph_report
+            .declared
+            .iter()
+            .find(|dependency| {
+                dependency.owner_root.is_empty() && dependency.dependency.name == *name
+            })
+            .and_then(|dependency| dependency.source_root.clone())
+            .map(normalize_host_path);
     }
+    let PlanPackageSource::Local(local_root) = &package.source else {
+        return None;
+    };
     let mut root = invocation.package_root.clone();
-    root.extend(package.root.split('/'));
+    root.extend(local_root.split('/'));
     Some(root)
 }
 
@@ -493,6 +498,13 @@ pub enum BuildError {
         path: PathBuf,
         /// Underlying manifest, path, protocol identity, or graph error.
         error: io::Error,
+    },
+    /// A build plan references a dependency that is not available from the root manifest.
+    InvalidDependencyReference {
+        /// Plan draft containing the invalid reference.
+        path: PathBuf,
+        /// Reason the dependency reference was rejected.
+        detail: String,
     },
     /// A path required by generated runner source is not valid UTF-8.
     NonUtf8Path {
@@ -643,6 +655,11 @@ impl fmt::Display for BuildError {
             Self::ResolvePackageGraph { path, error } => write!(
                 f,
                 "failed to resolve package graph at `{}`: {error}",
+                path.display()
+            ),
+            Self::InvalidDependencyReference { path, detail } => write!(
+                f,
+                "build plan `{}` has an invalid manifest dependency reference: {detail}",
                 path.display()
             ),
             Self::NonUtf8Path { role, path } => {
@@ -900,6 +917,11 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                     nia_timing::emit_counter("build.runner_failures", 1);
                 }
                 let (draft, configure_candidate, runner_reused) = configured?;
+                validate_manifest_dependency_references(draft.plan.packages(), &invocation)
+                    .map_err(|detail| BuildError::InvalidDependencyReference {
+                        path: invocation.plan_draft.clone(),
+                        detail,
+                    })?;
                 let plan = draft.plan;
                 let preview =
                     progress_phase(progress_guard.session(), ProgressPhase::Preview, || {
@@ -1562,7 +1584,10 @@ fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
                 .expect("package usage must have a declaration");
             serde_json::json!({
                 "package": usage.package.as_str(),
-                "root": package.root,
+                "source": match &package.source {
+                    PlanPackageSource::Local(root) => serde_json::json!({"local": root}),
+                    PlanPackageSource::Dependency(name) => serde_json::json!({"dependency": name}),
+                },
                 "loaded_modules": usage.loaded_modules,
                 "artifacts": usage.artifacts,
                 "actions": usage.actions,
@@ -2739,6 +2764,49 @@ fn build_runner_module_map(invocation: &BuildInvocation) -> nia_ice::IceResult<M
     Ok(module_map)
 }
 
+fn validate_manifest_dependency_references(
+    packages: &[PlanPackage],
+    invocation: &BuildInvocation,
+) -> Result<(), String> {
+    for package in packages {
+        let PlanPackageSource::Dependency(name) = &package.source else {
+            continue;
+        };
+        let Some(dependency) = invocation
+            .package_graph_report
+            .declared
+            .iter()
+            .find(|dependency| {
+                dependency.owner_root.is_empty() && dependency.dependency.name == *name
+            })
+        else {
+            return Err(format!("`{name}` is not declared in the root nia.toml"));
+        };
+        match dependency.dependency.scope {
+            DependencyScope::Runtime => {}
+            DependencyScope::Development
+                if invocation.compilation_mode == CompilationMode::Test
+                    && invocation.package_graph_report.options.include_development => {}
+            DependencyScope::Development => {
+                return Err(format!(
+                    "`{name}` is a development dependency and is unavailable outside test mode"
+                ));
+            }
+            DependencyScope::Build => {
+                return Err(format!(
+                    "`{name}` is build-only; build.nia can import it directly without addDependency"
+                ));
+            }
+        }
+        if dependency.resolved_root.is_none() || dependency.source_root.is_none() {
+            return Err(format!(
+                "`{name}` is not present in the selected package graph"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildError> {
     create_real_directory(&invocation.build_dir).map_err(|error| {
         BuildError::CreateBuildDirectory {
@@ -3200,7 +3268,9 @@ fn time_build_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, OnceLock};
+
+    static SSH_ENVIRONMENT_LOCK: Mutex<()> = Mutex::new(());
 
     #[cfg(windows)]
     #[test]
@@ -3968,11 +4038,143 @@ mod tests {
     }
 
     #[test]
-    fn ssh_build_dependency_fetches_locks_and_runs_build_script() {
-        use std::sync::Mutex;
+    fn manifest_dependency_references_enforce_declaration_and_scope() {
+        use nia_package_metadata::{
+            DependencyScope, PackageDependency, PackageDependencyReport, PackageGraphOptions,
+        };
 
-        static ENV_LOCK: Mutex<()> = Mutex::new(());
-        let _environment = ENV_LOCK.lock().unwrap();
+        let root = temp_root("manifest_dependency_reference_validation");
+        let runtime = root.join("runtime");
+        let build = root.join("build");
+        let development = root.join("development");
+        for path in [&runtime, &build, &development] {
+            std::fs::create_dir_all(path).expect("create dependency");
+        }
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nruntime = { path = \"runtime\" }\n[build-dependencies]\nbuild = { path = \"build\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
+        )
+        .expect("write manifest");
+        for (path, name) in [
+            (&runtime, "runtime"),
+            (&build, "build"),
+            (&development, "development"),
+        ] {
+            std::fs::write(
+                path.join("nia.toml"),
+                format!("[package]\nname = \"{name}\"\n"),
+            )
+            .expect("write dependency manifest");
+        }
+        let mut invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("resolve invocation");
+        invocation.package_graph_report.declared = [
+            ("runtime", DependencyScope::Runtime),
+            ("build", DependencyScope::Build),
+            ("development", DependencyScope::Development),
+        ]
+        .into_iter()
+        .map(|(name, scope)| PackageDependencyReport {
+            owner_root: String::new(),
+            dependency: PackageDependency {
+                name: name.to_string(),
+                source: nia_package_metadata::DependencySource::Path(name.to_string()),
+                scope,
+            },
+            resolved_root: (scope != DependencyScope::Development).then(|| name.to_string()),
+            source_root: Some(
+                root.join(name)
+                    .canonicalize()
+                    .expect("canonical dependency"),
+            ),
+        })
+        .collect();
+
+        let package = |name: &str| PlanPackage {
+            key: PackageKey::new(name).expect("package key"),
+            source: PlanPackageSource::Dependency(name.to_string()),
+        };
+        assert!(
+            validate_manifest_dependency_references(&[package("runtime")], &invocation).is_ok()
+        );
+        assert!(
+            validate_manifest_dependency_references(&[package("missing")], &invocation)
+                .unwrap_err()
+                .contains("not declared")
+        );
+        assert!(
+            validate_manifest_dependency_references(&[package("build")], &invocation)
+                .unwrap_err()
+                .contains("build-only")
+        );
+        assert!(
+            validate_manifest_dependency_references(&[package("development")], &invocation)
+                .unwrap_err()
+                .contains("development dependency")
+        );
+
+        invocation.compilation_mode = CompilationMode::Test;
+        invocation.package_graph_report.options = PackageGraphOptions {
+            include_development: true,
+        };
+        invocation.package_graph_report.declared[2].resolved_root = Some("development".into());
+        assert!(
+            validate_manifest_dependency_references(&[package("development")], &invocation).is_ok()
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn package_roots_distinguish_manifest_and_local_sources() {
+        let root = temp_root("package_roots_manifest_and_local_sources");
+        for path in ["root-bar", "foo", "foo/bar"] {
+            std::fs::create_dir_all(root.join(path)).expect("create package root");
+        }
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\nbar = { path = \"root-bar\" }\nfoo = { path = \"foo\" }\n",
+        )
+        .expect("write root manifest");
+        std::fs::write(
+            root.join("root-bar/nia.toml"),
+            "[package]\nname = \"bar\"\n",
+        )
+        .expect("write root bar manifest");
+        std::fs::write(
+            root.join("foo/nia.toml"),
+            "[package]\nname = \"foo\"\n[dependencies]\nbar = { path = \"bar\" }\n",
+        )
+        .expect("write foo manifest");
+        std::fs::write(root.join("foo/bar/nia.toml"), "[package]\nname = \"bar\"\n")
+            .expect("write transitive bar manifest");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("resolve package graph");
+        let direct = PlanPackage {
+            key: PackageKey::new("bar").unwrap(),
+            source: PlanPackageSource::Dependency("bar".into()),
+        };
+        let transitive = PlanPackage {
+            key: PackageKey::new("nested-bar").unwrap(),
+            source: crate::PlanPackageSource::Local("foo/bar".into()),
+        };
+        assert_eq!(
+            package_source_root(&invocation, &direct),
+            Some(root.join("root-bar"))
+        );
+        assert_eq!(
+            package_source_root(&invocation, &transitive),
+            Some(root.join("foo/bar"))
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn ssh_build_dependency_fetches_locks_and_runs_build_script() {
+        let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
         let toolchain = test_toolchain_layout();
         nia_git::with_test_ssh_checkout_fixture(move |_repository, source, ssh_config, _repo| {
             let consumer = nia_test_support::test_dir("ssh-build-dependency-consumer");
@@ -4024,7 +4226,6 @@ pub fn build(b: &mut build::Build) build::Error!() {
 "#,
             )
             .expect("write consumer build script");
-
             let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
             restore_environment();
             result.expect("build with SSH dependency");
@@ -4035,6 +4236,94 @@ pub fn build(b: &mut build::Build) build::Error!() {
             assert_eq!(lock.package[0].name, "sshdep");
             assert_eq!(lock.package[0].rev.len(), 40);
             assert!(lock.package[0].content_hash.starts_with("blake3:"));
+        });
+    }
+
+    #[test]
+    fn ssh_runtime_dependency_is_added_to_the_compilation_plan() {
+        let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
+        let toolchain = test_toolchain_layout();
+        nia_git::with_test_ssh_checkout_fixture(move |_repository, source, ssh_config, _repo| {
+            let consumer = nia_test_support::test_dir("ssh-runtime-dependency-consumer");
+            let ssh_home = consumer.join("ssh-home");
+            let ssh_directory = ssh_home.join(".ssh");
+            std::fs::create_dir_all(&ssh_directory).expect("create SSH home");
+            std::fs::copy(
+                ssh_config.join("known_hosts"),
+                ssh_directory.join("known_hosts"),
+            )
+            .expect("copy known_hosts");
+            std::fs::copy(
+                ssh_config.join("id_ed25519"),
+                ssh_directory.join("id_ed25519"),
+            )
+            .expect("copy SSH identity");
+
+            let previous_userprofile = std::env::var_os("USERPROFILE");
+            unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
+            let restore_environment = || match previous_userprofile {
+                Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
+                None => unsafe { std::env::remove_var("USERPROFILE") },
+            };
+
+            std::fs::write(
+                consumer.join("nia.toml"),
+                format!(
+                    "[package]\nname = \"consumer\"\n[dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
+                ),
+            )
+            .expect("write consumer manifest");
+            std::fs::create_dir_all(consumer.join("src")).expect("create consumer sources");
+            std::fs::write(
+                consumer.join("src/main.nia"),
+                "using std::process;\nusing sshdep;\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    let value: u8 = sshdep::value;\n    _ = value;\n    !()\n}\n",
+            )
+            .expect("write consumer source");
+            std::fs::write(
+                consumer.join("build.nia"),
+                r#"using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let dependency = b.addDependency(&"sshdep").?;
+    let imports = [build::ModuleImport::fromPackage(
+        &"sshdep",
+        dependency,
+        fs::PathView::init(&"src/lib.nia"),
+    )];
+    let root = b.addModule(
+        build::ModuleOptions::init(&"main", fs::PathView::init(&"src/main.nia"))
+            .withImports(&imports[..]),
+    ).?;
+    let app = b.addExecutable(build::ExecutableOptions::init(&"app", root)).?;
+    let check = b.addCheckExecutableStep(&"check", app).?;
+    b.setDefaultStep(check).?;
+    !()
+}
+"#,
+            )
+            .expect("write build script");
+
+            let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
+            restore_environment();
+            result.expect("build with SSH runtime dependency");
+            let plan = read_build_plan(&consumer.join(".nia-build/build-plan.bin"))
+                .expect("read published plan");
+            assert!(plan.packages().iter().any(|package| {
+                package.key.as_str() == "sshdep"
+                    && package.source == PlanPackageSource::Dependency("sshdep".into())
+            }));
+            assert!(plan.modules().iter().any(|module| {
+                module.imports.iter().any(|import| {
+                    import.name == "sshdep"
+                        && matches!(import.path.root(), LogicalPathRoot::Package(package)
+                            if package.as_str() == "sshdep")
+                })
+            }));
+            let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
+                .expect("read generated lockfile");
+            assert_eq!(lock.package.len(), 1);
+            assert_eq!(lock.package[0].name, "sshdep");
         });
     }
 
@@ -4109,15 +4398,15 @@ pub fn build(b: &mut build::Build) build::Error!() {
             packages: vec![
                 PlanPackage {
                     key: root_package.clone(),
-                    root: String::new(),
+                    source: crate::PlanPackageSource::Local(String::new()),
                 },
                 PlanPackage {
                     key: runtime_package.clone(),
-                    root: "runtime".to_string(),
+                    source: crate::PlanPackageSource::Local("runtime".to_string()),
                 },
                 PlanPackage {
                     key: development_package.clone(),
-                    root: "development".to_string(),
+                    source: crate::PlanPackageSource::Local("development".to_string()),
                 },
             ],
             host_target: target,

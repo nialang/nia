@@ -127,7 +127,7 @@ extend Build {
         let handle = PackageHandle::init(self.ownerId, packageIndex);
         if options.name.equals(&"root")
             or not isValidStableName(options.name)
-            or not isValidPackagePath(options.root.text(), false)
+            or (not options.manifestDependency and not isValidPackagePath(options.root.text(), false))
         {
             return .Invalid {
                 operation: Operation::Validate,
@@ -135,7 +135,11 @@ extend Build {
             }!;
         }
         for &package in self.packages.iter() {
-            if package.name.equals(options.name) or package.root.view().text().equals(options.root.text()) {
+            if package.name.equals(options.name)
+                or (not package.manifestDependency
+                    and not options.manifestDependency
+                    and package.root.view().text().equals(options.root.text()))
+            {
                 return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Package(handle.index()),
@@ -156,10 +160,10 @@ extend Build {
     }
 
     // Resolves an already declared package dependency by its manifest name.
-    // The host resolver maps this logical package root to the selected cache
-    // checkout, so build scripts never provide dependency filesystem paths.
+    // The host resolves this marker against the root manifest and selected
+    // checkout; build scripts never provide dependency filesystem paths.
     pub fn addDependency(&mut self, name: &[char]) Error!PackageHandle {
-        self.addPackage(PackageOptions::init(name, fs::PathView::init(name)))
+        self.addPackage(PackageOptions::dependency(name))
     }
 
     pub(pkg) fn cleanupPendingPackage(&mut self) Error!() {

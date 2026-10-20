@@ -92,7 +92,7 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),
@@ -175,7 +175,7 @@ pub(crate) fn generated_source_draft(
         root_package: PackageKey::root(),
         packages: vec![PlanPackage {
             key: PackageKey::root(),
-            root: String::new(),
+            source: crate::PlanPackageSource::Local(String::new()),
         }],
         host_target: target(),
         artifact_target: target(),

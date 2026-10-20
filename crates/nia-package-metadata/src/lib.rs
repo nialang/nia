@@ -639,7 +639,7 @@ impl PackageGraph {
         let mut fetcher = PackageFetcher::for_root(root)?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
-        let mut seen = std::collections::BTreeMap::new();
+        let mut seen = BTreeSet::new();
         let mut edges = Vec::new();
         while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
             let canonical = current.canonicalize()?;
@@ -649,10 +649,9 @@ impl PackageGraph {
                     format!("package dependency cycle at `{}`", canonical.display()),
                 ));
             }
-            if seen.contains_key(&canonical) {
+            if !seen.insert((canonical.clone(), logical_root.clone())) {
                 continue;
             }
-            seen.insert(canonical.clone(), logical_root.clone());
             let manifest = PackageManifest::read(&canonical).or_else(|error| {
                 if error.kind() == io::ErrorKind::NotFound && is_root {
                     Ok(PackageManifest::implicit(
@@ -675,6 +674,11 @@ impl PackageGraph {
                 &manifest.source,
             )?;
             for dependency in &manifest.dependencies {
+                let child_root = if logical_root.is_empty() {
+                    dependency.name.clone()
+                } else {
+                    format!("{logical_root}/{}", dependency.name)
+                };
                 if !options.includes(dependency.scope) {
                     let source_root = match &dependency.source {
                         DependencySource::Path(_) => {
@@ -684,23 +688,25 @@ impl PackageGraph {
                         }
                         DependencySource::Git { .. } => None,
                     };
-                    edges.push((logical_root.clone(), dependency.clone(), None, source_root));
+                    edges.push((
+                        logical_root.clone(),
+                        dependency.clone(),
+                        child_root,
+                        None,
+                        source_root,
+                    ));
                     continue;
                 }
                 let path = dependency_path(&mut fetcher, &canonical, dependency)?.canonicalize()?;
                 edges.push((
                     logical_root.clone(),
                     dependency.clone(),
+                    child_root.clone(),
                     Some(path.clone()),
                     Some(path.clone()),
                 ));
                 let mut next_ancestors = ancestors.clone();
                 next_ancestors.push(canonical.clone());
-                let child_root = if logical_root.is_empty() {
-                    dependency.name.clone()
-                } else {
-                    format!("{logical_root}/{}", dependency.name)
-                };
                 pending.push((path, child_root, false, next_ancestors));
             }
             nodes.push(PackageGraphNode {
@@ -719,11 +725,13 @@ impl PackageGraph {
         let mut dependencies = edges
             .into_iter()
             .map(
-                |(owner_root, dependency, target, source_root)| PackageDependencyReport {
-                    owner_root,
-                    dependency,
-                    resolved_root: target.and_then(|path| seen.get(&path).cloned()),
-                    source_root,
+                |(owner_root, dependency, target_root, target, source_root)| {
+                    PackageDependencyReport {
+                        owner_root,
+                        dependency,
+                        resolved_root: target.map(|_| target_root),
+                        source_root,
+                    }
                 },
             )
             .collect::<Vec<_>>();
@@ -3616,6 +3624,31 @@ mod tests {
         assert_eq!(runtime.resolved_root, Some(shared_root));
         assert_eq!(optional.resolved_root, None);
         assert_eq!(runtime.source_root, optional.source_root);
+
+        let selected = PackageGraph::resolve_with_options(
+            &root,
+            PackageGraphOptions {
+                include_development: true,
+            },
+        )
+        .unwrap();
+        assert!(selected.nodes.iter().any(|node| node.root == "runtime"));
+        assert!(selected.nodes.iter().any(|node| node.root == "development"));
+        let selected_edges = selected.report().declared;
+        assert_eq!(
+            selected_edges
+                .iter()
+                .find(|edge| edge.dependency.name == "runtime")
+                .and_then(|edge| edge.resolved_root.as_deref()),
+            Some("runtime")
+        );
+        assert_eq!(
+            selected_edges
+                .iter()
+                .find(|edge| edge.dependency.name == "development")
+                .and_then(|edge| edge.resolved_root.as_deref()),
+            Some("development")
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

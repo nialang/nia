@@ -33,13 +33,26 @@ pub(super) fn canonicalize_packages(
             package: package.key.clone(),
             error,
         };
-        if is_root && !package.root.is_empty() {
+        let PlanPackageSource::Local(root) = &package.source else {
+            if is_root {
+                return Err(invalid(PackageRootError::RootPackageMustBeEmpty));
+            }
+            if let PlanPackageSource::Dependency(name) = &package.source {
+                validate_stable_name(name)
+                    .map_err(|_| invalid(PackageRootError::ExternalPackageMustBeNonempty))?;
+                if package.key.as_str() != name {
+                    return Err(invalid(PackageRootError::ExternalPackageMustBeNonempty));
+                }
+            }
+            continue;
+        };
+        if is_root && !root.is_empty() {
             return Err(invalid(PackageRootError::RootPackageMustBeEmpty));
         }
-        if !is_root && package.root.is_empty() {
+        if !is_root && root.is_empty() {
             return Err(invalid(PackageRootError::ExternalPackageMustBeNonempty));
         }
-        LogicalPath::new(LogicalPathRoot::Build, &package.root)
+        LogicalPath::new(LogicalPathRoot::Build, root)
             .map_err(|error| invalid(PackageRootError::InvalidPath(error)))?;
     }
     Ok(())

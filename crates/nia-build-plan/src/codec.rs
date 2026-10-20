@@ -116,7 +116,16 @@ impl BuildPlan {
         writer.count(self.packages.len())?;
         for package in &self.packages {
             writer.package_key(&package.key)?;
-            writer.string(&package.root)?;
+            match &package.source {
+                PlanPackageSource::Local(root) => {
+                    writer.u8(1);
+                    writer.string(root)?;
+                }
+                PlanPackageSource::Dependency(name) => {
+                    writer.u8(2);
+                    writer.string(name)?;
+                }
+            }
         }
         writer.target(&self.host_target)?;
         writer.target(&self.artifact_target)?;
@@ -161,7 +170,17 @@ impl BuildPlan {
         let packages = reader.list(|reader| {
             Ok(PlanPackage {
                 key: reader.package_key()?,
-                root: reader.string()?,
+                source: match reader.u8()? {
+                    1 => PlanPackageSource::Local(reader.string()?),
+                    2 => PlanPackageSource::Dependency(reader.string()?),
+                    tag => {
+                        return Err(PlanCodecError::InvalidTag {
+                            kind: "package source",
+                            tag,
+                            offset: reader.offset - 1,
+                        });
+                    }
+                },
             })
         })?;
         let host_target = reader.target()?;
@@ -1008,7 +1027,16 @@ mod tests {
         writer.count(draft.packages.len()).unwrap();
         for package in &draft.packages {
             writer.package_key(&package.key).unwrap();
-            writer.string(&package.root).unwrap();
+            match &package.source {
+                PlanPackageSource::Local(root) => {
+                    writer.u8(1);
+                    writer.string(root).unwrap();
+                }
+                PlanPackageSource::Dependency(name) => {
+                    writer.u8(2);
+                    writer.string(name).unwrap();
+                }
+            }
         }
         writer.target(&draft.host_target).unwrap();
         writer.target(&draft.artifact_target).unwrap();
@@ -1147,13 +1175,29 @@ mod tests {
         let mut value = draft(false);
         value.packages.push(PlanPackage {
             key: PackageKey::new("assets").unwrap(),
-            root: "packages/assets".to_string(),
+            source: crate::PlanPackageSource::Local("packages/assets".to_string()),
+        });
+        value.packages.push(PlanPackage {
+            key: PackageKey::new("json").unwrap(),
+            source: crate::PlanPackageSource::Dependency("json".to_string()),
         });
         let plan = BuildPlan::freeze(value).unwrap();
         let bytes = plan.encode().unwrap();
         let decoded = BuildPlan::decode(&bytes).unwrap();
         assert_eq!(decoded, plan);
-        assert_eq!(decoded.packages()[0].root, "packages/assets");
+        assert_eq!(
+            decoded.packages()[0].source,
+            PlanPackageSource::Local("packages/assets".to_string())
+        );
+        assert_eq!(
+            decoded
+                .packages()
+                .iter()
+                .find(|package| package.key.as_str() == "json")
+                .unwrap()
+                .source,
+            PlanPackageSource::Dependency("json".to_string())
+        );
     }
 
     #[test]

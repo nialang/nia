@@ -106,12 +106,14 @@ pub struct PackageHandle {
 pub struct PackageOptions {
     name: &[char],
     root: fs::PathView,
+    manifestDependency: bool,
 }
 
 pub(pkg) struct Package {
     index: usize,
     name: string::String,
     root: fs::Path,
+    manifestDependency: bool,
 }
 
 pub struct AggregateStep {

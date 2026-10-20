@@ -151,6 +151,15 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             .help("check nia.toml dependency sources, scopes, and protocol epoch")
             .finish(),
         ],
+        BuildError::InvalidDependencyReference { path, detail } => vec![
+            Diagnostic::user_error(
+                codes::BUILD_PLAN,
+                "build plan references an unavailable manifest dependency",
+            )
+            .note(format!("plan draft `{}`: {detail}", path.display()))
+            .help("use addDependency only for a selected runtime or development dependency declared in nia.toml")
+            .finish(),
+        ],
         BuildError::CreateRunnerDirectory { path, error } => {
             create_directory_diagnostic("build runner directory", path, error)
         }
