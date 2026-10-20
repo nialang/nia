@@ -36,7 +36,7 @@ use nia_driver::{
 use nia_imports::ModuleMap;
 use nia_package_metadata::DependencyScope;
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
-use nia_source::SourcePath;
+use nia_source::{SourceIdentity, SourcePath};
 use nia_target_config::{BuildProfile, CompilationMode};
 use nia_timing::{TimingFormat, TimingOptions};
 
@@ -2910,22 +2910,22 @@ fn build_runner_module_map(
     module_map
         .insert(
             "buildScript",
-            SourcePath::new(invocation.build_script.to_string_lossy().into_owned()),
+            SourcePath::with_identity(
+                invocation.build_script.to_string_lossy().into_owned(),
+                "build-package:root:/build.nia",
+            ),
         )
         .map_err(|error| BuildRunnerModuleMapError::InvalidRoot {
             name: "buildScript".to_owned(),
             reason: error,
         })?;
-    for (name, path) in manifest_module_roots(
+    add_manifest_module_roots(
+        &mut module_map,
         &invocation.package_graph_report,
         &[DependencyScope::Build],
         CompilationMode::Normal,
     )
-    .map_err(BuildRunnerModuleMapError::Manifest)?
-    {
-        insert_module_root(&mut module_map, &name, path)
-            .map_err(|reason| BuildRunnerModuleMapError::InvalidRoot { name, reason })?;
-    }
+    .map_err(BuildRunnerModuleMapError::Manifest)?;
     Ok(module_map)
 }
 
@@ -2933,7 +2933,7 @@ pub(crate) fn manifest_module_roots(
     report: &nia_package_metadata::PackageGraphReport,
     scopes: &[DependencyScope],
     compilation_mode: CompilationMode,
-) -> io::Result<Vec<(String, SourcePath)>> {
+) -> io::Result<Vec<(String, String, SourcePath)>> {
     let mut imports = Vec::new();
     for edge in &report.declared {
         let selected = match edge.dependency.scope {
@@ -2960,6 +2960,7 @@ pub(crate) fn manifest_module_roots(
         };
         let path = package_root.join(&library_path);
         imports.push((
+            edge.owner_root.clone(),
             edge.dependency.name.clone(),
             SourcePath::with_identity(
                 path.to_string_lossy().into_owned(),
@@ -2968,6 +2969,32 @@ pub(crate) fn manifest_module_roots(
         ));
     }
     Ok(imports)
+}
+
+fn package_module_scope(logical_root: &str) -> SourceIdentity {
+    let logical_root = if logical_root.is_empty() {
+        "root"
+    } else {
+        logical_root
+    };
+    SourceIdentity::new(format!("build-package:{logical_root}:/"))
+}
+
+pub(crate) fn add_manifest_module_roots(
+    module_map: &mut ModuleMap,
+    report: &nia_package_metadata::PackageGraphReport,
+    scopes: &[DependencyScope],
+    compilation_mode: CompilationMode,
+) -> io::Result<()> {
+    for node in &report.resolved {
+        module_map.add_scope(&package_module_scope(&node.root));
+    }
+    for (owner, name, path) in manifest_module_roots(report, scopes, compilation_mode)? {
+        module_map
+            .insert_scoped(&package_module_scope(&owner), &name, path.clone())
+            .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn insert_module_root(
@@ -4311,8 +4338,13 @@ mod tests {
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
                 .expect("resolve build invocation");
         let module_map = build_runner_module_map(&invocation).expect("runner module map");
+        let build_source = SourcePath::with_identity(
+            invocation.build_script.to_string_lossy(),
+            "build-package:root:/build.nia",
+        );
         assert_eq!(
             module_map
+                .for_source(&build_source)
                 .get("json")
                 .map(|path| path.as_str().replace('\\', "/")),
             Some(
@@ -4322,11 +4354,12 @@ mod tests {
                     .replace('\\', "/")
             )
         );
+        assert!(module_map.get("json").is_none());
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]
-    fn build_runner_rejects_ambiguous_transitive_dependency_names() {
+    fn build_runner_isolates_transitive_dependency_names() {
         let root = temp_root("build_runner_ambiguous_transitive_dependency_names");
         let first = root.join("first");
         let second = root.join("second");
@@ -4369,12 +4402,30 @@ mod tests {
         let invocation =
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
                 .expect("resolve build invocation");
-        let error = build_runner_module_map(&invocation).expect_err("reject conflicting names");
-        assert!(matches!(
-            error,
-            BuildRunnerModuleMapError::InvalidRoot { ref name, ref reason }
-                if name == "shared" && reason.contains("multiple package instances")
-        ));
+        let map = build_runner_module_map(&invocation).expect("build scoped module map");
+        let first_scope = SourcePath::with_identity(
+            first.join("src/lib.nia").to_string_lossy(),
+            "build-package:first:/src/lib.nia",
+        );
+        let second_scope = SourcePath::with_identity(
+            second.join("src/lib.nia").to_string_lossy(),
+            "build-package:second:/src/lib.nia",
+        );
+        assert!(map.get("shared").is_none());
+        assert!(
+            map.for_source(&first_scope)
+                .get("shared")
+                .unwrap()
+                .as_str()
+                .ends_with("shared-first/src/lib.nia")
+        );
+        assert!(
+            map.for_source(&second_scope)
+                .get("shared")
+                .unwrap()
+                .as_str()
+                .ends_with("shared-second/src/lib.nia")
+        );
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 

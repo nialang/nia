@@ -229,13 +229,7 @@ fn build_module_graph(
             break;
         };
         let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-        for package in &declarations.semantic.package_roots {
-            if graph.package_root(package).is_none()
-                && let Some(path) = db.context().module_map.get_name(package)
-            {
-                graph.intern_package_root(package, path.clone())?;
-            }
-        }
+        mount_module_packages(db, &mut graph, &node, &declarations.semantic.package_roots)?;
         if should_eager_add_declarations(db.context(), &node) {
             record_traversal_diagnostic(
                 add_declared_module_children(db, &mut graph, node.id),
@@ -282,6 +276,29 @@ fn build_module_graph(
     })
 }
 
+fn mount_module_packages(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    node: &ModuleNode,
+    packages: &[SymbolId],
+) -> QueryResult<()> {
+    let map = &db.context().module_map;
+    let scoped = map.has_scope(&node.path);
+    if scoped {
+        graph.isolate_package_roots(node.id);
+    }
+    for name in packages {
+        let Some((instance, path)) = map.binding_for_source(&node.path, *name) else {
+            continue;
+        };
+        let root = graph.intern_package_root(&instance, path.clone())?;
+        if scoped {
+            graph.bind_package_alias(node.id, *name, root);
+        }
+    }
+    Ok(())
+}
+
 fn process_pending_trait_provider_imports(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
@@ -315,13 +332,7 @@ fn process_trait_provider_imports(
         return Ok(());
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for package in &declarations.semantic.package_roots {
-        if graph.package_root(package).is_none()
-            && let Some(path) = db.context().module_map.get_name(package)
-        {
-            graph.intern_package_root(package, path.clone())?;
-        }
-    }
+    mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
         if matches!(
             path.processing(),
@@ -335,7 +346,7 @@ fn process_trait_provider_imports(
             continue;
         };
         if let Some(package) = path.activates_package_facade() {
-            activate_package_facade(db, graph, package)?;
+            activate_package_facade(db, graph, module_id, package)?;
         }
         let shallow_path = path.with_appended_segments_with_processing_mode(
             &[],
@@ -409,13 +420,7 @@ fn process_semantic_module_dependencies(
     node: &ModuleNode,
 ) -> TraversalResult<()> {
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for package in &declarations.semantic.package_roots {
-        if graph.package_root(package).is_none()
-            && let Some(path) = db.context().module_map.get_name(package)
-        {
-            graph.intern_package_root(package, path.clone())?;
-        }
-    }
+    mount_module_packages(db, graph, node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
         add_semantic_used_module_path(db, graph, node.id, &path)?;
     }
@@ -442,7 +447,7 @@ fn add_semantic_used_module_path(
         return Ok(());
     };
     if let Some(package) = path.activates_package_facade() {
-        activate_package_facade(db, graph, package)?;
+        activate_package_facade(db, graph, current_module, package)?;
     }
     let shallow_path = path.with_appended_segments_with_processing_mode(
         &[],
@@ -584,21 +589,19 @@ fn apply_trait_demand(
     packages.sort();
     packages.dedup();
     for package in packages {
-        if nia_imports::is_entry_module_root(package) {
-            // The entry package is already mounted in the graph and is not
-            // represented in the external module map.
-        } else if graph.package_root(&package).is_none() {
-            let Some(package_path) = db.context().module_map.get_name(&package) else {
-                continue;
-            };
-            graph.intern_package_root(&package, package_path.clone())?;
+        if graph.package_root(&package).is_none() {
+            mount_module_packages(db, graph, requesting_node, &[package])?;
         }
-        let Some(root_id) = graph.package_root(&package) else {
+        let Some(root_id) = graph
+            .package_root(&package)
+            .or_else(|| graph.root_module_for_name(requesting_node.id, package))
+        else {
             continue;
         };
         let Some(root) = graph.get(root_id).cloned() else {
             continue;
         };
+        let package = root.module_path.package;
         TraitProviderSearch {
             db,
             graph,
@@ -747,7 +750,7 @@ fn add_used_module_path(
         return Ok(());
     };
     if let Some(package) = path.activates_package_facade() {
-        activate_package_facade(db, graph, package)?;
+        activate_package_facade(db, graph, current_module, package)?;
     }
     let Some(module_id) = add_visible_declared_module_path(
         db,
@@ -769,8 +772,16 @@ fn add_used_module_path(
 fn activate_package_facade(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
+    current_module: nia_imports::ModuleId,
     package: SymbolId,
 ) -> TraversalResult<()> {
+    let Some(package) = graph
+        .root_module_for_name(current_module, package)
+        .and_then(|root| graph.get(root))
+        .map(|node| node.module_path.package)
+    else {
+        return Ok(());
+    };
     if graph.package_facade_active(&package) {
         return Ok(());
     }
@@ -781,13 +792,7 @@ fn activate_package_facade(
         return Ok(());
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for package in &declarations.semantic.package_roots {
-        if graph.package_root(package).is_none()
-            && let Some(path) = db.context().module_map.get_name(package)
-        {
-            graph.intern_package_root(package, path.clone())?;
-        }
-    }
+    mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
         add_used_module_path(db, graph, root, &path)?;
     }
@@ -800,7 +805,9 @@ pub(crate) fn used_path_start(
     path: &UsedModulePath,
 ) -> Option<nia_imports::ModuleId> {
     match path {
-        UsedModulePath::Package { package, .. } => graph.package_root(package),
+        UsedModulePath::Package { package, .. } => {
+            graph.root_module_for_name(current_module, *package)
+        }
         UsedModulePath::PackageRelative { .. } => graph.current_package_root(current_module),
         UsedModulePath::ParentRelative { .. } => {
             graph.get(current_module).and_then(|node| node.parent)
@@ -821,13 +828,7 @@ pub(crate) fn mark_process_used_paths_and_process(
         return Ok(());
     };
     let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-    for package in &declarations.semantic.package_roots {
-        if graph.package_root(package).is_none()
-            && let Some(path) = db.context().module_map.get_name(package)
-        {
-            graph.intern_package_root(package, path.clone())?;
-        }
-    }
+    mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
         add_used_module_path(db, graph, module_id, &path)?;
     }

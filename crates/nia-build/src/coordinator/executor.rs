@@ -9,7 +9,7 @@ use super::*;
 use crate::action_cache::CompilerCheckCacheIdentityInput;
 use crate::lock::{LockWaitEvent, LockWaitObserver};
 use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
-use crate::{insert_module_root, manifest_module_roots};
+use crate::{PlanPackageSource, add_manifest_module_roots, insert_module_root};
 use nia_package_metadata::DependencyScope;
 use std::io::{Seek as _, SeekFrom};
 
@@ -1253,37 +1253,46 @@ impl DriverActionExecutor {
         })?;
         let entry = self.resolve_source_path(action, &module.root_source)?;
         let mut module_map = ModuleMap::new();
-        if module.key.package() == self.plan.root_package() {
-            let imports = manifest_module_roots(
+        {
+            add_manifest_module_roots(
+                &mut module_map,
                 &self.invocation.package_graph_report,
                 &[DependencyScope::Runtime, DependencyScope::Development],
                 self.invocation.compilation_mode,
             )
             .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
-            for (name, path) in imports {
-                insert_module_root(&mut module_map, &name, path).map_err(|reason| {
-                    CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
-                        action: action.key.clone(),
-                        module: module.key.clone(),
-                        name,
-                        reason,
-                    }))
-                })?;
-            }
         }
         for import in &module.imports {
             if !self.package_dependency_selected(import.path.root()) {
                 continue;
             }
             let path = self.resolve_source_path(action, &import.path)?;
-            insert_module_root(&mut module_map, &import.name, path).map_err(|reason| {
-                CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
-                    action: action.key.clone(),
-                    module: module.key.clone(),
-                    name: import.name.clone(),
-                    reason,
-                }))
-            })?;
+            let source_identity = entry.identity_ref().normalized_path();
+            if let Some((directory, _)) = source_identity.split_once(":/") {
+                let scope = nia_source::SourceIdentity::new(format!("{directory}:/"));
+                if module_map.has_scope(&entry) {
+                    module_map
+                        .insert_scoped(&scope, &import.name, path.clone())
+                        .map_err(|reason| {
+                            CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
+                                action: action.key.clone(),
+                                module: module.key.clone(),
+                                name: import.name.clone(),
+                                reason,
+                            }))
+                        })?;
+                }
+            }
+            if !module_map.has_scope(&entry) {
+                insert_module_root(&mut module_map, &import.name, path).map_err(|reason| {
+                    CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
+                        action: action.key.clone(),
+                        module: module.key.clone(),
+                        name: import.name.clone(),
+                        reason,
+                    }))
+                })?;
+            }
         }
         let target = *target;
         let runtime =
@@ -1355,7 +1364,32 @@ impl DriverActionExecutor {
         let protocol_path = logical.protocol_path();
         let identity = match logical.root() {
             LogicalPathRoot::Package(package) => {
-                format!("build-package:{}:/{protocol_path}", package.as_str())
+                let package_plan = self
+                    .plan
+                    .packages()
+                    .iter()
+                    .find(|candidate| &candidate.key == package);
+                let logical_root = package_plan
+                    .filter(|candidate| {
+                        matches!(candidate.source, PlanPackageSource::Dependency(_))
+                    })
+                    .and_then(|candidate| crate::package_source_root(&self.invocation, candidate))
+                    .and_then(|package_root| {
+                        let package_root = package_root.canonicalize().ok()?;
+                        self.invocation
+                            .package_graph_report
+                            .declared
+                            .iter()
+                            .find(|edge| {
+                                edge.source_root
+                                    .as_ref()
+                                    .and_then(|root| root.canonicalize().ok())
+                                    .is_some_and(|root| root == package_root)
+                            })
+                            .and_then(|edge| edge.resolved_root.as_deref())
+                    })
+                    .unwrap_or(package.as_str());
+                format!("build-package:{logical_root}:/{protocol_path}")
             }
             LogicalPathRoot::Build => format!(
                 "build-output:{}:/{protocol_path}",
@@ -1416,6 +1450,7 @@ impl DriverActionExecutor {
 #[cfg(test)]
 mod package_manifest_import_tests {
     use super::*;
+    use crate::manifest_module_roots;
     use nia_package_metadata::PackageGraphReport;
 
     #[test]
@@ -1471,17 +1506,18 @@ mod package_manifest_import_tests {
         let ordinary =
             manifest_module_roots(&report, &source_scopes, CompilationMode::Normal).unwrap();
         assert_eq!(ordinary.len(), 1);
-        assert_eq!(ordinary[0].0, "runtime");
-        assert!(ordinary[0].1.as_str().ends_with("runtime/src/lib.nia"));
+        assert_eq!(ordinary[0].0, "owner");
+        assert_eq!(ordinary[0].1, "runtime");
+        assert!(ordinary[0].2.as_str().ends_with("runtime/src/lib.nia"));
         assert_eq!(
-            ordinary[0].1.identity().normalized_path(),
+            ordinary[0].2.identity().normalized_path(),
             "build-package:owner/runtime:/src/lib.nia"
         );
 
         let tests = manifest_module_roots(&report, &source_scopes, CompilationMode::Test).unwrap();
         assert_eq!(tests.len(), 2);
-        assert!(tests.iter().any(|(name, _)| name == "runtime"));
-        assert!(tests.iter().any(|(name, _)| name == "development"));
+        assert!(tests.iter().any(|(_, name, _)| name == "runtime"));
+        assert!(tests.iter().any(|(_, name, _)| name == "development"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

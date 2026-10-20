@@ -144,6 +144,7 @@ pub enum ModuleRootSegment {
 /// Mapping from source package names to module root paths.
 pub struct ModuleMap {
     entries: SymbolMap<SourcePath>,
+    scopes: std::collections::BTreeMap<String, SymbolMap<SourcePath>>,
 }
 
 impl ModuleMap {
@@ -211,7 +212,111 @@ impl ModuleMap {
 
     /// Reports whether this map has no roots.
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.scopes.is_empty()
+    }
+
+    /// Defines the dependency namespace for a logical package source directory.
+    pub fn add_scope(&mut self, directory: &SourceIdentity) {
+        self.scopes
+            .entry(directory.normalized_path().trim_end_matches('/').to_owned())
+            .or_default();
+    }
+
+    /// Adds a dependency alias visible only inside one logical package directory.
+    pub fn insert_scoped(
+        &mut self,
+        directory: &SourceIdentity,
+        name: &str,
+        path: SourcePath,
+    ) -> Result<(), String> {
+        if is_compiler_reserved_module_root(name) {
+            return Err(format!("`{name}` is a compiler-reserved module root"));
+        }
+        let scope = self
+            .scopes
+            .entry(directory.normalized_path().trim_end_matches('/').to_owned())
+            .or_default();
+        let name = module_root_symbol_from_text(name);
+        if scope.get(&name).is_some_and(|existing| existing != &path) {
+            return Err(
+                "dependency alias resolves to multiple packages in the same package namespace"
+                    .to_owned(),
+            );
+        }
+        scope.insert(name, path);
+        Ok(())
+    }
+
+    fn source_scope(&self, source: &SourcePath) -> Option<&SymbolMap<SourcePath>> {
+        let identity = source.identity_ref().normalized_path();
+        self.scopes
+            .iter()
+            .filter(|(prefix, _)| {
+                identity
+                    .strip_prefix(prefix.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+            .max_by_key(|(prefix, _)| prefix.len())
+            .map(|(_, scope)| scope)
+    }
+
+    /// Reports whether a source belongs to an explicitly isolated package namespace.
+    pub fn has_scope(&self, source: &SourcePath) -> bool {
+        self.source_scope(source).is_some()
+    }
+
+    /// Returns the names visible to one source module, preserving compiler-owned roots.
+    pub fn for_source(&self, source: &SourcePath) -> Self {
+        let Some(scope) = self.source_scope(source) else {
+            return self.clone();
+        };
+        let mut entries = self.entries.clone();
+        entries.extend(scope.iter().map(|(name, path)| (*name, path.clone())));
+        Self {
+            entries,
+            scopes: Default::default(),
+        }
+    }
+
+    /// Resolves a source-local alias to its stable package instance and source root.
+    pub fn binding_for_source(
+        &self,
+        source: &SourcePath,
+        name: SymbolId,
+    ) -> Option<(SymbolId, &SourcePath)> {
+        if let Some(path) = self.source_scope(source).and_then(|scope| scope.get(&name)) {
+            let key = format!(
+                "nia.package.instance:{}",
+                path.identity_ref().normalized_path()
+            );
+            return Some((module_root_symbol_from_text(&key), path));
+        }
+        if self.has_scope(source) && ![known::ENTRY, known::STD, known::RUNTIME].contains(&name) {
+            return None;
+        }
+        self.entries.get(&name).map(|path| (name, path))
+    }
+
+    /// Iterates package namespaces, including empty namespaces that isolate a package.
+    pub fn scopes(&self) -> impl Iterator<Item = (&str, &SymbolMap<SourcePath>)> {
+        self.scopes
+            .iter()
+            .map(|(prefix, entries)| (prefix.as_str(), entries))
+    }
+
+    /// Iterates all roots for source registration and eager package-root selection.
+    pub fn all_entries(&self) -> impl Iterator<Item = (SymbolId, &SourcePath)> {
+        self.entries().chain(self.scopes.values().flat_map(|scope| {
+            scope.values().map(|path| {
+                (
+                    module_root_symbol_from_text(&format!(
+                        "nia.package.instance:{}",
+                        path.identity_ref().normalized_path()
+                    )),
+                    path,
+                )
+            })
+        }))
     }
 }
 
@@ -333,6 +438,7 @@ pub struct ModuleGraph {
     by_stable_key: nia_hash::FastHashMap<StableModuleKey, ModuleId>,
     by_module_path: nia_hash::FastHashMap<ModulePath, ModuleId>,
     package_roots: SymbolMap<ModuleId>,
+    module_package_aliases: nia_hash::FastHashMap<ModuleId, SymbolMap<ModuleId>>,
     active_package_facades: SymbolMap<ModuleId>,
     executable_root_subtrees: Vec<ModuleId>,
     symbols: Arc<dyn SymbolText + Send + Sync>,
@@ -363,6 +469,7 @@ impl PartialEq for ModuleGraph {
             && self.by_stable_key == other.by_stable_key
             && self.by_module_path == other.by_module_path
             && self.package_roots == other.package_roots
+            && self.module_package_aliases == other.module_package_aliases
             && self.active_package_facades == other.active_package_facades
             && self.executable_root_subtrees == other.executable_root_subtrees
     }
@@ -468,6 +575,7 @@ impl ModuleGraph {
             by_stable_key,
             by_module_path,
             package_roots,
+            module_package_aliases: Default::default(),
             active_package_facades: SymbolMap::default(),
             executable_root_subtrees: Vec::new(),
             symbols,
@@ -689,7 +797,30 @@ impl ModuleGraph {
         }
         self.get(current_module)
             .and_then(|node| node.children.get(&name).copied())
-            .or_else(|| self.package_root(&name))
+            .or_else(|| {
+                if let Some(aliases) = self.module_package_aliases.get(&current_module) {
+                    aliases.get(&name).copied().or_else(|| {
+                        is_std_module_root(name)
+                            .then(|| self.package_root(&name))
+                            .flatten()
+                    })
+                } else {
+                    self.package_root(&name)
+                }
+            })
+    }
+
+    /// Isolates a module's named package roots from the global package-instance registry.
+    pub fn isolate_package_roots(&mut self, module: ModuleId) {
+        self.module_package_aliases.entry(module).or_default();
+    }
+
+    /// Binds one source-local alias to an interned package instance.
+    pub fn bind_package_alias(&mut self, module: ModuleId, alias: SymbolId, target: ModuleId) {
+        self.module_package_aliases
+            .entry(module)
+            .or_default()
+            .insert(alias, target);
     }
 
     /// Iterates all module nodes in allocation order.
@@ -1746,6 +1877,50 @@ mod tests {
             Some(&SourcePath::new("stdlib/root.nia"))
         );
         assert!(!preserved.is_empty());
+    }
+
+    #[test]
+    fn module_map_scoped_aliases_are_isolated_by_package_source() {
+        let first = SourceIdentity::new("build-package:workspace/first:/src/main.nia");
+        let second = SourceIdentity::new("build-package:workspace/second:/src/main.nia");
+        let mut map = ModuleMap::new();
+        map.add_scope(&SourceIdentity::new("build-package:workspace/first:/"));
+        map.add_scope(&SourceIdentity::new("build-package:workspace/second:/"));
+        map.try_insert("buildScript", SourcePath::new("build.nia"))
+            .expect("explicit global root");
+        map.insert_scoped(
+            &SourceIdentity::new("build-package:workspace/first:/"),
+            "shared",
+            SourcePath::with_identity("/deps/first/lib.nia", "build-package:first:/src/lib.nia"),
+        )
+        .expect("first package alias");
+        map.insert_scoped(
+            &SourceIdentity::new("build-package:workspace/second:/"),
+            "shared",
+            SourcePath::with_identity("/deps/second/lib.nia", "build-package:second:/src/lib.nia"),
+        )
+        .expect("second package alias");
+
+        assert!(map.get("shared").is_none());
+        assert!(
+            map.for_source(&SourcePath::new(first.normalized_path()))
+                .get("shared")
+                .unwrap()
+                .as_str()
+                .contains("first")
+        );
+        assert!(
+            map.for_source(&SourcePath::new(first.normalized_path()))
+                .get("buildScript")
+                .is_some()
+        );
+        assert!(
+            map.for_source(&SourcePath::new(second.normalized_path()))
+                .get("shared")
+                .unwrap()
+                .as_str()
+                .contains("second")
+        );
     }
 
     #[test]
