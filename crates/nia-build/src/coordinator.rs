@@ -92,17 +92,31 @@ pub(crate) fn package_dependency_selection(
         .iter()
         .filter(|package| package.key != *plan.root_package())
         .map(|package| {
-            let mut package_root = invocation.package_root.clone();
-            package_root.extend(package.root.split('/'));
-            let classes = package_root.canonicalize().ok().map(|package_root| {
-                invocation
-                    .package_graph_report
-                    .declared
-                    .iter()
-                    .filter(|dependency| dependency.source_root.as_deref() == Some(&package_root))
-                    .map(|dependency| dependency.dependency.scope)
-                    .collect::<BTreeSet<_>>()
-            });
+            let declared = invocation
+                .package_graph_report
+                .declared
+                .iter()
+                .find(|dependency| {
+                    dependency.owner_root.is_empty()
+                        && dependency.dependency.name == package.key.as_str()
+                });
+            let classes = declared
+                .map(|dependency| BTreeSet::from([dependency.dependency.scope]))
+                .or_else(|| {
+                    crate::package_source_root(invocation, package)
+                        .and_then(|package_root| package_root.canonicalize().ok())
+                        .map(|package_root| {
+                            invocation
+                                .package_graph_report
+                                .declared
+                                .iter()
+                                .filter(|dependency| {
+                                    dependency.source_root.as_deref() == Some(&package_root)
+                                })
+                                .map(|dependency| dependency.dependency.scope)
+                                .collect::<BTreeSet<_>>()
+                        })
+                });
             let selected = classes
                 .filter(|classes| !classes.is_empty())
                 .map(|classes| {

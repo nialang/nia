@@ -1,0 +1,5 @@
+[package]
+name = "configured-success"
+
+[dependencies]
+assets = { path = "packages/assets" }

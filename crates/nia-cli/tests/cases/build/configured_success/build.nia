@@ -4,9 +4,7 @@ using std::fmt;
 using std::io;
 
 fn configure(b: &mut build::Build) build::Error!() {
-    let assets = b.addPackage(
-        build::PackageOptions::init(&"assets", fs::PathView::init(&"packages/assets")),
-    ).?;
+    let assets = b.addDependency(&"assets").?;
     let helperName = "helper";
     let helperPath = "generated/helper.nia";
     let srcMain = "src/main.nia";
