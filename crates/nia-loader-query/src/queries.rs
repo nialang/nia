@@ -297,7 +297,9 @@ fn import_target_module(
     path: &UsedModulePath,
 ) -> Option<nia_imports::ModuleId> {
     let mut current = match path {
-        UsedModulePath::Package { package, .. } => graph.package_root(package),
+        UsedModulePath::Package { package, .. } => {
+            graph.root_module_for_name(current_module, *package)
+        }
         UsedModulePath::PackageRelative { .. } => graph.current_package_root(current_module),
         UsedModulePath::ParentRelative { .. } => {
             graph.get(current_module).and_then(|node| node.parent)
@@ -748,8 +750,12 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 &parsed.semantic.active_item_tree,
                 &db.context().symbols,
             );
-            let used_modules =
-                collect_used_modules(&parsed.semantic.active_item_tree, &db.context().module_map);
+            let source =
+                db.context().sources.path_for_id(self.0.id).ok_or_else(|| {
+                    QueryError::internal("module dependency query lost its source")
+                })?;
+            let module_map = db.context().module_map.for_source(&source);
+            let used_modules = collect_used_modules(&parsed.semantic.active_item_tree, &module_map);
             (declarations, used_modules)
         } else {
             (
@@ -1216,9 +1222,15 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
             }
         }
 
+        let source = db
+            .context()
+            .sources
+            .path_for_id(self.0.id)
+            .ok_or_else(|| QueryError::internal("module facade query lost its source"))?;
+        let visible_module_map = db.context().module_map.for_source(&source);
         let fresh = ModuleFacadeFacts::from_active_item_tree(
             &parsed.semantic.active_item_tree,
-            &db.context().module_map,
+            &visible_module_map,
         );
         if let Some(input) = cache_input
             && let Some(cache) = &db.context().frontend_cache

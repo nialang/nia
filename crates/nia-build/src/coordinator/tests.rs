@@ -383,7 +383,18 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
     };
 
     let ordinary = compile_request(false);
-    assert!(ordinary.module_map.get("corelib").is_some());
+    let root_source = nia_source::SourcePath::with_identity(
+        root.join("src/main.nia").to_string_lossy(),
+        "build-package:root:/src/main.nia",
+    );
+    assert!(ordinary.module_map.get("corelib").is_none());
+    assert!(
+        ordinary
+            .module_map
+            .for_source(&root_source)
+            .get("corelib")
+            .is_some()
+    );
     for filtered in ["build", "development"] {
         assert!(
             ordinary.module_map.get(filtered).is_none(),
@@ -394,7 +405,12 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
     let selected = compile_request(true);
     for included in ["corelib", "development"] {
         assert!(
-            selected.module_map.get(included).is_some(),
+            selected.module_map.get(included).is_none()
+                && selected
+                    .module_map
+                    .for_source(&root_source)
+                    .get(included)
+                    .is_some(),
             "selected compile did not map {included} dependency"
         );
     }

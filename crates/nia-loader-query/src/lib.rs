@@ -251,7 +251,11 @@ impl LoaderDatabase {
             })?;
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
-            request.module_map.entries().map(|(name, _)| name).collect()
+            request
+                .module_map
+                .all_entries()
+                .map(|(name, _)| name)
+                .collect()
         } else {
             HashSet::new()
         };
@@ -278,7 +282,7 @@ impl LoaderDatabase {
         let runtime_package_root = request.runtime.source().map(runtime_package_root_path);
         let source_roots = std::iter::once(entry_path.clone())
             .chain(request.package_root.clone())
-            .chain(module_map.entries().map(|(_, path)| path.clone()))
+            .chain(module_map.all_entries().map(|(_, path)| path.clone()))
             .chain(runtime_package_root.clone())
             .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint_with_package_root(
