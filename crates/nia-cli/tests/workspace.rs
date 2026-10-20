@@ -146,3 +146,85 @@ pub fn build(b: &mut build::Build) build::Error!() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn workspace_test_selection_continues_by_default_and_honors_fail_fast() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("workspace-test-selection");
+    fs::write(
+        root.join("nia.toml"),
+        "[workspace]\nmembers = [\"members/*\"]\ndefault-members = [\"members/alpha\", \"members/beta\"]\n",
+    )
+    .unwrap();
+    for (name, status) in [("alpha", 7), ("beta", 0)] {
+        let member = root.join("members").join(name);
+        fs::create_dir_all(member.join("tests")).unwrap();
+        fs::write(
+            member.join("nia.toml"),
+            format!("[package]\nname = \"{name}\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            member.join("build.nia"),
+            r#"using std::build;
+using std::fs;
+
+pub fn build(b: &mut build::Build) build::Error!() {
+    let testModule = b.addModule(build::ModuleOptions::init(&"tests", fs::PathView::init(&"tests/main.nia"))).?;
+    _ = b.addTestSuite(&"suite", testModule).?;
+    !()
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            member.join("tests/main.nia"),
+            format!(
+                "using std::io;\nusing std::process;\n\npub fn main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    let mut buffer: [u8; 0] = [];\n    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);\n    stdout.writeAll(&b\"{name}-ran\\n\").?;\n    process::ExitCode({status})!\n}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    let run = |options: &[&str]| {
+        support::nia_command()
+            .current_dir(&root)
+            .arg("test")
+            .args(options)
+            .output_timeout_in_session("run selected workspace test suites")
+    };
+    let selected = run(&["-p", "beta"]);
+    assert!(
+        selected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&selected.stderr)
+    );
+    let selected_stdout = String::from_utf8_lossy(&selected.stdout);
+    assert!(selected_stdout.contains("beta-ran"), "{selected_stdout}");
+    assert!(!selected_stdout.contains("alpha-ran"), "{selected_stdout}");
+
+    let beta_suite = root.join("members/beta/tests/main.nia");
+    let beta_source = fs::read_to_string(&beta_suite).unwrap();
+    fs::write(
+        &beta_suite,
+        beta_source.replace("beta-ran", "beta-workspace-ran"),
+    )
+    .unwrap();
+    let all = run(&["--workspace"]);
+    assert_eq!(all.status.code(), Some(1));
+    let all_stdout = String::from_utf8_lossy(&all.stdout);
+    assert!(all_stdout.contains("alpha-ran"), "{all_stdout}");
+    assert!(all_stdout.contains("beta-workspace-ran"), "{all_stdout}");
+
+    let beta_source = fs::read_to_string(&beta_suite).unwrap();
+    fs::write(
+        &beta_suite,
+        beta_source.replace("beta-workspace-ran", "beta-failfast-ran"),
+    )
+    .unwrap();
+    let fail_fast = run(&["--workspace", "--fail-fast"]);
+    assert_eq!(fail_fast.status.code(), Some(1));
+    let fail_fast_stdout = String::from_utf8_lossy(&fail_fast.stdout);
+    assert!(fail_fast_stdout.contains("alpha-ran"), "{fail_fast_stdout}");
+    assert!(!fail_fast_stdout.contains("beta-ran"), "{fail_fast_stdout}");
+}
