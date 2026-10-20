@@ -102,16 +102,30 @@ executable.
 
 ## A first package
 
-A package is a directory with a `build.nia` script. A typical layout:
+A package is a directory with a `build.nia` script and, usually, a `nia.toml`
+manifest that names it and declares its dependencies. A typical layout:
 
 ```text
 hello/
+├── nia.toml
 ├── build.nia
 ├── src/
 │   └── main.nia
 └── tests/
     └── main.nia
 ```
+
+`nia.toml` names the package:
+
+```toml
+[package]
+name = "hello"
+version = "0.1.0"
+```
+
+Dependencies go in `[dependencies]`, for example
+`json = { git = "https://example.com/json.git", tag = "v1.0.0" }`; see
+[Package manifest](build-scripts.md#package-manifest).
 
 `src/main.nia` holds the hello-world program above. `build.nia` declares what
 the package builds:

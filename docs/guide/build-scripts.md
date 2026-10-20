@@ -24,28 +24,84 @@ artifact targets, and the facts it records through
 produce the same graph. When none of those inputs change, the next invocation
 reuses the recorded graph without running the script again.
 
-Before compiling `build.nia`, Nia reads the package's `nia.toml`. Dependency
-scope is declared outside the build script: `[build-dependencies]` is available
-only to the host build runner, `[dependencies]` is available to package targets,
-and `[dev-dependencies]` is selected by test builds. A build dependency package
-exports its build-time module through `[library].path`:
+## Package Manifest
+
+Before compiling `build.nia`, Nia reads the package's `nia.toml` and resolves
+its dependencies. The manifest defines package identity and dependency inputs;
+the script still owns the build graph. A root package without `nia.toml` builds
+as a package with no dependencies, but every dependency must have one.
 
 ```toml
 [package]
 name = "app"
 version = "0.1.0"
 
+[library]
+path = "src/lib.nia"
+
 [build-dependencies]
 json = { path = "vendor/json" }
 
 [dependencies]
-regex = { git = "https://example.com/regex.git", rev = "<commit>" }
+regex = { git = "https://example.com/regex.git", tag = "v1.2.0" }
+
+[dev-dependencies]
+fixtures = { path = "tests/fixtures" }
 ```
 
-The runner resolves these declarations before compiling the script and exposes
-the declared build libraries by dependency name. The script still owns the
-dynamic build graph; the manifest only defines package identity and dependency
-inputs.
+| Key | Meaning |
+| --- | --- |
+| `package.name` | required package name |
+| `package.namespace`, `package.version` | identity fields; default `local` and `0.0.0` |
+| `package.protocol-epoch` | rejects compilers from another release line when set |
+| `library.path` | the file that other packages open with `using <dependency>;` |
+| `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |
+
+A dependency's scope is the table it appears in:
+
+| Table | Available to |
+| --- | --- |
+| `[build-dependencies]` | `build.nia` only |
+| `[dependencies]` | package artifacts and their tests |
+| `[dev-dependencies]` | test builds (`nia test`) only |
+
+A dependency name is local to the package that declares it and must be unique
+across its three tables. Artifact sources and `build.nia` open a dependency
+under that name, `using regex;`, without declaring it again in the script. The
+name resolves to the dependency's `[library].path`, so a package that other
+packages import must declare one; the file must lie inside its source roots.
+Each dependency resolves its own dependencies from its own manifest, so two
+packages can use one name for different packages.
+
+### Dependency sources
+
+A dependency names exactly one source:
+
+| Source | Form |
+| --- | --- |
+| Local path | `{ path = "vendor/json" }`, relative to the declaring package |
+| Git | `{ git = "<url>" }` plus at most one of `rev`, `tag`, or `branch` |
+| Workspace | `{ workspace = true }`; see [Workspaces](#workspaces) |
+
+`rev` must be a full 40-digit commit hash. Without a selector, Git sources
+follow the remote `HEAD`. Nia fetches Git sources itself, without a system Git
+client, and accepts `https://`, `http://`, `git://`, `ssh://`, SCP-style
+`git@host:path`, and `file:///` URLs. URLs cannot embed credentials. `http://`
+and `git://` are neither encrypted nor authenticated; prefer HTTPS or SSH.
+
+SSH sources verify the server key against `~/.ssh/known_hosts` (or
+`%USERPROFILE%\.ssh\known_hosts` on Windows), accepting plain and hashed
+OpenSSH entries, and reject unknown or changed host keys. Nia authenticates
+with an unencrypted `~/.ssh/id_ed25519`; SSH agents and other key types are
+not used.
+
+The first build records each Git dependency's commit and content hash in
+`nia.lock` next to the root `nia.toml` (the workspace root in a workspace), and
+stores the checkout under `.nia/packages` beside it.
+Later builds reuse the locked commit, even when a `branch` or `tag` has moved,
+and reject a cached checkout whose contents no longer match the recorded hash.
+Delete the entry, or `nia.lock`, to fetch the selector again. Commit `nia.lock`
+and ignore `.nia/`.
 
 ## Workspaces
 
@@ -89,22 +145,6 @@ package-local.
 Workspace tests run selected members in manifest order and continue after a
 member fails, reporting an unsuccessful result after the remaining members
 finish. `nia test --fail-fast` stops after the first failing member.
-
-Artifact source imports use the package graph directly. A resolved runtime
-dependency is available under its manifest name, and each dependency's own
-runtime dependencies are resolved from that package's manifest. Development
-dependencies are available to test builds. Ordinary source imports therefore
-do not repeat dependency names or library paths in `build.nia`. Dependency
-aliases are local to the package that declares them, so separate packages can
-use the same alias for different package instances without ambiguity. A single
-package still cannot resolve one alias to multiple package instances.
-
-Git dependencies support HTTPS and SSH without invoking a system Git client.
-SSH sources use `ssh://` or SCP-style URLs and verify server keys against
-`~/.ssh/known_hosts` (or `%USERPROFILE%/.ssh/known_hosts` on Windows). Nia
-authenticates with `~/.ssh/id_ed25519` (or `%USERPROFILE%/.ssh/id_ed25519` on
-Windows); the key must be unencrypted. Plain and hashed OpenSSH host entries are
-supported. Unknown or changed host keys are rejected.
 
 ## The Build Function
 
@@ -168,11 +208,14 @@ application and its tests. Each module still declares its own imports.
 
 ## Packages
 
-`b.rootPackage()` is the package that contains `build.nia`. Package sources
-declared in `nia.toml` are resolved and fetched by Nia. Use `addDependency`
-when a manifest package must appear explicitly as a build-graph package for a
-module or command. It takes only the manifest dependency name, so path, Git,
-and SSH dependencies use the same API:
+`b.rootPackage()` is the package that contains `build.nia`. A dependency with
+a `[library].path` needs nothing in the script; see
+[Package manifest](#package-manifest). Use `addDependency` when the script
+needs a handle to a dependency package itself, for example to import a file
+other than its library entry or to pass one of its files to a command. It
+takes the dependency name from `[dependencies]`, or from `[dev-dependencies]`
+in test builds, so path and Git dependencies use the same API. Build
+dependencies are rejected because `build.nia` already imports them directly:
 
 ```toml
 [dependencies]
@@ -552,6 +595,8 @@ named, after the steps it depends on.
 
 | Option | Effect |
 | --- | --- |
+| `-p, --package <name>` | selects a workspace member; repeatable |
+| `--workspace` | selects every workspace member |
 | `--dry-run` | configures and validates the graph without running any step |
 | `--explain` | shows the selected step, targets, action closure, and configure-cache decision |
 | `--print-plan` | prints the frozen graph: modules, artifacts, actions, and steps |
