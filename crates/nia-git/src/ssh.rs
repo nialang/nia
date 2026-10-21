@@ -1,11 +1,12 @@
-use super::{
-    MAX_SSH_IDENTIFICATION_LINE, MAX_SSH_PACKET_BYTES, MAX_SSH_PRE_IDENTIFICATION_LINES, Read,
-    Write, invalid_packet, io,
-};
+use super::{Read, Write, invalid_packet, io};
 use aes::Aes128;
 use ctr::cipher::{KeyIvInit, StreamCipher};
 use ring::{agreement, digest, hmac, rand, rand::SecureRandom, signature, signature::KeyPair};
 use zeroize::Zeroizing;
+
+pub(super) const MAX_SSH_IDENTIFICATION_LINE: usize = 255;
+pub(super) const MAX_SSH_PRE_IDENTIFICATION_LINES: usize = 50;
+pub(super) const MAX_SSH_PACKET_BYTES: usize = 256 * 1024;
 
 const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
 const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
