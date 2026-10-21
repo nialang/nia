@@ -1496,6 +1496,7 @@ dependencies = [
  "cap-std",
  "flate2",
  "glob",
+ "libc",
  "nia-compat",
  "nia-git",
  "nia-ids",
@@ -1503,6 +1504,7 @@ dependencies = [
  "semver",
  "serde",
  "toml",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
