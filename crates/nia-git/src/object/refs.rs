@@ -3,8 +3,9 @@
 
 use std::{io, path::Path};
 
+use super::read_packed_object;
 use super::{GitObject, ObjectKind, decode_loose_object};
-use crate::{invalid_packet, read_packed_object};
+use crate::invalid_packet;
 
 pub(crate) fn resolve_revision(git_dir: &Path, revision: &str) -> io::Result<[u8; 20]> {
     if revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
