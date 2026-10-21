@@ -3,7 +3,7 @@
 
 use std::{
     fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -42,6 +42,64 @@ pub struct RegistryArchiveEntry {
     pub path: String,
     pub kind: RegistryArchiveEntryKind,
     pub contents: Vec<u8>,
+}
+
+/// Validated on-disk registry cache rooted outside the package source tree.
+#[derive(Debug, Clone)]
+pub struct RegistryCache {
+    root: PathBuf,
+}
+
+impl RegistryCache {
+    /// Creates a cache handle. The directory is created on first write.
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    /// Reads and validates the cached index for a registry.
+    pub fn read_index(&self, registry: &str) -> io::Result<RegistryIndex> {
+        validate_registry_name(registry)?;
+        let path = self.index_path(registry);
+        let bytes = read_bounded(&path, MAX_INDEX_BYTES)?;
+        RegistryIndex::parse_toml(&bytes)
+    }
+
+    /// Validates and atomically replaces a registry index cache entry.
+    pub fn write_index(&self, registry: &str, bytes: &[u8]) -> io::Result<RegistryIndex> {
+        validate_registry_name(registry)?;
+        let index = RegistryIndex::parse_toml(bytes)?;
+        let path = self.index_path(registry);
+        write_atomic(&path, bytes)?;
+        Ok(index)
+    }
+
+    /// Reads a digest-addressed archive after rechecking its complete digest.
+    pub fn read_archive(&self, digest: &[u8; 32]) -> io::Result<Vec<u8>> {
+        let bytes = read_bounded(&self.archive_path(digest), MAX_PACKAGE_ARCHIVE_BYTES)?;
+        if blake3::hash(&bytes).as_bytes() != digest {
+            return Err(invalid_index("cached registry archive digest mismatch"));
+        }
+        Ok(bytes)
+    }
+
+    /// Validates and atomically publishes a digest-addressed archive.
+    pub fn write_archive(&self, digest: &[u8; 32], bytes: &[u8]) -> io::Result<()> {
+        if blake3::hash(bytes).as_bytes() != digest {
+            return Err(invalid_index("registry archive digest mismatch"));
+        }
+        decode_registry_archive(bytes, digest)?;
+        write_atomic(&self.archive_path(digest), bytes)
+    }
+
+    fn index_path(&self, registry: &str) -> PathBuf {
+        self.root.join("indexes").join(registry).join("index.toml")
+    }
+
+    fn archive_path(&self, digest: &[u8; 32]) -> PathBuf {
+        self.root
+            .join("archives")
+            .join(format!("{}.nia", digest_hex(digest)))
+    }
 }
 
 /// Supported entry types in the package archive format.
@@ -293,6 +351,72 @@ fn valid_package_segment(segment: &str) -> bool {
         && segment
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn validate_registry_name(registry: &str) -> io::Result<()> {
+    if registry.is_empty()
+        || registry.len() > 64
+        || !registry
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(invalid_index("registry name is invalid"));
+    }
+    Ok(())
+}
+
+fn digest_hex(digest: &[u8; 32]) -> String {
+    let mut text = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(text, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    text
+}
+
+fn read_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+    let file = fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take((limit + 1) as u64).read_to_end(&mut bytes)?;
+    if bytes.len() > limit {
+        return Err(invalid_index("registry cache entry exceeds the size limit"));
+    }
+    Ok(bytes)
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let (temporary, mut file) = allocate_cache_staging(parent)?;
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        if fs::symlink_metadata(path).is_ok() {
+            fs::remove_file(path)?;
+        }
+        fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn allocate_cache_staging(parent: &Path) -> io::Result<(PathBuf, fs::File)> {
+    for _ in 0..128 {
+        let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(".nia-cache-{}-{sequence}.tmp", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate registry cache staging path",
+    ))
 }
 
 fn validate_archive_tree(entries: &[RegistryArchiveEntry]) -> io::Result<()> {
@@ -595,6 +719,36 @@ mod tests {
                 .kind(),
             io::ErrorKind::AlreadyExists
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_cache_validates_and_rechecks_content_addressed_entries() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-cache-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = RegistryCache::new(&root);
+        let index_bytes = format!(
+            "schema_version = 1\n{}",
+            record("acme", "json", "1.0.0", "https://cdn.example.test/json")
+        )
+        .into_bytes();
+        assert!(cache.write_index("nia", &index_bytes).is_ok());
+        assert_eq!(cache.read_index("nia").unwrap().packages.len(), 1);
+        let updated_index = b"schema_version = 1\npackages = []\n";
+        assert!(cache.write_index("nia", updated_index).is_ok());
+        assert!(cache.read_index("nia").unwrap().packages.is_empty());
+        assert!(cache.read_index("Nia").is_err());
+
+        let bytes = archive(&[(0, "nia.toml", b"[package]\nname = \"demo\"\n")]);
+        let digest = *blake3::hash(&bytes).as_bytes();
+        cache.write_archive(&digest, &bytes).unwrap();
+        assert_eq!(cache.read_archive(&digest).unwrap(), bytes);
+        assert!(cache.write_archive(&[0; 32], &bytes).is_err());
+        fs::write(cache.archive_path(&digest), b"tampered").unwrap();
+        assert!(cache.read_archive(&digest).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }

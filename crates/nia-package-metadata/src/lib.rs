@@ -35,8 +35,8 @@ use serde::{Deserialize, Serialize};
 
 mod registry;
 pub use registry::{
-    RegistryArchiveEntry, RegistryArchiveEntryKind, RegistryIndex, RegistryIndexPackage,
-    decode_registry_archive, extract_registry_archive,
+    RegistryArchiveEntry, RegistryArchiveEntryKind, RegistryCache, RegistryIndex,
+    RegistryIndexPackage, decode_registry_archive, extract_registry_archive,
 };
 
 /// Protocol epoch for stable compiler-owned metadata.
