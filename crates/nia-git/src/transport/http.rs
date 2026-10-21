@@ -302,6 +302,31 @@ pub(crate) fn checkout_http(
     result
 }
 
+/// Fetches one HTTPS resource using the same proxy, TLS, and credential
+/// policy as Git HTTP transport.
+pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
+    let url = parse_http_git_url(source)?;
+    if !url.secure {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "registry resources must use HTTPS",
+        ));
+    }
+    let proxy = http_proxy_for_url(&url)?;
+    let authorization = lookup_http_authorization(&url);
+    let authorization_bytes = authorization.as_ref().map(|value| value.as_slice());
+    http_request_with_proxy(
+        &url,
+        "GET",
+        &url.path,
+        &[],
+        "",
+        authorization_bytes,
+        proxy.as_ref(),
+    )
+    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))
+}
+
 pub(crate) fn http_request_with_proxy(
     url: &HttpGitUrl,
     method: &str,

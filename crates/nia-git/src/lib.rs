@@ -72,6 +72,11 @@ pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::
     ))
 }
 
+/// Fetches a bounded HTTPS resource with the Git transport's TLS and proxy policy.
+pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
+    transport::http::fetch_https(source)
+}
+
 fn checkout_ssh(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
     let ssh_directory = ssh_directory()?;
     checkout_ssh_with_config(source, revision, destination, &ssh_directory, true)
