@@ -6,9 +6,6 @@
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_types::ServerName};
 use zeroize::Zeroizing;
 
 const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
@@ -26,11 +23,12 @@ mod transport;
 use transport::git_tcp::checkout_git;
 #[cfg(test)]
 use transport::git_tcp::parse_git_tcp_url;
-use transport::http::{HttpGitUrl, HttpProxy, checkout_http, parse_http_response};
+use transport::http::checkout_http;
 #[cfg(test)]
 use transport::http::{
-    base64_encode, explain_http_auth_error, http_proxy_for_url_with, parse_git_credentials,
-    parse_http_git_url, run_http_credential_fill,
+    HttpProxy, base64_encode, establish_proxy_tunnel, explain_http_auth_error,
+    http_proxy_for_url_with, http_request_stream, http_request_with_proxy, parse_git_credentials,
+    parse_http_git_url, parse_http_response, run_http_credential_fill,
 };
 use transport::local::{checkout_local, fs_create_dir};
 
@@ -2589,191 +2587,6 @@ fn parse_upload_pack_response(body: &[u8]) -> io::Result<Vec<u8>> {
         return Err(invalid_packet("Git upload-pack returned no pack"));
     }
     Ok(pack)
-}
-
-fn http_request_with_proxy(
-    url: &HttpGitUrl,
-    method: &str,
-    path: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-    proxy: Option<&HttpProxy>,
-) -> io::Result<Vec<u8>> {
-    let (connect_host, connect_port) = proxy.map_or((url.host.as_str(), url.port), |proxy| {
-        (proxy.host.as_str(), proxy.port)
-    });
-    let address = (connect_host, connect_port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Git HTTP host has no address"))?;
-    let stream = TcpStream::connect_timeout(&address, std::time::Duration::from_secs(15))?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
-    stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
-    if proxy.is_some() && url.secure {
-        establish_proxy_tunnel(&stream, url)?;
-    }
-    let request_target = if proxy.is_some() && !url.secure {
-        format!(
-            "http://{}{}",
-            format_authority(&url.host, url.port, 80),
-            path
-        )
-    } else {
-        path.to_string()
-    };
-    if url.secure {
-        let roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        let config = ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let server_name = if let Ok(address) = url.host.parse::<std::net::IpAddr>() {
-            ServerName::IpAddress(address.into())
-        } else {
-            ServerName::try_from(url.host.clone()).map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Git HTTPS host name is invalid",
-                )
-            })?
-        };
-        let tls = ClientConnection::new(Arc::new(config), server_name).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Git HTTPS setup failed: {error}"),
-            )
-        })?;
-        return http_request_stream(
-            StreamOwned::new(tls, stream),
-            url,
-            method,
-            &request_target,
-            body,
-            content_type,
-            authorization,
-        );
-    }
-    http_request_stream_with_target(
-        stream,
-        url,
-        method,
-        &request_target,
-        body,
-        content_type,
-        authorization,
-    )
-}
-
-fn establish_proxy_tunnel(mut stream: &TcpStream, url: &HttpGitUrl) -> io::Result<()> {
-    let connect_target = format_authority(&url.host, url.port, 0);
-    write!(
-        stream,
-        "CONNECT {connect_target} HTTP/1.1\r\nHost: {connect_target}\r\nConnection: keep-alive\r\n\r\n"
-    )?;
-    read_proxy_connect_response(stream)
-}
-
-fn http_request_stream<S: Read + Write>(
-    stream: S,
-    url: &HttpGitUrl,
-    method: &str,
-    path: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-) -> io::Result<Vec<u8>> {
-    http_request_stream_with_target(stream, url, method, path, body, content_type, authorization)
-}
-
-fn http_request_stream_with_target<S: Read + Write>(
-    mut stream: S,
-    url: &HttpGitUrl,
-    method: &str,
-    request_target: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-) -> io::Result<Vec<u8>> {
-    let host_header = format_authority(&url.host, url.port, if url.secure { 443 } else { 80 });
-    write!(
-        stream,
-        "{method} {request_target} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: nia-package-manager/0.3\r\nAccept: application/x-git-upload-pack-advertisement, application/x-git-upload-pack-result\r\nConnection: close\r\nContent-Length: {}\r\n",
-        body.len()
-    )?;
-    if !content_type.is_empty() {
-        write!(stream, "Content-Type: {content_type}\r\n")?;
-    }
-    if let Some(authorization) = authorization {
-        stream.write_all(b"Authorization: Basic ")?;
-        stream.write_all(authorization)?;
-        stream.write_all(b"\r\n")?;
-    }
-    stream.write_all(b"\r\n")?;
-    stream.write_all(body)?;
-    let mut response = Vec::new();
-    stream
-        .take((MAX_HTTP_RESPONSE + 1) as u64)
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_HTTP_RESPONSE {
-        return Err(invalid_packet("Git HTTP response is too large"));
-    }
-    parse_http_response(&response)
-}
-
-fn format_authority(host: &str, port: u16, default_port: u16) -> String {
-    let host = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    };
-    if port == default_port {
-        host
-    } else {
-        format!("{host}:{port}")
-    }
-}
-
-fn read_proxy_connect_response(mut stream: &TcpStream) -> io::Result<()> {
-    let mut response = Vec::new();
-    let mut byte = [0; 1];
-    while response.len() < 16 * 1024 {
-        stream.read_exact(&mut byte)?;
-        response.push(byte[0]);
-        if response.ends_with(b"\r\n\r\n") {
-            let status = parse_proxy_status(&response)?;
-            if (200..300).contains(&status) {
-                return Ok(());
-            }
-            return Err(io::Error::other("Git HTTPS proxy CONNECT request failed"));
-        }
-    }
-    Err(invalid_packet(
-        "Git HTTPS proxy response headers are too large",
-    ))
-}
-
-fn parse_proxy_status(response: &[u8]) -> io::Result<u16> {
-    let line_end = response
-        .windows(2)
-        .position(|window| window == b"\r\n")
-        .ok_or_else(|| invalid_packet("Git HTTPS proxy response status is malformed"))?;
-    let line = std::str::from_utf8(&response[..line_end])
-        .map_err(|_| invalid_packet("Git HTTPS proxy response status is malformed"))?;
-    let mut fields = line.split_ascii_whitespace();
-    let version = fields.next();
-    let code = fields.next();
-    let status = code
-        .filter(|code| code.len() == 3 && code.bytes().all(|byte| byte.is_ascii_digit()))
-        .and_then(|code| code.parse::<u16>().ok())
-        .ok_or_else(|| invalid_packet("Git HTTPS proxy response status is malformed"))?;
-    if !matches!(version, Some("HTTP/1.0" | "HTTP/1.1")) {
-        return Err(invalid_packet(
-            "Git HTTPS proxy response status is malformed",
-        ));
-    }
-    Ok(status)
 }
 
 #[cfg(any(test, feature = "test-support"))]
