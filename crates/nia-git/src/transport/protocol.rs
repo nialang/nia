@@ -97,12 +97,7 @@ pub(super) fn parse_upload_pack_response(body: &[u8]) -> io::Result<Vec<u8>> {
         }
         match data[0] {
             1 => pack.extend_from_slice(&data[1..]),
-            2 => {
-                return Err(io::Error::other(format!(
-                    "Git upload-pack reported an error: {}",
-                    String::from_utf8_lossy(&data[1..])
-                )));
-            }
+            2 => {} // Progress messages may be interleaved with pack data.
             3 => {
                 return Err(io::Error::other(format!(
                     "Git upload-pack failed: {}",
@@ -135,6 +130,27 @@ mod tests {
             select_advertised_revision(&refs, "main").unwrap(),
             parse_object_id(id.as_bytes()).unwrap()
         );
+    }
+
+    #[test]
+    fn upload_pack_progress_is_ignored_but_fatal_errors_are_reported() {
+        let mut expected = b"PACK".to_vec();
+        expected.resize(64, 0x2a);
+        let mut response = Vec::new();
+        encode_packet_line(b"NAK\n", &mut response).unwrap();
+        encode_packet_line(b"\x02Counting objects: 3\r", &mut response).unwrap();
+        for chunk in expected.chunks(11) {
+            let mut data = vec![1];
+            data.extend_from_slice(chunk);
+            encode_packet_line(&data, &mut response).unwrap();
+            encode_packet_line(b"\x02Receiving objects\n", &mut response).unwrap();
+        }
+        response.extend_from_slice(b"0000");
+        assert_eq!(parse_upload_pack_response(&response).unwrap(), expected);
+        encode_packet_line(b"\x03repository unavailable\n", &mut response).unwrap();
+        let error = parse_upload_pack_response(&response).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(error.to_string().contains("repository unavailable"));
     }
 
     #[test]

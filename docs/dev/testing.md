@@ -87,6 +87,7 @@ their original error kinds. The current limits are:
 | Input | Limit |
 | --- | --- |
 | HTTP, Git TCP, or SSH response | 128 MiB |
+| HTTP response headers / each chunk header / trailer section | 64 KiB each |
 | Local pack or compressed loose object | 128 MiB |
 | Decoded object or delta result | 64 MiB per object |
 | Objects in a pack | 1,000,000 |
@@ -116,6 +117,14 @@ Local revision lookup validates reference names before accessing files and
 rejects links or reparse points below the repository root. Loose and packed
 references share commit and bounded tag resolution. Local repositories must
 remain stable during checkout; path checks do not prevent concurrent changes.
+HTTP responses require HTTP/1.0 or HTTP/1.1 status lines and valid header
+fields. Repeated Content-Length or Transfer-Encoding fields, conflicting
+framing, unsupported transfer codings, and body length mismatches are rejected.
+Chunked bodies require a complete trailer terminator and cannot contain
+framing fields in trailers or bytes after the final terminator. Chunk
+extensions are ignored after checking the header for control characters.
+Upload-pack sideband 2 carries progress and is ignored; sideband 3 reports
+failure. HTTP, Git TCP, and SSH checkout fixtures include progress packets.
 
 ## Where Tests Live
 

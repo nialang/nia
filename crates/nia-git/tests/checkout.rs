@@ -221,6 +221,7 @@ fn http_smart_protocol_fetches_a_real_pack_without_system_git() {
                 body.extend_from_slice(b"0000");
             } else {
                 encode_packet_line(b"NAK\n", &mut body).unwrap();
+                encode_packet_line(b"\x02Counting objects\r", &mut body).unwrap();
                 for chunk in pack.chunks(MAX_PACKET_PAYLOAD - 1) {
                     let mut sideband = Vec::with_capacity(chunk.len() + 1);
                     sideband.push(1);
@@ -337,6 +338,7 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
 
         let mut response = Vec::new();
         encode_packet_line(b"NAK\n", &mut response).unwrap();
+        encode_packet_line(b"\x02Counting objects\r", &mut response).unwrap();
         for chunk in pack.chunks(MAX_PACKET_PAYLOAD - 1) {
             let mut sideband = Vec::with_capacity(chunk.len() + 1);
             sideband.push(1);
