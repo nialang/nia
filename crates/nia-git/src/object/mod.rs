@@ -3,6 +3,8 @@
 
 mod delta;
 mod loose;
+mod refs;
 
 pub(crate) use delta::apply_delta;
 pub(crate) use loose::{GitObject, ObjectKind, decode_loose_object};
+pub(crate) use refs::{encode_hex, parse_object_id, read_loose_object, resolve_revision};
