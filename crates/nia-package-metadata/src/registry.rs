@@ -2,10 +2,14 @@
 //! Strict registry index records and parsing.
 
 use std::{
+    fmt,
     fs::{self, OpenOptions},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use serde::Deserialize;
@@ -58,15 +62,52 @@ pub struct RegistryEndpoint {
 }
 
 /// Registry transport backed by a validated endpoint and content cache.
-#[derive(Debug, Clone)]
+type RegistryFetch = Arc<dyn Fn(&str) -> io::Result<Vec<u8>> + Send + Sync>;
+
+#[derive(Clone)]
 pub struct RegistryClient {
     endpoint: RegistryEndpoint,
     cache: RegistryCache,
+    fetch: Option<RegistryFetch>,
+}
+
+impl fmt::Debug for RegistryClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RegistryClient")
+            .field("endpoint", &self.endpoint)
+            .field("cache", &self.cache)
+            .finish_non_exhaustive()
+    }
 }
 
 impl RegistryClient {
     pub fn new(endpoint: RegistryEndpoint, cache: RegistryCache) -> Self {
-        Self { endpoint, cache }
+        Self {
+            endpoint,
+            cache,
+            fetch: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_fetcher(
+        endpoint: RegistryEndpoint,
+        cache: RegistryCache,
+        fetch: impl Fn(&str) -> io::Result<Vec<u8>> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            endpoint,
+            cache,
+            fetch: Some(Arc::new(fetch)),
+        }
+    }
+
+    fn fetch(&self, url: &str) -> io::Result<Vec<u8>> {
+        match &self.fetch {
+            Some(fetch) => fetch(url),
+            None => nia_git::fetch_https(url),
+        }
     }
 
     /// Returns the cached index offline or fetches and validates the current index.
@@ -74,7 +115,7 @@ impl RegistryClient {
         if offline {
             return self.cache.read_index(&self.endpoint.name);
         }
-        let bytes = nia_git::fetch_https(&self.endpoint.index_url())?;
+        let bytes = self.fetch(&self.endpoint.index_url())?;
         self.cache.write_index(&self.endpoint.name, &bytes)
     }
 
@@ -97,7 +138,7 @@ impl RegistryClient {
                 "registry package archive is not cached and offline mode forbids fetching",
             ));
         }
-        let bytes = nia_git::fetch_https(&package.archive_url)?;
+        let bytes = self.fetch(&package.archive_url)?;
         self.cache.write_archive(&package.archive_digest, &bytes)?;
         Ok(bytes)
     }
@@ -929,6 +970,52 @@ mod tests {
         );
         cache.write_archive(&digest, &bytes).unwrap();
         assert_eq!(client.archive(&package, true).unwrap(), bytes);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_client_fetches_validated_resources_and_reuses_cache() {
+        use std::sync::Mutex;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-client-online-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = RegistryCache::new(&root);
+        let endpoint = RegistryEndpoint::new("nia", "https://packages.example.test").unwrap();
+        let archive_bytes = archive(&[(0, "nia.toml", b"[package]\nname = \"demo\"\n")]);
+        let archive_digest = *blake3::hash(&archive_bytes).as_bytes();
+        let archive_url = "https://cdn.example.test/demo.nia";
+        let index_bytes = format!(
+            "schema_version = 1\n[[packages]]\nnamespace = \"acme\"\nname = \"demo\"\nversion = \"1.0.0\"\narchive_url = \"{archive_url}\"\narchive_digest = \"blake3:{}\"\n",
+            digest_hex(&archive_digest)
+        )
+        .into_bytes();
+        let expected_archive = archive_bytes.clone();
+        let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let call_log = calls.clone();
+        let client = RegistryClient::with_fetcher(endpoint, cache.clone(), move |url| {
+            call_log.lock().unwrap().push(url.to_owned());
+            match url {
+                "https://packages.example.test/index.toml" => Ok(index_bytes.clone()),
+                "https://cdn.example.test/demo.nia" => Ok(expected_archive.clone()),
+                _ => Err(io::Error::new(io::ErrorKind::NotFound, "unexpected URL")),
+            }
+        });
+        let index = client.index(false).unwrap();
+        let package = &index.packages[0];
+        assert_eq!(client.archive(package, false).unwrap(), archive_bytes);
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            [
+                "https://packages.example.test/index.toml",
+                "https://cdn.example.test/demo.nia"
+            ]
+        );
+        assert_eq!(client.index(true).unwrap().packages.len(), 1);
+        assert_eq!(client.archive(package, true).unwrap(), archive_bytes);
+        assert_eq!(calls.lock().unwrap().len(), 2);
         fs::remove_dir_all(root).unwrap();
     }
 }
