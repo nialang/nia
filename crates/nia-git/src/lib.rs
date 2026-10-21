@@ -22,17 +22,13 @@ const MAX_SSH_PACKET_BYTES: usize = 256 * 1024;
 
 mod pktline;
 use pktline::{PacketLine, decode_packet_lines, encode_packet_line};
+mod object;
+#[cfg(test)]
+use object::encode_loose_object;
+use object::{GitObject, ObjectKind, decode_loose_object};
 
 fn invalid_packet(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ObjectKind {
-    Commit,
-    Tree,
-    Blob,
-    Tag,
 }
 
 fn parse_hex_usize(bytes: &[u8]) -> io::Result<usize> {
@@ -45,79 +41,6 @@ fn parse_hex_usize(bytes: &[u8]) -> io::Result<usize> {
         };
         Ok((value << 4) | digit)
     })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct GitObject {
-    kind: ObjectKind,
-    data: Vec<u8>,
-    id: [u8; 20],
-}
-
-fn decode_loose_object(compressed: &[u8]) -> io::Result<GitObject> {
-    let mut decoder = ZlibDecoder::new(compressed);
-    let mut bytes = Vec::new();
-    (&mut decoder)
-        .take((MAX_OBJECT_BYTES + 128) as u64)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() > MAX_OBJECT_BYTES + 128 {
-        return Err(invalid_packet("Git object exceeds size limit"));
-    }
-    if decoder.total_in() as usize != compressed.len() {
-        return Err(invalid_packet("Git object has trailing compressed data"));
-    }
-    let separator = bytes
-        .iter()
-        .position(|byte| *byte == 0)
-        .ok_or_else(|| invalid_packet("Git object header is missing its terminator"))?;
-    let header = std::str::from_utf8(&bytes[..separator])
-        .map_err(|_| invalid_packet("Git object header is not ASCII"))?;
-    let (kind, declared_size) = header
-        .split_once(' ')
-        .ok_or_else(|| invalid_packet("Git object header is malformed"))?;
-    let kind = match kind {
-        "commit" => ObjectKind::Commit,
-        "tree" => ObjectKind::Tree,
-        "blob" => ObjectKind::Blob,
-        "tag" => ObjectKind::Tag,
-        _ => return Err(invalid_packet("unsupported Git object type")),
-    };
-    let declared_size = declared_size
-        .parse::<usize>()
-        .map_err(|_| invalid_packet("Git object size is malformed"))?;
-    let data = &bytes[separator + 1..];
-    if data.len() != declared_size || declared_size > MAX_OBJECT_BYTES {
-        return Err(invalid_packet("Git object size does not match its header"));
-    }
-    let mut hash = Sha1::new();
-    hash.update(&bytes[..separator + 1]);
-    hash.update(data);
-    let id: [u8; 20] = hash.finalize().into();
-    Ok(GitObject {
-        kind,
-        data: data.to_vec(),
-        id,
-    })
-}
-
-#[cfg(test)]
-fn encode_loose_object(kind: ObjectKind, data: &[u8]) -> io::Result<Vec<u8>> {
-    use flate2::{Compression, write::ZlibEncoder};
-    use std::io::Write;
-
-    if data.len() > MAX_OBJECT_BYTES {
-        return Err(invalid_packet("Git object exceeds size limit"));
-    }
-    let kind = match kind {
-        ObjectKind::Commit => "commit",
-        ObjectKind::Tree => "tree",
-        ObjectKind::Blob => "blob",
-        ObjectKind::Tag => "tag",
-    };
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    write!(encoder, "{kind} {}\0", data.len())?;
-    encoder.write_all(data)?;
-    encoder.finish()
 }
 
 fn checkout_local(repository: &Path, revision: &str, destination: &Path) -> io::Result<String> {
