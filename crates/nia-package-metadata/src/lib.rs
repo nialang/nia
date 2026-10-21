@@ -30,6 +30,7 @@ use std::{
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
+use registry::RegistryFetch;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -853,7 +854,6 @@ pub struct LockPolicy {
 }
 
 /// Resolves supported Git dependencies into an immutable, project-local cache.
-#[derive(Debug)]
 struct PackageFetcher {
     cache_root: PathBuf,
     lock_path: PathBuf,
@@ -870,11 +870,32 @@ struct PackageFetcher {
     registry_candidates: BTreeMap<RegistryPackageName, Vec<PackageId>>,
     registry_restart: Option<(RegistryPackageName, PackageId)>,
     refresh_names: Option<BTreeSet<String>>,
+    registry_fetch: Option<RegistryFetch>,
+}
+
+struct RegistryResolution {
+    registries: BTreeMap<String, RegistryEndpoint>,
+    overrides: BTreeMap<RegistryPackageName, PackageId>,
+    refresh_names: Option<BTreeSet<String>>,
+    fetch: Option<RegistryFetch>,
+    attempt: usize,
+}
+
+impl fmt::Debug for PackageFetcher {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PackageFetcher")
+            .field("cache_root", &self.cache_root)
+            .field("lock_path", &self.lock_path)
+            .field("policy", &self.policy)
+            .field("dirty", &self.dirty)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PackageFetcher {
     fn for_root(root: &Path, policy: LockPolicy) -> io::Result<Self> {
-        Self::for_root_with_registries(root, policy, BTreeMap::new(), BTreeMap::new(), None)
+        Self::for_root_with_registries(root, policy, BTreeMap::new(), BTreeMap::new(), None, None)
     }
 
     fn for_root_with_registries(
@@ -883,6 +904,7 @@ impl PackageFetcher {
         registries: BTreeMap<String, RegistryEndpoint>,
         registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
         refresh_names: Option<BTreeSet<String>>,
+        registry_fetch: Option<RegistryFetch>,
     ) -> io::Result<Self> {
         let state_root = workspace_state_root(root)?;
         let lock_path = state_root.join("nia.lock");
@@ -902,6 +924,7 @@ impl PackageFetcher {
             registry_candidates: BTreeMap::new(),
             registry_restart: None,
             refresh_names,
+            registry_fetch,
         })
     }
 
@@ -1271,7 +1294,13 @@ impl PackageFetcher {
                     format!("registry `{registry}` is not configured"),
                 )
             })?;
-            let client = RegistryClient::new(endpoint, cache.clone());
+            let client = match &self.registry_fetch {
+                Some(fetch) => {
+                    let fetch = fetch.clone();
+                    RegistryClient::with_fetcher(endpoint, cache.clone(), move |url| fetch(url))
+                }
+                None => RegistryClient::new(endpoint, cache.clone()),
+            };
             let index = client.index(self.policy.offline)?;
             let candidates = index
                 .packages
@@ -1727,6 +1756,23 @@ pub enum LockUpdateKind {
 /// shares the lock file is resolved with all dependency scopes, so updating
 /// from one member refreshes entries for the whole workspace.
 pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>> {
+    update_lock_inner(start, names, None)
+}
+
+#[cfg(test)]
+fn update_lock_with_registry_fetcher(
+    start: &Path,
+    names: &[String],
+    fetch: RegistryFetch,
+) -> io::Result<Vec<LockUpdate>> {
+    update_lock_inner(start, names, Some(fetch))
+}
+
+fn update_lock_inner(
+    start: &Path,
+    names: &[String],
+    registry_fetch: Option<RegistryFetch>,
+) -> io::Result<Vec<LockUpdate>> {
     let start = start.canonicalize()?;
     let manifest_root = start
         .ancestors()
@@ -1784,6 +1830,7 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
                 },
                 registries.clone(),
                 refresh_names.clone(),
+                registry_fetch.clone(),
             )?;
         }
         Ok(())
@@ -1951,10 +1998,13 @@ impl PackageGraph {
             root,
             options,
             policy,
-            registries,
-            BTreeMap::new(),
-            None,
-            0,
+            RegistryResolution {
+                registries,
+                overrides: BTreeMap::new(),
+                refresh_names: None,
+                fetch: None,
+                attempt: 0,
+            },
         )
     }
 
@@ -1963,15 +2013,19 @@ impl PackageGraph {
         options: PackageGraphOptions,
         registries: BTreeMap<String, RegistryEndpoint>,
         refresh_names: BTreeSet<String>,
+        registry_fetch: Option<RegistryFetch>,
     ) -> io::Result<Self> {
         Self::resolve_with_registry_overrides(
             root,
             options,
             LockPolicy::default(),
-            registries,
-            BTreeMap::new(),
-            Some(refresh_names),
-            0,
+            RegistryResolution {
+                registries,
+                overrides: BTreeMap::new(),
+                refresh_names: Some(refresh_names),
+                fetch: registry_fetch,
+                attempt: 0,
+            },
         )
     }
 
@@ -1979,17 +2033,15 @@ impl PackageGraph {
         root: &Path,
         options: PackageGraphOptions,
         policy: LockPolicy,
-        registries: BTreeMap<String, RegistryEndpoint>,
-        registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
-        refresh_names: Option<BTreeSet<String>>,
-        attempt: usize,
+        resolution: RegistryResolution,
     ) -> io::Result<Self> {
         let mut fetcher = PackageFetcher::for_root_with_registries(
             root,
             policy,
-            registries.clone(),
-            registry_overrides,
-            refresh_names.clone(),
+            resolution.registries.clone(),
+            resolution.overrides,
+            resolution.refresh_names.clone(),
+            resolution.fetch.clone(),
         )?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
@@ -2112,7 +2164,7 @@ impl PackageGraph {
                 .cmp(&(&right.owner_root, &right.dependency.name))
         });
         if let Some((package, selected)) = fetcher.registry_restart.take() {
-            if attempt >= 64 {
+            if resolution.attempt >= 64 {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
@@ -2130,10 +2182,11 @@ impl PackageGraph {
                 root,
                 options,
                 policy,
-                registries,
-                overrides,
-                refresh_names,
-                attempt + 1,
+                RegistryResolution {
+                    overrides,
+                    attempt: resolution.attempt + 1,
+                    ..resolution
+                },
             );
         }
         fetcher.prune_unreachable()?;
@@ -6495,6 +6548,126 @@ mod tests {
         assert_eq!(updates[0].selector, "registry:nia/acme/json");
         assert_eq!(updates[0].old_value.as_deref(), Some("1.0.0"));
         assert_eq!(updates[0].new_value.as_deref(), Some("1.1.0"));
+    }
+
+    #[test]
+    fn registry_update_fetches_a_new_release_and_rewrites_the_lock() {
+        use std::sync::{Arc, Mutex};
+
+        let root = lock_test_root("registry-update");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        let make_archive = |version: &str, value: u8| {
+            let manifest = format!(
+                "[package]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\n"
+            );
+            let entries = [
+                ("nia.toml", manifest.as_bytes()),
+                ("src/lib.nia", &[value][..]),
+            ];
+            let mut archive = Vec::new();
+            archive.extend_from_slice(b"NIAPKG\0\0");
+            archive.extend_from_slice(&1u32.to_le_bytes());
+            archive.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+            for (path, contents) in entries {
+                archive.push(0);
+                archive.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                archive.extend_from_slice(path.as_bytes());
+                archive.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+                archive.extend_from_slice(contents);
+            }
+            archive
+        };
+        let archive_1 = make_archive("1.0.0", 1);
+        let archive_2 = make_archive("1.1.0", 2);
+        let digest_1 = *blake3::hash(&archive_1).as_bytes();
+        let digest_2 = *blake3::hash(&archive_2).as_bytes();
+        let index = |version: &str, digest: &[u8; 32]| {
+            format!(
+                "schema_version = 1\n[[packages]]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\narchive_url = \"https://cdn.example.test/json-{version}.nia\"\narchive_digest = \"blake3:{}\"\n",
+                hex_digest(digest)
+            )
+            .into_bytes()
+        };
+        let state = Arc::new(Mutex::new(index("1.0.0", &digest_1)));
+        let archives = Arc::new(BTreeMap::from([
+            (
+                "https://cdn.example.test/json-1.0.0.nia".to_owned(),
+                archive_1,
+            ),
+            (
+                "https://cdn.example.test/json-1.1.0.nia".to_owned(),
+                archive_2,
+            ),
+        ]));
+        let fetch: RegistryFetch = {
+            let state = state.clone();
+            let archives = archives.clone();
+            Arc::new(move |url: &str| {
+                if url == "https://packages.example.test/index.toml" {
+                    return Ok(state.lock().unwrap().clone());
+                }
+                if let Some(archive) = archives.get(url) {
+                    return Ok(archive.clone());
+                }
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "unexpected registry URL",
+                ))
+            })
+        };
+
+        let initial = update_lock_with_registry_fetcher(&root, &[], fetch.clone()).unwrap();
+        assert_eq!(initial.len(), 1);
+        assert_eq!(initial[0].new_value.as_deref(), Some("1.0.0"));
+        let first_lock = PackageLock::read(&root.join("nia.lock")).unwrap();
+        let first_fingerprint = match &first_lock.package[0].source {
+            LockedSource::Registry {
+                version,
+                source_fingerprint,
+                ..
+            } => {
+                assert_eq!(version, "1.0.0");
+                source_fingerprint.clone()
+            }
+            _ => panic!("expected registry lock entry"),
+        };
+
+        *state.lock().unwrap() = index("1.1.0", &digest_2);
+        let updates = update_lock_with_registry_fetcher(&root, &[], fetch).unwrap();
+        assert_eq!(updates.len(), 1, "{updates:?}");
+        assert_eq!(updates[0].kind, LockUpdateKind::Registry);
+        assert_eq!(updates[0].old_value.as_deref(), Some("1.0.0"));
+        assert_eq!(updates[0].new_value.as_deref(), Some("1.1.0"));
+
+        let updated_lock = PackageLock::read(&root.join("nia.lock")).unwrap();
+        let (version, fingerprint, archive_digest) = match &updated_lock.package[0].source {
+            LockedSource::Registry {
+                version,
+                source_fingerprint,
+                archive_digest,
+                ..
+            } => (version, source_fingerprint, archive_digest),
+            _ => panic!("expected registry lock entry"),
+        };
+        assert_eq!(version, "1.1.0");
+        assert_ne!(fingerprint, &first_fingerprint);
+        assert_eq!(archive_digest, &format!("blake3:{}", hex_digest(&digest_2)));
+        let package = root.join(".nia/packages").join(&fingerprint[7..]);
+        assert_eq!(
+            PackageManifest::read(&package)
+                .unwrap()
+                .package
+                .version
+                .as_str(),
+            "1.1.0"
+        );
+        assert_eq!(std::fs::read(package.join("src/lib.nia")).unwrap(), [2]);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

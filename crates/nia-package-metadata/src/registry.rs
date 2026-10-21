@@ -64,7 +64,7 @@ pub struct RegistryEndpoint {
 }
 
 /// Registry transport backed by a validated endpoint and content cache.
-type RegistryFetch = Arc<dyn Fn(&str) -> io::Result<Vec<u8>> + Send + Sync>;
+pub(super) type RegistryFetch = Arc<dyn Fn(&str) -> io::Result<Vec<u8>> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct RegistryClient {
@@ -92,8 +92,7 @@ impl RegistryClient {
         }
     }
 
-    #[cfg(test)]
-    fn with_fetcher(
+    pub(super) fn with_fetcher(
         endpoint: RegistryEndpoint,
         cache: RegistryCache,
         fetch: impl Fn(&str) -> io::Result<Vec<u8>> + Send + Sync + 'static,
