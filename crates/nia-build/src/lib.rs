@@ -4655,6 +4655,7 @@ mod tests {
                     ssh_directory.join("id_ed25519"),
                 )
                 .expect("copy SSH identity");
+                nia_git::restrict_test_identity_permissions(&ssh_directory.join("id_ed25519"));
 
                 let previous_userprofile = std::env::var_os("USERPROFILE");
                 unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
@@ -4746,6 +4747,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                     ssh_directory.join("id_ed25519"),
                 )
                 .expect("copy SSH identity");
+                nia_git::restrict_test_identity_permissions(&ssh_directory.join("id_ed25519"));
 
                 let previous_userprofile = std::env::var_os("USERPROFILE");
                 unsafe { std::env::set_var("USERPROFILE", &ssh_home) };

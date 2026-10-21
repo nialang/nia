@@ -212,7 +212,7 @@ pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::
 
 fn checkout_ssh(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
     let ssh_directory = ssh_directory()?;
-    checkout_ssh_with_config(source, revision, destination, &ssh_directory)
+    checkout_ssh_with_config(source, revision, destination, &ssh_directory, true)
 }
 
 fn checkout_ssh_with_config(
@@ -220,10 +220,10 @@ fn checkout_ssh_with_config(
     revision: &str,
     destination: &Path,
     ssh_directory: &Path,
+    use_agent: bool,
 ) -> io::Result<String> {
     let url = ssh::parse_ssh_url(source)?;
     let known_hosts_path = ssh_directory.join("known_hosts");
-    let identity_path = ssh_directory.join("id_ed25519");
     let known_hosts = ssh::KnownHosts::parse(
         &read_limited_file(&known_hosts_path, 16 * 1024 * 1024).map_err(|error| {
             io::Error::new(
@@ -235,19 +235,15 @@ fn checkout_ssh_with_config(
             )
         })?,
     )?;
-    verify_ssh_identity_permissions(&identity_path)?;
-    let identity_bytes = Zeroizing::new(read_limited_file(&identity_path, 1024 * 1024).map_err(
-        |error| {
-            io::Error::new(
-                error.kind(),
-                format!(
-                    "could not read SSH identity at {}: {error}",
-                    identity_path.display()
-                ),
-            )
-        },
-    )?);
-    let identity = ssh::SshEd25519Identity::parse_openssh(&identity_bytes)?;
+    let mut signer: Box<dyn ssh::SshSigner> = if use_agent {
+        if let Some(agent) = ssh::SshAgent::connect()? {
+            Box::new(agent)
+        } else {
+            Box::new(load_ssh_identity(ssh_directory)?)
+        }
+    } else {
+        Box::new(load_ssh_identity(ssh_directory)?)
+    };
 
     let address = (url.host.as_str(), url.port)
         .to_socket_addrs()?
@@ -257,7 +253,7 @@ fn checkout_ssh_with_config(
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
     let mut keys = ssh::perform_ssh_key_exchange(&mut stream, &url, &known_hosts)?;
-    ssh::authenticate_publickey(&mut stream, &mut keys, &url.user, &identity)?;
+    ssh::authenticate_publickey(&mut stream, &mut keys, &url.user, signer.as_mut())?;
     let mut channel = ssh::open_git_upload_pack(&mut stream, &mut keys, &url.path)?;
 
     let advertisement = read_packet_section(&mut channel)?;
@@ -282,6 +278,23 @@ fn checkout_ssh_with_config(
     }
     let pack = parse_upload_pack_response(&response)?;
     write_pack_checkout(&pack, &commit, destination)
+}
+
+fn load_ssh_identity(ssh_directory: &Path) -> io::Result<ssh::SshEd25519Identity> {
+    let identity_path = ssh_directory.join("id_ed25519");
+    verify_ssh_identity_permissions(&identity_path)?;
+    let identity_bytes = Zeroizing::new(read_limited_file(&identity_path, 1024 * 1024).map_err(
+        |error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "could not read SSH identity at {}: {error}",
+                    identity_path.display()
+                ),
+            )
+        },
+    )?);
+    ssh::SshEd25519Identity::parse_openssh(&identity_bytes)
 }
 
 fn read_limited_file(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
@@ -329,9 +342,222 @@ fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+/// Rejects a private key that principals other than the current user,
+/// SYSTEM, and Administrators can read, matching the check Win32-OpenSSH
+/// applies to identity files.
+#[cfg(windows)]
+fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_SUCCESS, GENERIC_ALL, GENERIC_READ, HANDLE, LocalFree,
+    };
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT,
+    };
+    use windows_sys::Win32::Security::{
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
+        DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetAclInformation, GetTokenInformation,
+        IsWellKnownSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY,
+        TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_READ_DATA;
+    use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    /// Frees memory the security APIs allocate with `LocalAlloc`.
+    struct LocalMemory(*mut core::ffi::c_void);
+    impl Drop for LocalMemory {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // SAFETY: the pointer came from a Win32 API that documents
+                // `LocalFree` as its deallocator and is freed exactly once.
+                unsafe { LocalFree(self.0) };
+            }
+        }
+    }
+
+    fn sid_text(sid: PSID) -> String {
+        let mut text = core::ptr::null_mut();
+        // SAFETY: `sid` points into a live security descriptor or token buffer.
+        if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 {
+            return "an unknown principal".into();
+        }
+        let text = LocalMemory(text.cast());
+        let wide = text.0.cast::<u16>();
+        // SAFETY: the API returns a NUL-terminated UTF-16 string.
+        let len = (0..)
+            .take_while(|&index| unsafe { *wide.add(index) } != 0)
+            .count();
+        // SAFETY: `len` code units were just read from the same allocation.
+        String::from_utf16_lossy(unsafe { core::slice::from_raw_parts(wide, len) })
+    }
+
+    let insecure = |detail: String| {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "SSH identity at {} {detail}; restrict it to your account",
+                path.display()
+            ),
+        )
+    };
+
+    // The current user's SID, kept alive in `token_user` while it is compared.
+    let mut token: HANDLE = core::ptr::null_mut();
+    // SAFETY: the current-process pseudo handle is always valid to open.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut needed = 0u32;
+    // SAFETY: a null buffer with length 0 only queries the required size.
+    unsafe { GetTokenInformation(token, TokenUser, core::ptr::null_mut(), 0, &mut needed) };
+    let mut token_user = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+    // SAFETY: the buffer holds at least `needed` bytes and is 8-byte aligned.
+    let queried = unsafe {
+        GetTokenInformation(
+            token,
+            TokenUser,
+            token_user.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        )
+    };
+    let query_error = io::Error::last_os_error();
+    // SAFETY: `token` was opened above and is closed exactly once.
+    unsafe { CloseHandle(token) };
+    if queried == 0 {
+        return Err(query_error);
+    }
+    // SAFETY: `GetTokenInformation(TokenUser)` filled the buffer with a `TOKEN_USER`.
+    let user = unsafe { (*token_user.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+    let trusted = |sid: PSID| {
+        // SAFETY: both SIDs point into buffers that outlive this call.
+        unsafe {
+            EqualSid(sid, user) != 0
+                || IsWellKnownSid(sid, WinLocalSystemSid) != 0
+                || IsWellKnownSid(sid, WinBuiltinAdministratorsSid) != 0
+        }
+    };
+
+    let wide_path = path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let mut owner: PSID = core::ptr::null_mut();
+    let mut dacl: *mut ACL = core::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = core::ptr::null_mut();
+    // SAFETY: the path is NUL-terminated; the outputs point into `descriptor`.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            wide_path.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            core::ptr::null_mut(),
+            &mut dacl,
+            core::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let _descriptor = LocalMemory(descriptor);
+    if owner.is_null() || !trusted(owner) {
+        return Err(insecure(format!("is owned by {}", sid_text(owner))));
+    }
+    if dacl.is_null() {
+        return Err(insecure(
+            "has no access control list, so anyone can read it".into(),
+        ));
+    }
+    let mut info = ACL_SIZE_INFORMATION {
+        AceCount: 0,
+        AclBytesInUse: 0,
+        AclBytesFree: 0,
+    };
+    // SAFETY: `dacl` is a valid ACL inside `descriptor`; `info` is sized for the class.
+    if unsafe {
+        GetAclInformation(
+            dacl,
+            (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
+            core::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    for index in 0..info.AceCount {
+        let mut ace = core::ptr::null_mut();
+        // SAFETY: `index` is below the ACL's ACE count.
+        if unsafe { GetAce(dacl, index, &mut ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: every ACE starts with an `ACE_HEADER`.
+        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
+        if u32::from(header.AceType) != ACCESS_ALLOWED_ACE_TYPE {
+            continue;
+        }
+        // SAFETY: the header identifies this ACE as an `ACCESS_ALLOWED_ACE`,
+        // whose SID starts at `SidStart`.
+        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        let sid: PSID = (&allowed.SidStart as *const u32).cast_mut().cast();
+        if allowed.Mask & (FILE_READ_DATA | GENERIC_READ | GENERIC_ALL) != 0 && !trusted(sid) {
+            return Err(insecure(format!("is readable by {}", sid_text(sid))));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
 fn verify_ssh_identity_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod windows_identity_permission_tests {
+    use super::tests::restrict_to_current_user;
+    use super::verify_ssh_identity_permissions;
+    use std::process::Command;
+
+    fn icacls(path: &std::path::Path, args: &[&str]) {
+        let output = Command::new("icacls")
+            .arg(path)
+            .args(args)
+            .output()
+            .expect("icacls is part of Windows");
+        assert!(output.status.success(), "{output:?}");
+    }
+
+    #[test]
+    fn identity_readable_by_everyone_is_rejected_until_restricted() {
+        let root =
+            std::env::temp_dir().join(format!("nia-ssh-identity-acl-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let key = root.join("id_ed25519");
+        std::fs::write(&key, "key").unwrap();
+
+        // A temp-directory file inherits grants for other principals.
+        assert!(verify_ssh_identity_permissions(&key).is_err());
+
+        // Only the current user: accepted.
+        restrict_to_current_user(&key);
+        verify_ssh_identity_permissions(&key).unwrap();
+
+        // Everyone (S-1-1-0) may read: rejected, naming the principal.
+        icacls(&key, &["/grant", "*S-1-1-0:R"]);
+        let error = verify_ssh_identity_permissions(&key).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("S-1-1-0"), "{error}");
+
+        // Removing that grant makes it acceptable again.
+        icacls(&key, &["/remove:g", "*S-1-1-0"]);
+        verify_ssh_identity_permissions(&key).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 mod ssh {
@@ -790,7 +1016,7 @@ mod ssh {
     pub(super) fn build_publickey_auth_request(
         username: &str,
         session_id: &[u8; 32],
-        identity: &SshEd25519Identity,
+        signer: &mut dyn SshSigner,
     ) -> io::Result<Vec<u8>> {
         if username.is_empty() || username.len() > 256 || username.contains(['\0', '\r', '\n']) {
             return Err(invalid_packet("SSH username is invalid"));
@@ -803,19 +1029,19 @@ mod ssh {
         encode_ssh_string(b"publickey", &mut signed)?;
         signed.push(1);
         encode_ssh_string(b"ssh-ed25519", &mut signed)?;
-        encode_ssh_string(identity.public_key_blob(), &mut signed)?;
-        let signature = identity.sign(&signed);
+        encode_ssh_string(signer.public_key_blob(), &mut signed)?;
+        let signature = signer.sign_message(&signed)?;
 
         let mut signature_blob = Vec::new();
         encode_ssh_string(b"ssh-ed25519", &mut signature_blob)?;
-        encode_ssh_string(signature.as_ref(), &mut signature_blob)?;
+        encode_ssh_string(&signature, &mut signature_blob)?;
         let mut request = vec![50];
         encode_ssh_string(username.as_bytes(), &mut request)?;
         encode_ssh_string(b"ssh-connection", &mut request)?;
         encode_ssh_string(b"publickey", &mut request)?;
         request.push(1);
         encode_ssh_string(b"ssh-ed25519", &mut request)?;
-        encode_ssh_string(identity.public_key_blob(), &mut request)?;
+        encode_ssh_string(signer.public_key_blob(), &mut request)?;
         encode_ssh_string(&signature_blob, &mut request)?;
         Ok(request)
     }
@@ -824,7 +1050,7 @@ mod ssh {
         stream: &mut (impl Read + Write),
         keys: &mut SshTransportKeys,
         username: &str,
-        identity: &SshEd25519Identity,
+        signer: &mut dyn SshSigner,
     ) -> io::Result<()> {
         let mut service_request = vec![5];
         encode_ssh_string(b"ssh-userauth", &mut service_request)?;
@@ -836,7 +1062,7 @@ mod ssh {
         }
         reader.finish()?;
 
-        let request = build_publickey_auth_request(username, &keys.session_id, identity)?;
+        let request = build_publickey_auth_request(username, &keys.session_id, signer)?;
         write_encrypted_ssh_packet(stream, &mut keys.outbound, &request)?;
         match read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)? {
             payload if payload.first() == Some(&52) => Ok(()),
@@ -1864,7 +2090,7 @@ mod ssh {
             if cipher != b"none" || kdf != b"none" || !kdf_options.is_empty() {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
-                    "encrypted OpenSSH private keys are not supported yet",
+                    "encrypted OpenSSH private keys are not supported; load the key into ssh-agent",
                 ));
             }
             if key_count != 1 {
@@ -1884,7 +2110,7 @@ mod ssh {
             if public_algorithm != b"ssh-ed25519" || public_key.len() != 32 {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
-                    "OpenSSH identity is not Ed25519",
+                    "OpenSSH identity key type is unsupported; only Ed25519 is accepted",
                 ));
             }
 
@@ -1899,7 +2125,7 @@ mod ssh {
             if private_reader.string()? != b"ssh-ed25519" {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
-                    "OpenSSH identity is not Ed25519",
+                    "OpenSSH identity key type is unsupported; only Ed25519 is accepted",
                 ));
             }
             let private_public = private_reader.string()?;
@@ -1942,7 +2168,176 @@ mod ssh {
         }
     }
 
-    fn encode_ssh_string(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
+    pub(super) trait SshSigner {
+        fn public_key_blob(&self) -> &[u8];
+        fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>>;
+    }
+
+    impl SshSigner for SshEd25519Identity {
+        fn public_key_blob(&self) -> &[u8] {
+            self.public_key_blob()
+        }
+
+        fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
+            Ok(self.sign(message).as_ref().to_vec())
+        }
+    }
+
+    trait SshAgentStream: Read + Write {}
+    impl<T: Read + Write> SshAgentStream for T {}
+
+    pub(super) struct SshAgent {
+        stream: Box<dyn SshAgentStream>,
+        public_key: Vec<u8>,
+    }
+
+    impl SshAgent {
+        pub(super) fn connect() -> io::Result<Option<Self>> {
+            let Some(mut stream) = connect_agent_stream() else {
+                return Ok(None);
+            };
+            let response = agent_request(&mut *stream, &[11])?;
+            let public_key = parse_agent_identities(&response)?;
+            let Some(public_key) = public_key else {
+                return Ok(None);
+            };
+            Ok(Some(Self { stream, public_key }))
+        }
+
+        fn sign(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
+            let mut request = vec![13];
+            encode_ssh_string(&self.public_key, &mut request)?;
+            encode_ssh_string(message, &mut request)?;
+            request.extend_from_slice(&0u32.to_be_bytes());
+            let response = agent_request(&mut *self.stream, &request)?;
+            if response.first() != Some(&14) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "SSH agent refused the Ed25519 signing request",
+                ));
+            }
+            let mut reader = SshReader::new(&response[1..]);
+            let signature_blob = reader.string()?;
+            reader.finish()?;
+            let mut signature_reader = SshReader::new(signature_blob);
+            if signature_reader.string()? != b"ssh-ed25519" {
+                return Err(invalid_packet(
+                    "SSH agent returned a signature with the wrong algorithm",
+                ));
+            }
+            let signature = signature_reader.string()?;
+            signature_reader.finish()?;
+            if signature.len() != 64 {
+                return Err(invalid_packet(
+                    "SSH agent returned an invalid Ed25519 signature",
+                ));
+            }
+            Ok(signature.to_vec())
+        }
+    }
+
+    impl SshSigner for SshAgent {
+        fn public_key_blob(&self) -> &[u8] {
+            &self.public_key
+        }
+
+        fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
+            self.sign(message)
+        }
+    }
+
+    fn is_ed25519_public_key(blob: &[u8]) -> bool {
+        let mut reader = SshReader::new(blob);
+        reader
+            .string()
+            .is_ok_and(|algorithm| algorithm == b"ssh-ed25519")
+            && reader.string().is_ok_and(|key| key.len() == 32)
+            && reader.finish().is_ok()
+    }
+
+    pub(super) fn parse_agent_identities(response: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        if response.first() == Some(&5) {
+            return Ok(None);
+        }
+        let Some(message) = response.first().copied() else {
+            return Err(invalid_packet(
+                "SSH agent returned an empty identities reply",
+            ));
+        };
+        if message != 12 {
+            return Err(invalid_packet(
+                "SSH agent returned an unexpected identities reply",
+            ));
+        }
+        let mut reader = SshReader::new(&response[1..]);
+        let count = reader.u32()?;
+        if count > 1024 {
+            return Err(invalid_packet("SSH agent returned too many identities"));
+        }
+        let mut public_key = None;
+        for _ in 0..count {
+            let key = reader.string()?;
+            let _comment = reader.string()?;
+            if public_key.is_none() && is_ed25519_public_key(key) {
+                public_key = Some(key.to_vec());
+            }
+        }
+        reader.finish()?;
+        Ok(public_key)
+    }
+
+    pub(super) fn agent_request<S: Read + Write + ?Sized>(
+        stream: &mut S,
+        payload: &[u8],
+    ) -> io::Result<Vec<u8>> {
+        if payload.is_empty() || payload.len() > MAX_SSH_PACKET_BYTES {
+            return Err(invalid_packet("SSH agent request exceeds protocol limit"));
+        }
+        let length = u32::try_from(payload.len())
+            .map_err(|_| invalid_packet("SSH agent request exceeds uint32 length"))?;
+        stream.write_all(&length.to_be_bytes())?;
+        stream.write_all(payload)?;
+        stream.flush()?;
+        let mut length = [0; 4];
+        stream.read_exact(&mut length)?;
+        let length = usize::try_from(u32::from_be_bytes(length))
+            .map_err(|_| invalid_packet("SSH agent response length overflows usize"))?;
+        if length == 0 || length > MAX_SSH_PACKET_BYTES {
+            return Err(invalid_packet("SSH agent response exceeds protocol limit"));
+        }
+        let mut response = vec![0; length];
+        stream.read_exact(&mut response)?;
+        Ok(response)
+    }
+
+    #[cfg(unix)]
+    fn connect_agent_stream() -> Option<Box<dyn SshAgentStream>> {
+        use std::os::unix::net::UnixStream;
+
+        let socket = std::env::var_os("SSH_AUTH_SOCK")?;
+        UnixStream::connect(socket)
+            .ok()
+            .map(|stream| Box::new(stream) as Box<dyn SshAgentStream>)
+    }
+
+    #[cfg(windows)]
+    fn connect_agent_stream() -> Option<Box<dyn SshAgentStream>> {
+        let socket = std::env::var_os("SSH_AUTH_SOCK")
+            .unwrap_or_else(|| r"\\.\pipe\openssh-ssh-agent".into());
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(socket)
+            .ok()
+            .map(|stream| Box::new(stream) as Box<dyn SshAgentStream>)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn connect_agent_stream() -> Option<Box<dyn SshAgentStream>> {
+        None
+    }
+
+    pub(super) fn encode_ssh_string(value: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
         let length = u32::try_from(value.len())
             .map_err(|_| invalid_packet("SSH string exceeds uint32 length"))?;
         output.extend_from_slice(&length.to_be_bytes());
@@ -2058,6 +2453,71 @@ mod ssh {
             } else {
                 Err(invalid_packet("SSH payload has trailing bytes"))
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod agent_tests {
+        use super::*;
+        use std::io::Cursor;
+        use std::sync::{Arc, Mutex};
+
+        struct TestStream {
+            incoming: Cursor<Vec<u8>>,
+            outgoing: Arc<Mutex<Vec<u8>>>,
+        }
+
+        impl Read for TestStream {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                self.incoming.read(output)
+            }
+        }
+
+        impl Write for TestStream {
+            fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+                self.outgoing.lock().unwrap().extend_from_slice(input);
+                Ok(input.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn agent_sign_request_uses_selected_key_and_parses_signature() {
+            let mut public_key = Vec::new();
+            encode_ssh_string(b"ssh-ed25519", &mut public_key).unwrap();
+            encode_ssh_string(&[8; 32], &mut public_key).unwrap();
+            let mut signature_blob = Vec::new();
+            encode_ssh_string(b"ssh-ed25519", &mut signature_blob).unwrap();
+            encode_ssh_string(&[9; 64], &mut signature_blob).unwrap();
+            let mut response = vec![14];
+            encode_ssh_string(&signature_blob, &mut response).unwrap();
+            let mut incoming = Vec::new();
+            incoming.extend_from_slice(&(response.len() as u32).to_be_bytes());
+            incoming.extend_from_slice(&response);
+            let outgoing = Arc::new(Mutex::new(Vec::new()));
+            let stream = TestStream {
+                incoming: Cursor::new(incoming),
+                outgoing: Arc::clone(&outgoing),
+            };
+            let mut agent = SshAgent {
+                stream: Box::new(stream),
+                public_key: public_key.clone(),
+            };
+            assert_eq!(agent.sign(b"session-bound request").unwrap(), [9; 64]);
+            let outgoing = outgoing.lock().unwrap();
+            assert_eq!(
+                u32::from_be_bytes(outgoing[..4].try_into().unwrap()) as usize,
+                outgoing.len() - 4
+            );
+            let mut request = SshReader::new(&outgoing[4..]);
+            assert_eq!(request.take(1).unwrap(), [13]);
+            assert_eq!(request.string().unwrap(), public_key);
+            assert_eq!(request.string().unwrap(), b"session-bound request");
+            assert_eq!(request.u32().unwrap(), 0);
+            request.finish().unwrap();
         }
     }
 }
@@ -2183,6 +2643,298 @@ struct HttpGitUrl {
     secure: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HttpProxy {
+    host: String,
+    port: u16,
+}
+
+fn http_proxy_for_url(url: &HttpGitUrl) -> io::Result<Option<HttpProxy>> {
+    http_proxy_for_url_with(url, |name| std::env::var(name).ok())
+}
+
+fn http_proxy_for_url_with(
+    url: &HttpGitUrl,
+    mut get_env: impl FnMut(&str) -> Option<String>,
+) -> io::Result<Option<HttpProxy>> {
+    let no_proxy = first_nonempty_env(&mut get_env, &["NO_PROXY", "no_proxy"]);
+    if no_proxy
+        .as_deref()
+        .is_some_and(|value| no_proxy_matches(value, &url.host, url.port))
+    {
+        return Ok(None);
+    }
+
+    let proxy = if url.secure {
+        first_nonempty_env(&mut get_env, &["HTTPS_PROXY", "https_proxy"])
+    } else {
+        first_nonempty_env(&mut get_env, &["HTTP_PROXY", "http_proxy"])
+    }
+    .or_else(|| first_nonempty_env(&mut get_env, &["ALL_PROXY", "all_proxy"]));
+    proxy.map(|value| parse_http_proxy(&value)).transpose()
+}
+
+fn first_nonempty_env(
+    get_env: &mut impl FnMut(&str) -> Option<String>,
+    names: &[&str],
+) -> Option<String> {
+    names
+        .iter()
+        .find_map(|name| get_env(name).filter(|value| !value.trim().is_empty()))
+}
+
+fn no_proxy_matches(no_proxy: &str, host: &str, port: u16) -> bool {
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    no_proxy.split(',').any(|entry| {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            return false;
+        }
+        if entry == "*" {
+            return true;
+        }
+
+        let (entry_host, entry_port) = if let Some(entry) = entry.strip_prefix('[') {
+            let Some((entry_host, remainder)) = entry.split_once(']') else {
+                return false;
+            };
+            let entry_port = if remainder.is_empty() {
+                None
+            } else {
+                remainder
+                    .strip_prefix(':')
+                    .and_then(|value| value.parse::<u16>().ok())
+            };
+            if !remainder.is_empty() && entry_port.is_none() {
+                return false;
+            }
+            (entry_host, entry_port)
+        } else if let Some((entry_host, entry_port)) = entry.rsplit_once(':') {
+            if entry_host.contains(':') {
+                (entry, None)
+            } else {
+                let Ok(entry_port) = entry_port.parse::<u16>() else {
+                    return false;
+                };
+                (entry_host, Some(entry_port))
+            }
+        } else {
+            (entry, None)
+        };
+        if entry_port.is_some_and(|entry_port| entry_port != port) {
+            return false;
+        }
+
+        let entry_host = entry_host
+            .trim_start_matches('.')
+            .trim_end_matches('.')
+            .to_ascii_lowercase();
+        !entry_host.is_empty()
+            && (host == entry_host
+                || host
+                    .strip_suffix(&entry_host)
+                    .is_some_and(|prefix| prefix.ends_with('.')))
+    })
+}
+
+fn parse_http_proxy(source: &str) -> io::Result<HttpProxy> {
+    let rest = source.trim().strip_prefix("http://").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Git proxy must use an unauthenticated http:// URL",
+        )
+    })?;
+    let (authority, suffix) = rest.split_once(['/', '?', '#']).unwrap_or((rest, ""));
+    if authority.is_empty() {
+        return Err(invalid_packet("Git proxy URL has an invalid authority"));
+    }
+    if !suffix.is_empty() && suffix != "/" {
+        return Err(invalid_packet("Git proxy URL has an invalid path"));
+    }
+    if authority.contains('@') {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Git proxy URL credentials are not supported",
+        ));
+    }
+    let (host, port) = parse_http_authority(authority, 8080)?;
+    Ok(HttpProxy { host, port })
+}
+
+fn parse_http_authority(authority: &str, default_port: u16) -> io::Result<(String, u16)> {
+    if let Some(address) = authority.strip_prefix('[') {
+        let (host, suffix) = address
+            .split_once(']')
+            .ok_or_else(|| invalid_packet("Git HTTP URL has an invalid IPv6 host"))?;
+        let port = if suffix.is_empty() {
+            default_port
+        } else {
+            suffix
+                .strip_prefix(':')
+                .ok_or_else(|| invalid_packet("Git HTTP URL has an invalid port"))?
+                .parse::<u16>()
+                .map_err(|_| invalid_packet("Git HTTP port is invalid"))?
+        };
+        if host.parse::<std::net::Ipv6Addr>().is_err() || port == 0 {
+            return Err(invalid_packet("Git HTTP URL has an invalid authority"));
+        }
+        return Ok((host.to_string(), port));
+    }
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if host.is_empty() || host.contains(':') || !port.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(invalid_packet("Git HTTP URL has an invalid port"));
+        }
+        let port = port
+            .parse::<u16>()
+            .map_err(|_| invalid_packet("Git HTTP port is invalid"))?;
+        if port == 0 {
+            return Err(invalid_packet("Git HTTP port is invalid"));
+        }
+        return Ok((host.to_string(), port));
+    }
+    if authority.contains(['@', '/', '?', '#', '[', ']'])
+        || authority
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    {
+        return Err(invalid_packet("Git HTTP URL has an invalid authority"));
+    }
+    if authority.is_empty() {
+        return Err(invalid_packet("Git HTTP URL has an invalid authority"));
+    }
+    Ok((authority.to_string(), default_port))
+}
+
+fn lookup_http_authorization(url: &HttpGitUrl) -> Option<Zeroizing<Vec<u8>>> {
+    use std::process::Command;
+
+    run_http_credential_fill(url, Command::new("git"))
+}
+
+fn run_http_credential_fill(
+    url: &HttpGitUrl,
+    mut command: std::process::Command,
+) -> Option<Zeroizing<Vec<u8>>> {
+    use std::process::Stdio;
+
+    let mut input = format!("protocol=https\nhost={}", url.host);
+    if url.port != 443 {
+        input.push_str(&format!(":{}", url.port));
+    }
+    input.push('\n');
+    if url.path != "/" {
+        input.push_str("path=");
+        input.push_str(url.path.trim_start_matches('/'));
+        input.push('\n');
+    }
+    input.push('\n');
+
+    let mut child = command
+        .args(["credential", "fill"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(input.as_bytes()).ok()?;
+    let output = child.wait_with_output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let output = Zeroizing::new(output.stdout);
+    let credentials = parse_git_credentials(&output)?;
+    let mut plain = Zeroizing::new(Vec::with_capacity(
+        credentials.username.len() + credentials.password.len() + 1,
+    ));
+    plain.extend_from_slice(&credentials.username);
+    plain.push(b':');
+    plain.extend_from_slice(&credentials.password);
+    Some(base64_encode(&plain))
+}
+
+struct GitCredentials {
+    username: Zeroizing<Vec<u8>>,
+    password: Zeroizing<Vec<u8>>,
+}
+
+fn parse_git_credentials(output: &[u8]) -> Option<GitCredentials> {
+    let mut username = None;
+    let mut password = None;
+    for line in output.split(|byte| *byte == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let Some(separator) = line.iter().position(|byte| *byte == b'=') else {
+            continue;
+        };
+        let (key, value) = (&line[..separator], &line[separator + 1..]);
+        match key {
+            b"username" if username.is_none() => username = Some(value.to_vec()),
+            b"password" if password.is_none() => password = Some(value.to_vec()),
+            b"username" | b"password" => return None,
+            _ => {}
+        }
+    }
+    let username = username?;
+    let password = password?;
+    if username.is_empty()
+        || username.contains(&b':')
+        || username.iter().chain(&password).any(u8::is_ascii_control)
+    {
+        return None;
+    }
+    Some(GitCredentials {
+        username: Zeroizing::new(username),
+        password: Zeroizing::new(password),
+    })
+}
+
+fn base64_encode(input: &[u8]) -> Zeroizing<Vec<u8>> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = Zeroizing::new(Vec::with_capacity(input.len().div_ceil(3) * 4));
+    for chunk in input.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or(0);
+        let third = chunk.get(2).copied().unwrap_or(0);
+        output.push(TABLE[usize::from(first >> 2)]);
+        output.push(TABLE[usize::from(((first & 0x03) << 4) | (second >> 4))]);
+        output.push(if chunk.len() > 1 {
+            TABLE[usize::from(((second & 0x0f) << 2) | (third >> 6))]
+        } else {
+            b'='
+        });
+        output.push(if chunk.len() > 2 {
+            TABLE[usize::from(third & 0x3f)]
+        } else {
+            b'='
+        });
+    }
+    output
+}
+
+fn explain_http_auth_error(
+    error: io::Error,
+    url: &HttpGitUrl,
+    sent_credentials: bool,
+) -> io::Error {
+    if url.secure && error.kind() == io::ErrorKind::PermissionDenied {
+        let detail = if sent_credentials {
+            "Git HTTPS credentials were rejected"
+        } else {
+            "Git HTTPS server requires credentials; configure a Git credential helper"
+        };
+        return io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{detail} for {} (HTTP 401)", url.host),
+        );
+    }
+    error
+}
+
 fn parse_http_git_url(source: &str) -> io::Result<HttpGitUrl> {
     let (secure, rest) = if let Some(rest) = source.strip_prefix("http://") {
         (false, rest)
@@ -2198,25 +2950,18 @@ fn parse_http_git_url(source: &str) -> io::Result<HttpGitUrl> {
     if authority.is_empty() || authority.contains('@') || authority.contains(['?', '#']) {
         return Err(invalid_packet("Git HTTP URL has an invalid authority"));
     }
-    let (host, port) = if let Some((host, port)) = authority.rsplit_once(':') {
-        if host.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(invalid_packet("Git HTTP URL has an invalid port"));
-        }
-        (
-            host.to_string(),
-            port.parse::<u16>()
-                .map_err(|_| invalid_packet("Git HTTP port is invalid"))?,
-        )
-    } else {
-        (authority.to_string(), 80)
-    };
-    if host.contains(['/', '?', '#']) || path.contains(['?', '#']) {
+    let (host, port) = parse_http_authority(authority, if secure { 443 } else { 80 })?;
+    if path.contains(['?', '#'])
+        || path
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    {
         return Err(invalid_packet("Git HTTP URL contains invalid path syntax"));
     }
     let path = format!("/{}", path.trim_end_matches('/'));
     Ok(HttpGitUrl {
         host,
-        port: if secure && port == 80 { 443 } else { port },
+        port,
         path,
         secure,
     })
@@ -2224,8 +2969,24 @@ fn parse_http_git_url(source: &str) -> io::Result<HttpGitUrl> {
 
 fn checkout_http(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
     let url = parse_http_git_url(source)?;
+    let proxy = http_proxy_for_url(&url)?;
+    let authorization = if url.secure {
+        lookup_http_authorization(&url)
+    } else {
+        None
+    };
     let info_path = format!("{}/info/refs?service=git-upload-pack", url.path);
-    let info = http_request(&url, "GET", &info_path, &[], "")?;
+    let authorization = authorization.as_ref().map(|value| value.as_slice());
+    let info = http_request_with_proxy(
+        &url,
+        "GET",
+        &info_path,
+        &[],
+        "",
+        authorization,
+        proxy.as_ref(),
+    )
+    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
     let refs = parse_advertised_refs(&info)?;
     let commit = select_advertised_revision(&refs, revision)?;
 
@@ -2234,13 +2995,16 @@ fn checkout_http(source: &str, revision: &str, destination: &Path) -> io::Result
     encode_packet_line(want.as_bytes(), &mut request)?;
     request.extend_from_slice(b"0000");
     encode_packet_line(b"done\n", &mut request)?;
-    let response = http_request(
+    let response = http_request_with_proxy(
         &url,
         "POST",
         &format!("{}/git-upload-pack", url.path),
         &request,
         "application/x-git-upload-pack-request",
-    )?;
+        authorization,
+        proxy.as_ref(),
+    )
+    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
     let pack = parse_upload_pack_response(&response)?;
 
     let git_dir = destination.join(".git");
@@ -2358,20 +3122,37 @@ fn parse_upload_pack_response(body: &[u8]) -> io::Result<Vec<u8>> {
     Ok(pack)
 }
 
-fn http_request(
+fn http_request_with_proxy(
     url: &HttpGitUrl,
     method: &str,
     path: &str,
     body: &[u8],
     content_type: &str,
+    authorization: Option<&[u8]>,
+    proxy: Option<&HttpProxy>,
 ) -> io::Result<Vec<u8>> {
-    let address = format!("{}:{}", url.host, url.port)
+    let (connect_host, connect_port) = proxy.map_or((url.host.as_str(), url.port), |proxy| {
+        (proxy.host.as_str(), proxy.port)
+    });
+    let address = (connect_host, connect_port)
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Git HTTP host has no address"))?;
     let stream = TcpStream::connect_timeout(&address, std::time::Duration::from_secs(15))?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
+    if proxy.is_some() && url.secure {
+        establish_proxy_tunnel(&stream, url)?;
+    }
+    let request_target = if proxy.is_some() && !url.secure {
+        format!(
+            "http://{}{}",
+            format_authority(&url.host, url.port, 80),
+            path
+        )
+    } else {
+        path.to_string()
+    };
     if url.secure {
         let roots = RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -2379,12 +3160,16 @@ fn http_request(
         let config = ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
-        let server_name = ServerName::try_from(url.host.clone()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Git HTTPS host name is invalid",
-            )
-        })?;
+        let server_name = if let Ok(address) = url.host.parse::<std::net::IpAddr>() {
+            ServerName::IpAddress(address.into())
+        } else {
+            ServerName::try_from(url.host.clone()).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Git HTTPS host name is invalid",
+                )
+            })?
+        };
         let tls = ClientConnection::new(Arc::new(config), server_name).map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -2395,34 +3180,66 @@ fn http_request(
             StreamOwned::new(tls, stream),
             url,
             method,
-            path,
+            &request_target,
             body,
             content_type,
+            authorization,
         );
     }
-    http_request_stream(stream, url, method, path, body, content_type)
+    http_request_stream_with_target(
+        stream,
+        url,
+        method,
+        &request_target,
+        body,
+        content_type,
+        authorization,
+    )
+}
+
+fn establish_proxy_tunnel(mut stream: &TcpStream, url: &HttpGitUrl) -> io::Result<()> {
+    let connect_target = format_authority(&url.host, url.port, 0);
+    write!(
+        stream,
+        "CONNECT {connect_target} HTTP/1.1\r\nHost: {connect_target}\r\nConnection: keep-alive\r\n\r\n"
+    )?;
+    read_proxy_connect_response(stream)
 }
 
 fn http_request_stream<S: Read + Write>(
-    mut stream: S,
+    stream: S,
     url: &HttpGitUrl,
     method: &str,
     path: &str,
     body: &[u8],
     content_type: &str,
+    authorization: Option<&[u8]>,
 ) -> io::Result<Vec<u8>> {
+    http_request_stream_with_target(stream, url, method, path, body, content_type, authorization)
+}
+
+fn http_request_stream_with_target<S: Read + Write>(
+    mut stream: S,
+    url: &HttpGitUrl,
+    method: &str,
+    request_target: &str,
+    body: &[u8],
+    content_type: &str,
+    authorization: Option<&[u8]>,
+) -> io::Result<Vec<u8>> {
+    let host_header = format_authority(&url.host, url.port, if url.secure { 443 } else { 80 });
     write!(
         stream,
-        "{method} {path} HTTP/1.1\r\nHost: {}\r\nUser-Agent: nia-package-manager/0.3\r\nAccept: application/x-git-upload-pack-advertisement, application/x-git-upload-pack-result\r\nConnection: close\r\nContent-Length: {}\r\n",
-        if (url.secure && url.port == 443) || (!url.secure && url.port == 80) {
-            url.host.clone()
-        } else {
-            format!("{}:{}", url.host, url.port)
-        },
+        "{method} {request_target} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: nia-package-manager/0.3\r\nAccept: application/x-git-upload-pack-advertisement, application/x-git-upload-pack-result\r\nConnection: close\r\nContent-Length: {}\r\n",
         body.len()
     )?;
     if !content_type.is_empty() {
         write!(stream, "Content-Type: {content_type}\r\n")?;
+    }
+    if let Some(authorization) = authorization {
+        stream.write_all(b"Authorization: Basic ")?;
+        stream.write_all(authorization)?;
+        stream.write_all(b"\r\n")?;
     }
     stream.write_all(b"\r\n")?;
     stream.write_all(body)?;
@@ -2434,6 +3251,60 @@ fn http_request_stream<S: Read + Write>(
         return Err(invalid_packet("Git HTTP response is too large"));
     }
     parse_http_response(&response)
+}
+
+fn format_authority(host: &str, port: u16, default_port: u16) -> String {
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    if port == default_port {
+        host
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn read_proxy_connect_response(mut stream: &TcpStream) -> io::Result<()> {
+    let mut response = Vec::new();
+    let mut byte = [0; 1];
+    while response.len() < 16 * 1024 {
+        stream.read_exact(&mut byte)?;
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n\r\n") {
+            let status = parse_proxy_status(&response)?;
+            if (200..300).contains(&status) {
+                return Ok(());
+            }
+            return Err(io::Error::other("Git HTTPS proxy CONNECT request failed"));
+        }
+    }
+    Err(invalid_packet(
+        "Git HTTPS proxy response headers are too large",
+    ))
+}
+
+fn parse_proxy_status(response: &[u8]) -> io::Result<u16> {
+    let line_end = response
+        .windows(2)
+        .position(|window| window == b"\r\n")
+        .ok_or_else(|| invalid_packet("Git HTTPS proxy response status is malformed"))?;
+    let line = std::str::from_utf8(&response[..line_end])
+        .map_err(|_| invalid_packet("Git HTTPS proxy response status is malformed"))?;
+    let mut fields = line.split_ascii_whitespace();
+    let version = fields.next();
+    let code = fields.next();
+    let status = code
+        .filter(|code| code.len() == 3 && code.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|code| code.parse::<u16>().ok())
+        .ok_or_else(|| invalid_packet("Git HTTPS proxy response status is malformed"))?;
+    if !matches!(version, Some("HTTP/1.0" | "HTTP/1.1")) {
+        return Err(invalid_packet(
+            "Git HTTPS proxy response status is malformed",
+        ));
+    }
+    Ok(status)
 }
 
 fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
@@ -2450,9 +3321,15 @@ fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
         .and_then(|code| code.parse::<u16>().ok())
         .ok_or_else(|| invalid_packet("Git HTTP response status is malformed"))?;
     if !(200..300).contains(&status) {
-        return Err(io::Error::other(format!(
-            "Git HTTP server returned status {status}"
-        )));
+        let kind = if status == 401 {
+            io::ErrorKind::PermissionDenied
+        } else {
+            io::ErrorKind::Other
+        };
+        return Err(io::Error::new(
+            kind,
+            format!("Git HTTP server returned status {status}"),
+        ));
     }
     let mut chunked = false;
     let mut content_length = None;
@@ -3051,6 +3928,19 @@ mod tests {
         static SSH_FIXTURE_SKIP_CLIENT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
 
+    /// Windows equivalent of `chmod 600` for a fixture private key: drop
+    /// inherited ACEs and grant only the current user.
+    #[cfg(windows)]
+    pub(super) fn restrict_to_current_user(path: &Path) {
+        let user = std::env::var("USERNAME").expect("USERNAME is set on Windows");
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/inheritance:r", "/grant:r", &format!("{user}:F")])
+            .output()
+            .expect("icacls is part of Windows");
+        assert!(output.status.success(), "{output:?}");
+    }
+
     #[cfg(feature = "test-support")]
     pub(super) fn with_ssh_checkout_fixture(
         callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static,
@@ -3134,6 +4024,119 @@ mod tests {
     }
 
     #[test]
+    fn git_http_credentials_are_parsed_and_basic_encoded() {
+        let credentials = parse_git_credentials(
+            b"protocol=https\nhost=example.test\nusername=nia\npassword=secret\n",
+        )
+        .unwrap();
+        let mut plain = credentials.username.to_vec();
+        plain.push(b':');
+        plain.extend_from_slice(&credentials.password);
+        assert_eq!(&*base64_encode(&plain), b"bmlhOnNlY3JldA==");
+
+        assert!(parse_git_credentials(b"username=nia\n").is_none());
+        assert!(parse_git_credentials(b"username=nia\npassword=one\npassword=two\n").is_none());
+        assert!(parse_git_credentials(b"username=nia:other\npassword=secret\n").is_none());
+    }
+
+    #[test]
+    fn git_http_credential_fill_uses_the_configured_helper() {
+        use std::process::Command;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "nia-git-credential-helper-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let config = root.join("gitconfig");
+        let store = root.join("credentials");
+        let store_path = store.display().to_string().replace('\\', "/");
+        let store_text = "https://nia:secret@example.test/repository.git\nhttps://other:ignored@example.test/other.git\n";
+        std::fs::write(&store, store_text).unwrap();
+        let store_arg = format!("credential.helper=store --file=\"{store_path}\"");
+        std::fs::write(
+            &config,
+            format!(
+                "[credential]\n\thelper = store --file=\"{store_path}\"\n\tuseHttpPath = true\n"
+            ),
+        )
+        .unwrap();
+        let url = parse_http_git_url("https://example.test/repository.git").unwrap();
+        let mut command = Command::new("git");
+        command
+            .args(["-c", &store_arg, "-c", "credential.useHttpPath=true"])
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", &config);
+        assert_eq!(
+            &*run_http_credential_fill(&url, command).unwrap(),
+            b"bmlhOnNlY3JldA=="
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_http_authorization_is_sent_as_a_header_and_401_is_actionable() {
+        use std::io::Cursor;
+
+        struct TestStream {
+            response: Cursor<Vec<u8>>,
+            written: Vec<u8>,
+        }
+        impl Read for TestStream {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                self.response.read(output)
+            }
+        }
+        impl Write for TestStream {
+            fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+                self.written.extend_from_slice(input);
+                Ok(input.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let url = parse_http_git_url("https://example.test/repository.git").unwrap();
+        let mut stream = TestStream {
+            response: Cursor::new(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec()),
+            written: Vec::new(),
+        };
+        http_request_stream(
+            &mut stream,
+            &url,
+            "GET",
+            "/repository.git/info/refs",
+            &[],
+            "",
+            Some(b"bmlhOnNlY3JldA=="),
+        )
+        .unwrap();
+        assert!(
+            stream
+                .written
+                .windows(b"Authorization: Basic bmlhOnNlY3JldA==\r\n".len())
+                .any(|window| window == b"Authorization: Basic bmlhOnNlY3JldA==\r\n")
+        );
+
+        let unauthorized =
+            parse_http_response(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+                .unwrap_err();
+        let error = explain_http_auth_error(unauthorized, &url, false);
+        assert!(
+            error
+                .to_string()
+                .contains("configure a Git credential helper")
+        );
+        assert!(!error.to_string().contains("secret"));
+    }
+
+    #[test]
     fn http_url_parser_selects_tls_and_rejects_embedded_credentials() {
         let plain = parse_http_git_url("http://example.test/repository.git").unwrap();
         assert!(!plain.secure);
@@ -3147,6 +4150,138 @@ mod tests {
                 .kind(),
             io::ErrorKind::InvalidData
         );
+        for invalid in [
+            "http://example.test:0/repository.git",
+            "http://exa mple.test/repository.git",
+            "http://example.test/repo\r\nInjected: header",
+            "http://[not-ipv6]/repository.git",
+        ] {
+            assert!(parse_http_git_url(invalid).is_err(), "{invalid:?}");
+        }
+        assert_eq!(
+            parse_http_git_url("https://[2001:db8::1]:8443/repository.git")
+                .unwrap()
+                .host,
+            "2001:db8::1"
+        );
+    }
+
+    #[test]
+    fn http_proxy_selection_obeys_protocol_and_no_proxy_rules() {
+        use std::collections::HashMap;
+
+        let secure = parse_http_git_url("https://git.example.test/repository.git").unwrap();
+        let mut vars = HashMap::from([
+            ("HTTPS_PROXY", "http://secure-proxy.test:9000"),
+            ("HTTP_PROXY", "http://plain-proxy.test:8000"),
+            ("ALL_PROXY", "http://fallback-proxy.test"),
+        ]);
+        let proxy =
+            http_proxy_for_url_with(&secure, |name| vars.get(name).map(|v| v.to_string())).unwrap();
+        assert_eq!(
+            proxy,
+            Some(HttpProxy {
+                host: "secure-proxy.test".into(),
+                port: 9000,
+            })
+        );
+
+        vars.insert("NO_PROXY", ".example.test:443,localhost");
+        assert_eq!(
+            http_proxy_for_url_with(&secure, |name| vars.get(name).map(|v| v.to_string())).unwrap(),
+            None
+        );
+        vars.insert("NO_PROXY", "example.test:80");
+        assert!(
+            http_proxy_for_url_with(&secure, |name| vars.get(name).map(|v| v.to_string()))
+                .unwrap()
+                .is_some()
+        );
+
+        let plain = parse_http_git_url("http://git.example.test/repository.git").unwrap();
+        vars.remove("HTTP_PROXY");
+        vars.remove("NO_PROXY");
+        assert_eq!(
+            http_proxy_for_url_with(&plain, |name| vars.get(name).map(|v| v.to_string()))
+                .unwrap()
+                .unwrap()
+                .host,
+            "fallback-proxy.test"
+        );
+    }
+
+    #[test]
+    fn http_proxy_receives_absolute_target_and_origin_host_header() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let url = parse_http_git_url("http://git.example.test:8081/repository.git").unwrap();
+        let proxy = HttpProxy {
+            host: address.ip().to_string(),
+            port: address.port(),
+        };
+        http_request_with_proxy(
+            &url,
+            "GET",
+            "/repository.git/info/refs?service=git-upload-pack",
+            &[],
+            "",
+            None,
+            Some(&proxy),
+        )
+        .unwrap();
+        let request = server.join().unwrap();
+        assert!(request.starts_with(
+            "GET http://git.example.test:8081/repository.git/info/refs?service=git-upload-pack HTTP/1.1\r\n"
+        ));
+        assert!(request.contains("\r\nHost: git.example.test:8081\r\n"));
+        assert!(!request.contains("Authorization:"));
+    }
+
+    #[test]
+    fn https_proxy_tunnel_uses_origin_authority_without_credentials() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let url = parse_http_git_url("https://[2001:db8::1]/repository.git").unwrap();
+        let stream = TcpStream::connect(address).unwrap();
+        establish_proxy_tunnel(&stream, &url).unwrap();
+        let request = server.join().unwrap();
+        assert!(
+            request
+                .starts_with("CONNECT [2001:db8::1]:443 HTTP/1.1\r\nHost: [2001:db8::1]:443\r\n")
+        );
+        assert!(!request.contains("Authorization:"));
     }
 
     #[test]
@@ -4023,6 +5158,8 @@ mod tests {
             )
             .unwrap();
         }
+        #[cfg(windows)]
+        restrict_to_current_user(&ssh_config.join("id_ed25519"));
         let destination = root.join("checkout");
         let source = format!("ssh://git@127.0.0.1:{}/org/repo.git", address.port());
         #[cfg(feature = "test-support")]
@@ -4037,11 +5174,14 @@ mod tests {
             std::fs::remove_dir_all(root).unwrap();
             return;
         }
-        let checked_out = match checkout_ssh_with_config(&source, "HEAD", &destination, &ssh_config)
-        {
-            Ok(checked_out) => checked_out,
-            Err(error) => panic!("SSH checkout failed: {error}; server={:?}", server.join()),
-        };
+        let checked_out =
+            match checkout_ssh_with_config(&source, "HEAD", &destination, &ssh_config, false) {
+                Ok(checked_out) => checked_out,
+                // Do not join the server here: a client that fails before
+                // connecting leaves it blocked in `accept`, which would hang the
+                // test instead of failing it.
+                Err(error) => panic!("SSH checkout failed: {error}"),
+            };
         assert_eq!(checked_out, commit_id);
         assert_eq!(
             std::fs::read(destination.join("file.txt")).unwrap(),
@@ -4127,7 +5267,7 @@ mod tests {
             "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----\n",
             base64(&encoded)
         );
-        let identity = SshEd25519Identity::parse_openssh(pem.as_bytes()).unwrap();
+        let mut identity = SshEd25519Identity::parse_openssh(pem.as_bytes()).unwrap();
         assert_eq!(identity.public_key_blob(), public_blob);
         let signature = identity.sign(b"signed test data");
         ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public)
@@ -4135,7 +5275,7 @@ mod tests {
             .unwrap();
 
         let session_id = [29u8; 32];
-        let request = build_publickey_auth_request("git", &session_id, &identity).unwrap();
+        let request = build_publickey_auth_request("git", &session_id, &mut identity).unwrap();
         assert_eq!(request[0], 50);
         let mut offset = 1;
         assert_eq!(take_string(&request, &mut offset), b"git");
@@ -4175,6 +5315,59 @@ mod tests {
             base64(&malformed)
         );
         assert!(SshEd25519Identity::parse_openssh(malformed_pem.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn ssh_agent_identity_reply_selects_ed25519_and_rejects_bad_frames() {
+        let mut ed25519 = Vec::new();
+        encode_ssh_string(b"ssh-ed25519", &mut ed25519).unwrap();
+        encode_ssh_string(&[7; 32], &mut ed25519).unwrap();
+        let mut rsa = Vec::new();
+        encode_ssh_string(b"ssh-rsa", &mut rsa).unwrap();
+        encode_ssh_string(&[1, 2, 3], &mut rsa).unwrap();
+
+        let mut identities = vec![12];
+        identities.extend_from_slice(&2u32.to_be_bytes());
+        encode_ssh_string(&rsa, &mut identities).unwrap();
+        encode_ssh_string(b"rsa fixture", &mut identities).unwrap();
+        encode_ssh_string(&ed25519, &mut identities).unwrap();
+        encode_ssh_string(b"ed25519 fixture", &mut identities).unwrap();
+        assert_eq!(parse_agent_identities(&identities).unwrap(), Some(ed25519));
+        assert_eq!(parse_agent_identities(&[5]).unwrap(), None);
+        assert!(parse_agent_identities(&[12, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn ssh_agent_request_uses_bounded_length_framing() {
+        use std::io::Cursor;
+
+        struct TestStream {
+            incoming: Cursor<Vec<u8>>,
+            outgoing: Vec<u8>,
+        }
+        impl Read for TestStream {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                self.incoming.read(output)
+            }
+        }
+        impl Write for TestStream {
+            fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+                self.outgoing.extend_from_slice(input);
+                Ok(input.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut stream = TestStream {
+            incoming: Cursor::new(vec![0, 0, 0, 1, 5]),
+            outgoing: Vec::new(),
+        };
+        assert_eq!(agent_request(&mut stream, &[11]).unwrap(), [5]);
+        assert_eq!(stream.outgoing, [0, 0, 0, 1, 11]);
+        assert!(agent_request(&mut stream, &[]).is_err());
     }
 
     #[test]
@@ -4491,6 +5684,19 @@ mod tests {
         server.join().unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// Restricts a copied fixture identity the way `chmod 600` would, so it
+/// passes the SSH identity permission check.
+#[cfg(feature = "test-support")]
+pub fn restrict_test_identity_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    #[cfg(windows)]
+    tests::restrict_to_current_user(path);
 }
 
 #[cfg(feature = "test-support")]
