@@ -163,11 +163,13 @@ fn read_pack_header(pack: &[u8], cursor: &mut usize) -> io::Result<(u8, usize)> 
             .get(*cursor)
             .ok_or_else(|| invalid_packet("truncated Git pack object size"))?;
         *cursor += 1;
-        size |= usize::from(byte & 0x7f)
-            .checked_shl(shift)
-            .ok_or_else(|| invalid_packet("Git pack object size overflows"))?;
+        let digit = usize::from(byte & 0x7f);
+        if shift >= usize::BITS || digit > (usize::MAX >> shift) {
+            return Err(invalid_packet("Git pack object size overflows"));
+        }
+        size |= digit << shift;
         shift += 7;
-        if shift > 63 || size > MAX_OBJECT_BYTES {
+        if size > MAX_OBJECT_BYTES {
             return Err(invalid_packet("Git pack object exceeds size limit"));
         }
     }
@@ -188,7 +190,7 @@ fn read_ofs_delta_base(pack: &[u8], cursor: &mut usize, object_offset: usize) ->
         *cursor += 1;
         value = value
             .checked_add(1)
-            .and_then(|value| value.checked_shl(7))
+            .and_then(|value| value.checked_mul(128))
             .and_then(|value| value.checked_add(usize::from(byte & 0x7f)))
             .ok_or_else(|| invalid_packet("Git ofs-delta base offset overflows"))?;
     }
@@ -248,6 +250,33 @@ mod tests {
     use sha1::{Digest, Sha1};
 
     #[test]
+    fn overflowing_ofs_delta_offset_cannot_wrap_to_valid_base() {
+        let mut value = (1u128 << usize::BITS) + 1;
+        let mut encoded = vec![(value & 0x7f) as u8];
+        while value >= 128 {
+            value = (value >> 7) - 1;
+            encoded.push(0x80 | (value & 0x7f) as u8);
+        }
+        encoded.reverse();
+        assert!(super::read_ofs_delta_base(&encoded, &mut 0, 20).is_err());
+    }
+
+    #[test]
+    fn truncated_pack_zlib_trailers_are_rejected() {
+        use flate2::{Compression, write::ZlibEncoder};
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(b"payload").unwrap();
+        let encoded = encoder.finish().unwrap();
+        for removed in 1..=4 {
+            assert!(
+                super::read_zlib_stream(&encoded[..encoded.len() - removed], Some(7)).is_err(),
+                "removed {removed} trailer bytes"
+            );
+        }
+    }
+
+    #[test]
     fn truncated_object_header_cannot_consume_pack_checksum() {
         let mut pack = b"PACK".to_vec();
         pack.extend_from_slice(&2u32.to_be_bytes());
@@ -281,6 +310,39 @@ mod properties {
     use proptest::prelude::*;
 
     proptest! {
+        #[test]
+        fn ofs_delta_offsets_preserve_integer_value(value in prop_oneof![any::<u128>(), any::<usize>().prop_map(|value| value as u128), Just(usize::MAX as u128), Just(usize::MAX as u128 + 1)]) {
+            let mut remaining = value;
+            let mut encoded = vec![(remaining & 127) as u8];
+            while remaining >= 128 {
+                remaining = (remaining >> 7) - 1;
+                encoded.push(128 | (remaining & 127) as u8);
+            }
+            encoded.reverse();
+            let decoded = read_ofs_delta_base(&encoded, &mut 0, usize::MAX);
+            match usize::try_from(value) {
+                Ok(expected) => prop_assert_eq!(decoded.unwrap(), usize::MAX - expected),
+                Err(_) => prop_assert!(decoded.is_err()),
+            }
+        }
+
+        #[test]
+        fn pack_sizes_preserve_bounded_integer_value(value in prop_oneof![any::<u128>(), 0u128..=MAX_OBJECT_BYTES as u128, Just(MAX_OBJECT_BYTES as u128 + 1)]) {
+            let mut remaining = value >> 4;
+            let mut encoded = vec![0x30 | (value & 15) as u8 | if remaining == 0 { 0 } else { 128 }];
+            while remaining != 0 {
+                let digit = (remaining & 127) as u8;
+                remaining >>= 7;
+                encoded.push(digit | if remaining == 0 { 0 } else { 128 });
+            }
+            let decoded = read_pack_header(&encoded, &mut 0);
+            if value <= MAX_OBJECT_BYTES as u128 {
+                prop_assert_eq!(decoded.unwrap(), (3, value as usize));
+            } else {
+                prop_assert!(decoded.is_err());
+            }
+        }
+
         #[test]
         fn arbitrary_pack_bytes_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
             let _ = decode_pack_object(&bytes, &[0; 20]);
