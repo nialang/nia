@@ -6962,13 +6962,28 @@ mod tests {
         PackageLock::default().write_atomic(&lock_path).unwrap();
         let original_lock = fs::read(&lock_path).unwrap();
 
-        let error = update_lock_with_registry_fetcher(&root, &[], fetch).unwrap_err();
+        let error = update_lock_with_registry_fetcher(&root, &[], fetch.clone()).unwrap_err();
 
         let message = error.to_string();
         assert!(message.contains("no single version"), "{message}");
         assert!(message.contains("left@1.0.0 -> json"), "{message}");
         assert!(message.contains("right@1.0.0 -> json"), "{message}");
         assert_eq!(fs::read(&lock_path).unwrap(), original_lock);
+
+        fs::write(
+            right.join("nia.toml"),
+            "[package]\nname = \"right\"\nversion = \"1.0.0\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n",
+        )
+        .unwrap();
+        let updates = update_lock_with_registry_fetcher(&root, &[], fetch).unwrap();
+        assert_eq!(updates.len(), 1, "{updates:?}");
+        assert_eq!(updates[0].new_value.as_deref(), Some("1.5.0"));
+        let lock = PackageLock::read(&lock_path).unwrap();
+        assert_eq!(lock.package.len(), 1);
+        let LockedSource::Registry { version, .. } = &lock.package[0].source else {
+            panic!("expected one registry source entry")
+        };
+        assert_eq!(version, "1.5.0");
         fs::remove_dir_all(root).unwrap();
     }
 
