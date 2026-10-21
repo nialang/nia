@@ -68,29 +68,27 @@ fn invalid_packet(message: &'static str) -> io::Error {
 /// contents and linked destination directories are rejected. On failure, a
 /// partially materialized tree may remain for the caller to discard.
 pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
-    checkout_source_with_destination(source, revision, None, destination)
+    checkout_source_with_destination(source, revision, Some(destination), None)
 }
 
-/// Checks out into an already opened destination. `destination_path` is used
-/// only to read the temporary Git object database created for remote checkouts;
-/// all worktree and metadata writes remain relative to `destination_dir`.
+/// Checks out into an already opened destination directory. All output remains
+/// relative to `destination_dir`, even if its original path is later replaced.
 pub fn checkout_source_into(
     source: &str,
     revision: &str,
     destination_dir: &Dir,
-    destination_path: &Path,
 ) -> io::Result<String> {
     if destination_dir.entries()?.next().transpose()?.is_some() {
         return Err(invalid_packet("Git checkout destination must be empty"));
     }
-    checkout_source_with_destination(source, revision, Some(destination_dir), destination_path)
+    checkout_source_with_destination(source, revision, None, Some(destination_dir))
 }
 
 fn checkout_source_with_destination(
     source: &str,
     revision: &str,
+    destination_path: Option<&Path>,
     destination_dir: Option<&Dir>,
-    destination_path: &Path,
 ) -> io::Result<String> {
     if let Some(repository) = source.strip_prefix("file:///") {
         let repository = if cfg!(windows) && repository.as_bytes().get(1) == Some(&b':') {
@@ -102,7 +100,11 @@ fn checkout_source_with_destination(
             Some(directory) => {
                 transport::local::checkout_local_into(&repository, revision, directory)
             }
-            None => transport::local::checkout_local(&repository, revision, destination_path),
+            None => transport::local::checkout_local(
+                &repository,
+                revision,
+                destination_path.expect("path destination is present"),
+            ),
         };
     }
     if source.starts_with("http://") || source.starts_with("https://") {

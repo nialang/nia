@@ -8,7 +8,10 @@ use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions};
 
 use crate::invalid_packet;
-use crate::object::{ObjectKind, encode_hex, parse_object_id, read_loose_object, resolve_revision};
+use crate::object::{
+    GitObject, ObjectKind, decode_pack_objects, encode_hex, parse_object_id, read_loose_object,
+    resolve_revision,
+};
 
 const MAX_TREE_DEPTH: usize = 64;
 const MAX_CHECKOUT_ENTRIES: usize = 1_000_000;
@@ -47,7 +50,34 @@ fn checkout_repository(
         repository.to_path_buf()
     };
     let commit_id = resolve_revision(&git_dir, revision)?;
-    let commit = read_loose_object(&git_dir, &commit_id)?;
+    checkout_commit_with(&commit_id, destination_dir, |id| {
+        read_loose_object(&git_dir, id)
+    })?;
+    Ok(encode_hex(&commit_id))
+}
+
+fn checkout_decoded_pack(
+    objects: &std::collections::BTreeMap<[u8; 20], GitObject>,
+    commit_id: &[u8; 20],
+    destination_dir: &Dir,
+) -> io::Result<String> {
+    checkout_commit_with(commit_id, destination_dir, |id| {
+        objects.get(id).cloned().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Git packed object id was not found",
+            )
+        })
+    })?;
+    Ok(encode_hex(commit_id))
+}
+
+fn checkout_commit_with(
+    commit_id: &[u8; 20],
+    destination_dir: &Dir,
+    mut read_object: impl FnMut(&[u8; 20]) -> io::Result<GitObject>,
+) -> io::Result<()> {
+    let commit = read_object(commit_id)?;
     if commit.kind != ObjectKind::Commit {
         return Err(invalid_packet("selected Git revision is not a commit"));
     }
@@ -57,8 +87,7 @@ fn checkout_repository(
         .find_map(|line| line.strip_prefix(b"tree "))
         .ok_or_else(|| invalid_packet("Git commit has no tree"))?;
     let tree_id = parse_object_id(tree_line)?;
-    checkout_tree(&git_dir, &tree_id, destination_dir)?;
-    Ok(encode_hex(&commit_id))
+    checkout_tree_with(&tree_id, destination_dir, &mut read_object)
 }
 
 fn prepare_destination(path: &Path) -> io::Result<()> {
@@ -86,7 +115,16 @@ fn prepare_destination(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(all(test, unix))]
 fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Dir) -> io::Result<()> {
+    checkout_tree_with(tree_id, directory, &mut |id| read_loose_object(git_dir, id))
+}
+
+fn checkout_tree_with(
+    tree_id: &[u8; 20],
+    directory: &Dir,
+    read_object: &mut impl FnMut(&[u8; 20]) -> io::Result<GitObject>,
+) -> io::Result<()> {
     struct Frame {
         directory: Dir,
         data: Vec<u8>,
@@ -94,17 +132,9 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Dir) -> io::Res
     }
     let mut bytes = 0usize;
     let mut entries = 0usize;
-    let load_tree = |id: &[u8; 20], bytes: &mut usize| -> io::Result<Vec<u8>> {
-        let tree = read_loose_object(git_dir, id)?;
-        if tree.kind != ObjectKind::Tree {
-            return Err(invalid_packet("Git tree entry does not name a tree"));
-        }
-        charge_checkout_bytes(bytes, tree.data.len())?;
-        Ok(tree.data)
-    };
     let mut stack = vec![Frame {
         directory: directory.try_clone()?,
-        data: load_tree(tree_id, &mut bytes)?,
+        data: load_tree(read_object, tree_id, &mut bytes)?,
         offset: 0,
     }];
     while !stack.is_empty() {
@@ -145,7 +175,7 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Dir) -> io::Res
                 if depth > MAX_TREE_DEPTH {
                     return Err(invalid_packet("Git checkout exceeds tree depth limit"));
                 }
-                let data = load_tree(&id, &mut bytes)?;
+                let data = load_tree(read_object, &id, &mut bytes)?;
                 frame.directory.create_dir(name)?;
                 let child = frame.directory.open_dir(name)?;
                 stack.push(Frame {
@@ -155,7 +185,7 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Dir) -> io::Res
                 });
             }
             "100644" | "100755" | "100664" => {
-                let blob = read_loose_object(git_dir, &id)?;
+                let blob = read_object(&id)?;
                 if blob.kind != ObjectKind::Blob {
                     return Err(invalid_packet("Git file entry does not name a blob"));
                 }
@@ -166,6 +196,19 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Dir) -> io::Res
         }
     }
     Ok(())
+}
+
+fn load_tree(
+    read_object: &mut impl FnMut(&[u8; 20]) -> io::Result<GitObject>,
+    id: &[u8; 20],
+    bytes: &mut usize,
+) -> io::Result<Vec<u8>> {
+    let tree = read_object(id)?;
+    if tree.kind != ObjectKind::Tree {
+        return Err(invalid_packet("Git tree entry does not name a tree"));
+    }
+    charge_checkout_bytes(bytes, tree.data.len())?;
+    Ok(tree.data)
 }
 
 fn charge_checkout_bytes(used: &mut usize, amount: usize) -> io::Result<()> {
@@ -212,48 +255,22 @@ pub(crate) fn write_pack_checkout(
     commit: &[u8; 20],
     destination: &Path,
 ) -> io::Result<String> {
+    let objects = decode_pack_objects(pack)?;
     prepare_destination(destination)?;
     let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
-    write_pack_checkout_into(pack, commit, destination, &destination_dir)
+    checkout_decoded_pack(&objects, commit, &destination_dir)
 }
 
 pub(crate) fn write_pack_checkout_into(
     pack: &[u8],
     commit: &[u8; 20],
-    destination: &Path,
     destination_dir: &Dir,
 ) -> io::Result<String> {
-    let pack_id: [u8; 20] = pack
-        .get(pack.len().saturating_sub(20)..)
-        .filter(|bytes| bytes.len() == 20)
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or_else(|| invalid_packet("Git upload-pack response has no pack checksum"))?;
     if destination_dir.entries()?.next().transpose()?.is_some() {
         return Err(invalid_packet("Git checkout destination must be empty"));
     }
-    destination_dir.create_dir(".git")?;
-    let result = (|| {
-        let git_dir = destination_dir.open_dir(".git")?;
-        git_dir.create_dir("objects")?;
-        let objects = git_dir.open_dir("objects")?;
-        objects.create_dir("pack")?;
-        let pack_dir = objects.open_dir("pack")?;
-        write_new_file(&git_dir, Path::new("HEAD"), encode_hex(commit).as_bytes())?;
-        write_new_file(
-            &pack_dir,
-            Path::new(&format!("pack-{}.pack", encode_hex(&pack_id))),
-            pack,
-        )?;
-        checkout_repository(destination, "HEAD", destination_dir)
-    })();
-    let cleanup = destination_dir.remove_dir_all(".git");
-    match result {
-        Ok(revision) => {
-            cleanup?;
-            Ok(revision)
-        }
-        Err(error) => Err(error),
-    }
+    let objects = decode_pack_objects(pack)?;
+    checkout_decoded_pack(&objects, commit, destination_dir)
 }
 
 fn write_new_file(directory: &Dir, path: &Path, data: &[u8]) -> io::Result<()> {
@@ -429,11 +446,11 @@ mod tests {
     }
 
     #[test]
-    fn invalid_pack_cleans_up_only_owned_metadata() {
+    fn invalid_pack_leaves_checkout_destination_empty() {
         let root = nia_test_support::test_dir("git-checkout-pack-cleanup");
         let destination = root.join("destination");
         assert!(write_pack_checkout(&[0; 32], &[0; 20], &destination).is_err());
-        assert!(!destination.join(".git").exists());
+        assert!(!destination.exists());
     }
 
     #[test]

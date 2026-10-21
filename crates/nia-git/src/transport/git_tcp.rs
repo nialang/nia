@@ -60,7 +60,7 @@ pub(crate) fn parse_git_tcp_url(source: &str) -> io::Result<GitTcpUrl> {
 pub(crate) fn checkout_git(
     source: &str,
     revision: &str,
-    destination: &Path,
+    destination: Option<&Path>,
     destination_dir: Option<&Dir>,
 ) -> io::Result<String> {
     let url = parse_git_tcp_url(source)?;
@@ -90,8 +90,12 @@ pub(crate) fn checkout_git(
     )?;
     let pack = parse_upload_pack_response(&response)?;
     match destination_dir {
-        Some(directory) => write_pack_checkout_into(&pack, &commit, destination, directory),
-        None => write_pack_checkout(&pack, &commit, destination),
+        Some(directory) => write_pack_checkout_into(&pack, &commit, directory),
+        None => write_pack_checkout(
+            &pack,
+            &commit,
+            destination.expect("path destination is present"),
+        ),
     }
 }
 

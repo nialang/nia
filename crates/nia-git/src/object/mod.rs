@@ -8,7 +8,7 @@ mod refs;
 
 pub(crate) use delta::apply_delta;
 pub(crate) use loose::{GitObject, ObjectKind, decode_loose_object};
-pub(crate) use pack::read_packed_object;
+pub(crate) use pack::{decode_pack_objects, read_packed_object};
 pub(crate) use refs::{encode_hex, parse_object_id, read_loose_object, resolve_revision};
 
 #[cfg(feature = "fuzzing")]

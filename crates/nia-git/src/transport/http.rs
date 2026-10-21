@@ -259,7 +259,7 @@ pub(crate) fn explain_http_auth_error(
 pub(crate) fn checkout_http(
     source: &str,
     revision: &str,
-    destination: &std::path::Path,
+    destination: Option<&std::path::Path>,
     destination_dir: Option<&Dir>,
 ) -> io::Result<String> {
     let url = parse_http_git_url(source)?;
@@ -298,8 +298,12 @@ pub(crate) fn checkout_http(
     let pack = parse_upload_pack_response(&response)?;
 
     match destination_dir {
-        Some(directory) => write_pack_checkout_into(&pack, &commit, destination, directory),
-        None => write_pack_checkout(&pack, &commit, destination),
+        Some(directory) => write_pack_checkout_into(&pack, &commit, directory),
+        None => write_pack_checkout(
+            &pack,
+            &commit,
+            destination.expect("path destination is present"),
+        ),
     }
 }
 

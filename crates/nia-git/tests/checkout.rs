@@ -117,7 +117,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
             Dir::open_ambient_dir(&anchored_destination, ambient_authority()).unwrap();
         std::fs::rename(&anchored_destination, &moved_destination).unwrap();
         std::os::unix::fs::symlink(&outside, &anchored_destination).unwrap();
-        checkout_source_into(&source, "HEAD", &destination_dir, &anchored_destination).unwrap();
+        checkout_source_into(&source, "HEAD", &destination_dir).unwrap();
         assert!(moved_destination.join("nia.toml").is_file());
         assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
         std::fs::remove_file(&anchored_destination).unwrap();
@@ -157,7 +157,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
-        checkout_source_into(&source, "HEAD", &destination_dir, &anchored_destination).unwrap();
+        checkout_source_into(&source, "HEAD", &destination_dir).unwrap();
         assert!(moved_destination.join("nia.toml").is_file());
         assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
         std::fs::remove_dir(&anchored_destination).unwrap();
@@ -411,13 +411,59 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
     });
 
     let source = format!("git://127.0.0.1:{port}/repository.git");
-    let fetched_revision = checkout_source(&source, "main", &destination).unwrap();
+    let moved_destination = root.join("moved-checkout");
+    let outside = root.join("outside");
+    std::fs::create_dir(&destination).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    #[cfg(unix)]
+    let destination_dir = {
+        let directory = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
+        std::fs::rename(&destination, &moved_destination).unwrap();
+        std::os::unix::fs::symlink(&outside, &destination).unwrap();
+        directory
+    };
+    #[cfg(windows)]
+    let destination_dir = {
+        use cap_std::fs::{OpenOptions as CapOpenOptions, OpenOptionsExt};
+        use std::process::Command;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+
+        let parent_dir = Dir::open_ambient_dir(&root, ambient_authority()).unwrap();
+        let mut options = CapOpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+        let directory = Dir::from_std_file(
+            parent_dir
+                .open_with("checkout", &options)
+                .unwrap()
+                .into_std(),
+        );
+        std::fs::rename(&destination, &moved_destination).unwrap();
+        let output = Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&destination)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        directory
+    };
+    let fetched_revision = checkout_source_into(&source, "main", &destination_dir).unwrap();
     assert_eq!(fetched_revision, revision);
     assert_eq!(
-        std::fs::read_to_string(destination.join("src/lib.nia")).unwrap(),
+        std::fs::read_to_string(moved_destination.join("src/lib.nia")).unwrap(),
         "pub fn main() {}\n"
     );
-    assert!(!destination.join(".git").exists());
+    assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+    #[cfg(unix)]
+    std::fs::remove_file(&destination).unwrap();
+    #[cfg(windows)]
+    std::fs::remove_dir(&destination).unwrap();
     server.join().unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }

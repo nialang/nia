@@ -1167,7 +1167,6 @@ impl PackageFetcher {
                         None => open_cache_root(&self.cache_root, true)?,
                     };
                     let staging_name = allocate_package_staging(&cache)?;
-                    let staging = self.cache_root.join(&staging_name);
                     let staging_directory = open_cache_directory(&cache, &staging_name, false)?;
                     let checkout = checkout_source_into(
                         &source,
@@ -1176,7 +1175,6 @@ impl PackageFetcher {
                             .or(requested.as_deref())
                             .unwrap_or("HEAD"),
                         &staging_directory,
-                        &staging,
                     );
                     drop(staging_directory);
                     let fetched_revision = match checkout {
