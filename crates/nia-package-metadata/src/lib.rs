@@ -869,11 +869,12 @@ struct PackageFetcher {
     registry_constraints: BTreeMap<RegistryPackageName, Vec<RegistryVersionConstraint>>,
     registry_candidates: BTreeMap<RegistryPackageName, Vec<PackageId>>,
     registry_restart: Option<(RegistryPackageName, PackageId)>,
+    refresh_names: Option<BTreeSet<String>>,
 }
 
 impl PackageFetcher {
     fn for_root(root: &Path, policy: LockPolicy) -> io::Result<Self> {
-        Self::for_root_with_registries(root, policy, BTreeMap::new(), BTreeMap::new())
+        Self::for_root_with_registries(root, policy, BTreeMap::new(), BTreeMap::new(), None)
     }
 
     fn for_root_with_registries(
@@ -881,6 +882,7 @@ impl PackageFetcher {
         policy: LockPolicy,
         registries: BTreeMap<String, RegistryEndpoint>,
         registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
+        refresh_names: Option<BTreeSet<String>>,
     ) -> io::Result<Self> {
         let state_root = workspace_state_root(root)?;
         let lock_path = state_root.join("nia.lock");
@@ -899,6 +901,7 @@ impl PackageFetcher {
             registry_constraints: BTreeMap::new(),
             registry_candidates: BTreeMap::new(),
             registry_restart: None,
+            refresh_names,
         })
     }
 
@@ -992,6 +995,10 @@ impl PackageFetcher {
                     .or_else(|| tag.clone())
                     .or_else(|| branch.clone());
                 let selector = git_lock_selector(rev, tag, branch);
+                let refresh = self
+                    .refresh_names
+                    .as_ref()
+                    .is_some_and(|names| names.is_empty() || names.contains(&dependency.name));
                 if let Some(entry) = self.lock.package.iter().find(|entry| {
                     entry.name == dependency.name
                         && matches!(
@@ -999,7 +1006,8 @@ impl PackageFetcher {
                             LockedSource::Git { url, selector: locked_selector, .. }
                                 if url == &source && locked_selector == &selector
                         )
-                }) {
+                }) && !refresh
+                {
                     let LockedSource::Git {
                         source_fingerprint, ..
                     } = &entry.source
@@ -1029,22 +1037,25 @@ impl PackageFetcher {
                         ));
                     }
                 }
-                let locked_rev = self
-                    .lock
-                    .package
-                    .iter()
-                    .find(|entry| {
-                        entry.name == dependency.name
-                            && matches!(
-                                &entry.source,
-                                LockedSource::Git { url, selector: locked_selector, .. }
-                                    if url == &source && locked_selector == &selector
-                            )
+                let locked_rev = (!refresh)
+                    .then(|| {
+                        self.lock
+                            .package
+                            .iter()
+                            .find(|entry| {
+                                entry.name == dependency.name
+                                    && matches!(
+                                        &entry.source,
+                                        LockedSource::Git { url, selector: locked_selector, .. }
+                                            if url == &source && locked_selector == &selector
+                                    )
+                            })
+                            .and_then(|entry| match &entry.source {
+                                LockedSource::Git { revision, .. } => Some(revision.clone()),
+                                LockedSource::Path { .. } | LockedSource::Registry { .. } => None,
+                            })
                     })
-                    .and_then(|entry| match &entry.source {
-                        LockedSource::Git { revision, .. } => Some(revision.clone()),
-                        LockedSource::Path { .. } | LockedSource::Registry { .. } => None,
-                    });
+                    .flatten();
                 let fetch_rev = rev.clone().or(locked_rev);
                 let key = blake3::hash(
                     format!(
@@ -1186,6 +1197,10 @@ impl PackageFetcher {
         requirement: &PackageVersionRequirement,
     ) -> io::Result<PathBuf> {
         self.lock_state()?;
+        let refresh = self
+            .refresh_names
+            .as_ref()
+            .is_some_and(|names| names.is_empty() || names.contains(&dependency.name));
         let state_root = self
             .lock_path
             .parent()
@@ -1219,9 +1234,10 @@ impl PackageFetcher {
                     )
                 })
         });
-        let locked_cache_hit = locked
-            .as_ref()
-            .is_some_and(|(_, digest, _)| cache.read_archive(digest).is_ok());
+        let locked_cache_hit = !refresh
+            && locked
+                .as_ref()
+                .is_some_and(|(_, digest, _)| cache.read_archive(digest).is_ok());
         let (selected, archive_digest, locked_fingerprint, archive) = if self.policy.locked
             || (locked_cache_hit
                 && locked
@@ -1738,14 +1754,8 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
             }
         }
         let original_lock = fetcher.lock.clone();
-        fetcher.lock.package.retain(|entry| {
-            entry.source.update_kind().is_none()
-                || (!names.is_empty() && !names.contains(&entry.name))
-        });
-        fetcher.dirty = true;
         fetcher.finish()?;
         (before, original_lock)
-        // The cache lock is released here; resolution below takes it again.
     };
     let update = (|| {
         let raw = read_raw_manifest(&state_root)?;
@@ -1765,14 +1775,15 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
             roots.push(state_root.clone());
         }
         let registries = read_registry_endpoints(&state_root)?;
+        let refresh_names = names.iter().cloned().collect::<BTreeSet<_>>();
         for root in roots {
-            PackageGraph::resolve_with_policy_and_registries(
+            PackageGraph::resolve_for_update(
                 &root,
                 PackageGraphOptions {
                     include_development: true,
                 },
-                LockPolicy::default(),
                 registries.clone(),
+                refresh_names.clone(),
             )?;
         }
         Ok(())
@@ -1936,7 +1947,32 @@ impl PackageGraph {
         policy: LockPolicy,
         registries: BTreeMap<String, RegistryEndpoint>,
     ) -> io::Result<Self> {
-        Self::resolve_with_registry_overrides(root, options, policy, registries, BTreeMap::new(), 0)
+        Self::resolve_with_registry_overrides(
+            root,
+            options,
+            policy,
+            registries,
+            BTreeMap::new(),
+            None,
+            0,
+        )
+    }
+
+    fn resolve_for_update(
+        root: &Path,
+        options: PackageGraphOptions,
+        registries: BTreeMap<String, RegistryEndpoint>,
+        refresh_names: BTreeSet<String>,
+    ) -> io::Result<Self> {
+        Self::resolve_with_registry_overrides(
+            root,
+            options,
+            LockPolicy::default(),
+            registries,
+            BTreeMap::new(),
+            Some(refresh_names),
+            0,
+        )
     }
 
     fn resolve_with_registry_overrides(
@@ -1945,6 +1981,7 @@ impl PackageGraph {
         policy: LockPolicy,
         registries: BTreeMap<String, RegistryEndpoint>,
         registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
+        refresh_names: Option<BTreeSet<String>>,
         attempt: usize,
     ) -> io::Result<Self> {
         let mut fetcher = PackageFetcher::for_root_with_registries(
@@ -1952,6 +1989,7 @@ impl PackageGraph {
             policy,
             registries.clone(),
             registry_overrides,
+            refresh_names.clone(),
         )?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
@@ -2094,6 +2132,7 @@ impl PackageGraph {
                 policy,
                 registries,
                 overrides,
+                refresh_names,
                 attempt + 1,
             );
         }
