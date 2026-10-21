@@ -3,7 +3,7 @@
 
 use std::{
     ffi::OsStr,
-    fmt, fs,
+    fmt,
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
     sync::{
@@ -15,6 +15,9 @@ use std::{
 use cap_std::fs::OpenOptions as CapOpenOptions;
 use cap_std::{ambient_authority, fs::Dir};
 use serde::Deserialize;
+
+#[cfg(test)]
+use std::fs;
 
 use crate::{PackageId, PackageVersion};
 
@@ -390,12 +393,11 @@ pub fn extract_registry_archive(
 ) -> io::Result<()> {
     let entries = decode_registry_archive(archive, expected_digest)?;
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
+    let parent_dir = open_cache_root(parent, true)?;
     let destination_name = destination
         .file_name()
         .filter(|name| !name.is_empty())
         .ok_or_else(|| invalid_index("registry package destination has no name"))?;
-    let parent_dir = Dir::open_ambient_dir(parent, ambient_authority())?;
     let staging_name = allocate_archive_staging(&parent_dir)?;
     let result = (|| {
         {
@@ -1104,6 +1106,60 @@ mod tests {
                 .kind(),
             io::ErrorKind::AlreadyExists
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_archive_rejects_symlinked_destination_ancestors() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-archive-parent-link-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let outside = root.join("outside");
+        let linked = root.join("linked");
+        fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        let bytes = archive(&[(0, "nia.toml", b"[package]\nname = \"demo\"\n")]);
+        let digest = *blake3::hash(&bytes).as_bytes();
+
+        assert!(extract_registry_archive(&bytes, &digest, &linked.join("package")).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_file(linked).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_archive_rejects_junctioned_destination_ancestors() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-archive-parent-junction-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let outside = root.join("outside");
+        let linked = root.join("linked");
+        fs::create_dir_all(&outside).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "create archive destination junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let bytes = archive(&[(0, "nia.toml", b"[package]\nname = \"demo\"\n")]);
+        let digest = *blake3::hash(&bytes).as_bytes();
+
+        assert!(extract_registry_archive(&bytes, &digest, &linked.join("package")).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_dir(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
