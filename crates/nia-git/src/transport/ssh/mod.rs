@@ -693,5 +693,8 @@ fn ssh_directory() -> io::Result<PathBuf> {
     Ok(PathBuf::from(home).join(".ssh"))
 }
 
+#[cfg(test)]
+mod tests;
+
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) mod tests;
+pub(crate) mod fixture;
