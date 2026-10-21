@@ -293,7 +293,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         arity: Arity::Flag,
         scope: BUILD_TEST,
         usage: "--offline",
-        about: "fail instead of fetching Git dependencies that are not cached",
+        about: "use cached Git and registry dependencies without fetching",
     },
     OptionSpec {
         id: OptionId::Filter,

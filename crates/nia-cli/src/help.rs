@@ -351,6 +351,15 @@ mod tests {
     }
 
     #[test]
+    fn offline_help_covers_git_and_registry_dependencies() {
+        let text = help_text(HelpTopic::Build, HelpStyle::Plain);
+        assert!(
+            text.contains("cached Git and registry dependencies without fetching"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn emit_help_lists_targets_and_points_to_target_help() {
         let text = help_text(HelpTopic::Emit, HelpStyle::Plain);
         for kind in EmitKind::ALL {
