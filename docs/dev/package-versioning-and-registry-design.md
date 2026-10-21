@@ -79,7 +79,8 @@ fingerprint. Git records contain the canonical URL, selector, resolved commit,
 and source fingerprint. Registry records contain
 registry identity, package namespace/name, selected SemVer version, archive
 digest, and source fingerprint. They cannot depend on mutable index responses
-after locking. Schema version 1 and any unknown schema are rejected without
+after locking. A package coordinate can be bound to only one registry in a
+lockfile. Schema version 1 and any unknown schema are rejected without
 migration. `--locked` resolves only from lock entries and cached artifacts and
 fails before network access if required data is unavailable. `--offline` uses
 cached registry metadata and artifacts only. `nia update` refreshes registry
