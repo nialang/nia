@@ -14,14 +14,16 @@ fn read_delta_varint(delta: &[u8], cursor: &mut usize) -> io::Result<usize> {
             .get(*cursor)
             .ok_or_else(|| invalid_packet("truncated Git delta size"))?;
         *cursor += 1;
-        value |= usize::from(byte & 0x7f)
-            .checked_shl(shift)
-            .ok_or_else(|| invalid_packet("Git delta size overflows"))?;
+        let digit = usize::from(byte & 0x7f);
+        if shift >= usize::BITS || digit > (usize::MAX >> shift) {
+            return Err(invalid_packet("Git delta size overflows"));
+        }
+        value |= digit << shift;
         if byte & 0x80 == 0 {
             return Ok(value);
         }
         shift += 7;
-        if shift > 63 {
+        if shift >= usize::BITS {
             return Err(invalid_packet("Git delta size overflows"));
         }
     }
@@ -95,6 +97,15 @@ mod tests {
     use std::io;
 
     #[test]
+    fn overflowing_delta_size_cannot_wrap_to_empty_base() {
+        let groups = (usize::BITS - 1) / 7;
+        let mut delta = vec![0x80; groups as usize];
+        delta.push(1 << (usize::BITS - groups * 7));
+        delta.push(0);
+        assert!(apply_delta(&[], &delta).is_err());
+    }
+
+    #[test]
     fn deltas_copy_and_insert_with_checked_sizes() {
         let delta = [5, 10, 0x90, 5, 5, b'!', b' ', b'n', b'i', b'a'];
         assert_eq!(apply_delta(b"hello", &delta).unwrap(), b"hello! nia");
@@ -113,6 +124,23 @@ mod properties {
     use proptest::prelude::*;
 
     proptest! {
+        #[test]
+        fn delta_sizes_preserve_integer_value(value in prop_oneof![any::<u128>(), any::<usize>().prop_map(|value| value as u128), Just(usize::MAX as u128), Just(usize::MAX as u128 + 1)]) {
+            let mut remaining = value;
+            let mut encoded = Vec::new();
+            loop {
+                let digit = (remaining & 127) as u8;
+                remaining >>= 7;
+                encoded.push(digit | if remaining == 0 { 0 } else { 128 });
+                if remaining == 0 { break; }
+            }
+            let decoded = read_delta_varint(&encoded, &mut 0);
+            match usize::try_from(value) {
+                Ok(expected) => prop_assert_eq!(decoded.unwrap(), expected),
+                Err(_) => prop_assert!(decoded.is_err()),
+            }
+        }
+
         #[test]
         fn arbitrary_delta_instructions_do_not_panic(
             base in prop::collection::vec(any::<u8>(), 0..128),

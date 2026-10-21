@@ -96,6 +96,17 @@ mod tests {
     use std::io;
 
     #[test]
+    fn truncated_zlib_trailers_are_rejected() {
+        let encoded = encode_loose_object(ObjectKind::Blob, b"payload").unwrap();
+        for removed in 1..=4 {
+            assert!(
+                decode_loose_object(&encoded[..encoded.len() - removed]).is_err(),
+                "removed {removed} trailer bytes"
+            );
+        }
+    }
+
+    #[test]
     fn loose_objects_validate_type_size_and_git_object_identity() {
         let data = b"tree 0000000000000000000000000000000000000000\n";
         let encoded = encode_loose_object(ObjectKind::Commit, data).unwrap();
