@@ -94,9 +94,16 @@ their original error kinds. The current limits are:
 | Loose reference / packed references | 4 KiB / 16 MiB |
 | SSH identity / known hosts | 1 MiB / 16 MiB |
 | SSH agent identities | 1,024 |
+| Checkout directory depth / entries | 64 / 1,000,000 |
+| Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |
 
-These are individual input bounds. They do not bound the total memory used by
-all decoded objects in a pack or the total work needed to materialize a tree.
+Checkout uses an explicit traversal stack and creates each tree path
+exclusively. The destination must be missing or empty, with real directory
+ancestors. The caller owns it throughout checkout and discards partial output
+on failure. Tree entries cannot name Git metadata, traverse directories, or
+use Windows device names and alternate data streams. These checks do not
+protect against another process concurrently replacing destination paths.
+The per-object bounds do not yet bound all decoded objects retained by a pack.
 
 ## Where Tests Live
 

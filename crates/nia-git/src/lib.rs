@@ -19,6 +19,11 @@ fn invalid_packet(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
+/// Checks out a commit into a missing or empty directory without Git metadata.
+///
+/// The caller must exclusively own the destination during checkout. Existing
+/// contents and linked destination directories are rejected. On failure, a
+/// partially materialized tree may remain for the caller to discard.
 pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
     if let Some(repository) = source.strip_prefix("file:///") {
         let repository = if cfg!(windows) && repository.as_bytes().get(1) == Some(&b':') {

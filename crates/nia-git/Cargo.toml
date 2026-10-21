@@ -9,6 +9,7 @@ license.workspace = true
 test-support = []
 
 [dependencies]
+nia-compat.workspace = true
 flate2.workspace = true
 sha1.workspace = true
 aes.workspace = true
@@ -22,6 +23,7 @@ zeroize.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+nia-test-support.workspace = true
 nia-git = { path = ".", features = ["test-support"] }
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 rcgen = "0.14.10"
