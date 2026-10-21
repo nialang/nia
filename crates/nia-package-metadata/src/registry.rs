@@ -57,6 +57,52 @@ pub struct RegistryEndpoint {
     pub base_url: String,
 }
 
+/// Registry transport backed by a validated endpoint and content cache.
+#[derive(Debug, Clone)]
+pub struct RegistryClient {
+    endpoint: RegistryEndpoint,
+    cache: RegistryCache,
+}
+
+impl RegistryClient {
+    pub fn new(endpoint: RegistryEndpoint, cache: RegistryCache) -> Self {
+        Self { endpoint, cache }
+    }
+
+    /// Returns the cached index offline or fetches and validates the current index.
+    pub fn index(&self, offline: bool) -> io::Result<RegistryIndex> {
+        if offline {
+            return self.cache.read_index(&self.endpoint.name);
+        }
+        let bytes = nia_git::fetch_https(&self.endpoint.index_url())?;
+        self.cache.write_index(&self.endpoint.name, &bytes)
+    }
+
+    /// Returns an archive from cache or fetches, verifies, and caches it.
+    pub fn archive(&self, package: &RegistryIndexPackage, offline: bool) -> io::Result<Vec<u8>> {
+        match self.cache.read_archive(&package.archive_digest) {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && offline => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "registry package archive is not cached and offline mode forbids fetching",
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        if offline {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "registry package archive is not cached and offline mode forbids fetching",
+            ));
+        }
+        let bytes = nia_git::fetch_https(&package.archive_url)?;
+        self.cache.write_archive(&package.archive_digest, &bytes)?;
+        Ok(bytes)
+    }
+}
+
 impl RegistryEndpoint {
     /// Validates a registry name and HTTPS base URL.
     pub fn new(name: impl Into<String>, base_url: impl Into<String>) -> io::Result<Self> {
@@ -428,13 +474,12 @@ fn validate_registry_base_url(url: &str) -> io::Result<()> {
     {
         return Err(invalid_index("registry endpoint URL is invalid"));
     }
-    if let Some(port) = port {
-        if port.is_empty()
+    if let Some(port) = port
+        && (port.is_empty()
             || !port.bytes().all(|byte| byte.is_ascii_digit())
-            || port.parse::<u16>().map_or(true, |value| value == 0)
-        {
-            return Err(invalid_index("registry endpoint URL is invalid"));
-        }
+            || port.parse::<u16>().map_or(true, |value| value == 0))
+    {
+        return Err(invalid_index("registry endpoint URL is invalid"));
     }
     if path
         .trim_end_matches('/')
@@ -851,5 +896,39 @@ mod tests {
         ] {
             assert!(RegistryEndpoint::new("nia", url).is_err(), "{url}");
         }
+    }
+
+    #[test]
+    fn registry_client_uses_only_validated_cache_in_offline_mode() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-client-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = RegistryCache::new(&root);
+        let endpoint = RegistryEndpoint::new("nia", "https://packages.example.test").unwrap();
+        let client = RegistryClient::new(endpoint, cache.clone());
+        assert_eq!(
+            client.index(true).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        let bytes = archive(&[(0, "nia.toml", b"[package]\nname = \"demo\"\n")]);
+        let digest = *blake3::hash(&bytes).as_bytes();
+        let package = RegistryIndexPackage {
+            package: PackageId {
+                namespace: "acme".into(),
+                name: "demo".into(),
+                version: PackageVersion::parse("1.0.0").unwrap(),
+            },
+            archive_url: "https://cdn.example.test/demo.nia".into(),
+            archive_digest: digest,
+        };
+        assert_eq!(
+            client.archive(&package, true).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        cache.write_archive(&digest, &bytes).unwrap();
+        assert_eq!(client.archive(&package, true).unwrap(), bytes);
+        fs::remove_dir_all(root).unwrap();
     }
 }
