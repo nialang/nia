@@ -330,6 +330,7 @@ pub enum DependencySource {
     },
     Registry {
         registry: String,
+        package: RegistryPackageName,
         requirement: PackageVersionRequirement,
     },
 }
@@ -1352,10 +1353,13 @@ impl PackageGraph {
                     }
                     DependencySource::Registry {
                         registry,
+                        package,
                         requirement,
                     } => {
                         encoded.push(2);
                         write_fingerprint_field(&mut encoded, registry.as_bytes());
+                        write_fingerprint_field(&mut encoded, package.namespace.as_bytes());
+                        write_fingerprint_field(&mut encoded, package.name.as_bytes());
                         write_fingerprint_field(&mut encoded, requirement.to_string().as_bytes());
                     }
                 }
@@ -2194,6 +2198,8 @@ struct RawDependency {
     #[serde(default)]
     registry: Option<String>,
     #[serde(default)]
+    package: Option<String>,
+    #[serde(default)]
     version: Option<String>,
     #[serde(default)]
     rev: Option<String>,
@@ -2217,6 +2223,30 @@ impl RawDependency {
                     format!("registry dependency `{name}` cannot combine sources or Git selectors"),
                 ));
             }
+            let package = self.package.as_deref().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("registry dependency `{name}` must declare a `namespace/name` package"),
+                )
+            })?;
+            let (namespace, package_name) = package.split_once('/').ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("registry package for dependency `{name}` must use `namespace/name`"),
+                )
+            })?;
+            validate_registry_package_segment(namespace, name)?;
+            validate_registry_package_segment(package_name, name)?;
+            if package_name.contains('/') {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("registry package for dependency `{name}` must use `namespace/name`"),
+                ));
+            }
+            let package = RegistryPackageName {
+                namespace: namespace.to_owned(),
+                name: package_name.to_owned(),
+            };
             if registry.is_empty()
                 || registry.len() > 64
                 || !registry
@@ -2246,13 +2276,16 @@ impl RawDependency {
                 })?;
             return Ok(DependencySource::Registry {
                 registry,
+                package,
                 requirement,
             });
         }
-        if self.version.is_some() {
+        if self.version.is_some() || self.package.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("dependency `{name}` may only specify `version` with `registry`"),
+                format!(
+                    "dependency `{name}` may only specify `package` and `version` with `registry`"
+                ),
             ));
         }
         match (self.path, self.git) {
@@ -2333,6 +2366,21 @@ impl RawDependency {
             )),
         }
     }
+}
+
+fn validate_registry_package_segment(segment: &str, dependency: &str) -> io::Result<()> {
+    if segment.is_empty()
+        || segment.len() > 128
+        || !segment
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid registry package identity for dependency `{dependency}`"),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_git_revision(revision: &str, name: &str) -> io::Result<()> {
@@ -4987,7 +5035,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\njson = { registry = \"nia\", version = \"^1.4\" }\n",
+            "[package]\nname = \"root\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.4\" }\n",
         )
         .unwrap();
         let manifest = PackageManifest::read(&root).unwrap();
@@ -4995,15 +5043,22 @@ mod tests {
             manifest.dependencies[0].source,
             DependencySource::Registry {
                 registry: "nia".into(),
+                package: RegistryPackageName {
+                    namespace: "acme".into(),
+                    name: "json".into(),
+                },
                 requirement: PackageVersionRequirement::parse("^1.4").unwrap(),
             }
         );
 
         for declaration in [
-            "json = { registry = \"nia\" }",
-            "json = { registry = \"nia\", version = \"latest\" }",
-            "json = { registry = \"Nia\", version = \"^1.4\" }",
-            "json = { registry = \"nia\", version = \"^1.4\", path = \"../json\" }",
+            "json = { registry = \"nia\", package = \"acme/json\" }",
+            "json = { registry = \"nia\", package = \"acme/json\", version = \"latest\" }",
+            "json = { registry = \"Nia\", package = \"acme/json\", version = \"^1.4\" }",
+            "json = { registry = \"nia\", package = \"acme/json\", version = \"^1.4\", path = \"../json\" }",
+            "json = { registry = \"nia\", version = \"^1.4\" }",
+            "json = { registry = \"nia\", package = \"Acme/json\", version = \"^1.4\" }",
+            "json = { registry = \"nia\", package = \"acme\", version = \"^1.4\" }",
             "json = { version = \"^1.4\" }",
             "json = { path = \"../json\", version = \"^1.4\" }",
         ] {
@@ -5019,7 +5074,7 @@ mod tests {
 
     #[test]
     fn registry_requirements_are_part_of_the_canonical_graph_fingerprint() {
-        let graph = |requirement: &str| PackageGraph {
+        let graph = |package_name: &str, requirement: &str| PackageGraph {
             options: PackageGraphOptions::default(),
             nodes: vec![PackageGraphNode {
                 manifest: PackageManifest {
@@ -5031,6 +5086,10 @@ mod tests {
                         name: "json".into(),
                         source: DependencySource::Registry {
                             registry: "nia".into(),
+                            package: RegistryPackageName {
+                                namespace: "acme".into(),
+                                name: package_name.into(),
+                            },
                             requirement: PackageVersionRequirement::parse(requirement).unwrap(),
                         },
                         scope: DependencyScope::Runtime,
@@ -5042,7 +5101,14 @@ mod tests {
             dependencies: Vec::new(),
         };
 
-        assert_ne!(graph("^1.4").fingerprint(), graph("^2.0").fingerprint());
+        assert_ne!(
+            graph("json", "^1.4").fingerprint(),
+            graph("json", "^2.0").fingerprint()
+        );
+        assert_ne!(
+            graph("json", "^1.4").fingerprint(),
+            graph("serde", "^1.4").fingerprint()
+        );
     }
 
     #[test]

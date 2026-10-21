@@ -90,13 +90,7 @@ impl RegistryIndex {
         let mut packages = Vec::with_capacity(raw.packages.len());
         let mut previous: Option<(String, String, String)> = None;
         for record in raw.packages {
-            if record.namespace.is_empty()
-                || record.namespace.len() > 128
-                || record.name.is_empty()
-                || record.name.len() > 128
-                || record.namespace.contains('/')
-                || record.name.contains('/')
-            {
+            if !valid_package_segment(&record.namespace) || !valid_package_segment(&record.name) {
                 return Err(invalid_index(
                     "registry index contains an invalid package identity",
                 ));
@@ -293,6 +287,14 @@ fn validate_archive_path(path: &str) -> io::Result<()> {
     Ok(())
 }
 
+fn valid_package_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment.len() <= 128
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
 fn validate_archive_tree(entries: &[RegistryArchiveEntry]) -> io::Result<()> {
     let kinds = entries
         .iter()
@@ -396,11 +398,15 @@ fn validate_archive_url(url: &str) -> io::Result<()> {
     } else {
         (authority, None)
     };
-    if host.is_empty()
-        || !host
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
-    {
+    let valid_host = if authority.starts_with('[') {
+        host.parse::<std::net::Ipv6Addr>().is_ok()
+    } else {
+        !host.is_empty()
+            && host
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+    };
+    if !valid_host {
         return Err(invalid_index("registry archive URL is invalid"));
     }
     if let Some(port) = port {
@@ -517,6 +523,23 @@ mod tests {
                 "schema_version = 1\n{}",
                 record("acme", "json", "1.0.0", url)
                     .replace(&format!("blake3:{}", "ab".repeat(32)), &digest)
+            );
+            assert!(RegistryIndex::parse_toml(input.as_bytes()).is_err());
+        }
+        assert!(
+            RegistryIndex::parse_toml(
+                format!(
+                    "schema_version = 1\n{}",
+                    record("acme", "json", "1.0.0", "https://[::1]:8443/json")
+                )
+                .as_bytes()
+            )
+            .is_ok()
+        );
+        for namespace in ["Acme", "acme/team", "_private", ""] {
+            let input = format!(
+                "schema_version = 1\n{}",
+                record(namespace, "json", "1.0.0", "https://cdn.example.test/json")
             );
             assert!(RegistryIndex::parse_toml(input.as_bytes()).is_err());
         }
