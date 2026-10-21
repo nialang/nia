@@ -6,6 +6,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod input;
 mod object;
 mod pktline;
 mod transport;

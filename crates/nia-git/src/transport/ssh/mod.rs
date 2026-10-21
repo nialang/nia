@@ -12,7 +12,7 @@ use agent::SshAgent;
 use cipher::{SshAes128CtrDirection, write_encrypted_ssh_packet};
 use identity::{SshSigner, load_ssh_identity};
 use kex::perform_ssh_key_exchange;
-use known_hosts::KnownHosts;
+use known_hosts::{KnownHosts, MAX_KNOWN_HOSTS_BYTES};
 use wire::{SshReader, encode_ssh_string};
 
 use std::io::{self, Read, Write};
@@ -24,8 +24,11 @@ use super::protocol::{
     select_advertised_revision,
 };
 use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout};
-use crate::invalid_packet;
 use crate::pktline::read_packet_section;
+use crate::{
+    input::{read_limited, read_limited_file},
+    invalid_packet,
+};
 
 const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
 const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
@@ -615,7 +618,12 @@ fn checkout_ssh_with_config(
     let url = parse_ssh_url(source)?;
     let known_hosts_path = ssh_directory.join("known_hosts");
     let known_hosts = KnownHosts::parse(
-        &read_limited_file(&known_hosts_path, 16 * 1024 * 1024).map_err(|error| {
+        &read_limited_file(
+            &known_hosts_path,
+            MAX_KNOWN_HOSTS_BYTES,
+            "SSH known_hosts exceeds size limit",
+        )
+        .map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
@@ -653,34 +661,13 @@ fn checkout_ssh_with_config(
     channel.write_all(&request)?;
     channel.flush()?;
     channel.finish_writing()?;
-    let mut response = Vec::new();
-    channel
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_RESPONSE_BYTES {
-        return Err(invalid_packet("Git response is too large"));
-    }
+    let response = read_limited(
+        channel,
+        MAX_RESPONSE_BYTES,
+        "Git response exceeds size limit",
+    )?;
     let pack = parse_upload_pack_response(&response)?;
     write_pack_checkout(&pack, &commit, destination)
-}
-
-fn read_limited_file(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
-    if file.metadata()?.len() > limit {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("SSH configuration file at {} is too large", path.display()),
-        ));
-    }
-    let mut contents = Vec::new();
-    file.take(limit + 1).read_to_end(&mut contents)?;
-    if contents.len() as u64 > limit {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("SSH configuration file at {} is too large", path.display()),
-        ));
-    }
-    Ok(contents)
 }
 
 fn ssh_directory() -> io::Result<PathBuf> {

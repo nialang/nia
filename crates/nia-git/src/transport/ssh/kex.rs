@@ -13,6 +13,8 @@ use ring::{agreement, digest, rand, rand::SecureRandom, signature};
 use std::io::{self, Read, Write};
 use zeroize::Zeroizing;
 
+const MAX_DERIVED_KEY_BYTES: usize = 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SshKexInit {
     pub(super) kex_algorithms: Vec<String>,
@@ -435,7 +437,7 @@ pub(super) fn derive_ssh_key(
     purpose: u8,
     length: usize,
 ) -> io::Result<Vec<u8>> {
-    if shared_secret.len() != 32 || length > 1024 * 1024 {
+    if shared_secret.len() != 32 || length > MAX_DERIVED_KEY_BYTES {
         return Err(invalid_packet("SSH key derivation input is invalid"));
     }
     let mut encoded_secret = Zeroizing::new(Vec::new());
