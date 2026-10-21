@@ -33,6 +33,9 @@ use nia_query::FingerprintDomain;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
+mod registry;
+pub use registry::{RegistryIndex, RegistryIndexPackage};
+
 /// Protocol epoch for stable compiler-owned metadata.
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
 /// Maximum accepted stable metadata payload size.
