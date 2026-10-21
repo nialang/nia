@@ -7,6 +7,8 @@ use std::process::Command;
 use crate::invalid_packet;
 use zeroize::Zeroizing;
 
+const MAX_HTTP_RESPONSE: usize = 128 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub(crate) struct HttpGitUrl {
     pub(crate) host: String,
@@ -212,6 +214,94 @@ pub(crate) fn parse_http_git_url(source: &str) -> io::Result<HttpGitUrl> {
         path,
         secure,
     })
+}
+
+pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| invalid_packet("Git HTTP response has no header terminator"))?;
+    let header = std::str::from_utf8(&response[..header_end])
+        .map_err(|_| invalid_packet("Git HTTP response headers are not UTF-8"))?;
+    let mut lines = header.lines();
+    let status = lines
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .ok_or_else(|| invalid_packet("Git HTTP response status is malformed"))?;
+    if !(200..300).contains(&status) {
+        let kind = if status == 401 {
+            io::ErrorKind::PermissionDenied
+        } else {
+            io::ErrorKind::Other
+        };
+        return Err(io::Error::new(
+            kind,
+            format!("Git HTTP server returned status {status}"),
+        ));
+    }
+    let mut chunked = false;
+    let mut content_length = None;
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            match name.to_ascii_lowercase().as_str() {
+                "transfer-encoding" if value.trim().eq_ignore_ascii_case("chunked") => {
+                    chunked = true
+                }
+                "content-length" => {
+                    content_length = Some(
+                        value
+                            .trim()
+                            .parse::<usize>()
+                            .map_err(|_| invalid_packet("Git HTTP content length is malformed"))?,
+                    )
+                }
+                _ => {}
+            }
+        }
+    }
+    let body = &response[header_end + 4..];
+    if chunked {
+        decode_chunked_body(body)
+    } else if let Some(length) = content_length {
+        if body.len() < length {
+            return Err(invalid_packet("Git HTTP body is truncated"));
+        }
+        Ok(body[..length].to_vec())
+    } else {
+        Ok(body.to_vec())
+    }
+}
+
+fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    loop {
+        let line_end = input
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .ok_or_else(|| invalid_packet("Git HTTP chunk header is truncated"))?;
+        let size = usize::from_str_radix(
+            std::str::from_utf8(&input[..line_end])
+                .map_err(|_| invalid_packet("Git HTTP chunk size is invalid"))?
+                .split(';')
+                .next()
+                .unwrap_or_default(),
+            16,
+        )
+        .map_err(|_| invalid_packet("Git HTTP chunk size is invalid"))?;
+        input = &input[line_end + 2..];
+        if size == 0 {
+            return Ok(output);
+        }
+        if input.len() < size + 2 || &input[size..size + 2] != b"\r\n" {
+            return Err(invalid_packet("Git HTTP chunk is truncated"));
+        }
+        output.extend_from_slice(&input[..size]);
+        if output.len() > MAX_HTTP_RESPONSE {
+            return Err(invalid_packet("Git HTTP response is too large"));
+        }
+        input = &input[size + 2..];
+    }
 }
 
 pub(crate) fn lookup_http_authorization(url: &HttpGitUrl) -> Option<Zeroizing<Vec<u8>>> {
