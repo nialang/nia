@@ -6436,6 +6436,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(solved[&package].version.as_str(), "1.9.0");
+
+        let metadata_candidates = [
+            PackageId {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+                version: PackageVersion::parse("1.9.0+one").unwrap(),
+            },
+            PackageId {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+                version: PackageVersion::parse("1.9.0+two").unwrap(),
+            },
+        ];
+        let reversed_candidates = [
+            metadata_candidates[1].clone(),
+            metadata_candidates[0].clone(),
+        ];
+        for candidates in [&metadata_candidates[..], &reversed_candidates[..]] {
+            let selected =
+                solve_registry_versions(&[constraint("app", "^1.4", &["app", "json"])], candidates)
+                    .unwrap();
+            assert_eq!(selected[&package].version.as_str(), "1.9.0+two");
+        }
     }
 
     #[test]

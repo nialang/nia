@@ -19,7 +19,7 @@ json = { registry = "nia", package = "acme/json", version = "^1.4" }
 
 Use standard SemVer requirement syntax; do not infer a compatibility operator when it is omitted. Path dependencies remain direct local sources. Git source selectors retain their current semantics. Registry dependencies select immutable published package versions. No source fallback or implicit override is permitted.
 
-The initial resolver selects one version per `(namespace, name)` across the complete selected graph, including build, runtime, and selected development scopes. Intersect all requirements and select the highest stable version satisfying them. Prereleases are eligible only when a requirement explicitly admits that prerelease. On conflict, report each requiring package, its constraint, and its dependency chain. Reject aliases duplicated within a manifest; aliases may differ from package names. Multiple versions of the same identity are unsupported.
+The initial resolver selects one version per `(namespace, name)` across the complete selected graph, including build, runtime, and selected development scopes. Intersect all requirements and select the highest stable version satisfying them. SemVer build metadata remains part of package identity but does not affect precedence; when candidates have equal precedence, select the lexicographically greatest canonical version text so the result is independent of index record order. Prereleases are eligible only when a requirement explicitly admits that prerelease. On conflict, report each requiring package, its constraint, and its dependency chain. Reject aliases duplicated within a manifest; aliases may differ from package names. Multiple versions of the same identity are unsupported.
 
 ## Registry
 
