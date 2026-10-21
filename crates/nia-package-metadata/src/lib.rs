@@ -3688,10 +3688,7 @@ mod tests {
             name: "%40@\0\u{7f}".into(),
             version: "1.0.0".into(),
         };
-        assert_eq!(
-            escaped.canonical_text(),
-            "acme%2Fteam/%2540%40%00%7F@1.0.0"
-        );
+        assert_eq!(escaped.canonical_text(), "acme%2Fteam/%2540%40%00%7F@1.0.0");
         assert_ne!(canonical_component("%40"), canonical_component("@"));
     }
 
