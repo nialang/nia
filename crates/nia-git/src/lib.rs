@@ -1028,19 +1028,19 @@ mod ssh {
         encode_ssh_string(b"ssh-connection", &mut signed)?;
         encode_ssh_string(b"publickey", &mut signed)?;
         signed.push(1);
-        encode_ssh_string(b"ssh-ed25519", &mut signed)?;
+        encode_ssh_string(signer.signature_algorithm(), &mut signed)?;
         encode_ssh_string(signer.public_key_blob(), &mut signed)?;
         let signature = signer.sign_message(&signed)?;
 
         let mut signature_blob = Vec::new();
-        encode_ssh_string(b"ssh-ed25519", &mut signature_blob)?;
+        encode_ssh_string(signer.signature_algorithm(), &mut signature_blob)?;
         encode_ssh_string(&signature, &mut signature_blob)?;
         let mut request = vec![50];
         encode_ssh_string(username.as_bytes(), &mut request)?;
         encode_ssh_string(b"ssh-connection", &mut request)?;
         encode_ssh_string(b"publickey", &mut request)?;
         request.push(1);
-        encode_ssh_string(b"ssh-ed25519", &mut request)?;
+        encode_ssh_string(signer.signature_algorithm(), &mut request)?;
         encode_ssh_string(signer.public_key_blob(), &mut request)?;
         encode_ssh_string(&signature_blob, &mut request)?;
         Ok(request)
@@ -2170,12 +2170,17 @@ mod ssh {
 
     pub(super) trait SshSigner {
         fn public_key_blob(&self) -> &[u8];
+        fn signature_algorithm(&self) -> &[u8];
         fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>>;
     }
 
     impl SshSigner for SshEd25519Identity {
         fn public_key_blob(&self) -> &[u8] {
             self.public_key_blob()
+        }
+
+        fn signature_algorithm(&self) -> &[u8] {
+            b"ssh-ed25519"
         }
 
         fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
@@ -2189,6 +2194,8 @@ mod ssh {
     pub(super) struct SshAgent {
         stream: Box<dyn SshAgentStream>,
         public_key: Vec<u8>,
+        signature_algorithm: Vec<u8>,
+        signature_flags: u32,
     }
 
     impl SshAgent {
@@ -2201,35 +2208,41 @@ mod ssh {
             let Some(public_key) = public_key else {
                 return Ok(None);
             };
-            Ok(Some(Self { stream, public_key }))
+            let (_, signature_algorithm, signature_flags) = agent_signing_algorithm(&public_key)?;
+            Ok(Some(Self {
+                stream,
+                public_key,
+                signature_algorithm,
+                signature_flags,
+            }))
         }
 
         fn sign(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
             let mut request = vec![13];
             encode_ssh_string(&self.public_key, &mut request)?;
             encode_ssh_string(message, &mut request)?;
-            request.extend_from_slice(&0u32.to_be_bytes());
+            request.extend_from_slice(&self.signature_flags.to_be_bytes());
             let response = agent_request(&mut *self.stream, &request)?;
             if response.first() != Some(&14) {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
-                    "SSH agent refused the Ed25519 signing request",
+                    "SSH agent refused the public-key signing request",
                 ));
             }
             let mut reader = SshReader::new(&response[1..]);
             let signature_blob = reader.string()?;
             reader.finish()?;
             let mut signature_reader = SshReader::new(signature_blob);
-            if signature_reader.string()? != b"ssh-ed25519" {
+            if signature_reader.string()? != self.signature_algorithm {
                 return Err(invalid_packet(
                     "SSH agent returned a signature with the wrong algorithm",
                 ));
             }
             let signature = signature_reader.string()?;
             signature_reader.finish()?;
-            if signature.len() != 64 {
+            if signature.is_empty() {
                 return Err(invalid_packet(
-                    "SSH agent returned an invalid Ed25519 signature",
+                    "SSH agent returned an empty public-key signature",
                 ));
             }
             Ok(signature.to_vec())
@@ -2241,18 +2254,47 @@ mod ssh {
             &self.public_key
         }
 
+        fn signature_algorithm(&self) -> &[u8] {
+            &self.signature_algorithm
+        }
+
         fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
             self.sign(message)
         }
     }
 
-    fn is_ed25519_public_key(blob: &[u8]) -> bool {
+    pub(super) fn agent_signing_algorithm(blob: &[u8]) -> io::Result<(Vec<u8>, Vec<u8>, u32)> {
         let mut reader = SshReader::new(blob);
-        reader
-            .string()
-            .is_ok_and(|algorithm| algorithm == b"ssh-ed25519")
-            && reader.string().is_ok_and(|key| key.len() == 32)
-            && reader.finish().is_ok()
+        let algorithm = reader.string()?;
+        let result = match algorithm {
+            b"ssh-ed25519" if reader.string()?.len() == 32 => {
+                (algorithm.to_vec(), algorithm.to_vec(), 0)
+            }
+            b"ecdsa-sha2-nistp256" => {
+                let curve = reader.string()?;
+                let point = reader.string()?;
+                if curve != b"nistp256" || point.len() != 65 || point[0] != 4 {
+                    return Err(invalid_packet("SSH agent returned an invalid ECDSA key"));
+                }
+                (algorithm.to_vec(), algorithm.to_vec(), 0)
+            }
+            b"ssh-rsa" => {
+                let exponent = reader.string()?;
+                let modulus = reader.string()?;
+                if exponent.is_empty() || modulus.len() < 128 {
+                    return Err(invalid_packet("SSH agent returned an invalid RSA key"));
+                }
+                (algorithm.to_vec(), b"rsa-sha2-512".to_vec(), 4)
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "SSH agent identity key type is unsupported",
+                ));
+            }
+        };
+        reader.finish()?;
+        Ok(result)
     }
 
     pub(super) fn parse_agent_identities(response: &[u8]) -> io::Result<Option<Vec<u8>>> {
@@ -2274,16 +2316,34 @@ mod ssh {
         if count > 1024 {
             return Err(invalid_packet("SSH agent returned too many identities"));
         }
-        let mut public_key = None;
+        let mut public_keys = Vec::new();
         for _ in 0..count {
             let key = reader.string()?;
             let _comment = reader.string()?;
-            if public_key.is_none() && is_ed25519_public_key(key) {
-                public_key = Some(key.to_vec());
+            if agent_signing_algorithm(key).is_ok() {
+                public_keys.push(key.to_vec());
             }
         }
         reader.finish()?;
-        Ok(public_key)
+        let selected = public_keys
+            .iter()
+            .find(|key| {
+                agent_signing_algorithm(key)
+                    .is_ok_and(|(algorithm, _, _)| algorithm == b"ssh-ed25519")
+            })
+            .or_else(|| {
+                public_keys.iter().find(|key| {
+                    agent_signing_algorithm(key)
+                        .is_ok_and(|(algorithm, _, _)| algorithm == b"ecdsa-sha2-nistp256")
+                })
+            })
+            .or_else(|| {
+                public_keys.iter().find(|key| {
+                    agent_signing_algorithm(key)
+                        .is_ok_and(|(algorithm, _, _)| algorithm == b"ssh-rsa")
+                })
+            });
+        Ok(selected.cloned())
     }
 
     pub(super) fn agent_request<S: Read + Write + ?Sized>(
@@ -2502,9 +2562,13 @@ mod ssh {
                 incoming: Cursor::new(incoming),
                 outgoing: Arc::clone(&outgoing),
             };
+            let (_, signature_algorithm, signature_flags) =
+                agent_signing_algorithm(&public_key).unwrap();
             let mut agent = SshAgent {
                 stream: Box::new(stream),
                 public_key: public_key.clone(),
+                signature_algorithm,
+                signature_flags,
             };
             assert_eq!(agent.sign(b"session-bound request").unwrap(), [9; 64]);
             let outgoing = outgoing.lock().unwrap();
@@ -5333,8 +5397,109 @@ mod tests {
         encode_ssh_string(&ed25519, &mut identities).unwrap();
         encode_ssh_string(b"ed25519 fixture", &mut identities).unwrap();
         assert_eq!(parse_agent_identities(&identities).unwrap(), Some(ed25519));
+
+        let mut ecdsa = Vec::new();
+        encode_ssh_string(b"ecdsa-sha2-nistp256", &mut ecdsa).unwrap();
+        encode_ssh_string(b"nistp256", &mut ecdsa).unwrap();
+        encode_ssh_string(&[vec![4], vec![7; 64]].concat(), &mut ecdsa).unwrap();
+        let mut rsa = Vec::new();
+        encode_ssh_string(b"ssh-rsa", &mut rsa).unwrap();
+        encode_ssh_string(&[1, 0, 1], &mut rsa).unwrap();
+        encode_ssh_string(&[0x7f; 256], &mut rsa).unwrap();
+        let mut identities = vec![12];
+        identities.extend_from_slice(&2u32.to_be_bytes());
+        encode_ssh_string(&rsa, &mut identities).unwrap();
+        encode_ssh_string(b"rsa fixture", &mut identities).unwrap();
+        encode_ssh_string(&ecdsa, &mut identities).unwrap();
+        encode_ssh_string(b"ecdsa fixture", &mut identities).unwrap();
+        assert_eq!(
+            parse_agent_identities(&identities).unwrap(),
+            Some(ecdsa.clone())
+        );
+        assert_eq!(
+            ssh::agent_signing_algorithm(&rsa).unwrap(),
+            (b"ssh-rsa".to_vec(), b"rsa-sha2-512".to_vec(), 4)
+        );
         assert_eq!(parse_agent_identities(&[5]).unwrap(), None);
         assert!(parse_agent_identities(&[12, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn ssh_agent_prefers_ecdsa_then_rsa_and_uses_rsa_sha2_flags() {
+        let mut rsa = Vec::new();
+        encode_ssh_string(b"ssh-rsa", &mut rsa).unwrap();
+        encode_ssh_string(&[1, 0, 1], &mut rsa).unwrap();
+        encode_ssh_string(&[0x7f; 256], &mut rsa).unwrap();
+        let mut identities = vec![12];
+        identities.extend_from_slice(&1u32.to_be_bytes());
+        encode_ssh_string(&rsa, &mut identities).unwrap();
+        encode_ssh_string(b"rsa fixture", &mut identities).unwrap();
+        assert_eq!(
+            ssh::parse_agent_identities(&identities).unwrap(),
+            Some(rsa.clone())
+        );
+        assert_eq!(
+            ssh::agent_signing_algorithm(&rsa).unwrap(),
+            (b"ssh-rsa".to_vec(), b"rsa-sha2-512".to_vec(), 4)
+        );
+    }
+
+    #[test]
+    fn ssh_publickey_auth_uses_the_signers_signature_algorithm() {
+        fn read_string<'a>(bytes: &'a [u8], offset: &mut usize) -> &'a [u8] {
+            let length =
+                u32::from_be_bytes(bytes[*offset..*offset + 4].try_into().unwrap()) as usize;
+            *offset += 4;
+            let value = &bytes[*offset..*offset + length];
+            *offset += length;
+            value
+        }
+
+        struct RsaSigner {
+            public_key: Vec<u8>,
+        }
+        impl ssh::SshSigner for RsaSigner {
+            fn public_key_blob(&self) -> &[u8] {
+                &self.public_key
+            }
+
+            fn signature_algorithm(&self) -> &[u8] {
+                b"rsa-sha2-512"
+            }
+
+            fn sign_message(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
+                assert!(!message.is_empty());
+                Ok(vec![0x5a; 256])
+            }
+        }
+
+        let mut public_key = Vec::new();
+        encode_ssh_string(b"ssh-rsa", &mut public_key).unwrap();
+        encode_ssh_string(&[1, 0, 1], &mut public_key).unwrap();
+        encode_ssh_string(&[0x7f; 256], &mut public_key).unwrap();
+        let mut signer = RsaSigner { public_key };
+        let request = ssh::build_publickey_auth_request("git", &[3; 32], &mut signer).unwrap();
+        let payload = &request[1..];
+        let mut offset = 0;
+        assert_eq!(read_string(payload, &mut offset), b"git");
+        assert_eq!(read_string(payload, &mut offset), b"ssh-connection");
+        assert_eq!(read_string(payload, &mut offset), b"publickey");
+        assert_eq!(payload[offset], 1);
+        offset += 1;
+        assert_eq!(read_string(payload, &mut offset), b"rsa-sha2-512");
+        assert_eq!(read_string(payload, &mut offset), signer.public_key);
+        let signature_blob = read_string(payload, &mut offset);
+        assert_eq!(offset, payload.len());
+        let mut signature_offset = 0;
+        assert_eq!(
+            read_string(signature_blob, &mut signature_offset),
+            b"rsa-sha2-512"
+        );
+        assert_eq!(
+            read_string(signature_blob, &mut signature_offset),
+            [0x5a; 256]
+        );
+        assert_eq!(signature_offset, signature_blob.len());
     }
 
     #[test]

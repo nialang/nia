@@ -112,12 +112,13 @@ repository credentials are sent only inside that encrypted connection.
 
 SSH sources verify the server key against `~/.ssh/known_hosts` (or
 `%USERPROFILE%\.ssh\known_hosts` on Windows), accepting plain and hashed
-OpenSSH entries, and reject unknown or changed host keys. Nia first uses an
-Ed25519 identity from the running SSH agent (`SSH_AUTH_SOCK` on Unix-like
-systems or the OpenSSH agent named pipe on Windows). If no compatible agent
-identity is available, it reads an unencrypted `~/.ssh/id_ed25519`. Encrypted
-key files and other key types are not supported directly; load an Ed25519 key
-into the agent instead.
+OpenSSH entries, and reject unknown or changed host keys. Nia first uses a
+compatible identity from the running SSH agent (`SSH_AUTH_SOCK` on Unix-like
+systems or the OpenSSH agent named pipe on Windows), preferring Ed25519, then
+ECDSA P-256, then RSA with RSA-SHA2-512 signatures. If no supported agent
+identity is available, it reads an unencrypted `~/.ssh/id_ed25519`. Other key
+types and encrypted key files are not read directly; load a supported key into
+the agent instead.
 
 The first build records each Git dependency's commit and content hash in
 `nia.lock` next to the root `nia.toml` (the workspace root in a workspace), and
