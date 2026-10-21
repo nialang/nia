@@ -21,7 +21,10 @@ parsing, and SSH channel lifecycle handling.
   excessive delta depth now fail with bounded resource use.
 - Checkout rejects linked destinations and ancestors, nonempty staging roots,
   path traversal and platform aliases. Tree expansion uses explicit depth,
-  entry-count, and decoded-byte budgets, and creates files exclusively.
+  entry-count, and decoded-byte budgets. Output traversal, exclusive file
+  creation, temporary metadata creation, and metadata cleanup are relative to
+  opened `cap-std` directory handles; replacing the destination pathname after
+  opening its root does not redirect output to a linked replacement.
 - Revision lookup validates ref names, rejects linked ref paths, resolves
   loose and packed refs consistently, and bounds symbolic-ref and annotated
   tag dereferencing.
@@ -48,10 +51,13 @@ current Windows environment. No remote CI execution is claimed.
 
 ## Remaining Limits
 
-- Filesystem path validation and subsequent reads/writes are not an atomic
-  transaction. Another local process with write access to repository or
-  checkout ancestors can race checks. Checkout callers must own the staging
-  directory and discard partial output after an error.
+- Opening the checkout root still begins with an ambient path lookup after
+  ancestor validation, so another local process with write access to a
+  checkout ancestor can race that initial open. Once the root handle is open,
+  checkout output and temporary `.git` lifecycle operations remain anchored to
+  that directory object. Checkout callers must own the staging directory and
+  discard partial output after an error. Repository object and ref reads also
+  remain pathname-based and require repository ownership against local races.
 - Byte budgets exclude allocator/container overhead and transient compression
   buffers. They bound decoded payload accounting, not exact process memory.
 - The SSH implementation is a deliberately limited client: it supports the

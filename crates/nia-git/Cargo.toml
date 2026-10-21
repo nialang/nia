@@ -19,6 +19,7 @@ rustls.workspace = true
 ring.workspace = true
 webpki-roots.workspace = true
 zeroize.workspace = true
+cap-std = "4.0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

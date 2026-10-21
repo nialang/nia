@@ -2,7 +2,10 @@
 //! Local repository checkout transport.
 
 use std::io::{self, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
+
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, OpenOptions};
 
 use crate::invalid_packet;
 use crate::object::{ObjectKind, encode_hex, parse_object_id, read_loose_object, resolve_revision};
@@ -17,13 +20,17 @@ pub(crate) fn checkout_local(
     destination: &Path,
 ) -> io::Result<String> {
     prepare_destination(destination)?;
-    checkout_repository(repository, revision, destination)
+    let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
+    if destination_dir.entries()?.next().transpose()?.is_some() {
+        return Err(invalid_packet("Git checkout destination must be empty"));
+    }
+    checkout_repository(repository, revision, &destination_dir)
 }
 
 fn checkout_repository(
     repository: &Path,
     revision: &str,
-    destination: &Path,
+    destination_dir: &Dir,
 ) -> io::Result<String> {
     let git_dir = repository.join(".git");
     let git_dir = if git_dir.is_dir() {
@@ -42,7 +49,7 @@ fn checkout_repository(
         .find_map(|line| line.strip_prefix(b"tree "))
         .ok_or_else(|| invalid_packet("Git commit has no tree"))?;
     let tree_id = parse_object_id(tree_line)?;
-    checkout_tree(&git_dir, &tree_id, destination)?;
+    checkout_tree(&git_dir, &tree_id, destination_dir)?;
     Ok(encode_hex(&commit_id))
 }
 
@@ -71,9 +78,9 @@ fn prepare_destination(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Path) -> io::Result<()> {
+fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Dir) -> io::Result<()> {
     struct Frame {
-        directory: PathBuf,
+        directory: Dir,
         data: Vec<u8>,
         offset: usize,
     }
@@ -88,11 +95,13 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Path) -> io::Re
         Ok(tree.data)
     };
     let mut stack = vec![Frame {
-        directory: directory.to_path_buf(),
+        directory: directory.try_clone()?,
         data: load_tree(tree_id, &mut bytes)?,
         offset: 0,
     }];
-    while let Some(frame) = stack.last_mut() {
+    while !stack.is_empty() {
+        let depth = stack.len();
+        let frame = stack.last_mut().expect("stack is not empty");
         if frame.offset == frame.data.len() {
             stack.pop();
             continue;
@@ -122,17 +131,17 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Path) -> io::Re
         }
         let id: [u8; 20] = input[..20].try_into().expect("length checked");
         input = &input[20..];
-        let path = frame.directory.join(name);
         frame.offset = frame.data.len() - input.len();
         match mode {
             "40000" | "040000" => {
-                if stack.len() > MAX_TREE_DEPTH {
+                if depth > MAX_TREE_DEPTH {
                     return Err(invalid_packet("Git checkout exceeds tree depth limit"));
                 }
                 let data = load_tree(&id, &mut bytes)?;
-                std::fs::create_dir(&path)?;
+                frame.directory.create_dir(name)?;
+                let child = frame.directory.open_dir(name)?;
                 stack.push(Frame {
-                    directory: path,
+                    directory: child,
                     data,
                     offset: 0,
                 });
@@ -143,7 +152,7 @@ fn checkout_tree(git_dir: &Path, tree_id: &[u8; 20], directory: &Path) -> io::Re
                     return Err(invalid_packet("Git file entry does not name a blob"));
                 }
                 charge_checkout_bytes(&mut bytes, blob.data.len())?;
-                write_new_file(&path, &blob.data)?;
+                write_new_file(&frame.directory, Path::new(name), &blob.data)?;
             }
             _ => return Err(invalid_packet("unsupported Git tree entry mode")),
         }
@@ -201,21 +210,26 @@ pub(crate) fn write_pack_checkout(
         .and_then(|bytes| bytes.try_into().ok())
         .ok_or_else(|| invalid_packet("Git upload-pack response has no pack checksum"))?;
     prepare_destination(destination)?;
-    let git_dir = destination.join(".git");
-    std::fs::create_dir(&git_dir)?;
+    let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
+    if destination_dir.entries()?.next().transpose()?.is_some() {
+        return Err(invalid_packet("Git checkout destination must be empty"));
+    }
+    destination_dir.create_dir(".git")?;
     let result = (|| {
-        let objects = git_dir.join("objects");
-        let pack_dir = objects.join("pack");
-        std::fs::create_dir(&objects)?;
-        std::fs::create_dir(&pack_dir)?;
-        write_new_file(&git_dir.join("HEAD"), encode_hex(commit).as_bytes())?;
+        let git_dir = destination_dir.open_dir(".git")?;
+        git_dir.create_dir("objects")?;
+        let objects = git_dir.open_dir("objects")?;
+        objects.create_dir("pack")?;
+        let pack_dir = objects.open_dir("pack")?;
+        write_new_file(&git_dir, Path::new("HEAD"), encode_hex(commit).as_bytes())?;
         write_new_file(
-            &pack_dir.join(format!("pack-{}.pack", encode_hex(&pack_id))),
+            &pack_dir,
+            Path::new(&format!("pack-{}.pack", encode_hex(&pack_id))),
             pack,
         )?;
-        checkout_repository(destination, "HEAD", destination)
+        checkout_repository(destination, "HEAD", &destination_dir)
     })();
-    let cleanup = std::fs::remove_dir_all(&git_dir);
+    let cleanup = destination_dir.remove_dir_all(".git");
     match result {
         Ok(revision) => {
             cleanup?;
@@ -225,11 +239,10 @@ pub(crate) fn write_pack_checkout(
     }
 }
 
-fn write_new_file(path: &Path, data: &[u8]) -> io::Result<()> {
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
+fn write_new_file(directory: &Dir, path: &Path, data: &[u8]) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = directory.open_with(path, &options)?;
     file.write_all(data)
 }
 
@@ -370,6 +383,32 @@ mod tests {
         let mut used = MAX_CHECKOUT_BYTES - 1;
         charge_checkout_bytes(&mut used, 1).unwrap();
         assert!(charge_checkout_bytes(&mut used, 1).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkout_writes_through_open_directory_after_path_replacement() {
+        let root = nia_test_support::test_dir("git-checkout-root-replacement");
+        let repository = root.join("repository");
+        let blob = store_object(&repository, "blob", b"inside pinned root");
+        let tree = store_object(&repository, "tree", &tree_entry("100644", "file", &blob));
+        let destination = root.join("destination");
+        let moved = root.join("moved-destination");
+        let outside = root.join("outside");
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
+        std::fs::rename(&destination, &moved).unwrap();
+        std::os::unix::fs::symlink(&outside, &destination).unwrap();
+
+        checkout_tree(&repository, &tree, &destination_dir).unwrap();
+
+        assert_eq!(
+            std::fs::read(moved.join("file")).unwrap(),
+            b"inside pinned root"
+        );
+        assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+        std::fs::remove_file(&destination).unwrap();
     }
 
     #[test]
