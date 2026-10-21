@@ -3,7 +3,7 @@ use super::wire::*;
 use super::*;
 #[cfg(test)]
 use crate::checkout_source;
-use crate::{PacketLine, decode_packet_lines, encode_packet_line};
+use crate::pktline::{PacketLine, decode_packet_lines, encode_packet_line};
 use ring::signature::KeyPair;
 
 #[cfg(feature = "test-support")]

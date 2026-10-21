@@ -6,17 +6,15 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::process::Command;
 use std::sync::Arc;
 
-use crate::invalid_packet;
-use crate::object::encode_hex;
-use crate::transport::local::{checkout_local, fs_create_dir};
-use crate::{
+use super::MAX_RESPONSE_BYTES;
+use super::local::write_pack_checkout;
+use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
 };
+use crate::invalid_packet;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_types::ServerName};
 use zeroize::Zeroizing;
-
-const MAX_HTTP_RESPONSE: usize = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct HttpGitUrl {
@@ -284,22 +282,7 @@ pub(crate) fn checkout_http(
     .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
     let pack = parse_upload_pack_response(&response)?;
 
-    let git_dir = destination.join(".git");
-    let pack_dir = git_dir.join("objects/pack");
-    fs_create_dir(&pack_dir)?;
-    std::fs::write(git_dir.join("HEAD"), encode_hex(&commit))?;
-    let pack_id: [u8; 20] = pack
-        .get(pack.len().saturating_sub(20)..)
-        .filter(|bytes| bytes.len() == 20)
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or_else(|| invalid_packet("Git upload-pack response has no pack checksum"))?;
-    std::fs::write(
-        pack_dir.join(format!("pack-{}.pack", encode_hex(&pack_id))),
-        pack,
-    )?;
-    let result = checkout_local(destination, "HEAD", destination);
-    let _ = std::fs::remove_dir_all(&git_dir);
-    result
+    write_pack_checkout(&pack, &commit, destination)
 }
 
 /// Fetches one HTTPS resource using the same proxy, TLS, and credential
@@ -507,9 +490,9 @@ fn http_request_stream_with_target<S: Read + Write>(
     stream.write_all(body)?;
     let mut response = Vec::new();
     stream
-        .take((MAX_HTTP_RESPONSE + 1) as u64)
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
         .read_to_end(&mut response)?;
-    if response.len() > MAX_HTTP_RESPONSE {
+    if response.len() > MAX_RESPONSE_BYTES {
         return Err(invalid_packet("Git HTTP response is too large"));
     }
     parse_http_response(&response)
@@ -650,7 +633,7 @@ fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
             return Err(invalid_packet("Git HTTP chunk is truncated"));
         }
         output.extend_from_slice(&input[..size]);
-        if output.len() > MAX_HTTP_RESPONSE {
+        if output.len() > MAX_RESPONSE_BYTES {
             return Err(invalid_packet("Git HTTP response is too large"));
         }
         input = &input[size + 2..];

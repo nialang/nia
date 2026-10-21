@@ -7,12 +7,14 @@ use std::{
     path::Path,
 };
 
-use crate::pktline::encode_packet_line;
-use crate::{MAX_HTTP_RESPONSE, invalid_packet};
-use crate::{
+use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
-    read_packet_section, select_advertised_revision, write_pack_checkout,
+    select_advertised_revision,
 };
+use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout};
+use crate::invalid_packet;
+use crate::pktline::encode_packet_line;
+use crate::pktline::read_packet_section;
 
 #[derive(Debug, Clone)]
 pub(crate) struct GitTcpUrl {
@@ -74,9 +76,9 @@ pub(crate) fn checkout_git(source: &str, revision: &str, destination: &Path) -> 
     stream.flush()?;
     let mut response = Vec::new();
     stream
-        .take((MAX_HTTP_RESPONSE + 1) as u64)
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
         .read_to_end(&mut response)?;
-    if response.len() > MAX_HTTP_RESPONSE {
+    if response.len() > MAX_RESPONSE_BYTES {
         return Err(invalid_packet("Git response is too large"));
     }
     let pack = parse_upload_pack_response(&response)?;

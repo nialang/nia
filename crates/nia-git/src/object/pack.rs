@@ -10,8 +10,9 @@ use std::{
 use flate2::read::ZlibDecoder;
 use sha1::{Digest, Sha1};
 
+use super::MAX_OBJECT_BYTES;
 use super::{GitObject, ObjectKind, apply_delta};
-use crate::{MAX_OBJECT_BYTES, invalid_packet};
+use crate::invalid_packet;
 
 pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Result<GitObject> {
     let pack_dir = git_dir.join("objects").join("pack");
