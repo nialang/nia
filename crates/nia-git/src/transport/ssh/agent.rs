@@ -6,9 +6,13 @@ use super::wire::MAX_SSH_PACKET_BYTES;
 use super::wire::{SshReader, encode_ssh_string};
 use crate::invalid_packet;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::time::Duration;
 
 trait SshAgentStream: Read + Write {}
 const MAX_AGENT_IDENTITIES: u32 = 1024;
+#[cfg(unix)]
+const AGENT_IO_TIMEOUT: Duration = Duration::from_secs(30);
 impl<T: Read + Write> SshAgentStream for T {}
 
 pub(super) struct SshAgent {
@@ -193,9 +197,18 @@ fn connect_agent_stream() -> Option<Box<dyn SshAgentStream>> {
     use std::os::unix::net::UnixStream;
 
     let socket = std::env::var_os("SSH_AUTH_SOCK")?;
-    UnixStream::connect(socket)
-        .ok()
-        .map(|stream| Box::new(stream) as Box<dyn SshAgentStream>)
+    let stream = UnixStream::connect(socket).ok()?;
+    set_agent_io_timeout(&stream, AGENT_IO_TIMEOUT).ok()?;
+    Some(Box::new(stream))
+}
+
+#[cfg(unix)]
+fn set_agent_io_timeout(
+    stream: &std::os::unix::net::UnixStream,
+    timeout: Duration,
+) -> io::Result<()> {
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))
 }
 
 #[cfg(windows)]
@@ -381,6 +394,21 @@ mod tests {
         assert_eq!(agent_request(&mut stream, &[11]).unwrap(), [5]);
         assert_eq!(stream.outgoing, [0, 0, 0, 1, 11]);
         assert!(agent_request(&mut stream, &[]).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_request_times_out_when_the_agent_does_not_reply() {
+        use std::os::unix::net::UnixStream;
+
+        let (mut client, _agent) = UnixStream::pair().unwrap();
+        set_agent_io_timeout(&client, Duration::from_millis(25)).unwrap();
+
+        let error = agent_request(&mut client, &[11]).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+        ));
     }
 }
 
