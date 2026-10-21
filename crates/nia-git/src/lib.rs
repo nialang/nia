@@ -90,7 +90,8 @@ pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::
     ))
 }
 
-/// Fetches a bounded HTTPS resource with the Git transport's TLS and proxy policy.
+/// Fetches a bounded public HTTPS resource with the Git transport's TLS and
+/// proxy policy, without sending Git credential-helper credentials.
 pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
     transport::http::fetch_https(source)
 }
