@@ -229,6 +229,10 @@ pub enum DependencySource {
         tag: Option<String>,
         branch: Option<String>,
     },
+    Registry {
+        registry: String,
+        requirement: PackageVersionRequirement,
+    },
 }
 
 /// A package dependency and the compilation environment that can use it.
@@ -546,6 +550,10 @@ impl PackageFetcher {
     fn resolve(&mut self, owner: &Path, dependency: &PackageDependency) -> io::Result<PathBuf> {
         match &dependency.source {
             DependencySource::Path(path) => Ok(owner.join(path)),
+            DependencySource::Registry { .. } => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "registry dependencies are not resolvable yet",
+            )),
             DependencySource::Git {
                 url,
                 rev,
@@ -821,6 +829,7 @@ impl PackageFetcher {
                         pending.push(self.cache_root.join(entry.content_hash.get(7..)?));
                         reachable.insert((dependency.name.clone(), source, selector));
                     }
+                    DependencySource::Registry { .. } => return None,
                 }
             }
         }
@@ -1110,7 +1119,7 @@ impl PackageGraph {
                                 .ok()
                                 .and_then(|path| path.canonicalize().ok())
                         }
-                        DependencySource::Git { .. } => None,
+                        DependencySource::Git { .. } | DependencySource::Registry { .. } => None,
                     };
                     edges.push((
                         logical_root.clone(),
@@ -1241,6 +1250,14 @@ impl PackageGraph {
                                 encoded.push(0);
                             }
                         }
+                    }
+                    DependencySource::Registry {
+                        registry,
+                        requirement,
+                    } => {
+                        encoded.push(2);
+                        write_fingerprint_field(&mut encoded, registry.as_bytes());
+                        write_fingerprint_field(&mut encoded, requirement.to_string().as_bytes());
                     }
                 }
                 encoded.push(match dependency.scope {
@@ -2076,6 +2093,10 @@ struct RawDependency {
     #[serde(default)]
     git: Option<String>,
     #[serde(default)]
+    registry: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
     rev: Option<String>,
     #[serde(default)]
     tag: Option<String>,
@@ -2085,6 +2106,56 @@ struct RawDependency {
 
 impl RawDependency {
     fn into_source(self, name: &str) -> io::Result<DependencySource> {
+        if let Some(registry) = self.registry {
+            if self.path.is_some()
+                || self.git.is_some()
+                || self.rev.is_some()
+                || self.tag.is_some()
+                || self.branch.is_some()
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("registry dependency `{name}` cannot combine sources or Git selectors"),
+                ));
+            }
+            if registry.is_empty()
+                || registry.len() > 64
+                || !registry
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid registry name for dependency `{name}`"),
+                ));
+            }
+            let requirement = self
+                .version
+                .as_deref()
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("registry dependency `{name}` must declare a version requirement"),
+                    )
+                })?
+                .parse::<PackageVersionRequirement>()
+                .map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("invalid version requirement for dependency `{name}`: {error}"),
+                    )
+                })?;
+            return Ok(DependencySource::Registry {
+                registry,
+                requirement,
+            });
+        }
+        if self.version.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("dependency `{name}` may only specify `version` with `registry`"),
+            ));
+        }
         match (self.path, self.git) {
             (Some(path), None)
                 if self.rev.is_none() && self.tag.is_none() && self.branch.is_none() =>
@@ -4802,6 +4873,77 @@ mod tests {
             assert!(PackageManifest::read(&root).is_err(), "{declaration}");
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_manifest_requires_one_named_registry_and_semver_requirement() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-manifest-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[dependencies]\njson = { registry = \"nia\", version = \"^1.4\" }\n",
+        )
+        .unwrap();
+        let manifest = PackageManifest::read(&root).unwrap();
+        assert_eq!(
+            manifest.dependencies[0].source,
+            DependencySource::Registry {
+                registry: "nia".into(),
+                requirement: PackageVersionRequirement::parse("^1.4").unwrap(),
+            }
+        );
+
+        for declaration in [
+            "json = { registry = \"nia\" }",
+            "json = { registry = \"nia\", version = \"latest\" }",
+            "json = { registry = \"Nia\", version = \"^1.4\" }",
+            "json = { registry = \"nia\", version = \"^1.4\", path = \"../json\" }",
+            "json = { version = \"^1.4\" }",
+            "json = { path = \"../json\", version = \"^1.4\" }",
+        ] {
+            std::fs::write(
+                root.join("nia.toml"),
+                format!("[package]\nname = \"root\"\n[dependencies]\n{declaration}\n"),
+            )
+            .unwrap();
+            assert!(PackageManifest::read(&root).is_err(), "{declaration}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_requirements_are_part_of_the_canonical_graph_fingerprint() {
+        let graph = |requirement: &str| PackageGraph {
+            options: PackageGraphOptions::default(),
+            nodes: vec![PackageGraphNode {
+                manifest: PackageManifest {
+                    package: package(),
+                    protocol_epoch: None,
+                    library_path: None,
+                    source: PackageSourceSelection::default(),
+                    dependencies: vec![PackageDependency {
+                        name: "json".into(),
+                        source: DependencySource::Registry {
+                            registry: "nia".into(),
+                            requirement: PackageVersionRequirement::parse(requirement).unwrap(),
+                        },
+                        scope: DependencyScope::Runtime,
+                    }],
+                },
+                root: String::new(),
+                source_fingerprint: [0; 32],
+            }],
+            dependencies: Vec::new(),
+        };
+
+        assert_ne!(graph("^1.4").fingerprint(), graph("^2.0").fingerprint());
     }
 
     /// Creates a one-commit Git repository holding package `name` and returns
