@@ -29,12 +29,15 @@ fn read_delta_varint(delta: &[u8], cursor: &mut usize) -> io::Result<usize> {
     }
 }
 
-pub(crate) fn apply_delta(base: &[u8], delta: &[u8]) -> io::Result<Vec<u8>> {
+pub(crate) fn apply_delta(base: &[u8], delta: &[u8], result_limit: usize) -> io::Result<Vec<u8>> {
     let mut cursor = 0;
     let source_size = read_delta_varint(delta, &mut cursor)?;
     let result_size = read_delta_varint(delta, &mut cursor)?;
     if source_size != base.len() || result_size > MAX_OBJECT_BYTES {
         return Err(invalid_packet("Git delta base or result size is invalid"));
+    }
+    if result_size > result_limit {
+        return Err(invalid_packet("Git pack exceeds decoded size limit"));
     }
     let mut result = Vec::with_capacity(result_size);
     while cursor < delta.len() {
@@ -93,7 +96,7 @@ pub(crate) fn apply_delta(base: &[u8], delta: &[u8]) -> io::Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::apply_delta;
+    use super::*;
     use std::io;
 
     #[test]
@@ -102,18 +105,33 @@ mod tests {
         let mut delta = vec![0x80; groups as usize];
         delta.push(1 << (usize::BITS - groups * 7));
         delta.push(0);
-        assert!(apply_delta(&[], &delta).is_err());
+        assert!(apply_delta(&[], &delta, MAX_OBJECT_BYTES).is_err());
     }
 
     #[test]
     fn deltas_copy_and_insert_with_checked_sizes() {
         let delta = [5, 10, 0x90, 5, 5, b'!', b' ', b'n', b'i', b'a'];
-        assert_eq!(apply_delta(b"hello", &delta).unwrap(), b"hello! nia");
+        assert_eq!(
+            apply_delta(b"hello", &delta, MAX_OBJECT_BYTES).unwrap(),
+            b"hello! nia"
+        );
 
         let invalid = [1, 1, 0x80];
         assert_eq!(
-            apply_delta(b"x", &invalid).unwrap_err().kind(),
+            apply_delta(b"x", &invalid, MAX_OBJECT_BYTES)
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn delta_output_budget_is_checked_before_allocation() {
+        let delta = [0, 3, 3, b'a', b'b', b'c'];
+        assert_eq!(apply_delta(&[], &delta, 3).unwrap(), b"abc");
+        assert_eq!(
+            apply_delta(&[], &delta, 2).unwrap_err().to_string(),
+            "Git pack exceeds decoded size limit"
         );
     }
 }
@@ -150,7 +168,7 @@ mod properties {
             // Supply valid, small declared sizes so arbitrary instructions reach the decoder.
             let mut delta = vec![base.len() as u8, result_len];
             delta.extend(instructions);
-            if let Ok(result) = apply_delta(&base, &delta) {
+            if let Ok(result) = apply_delta(&base, &delta, MAX_OBJECT_BYTES) {
                 prop_assert_eq!(result.len(), usize::from(result_len));
             }
         }
@@ -159,7 +177,7 @@ mod properties {
         fn insert_delta_reconstructs_payload(payload in prop::collection::vec(any::<u8>(), 1..128)) {
             let mut delta = vec![0, payload.len() as u8, payload.len() as u8];
             delta.extend_from_slice(&payload);
-            prop_assert_eq!(apply_delta(&[], &delta).unwrap(), payload);
+            prop_assert_eq!(apply_delta(&[], &delta, MAX_OBJECT_BYTES).unwrap(), payload);
         }
     }
 }
