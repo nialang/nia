@@ -95,6 +95,51 @@ fn http_response_parser_handles_content_length_and_chunked_bodies() {
 }
 
 #[test]
+fn https_resource_fetch_performs_tls_handshake_and_reads_response() {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+    let certificate = certified.cert.der().to_vec();
+    let private_key = certified.signing_key.serialize_der();
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![rustls::pki_types::CertificateDer::from(certificate.clone())],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+                private_key,
+            )),
+        )
+        .unwrap();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let connection = rustls::ServerConnection::new(Arc::new(server_config)).unwrap();
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+        let mut request = Vec::new();
+        let mut byte = [0; 1];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            stream.read_exact(&mut byte).unwrap();
+            request.push(byte[0]);
+        }
+        assert!(request.starts_with(b"GET /resource HTTP/1.1\r\n"));
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nregistry-body")
+            .unwrap();
+        stream.conn.send_close_notify();
+        stream.flush().unwrap();
+    });
+
+    let body =
+        fetch_https_with_test_root(&format!("https://127.0.0.1:{port}/resource"), &certificate)
+            .unwrap();
+    assert_eq!(body, b"registry-body");
+    server.join().unwrap();
+}
+
+#[test]
 fn git_http_credentials_are_parsed_and_basic_encoded() {
     let credentials = parse_git_credentials(
         b"protocol=https\nhost=example.test\nusername=nia\npassword=secret\n",

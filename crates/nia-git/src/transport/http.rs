@@ -327,6 +327,33 @@ pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
     .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))
 }
 
+#[cfg(test)]
+pub(crate) fn fetch_https_with_test_root(source: &str, root_der: &[u8]) -> io::Result<Vec<u8>> {
+    let url = parse_http_git_url(source)?;
+    if !url.secure {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "registry resources must use HTTPS",
+        ));
+    }
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(root_der.to_vec()))
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    http_request_with_roots(
+        &url,
+        HttpRequest {
+            method: "GET",
+            path: &url.path,
+            body: &[],
+            content_type: "",
+            authorization: None,
+            proxy: None,
+        },
+        roots,
+    )
+}
+
 pub(crate) fn http_request_with_proxy(
     url: &HttpGitUrl,
     method: &str,
@@ -336,9 +363,42 @@ pub(crate) fn http_request_with_proxy(
     authorization: Option<&[u8]>,
     proxy: Option<&HttpProxy>,
 ) -> io::Result<Vec<u8>> {
-    let (connect_host, connect_port) = proxy.map_or((url.host.as_str(), url.port), |proxy| {
-        (proxy.host.as_str(), proxy.port)
-    });
+    let roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    http_request_with_roots(
+        url,
+        HttpRequest {
+            method,
+            path,
+            body,
+            content_type,
+            authorization,
+            proxy,
+        },
+        roots,
+    )
+}
+
+struct HttpRequest<'a> {
+    method: &'a str,
+    path: &'a str,
+    body: &'a [u8],
+    content_type: &'a str,
+    authorization: Option<&'a [u8]>,
+    proxy: Option<&'a HttpProxy>,
+}
+
+fn http_request_with_roots(
+    url: &HttpGitUrl,
+    request: HttpRequest<'_>,
+    roots: RootCertStore,
+) -> io::Result<Vec<u8>> {
+    let (connect_host, connect_port) = request
+        .proxy
+        .map_or((url.host.as_str(), url.port), |proxy| {
+            (proxy.host.as_str(), proxy.port)
+        });
     let address = (connect_host, connect_port)
         .to_socket_addrs()?
         .next()
@@ -346,22 +406,19 @@ pub(crate) fn http_request_with_proxy(
     let stream = TcpStream::connect_timeout(&address, std::time::Duration::from_secs(15))?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
-    if proxy.is_some() && url.secure {
+    if request.proxy.is_some() && url.secure {
         establish_proxy_tunnel(&stream, url)?;
     }
-    let request_target = if proxy.is_some() && !url.secure {
+    let request_target = if request.proxy.is_some() && !url.secure {
         format!(
             "http://{}{}",
             format_authority(&url.host, url.port, 80),
-            path
+            request.path
         )
     } else {
-        path.to_string()
+        request.path.to_string()
     };
     if url.secure {
-        let roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
         let config = ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
@@ -384,21 +441,21 @@ pub(crate) fn http_request_with_proxy(
         return http_request_stream(
             StreamOwned::new(tls, stream),
             url,
-            method,
+            request.method,
             &request_target,
-            body,
-            content_type,
-            authorization,
+            request.body,
+            request.content_type,
+            request.authorization,
         );
     }
     http_request_stream_with_target(
         stream,
         url,
-        method,
+        request.method,
         &request_target,
-        body,
-        content_type,
-        authorization,
+        request.body,
+        request.content_type,
+        request.authorization,
     )
 }
 
