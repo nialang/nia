@@ -88,3 +88,26 @@ pub(crate) fn encode_loose_object(kind: ObjectKind, data: &[u8]) -> io::Result<V
     encoder.write_all(data)?;
     encoder.finish()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ObjectKind, decode_loose_object, encode_loose_object};
+    use std::io;
+
+    #[test]
+    fn loose_objects_validate_type_size_and_git_object_identity() {
+        let data = b"tree 0000000000000000000000000000000000000000\n";
+        let encoded = encode_loose_object(ObjectKind::Commit, data).unwrap();
+        let decoded = decode_loose_object(&encoded).unwrap();
+        assert_eq!(decoded.kind, ObjectKind::Commit);
+        assert_eq!(decoded.data, data);
+        assert_eq!(decoded.id.len(), 20);
+
+        let mut corrupt = encoded;
+        corrupt.push(0);
+        assert_eq!(
+            decode_loose_object(&corrupt).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+}

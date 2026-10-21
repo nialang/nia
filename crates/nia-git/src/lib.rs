@@ -23,8 +23,6 @@ const MAX_SSH_PACKET_BYTES: usize = 256 * 1024;
 mod pktline;
 use pktline::{PacketLine, decode_packet_lines, encode_packet_line};
 mod object;
-#[cfg(test)]
-use object::encode_loose_object;
 use object::{GitObject, ObjectKind, decode_loose_object};
 
 fn invalid_packet(message: &'static str) -> io::Error {
@@ -3901,23 +3899,6 @@ mod tests {
         });
         SSH_FIXTURE_SKIP_CLIENT.with(|skip| skip.set(true));
         ssh_key_exchange_authenticates_and_opens_git_exec_channel_impl();
-    }
-
-    #[test]
-    fn loose_objects_validate_type_size_and_git_object_identity() {
-        let data = b"tree 0000000000000000000000000000000000000000\n";
-        let encoded = encode_loose_object(ObjectKind::Commit, data).unwrap();
-        let decoded = decode_loose_object(&encoded).unwrap();
-        assert_eq!(decoded.kind, ObjectKind::Commit);
-        assert_eq!(decoded.data, data);
-        assert_eq!(decoded.id.len(), 20);
-
-        let mut corrupt = encoded;
-        corrupt.push(0);
-        assert_eq!(
-            decode_loose_object(&corrupt).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
     }
 
     #[test]
