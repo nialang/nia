@@ -12,7 +12,10 @@ use sha1::{Digest, Sha1};
 
 use super::MAX_OBJECT_BYTES;
 use super::{GitObject, ObjectKind, apply_delta};
-use crate::invalid_packet;
+use crate::{input::read_limited_file, invalid_packet};
+
+const MAX_PACK_BYTES: usize = 128 * 1024 * 1024;
+const MAX_PACK_OBJECTS: u32 = 1_000_000;
 
 pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Result<GitObject> {
     let pack_dir = git_dir.join("objects").join("pack");
@@ -31,7 +34,7 @@ pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Resul
         if path.extension().and_then(|extension| extension.to_str()) != Some("pack") {
             continue;
         }
-        let pack = std::fs::read(&path)?;
+        let pack = read_limited_file(&path, MAX_PACK_BYTES, "Git pack exceeds size limit")?;
         match decode_pack_object(&pack, wanted) {
             Ok(object) => return Ok(object),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -45,6 +48,9 @@ pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Resul
 }
 
 fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
+    if pack.len() > MAX_PACK_BYTES {
+        return Err(invalid_packet("Git pack exceeds size limit"));
+    }
     if pack.len() < 12 || &pack[..4] != b"PACK" {
         return Err(invalid_packet("Git pack header is malformed"));
     }
@@ -63,7 +69,7 @@ fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
         return Err(invalid_packet("unsupported Git pack version"));
     }
     let count = u32::from_be_bytes(pack[8..12].try_into().expect("length checked"));
-    if count > 1_000_000 {
+    if count > MAX_PACK_OBJECTS {
         return Err(invalid_packet("Git pack contains too many objects"));
     }
     // Object headers and delta bases must never consume the checksum trailer.

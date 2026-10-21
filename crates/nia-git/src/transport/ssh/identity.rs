@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! OpenSSH Ed25519 file identities and signing contract.
 
-use super::read_limited_file;
 use super::wire::{SshReader, decode_base64};
+use crate::input::read_limited_file;
 use crate::invalid_packet;
 use ring::{signature, signature::KeyPair};
 use std::io;
 use std::path::Path;
 use zeroize::Zeroizing;
+
+const MAX_IDENTITY_BYTES: usize = 1024 * 1024;
 
 pub(super) struct SshEd25519Identity {
     pub(super) public_key: Vec<u8>,
@@ -297,8 +299,13 @@ mod tests {
 pub(super) fn load_ssh_identity(ssh_directory: &Path) -> io::Result<SshEd25519Identity> {
     let identity_path = ssh_directory.join("id_ed25519");
     verify_ssh_identity_permissions(&identity_path)?;
-    let identity_bytes = Zeroizing::new(read_limited_file(&identity_path, 1024 * 1024).map_err(
-        |error| {
+    let identity_bytes = Zeroizing::new(
+        read_limited_file(
+            &identity_path,
+            MAX_IDENTITY_BYTES,
+            "SSH identity exceeds size limit",
+        )
+        .map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
@@ -306,8 +313,8 @@ pub(super) fn load_ssh_identity(ssh_directory: &Path) -> io::Result<SshEd25519Id
                     identity_path.display()
                 ),
             )
-        },
-    )?);
+        })?,
+    );
     SshEd25519Identity::parse_openssh(&identity_bytes)
 }
 

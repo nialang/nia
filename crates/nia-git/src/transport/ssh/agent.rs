@@ -8,6 +8,7 @@ use crate::invalid_packet;
 use std::io::{self, Read, Write};
 
 trait SshAgentStream: Read + Write {}
+const MAX_AGENT_IDENTITIES: u32 = 1024;
 impl<T: Read + Write> SshAgentStream for T {}
 
 pub(super) struct SshAgent {
@@ -132,7 +133,7 @@ pub(super) fn parse_agent_identities(response: &[u8]) -> io::Result<Option<Vec<u
     }
     let mut reader = SshReader::new(&response[1..]);
     let count = reader.u32()?;
-    if count > 1024 {
+    if count > MAX_AGENT_IDENTITIES {
         return Err(invalid_packet("SSH agent returned too many identities"));
     }
     let mut public_keys = Vec::new();

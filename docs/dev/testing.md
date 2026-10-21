@@ -79,6 +79,25 @@ on subsequent runs. To repeat a randomized run, set `PROPTEST_RNG_SEED` to the
 same unsigned 64-bit integer before both runs (for example, `12345`). CI runs
 the suite independently on Linux and Windows and uploads regression files.
 
+Parser resource limits belong to the module that owns the input. File and
+transport readers share a bounded-read helper; malformed data and limit
+violations return `InvalidData`, while filesystem and transport errors retain
+their original error kinds. The current limits are:
+
+| Input | Limit |
+| --- | --- |
+| HTTP, Git TCP, or SSH response | 128 MiB |
+| Local pack or compressed loose object | 128 MiB |
+| Decoded object or delta result | 64 MiB per object |
+| Objects in a pack | 1,000,000 |
+| Streamed packet-line advertisement, including flush | 16 MiB |
+| Loose reference / packed references | 4 KiB / 16 MiB |
+| SSH identity / known hosts | 1 MiB / 16 MiB |
+| SSH agent identities | 1,024 |
+
+These are individual input bounds. They do not bound the total memory used by
+all decoded objects in a pack or the total work needed to materialize a tree.
+
 ## Where Tests Live
 
 | Location | Contents |

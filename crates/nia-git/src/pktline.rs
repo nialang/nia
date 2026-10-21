@@ -6,6 +6,7 @@ use std::io::{self, Read};
 use crate::invalid_packet;
 
 pub(crate) const MAX_PACKET_PAYLOAD: usize = 65_516;
+const MAX_PACKET_SECTION_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PacketLine {
@@ -71,6 +72,9 @@ pub(crate) fn read_packet_section(stream: &mut impl Read) -> io::Result<Vec<u8>>
         let mut header = [0; 4];
         stream.read_exact(&mut header)?;
         let length = parse_hex_usize(&header)?;
+        if length.max(4) > MAX_PACKET_SECTION_BYTES.saturating_sub(section.len()) {
+            return Err(invalid_packet("Git packet-line section exceeds size limit"));
+        }
         section.extend_from_slice(&header);
         if length == 0 {
             return Ok(section);
@@ -81,6 +85,37 @@ pub(crate) fn read_packet_section(stream: &mut impl Read) -> io::Result<Vec<u8>>
         let offset = section.len();
         section.resize(offset + length - 4, 0);
         stream.read_exact(&mut section[offset..])?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packet_section_enforces_aggregate_limit_including_flush() {
+        let mut wire = Vec::new();
+        let payload = vec![b'x'; MAX_PACKET_PAYLOAD];
+        while wire.len() + MAX_PACKET_PAYLOAD + 8 <= MAX_PACKET_SECTION_BYTES {
+            encode_packet_line(&payload, &mut wire).unwrap();
+        }
+        let remaining = MAX_PACKET_SECTION_BYTES - wire.len() - 8;
+        encode_packet_line(&payload[..remaining], &mut wire).unwrap();
+        wire.extend_from_slice(b"0000");
+        assert_eq!(wire.len(), MAX_PACKET_SECTION_BYTES);
+        assert_eq!(
+            read_packet_section(&mut wire.as_slice()).unwrap().len(),
+            MAX_PACKET_SECTION_BYTES
+        );
+        let end = wire.len();
+        wire[end - 4..].copy_from_slice(b"0004");
+        wire.extend_from_slice(b"0000");
+        let error = read_packet_section(&mut wire.as_slice()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            error.to_string(),
+            "Git packet-line section exceeds size limit"
+        );
     }
 }
 

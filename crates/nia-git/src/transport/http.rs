@@ -12,9 +12,11 @@ use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
 };
-use crate::invalid_packet;
+use crate::{input::read_limited, invalid_packet};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_types::ServerName};
 use zeroize::Zeroizing;
+
+const MAX_PROXY_HEADER_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct HttpGitUrl {
@@ -488,13 +490,11 @@ fn http_request_stream_with_target<S: Read + Write>(
     }
     stream.write_all(b"\r\n")?;
     stream.write_all(body)?;
-    let mut response = Vec::new();
-    stream
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_RESPONSE_BYTES {
-        return Err(invalid_packet("Git HTTP response is too large"));
-    }
+    let response = read_limited(
+        stream,
+        MAX_RESPONSE_BYTES,
+        "Git HTTP response exceeds size limit",
+    )?;
     parse_http_response(&response)
 }
 
@@ -514,7 +514,7 @@ fn format_authority(host: &str, port: u16, default_port: u16) -> String {
 fn read_proxy_connect_response(mut stream: &TcpStream) -> io::Result<()> {
     let mut response = Vec::new();
     let mut byte = [0; 1];
-    while response.len() < 16 * 1024 {
+    while response.len() < MAX_PROXY_HEADER_BYTES {
         stream.read_exact(&mut byte)?;
         response.push(byte[0]);
         if response.ends_with(b"\r\n\r\n") {
@@ -635,10 +635,10 @@ fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
         if input.len() < chunk_end || &input[size..chunk_end] != b"\r\n" {
             return Err(invalid_packet("Git HTTP chunk is truncated"));
         }
-        output.extend_from_slice(&input[..size]);
-        if output.len() > MAX_RESPONSE_BYTES {
-            return Err(invalid_packet("Git HTTP response is too large"));
+        if size > MAX_RESPONSE_BYTES.saturating_sub(output.len()) {
+            return Err(invalid_packet("Git HTTP response exceeds size limit"));
         }
+        output.extend_from_slice(&input[..size]);
         input = &input[chunk_end..];
     }
 }

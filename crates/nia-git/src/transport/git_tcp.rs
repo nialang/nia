@@ -2,7 +2,7 @@
 //! Git smart protocol over the native TCP transport.
 
 use std::{
-    io::{self, Read, Write},
+    io::{self, Write},
     net::{TcpStream, ToSocketAddrs},
     path::Path,
 };
@@ -12,9 +12,9 @@ use super::protocol::{
     select_advertised_revision,
 };
 use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout};
-use crate::invalid_packet;
 use crate::pktline::encode_packet_line;
 use crate::pktline::read_packet_section;
+use crate::{input::read_limited, invalid_packet};
 
 #[derive(Debug, Clone)]
 pub(crate) struct GitTcpUrl {
@@ -74,13 +74,11 @@ pub(crate) fn checkout_git(source: &str, revision: &str, destination: &Path) -> 
     let request = build_upload_pack_request(&commit)?;
     stream.write_all(&request)?;
     stream.flush()?;
-    let mut response = Vec::new();
-    stream
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_RESPONSE_BYTES {
-        return Err(invalid_packet("Git response is too large"));
-    }
+    let response = read_limited(
+        stream,
+        MAX_RESPONSE_BYTES,
+        "Git response exceeds size limit",
+    )?;
     let pack = parse_upload_pack_response(&response)?;
     write_pack_checkout(&pack, &commit, destination)
 }

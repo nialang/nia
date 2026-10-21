@@ -5,7 +5,16 @@ use std::{io, path::Path};
 
 use super::read_packed_object;
 use super::{GitObject, ObjectKind, decode_loose_object};
-use crate::invalid_packet;
+use crate::{input::read_limited_file, invalid_packet};
+
+const MAX_REF_BYTES: usize = 4096;
+const MAX_PACKED_REFS_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SYMBOLIC_REF_DEPTH: usize = 8;
+
+fn read_ref_text(path: &Path, limit: usize) -> io::Result<String> {
+    let bytes = read_limited_file(path, limit, "Git reference file exceeds size limit")?;
+    String::from_utf8(bytes).map_err(|_| invalid_packet("Git reference file is not UTF-8"))
+}
 
 pub(crate) fn resolve_revision(git_dir: &Path, revision: &str) -> io::Result<[u8; 20]> {
     if revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -22,7 +31,7 @@ pub(crate) fn resolve_revision(git_dir: &Path, revision: &str) -> io::Result<[u8
     ];
     for path in candidates {
         if path.is_file() {
-            let text = std::fs::read_to_string(path)?;
+            let text = read_ref_text(&path, MAX_REF_BYTES)?;
             let line = text.trim();
             let id = if let Some(target) = line.strip_prefix("ref: ") {
                 resolve_symbolic_ref(git_dir, target, 0)?
@@ -54,7 +63,7 @@ pub(crate) fn resolve_revision(git_dir: &Path, revision: &str) -> io::Result<[u8
 }
 
 fn resolve_symbolic_ref(git_dir: &Path, target: &str, depth: usize) -> io::Result<[u8; 20]> {
-    if depth > 8 || !target.starts_with("refs/") {
+    if depth > MAX_SYMBOLIC_REF_DEPTH || !target.starts_with("refs/") {
         return Err(invalid_packet("Git symbolic reference is invalid"));
     }
     let path = git_dir.join(target);
@@ -66,7 +75,7 @@ fn resolve_symbolic_ref(git_dir: &Path, target: &str, depth: usize) -> io::Resul
 }
 
 fn resolve_packed_ref(git_dir: &Path, target: &str) -> io::Result<[u8; 20]> {
-    let packed = std::fs::read_to_string(git_dir.join("packed-refs"))?;
+    let packed = read_ref_text(&git_dir.join("packed-refs"), MAX_PACKED_REFS_BYTES)?;
     for line in packed.lines() {
         if line.starts_with('#') || line.starts_with('^') {
             continue;
@@ -84,7 +93,7 @@ fn resolve_packed_ref(git_dir: &Path, target: &str) -> io::Result<[u8; 20]> {
 }
 
 fn resolve_symbolic_ref_file(git_dir: &Path, path: &Path, depth: usize) -> io::Result<[u8; 20]> {
-    let text = std::fs::read_to_string(path)?;
+    let text = read_ref_text(path, MAX_REF_BYTES)?;
     let line = text.trim();
     let id = if let Some(target) = line.strip_prefix("ref: ") {
         resolve_symbolic_ref(git_dir, target, depth + 1)?
@@ -102,7 +111,11 @@ fn resolve_symbolic_ref_file(git_dir: &Path, path: &Path, depth: usize) -> io::R
 pub(crate) fn read_loose_object(git_dir: &Path, id: &[u8; 20]) -> io::Result<GitObject> {
     let hex = encode_hex(id);
     let path = git_dir.join("objects").join(&hex[..2]).join(&hex[2..]);
-    match std::fs::read(path) {
+    match read_limited_file(
+        &path,
+        super::MAX_COMPRESSED_OBJECT_BYTES,
+        "Git compressed object exceeds size limit",
+    ) {
         Ok(compressed) => {
             let object = decode_loose_object(&compressed)?;
             if object.id != *id {

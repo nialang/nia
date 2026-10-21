@@ -6,6 +6,8 @@ use crate::invalid_packet;
 use ring::hmac;
 use std::io;
 
+pub(super) const MAX_KNOWN_HOSTS_BYTES: usize = 16 * 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct KnownHostEntry {
     patterns: Vec<String>,
