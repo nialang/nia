@@ -28,6 +28,7 @@ use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolcha
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
 use serde::{Deserialize, Serialize};
+use semver::Version;
 
 /// Protocol epoch for stable compiler-owned metadata.
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
@@ -2151,11 +2152,14 @@ fn validate_package_id(package: &PackageId) -> io::Result<()> {
         || package.version.len() > 128
         || package.namespace.contains('/')
         || package.name.contains('/')
-        || package.version.contains('\n')
+        || Version::parse(&package.version).is_err()
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "invalid package identity",
+            format!(
+                "invalid package identity: version {:?} must be a valid SemVer 2.0.0 version",
+                package.version
+            ),
         ));
     }
     Ok(())
@@ -3294,7 +3298,9 @@ impl std::error::Error for MetadataError {}
 fn validate_id(id: &PackageId) -> Result<(), MetadataError> {
     validate_string(&id.namespace)?;
     validate_string(&id.name)?;
-    validate_string(&id.version)
+    validate_string(&id.version)?;
+    Version::parse(&id.version).map_err(|_| MetadataError::InvalidManifest)?;
+    Ok(())
 }
 
 fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
@@ -3665,12 +3671,12 @@ mod tests {
         let first = PackageId {
             namespace: "acme".into(),
             name: "lib@tools".into(),
-            version: "1.0".into(),
+            version: "1.0.0".into(),
         };
         let second = PackageId {
             namespace: "acme".into(),
             name: "lib".into(),
-            version: "tools@1.0".into(),
+            version: "1.0.0".into(),
         };
 
         assert_eq!(first.canonical_text(), "acme/lib%40tools@1.0");
@@ -3680,13 +3686,38 @@ mod tests {
         let escaped = PackageId {
             namespace: "acme/team".into(),
             name: "%40@\0\u{7f}".into(),
-            version: "\u{e9}\u{4e2d}".into(),
+            version: "1.0.0".into(),
         };
         assert_eq!(
             escaped.canonical_text(),
             "acme%2Fteam/%2540%40%00%7F@%C3%A9%E4%B8%AD"
         );
         assert_ne!(canonical_component("%40"), canonical_component("@"));
+    }
+
+    #[test]
+    fn package_identity_requires_strict_semver_for_every_source() {
+        for version in ["0.3.0-dev", "1.2.3+metadata", "1.2.3-alpha.1"] {
+            let id = PackageId {
+                namespace: "example".into(),
+                name: "valid".into(),
+                version: version.into(),
+            };
+            assert!(validate_package_id(&id).is_ok(), "{version}");
+            assert!(validate_id(&id).is_ok(), "{version}");
+        }
+
+        for version in ["", "1", "1.2", "01.2.3", "1.2.3-01", "v1.2.3"] {
+            let id = PackageId {
+                namespace: "example".into(),
+                name: "invalid".into(),
+                version: version.into(),
+            };
+            assert!(validate_package_id(&id).is_err(), "{version:?}");
+            assert!(validate_id(&id).is_err(), "{version:?}");
+        }
+
+        assert!(Version::parse(&PackageId::standard_library().version).is_ok());
     }
 
     #[test]
