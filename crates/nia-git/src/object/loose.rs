@@ -6,7 +6,8 @@ use std::io::{self, Read};
 use flate2::read::ZlibDecoder;
 use sha1::{Digest, Sha1};
 
-use crate::{MAX_OBJECT_BYTES, invalid_packet};
+use super::MAX_OBJECT_BYTES;
+use crate::invalid_packet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ObjectKind {

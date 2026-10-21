@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Git packet-line framing.
 
-use std::io;
+use std::io::{self, Read};
 
-use crate::{MAX_PACKET_PAYLOAD, invalid_packet, parse_hex_usize};
+use crate::invalid_packet;
+
+pub(crate) const MAX_PACKET_PAYLOAD: usize = 65_516;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PacketLine {
@@ -49,4 +51,35 @@ pub(crate) fn encode_packet_line(payload: &[u8], output: &mut Vec<u8>) -> io::Re
     output.extend_from_slice(format!("{length:04x}").as_bytes());
     output.extend_from_slice(payload);
     Ok(())
+}
+
+fn parse_hex_usize(bytes: &[u8]) -> io::Result<usize> {
+    bytes.iter().try_fold(0usize, |value, byte| {
+        let digit = match byte {
+            b'0'..=b'9' => usize::from(byte - b'0'),
+            b'a'..=b'f' => usize::from(byte - b'a' + 10),
+            b'A'..=b'F' => usize::from(byte - b'A' + 10),
+            _ => return Err(invalid_packet("invalid Git packet-line header")),
+        };
+        Ok((value << 4) | digit)
+    })
+}
+
+pub(crate) fn read_packet_section(stream: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut section = Vec::new();
+    loop {
+        let mut header = [0; 4];
+        stream.read_exact(&mut header)?;
+        let length = parse_hex_usize(&header)?;
+        section.extend_from_slice(&header);
+        if length == 0 {
+            return Ok(section);
+        }
+        if !(4..=MAX_PACKET_PAYLOAD + 4).contains(&length) {
+            return Err(invalid_packet("Git packet-line exceeds protocol limit"));
+        }
+        let offset = section.len();
+        section.resize(offset + length - 4, 0);
+        stream.read_exact(&mut section[offset..])?;
+    }
 }

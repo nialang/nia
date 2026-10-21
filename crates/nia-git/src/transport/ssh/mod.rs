@@ -19,11 +19,13 @@ use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 
-use crate::{
-    MAX_HTTP_RESPONSE, build_upload_pack_request, invalid_packet, parse_advertised_refs,
-    parse_upload_pack_response, read_packet_section, select_advertised_revision,
-    write_pack_checkout,
+use super::protocol::{
+    build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
+    select_advertised_revision,
 };
+use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout};
+use crate::invalid_packet;
+use crate::pktline::read_packet_section;
 
 const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
 const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
@@ -653,9 +655,9 @@ fn checkout_ssh_with_config(
     channel.finish_writing()?;
     let mut response = Vec::new();
     channel
-        .take((MAX_HTTP_RESPONSE + 1) as u64)
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
         .read_to_end(&mut response)?;
-    if response.len() > MAX_HTTP_RESPONSE {
+    if response.len() > MAX_RESPONSE_BYTES {
         return Err(invalid_packet("Git response is too large"));
     }
     let pack = parse_upload_pack_response(&response)?;

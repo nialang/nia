@@ -3,7 +3,8 @@
 
 use std::io;
 
-use crate::{MAX_OBJECT_BYTES, invalid_packet};
+use super::MAX_OBJECT_BYTES;
+use crate::invalid_packet;
 
 fn read_delta_varint(delta: &[u8], cursor: &mut usize) -> io::Result<usize> {
     let mut value = 0usize;

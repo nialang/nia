@@ -99,3 +99,26 @@ fn validate_tree_name(name: &str) -> io::Result<()> {
     }
     Ok(())
 }
+
+pub(crate) fn write_pack_checkout(
+    pack: &[u8],
+    commit: &[u8; 20],
+    destination: &Path,
+) -> io::Result<String> {
+    let git_dir = destination.join(".git");
+    let pack_dir = git_dir.join("objects/pack");
+    fs_create_dir(&pack_dir)?;
+    std::fs::write(git_dir.join("HEAD"), encode_hex(commit))?;
+    let pack_id: [u8; 20] = pack
+        .get(pack.len().saturating_sub(20)..)
+        .filter(|bytes| bytes.len() == 20)
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or_else(|| invalid_packet("Git upload-pack response has no pack checksum"))?;
+    std::fs::write(
+        pack_dir.join(format!("pack-{}.pack", encode_hex(&pack_id))),
+        pack,
+    )?;
+    let result = checkout_local(destination, "HEAD", destination);
+    let _ = std::fs::remove_dir_all(&git_dir);
+    result
+}
