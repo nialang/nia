@@ -33,6 +33,10 @@ static CONSTRUCTOR_DOMAIN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?s)(?:QueryFingerprintBuilder|Encoder)::new\s*\(\s*"((?:\\.|[^"\\\r\n])*)""#)
         .expect("valid constructor domain regex")
 });
+static TYPED_DOMAIN_CONSTRUCTOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?s)FingerprintDomain::new\s*\(\s*"((?:\\.|[^"\\\r\n])*)""#)
+        .expect("valid typed domain constructor regex")
+});
 static TYPED_DOMAIN_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
         r#"(?s)\bconst\s+([A-Z][A-Z0-9_]*)\s*:\s*FingerprintDomain\s*=\s*FingerprintDomain::new\s*\(\s*"({DOMAIN_IDENTITY})"\s*\)"#
@@ -239,6 +243,15 @@ fn registered_magics(root: &Path) -> MaintainResult<BTreeSet<Vec<u8>>> {
         .collect())
 }
 
+// Plain source strings also include filenames, diagnostics, and formatted
+// package names. Explicit fingerprint constructors are checked independently.
+fn is_domain_candidate(value: &str) -> bool {
+    value.starts_with("nia.")
+        && !matches!(value, "nia.toml" | "nia.lock" | "nia.compiler_builtins")
+        && !value.contains(':')
+        && !value.chars().any(char::is_whitespace)
+}
+
 /// Reports raw or malformed fingerprint domains found in production sources.
 pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
     let mut errors = Vec::new();
@@ -246,7 +259,10 @@ pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
         let source = production_source(&path)?;
         let path = relative(root, &path);
         let mut checked = BTreeSet::new();
-        for captures in CONSTRUCTOR_DOMAIN.captures_iter(&source) {
+        for captures in CONSTRUCTOR_DOMAIN
+            .captures_iter(&source)
+            .chain(TYPED_DOMAIN_CONSTRUCTOR.captures_iter(&source))
+        {
             let matched = captures.get(1).expect("constructor domain capture");
             let domain = matched.as_str();
             checked.insert((matched.start(), domain.to_owned()));
@@ -257,7 +273,7 @@ pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
         for captures in STRING.captures_iter(&source) {
             let matched = captures.get(1).expect("string capture");
             let value = matched.as_str();
-            if !value.starts_with("nia.") || value == "nia.compiler_builtins" {
+            if !is_domain_candidate(value) {
                 continue;
             }
             if (!DOMAIN.is_match(value) || has_numeric_version_suffix(value))
@@ -307,7 +323,8 @@ pub fn typed_fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String
         for captures in STRING.captures_iter(&source) {
             let matched = captures.get(1).expect("string capture");
             let value = matched.as_str();
-            if DOMAIN.is_match(value)
+            if is_domain_candidate(value)
+                && DOMAIN.is_match(value)
                 && !declaration_spans
                     .iter()
                     .any(|span| span.contains(&matched.start()))
@@ -467,6 +484,58 @@ mod tests {
         assert!(fingerprint_domain_errors(directory.path()).unwrap()[0].contains("owner-product"));
         assert!(
             typed_fingerprint_domain_errors(directory.path()).unwrap()[0].contains("raw literal")
+        );
+    }
+
+    #[test]
+    fn filenames_diagnostics_and_formatted_package_names_are_not_domains() {
+        let directory = repository("non-domain-text");
+        directory.write(
+            "crates/owner/src/lib.rs",
+            r#"path.join("nia.toml");
+path.join("nia.lock");
+format!("nia.package.instance:{}", path);
+error("nia.lock needs to be updated, but `--locked` forbids changing it");
+"#,
+        );
+        assert!(
+            fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            typed_fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn fingerprint_constructors_validate_even_filename_and_formatted_domains() {
+        let directory = repository("invalid-domain-constructors");
+        directory.write(
+            "crates/owner/src/lib.rs",
+            r#"const BAD: FingerprintDomain = FingerprintDomain::new("nia.owner:{}");
+QueryFingerprintBuilder::new("nia.toml");
+const RAW: &str = "nia.owner.product";
+"#,
+        );
+        assert!(
+            fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .iter()
+                .any(|error| error.contains("nia.owner:{}"))
+        );
+        let errors = typed_fingerprint_domain_errors(directory.path()).unwrap();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("raw literal `nia.toml`"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("nia.owner.product"))
         );
     }
 
