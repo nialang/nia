@@ -1,0 +1,51 @@
+name: nia-git coverage-guided fuzzing
+
+on:
+  schedule:
+    - cron: "17 4 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: git-fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: nia-git fuzz targets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install nightly Rust
+        run: |
+          rustup toolchain install nightly --profile minimal --component llvm-tools-preview --no-self-update
+          rustup default nightly
+          rustc --version --verbose
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz Git parser boundaries
+        shell: bash
+        working-directory: crates/nia-git/fuzz
+        run: |
+          set -euo pipefail
+          for target in packet_lines loose_object pack_object delta http_response ssh_agent_identities ssh_kexinit openssh_identity known_hosts; do
+            cargo fuzz run "$target" -- -max_total_time=120 -max_len=1048576
+          done
+
+      - name: Upload minimized crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-git-fuzz-artifacts
+          path: crates/nia-git/fuzz/artifacts/
+          if-no-files-found: ignore

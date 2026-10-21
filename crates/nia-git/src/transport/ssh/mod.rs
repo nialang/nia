@@ -32,6 +32,26 @@ use crate::{
     invalid_packet,
 };
 
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz_agent_identities(input: &[u8]) {
+    let _ = agent::parse_agent_identities(input);
+}
+
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz_known_hosts(input: &[u8]) {
+    let _ = KnownHosts::parse(input);
+}
+
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz_kexinit(input: &[u8]) {
+    let _ = kex::parse_ssh_kexinit(input);
+}
+
+#[cfg(feature = "fuzzing")]
+pub(crate) fn fuzz_openssh_identity(input: &[u8]) {
+    let _ = identity::SshEd25519Identity::parse_openssh(input);
+}
+
 const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
 const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
 const MAX_SSH_CONTROL_MESSAGES: usize = 1024;

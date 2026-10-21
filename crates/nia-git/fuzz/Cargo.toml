@@ -1,0 +1,81 @@
+[package]
+name = "nia-git-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nia-git = { path = "..", features = ["fuzzing"] }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "http_response"
+path = "fuzz_targets/http_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "delta"
+path = "fuzz_targets/delta.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "known_hosts"
+path = "fuzz_targets/known_hosts.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "loose_object"
+path = "fuzz_targets/loose_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "openssh_identity"
+path = "fuzz_targets/openssh_identity.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack_object"
+path = "fuzz_targets/pack_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "packet_lines"
+path = "fuzz_targets/packet_lines.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ssh_agent_identities"
+path = "fuzz_targets/ssh_agent_identities.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ssh_kexinit"
+path = "fuzz_targets/ssh_kexinit.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
