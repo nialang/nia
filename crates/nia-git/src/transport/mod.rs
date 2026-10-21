@@ -4,3 +4,4 @@
 pub(crate) mod git_tcp;
 pub(crate) mod http;
 pub(crate) mod local;
+pub(crate) mod ssh;
