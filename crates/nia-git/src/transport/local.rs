@@ -21,10 +21,18 @@ pub(crate) fn checkout_local(
 ) -> io::Result<String> {
     prepare_destination(destination)?;
     let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
+    checkout_local_into(repository, revision, &destination_dir)
+}
+
+pub(crate) fn checkout_local_into(
+    repository: &Path,
+    revision: &str,
+    destination_dir: &Dir,
+) -> io::Result<String> {
     if destination_dir.entries()?.next().transpose()?.is_some() {
         return Err(invalid_packet("Git checkout destination must be empty"));
     }
-    checkout_repository(repository, revision, &destination_dir)
+    checkout_repository(repository, revision, destination_dir)
 }
 
 fn checkout_repository(
@@ -204,13 +212,22 @@ pub(crate) fn write_pack_checkout(
     commit: &[u8; 20],
     destination: &Path,
 ) -> io::Result<String> {
+    prepare_destination(destination)?;
+    let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
+    write_pack_checkout_into(pack, commit, destination, &destination_dir)
+}
+
+pub(crate) fn write_pack_checkout_into(
+    pack: &[u8],
+    commit: &[u8; 20],
+    destination: &Path,
+    destination_dir: &Dir,
+) -> io::Result<String> {
     let pack_id: [u8; 20] = pack
         .get(pack.len().saturating_sub(20)..)
         .filter(|bytes| bytes.len() == 20)
         .and_then(|bytes| bytes.try_into().ok())
         .ok_or_else(|| invalid_packet("Git upload-pack response has no pack checksum"))?;
-    prepare_destination(destination)?;
-    let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
     if destination_dir.entries()?.next().transpose()?.is_some() {
         return Err(invalid_packet("Git checkout destination must be empty"));
     }
@@ -227,7 +244,7 @@ pub(crate) fn write_pack_checkout(
             Path::new(&format!("pack-{}.pack", encode_hex(&pack_id))),
             pack,
         )?;
-        checkout_repository(destination, "HEAD", &destination_dir)
+        checkout_repository(destination, "HEAD", destination_dir)
     })();
     let cleanup = destination_dir.remove_dir_all(".git");
     match result {

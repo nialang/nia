@@ -9,12 +9,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::MAX_RESPONSE_BYTES;
-use super::local::write_pack_checkout;
+use super::local::{write_pack_checkout, write_pack_checkout_into};
 use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
 };
 use crate::{input::read_limited, invalid_packet};
+use cap_std::fs::Dir;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_types::ServerName};
 use zeroize::Zeroizing;
 
@@ -259,6 +260,7 @@ pub(crate) fn checkout_http(
     source: &str,
     revision: &str,
     destination: &std::path::Path,
+    destination_dir: Option<&Dir>,
 ) -> io::Result<String> {
     let url = parse_http_git_url(source)?;
     let proxy = http_proxy_for_url(&url)?;
@@ -295,7 +297,10 @@ pub(crate) fn checkout_http(
     .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
     let pack = parse_upload_pack_response(&response)?;
 
-    write_pack_checkout(&pack, &commit, destination)
+    match destination_dir {
+        Some(directory) => write_pack_checkout_into(&pack, &commit, destination, directory),
+        None => write_pack_checkout(&pack, &commit, destination),
+    }
 }
 
 /// Fetches one public HTTPS resource using the Git HTTP proxy and TLS policy.

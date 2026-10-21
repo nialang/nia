@@ -29,7 +29,7 @@ use std::{
 
 use cap_std::fs::Dir;
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
-use nia_git::checkout_source;
+use nia_git::checkout_source_into;
 use nia_query::FingerprintDomain;
 use registry::{RegistryFetch, open_cache_directory, open_cache_root};
 use semver::Version;
@@ -1168,14 +1168,18 @@ impl PackageFetcher {
                     };
                     let staging_name = allocate_package_staging(&cache)?;
                     let staging = self.cache_root.join(&staging_name);
-                    let fetched_revision = match checkout_source(
+                    let staging_directory = open_cache_directory(&cache, &staging_name, false)?;
+                    let checkout = checkout_source_into(
                         &source,
                         fetch_rev
                             .as_deref()
                             .or(requested.as_deref())
                             .unwrap_or("HEAD"),
+                        &staging_directory,
                         &staging,
-                    ) {
+                    );
+                    drop(staging_directory);
+                    let fetched_revision = match checkout {
                         Ok(revision) => revision,
                         Err(error) => {
                             let _ = cache.remove_dir_all(&staging_name);

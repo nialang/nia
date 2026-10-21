@@ -51,13 +51,16 @@ current Windows environment. No remote CI execution is claimed.
 
 ## Remaining Limits
 
-- Opening the checkout root still begins with an ambient path lookup after
-  ancestor validation, so another local process with write access to a
-  checkout ancestor can race that initial open. Once the root handle is open,
-  checkout output and temporary `.git` lifecycle operations remain anchored to
-  that directory object. Checkout callers must own the staging directory and
-  discard partial output after an error. Repository object and ref reads also
-  remain pathname-based and require repository ownership against local races.
+- The path-based `checkout_source` API still validates ancestors before its
+  ambient root open, so another local process with write access to a checkout
+  ancestor can race that initial lookup. Callers that already own a directory
+  handle can use `checkout_source_into`; worktree output and temporary `.git`
+  creation and cleanup then stay relative to that handle. Package Git fetches
+  use this handle-based entry point. Remote checkout object reads still use the
+  staging pathname, so replacing that pathname can make checkout fail or change
+  which temporary objects are read, though it cannot redirect output writes.
+  Local repository object and ref reads also remain pathname-based and require
+  repository ownership against local races.
 - Byte budgets exclude allocator/container overhead and transient compression
   buffers. They bound decoded payload accounting, not exact process memory.
 - The SSH implementation is a deliberately limited client: it supports the
@@ -81,6 +84,16 @@ These limits are documented constraints, not claims that the corresponding
 threats have been eliminated. Changes to parser boundaries, transport state,
 filesystem output, cryptography, or resource accounting should extend the
 regression suite and revisit this review.
+
+## Handle-Based Checkout Follow-Up
+
+On 2026-10-22, package Git fetches moved to `checkout_source_into`, which keeps
+worktree and temporary `.git` writes on an already opened directory handle.
+Regression tests replace the original destination path with a symlink or
+junction after opening the handle and verify output remains in the opened
+directory. Windows and Unix variants passed locally. The current focused run
+passed 111 `nia-git` unit tests, 4 Git checkout integration tests, and 76
+`nia-package-metadata` tests; Clippy and `cargo maintain check` also passed.
 
 ## Post-Review Fuzzing
 

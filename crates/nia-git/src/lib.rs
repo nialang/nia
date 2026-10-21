@@ -6,13 +6,14 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use cap_std::fs::Dir;
+
 mod input;
 mod object;
 mod pktline;
 mod transport;
 use transport::git_tcp::checkout_git;
 use transport::http::checkout_http;
-use transport::local::checkout_local;
 use transport::ssh::checkout_ssh;
 
 #[cfg(feature = "fuzzing")]
@@ -67,22 +68,51 @@ fn invalid_packet(message: &'static str) -> io::Error {
 /// contents and linked destination directories are rejected. On failure, a
 /// partially materialized tree may remain for the caller to discard.
 pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
+    checkout_source_with_destination(source, revision, None, destination)
+}
+
+/// Checks out into an already opened destination. `destination_path` is used
+/// only to read the temporary Git object database created for remote checkouts;
+/// all worktree and metadata writes remain relative to `destination_dir`.
+pub fn checkout_source_into(
+    source: &str,
+    revision: &str,
+    destination_dir: &Dir,
+    destination_path: &Path,
+) -> io::Result<String> {
+    if destination_dir.entries()?.next().transpose()?.is_some() {
+        return Err(invalid_packet("Git checkout destination must be empty"));
+    }
+    checkout_source_with_destination(source, revision, Some(destination_dir), destination_path)
+}
+
+fn checkout_source_with_destination(
+    source: &str,
+    revision: &str,
+    destination_dir: Option<&Dir>,
+    destination_path: &Path,
+) -> io::Result<String> {
     if let Some(repository) = source.strip_prefix("file:///") {
         let repository = if cfg!(windows) && repository.as_bytes().get(1) == Some(&b':') {
             PathBuf::from(repository)
         } else {
             PathBuf::from(format!("/{repository}"))
         };
-        return checkout_local(&repository, revision, destination);
+        return match destination_dir {
+            Some(directory) => {
+                transport::local::checkout_local_into(&repository, revision, directory)
+            }
+            None => transport::local::checkout_local(&repository, revision, destination_path),
+        };
     }
     if source.starts_with("http://") || source.starts_with("https://") {
-        return checkout_http(source, revision, destination);
+        return checkout_http(source, revision, destination_path, destination_dir);
     }
     if source.starts_with("git://") {
-        return checkout_git(source, revision, destination);
+        return checkout_git(source, revision, destination_path, destination_dir);
     }
     if source.starts_with("ssh://") || source.starts_with("git@") {
-        return checkout_ssh(source, revision, destination);
+        return checkout_ssh(source, revision, destination_path, destination_dir);
     }
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

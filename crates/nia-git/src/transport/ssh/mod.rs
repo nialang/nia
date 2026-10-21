@@ -25,12 +25,16 @@ use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
 };
-use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout};
+use super::{
+    MAX_RESPONSE_BYTES,
+    local::{write_pack_checkout, write_pack_checkout_into},
+};
 use crate::pktline::read_packet_section;
 use crate::{
     input::{read_limited, read_limited_file},
     invalid_packet,
 };
+use cap_std::fs::Dir;
 
 #[cfg(feature = "fuzzing")]
 pub(crate) fn fuzz_agent_identities(input: &[u8]) {
@@ -358,15 +362,46 @@ fn is_ignorable_ssh_message(payload: &[u8]) -> io::Result<bool> {
     }
 }
 
-pub(crate) fn checkout_ssh(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
+pub(crate) fn checkout_ssh(
+    source: &str,
+    revision: &str,
+    destination: &Path,
+    destination_dir: Option<&Dir>,
+) -> io::Result<String> {
     let ssh_directory = ssh_directory()?;
-    checkout_ssh_with_config(source, revision, destination, &ssh_directory, true)
+    checkout_ssh_with_config_into(
+        source,
+        revision,
+        destination,
+        destination_dir,
+        &ssh_directory,
+        true,
+    )
 }
 
+#[cfg(test)]
 fn checkout_ssh_with_config(
     source: &str,
     revision: &str,
     destination: &Path,
+    ssh_directory: &Path,
+    use_agent: bool,
+) -> io::Result<String> {
+    checkout_ssh_with_config_into(
+        source,
+        revision,
+        destination,
+        None,
+        ssh_directory,
+        use_agent,
+    )
+}
+
+fn checkout_ssh_with_config_into(
+    source: &str,
+    revision: &str,
+    destination: &Path,
+    destination_dir: Option<&Dir>,
     ssh_directory: &Path,
     use_agent: bool,
 ) -> io::Result<String> {
@@ -422,7 +457,10 @@ fn checkout_ssh_with_config(
         "Git response exceeds size limit",
     )?;
     let pack = parse_upload_pack_response(&response)?;
-    write_pack_checkout(&pack, &commit, destination)
+    match destination_dir {
+        Some(directory) => write_pack_checkout_into(&pack, &commit, destination, directory),
+        None => write_pack_checkout(&pack, &commit, destination),
+    }
 }
 
 fn ssh_directory() -> io::Result<PathBuf> {
