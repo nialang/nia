@@ -866,6 +866,7 @@ struct PackageFetcher {
     registries: BTreeMap<String, RegistryEndpoint>,
     registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
     registry_selected: BTreeMap<RegistryPackageName, (String, PackageId)>,
+    registry_sources: BTreeMap<RegistryPackageName, String>,
     registry_constraints: BTreeMap<RegistryPackageName, Vec<RegistryVersionConstraint>>,
     registry_candidates: BTreeMap<RegistryPackageName, Vec<PackageId>>,
     registry_restart: Option<(RegistryPackageName, PackageId)>,
@@ -920,6 +921,7 @@ impl PackageFetcher {
             registries,
             registry_overrides,
             registry_selected: BTreeMap::new(),
+            registry_sources: BTreeMap::new(),
             registry_constraints: BTreeMap::new(),
             registry_candidates: BTreeMap::new(),
             registry_restart: None,
@@ -1220,6 +1222,7 @@ impl PackageFetcher {
         requirement: &PackageVersionRequirement,
     ) -> io::Result<PathBuf> {
         self.lock_state()?;
+        record_registry_source(&mut self.registry_sources, package, registry)?;
         let refresh = self
             .refresh_names
             .as_ref()
@@ -1728,6 +1731,27 @@ impl PackageFetcher {
         }
         self.lock.write_atomic(&self.lock_path)
     }
+}
+
+fn record_registry_source(
+    sources: &mut BTreeMap<RegistryPackageName, String>,
+    package: &RegistryPackageName,
+    registry: &str,
+) -> io::Result<()> {
+    if let Some(previous) = sources.get(package) {
+        if previous != registry {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "registry package {}/{} is requested from both `{previous}` and `{registry}`",
+                    package.namespace, package.name
+                ),
+            ));
+        }
+    } else {
+        sources.insert(package.clone(), registry.to_owned());
+    }
+    Ok(())
 }
 
 /// One `nia.lock` entry changed by [`update_lock`].
@@ -4883,6 +4907,23 @@ fn read_exact(cursor: &mut Cursor<&[u8]>, bytes: &mut [u8]) -> Result<(), Metada
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registry_package_identity_cannot_mix_registry_sources() {
+        let package = RegistryPackageName {
+            namespace: "acme".into(),
+            name: "json".into(),
+        };
+        let mut sources = BTreeMap::new();
+
+        record_registry_source(&mut sources, &package, "public").unwrap();
+        record_registry_source(&mut sources, &package, "public").unwrap();
+        let error = record_registry_source(&mut sources, &package, "internal").unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("acme/json"));
+        assert!(error.to_string().contains("`public` and `internal`"));
+    }
 
     #[test]
     fn metadata_errors_use_semantic_messages() {

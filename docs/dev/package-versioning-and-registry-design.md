@@ -39,7 +39,7 @@ but does not define package semantics. Publishing, namespace ownership,
 account management, private registry authentication, and signing are separate
 work.
 
-Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
+Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Within one resolved graph, a `(namespace, package)` identity must come from exactly one named registry; requesting it from multiple registries is an error rather than combining unrelated indexes. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
 
 The v1 index is a bounded TOML document with `schema_version = 1` and a
 `packages` array. Each record contains `namespace`, `name`, `version`,
