@@ -621,7 +621,7 @@ fn digest_hex(digest: &[u8; 32]) -> String {
     text
 }
 
-fn open_cache_root(path: &Path, create: bool) -> io::Result<Dir> {
+pub(super) fn open_cache_root(path: &Path, create: bool) -> io::Result<Dir> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -651,7 +651,7 @@ fn open_cache_root(path: &Path, create: bool) -> io::Result<Dir> {
     Ok(directory)
 }
 
-fn open_cache_directory(parent: &Dir, name: &str, create: bool) -> io::Result<Dir> {
+pub(super) fn open_cache_directory(parent: &Dir, name: &str, create: bool) -> io::Result<Dir> {
     open_cache_directory_os(parent, OsStr::new(name), create)
 }
 
