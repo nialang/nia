@@ -1092,6 +1092,7 @@ dependencies = [
  "aes",
  "ctr",
  "flate2",
+ "nia-git",
  "rcgen",
  "ring",
  "rustls",

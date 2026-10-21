@@ -102,21 +102,3 @@ fn ssh_publickey_auth_uses_the_signers_signature_algorithm() {
     );
     assert_eq!(signature_offset, signature_blob.len());
 }
-
-#[test]
-fn ssh_key_exchange_authenticates_and_opens_git_exec_channel() {
-    super::fixture::with_checkout_fixture(
-        |_| {},
-        |root, source, ssh_config, _, commit_id| {
-            let destination = root.join("checkout");
-            let checked_out =
-                checkout_ssh_with_config(source, "HEAD", &destination, ssh_config, false)
-                    .unwrap_or_else(|error| panic!("SSH checkout failed: {error}"));
-            assert_eq!(checked_out, commit_id);
-            assert_eq!(
-                std::fs::read(destination.join("file.txt")).unwrap(),
-                b"native SSH checkout\n"
-            );
-        },
-    );
-}
