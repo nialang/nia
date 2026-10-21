@@ -5,6 +5,12 @@ use std::io::{self, Write};
 use std::process::Command;
 
 use crate::invalid_packet;
+use crate::object::encode_hex;
+use crate::transport::local::{checkout_local, fs_create_dir};
+use crate::{
+    build_upload_pack_request, http_request_with_proxy, parse_advertised_refs,
+    parse_upload_pack_response, select_advertised_revision,
+};
 use zeroize::Zeroizing;
 
 const MAX_HTTP_RESPONSE: usize = 128 * 1024 * 1024;
@@ -214,6 +220,83 @@ pub(crate) fn parse_http_git_url(source: &str) -> io::Result<HttpGitUrl> {
         path,
         secure,
     })
+}
+
+pub(crate) fn explain_http_auth_error(
+    error: io::Error,
+    url: &HttpGitUrl,
+    sent_credentials: bool,
+) -> io::Error {
+    if url.secure && error.kind() == io::ErrorKind::PermissionDenied {
+        let detail = if sent_credentials {
+            "Git HTTPS credentials were rejected"
+        } else {
+            "Git HTTPS server requires credentials; configure a Git credential helper"
+        };
+        return io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{detail} for {} (HTTP 401)", url.host),
+        );
+    }
+    error
+}
+
+pub(crate) fn checkout_http(
+    source: &str,
+    revision: &str,
+    destination: &std::path::Path,
+) -> io::Result<String> {
+    let url = parse_http_git_url(source)?;
+    let proxy = http_proxy_for_url(&url)?;
+    let authorization = if url.secure {
+        lookup_http_authorization(&url)
+    } else {
+        None
+    };
+    let info_path = format!("{}/info/refs?service=git-upload-pack", url.path);
+    let authorization = authorization.as_ref().map(|value| value.as_slice());
+    let info = http_request_with_proxy(
+        &url,
+        "GET",
+        &info_path,
+        &[],
+        "",
+        authorization,
+        proxy.as_ref(),
+    )
+    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
+    let refs = parse_advertised_refs(&info)?;
+    let commit = select_advertised_revision(&refs, revision)?;
+
+    let request = build_upload_pack_request(&commit)?;
+    let response = http_request_with_proxy(
+        &url,
+        "POST",
+        &format!("{}/git-upload-pack", url.path),
+        &request,
+        "application/x-git-upload-pack-request",
+        authorization,
+        proxy.as_ref(),
+    )
+    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
+    let pack = parse_upload_pack_response(&response)?;
+
+    let git_dir = destination.join(".git");
+    let pack_dir = git_dir.join("objects/pack");
+    fs_create_dir(&pack_dir)?;
+    std::fs::write(git_dir.join("HEAD"), encode_hex(&commit))?;
+    let pack_id: [u8; 20] = pack
+        .get(pack.len().saturating_sub(20)..)
+        .filter(|bytes| bytes.len() == 20)
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or_else(|| invalid_packet("Git upload-pack response has no pack checksum"))?;
+    std::fs::write(
+        pack_dir.join(format!("pack-{}.pack", encode_hex(&pack_id))),
+        pack,
+    )?;
+    let result = checkout_local(destination, "HEAD", destination);
+    let _ = std::fs::remove_dir_all(&git_dir);
+    result
 }
 
 pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
