@@ -2,8 +2,8 @@
 //! Strict registry index records and parsing.
 
 use std::{
-    fmt,
-    fs::{self, OpenOptions},
+    ffi::OsStr,
+    fmt, fs,
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
     sync::{
@@ -170,8 +170,10 @@ impl RegistryCache {
     /// Reads and validates the cached index for a registry.
     pub fn read_index(&self, registry: &str) -> io::Result<RegistryIndex> {
         validate_registry_name(registry)?;
-        let path = self.index_path(registry);
-        let bytes = read_bounded(&path, MAX_INDEX_BYTES)?;
+        let root = open_cache_root(&self.root, false)?;
+        let indexes = open_cache_directory(&root, "indexes", false)?;
+        let registry_directory = open_cache_directory(&indexes, registry, false)?;
+        let bytes = read_bounded(&registry_directory, "index.toml", MAX_INDEX_BYTES)?;
         RegistryIndex::parse_toml(&bytes)
     }
 
@@ -179,14 +181,27 @@ impl RegistryCache {
     pub fn write_index(&self, registry: &str, bytes: &[u8]) -> io::Result<RegistryIndex> {
         validate_registry_name(registry)?;
         let index = RegistryIndex::parse_toml(bytes)?;
-        let path = self.index_path(registry);
-        write_atomic(&path, bytes)?;
+        let root = open_cache_root(&self.root, true)?;
+        let indexes = open_cache_directory(&root, "indexes", true)?;
+        let registry_directory = open_cache_directory(&indexes, registry, true)?;
+        write_atomic(
+            &registry_directory,
+            "index.toml",
+            &self.root.join("indexes").join(registry),
+            bytes,
+        )?;
         Ok(index)
     }
 
     /// Reads a digest-addressed archive after rechecking its complete digest.
     pub fn read_archive(&self, digest: &[u8; 32]) -> io::Result<Vec<u8>> {
-        let bytes = read_bounded(&self.archive_path(digest), MAX_PACKAGE_ARCHIVE_BYTES)?;
+        let root = open_cache_root(&self.root, false)?;
+        let archives = open_cache_directory(&root, "archives", false)?;
+        let bytes = read_bounded(
+            &archives,
+            &format!("{}.nia", digest_hex(digest)),
+            MAX_PACKAGE_ARCHIVE_BYTES,
+        )?;
         if blake3::hash(&bytes).as_bytes() != digest {
             return Err(invalid_index("cached registry archive digest mismatch"));
         }
@@ -199,17 +214,14 @@ impl RegistryCache {
             return Err(invalid_index("registry archive digest mismatch"));
         }
         decode_registry_archive(bytes, digest)?;
-        write_atomic(&self.archive_path(digest), bytes)
-    }
-
-    fn index_path(&self, registry: &str) -> PathBuf {
-        self.root.join("indexes").join(registry).join("index.toml")
-    }
-
-    fn archive_path(&self, digest: &[u8; 32]) -> PathBuf {
-        self.root
-            .join("archives")
-            .join(format!("{}.nia", digest_hex(digest)))
+        let root = open_cache_root(&self.root, true)?;
+        let archives = open_cache_directory(&root, "archives", true)?;
+        write_atomic(
+            &archives,
+            &format!("{}.nia", digest_hex(digest)),
+            &self.root.join("archives"),
+            bytes,
+        )
     }
 }
 
@@ -607,20 +619,98 @@ fn digest_hex(digest: &[u8; 32]) -> String {
     text
 }
 
-fn read_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
-    let mut options = OpenOptions::new();
+fn open_cache_root(path: &Path, create: bool) -> io::Result<Dir> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut root_path = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::Prefix(prefix) => root_path.push(prefix.as_os_str()),
+            Component::RootDir => {
+                root_path.push(component.as_os_str());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let mut directory = Dir::open_ambient_dir(&root_path, ambient_authority())?;
+    for component in absolute.components() {
+        match component {
+            Component::Normal(name) => {
+                directory = open_cache_directory_os(&directory, name, create)?;
+            }
+            Component::ParentDir => directory = directory.open_parent_dir(ambient_authority())?,
+            Component::Prefix(_) | Component::RootDir | Component::CurDir => {}
+        }
+    }
+    Ok(directory)
+}
+
+fn open_cache_directory(parent: &Dir, name: &str, create: bool) -> io::Result<Dir> {
+    open_cache_directory_os(parent, OsStr::new(name), create)
+}
+
+fn open_cache_directory_os(parent: &Dir, name: &OsStr, create: bool) -> io::Result<Dir> {
+    match open_cache_directory_nofollow_os(parent, name) {
+        Ok(directory) => Ok(directory),
+        Err(error) if error.kind() == io::ErrorKind::NotFound && create => {
+            match parent.create_dir(name) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+            open_cache_directory_nofollow_os(parent, name)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn open_cache_directory_nofollow_os(parent: &Dir, name: &OsStr) -> io::Result<Dir> {
+    let mut options = CapOpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt as _;
+        use cap_std::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY);
+    }
+    #[cfg(windows)]
+    {
+        use cap_std::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+        options
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE);
+    }
+    let file = parent.open_with(name, &options)?.into_std();
+    let metadata = file.metadata()?;
+    if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_dir() {
+        return Err(invalid_index(
+            "registry cache path component must be a real directory",
+        ));
+    }
+    Ok(Dir::from_std_file(file))
+}
+
+fn read_bounded(parent: &Dir, name: &str, limit: usize) -> io::Result<Vec<u8>> {
+    let mut options = CapOpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW);
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::OpenOptionsExt as _;
+        use cap_std::fs::OpenOptionsExt as _;
         options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let file = options.open(path)?;
+    let file = parent.open_with(name, &options)?.into_std();
     let metadata = file.metadata()?;
     if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
         return Err(invalid_index("registry cache entry must be a regular file"));
@@ -633,29 +723,52 @@ fn read_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
+fn write_atomic(parent: &Dir, name: &str, parent_path: &Path, bytes: &[u8]) -> io::Result<()> {
+    match parent.symlink_metadata(name) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(invalid_index("registry cache entry must be a regular file"));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
     let (temporary, mut file) = allocate_cache_staging(parent)?;
     let result = (|| {
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
-        nia_compat::replace_path(&temporary, path)?;
-        nia_compat::sync_directory(parent)
+        #[cfg(windows)]
+        nia_compat::replace_path(parent_path.join(&temporary), parent_path.join(name))?;
+        #[cfg(not(windows))]
+        parent.rename(&temporary, parent, name)?;
+        sync_open_directory(parent)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ = parent.remove_file(&temporary);
     }
     result
 }
 
-fn allocate_cache_staging(parent: &Path) -> io::Result<(PathBuf, fs::File)> {
+fn sync_open_directory(directory: &Dir) -> io::Result<()> {
+    #[cfg(not(windows))]
+    {
+        directory.try_clone()?.into_std_file().sync_all()
+    }
+    #[cfg(windows)]
+    {
+        let _ = directory;
+        Ok(())
+    }
+}
+
+fn allocate_cache_staging(parent: &Dir) -> io::Result<(String, cap_std::fs::File)> {
     for _ in 0..128 {
         let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = parent.join(format!(".nia-cache-{}-{sequence}.tmp", std::process::id()));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((path, file)),
+        let name = format!(".nia-cache-{}-{sequence}.tmp", std::process::id());
+        let mut options = CapOpenOptions::new();
+        options.write(true).create_new(true);
+        match parent.open_with(&name, &options) {
+            Ok(file) => return Ok((name, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
@@ -1055,7 +1168,12 @@ mod tests {
         cache.write_archive(&digest, &bytes).unwrap();
         assert_eq!(cache.read_archive(&digest).unwrap(), bytes);
         assert!(cache.write_archive(&[0; 32], &bytes).is_err());
-        fs::write(cache.archive_path(&digest), b"tampered").unwrap();
+        fs::write(
+            root.join("archives")
+                .join(format!("{}.nia", digest_hex(&digest))),
+            b"tampered",
+        )
+        .unwrap();
         assert!(cache.read_archive(&digest).is_err());
         fs::remove_dir_all(root).unwrap();
     }
@@ -1070,7 +1188,7 @@ mod tests {
         ));
         let cache = RegistryCache::new(&root);
         let outside = root.join("outside.toml");
-        let index_path = cache.index_path("nia");
+        let index_path = root.join("indexes").join("nia").join("index.toml");
         fs::create_dir_all(index_path.parent().unwrap()).unwrap();
         fs::write(&outside, b"schema_version = 1\npackages = []\n").unwrap();
         std::os::unix::fs::symlink(&outside, &index_path).unwrap();
@@ -1079,6 +1197,170 @@ mod tests {
 
         assert_ne!(error.kind(), io::ErrorKind::NotFound);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registry_cache_rejects_symlinked_intermediate_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-cache-directory-link-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let cache = RegistryCache::new(&root);
+        let index_bytes = b"schema_version = 1\npackages = []\n";
+
+        std::os::unix::fs::symlink(&outside, root.join("indexes")).unwrap();
+        assert!(cache.write_index("nia", index_bytes).is_err());
+        assert!(cache.read_index("nia").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_file(root.join("indexes")).unwrap();
+        fs::create_dir(root.join("indexes")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("indexes/nia")).unwrap();
+        assert!(cache.write_index("nia", index_bytes).is_err());
+        assert!(cache.read_index("nia").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_file(root.join("indexes/nia")).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registry_cache_rejects_symlinked_cache_root_ancestors() {
+        let parent = std::env::temp_dir().join(format!(
+            "nia-registry-cache-root-link-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let outside = parent.join("outside");
+        let linked = parent.join("linked");
+        fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        let cache = RegistryCache::new(linked.join("cache"));
+
+        assert!(
+            cache
+                .write_index("nia", b"schema_version = 1\npackages = []\n")
+                .is_err()
+        );
+        assert!(cache.read_index("nia").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_file(&linked).unwrap();
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registry_cache_write_stays_anchored_after_directory_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-cache-directory-race-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let registry_path = root.join("indexes/nia");
+        let moved_registry_path = root.join("indexes/nia-opened");
+        let outside = root.join("outside");
+        fs::create_dir_all(&registry_path).unwrap();
+        fs::create_dir(&outside).unwrap();
+
+        let root_handle = open_cache_root(&root, false).unwrap();
+        let indexes_handle = open_cache_directory(&root_handle, "indexes", false).unwrap();
+        let registry_handle = open_cache_directory(&indexes_handle, "nia", false).unwrap();
+        fs::rename(&registry_path, &moved_registry_path).unwrap();
+        std::os::unix::fs::symlink(&outside, &registry_path).unwrap();
+
+        write_atomic(
+            &registry_handle,
+            "index.toml",
+            &registry_path,
+            b"schema_version = 1\npackages = []\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(moved_registry_path.join("index.toml")).unwrap(),
+            b"schema_version = 1\npackages = []\n"
+        );
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+        fs::remove_file(&registry_path).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn registry_cache_rejects_junctioned_intermediate_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-cache-junction-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let outside = root.join("outside");
+        let indexes = root.join("indexes");
+        fs::create_dir_all(&outside).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&indexes)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "create cache junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let cache = RegistryCache::new(&root);
+        assert!(
+            cache
+                .write_index("nia", b"schema_version = 1\npackages = []\n")
+                .is_err()
+        );
+        assert!(cache.read_index("nia").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_dir(indexes).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn registry_cache_rejects_junctioned_cache_root_ancestors() {
+        let parent = std::env::temp_dir().join(format!(
+            "nia-registry-cache-root-junction-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let outside = parent.join("outside");
+        let linked = parent.join("linked");
+        fs::create_dir_all(&outside).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "create cache root junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let cache = RegistryCache::new(linked.join("cache"));
+
+        assert!(
+            cache
+                .write_index("nia", b"schema_version = 1\npackages = []\n")
+                .is_err()
+        );
+        assert!(cache.read_index("nia").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_dir(&linked).unwrap();
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[test]
