@@ -17,6 +17,7 @@ use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_typ
 use zeroize::Zeroizing;
 
 const MAX_PROXY_HEADER_BYTES: usize = 16 * 1024;
+const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct HttpGitUrl {
@@ -149,6 +150,12 @@ fn parse_http_proxy(source: &str) -> io::Result<HttpProxy> {
 }
 
 fn parse_http_authority(authority: &str, default_port: u16) -> io::Result<(String, u16)> {
+    if authority
+        .bytes()
+        .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    {
+        return Err(invalid_packet("Git HTTP URL has an invalid authority"));
+    }
     if let Some(address) = authority.strip_prefix('[') {
         let (host, suffix) = address
             .split_once(']')
@@ -537,34 +544,60 @@ fn parse_proxy_status(response: &[u8]) -> io::Result<u16> {
         .ok_or_else(|| invalid_packet("Git HTTPS proxy response status is malformed"))?;
     let line = std::str::from_utf8(&response[..line_end])
         .map_err(|_| invalid_packet("Git HTTPS proxy response status is malformed"))?;
-    let mut fields = line.split_ascii_whitespace();
+    parse_http_status(line)
+}
+
+fn parse_http_status(line: &str) -> io::Result<u16> {
+    if line.bytes().any(|byte| byte.is_ascii_control()) {
+        return Err(invalid_packet("Git HTTP response status is malformed"));
+    }
+    let mut fields = line.splitn(3, ' ');
     let version = fields.next();
     let code = fields.next();
     let status = code
         .filter(|code| code.len() == 3 && code.bytes().all(|byte| byte.is_ascii_digit()))
         .and_then(|code| code.parse::<u16>().ok())
-        .ok_or_else(|| invalid_packet("Git HTTPS proxy response status is malformed"))?;
-    if !matches!(version, Some("HTTP/1.0" | "HTTP/1.1")) {
-        return Err(invalid_packet(
-            "Git HTTPS proxy response status is malformed",
-        ));
+        .ok_or_else(|| invalid_packet("Git HTTP response status is malformed"))?;
+    if !matches!(version, Some("HTTP/1.0" | "HTTP/1.1")) || !(100..=599).contains(&status) {
+        return Err(invalid_packet("Git HTTP response status is malformed"));
     }
     Ok(status)
 }
 
+fn parse_http_field(line: &str) -> io::Result<(&str, &str)> {
+    let (name, value) = line
+        .split_once(':')
+        .ok_or_else(|| invalid_packet("Git HTTP header field is malformed"))?;
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+        || value
+            .bytes()
+            .any(|byte| (byte < 0x20 && byte != b'\t') || byte == 0x7f)
+    {
+        return Err(invalid_packet("Git HTTP header field is malformed"));
+    }
+    Ok((name, value.trim_matches([' ', '\t'])))
+}
+
 pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
+    if response.len() > MAX_RESPONSE_BYTES {
+        return Err(invalid_packet("Git HTTP response exceeds size limit"));
+    }
     let header_end = response
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .ok_or_else(|| invalid_packet("Git HTTP response has no header terminator"))?;
+    if header_end + 4 > MAX_HTTP_HEADER_BYTES {
+        return Err(invalid_packet(
+            "Git HTTP response headers exceed size limit",
+        ));
+    }
     let header = std::str::from_utf8(&response[..header_end])
         .map_err(|_| invalid_packet("Git HTTP response headers are not UTF-8"))?;
-    let mut lines = header.lines();
-    let status = lines
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .and_then(|code| code.parse::<u16>().ok())
-        .ok_or_else(|| invalid_packet("Git HTTP response status is malformed"))?;
+    let mut lines = header.split("\r\n");
+    let status = parse_http_status(lines.next().unwrap_or_default())?;
     if !(200..300).contains(&status) {
         let kind = if status == 401 {
             io::ErrorKind::PermissionDenied
@@ -579,29 +612,47 @@ pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
     let mut chunked = false;
     let mut content_length = None;
     for line in lines {
-        if let Some((name, value)) = line.split_once(':') {
-            match name.to_ascii_lowercase().as_str() {
-                "transfer-encoding" if value.trim().eq_ignore_ascii_case("chunked") => {
-                    chunked = true
+        let (name, value) = parse_http_field(line)?;
+        match name.to_ascii_lowercase().as_str() {
+            "transfer-encoding" => {
+                if chunked || !value.eq_ignore_ascii_case("chunked") {
+                    return Err(invalid_packet(
+                        "Git HTTP transfer encoding is unsupported or repeated",
+                    ));
                 }
-                "content-length" => {
-                    content_length = Some(
-                        value
-                            .trim()
-                            .parse::<usize>()
-                            .map_err(|_| invalid_packet("Git HTTP content length is malformed"))?,
-                    )
-                }
-                _ => {}
+                chunked = true;
             }
+            "content-length" => {
+                if content_length.is_some()
+                    || value.is_empty()
+                    || !value.bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    return Err(invalid_packet(
+                        "Git HTTP content length is malformed or repeated",
+                    ));
+                }
+                content_length = Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| invalid_packet("Git HTTP content length is malformed"))?,
+                )
+            }
+            _ => {}
         }
+    }
+    if chunked && content_length.is_some() {
+        return Err(invalid_packet(
+            "Git HTTP response has conflicting body framing",
+        ));
     }
     let body = &response[header_end + 4..];
     if chunked {
         decode_chunked_body(body)
     } else if let Some(length) = content_length {
-        if body.len() < length {
-            return Err(invalid_packet("Git HTTP body is truncated"));
+        if body.len() != length {
+            return Err(invalid_packet(
+                "Git HTTP body length does not match content length",
+            ));
         }
         Ok(body[..length].to_vec())
     } else {
@@ -610,23 +661,62 @@ pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
+    if input.len() > MAX_RESPONSE_BYTES {
+        return Err(invalid_packet("Git HTTP response exceeds size limit"));
+    }
     let mut output = Vec::new();
     loop {
         let line_end = input
             .windows(2)
             .position(|window| window == b"\r\n")
             .ok_or_else(|| invalid_packet("Git HTTP chunk header is truncated"))?;
-        let size = usize::from_str_radix(
-            std::str::from_utf8(&input[..line_end])
-                .map_err(|_| invalid_packet("Git HTTP chunk size is invalid"))?
-                .split(';')
-                .next()
-                .unwrap_or_default(),
-            16,
-        )
-        .map_err(|_| invalid_packet("Git HTTP chunk size is invalid"))?;
+        if line_end + 2 > MAX_HTTP_HEADER_BYTES {
+            return Err(invalid_packet("Git HTTP chunk header exceeds size limit"));
+        }
+        let header = &input[..line_end];
+        if header
+            .iter()
+            .any(|byte| (*byte < 0x20 && *byte != b'\t') || *byte == 0x7f)
+        {
+            return Err(invalid_packet("Git HTTP chunk header is invalid"));
+        }
+        let size_text = header
+            .split(|byte| *byte == b';')
+            .next()
+            .unwrap_or_default();
+        if size_text.is_empty() || !size_text.iter().all(u8::is_ascii_hexdigit) {
+            return Err(invalid_packet("Git HTTP chunk size is invalid"));
+        }
+        let size = usize::from_str_radix(std::str::from_utf8(size_text).unwrap(), 16)
+            .map_err(|_| invalid_packet("Git HTTP chunk size is invalid"))?;
         input = &input[line_end + 2..];
         if size == 0 {
+            let trailer_start = input.len();
+            loop {
+                let line_end = input
+                    .windows(2)
+                    .position(|window| window == b"\r\n")
+                    .ok_or_else(|| invalid_packet("Git HTTP trailers are truncated"))?;
+                if trailer_start - input.len() + line_end + 2 > MAX_HTTP_HEADER_BYTES {
+                    return Err(invalid_packet("Git HTTP trailers exceed size limit"));
+                }
+                let line = &input[..line_end];
+                input = &input[line_end + 2..];
+                if line.is_empty() {
+                    if !input.is_empty() {
+                        return Err(invalid_packet("Git HTTP chunked body has trailing data"));
+                    }
+                    break;
+                }
+                let line = std::str::from_utf8(line)
+                    .map_err(|_| invalid_packet("Git HTTP trailer is not UTF-8"))?;
+                let (name, _) = parse_http_field(line)?;
+                if name.eq_ignore_ascii_case("content-length")
+                    || name.eq_ignore_ascii_case("transfer-encoding")
+                {
+                    return Err(invalid_packet("Git HTTP trailer contains a framing field"));
+                }
+            }
             return Ok(output);
         }
         let chunk_end = size
@@ -758,6 +848,100 @@ mod tests {
         for length in [usize::MAX, usize::MAX - 1] {
             let body = format!("{length:x}\r\n");
             assert!(decode_chunked_body(body.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn http_rejects_ambiguous_or_malformed_response_framing() {
+        for response in [
+            "garbage 200 OK\r\n\r\n",
+            "HTTP/1.1 +200 OK\r\n\r\n",
+            "HTTP/1.1 0200 OK\r\n\r\n",
+            "HTTP/1.1 200 OK\nX-Test: value\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nBroken header\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length : 0\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\ncontent-length: 0\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Length: 1\r\n\r\nx",
+            "HTTP/1.1 200 OK\r\nContent-Length: +1\r\n\r\nx",
+            "HTTP/1.1 200 OK\r\nContent-Length: 1, 1\r\n\r\nx",
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nx",
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\nx",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nx",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Length: 0\r\n\r\n0\r\n\r\n",
+        ] {
+            assert_eq!(
+                parse_http_response(response.as_bytes()).unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{response:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn chunked_bodies_require_complete_valid_trailers_and_no_extra_data() {
+        assert_eq!(
+            decode_chunked_body(b"3;name=value\r\nabc\r\n0\r\nX-Checksum: value\r\n\r\n").unwrap(),
+            b"abc"
+        );
+        for body in [
+            "+1\r\nx\r\n0\r\n\r\n",
+            "1 \r\nx\r\n0\r\n\r\n",
+            "1;bad\nheader\r\nx\r\n0\r\n\r\n",
+            "0\r\n",
+            "0\r\nX-Test: value\r\n",
+            "0\r\ninvalid\r\n\r\n",
+            "0\r\nContent-Length: 0\r\n\r\n",
+            "0\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "0\r\n\r\nextra",
+        ] {
+            assert_eq!(
+                decode_chunked_body(body.as_bytes()).unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{body:?}"
+            );
+        }
+        let valid = b"3\r\nabc\r\n0\r\nX-Test: value\r\n\r\n";
+        for length in 0..valid.len() {
+            assert!(
+                decode_chunked_body(&valid[..length]).is_err(),
+                "length={length}"
+            );
+        }
+    }
+
+    #[test]
+    fn http_header_and_trailer_limits_accept_exact_boundary() {
+        let prefix = "HTTP/1.1 200 OK\r\nX-Padding: ";
+        let mut response = format!(
+            "{prefix}{}\r\n\r\n",
+            "x".repeat(MAX_HTTP_HEADER_BYTES - prefix.len() - 4)
+        );
+        assert!(parse_http_response(response.as_bytes()).unwrap().is_empty());
+        response.insert(prefix.len(), 'x');
+        assert!(parse_http_response(response.as_bytes()).is_err());
+        let mut body = format!(
+            "0\r\nX-Padding: {}\r\n\r\n",
+            "x".repeat(MAX_HTTP_HEADER_BYTES - "X-Padding: ".len() - 4)
+        );
+        assert!(decode_chunked_body(body.as_bytes()).unwrap().is_empty());
+        body.insert(3, 'x');
+        assert!(decode_chunked_body(body.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn http_authorities_with_ports_reject_request_injection() {
+        for host in [
+            "example.test\r\nX-Injected: value",
+            "example.test\n",
+            "example.test ",
+            "example.test\t",
+        ] {
+            for scheme in ["http", "https"] {
+                assert!(parse_http_git_url(&format!("{scheme}://{host}:8080/repository")).is_err());
+            }
+            assert!(parse_http_proxy(&format!("http://{host}:8080")).is_err());
         }
     }
 

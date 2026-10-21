@@ -373,6 +373,7 @@ pub(crate) fn with_checkout_fixture(
         );
 
         let mut git_response = Vec::new();
+        encode_packet_line(b"\x02Counting objects\r", &mut git_response).unwrap();
         for chunk in pack.chunks(60_000) {
             let mut sideband = Vec::with_capacity(chunk.len() + 1);
             sideband.push(1);
