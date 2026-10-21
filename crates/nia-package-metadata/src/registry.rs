@@ -478,13 +478,44 @@ fn validate_archive_path(path: &str) -> io::Result<()> {
             component
                 .as_os_str()
                 .to_str()
-                .is_none_or(|part| part.is_empty() || part == "." || part == "..")
+                .is_none_or(|part| validate_archive_component(part).is_err())
         })
         || path
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..")
     {
         return Err(invalid_index("registry package archive path is invalid"));
+    }
+    Ok(())
+}
+
+fn validate_archive_component(component: &str) -> io::Result<()> {
+    let folded = component.to_ascii_lowercase();
+    let stem = folded.split('.').next().unwrap_or_default();
+    let device = matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
+        || ["com", "lpt"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
+        });
+    if component.is_empty()
+        || component == "."
+        || component == ".."
+        || component.len() > 255
+        || component.encode_utf16().count() > 255
+        || component.contains(['<', '>', '"', '|', '?', '*'])
+        || component.chars().any(char::is_control)
+        || component.ends_with(['.', ' '])
+        || folded == ".git"
+        || folded == "git~1"
+        || device
+    {
+        return Err(invalid_index(
+            "registry package archive path contains an unsafe component",
+        ));
     }
     Ok(())
 }
@@ -640,7 +671,24 @@ fn validate_archive_tree(entries: &[RegistryArchiveEntry]) -> io::Result<()> {
         .iter()
         .map(|entry| (entry.path.as_str(), entry.kind))
         .collect::<std::collections::BTreeMap<_, _>>();
+    let mut folded_paths = std::collections::BTreeMap::<String, String>::new();
     for entry in entries {
+        let mut original = Vec::new();
+        let mut folded = Vec::new();
+        for component in entry.path.split('/') {
+            original.push(component);
+            folded.push(component.to_lowercase());
+            let original_path = original.join("/");
+            let folded_path = folded.join("/");
+            if folded_paths
+                .insert(folded_path, original_path.clone())
+                .is_some_and(|previous| previous != original_path)
+            {
+                return Err(invalid_index(
+                    "registry package archive paths collide on case-insensitive filesystems",
+                ));
+            }
+        }
         let mut parent = Path::new(&entry.path).parent();
         while let Some(path) = parent {
             if path.as_os_str().is_empty() {
@@ -903,6 +951,14 @@ mod tests {
             archive(&[(0, "src\\outside", b"x")]),
             archive(&[(0, "src//outside", b"x")]),
             archive(&[(2, "link", b"target")]),
+            archive(&[(0, "CON", b"x")]),
+            archive(&[(0, "nul.txt", b"x")]),
+            archive(&[(0, "name.", b"x")]),
+            archive(&[(0, "name ", b"x")]),
+            archive(&[(0, ".GiT", b"x")]),
+            archive(&[(0, "git~1", b"x")]),
+            archive(&[(0, "src/A.nia", b"one"), (0, "src/a.nia", b"two")]),
+            archive(&[(0, "Src/one.nia", b"one"), (0, "src/two.nia", b"two")]),
             archive(&[(0, "file", b""), (0, "file/child", b"x")]),
         ] {
             let digest = *blake3::hash(&bad).as_bytes();

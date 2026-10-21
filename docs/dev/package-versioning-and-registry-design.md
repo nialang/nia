@@ -59,6 +59,12 @@ the content bytes. Entries are strictly sorted by unique normalized relative
 path. Paths cannot contain separators that escape the destination, empty,
 `.` or `..` segments, backslashes, NULs, or colons. Directories have zero
 content length; links and unknown entry kinds are not part of the format.
+Every path component must also be valid on Windows: reject reserved device
+names, `.git` aliases, trailing dots or spaces, control characters, invalid
+filename punctuation, and components exceeding either 255 UTF-8 bytes or 255
+UTF-16 code units. Reject paths that collide under Unicode lowercase folding,
+including collisions in implicit parent directories, so one archive has the
+same tree identity on case-sensitive and case-insensitive filesystems.
 Indexes are limited to 1 MiB and 100,000 records. Archives are limited to
 256 MiB, 100,000 entries, and 4096 bytes per path. The complete archive is
 digest-checked before decoding, and extraction validates the complete tree,
