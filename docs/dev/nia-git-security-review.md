@@ -64,7 +64,8 @@ current Windows environment. No remote CI execution is claimed.
 - SSH agent and credential-helper behavior depends on local processes and
   operating-system facilities. Unix SSH agent socket and Windows named-pipe
   reads and writes have a 30-second timeout. Git credential-helper processes
-  still lack a universal timeout.
+  have a 30-second deadline and a 64 KiB output limit; timeout cleanup targets
+  the Unix process group or Windows process tree.
 - HTTP redirects, proxy authentication, and interim HTTP responses are not
   supported. Unsupported response forms fail rather than being followed.
 - Stable property tests exercise bounded generated inputs but do not provide

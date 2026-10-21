@@ -3,8 +3,10 @@
 
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use super::MAX_RESPONSE_BYTES;
 use super::local::write_pack_checkout;
@@ -18,6 +20,8 @@ use zeroize::Zeroizing;
 
 const MAX_PROXY_HEADER_BYTES: usize = 16 * 1024;
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const CREDENTIAL_HELPER_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_CREDENTIAL_HELPER_OUTPUT: usize = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub(crate) struct HttpGitUrl {
@@ -739,10 +743,16 @@ pub(crate) fn lookup_http_authorization(url: &HttpGitUrl) -> Option<Zeroizing<Ve
 
 pub(crate) fn run_http_credential_fill(
     url: &HttpGitUrl,
-    mut command: Command,
+    command: Command,
 ) -> Option<Zeroizing<Vec<u8>>> {
-    use std::process::Stdio;
+    run_http_credential_fill_with_timeout(url, command, CREDENTIAL_HELPER_TIMEOUT)
+}
 
+fn run_http_credential_fill_with_timeout(
+    url: &HttpGitUrl,
+    mut command: Command,
+    timeout: Duration,
+) -> Option<Zeroizing<Vec<u8>>> {
     let mut input = format!("protocol=https\nhost={}", url.host);
     if url.port != 443 {
         input.push_str(&format!(":{}", url.port));
@@ -755,6 +765,7 @@ pub(crate) fn run_http_credential_fill(
     }
     input.push('\n');
 
+    prepare_credential_helper_command(&mut command);
     let mut child = command
         .args(["credential", "fill"])
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -763,12 +774,91 @@ pub(crate) fn run_http_credential_fill(
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.take()?.write_all(input.as_bytes()).ok()?;
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
+    let Some(mut stdin) = child.stdin.take() else {
+        terminate_credential_helper(&mut child);
+        let _ = child.wait();
+        return None;
+    };
+    if stdin.write_all(input.as_bytes()).is_err() {
+        terminate_credential_helper(&mut child);
+        let _ = child.wait();
         return None;
     }
-    let output = Zeroizing::new(output.stdout);
+    drop(stdin);
+    let Some(stdout) = child.stdout.take() else {
+        terminate_credential_helper(&mut child);
+        let _ = child.wait();
+        return None;
+    };
+    let (output_sender, output_receiver) = std::sync::mpsc::channel();
+    let output_reader = thread::spawn(move || {
+        let mut output = Zeroizing::new(Vec::new());
+        let result = stdout
+            .take((MAX_CREDENTIAL_HELPER_OUTPUT + 1) as u64)
+            .read_to_end(&mut output)
+            .map(|_| output);
+        let _ = output_sender.send(result);
+    });
+
+    let started = Instant::now();
+    let mut captured_output = None;
+    let status = loop {
+        if captured_output.is_none()
+            && let Ok(output) = output_receiver.try_recv()
+        {
+            let Ok(output) = output else {
+                terminate_credential_helper(&mut child);
+                let _ = child.wait();
+                let _ = output_reader.join();
+                return None;
+            };
+            if output.len() > MAX_CREDENTIAL_HELPER_OUTPUT {
+                terminate_credential_helper(&mut child);
+                let _ = child.wait();
+                let _ = output_reader.join();
+                return None;
+            }
+            captured_output = Some(output);
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() >= timeout => {
+                terminate_credential_helper(&mut child);
+                let _ = child.wait();
+                let _ = output_reader.join();
+                return None;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(_) => {
+                terminate_credential_helper(&mut child);
+                let _ = child.wait();
+                let _ = output_reader.join();
+                return None;
+            }
+        }
+    };
+    let output = match captured_output {
+        Some(output) => output,
+        None => match output_receiver.recv_timeout(timeout.saturating_sub(started.elapsed())) {
+            Ok(Ok(output)) => output,
+            Ok(Err(_)) => {
+                terminate_credential_helper(&mut child);
+                let _ = child.wait();
+                let _ = output_reader.join();
+                return None;
+            }
+            Err(_) => {
+                terminate_credential_helper(&mut child);
+                let _ = child.wait();
+                let _ = output_reader.join();
+                return None;
+            }
+        },
+    };
+    let _ = output_reader.join();
+    if output.len() > MAX_CREDENTIAL_HELPER_OUTPUT || !status.success() {
+        return None;
+    }
     let credentials = parse_git_credentials(&output)?;
     let mut plain = Zeroizing::new(Vec::with_capacity(
         credentials.username.len() + credentials.password.len() + 1,
@@ -777,6 +867,54 @@ pub(crate) fn run_http_credential_fill(
     plain.push(b':');
     plain.extend_from_slice(&credentials.password);
     Some(base64_encode(&plain))
+}
+
+#[cfg(unix)]
+fn prepare_credential_helper_command(command: &mut Command) {
+    use std::os::unix::process::CommandExt as _;
+    command.process_group(0);
+}
+
+#[cfg(windows)]
+fn prepare_credential_helper_command(command: &mut Command) {
+    use std::os::windows::process::CommandExt as _;
+    command.creation_flags(0x0000_0200);
+}
+
+#[cfg(not(any(unix, windows)))]
+fn prepare_credential_helper_command(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn terminate_credential_helper(child: &mut Child) {
+    let Ok(group) = i32::try_from(child.id()) else {
+        let _ = child.kill();
+        return;
+    };
+    // SAFETY: the child was placed in a new process group with its PID as ID.
+    unsafe {
+        libc::kill(-group, libc::SIGTERM);
+    }
+    thread::sleep(Duration::from_millis(100));
+    // SAFETY: this terminates the same child-owned process group.
+    unsafe {
+        libc::kill(-group, libc::SIGKILL);
+    }
+}
+
+#[cfg(windows)]
+fn terminate_credential_helper(child: &mut Child) {
+    let _ = Command::new("taskkill")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = child.kill();
+}
+
+#[cfg(not(any(unix, windows)))]
+fn terminate_credential_helper(child: &mut Child) {
+    let _ = child.kill();
 }
 
 pub(crate) struct GitCredentials {
@@ -1056,6 +1194,29 @@ mod tests {
             b"bmlhOnNlY3JldA=="
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_http_credential_fill_times_out_and_reaps_hanging_helpers() {
+        use std::process::Command;
+        use std::time::Instant;
+
+        let url = parse_http_git_url("https://example.test/repository.git").unwrap();
+        let command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 30"]);
+            command
+        };
+        let started = Instant::now();
+        assert!(
+            run_http_credential_fill_with_timeout(&url, command, Duration::from_millis(50),)
+                .is_none()
+        );
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     #[test]
