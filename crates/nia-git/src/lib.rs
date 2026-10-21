@@ -24,8 +24,9 @@ use transport::http::checkout_http;
 #[cfg(test)]
 use transport::http::{
     HttpProxy, base64_encode, establish_proxy_tunnel, explain_http_auth_error,
-    http_proxy_for_url_with, http_request_stream, http_request_with_proxy, parse_git_credentials,
-    parse_http_git_url, parse_http_response, run_http_credential_fill,
+    fetch_https_with_test_root, http_proxy_for_url_with, http_request_stream,
+    http_request_with_proxy, parse_git_credentials, parse_http_git_url, parse_http_response,
+    run_http_credential_fill,
 };
 use transport::local::{checkout_local, fs_create_dir};
 
