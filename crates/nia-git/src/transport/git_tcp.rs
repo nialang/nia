@@ -4,17 +4,13 @@
 use std::{
     io::{self, Write},
     net::{TcpStream, ToSocketAddrs},
-    path::Path,
 };
 
 use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
 };
-use super::{
-    MAX_RESPONSE_BYTES,
-    local::{write_pack_checkout, write_pack_checkout_into},
-};
+use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout_into};
 use crate::pktline::encode_packet_line;
 use crate::pktline::read_packet_section;
 use crate::{input::read_limited, invalid_packet};
@@ -60,8 +56,7 @@ pub(crate) fn parse_git_tcp_url(source: &str) -> io::Result<GitTcpUrl> {
 pub(crate) fn checkout_git(
     source: &str,
     revision: &str,
-    destination: Option<&Path>,
-    destination_dir: Option<&Dir>,
+    destination_dir: &Dir,
 ) -> io::Result<String> {
     let url = parse_git_tcp_url(source)?;
     let address = format!("{}:{}", url.host, url.port)
@@ -89,14 +84,7 @@ pub(crate) fn checkout_git(
         "Git response exceeds size limit",
     )?;
     let pack = parse_upload_pack_response(&response)?;
-    match destination_dir {
-        Some(directory) => write_pack_checkout_into(&pack, &commit, directory),
-        None => write_pack_checkout(
-            &pack,
-            &commit,
-            destination.expect("path destination is present"),
-        ),
-    }
+    write_pack_checkout_into(&pack, &commit, destination_dir)
 }
 
 #[cfg(test)]

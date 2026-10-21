@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::MAX_RESPONSE_BYTES;
-use super::local::{write_pack_checkout, write_pack_checkout_into};
+use super::local::write_pack_checkout_into;
 use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
@@ -259,8 +259,7 @@ pub(crate) fn explain_http_auth_error(
 pub(crate) fn checkout_http(
     source: &str,
     revision: &str,
-    destination: Option<&std::path::Path>,
-    destination_dir: Option<&Dir>,
+    destination_dir: &Dir,
 ) -> io::Result<String> {
     let url = parse_http_git_url(source)?;
     let proxy = http_proxy_for_url(&url)?;
@@ -297,14 +296,7 @@ pub(crate) fn checkout_http(
     .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
     let pack = parse_upload_pack_response(&response)?;
 
-    match destination_dir {
-        Some(directory) => write_pack_checkout_into(&pack, &commit, directory),
-        None => write_pack_checkout(
-            &pack,
-            &commit,
-            destination.expect("path destination is present"),
-        ),
-    }
+    write_pack_checkout_into(&pack, &commit, destination_dir)
 }
 
 /// Fetches one public HTTPS resource using the Git HTTP proxy and TLS policy.

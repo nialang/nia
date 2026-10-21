@@ -2,14 +2,18 @@
 //! Git object representations and decoders.
 
 mod delta;
+mod fs;
 mod loose;
 mod pack;
 mod refs;
 
 pub(crate) use delta::apply_delta;
+pub(crate) use fs::{open_directory_path, open_subdirectory};
 pub(crate) use loose::{GitObject, ObjectKind, decode_loose_object};
-pub(crate) use pack::{decode_pack_objects, read_packed_object};
-pub(crate) use refs::{encode_hex, parse_object_id, read_loose_object, resolve_revision};
+pub(crate) use pack::{decode_pack_objects, read_packed_object_in};
+#[cfg(all(test, unix))]
+pub(crate) use refs::read_loose_object;
+pub(crate) use refs::{encode_hex, parse_object_id, read_loose_object_in, resolve_revision_in};
 
 #[cfg(feature = "fuzzing")]
 pub(super) fn fuzz_loose_object(input: &[u8]) {

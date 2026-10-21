@@ -3,16 +3,17 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
+    ffi::OsStr,
     io::{self, Read},
-    path::Path,
 };
 
+use cap_std::fs::Dir;
 use flate2::read::ZlibDecoder;
 use sha1::{Digest, Sha1};
 
 use super::MAX_OBJECT_BYTES;
 use super::{GitObject, ObjectKind, apply_delta};
-use crate::{input::read_limited_file, invalid_packet};
+use crate::invalid_packet;
 
 const MAX_PACK_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PACK_OBJECTS: u32 = 1_000_000;
@@ -30,10 +31,9 @@ struct PendingDelta {
     instructions: Vec<u8>,
 }
 
-pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Result<GitObject> {
-    let pack_dir = git_dir.join("objects").join("pack");
-    let entries = match std::fs::read_dir(&pack_dir) {
-        Ok(entries) => entries,
+pub(crate) fn read_packed_object_in(objects_dir: &Dir, wanted: &[u8; 20]) -> io::Result<GitObject> {
+    let pack_dir = match super::fs::open_subdirectory(objects_dir, OsStr::new("pack")) {
+        Ok(directory) => directory,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -42,12 +42,22 @@ pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Resul
         }
         Err(error) => return Err(error),
     };
-    for entry in entries {
-        let path = entry?.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("pack") {
+    for entry in pack_dir.entries()? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if std::path::Path::new(&name)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("pack")
+        {
             continue;
         }
-        let pack = read_limited_file(&path, MAX_PACK_BYTES, "Git pack exceeds size limit")?;
+        let pack = super::fs::read_bounded_file(
+            &pack_dir,
+            &name,
+            MAX_PACK_BYTES,
+            "Git pack exceeds size limit",
+        )?;
         match decode_pack_object(&pack, wanted) {
             Ok(object) => return Ok(object),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -344,6 +354,40 @@ mod tests {
         hash.update(format!("blob {}\0", data.len()).as_bytes());
         hash.update(data);
         hash.finalize().into()
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn packed_objects_reject_linked_pack_directories() {
+        let root = nia_test_support::test_dir("git-pack-directory-links");
+        let repository = Dir::open_ambient_dir(&root, cap_std::ambient_authority()).unwrap();
+        repository.create_dir("objects").unwrap();
+        let objects = repository.open_dir("objects").unwrap();
+        let outside = root.join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        let pack_dir = root.join("objects").join("pack");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &pack_dir).unwrap();
+        #[cfg(windows)]
+        {
+            use nia_test_support::CommandExt;
+            let output = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(&pack_dir)
+                .arg(&outside)
+                .output_timeout_for_runtime("create Git pack directory junction fixture");
+            assert!(output.status.success(), "{output:?}");
+        }
+
+        let error = read_packed_object_in(&objects, &[0; 20]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Git repository path component must be a real directory"
+        );
+        #[cfg(unix)]
+        std::fs::remove_file(pack_dir).unwrap();
+        #[cfg(windows)]
+        std::fs::remove_dir(pack_dir).unwrap();
     }
 
     #[test]

@@ -1,31 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Local repository checkout transport.
 
+use std::ffi::OsStr;
 use std::io::{self, Write};
 use std::path::{Component, Path};
 
+#[cfg(test)]
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions};
 
 use crate::invalid_packet;
+#[cfg(all(test, unix))]
+use crate::object::read_loose_object;
 use crate::object::{
-    GitObject, ObjectKind, decode_pack_objects, encode_hex, parse_object_id, read_loose_object,
-    resolve_revision,
+    GitObject, ObjectKind, decode_pack_objects, encode_hex, open_directory_path, open_subdirectory,
+    parse_object_id, read_loose_object_in, resolve_revision_in,
 };
 
 const MAX_TREE_DEPTH: usize = 64;
 const MAX_CHECKOUT_ENTRIES: usize = 1_000_000;
 const MAX_CHECKOUT_BYTES: usize = 512 * 1024 * 1024;
-
-pub(crate) fn checkout_local(
-    repository: &Path,
-    revision: &str,
-    destination: &Path,
-) -> io::Result<String> {
-    prepare_destination(destination)?;
-    let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
-    checkout_local_into(repository, revision, &destination_dir)
-}
 
 pub(crate) fn checkout_local_into(
     repository: &Path,
@@ -43,15 +37,15 @@ fn checkout_repository(
     revision: &str,
     destination_dir: &Dir,
 ) -> io::Result<String> {
-    let git_dir = repository.join(".git");
-    let git_dir = if git_dir.is_dir() {
-        git_dir
-    } else {
-        repository.to_path_buf()
+    let repository_dir = open_directory_path(repository)?;
+    let git_dir = match open_subdirectory(&repository_dir, OsStr::new(".git")) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => repository_dir,
+        Err(error) => return Err(error),
     };
-    let commit_id = resolve_revision(&git_dir, revision)?;
+    let commit_id = resolve_revision_in(&git_dir, revision)?;
     checkout_commit_with(&commit_id, destination_dir, |id| {
-        read_loose_object(&git_dir, id)
+        read_loose_object_in(&git_dir, id)
     })?;
     Ok(encode_hex(&commit_id))
 }
@@ -90,6 +84,7 @@ fn checkout_commit_with(
     checkout_tree_with(&tree_id, destination_dir, &mut read_object)
 }
 
+#[cfg(test)]
 fn prepare_destination(path: &Path) -> io::Result<()> {
     // Check every existing ancestor, including parents of an existing staging
     // directory. Tree output is only written into this private, empty root.
@@ -250,17 +245,6 @@ fn validate_tree_name(name: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn write_pack_checkout(
-    pack: &[u8],
-    commit: &[u8; 20],
-    destination: &Path,
-) -> io::Result<String> {
-    let objects = decode_pack_objects(pack)?;
-    prepare_destination(destination)?;
-    let destination_dir = Dir::open_ambient_dir(destination, ambient_authority())?;
-    checkout_decoded_pack(&objects, commit, &destination_dir)
-}
-
 pub(crate) fn write_pack_checkout_into(
     pack: &[u8],
     commit: &[u8; 20],
@@ -283,6 +267,16 @@ fn write_new_file(directory: &Dir, path: &Path, data: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn checkout_local(repository: &Path, revision: &str, destination: &Path) -> io::Result<String> {
+        std::fs::create_dir_all(destination)?;
+        let directory = Dir::open_ambient_dir(destination, ambient_authority())?;
+        checkout_local_into(repository, revision, &directory)
+    }
+
+    fn open_destination(path: &Path) -> Dir {
+        Dir::open_ambient_dir(path, ambient_authority()).unwrap()
+    }
     use flate2::{Compression, write::ZlibEncoder};
     use sha1::{Digest, Sha1};
 
@@ -322,7 +316,8 @@ mod tests {
         std::fs::write(destination.join("sentinel"), b"keep").unwrap();
         std::fs::write(destination.join(".git/HEAD"), b"keep head").unwrap();
         assert!(checkout_local(&root.join("absent"), "HEAD", &destination).is_err());
-        assert!(write_pack_checkout(&[0; 32], &[0; 20], &destination).is_err());
+        let destination_dir = open_destination(&destination);
+        assert!(write_pack_checkout_into(&[0; 32], &[0; 20], &destination_dir).is_err());
         assert_eq!(
             std::fs::read(destination.join("sentinel")).unwrap(),
             b"keep"
@@ -449,8 +444,10 @@ mod tests {
     fn invalid_pack_leaves_checkout_destination_empty() {
         let root = nia_test_support::test_dir("git-checkout-pack-cleanup");
         let destination = root.join("destination");
-        assert!(write_pack_checkout(&[0; 32], &[0; 20], &destination).is_err());
-        assert!(!destination.exists());
+        std::fs::create_dir(&destination).unwrap();
+        let destination_dir = open_destination(&destination);
+        assert!(write_pack_checkout_into(&[0; 32], &[0; 20], &destination_dir).is_err());
+        assert!(std::fs::read_dir(destination).unwrap().next().is_none());
     }
 
     #[test]

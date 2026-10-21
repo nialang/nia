@@ -51,15 +51,15 @@ current Windows environment. No remote CI execution is claimed.
 
 ## Remaining Limits
 
-- The path-based `checkout_source` API still validates ancestors before its
-  ambient root open, so another local process with write access to a checkout
-  ancestor can race that initial lookup. Callers that already own a directory
-  handle can use `checkout_source_into`; worktree output then stays relative to
-  that handle. Package Git fetches use this handle-based entry point. Remote
-  pack objects are decoded from the validated response bytes without a
-  temporary `.git` tree or staging-path lookup. Local repository object and ref
-  reads remain pathname-based and require repository ownership against local
-  races.
+- `checkout_source` accepts only an already opened destination directory, and
+  all checkout writes stay relative to that handle. Callers must open the
+  destination safely; package Git fetches open cache and staging components
+  without following links. Remote pack objects are decoded from the validated
+  response bytes without a temporary `.git` tree or staging-path lookup. Local
+  repository paths are canonicalized and opened component-by-component without
+  following links; refs, loose objects, and pack files are then read relative
+  to those handles. The initial canonicalization still selects the source
+  repository and relies on ownership of that source path.
 - Byte budgets exclude allocator/container overhead and transient compression
   buffers. They bound decoded payload accounting, not exact process memory.
 - The SSH implementation is a deliberately limited client: it supports the
@@ -86,13 +86,16 @@ regression suite and revisit this review.
 
 ## Handle-Based Checkout Follow-Up
 
-On 2026-10-22, package Git fetches moved to `checkout_source_into`, which keeps
-worktree writes on an already opened directory handle and decodes remote pack
-objects directly from the validated response.
+On 2026-10-22, Git checkout was redesigned around one `checkout_source` API
+that takes an already opened directory handle. It keeps worktree writes on that
+handle and decodes remote pack objects directly from the validated response.
+Local Git source reads use the same handle-relative approach for refs and object
+storage.
 Regression tests replace the original destination path with a symlink or
 junction after opening the handle and verify output remains in the opened
-directory. Windows and Unix variants passed locally. The current focused run
-passed 111 `nia-git` unit tests, 4 Git checkout integration tests, and 76
+directory. Linked refs, object fanout, and pack directories are rejected.
+Windows and Unix variants passed locally. The current focused run passed 113
+`nia-git` unit tests, 4 Git checkout integration tests, and 76
 `nia-package-metadata` tests; Clippy and `cargo maintain check` also passed.
 
 ## Post-Review Fuzzing

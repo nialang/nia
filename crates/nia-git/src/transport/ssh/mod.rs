@@ -25,10 +25,7 @@ use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
 };
-use super::{
-    MAX_RESPONSE_BYTES,
-    local::{write_pack_checkout, write_pack_checkout_into},
-};
+use super::{MAX_RESPONSE_BYTES, local::write_pack_checkout_into};
 use crate::pktline::read_packet_section;
 use crate::{
     input::{read_limited, read_limited_file},
@@ -365,43 +362,27 @@ fn is_ignorable_ssh_message(payload: &[u8]) -> io::Result<bool> {
 pub(crate) fn checkout_ssh(
     source: &str,
     revision: &str,
-    destination: Option<&Path>,
-    destination_dir: Option<&Dir>,
+    destination_dir: &Dir,
 ) -> io::Result<String> {
     let ssh_directory = ssh_directory()?;
-    checkout_ssh_with_config_into(
-        source,
-        revision,
-        destination,
-        destination_dir,
-        &ssh_directory,
-        true,
-    )
+    checkout_ssh_with_config_into(source, revision, destination_dir, &ssh_directory, true)
 }
 
 #[cfg(test)]
 fn checkout_ssh_with_config(
     source: &str,
     revision: &str,
-    destination: &Path,
+    destination: &Dir,
     ssh_directory: &Path,
     use_agent: bool,
 ) -> io::Result<String> {
-    checkout_ssh_with_config_into(
-        source,
-        revision,
-        Some(destination),
-        None,
-        ssh_directory,
-        use_agent,
-    )
+    checkout_ssh_with_config_into(source, revision, destination, ssh_directory, use_agent)
 }
 
 fn checkout_ssh_with_config_into(
     source: &str,
     revision: &str,
-    destination: Option<&Path>,
-    destination_dir: Option<&Dir>,
+    destination_dir: &Dir,
     ssh_directory: &Path,
     use_agent: bool,
 ) -> io::Result<String> {
@@ -457,14 +438,7 @@ fn checkout_ssh_with_config_into(
         "Git response exceeds size limit",
     )?;
     let pack = parse_upload_pack_response(&response)?;
-    match destination_dir {
-        Some(directory) => write_pack_checkout_into(&pack, &commit, directory),
-        None => write_pack_checkout(
-            &pack,
-            &commit,
-            destination.expect("path destination is present"),
-        ),
-    }
+    write_pack_checkout_into(&pack, &commit, destination_dir)
 }
 
 fn ssh_directory() -> io::Result<PathBuf> {

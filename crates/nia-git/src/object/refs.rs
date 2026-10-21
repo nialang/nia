@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Git object lookup and revision/ref resolution.
 
-use std::{io, path::Path};
+use std::{ffi::OsStr, io, path::Path};
 
-use super::read_packed_object;
-use super::{GitObject, ObjectKind, decode_loose_object};
-use crate::{input::read_limited_file, invalid_packet};
+use cap_std::fs::Dir;
+
+#[cfg(test)]
+use super::fs::open_directory_path;
+use super::{
+    GitObject, ObjectKind, decode_loose_object, fs::open_subdirectory, fs::read_bounded_file,
+    read_packed_object_in,
+};
+use crate::invalid_packet;
 
 const MAX_REF_BYTES: usize = 4096;
 const MAX_PACKED_REFS_BYTES: usize = 16 * 1024 * 1024;
@@ -32,35 +38,43 @@ fn validate_ref_name(name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn read_ref_text(git_dir: &Path, path: &Path, limit: usize) -> io::Result<String> {
-    let relative = path
-        .strip_prefix(git_dir)
-        .map_err(|_| invalid_packet("Git reference path escapes repository"))?;
-    let mut current = git_dir.to_path_buf();
-    for component in relative.components() {
-        if !matches!(component, std::path::Component::Normal(_)) {
+fn read_ref_text(git_dir: &Dir, path: &Path, limit: usize) -> io::Result<String> {
+    let components = path.components().collect::<Vec<_>>();
+    let (last, parents) = components
+        .split_last()
+        .ok_or_else(|| invalid_packet("Git reference path escapes repository"))?;
+    let std::path::Component::Normal(name) = last else {
+        return Err(invalid_packet("Git reference path escapes repository"));
+    };
+    let mut parent = git_dir.try_clone()?;
+    for component in parents {
+        let std::path::Component::Normal(name) = component else {
             return Err(invalid_packet("Git reference path escapes repository"));
-        }
-        current.push(component);
-        let metadata = std::fs::symlink_metadata(&current)?;
-        if nia_compat::is_link_or_reparse_point(&metadata) {
-            return Err(invalid_packet("Git reference path contains a link"));
-        }
+        };
+        parent = open_subdirectory(&parent, name)?;
     }
-    let bytes = read_limited_file(path, limit, "Git reference file exceeds size limit")?;
+    let bytes = read_bounded_file(
+        &parent,
+        name,
+        limit,
+        "Git reference file exceeds size limit",
+    )?;
     String::from_utf8(bytes).map_err(|_| invalid_packet("Git reference file is not UTF-8"))
 }
 
+#[cfg(test)]
 pub(crate) fn resolve_revision(git_dir: &Path, revision: &str) -> io::Result<[u8; 20]> {
+    let git_dir = open_directory_path(git_dir)?;
+    resolve_revision_in(&git_dir, revision)
+}
+
+pub(crate) fn resolve_revision_in(git_dir: &Dir, revision: &str) -> io::Result<[u8; 20]> {
     if revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         let id = parse_object_id(revision.as_bytes())?;
         return peel_commit(git_dir, id);
     }
     if revision == "HEAD" {
-        return peel_commit(
-            git_dir,
-            resolve_ref_file(git_dir, &git_dir.join("HEAD"), 0)?,
-        );
+        return peel_commit(git_dir, resolve_ref_file(git_dir, Path::new("HEAD"), 0)?);
     }
     validate_ref_name(revision)?;
     let candidates = if revision.starts_with("refs/") {
@@ -85,10 +99,10 @@ pub(crate) fn resolve_revision(git_dir: &Path, revision: &str) -> io::Result<[u8
     ))
 }
 
-fn peel_commit(git_dir: &Path, mut id: [u8; 20]) -> io::Result<[u8; 20]> {
+fn peel_commit(git_dir: &Dir, mut id: [u8; 20]) -> io::Result<[u8; 20]> {
     let mut depth = 0;
     loop {
-        let object = read_loose_object(git_dir, &id)?;
+        let object = read_loose_object_in(git_dir, &id)?;
         match object.kind {
             ObjectKind::Commit => return Ok(id),
             ObjectKind::Tag if depth < MAX_TAG_DEPTH => {
@@ -108,12 +122,12 @@ fn peel_commit(git_dir: &Path, mut id: [u8; 20]) -> io::Result<[u8; 20]> {
     }
 }
 
-fn resolve_symbolic_ref(git_dir: &Path, target: &str, depth: usize) -> io::Result<[u8; 20]> {
+fn resolve_symbolic_ref(git_dir: &Dir, target: &str, depth: usize) -> io::Result<[u8; 20]> {
     validate_ref_name(target)?;
     if depth > MAX_SYMBOLIC_REF_DEPTH || !target.starts_with("refs/") {
         return Err(invalid_packet("Git symbolic reference is invalid"));
     }
-    match read_ref_text(git_dir, &git_dir.join(target), MAX_REF_BYTES) {
+    match read_ref_text(git_dir, Path::new(target), MAX_REF_BYTES) {
         Ok(text) => resolve_ref_text(git_dir, &text, depth),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             resolve_packed_ref(git_dir, target)
@@ -122,8 +136,8 @@ fn resolve_symbolic_ref(git_dir: &Path, target: &str, depth: usize) -> io::Resul
     }
 }
 
-fn resolve_packed_ref(git_dir: &Path, target: &str) -> io::Result<[u8; 20]> {
-    let packed = read_ref_text(git_dir, &git_dir.join("packed-refs"), MAX_PACKED_REFS_BYTES)?;
+fn resolve_packed_ref(git_dir: &Dir, target: &str) -> io::Result<[u8; 20]> {
+    let packed = read_ref_text(git_dir, Path::new("packed-refs"), MAX_PACKED_REFS_BYTES)?;
     for line in packed.lines() {
         if line.starts_with('#') || line.starts_with('^') {
             continue;
@@ -140,12 +154,12 @@ fn resolve_packed_ref(git_dir: &Path, target: &str) -> io::Result<[u8; 20]> {
     ))
 }
 
-fn resolve_ref_file(git_dir: &Path, path: &Path, depth: usize) -> io::Result<[u8; 20]> {
+fn resolve_ref_file(git_dir: &Dir, path: &Path, depth: usize) -> io::Result<[u8; 20]> {
     let text = read_ref_text(git_dir, path, MAX_REF_BYTES)?;
     resolve_ref_text(git_dir, &text, depth)
 }
 
-fn resolve_ref_text(git_dir: &Path, text: &str, depth: usize) -> io::Result<[u8; 20]> {
+fn resolve_ref_text(git_dir: &Dir, text: &str, depth: usize) -> io::Result<[u8; 20]> {
     let line = text.trim();
     if let Some(target) = line.strip_prefix("ref: ") {
         resolve_symbolic_ref(git_dir, target, depth + 1)
@@ -154,11 +168,25 @@ fn resolve_ref_text(git_dir: &Path, text: &str, depth: usize) -> io::Result<[u8;
     }
 }
 
+#[cfg(all(test, unix))]
 pub(crate) fn read_loose_object(git_dir: &Path, id: &[u8; 20]) -> io::Result<GitObject> {
+    let git_dir = open_directory_path(git_dir)?;
+    read_loose_object_in(&git_dir, id)
+}
+
+pub(crate) fn read_loose_object_in(git_dir: &Dir, id: &[u8; 20]) -> io::Result<GitObject> {
     let hex = encode_hex(id);
-    let path = git_dir.join("objects").join(&hex[..2]).join(&hex[2..]);
-    match read_limited_file(
-        &path,
+    let objects = open_subdirectory(git_dir, OsStr::new("objects"))?;
+    let bucket = match open_subdirectory(&objects, OsStr::new(&hex[..2])) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return read_packed_object_in(&objects, id);
+        }
+        Err(error) => return Err(error),
+    };
+    match read_bounded_file(
+        &bucket,
+        OsStr::new(&hex[2..]),
         super::MAX_COMPRESSED_OBJECT_BYTES,
         "Git compressed object exceeds size limit",
     ) {
@@ -169,7 +197,9 @@ pub(crate) fn read_loose_object(git_dir: &Path, id: &[u8; 20]) -> io::Result<Git
             }
             Ok(object)
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => read_packed_object(git_dir, id),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            read_packed_object_in(&objects, id)
+        }
         Err(error) => Err(error),
     }
 }
@@ -242,7 +272,7 @@ mod tests {
                 "{name}"
             );
             assert_eq!(
-                resolve_symbolic_ref(&root, name, 0).unwrap_err().kind(),
+                resolve_revision(&root, name).unwrap_err().kind(),
                 io::ErrorKind::InvalidData,
                 "{name}"
             );
@@ -324,7 +354,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            resolve_symbolic_ref(&root, "refs/heads/main", 0)
+            resolve_revision(&root, "refs/heads/main")
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::NotFound
@@ -419,11 +449,47 @@ mod tests {
             resolve_revision(&repository, "main")
                 .unwrap_err()
                 .to_string(),
-            "Git reference path contains a link"
+            "Git repository path component must be a real directory"
         );
         #[cfg(unix)]
         std::fs::remove_file(link).unwrap();
         #[cfg(windows)]
         std::fs::remove_dir(link).unwrap();
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn loose_objects_reject_linked_fanout_directories() {
+        let root = nia_test_support::test_dir("git-object-links");
+        let id = store_object(&root, ObjectKind::Blob, b"protected object");
+        let hex = encode_hex(&id);
+        let bucket = root.join("objects").join(&hex[..2]);
+        let outside = root.join("outside");
+        std::fs::remove_dir_all(&bucket).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &bucket).unwrap();
+        #[cfg(windows)]
+        {
+            use nia_test_support::CommandExt;
+            let output = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(&bucket)
+                .arg(&outside)
+                .output_timeout_for_runtime("create Git object bucket junction fixture");
+            assert!(output.status.success(), "{output:?}");
+        }
+
+        let repository = open_directory_path(&root).unwrap();
+        let error = read_loose_object_in(&repository, &id).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Git repository path component must be a real directory"
+        );
+        assert!(std::fs::read_dir(outside).unwrap().next().is_none());
+        #[cfg(unix)]
+        std::fs::remove_file(bucket).unwrap();
+        #[cfg(windows)]
+        std::fs::remove_dir(bucket).unwrap();
     }
 }
