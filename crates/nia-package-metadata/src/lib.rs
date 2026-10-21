@@ -64,6 +64,36 @@ pub struct PackageVersion {
     text: String,
 }
 
+/// A parsed SemVer requirement for selecting a package release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageVersionRequirement(semver::VersionReq);
+
+impl PackageVersionRequirement {
+    /// Parses a standard SemVer requirement expression.
+    pub fn parse(value: &str) -> Result<Self, semver::Error> {
+        semver::VersionReq::parse(value).map(Self)
+    }
+
+    /// Returns whether the requirement admits a package version.
+    pub fn matches(&self, version: &PackageVersion) -> bool {
+        self.0.matches(&version.parsed)
+    }
+}
+
+impl FromStr for PackageVersionRequirement {
+    type Err = semver::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl fmt::Display for PackageVersionRequirement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
 impl PackageVersion {
     /// Parses a strict SemVer 2.0.0 release.
     pub fn parse(value: &str) -> Result<Self, semver::Error> {
@@ -3784,6 +3814,21 @@ mod tests {
         let second = PackageVersion::parse("1.2.3+two").unwrap();
         assert_ne!(first, second);
         assert_ne!(first.cmp(&second), Ordering::Equal);
+    }
+
+    #[test]
+    fn package_version_requirements_follow_semver_prerelease_rules() {
+        let requirement = PackageVersionRequirement::parse("^1.4").unwrap();
+        assert!(requirement.matches(&PackageVersion::parse("1.4.0").unwrap()));
+        assert!(requirement.matches(&PackageVersion::parse("1.9.2").unwrap()));
+        assert!(!requirement.matches(&PackageVersion::parse("2.0.0").unwrap()));
+        assert!(!requirement.matches(&PackageVersion::parse("1.5.0-beta.1").unwrap()));
+
+        let prerelease = PackageVersionRequirement::parse("=1.5.0-beta.1").unwrap();
+        assert!(prerelease.matches(&PackageVersion::parse("1.5.0-beta.1").unwrap()));
+        assert!(!prerelease.matches(&PackageVersion::parse("1.5.0-beta.2").unwrap()));
+        assert!(PackageVersionRequirement::parse("1.4").is_ok());
+        assert!(PackageVersionRequirement::parse("not a requirement").is_err());
     }
 
     #[test]
