@@ -120,6 +120,9 @@ identity is available, it reads an unencrypted `~/.ssh/id_ed25519`. Other key
 types and encrypted key files are not read directly; load a supported key into
 the agent instead.
 
+Git fetches request a shallow history with depth 1, which includes the selected
+commit and the files needed to check it out without downloading its ancestors.
+
 The first build records each Git dependency's commit and content hash in
 `nia.lock` next to the root `nia.toml` (the workspace root in a workspace), and
 stores the checkout under `.nia/packages` beside it.

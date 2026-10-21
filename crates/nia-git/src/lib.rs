@@ -259,13 +259,7 @@ fn checkout_ssh_with_config(
     let advertisement = read_packet_section(&mut channel)?;
     let refs = parse_advertised_refs(&advertisement)?;
     let commit = select_advertised_revision(&refs, revision)?;
-    let mut request = Vec::new();
-    encode_packet_line(
-        format!("want {} ofs-delta side-band-64k\n", encode_hex(&commit)).as_bytes(),
-        &mut request,
-    )?;
-    request.extend_from_slice(b"0000");
-    encode_packet_line(b"done\n", &mut request)?;
+    let request = build_upload_pack_request(&commit)?;
     channel.write_all(&request)?;
     channel.flush()?;
     channel.finish_writing()?;
@@ -2641,13 +2635,7 @@ fn checkout_git(source: &str, revision: &str, destination: &Path) -> io::Result<
     let refs = parse_advertised_refs(&advertisement)?;
     let commit = select_advertised_revision(&refs, revision)?;
 
-    let mut request = Vec::new();
-    encode_packet_line(
-        format!("want {} ofs-delta side-band-64k\n", encode_hex(&commit)).as_bytes(),
-        &mut request,
-    )?;
-    request.extend_from_slice(b"0000");
-    encode_packet_line(b"done\n", &mut request)?;
+    let request = build_upload_pack_request(&commit)?;
     stream.write_all(&request)?;
     stream.flush()?;
     let mut response = Vec::new();
@@ -2697,6 +2685,18 @@ fn write_pack_checkout(pack: &[u8], commit: &[u8; 20], destination: &Path) -> io
     let result = checkout_local(destination, "HEAD", destination);
     let _ = std::fs::remove_dir_all(&git_dir);
     result
+}
+
+fn build_upload_pack_request(commit: &[u8; 20]) -> io::Result<Vec<u8>> {
+    let mut request = Vec::new();
+    encode_packet_line(
+        format!("want {} ofs-delta side-band-64k\n", encode_hex(commit)).as_bytes(),
+        &mut request,
+    )?;
+    encode_packet_line(b"deepen 1\n", &mut request)?;
+    request.extend_from_slice(b"0000");
+    encode_packet_line(b"done\n", &mut request)?;
+    Ok(request)
 }
 
 #[derive(Debug, Clone)]
@@ -3054,11 +3054,7 @@ fn checkout_http(source: &str, revision: &str, destination: &Path) -> io::Result
     let refs = parse_advertised_refs(&info)?;
     let commit = select_advertised_revision(&refs, revision)?;
 
-    let mut request = Vec::new();
-    let want = format!("want {} ofs-delta side-band-64k\n", encode_hex(&commit));
-    encode_packet_line(want.as_bytes(), &mut request)?;
-    request.extend_from_slice(b"0000");
-    encode_packet_line(b"done\n", &mut request)?;
+    let request = build_upload_pack_request(&commit)?;
     let response = http_request_with_proxy(
         &url,
         "POST",
@@ -4071,6 +4067,23 @@ mod tests {
         assert_eq!(
             select_advertised_revision(&refs, "main").unwrap(),
             parse_object_id(id.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn upload_pack_fetch_requests_depth_one() {
+        let request = build_upload_pack_request(&[0x2a; 20]).unwrap();
+        let packets = decode_packet_lines(&request).unwrap();
+        assert_eq!(
+            packets,
+            vec![
+                PacketLine::Data(
+                    format!("want {} ofs-delta side-band-64k\n", "2a".repeat(20)).into_bytes()
+                ),
+                PacketLine::Data(b"deepen 1\n".to_vec()),
+                PacketLine::Flush,
+                PacketLine::Data(b"done\n".to_vec()),
+            ]
         );
     }
 
@@ -5699,6 +5712,10 @@ mod tests {
                     }
                     request.extend_from_slice(&buffer[..read]);
                 }
+                if connection_index == 1 {
+                    let packets = decode_packet_lines(&request[header_end..]).unwrap();
+                    assert!(packets.contains(&PacketLine::Data(b"deepen 1\n".to_vec())));
+                }
                 let mut body = Vec::new();
                 if connection_index == 0 {
                     encode_packet_line(b"# service=git-upload-pack\n", &mut body).unwrap();
@@ -5818,7 +5835,12 @@ mod tests {
             advertisement.extend_from_slice(b"0000");
             stream.write_all(&advertisement).unwrap();
 
-            let _want = read_packet_section(&mut stream).unwrap();
+            let want = read_packet_section(&mut stream).unwrap();
+            assert!(
+                decode_packet_lines(&want)
+                    .unwrap()
+                    .contains(&PacketLine::Data(b"deepen 1\n".to_vec()))
+            );
             stream.read_exact(&mut header).unwrap();
             let length = parse_hex_usize(&header).unwrap();
             assert!(length >= 4);
