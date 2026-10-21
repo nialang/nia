@@ -1493,6 +1493,7 @@ name = "nia-package-metadata"
 version = "0.3.0-dev"
 dependencies = [
  "blake3",
+ "cap-std",
  "flate2",
  "glob",
  "nia-compat",

@@ -12,6 +12,8 @@ use std::{
     },
 };
 
+use cap_std::fs::OpenOptions as CapOpenOptions;
+use cap_std::{ambient_authority, fs::Dir};
 use serde::Deserialize;
 
 use crate::{PackageId, PackageVersion};
@@ -378,46 +380,42 @@ pub fn extract_registry_archive(
     let entries = decode_registry_archive(archive, expected_digest)?;
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
-    let staging = allocate_archive_staging(parent)?;
+    let destination_name = destination
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| invalid_index("registry package destination has no name"))?;
+    let parent_dir = Dir::open_ambient_dir(parent, ambient_authority())?;
+    let staging_name = allocate_archive_staging(&parent_dir)?;
     let result = (|| {
-        for entry in &entries {
-            let path = staging.join(&entry.path);
-            match entry.kind {
-                RegistryArchiveEntryKind::Directory => fs::create_dir_all(path)?,
-                RegistryArchiveEntryKind::File => {
-                    if let Some(parent) = path.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-                    file.write_all(&entry.contents)?;
-                    file.sync_all()?;
-                }
+        {
+            let staging_dir = parent_dir.open_dir(&staging_name)?;
+            write_archive_entries(&staging_dir, &entries)?;
+        }
+        match parent_dir.symlink_metadata(destination_name) {
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "registry package destination already exists",
+                ));
             }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
         }
-        if fs::symlink_metadata(destination).is_ok() {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "registry package destination already exists",
-            ));
-        }
-        fs::rename(&staging, destination)?;
+        parent_dir.rename(&staging_name, &parent_dir, destination_name)?;
         Ok(())
     })();
     if result.is_err() {
-        let _ = fs::remove_dir_all(&staging);
+        let _ = parent_dir.remove_dir_all(&staging_name);
     }
     result
 }
 
-fn allocate_archive_staging(parent: &Path) -> io::Result<PathBuf> {
+fn allocate_archive_staging(parent: &Dir) -> io::Result<String> {
     for _ in 0..128 {
         let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = parent.join(format!(
-            ".nia-package-{}-{sequence}.tmp",
-            std::process::id()
-        ));
-        match fs::create_dir(&path) {
-            Ok(()) => return Ok(path),
+        let name = format!(".nia-package-{}-{sequence}.tmp", std::process::id());
+        match parent.create_dir(&name) {
+            Ok(()) => return Ok(name),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
@@ -426,6 +424,43 @@ fn allocate_archive_staging(parent: &Path) -> io::Result<PathBuf> {
         io::ErrorKind::AlreadyExists,
         "could not allocate registry package staging directory",
     ))
+}
+
+fn write_archive_entries(root: &Dir, entries: &[RegistryArchiveEntry]) -> io::Result<()> {
+    for entry in entries {
+        let mut components = entry.path.split('/').peekable();
+        let mut directory = root.try_clone()?;
+        while let Some(component) = components.next() {
+            if components.peek().is_some() {
+                match directory.open_dir(component) {
+                    Ok(child) => directory = child,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                        directory.create_dir(component)?;
+                        directory = directory.open_dir(component)?;
+                    }
+                    Err(error) => return Err(error),
+                }
+                continue;
+            }
+            match entry.kind {
+                RegistryArchiveEntryKind::Directory => match directory.create_dir(component) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                        directory.open_dir(component)?;
+                    }
+                    Err(error) => return Err(error),
+                },
+                RegistryArchiveEntryKind::File => {
+                    let mut options = CapOpenOptions::new();
+                    options.write(true).create_new(true);
+                    let mut file = directory.open_with(component, &options)?;
+                    file.write_all(&entry.contents)?;
+                    file.sync_all()?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_archive_path(path: &str) -> io::Result<()> {
@@ -887,6 +922,42 @@ mod tests {
                 .kind(),
             io::ErrorKind::AlreadyExists
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_extraction_writes_through_open_staging_directory_after_replacement() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-stage-race-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let staging = root.join("staging");
+        let moved = root.join("moved-staging");
+        let outside = root.join("outside");
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let staging_dir = Dir::open_ambient_dir(&staging, ambient_authority()).unwrap();
+        fs::rename(&staging, &moved).unwrap();
+        std::os::unix::fs::symlink(&outside, &staging).unwrap();
+
+        write_archive_entries(
+            &staging_dir,
+            &[RegistryArchiveEntry {
+                path: "src/lib.nia".into(),
+                kind: RegistryArchiveEntryKind::File,
+                contents: b"inside staging root".to_vec(),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(moved.join("src/lib.nia")).unwrap(),
+            b"inside staging root"
+        );
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+        fs::remove_file(&staging).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

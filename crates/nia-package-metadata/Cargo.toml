@@ -16,6 +16,7 @@ toml.workspace = true
 glob.workspace = true
 flate2.workspace = true
 nia-git.workspace = true
+cap-std = "4.0.3"
 
 [lib]
 path = "src/lib.rs"
