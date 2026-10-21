@@ -57,12 +57,12 @@ pub fn restrict_test_identity_permissions(path: &Path) {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
     #[cfg(windows)]
-    transport::ssh::tests::restrict_to_current_user(path);
+    transport::ssh::fixture::restrict_to_current_user(path);
 }
 
 #[cfg(feature = "test-support")]
 pub fn with_test_ssh_checkout_fixture(callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static) {
-    transport::ssh::tests::with_ssh_checkout_fixture(callback);
+    with_test_ssh_checkout_fixture_mutating_repository(|_| {}, callback);
 }
 
 #[cfg(feature = "test-support")]
@@ -70,5 +70,7 @@ pub fn with_test_ssh_checkout_fixture_mutating_repository(
     mutator: impl FnOnce(&Path) + 'static,
     callback: impl FnOnce(&Path, &str, &Path, &Path) + 'static,
 ) {
-    transport::ssh::tests::with_ssh_checkout_fixture_mutating_repository(mutator, callback);
+    transport::ssh::fixture::with_checkout_fixture(mutator, |root, source, config, repo, _| {
+        callback(root, source, config, repo);
+    });
 }

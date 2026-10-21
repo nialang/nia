@@ -501,7 +501,7 @@ fn verify_ssh_identity_permissions(_path: &Path) -> io::Result<()> {
 
 #[cfg(all(test, windows))]
 mod windows_identity_permission_tests {
-    use super::super::tests::restrict_to_current_user;
+    use super::super::fixture::restrict_to_current_user;
     use super::verify_ssh_identity_permissions;
     use std::process::Command;
 
