@@ -72,8 +72,26 @@ pub(super) fn fuzz_decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Res
 fn decode_pack_object_with_limit(
     pack: &[u8],
     wanted: &[u8; 20],
-    mut remaining_bytes: usize,
+    remaining_bytes: usize,
 ) -> io::Result<GitObject> {
+    decode_pack_objects_with_limit(pack, remaining_bytes)?
+        .remove(wanted)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Git packed object id was not found",
+            )
+        })
+}
+
+pub(crate) fn decode_pack_objects(pack: &[u8]) -> io::Result<BTreeMap<[u8; 20], GitObject>> {
+    decode_pack_objects_with_limit(pack, MAX_DECODED_PACK_BYTES)
+}
+
+fn decode_pack_objects_with_limit(
+    pack: &[u8],
+    mut remaining_bytes: usize,
+) -> io::Result<BTreeMap<[u8; 20], GitObject>> {
     if pack.len() > MAX_PACK_BYTES {
         return Err(invalid_packet("Git pack exceeds size limit"));
     }
@@ -188,15 +206,10 @@ fn decode_pack_object_with_limit(
     if !waiting.is_empty() {
         return Err(invalid_packet("Git delta base object is missing"));
     }
-    objects
+    Ok(objects
         .into_values()
-        .find(|object| &object.id == wanted)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "Git packed object id was not found",
-            )
-        })
+        .map(|object| (object.id, object))
+        .collect())
 }
 
 fn read_pack_header(pack: &[u8], cursor: &mut usize) -> io::Result<(u8, usize)> {

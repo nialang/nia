@@ -365,7 +365,7 @@ fn is_ignorable_ssh_message(payload: &[u8]) -> io::Result<bool> {
 pub(crate) fn checkout_ssh(
     source: &str,
     revision: &str,
-    destination: &Path,
+    destination: Option<&Path>,
     destination_dir: Option<&Dir>,
 ) -> io::Result<String> {
     let ssh_directory = ssh_directory()?;
@@ -390,7 +390,7 @@ fn checkout_ssh_with_config(
     checkout_ssh_with_config_into(
         source,
         revision,
-        destination,
+        Some(destination),
         None,
         ssh_directory,
         use_agent,
@@ -400,7 +400,7 @@ fn checkout_ssh_with_config(
 fn checkout_ssh_with_config_into(
     source: &str,
     revision: &str,
-    destination: &Path,
+    destination: Option<&Path>,
     destination_dir: Option<&Dir>,
     ssh_directory: &Path,
     use_agent: bool,
@@ -458,8 +458,12 @@ fn checkout_ssh_with_config_into(
     )?;
     let pack = parse_upload_pack_response(&response)?;
     match destination_dir {
-        Some(directory) => write_pack_checkout_into(&pack, &commit, destination, directory),
-        None => write_pack_checkout(&pack, &commit, destination),
+        Some(directory) => write_pack_checkout_into(&pack, &commit, directory),
+        None => write_pack_checkout(
+            &pack,
+            &commit,
+            destination.expect("path destination is present"),
+        ),
     }
 }
 
