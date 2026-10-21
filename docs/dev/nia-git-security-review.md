@@ -75,3 +75,16 @@ These limits are documented constraints, not claims that the corresponding
 threats have been eliminated. Changes to parser boundaries, transport state,
 filesystem output, cryptography, or resource accounting should extend the
 regression suite and revisit this review.
+
+## Post-Review Fuzzing
+
+On 2026-10-21, the initial six coverage-guided parser targets completed short
+local campaigns under Ubuntu 24.04 in WSL: packet lines, loose objects, packed
+objects, HTTP responses, SSH agent identities, and `known_hosts`. No crash was
+observed. The follow-up targets for delta instructions, SSH KEXINIT, and
+OpenSSH private identities also completed short campaigns without a crash.
+All nine minimized corpora are checked in under
+[`crates/nia-git/fuzz/corpus`](../../crates/nia-git/fuzz/corpus), and the
+weekly Linux workflow repeats longer campaigns. These runs establish that the
+harnesses execute and provide initial corpus coverage; they are not a sustained
+fuzzing campaign or external assurance.

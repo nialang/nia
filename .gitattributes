@@ -1,1 +1,2 @@
 * text=auto eol=lf
+crates/nia-git/fuzz/corpus/** -text -diff

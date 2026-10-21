@@ -15,6 +15,48 @@ use transport::http::checkout_http;
 use transport::local::checkout_local;
 use transport::ssh::checkout_ssh;
 
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing {
+    pub fn packet_lines(input: &[u8]) {
+        let _ = crate::pktline::decode_packet_lines(input);
+    }
+
+    pub fn loose_object(input: &[u8]) {
+        crate::object::fuzz_loose_object(input);
+    }
+
+    pub fn delta(input: &[u8]) {
+        crate::object::fuzz_delta(input);
+    }
+
+    pub fn pack_object(input: &[u8]) {
+        if let Some((wanted, pack)) = input.split_at_checked(20) {
+            let wanted: &[u8; 20] = wanted.try_into().expect("split at twenty bytes");
+            crate::object::fuzz_pack_object(pack, wanted);
+        }
+    }
+
+    pub fn http_response(input: &[u8]) {
+        crate::transport::fuzz_http_response(input);
+    }
+
+    pub fn ssh_agent_identities(input: &[u8]) {
+        crate::transport::ssh::fuzz_agent_identities(input);
+    }
+
+    pub fn ssh_kexinit(input: &[u8]) {
+        crate::transport::ssh::fuzz_kexinit(input);
+    }
+
+    pub fn openssh_identity(input: &[u8]) {
+        crate::transport::ssh::fuzz_openssh_identity(input);
+    }
+
+    pub fn known_hosts(input: &[u8]) {
+        crate::transport::ssh::fuzz_known_hosts(input);
+    }
+}
+
 fn invalid_packet(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }

@@ -59,6 +59,20 @@ SSH wire, cipher, key exchange, host-key, private-key, and agent messages.
 They are bounded randomized tests, not a coverage-guided fuzz campaign or a
 security proof.
 
+Coverage-guided targets live in `crates/nia-git/fuzz/` and run weekly in
+`.github/workflows/git-fuzz.yml` on nightly Rust. From that directory, run a
+target locally after installing `cargo-fuzz` and nightly:
+
+```sh
+cargo +nightly fuzz run packet_lines -- -max_total_time=120 -max_len=1048576
+```
+
+Available targets cover packet lines, loose and packed objects, delta
+instructions, HTTP response framing, SSH agent identities, SSH KEXINIT,
+OpenSSH private identities, and `known_hosts`. Minimized crash inputs are
+written under `fuzz/artifacts/`; promote a confirmed regression to the owning
+parser's deterministic tests before fixing it.
+
 Run the focused suite with the default sample count:
 
 ```sh

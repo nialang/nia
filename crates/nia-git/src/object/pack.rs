@@ -64,6 +64,11 @@ fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
     decode_pack_object_with_limit(pack, wanted, MAX_DECODED_PACK_BYTES)
 }
 
+#[cfg(feature = "fuzzing")]
+pub(super) fn fuzz_decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
+    decode_pack_object(pack, wanted)
+}
+
 fn decode_pack_object_with_limit(
     pack: &[u8],
     wanted: &[u8; 20],
