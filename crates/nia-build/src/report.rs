@@ -163,7 +163,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
         BuildError::UpdateLock { path, error } => vec![
             Diagnostic::user_error(codes::BUILD_PLAN, "could not update nia.lock")
                 .note(format!("update from `{}`: {error}", path.display()))
-                .help("check nia.toml Git dependency sources and the names passed to `nia update`")
+                .help("check nia.toml Git and registry sources and the names passed to `nia update`")
                 .finish(),
         ],
         BuildError::WorkspaceSelection { path, detail } => vec![
