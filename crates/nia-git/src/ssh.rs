@@ -1,8 +1,3 @@
-// The protocol primitives are staged here before the transport state machine
-// consumes them; keeping the allowance local preserves the rest of the crate's
-// dead-code checks.
-#![allow(dead_code)]
-
 use super::{
     MAX_SSH_IDENTIFICATION_LINE, MAX_SSH_PACKET_BYTES, MAX_SSH_PRE_IDENTIFICATION_LINES, Read,
     Write, invalid_packet, io,
@@ -236,6 +231,7 @@ impl SshAes128CtrDirection {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn sequence(&self) -> u32 {
         self.sequence
     }
