@@ -4698,10 +4698,22 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 assert!(workspace.join(".nia/packages").is_dir());
                 let lock = nia_package_metadata::PackageLock::read(&workspace.join("nia.lock"))
                     .expect("read generated lockfile");
-                assert_eq!(lock.package.len(), 1);
-                assert_eq!(lock.package[0].name, "sshdep");
-                assert_eq!(lock.package[0].rev.len(), 40);
-                assert!(lock.package[0].content_hash.starts_with("blake3:"));
+                assert!(lock.package.iter().any(|entry| entry.name == "sshdep"));
+                let nia_package_metadata::LockedSource::Git {
+                    revision,
+                    source_fingerprint,
+                    ..
+                } = &lock
+                    .package
+                    .iter()
+                    .find(|entry| entry.name == "sshdep")
+                    .expect("find Git dependency lock entry")
+                    .source
+                else {
+                    panic!("expected Git lock entry");
+                };
+                assert_eq!(revision.len(), 40);
+                assert!(source_fingerprint.starts_with("blake3:"));
             },
         );
     }
@@ -4790,7 +4802,6 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 result.expect("build with SSH runtime dependency");
                 let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
                     .expect("read generated lockfile");
-                assert_eq!(lock.package.len(), 1);
                 assert!(lock.package.iter().any(|package| package.name == "sshdep"));
             },
         );

@@ -504,7 +504,12 @@ impl LockedSource {
         match self {
             Self::Path { owner, path, .. } => Some(format!("path\0{owner}\0{path}")),
             Self::Git { url, selector, .. } => Some(format!("git\0{url}\0{selector}")),
-            Self::Registry { .. } => None,
+            Self::Registry {
+                registry,
+                namespace,
+                package,
+                ..
+            } => Some(format!("registry\0{registry}\0{namespace}\0{package}")),
         }
     }
 
@@ -538,7 +543,10 @@ impl LockedSource {
 }
 
 fn same_locked_selector(left: &LockedPackage, right: &LockedPackage) -> bool {
-    if left.name != right.name {
+    if left.name != right.name
+        && !(matches!(left.source, LockedSource::Registry { .. })
+            && matches!(right.source, LockedSource::Registry { .. }))
+    {
         return false;
     }
     match (&left.source, &right.source) {
@@ -559,21 +567,18 @@ fn same_locked_selector(left: &LockedPackage, right: &LockedPackage) -> bool {
                 registry: left_registry,
                 namespace: left_namespace,
                 package: left_package,
-                version: left_version,
                 ..
             },
             LockedSource::Registry {
                 registry: right_registry,
                 namespace: right_namespace,
                 package: right_package,
-                version: right_version,
                 ..
             },
         ) => {
             left_registry == right_registry
                 && left_namespace == right_namespace
                 && left_package == right_package
-                && left_version == right_version
         }
         (
             LockedSource::Path {
@@ -609,6 +614,7 @@ impl PackageLock {
             ));
         }
         let mut identities = BTreeSet::new();
+        let mut registry_versions = BTreeMap::<(&str, &str, &str), &str>::new();
         for package in &self.package {
             validate_dependency_name(&package.name).map_err(|error| {
                 io::Error::new(
@@ -651,18 +657,10 @@ impl PackageLock {
                     archive_digest,
                     source_fingerprint,
                 } => {
-                    if namespace.is_empty()
-                        || namespace.len() > 128
-                        || namespace.contains('/')
-                        || package.is_empty()
-                        || package.len() > 128
-                        || package.contains('/')
-                    {
-                        return Err(io::Error::new(
-                            error_kind,
-                            "lockfile path package identity is invalid",
-                        ));
-                    }
+                    validate_registry_package_segment(namespace, "lockfile")
+                        .map_err(|error| io::Error::new(error_kind, error))?;
+                    validate_registry_package_segment(package, "lockfile")
+                        .map_err(|error| io::Error::new(error_kind, error))?;
                     if registry.is_empty()
                         || registry.len() > 64
                         || !registry.bytes().all(|byte| {
@@ -679,7 +677,16 @@ impl PackageLock {
                     })?;
                     validate_blake3_text(archive_digest, "archive digest", error_kind)?;
                     validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
-                    format!("registry\0{registry}\0{namespace}\0{package}\0{version}")
+                    if registry_versions
+                        .insert((registry, namespace, package), version)
+                        .is_some_and(|previous| previous != version)
+                    {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile selects multiple versions of one registry package",
+                        ));
+                    }
+                    format!("registry\0{registry}\0{namespace}\0{package}")
                 }
                 LockedSource::Path {
                     owner,
@@ -695,14 +702,18 @@ impl PackageLock {
                             "lockfile path source is invalid",
                         ));
                     }
-                    validate_registry_package_segment(namespace, "lockfile")?;
-                    validate_registry_package_segment(package, "lockfile")?;
-                    PackageVersion::parse(version).map_err(|error| {
+                    let version = PackageVersion::parse(version).map_err(|error| {
                         io::Error::new(
                             error_kind,
                             format!("lockfile package version is invalid: {error}"),
                         )
                     })?;
+                    validate_package_id(&PackageId {
+                        namespace: namespace.clone(),
+                        name: package.clone(),
+                        version,
+                    })
+                    .map_err(|error| io::Error::new(error_kind, error))?;
                     validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
                     format!("path\0{owner}\0{path}")
                 }
@@ -797,6 +808,16 @@ fn validate_blake3_text(value: &str, label: &str, kind: io::ErrorKind) -> io::Re
     Ok(())
 }
 
+fn parse_blake3_lock_digest(value: &str) -> io::Result<[u8; 32]> {
+    let mut digest = [0; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[7 + index * 2..9 + index * 2], 16).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "lockfile digest is invalid")
+        })?;
+    }
+    Ok(digest)
+}
+
 /// How resolution may change `nia.lock` and the package cache.
 ///
 /// The policy never changes which packages are selected, so it is not part of
@@ -820,10 +841,22 @@ struct PackageFetcher {
     policy: LockPolicy,
     dirty: bool,
     state_lock: Option<File>,
+    registries: BTreeMap<String, RegistryEndpoint>,
+    registry_selected: BTreeMap<RegistryPackageName, (String, PackageId)>,
+    registry_constraints: BTreeMap<RegistryPackageName, Vec<RegistryVersionConstraint>>,
+    registry_candidates: BTreeMap<RegistryPackageName, Vec<PackageId>>,
 }
 
 impl PackageFetcher {
     fn for_root(root: &Path, policy: LockPolicy) -> io::Result<Self> {
+        Self::for_root_with_registries(root, policy, BTreeMap::new())
+    }
+
+    fn for_root_with_registries(
+        root: &Path,
+        policy: LockPolicy,
+        registries: BTreeMap<String, RegistryEndpoint>,
+    ) -> io::Result<Self> {
         let state_root = workspace_state_root(root)?;
         let lock_path = state_root.join("nia.lock");
         let lock = PackageLock::read(&lock_path)?;
@@ -835,6 +868,10 @@ impl PackageFetcher {
             policy,
             dirty: false,
             state_lock: None,
+            registries,
+            registry_selected: BTreeMap::new(),
+            registry_constraints: BTreeMap::new(),
+            registry_candidates: BTreeMap::new(),
         })
     }
 
@@ -857,9 +894,7 @@ impl PackageFetcher {
                 )?;
                 let source_fingerprint =
                     format!("blake3:{}", hex_digest(&identity.source_fingerprint));
-                let owner_identity = PackageManifest::read(owner)
-                    .map(|manifest| manifest.package.canonical_text())
-                    .unwrap_or_else(|_| owner.display().to_string());
+                let owner_identity = PackageManifest::read(owner)?.package.canonical_text();
                 let expected = LockedPackage {
                     name: dependency.name.clone(),
                     source: LockedSource::Path {
@@ -877,7 +912,7 @@ impl PackageFetcher {
                     .iter()
                     .find(|entry| same_locked_selector(entry, &expected))
                 {
-                    if entry.source.source_fingerprint() != Some(source_fingerprint.as_str()) {
+                    if entry != &expected {
                         if self.policy.locked {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidInput,
@@ -912,10 +947,11 @@ impl PackageFetcher {
                 }
                 Ok(destination)
             }
-            DependencySource::Registry { .. } => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "registry dependencies are not resolvable yet",
-            )),
+            DependencySource::Registry {
+                registry,
+                package,
+                requirement,
+            } => self.resolve_registry(owner, dependency, registry, package, requirement),
             DependencySource::Git {
                 url,
                 rev,
@@ -1114,6 +1150,326 @@ impl PackageFetcher {
         }
     }
 
+    fn resolve_registry(
+        &mut self,
+        owner: &Path,
+        dependency: &PackageDependency,
+        registry: &str,
+        package: &RegistryPackageName,
+        requirement: &PackageVersionRequirement,
+    ) -> io::Result<PathBuf> {
+        self.lock_state()?;
+        let state_root = self
+            .lock_path
+            .parent()
+            .ok_or_else(|| io::Error::other("registry state directory is unavailable"))?;
+        let cache = RegistryCache::new(state_root.join(".nia/registry"));
+        let locked = self.lock.package.iter().find_map(|entry| {
+            let LockedSource::Registry {
+                registry: locked_registry,
+                namespace,
+                package: locked_package,
+                version,
+                archive_digest,
+                source_fingerprint,
+            } = &entry.source
+            else {
+                return None;
+            };
+            (locked_registry == registry
+                && namespace == &package.namespace
+                && locked_package == &package.name)
+                .then(|| {
+                    (
+                        PackageId {
+                            namespace: namespace.clone(),
+                            name: locked_package.clone(),
+                            version: PackageVersion::parse(version)
+                                .expect("validated lock version"),
+                        },
+                        parse_blake3_lock_digest(archive_digest).expect("validated lock digest"),
+                        source_fingerprint.clone(),
+                    )
+                })
+        });
+        let locked_cache_hit = locked
+            .as_ref()
+            .is_some_and(|(_, digest, _)| cache.read_archive(digest).is_ok());
+        let (selected, archive_digest, locked_fingerprint, archive) = if self.policy.locked
+            || (locked_cache_hit
+                && locked
+                    .as_ref()
+                    .is_some_and(|(selected, ..)| requirement.matches(&selected.version)))
+        {
+            let (selected, digest, source_fingerprint) = locked.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "registry dependency `{}` is not recorded in nia.lock",
+                        dependency.name
+                    ),
+                )
+            })?;
+            if !requirement.matches(&selected.version) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "locked registry version {} does not satisfy dependency `{}` requirement {}",
+                        selected.version, dependency.name, requirement
+                    ),
+                ));
+            }
+            let archive = cache.read_archive(&digest)?;
+            (selected, digest, Some(source_fingerprint), archive)
+        } else {
+            let endpoint = self.registries.get(registry).cloned().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("registry `{registry}` is not configured"),
+                )
+            })?;
+            let client = RegistryClient::new(endpoint, cache.clone());
+            let index = client.index(self.policy.offline)?;
+            let candidates = index
+                .packages
+                .iter()
+                .filter(|record| {
+                    record.package.namespace == package.namespace
+                        && record.package.name == package.name
+                })
+                .map(|record| record.package.clone())
+                .collect::<Vec<_>>();
+            if candidates.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "registry `{registry}` has no release for {}/{}",
+                        package.namespace, package.name
+                    ),
+                ));
+            }
+            let requiring_package = PackageManifest::read(owner)
+                .map(|manifest| manifest.package)
+                .unwrap_or_else(|_| PackageId {
+                    namespace: String::new(),
+                    name: dependency.name.clone(),
+                    version: PackageVersion::parse("0.0.0").expect("valid fallback version"),
+                });
+            let constraint = RegistryVersionConstraint {
+                package: package.clone(),
+                requirement: requirement.clone(),
+                requiring_package: requiring_package.clone(),
+                dependency_chain: vec![requiring_package.canonical_text(), dependency.name.clone()],
+            };
+            self.registry_candidates
+                .entry(package.clone())
+                .or_insert_with(|| candidates.clone());
+            self.registry_constraints
+                .entry(package.clone())
+                .or_default()
+                .push(constraint);
+            let solved = solve_registry_versions(
+                self.registry_constraints
+                    .get(package)
+                    .expect("constraint inserted"),
+                self.registry_candidates
+                    .get(package)
+                    .expect("candidates inserted"),
+            )?
+            .remove(package)
+            .expect("constraint has a selected package");
+            let selected = locked
+                .as_ref()
+                .map(|(version, ..)| version)
+                .filter(|version| {
+                    candidates.iter().any(|candidate| candidate == *version)
+                        && self
+                            .registry_constraints
+                            .get(package)
+                            .is_some_and(|constraints| {
+                                constraints.iter().all(|constraint| {
+                                    constraint.requirement.matches(&version.version)
+                                })
+                            })
+                })
+                .cloned()
+                .unwrap_or(solved);
+            let record = index
+                .packages
+                .iter()
+                .find(|record| record.package == selected)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "selected registry release is missing from the index",
+                    )
+                })?;
+            let archive = client.archive(record, self.policy.offline)?;
+            (selected, record.archive_digest, None, archive)
+        };
+        if let Some((previous_registry, previous)) = self.registry_selected.get(package)
+            && (previous_registry != registry || previous != &selected)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "conflicting registry selections for {}/{}: {} version {} and {} version {}; dependency graph backtracking is required",
+                    package.namespace,
+                    package.name,
+                    previous_registry,
+                    previous.version,
+                    registry,
+                    selected.version
+                ),
+            ));
+        }
+        self.registry_selected
+            .insert(package.clone(), (registry.to_owned(), selected.clone()));
+        fs::create_dir_all(&self.cache_root)?;
+        let staging = allocate_package_staging(&self.cache_root)?;
+        let temporary = staging.join("package");
+        let result = (|| {
+            extract_registry_archive(&archive, &archive_digest, &temporary)?;
+            let manifest = PackageManifest::read(&temporary)?;
+            if manifest.package != selected {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "registry archive identity {} does not match index release {}",
+                        manifest.package.canonical_text(),
+                        selected.canonical_text()
+                    ),
+                ));
+            }
+            let identity = package_source_identity_with_selection(
+                &temporary,
+                manifest.package.clone(),
+                &manifest.source,
+            )?;
+            let source_fingerprint = format!("blake3:{}", hex_digest(&identity.source_fingerprint));
+            if let Some(expected) = locked_fingerprint.as_deref()
+                && expected != source_fingerprint
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "registry archive for `{}` does not match its locked source fingerprint",
+                        dependency.name
+                    ),
+                ));
+            }
+            let destination = self.cache_root.join(&source_fingerprint[7..]);
+            if !destination.exists() {
+                fs::rename(&temporary, &destination)?;
+            } else {
+                let cached_manifest = PackageManifest::read(&destination)?;
+                let cached_identity = package_source_identity_with_selection(
+                    &destination,
+                    cached_manifest.package.clone(),
+                    &cached_manifest.source,
+                )?;
+                let cached_fingerprint =
+                    format!("blake3:{}", hex_digest(&cached_identity.source_fingerprint));
+                if cached_manifest.package != selected || cached_fingerprint != source_fingerprint {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "cached registry dependency `{}` does not match its content address; delete `{}` to fetch it again",
+                            dependency.name,
+                            display_path(&destination)
+                        ),
+                    ));
+                }
+                fs::remove_dir_all(&temporary)?;
+            }
+            self.record_registry_lock(
+                dependency,
+                registry,
+                &selected,
+                &archive_digest,
+                &source_fingerprint,
+            )?;
+            Ok(destination)
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        result
+    }
+
+    fn record_registry_lock(
+        &mut self,
+        dependency: &PackageDependency,
+        registry: &str,
+        package: &PackageId,
+        archive_digest: &[u8; 32],
+        source_fingerprint: &str,
+    ) -> io::Result<()> {
+        let expected = LockedPackage {
+            name: dependency.name.clone(),
+            source: LockedSource::Registry {
+                registry: registry.to_owned(),
+                namespace: package.namespace.clone(),
+                package: package.name.clone(),
+                version: package.version.as_str().to_owned(),
+                archive_digest: format!("blake3:{}", hex_digest(archive_digest)),
+                source_fingerprint: source_fingerprint.to_owned(),
+            },
+        };
+        if let Some(entry) = self
+            .lock
+            .package
+            .iter()
+            .find(|entry| same_locked_selector(entry, &expected))
+        {
+            if entry.source == expected.source {
+                return Ok(());
+            }
+            if matches!(
+                &entry.source,
+                LockedSource::Registry { version, .. }
+                    if version == package.version.as_str()
+            ) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "registry dependency `{}` does not match its nia.lock source record",
+                        dependency.name
+                    ),
+                ));
+            }
+        }
+        if self.policy.locked {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "registry dependency `{}` is not recorded in nia.lock",
+                    dependency.name
+                ),
+            ));
+        }
+        self.lock.package.retain(|entry| {
+            if entry.name != dependency.name {
+                return true;
+            }
+            match &entry.source {
+                LockedSource::Registry {
+                    registry: locked_registry,
+                    namespace,
+                    package: locked_package,
+                    ..
+                } => {
+                    locked_registry != registry
+                        || namespace != &package.namespace
+                        || locked_package != &package.name
+                }
+                _ => true,
+            }
+        });
+        self.lock.package.push(expected);
+        self.lock.package.sort();
+        self.dirty = true;
+        Ok(())
+    }
+
     fn lock_state(&mut self) -> io::Result<()> {
         if self.state_lock.is_none() {
             let state_directory = self
@@ -1209,21 +1565,18 @@ impl PackageFetcher {
                     DependencySource::Path(path) => {
                         let owner = PackageManifest::read(&root).ok()?.package.canonical_text();
                         let entry = self.lock.package.iter().find(|entry| {
-                            entry.name == dependency.name
-                                && matches!(
-                                    &entry.source,
-                                    LockedSource::Path {
-                                        owner: locked_owner,
-                                        path: locked_path,
-                                        ..
-                                    } if locked_owner == &owner && locked_path == path
-                                )
+                            matches!(
+                                &entry.source,
+                                LockedSource::Path {
+                                    owner: locked_owner,
+                                    path: locked_path,
+                                    ..
+                                } if locked_owner == &owner && locked_path == path
+                            )
                         })?;
                         pending.push(root.join(path));
-                        reachable.insert((
-                            dependency.name.clone(),
-                            entry.source.reachability_identity()?,
-                        ));
+                        reachable
+                            .insert((entry.name.clone(), entry.source.reachability_identity()?));
                     }
                     DependencySource::Git {
                         url,
@@ -1250,7 +1603,29 @@ impl PackageFetcher {
                             format!("git\0{source}\0{selector}"),
                         ));
                     }
-                    DependencySource::Registry { .. } => return None,
+                    DependencySource::Registry {
+                        registry, package, ..
+                    } => {
+                        let entry = self.lock.package.iter().find(|entry| {
+                            matches!(
+                                            &entry.source,
+                                            LockedSource::Registry {
+                                                registry: locked_registry,
+                                                namespace,
+                                                package: locked_package,
+                                                ..
+                                            } if locked_registry == registry
+                            && namespace == &package.namespace
+                                                && locked_package == &package.name
+                                        )
+                        })?;
+                        pending.push(
+                            self.cache_root
+                                .join(entry.source.source_fingerprint()?.get(7..)?),
+                        );
+                        reachable
+                            .insert((entry.name.clone(), entry.source.reachability_identity()?));
+                    }
                 }
             }
         }
@@ -1471,7 +1846,18 @@ impl PackageGraph {
         options: PackageGraphOptions,
         policy: LockPolicy,
     ) -> io::Result<Self> {
-        let mut fetcher = PackageFetcher::for_root(root, policy)?;
+        let registries = read_registry_endpoints(root)?;
+        Self::resolve_with_policy_and_registries(root, options, policy, registries)
+    }
+
+    /// Resolves a package graph with explicit registry endpoint configuration.
+    pub fn resolve_with_policy_and_registries(
+        root: &Path,
+        options: PackageGraphOptions,
+        policy: LockPolicy,
+        registries: BTreeMap<String, RegistryEndpoint>,
+    ) -> io::Result<Self> {
+        let mut fetcher = PackageFetcher::for_root_with_registries(root, policy, registries)?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
         let mut seen = BTreeSet::new();
@@ -1529,11 +1915,7 @@ impl PackageGraph {
                 };
                 if !options.includes(dependency.scope) {
                     let source_root = match &dependency.source {
-                        DependencySource::Path(_) => {
-                            dependency_path(&mut fetcher, &canonical, dependency)
-                                .ok()
-                                .and_then(|path| path.canonicalize().ok())
-                        }
+                        DependencySource::Path(path) => canonical.join(path).canonicalize().ok(),
                         DependencySource::Git { .. } | DependencySource::Registry { .. } => None,
                     };
                     edges.push((
@@ -2221,6 +2603,21 @@ fn read_raw_manifest(root: &Path) -> io::Result<RawPackageManifest> {
     toml::from_str(text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
+fn read_registry_endpoints(root: &Path) -> io::Result<BTreeMap<String, RegistryEndpoint>> {
+    let state_root = workspace_state_root(root)?;
+    let raw = match read_raw_manifest(&state_root) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(error) => return Err(error),
+    };
+    raw.registries
+        .into_iter()
+        .map(|(name, url)| {
+            RegistryEndpoint::new(name.clone(), url).map(|endpoint| (name, endpoint))
+        })
+        .collect()
+}
+
 fn resolve_inheritable<T>(
     value: Option<Inheritable<T>>,
     inherited: Option<T>,
@@ -2432,6 +2829,8 @@ struct RawPackageManifest {
     source: RawPackageSource,
     #[serde(default)]
     library: RawPackageLibrary,
+    #[serde(default)]
+    registries: BTreeMap<String, String>,
     #[serde(default, rename = "build-dependencies")]
     build_dependencies: BTreeMap<String, RawDependency>,
     #[serde(default)]
@@ -5434,6 +5833,152 @@ mod tests {
             assert!(PackageManifest::read(&root).is_err(), "{declaration}");
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_resolves_registry_dependency_from_offline_cache() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-graph-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let consumer = root.join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+        fs::write(
+            consumer.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\n nia = \"https://registry.example.test\"\n",
+        )
+        .unwrap();
+        let archive = {
+            let entries = [
+                (
+                    0u8,
+                    "nia.toml",
+                    b"[package]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"1.0.0\"\n"
+                        .as_slice(),
+                ),
+                (
+                    0u8,
+                    "src/lib.nia",
+                    b"pub fn value() -> i32 = 1;\n".as_slice(),
+                ),
+            ];
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"NIAPKG\0\0");
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+            for (kind, path, contents) in entries {
+                bytes.push(kind);
+                bytes.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                bytes.extend_from_slice(path.as_bytes());
+                bytes.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+                bytes.extend_from_slice(contents);
+            }
+            bytes
+        };
+        let digest = *blake3::hash(&archive).as_bytes();
+        let digest_text = format!("blake3:{}", hex_digest(&digest));
+        let index = format!(
+            "schema_version = 1\n[[packages]]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"1.0.0\"\narchive_url = \"https://cdn.example.test/json.nia\"\narchive_digest = \"{digest_text}\"\n"
+        );
+        let cache = RegistryCache::new(consumer.join(".nia/registry"));
+        cache.write_index("nia", index.as_bytes()).unwrap();
+        cache.write_archive(&digest, &archive).unwrap();
+        let graph = PackageGraph::resolve_with_policy(
+            &consumer,
+            PackageGraphOptions::default(),
+            LockPolicy {
+                locked: false,
+                offline: true,
+            },
+        )
+        .unwrap();
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.manifest.package.name == "json")
+        );
+        let lock = PackageLock::read(&consumer.join("nia.lock")).unwrap();
+        assert!(lock.package.iter().any(|entry| {
+            matches!(
+                &entry.source,
+                LockedSource::Registry {
+                    registry,
+                    namespace,
+                    package,
+                    version,
+                    archive_digest,
+                    ..
+                } if registry == "nia"
+                    && namespace == "acme"
+                    && package == "json"
+                    && version == "1.0.0"
+                    && archive_digest == &digest_text
+            )
+        }));
+        fs::remove_file(consumer.join(".nia/registry/indexes/nia/index.toml")).unwrap();
+        let lock_bytes = fs::read(consumer.join("nia.lock")).unwrap();
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert_eq!(fs::read(consumer.join("nia.lock")).unwrap(), lock_bytes);
+        let locked_graph = PackageGraph::resolve_with_policy_and_registries(
+            &consumer,
+            PackageGraphOptions::default(),
+            LockPolicy {
+                locked: true,
+                offline: false,
+            },
+            BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(
+            locked_graph
+                .nodes
+                .iter()
+                .any(|node| node.manifest.package.name == "json")
+        );
+        let source_fingerprint = match &lock.package[0].source {
+            LockedSource::Registry {
+                source_fingerprint, ..
+            } => source_fingerprint,
+            _ => panic!("expected registry lock entry"),
+        };
+        let cached_package = consumer
+            .join(".nia/packages")
+            .join(&source_fingerprint[7..]);
+        fs::write(
+            cached_package.join("src/lib.nia"),
+            "pub fn value() -> i32 = 2;\n",
+        )
+        .unwrap();
+        assert!(
+            PackageGraph::resolve_with_policy_and_registries(
+                &consumer,
+                PackageGraphOptions::default(),
+                LockPolicy {
+                    locked: true,
+                    offline: false,
+                },
+                BTreeMap::new(),
+            )
+            .is_err()
+        );
+        fs::write(
+            consumer.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert!(
+            PackageLock::read(&consumer.join("nia.lock"))
+                .unwrap()
+                .package
+                .is_empty()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
