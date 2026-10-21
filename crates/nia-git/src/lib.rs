@@ -26,9 +26,13 @@ mod transport;
 use transport::git_tcp::checkout_git;
 #[cfg(test)]
 use transport::git_tcp::parse_git_tcp_url;
+use transport::http::{
+    HttpGitUrl, HttpProxy, http_proxy_for_url, lookup_http_authorization, parse_http_git_url,
+};
 #[cfg(test)]
-use transport::http::http_proxy_for_url_with;
-use transport::http::{HttpGitUrl, HttpProxy, http_proxy_for_url, parse_http_git_url};
+use transport::http::{
+    base64_encode, http_proxy_for_url_with, parse_git_credentials, run_http_credential_fill,
+};
 use transport::local::{checkout_local, fs_create_dir};
 
 fn invalid_packet(message: &'static str) -> io::Error {
@@ -2489,112 +2493,6 @@ fn build_upload_pack_request(commit: &[u8; 20]) -> io::Result<Vec<u8>> {
     request.extend_from_slice(b"0000");
     encode_packet_line(b"done\n", &mut request)?;
     Ok(request)
-}
-
-fn lookup_http_authorization(url: &HttpGitUrl) -> Option<Zeroizing<Vec<u8>>> {
-    use std::process::Command;
-
-    run_http_credential_fill(url, Command::new("git"))
-}
-
-fn run_http_credential_fill(
-    url: &HttpGitUrl,
-    mut command: std::process::Command,
-) -> Option<Zeroizing<Vec<u8>>> {
-    use std::process::Stdio;
-
-    let mut input = format!("protocol=https\nhost={}", url.host);
-    if url.port != 443 {
-        input.push_str(&format!(":{}", url.port));
-    }
-    input.push('\n');
-    if url.path != "/" {
-        input.push_str("path=");
-        input.push_str(url.path.trim_start_matches('/'));
-        input.push('\n');
-    }
-    input.push('\n');
-
-    let mut child = command
-        .args(["credential", "fill"])
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    child.stdin.take()?.write_all(input.as_bytes()).ok()?;
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let output = Zeroizing::new(output.stdout);
-    let credentials = parse_git_credentials(&output)?;
-    let mut plain = Zeroizing::new(Vec::with_capacity(
-        credentials.username.len() + credentials.password.len() + 1,
-    ));
-    plain.extend_from_slice(&credentials.username);
-    plain.push(b':');
-    plain.extend_from_slice(&credentials.password);
-    Some(base64_encode(&plain))
-}
-
-struct GitCredentials {
-    username: Zeroizing<Vec<u8>>,
-    password: Zeroizing<Vec<u8>>,
-}
-
-fn parse_git_credentials(output: &[u8]) -> Option<GitCredentials> {
-    let mut username = None;
-    let mut password = None;
-    for line in output.split(|byte| *byte == b'\n') {
-        let line = line.strip_suffix(b"\r").unwrap_or(line);
-        let Some(separator) = line.iter().position(|byte| *byte == b'=') else {
-            continue;
-        };
-        let (key, value) = (&line[..separator], &line[separator + 1..]);
-        match key {
-            b"username" if username.is_none() => username = Some(value.to_vec()),
-            b"password" if password.is_none() => password = Some(value.to_vec()),
-            b"username" | b"password" => return None,
-            _ => {}
-        }
-    }
-    let username = username?;
-    let password = password?;
-    if username.is_empty()
-        || username.contains(&b':')
-        || username.iter().chain(&password).any(u8::is_ascii_control)
-    {
-        return None;
-    }
-    Some(GitCredentials {
-        username: Zeroizing::new(username),
-        password: Zeroizing::new(password),
-    })
-}
-
-fn base64_encode(input: &[u8]) -> Zeroizing<Vec<u8>> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = Zeroizing::new(Vec::with_capacity(input.len().div_ceil(3) * 4));
-    for chunk in input.chunks(3) {
-        let first = chunk[0];
-        let second = chunk.get(1).copied().unwrap_or(0);
-        let third = chunk.get(2).copied().unwrap_or(0);
-        output.push(TABLE[usize::from(first >> 2)]);
-        output.push(TABLE[usize::from(((first & 0x03) << 4) | (second >> 4))]);
-        output.push(if chunk.len() > 1 {
-            TABLE[usize::from(((second & 0x0f) << 2) | (third >> 6))]
-        } else {
-            b'='
-        });
-        output.push(if chunk.len() > 2 {
-            TABLE[usize::from(third & 0x3f)]
-        } else {
-            b'='
-        });
-    }
-    output
 }
 
 fn explain_http_auth_error(
