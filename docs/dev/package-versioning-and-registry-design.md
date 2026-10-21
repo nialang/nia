@@ -14,7 +14,7 @@ Dependencies select exactly one explicit source: `path`, `git`, or `registry`. R
 
 ```toml
 [dependencies]
-json = { registry = "nia", version = "^1.4" }
+json = { registry = "nia", package = "acme/json", version = "^1.4" }
 ```
 
 Use standard SemVer requirement syntax; do not infer a compatibility operator when it is omitted. Path dependencies remain direct local sources. Git source selectors retain their current semantics. Registry dependencies select immutable published package versions. No source fallback or implicit override is permitted.
@@ -26,6 +26,29 @@ The initial resolver selects one version per `(namespace, name)` across the comp
 Support a configured default registry named `nia` alongside path and Git sources. A versioned index maps `(namespace, package, version)` to an immutable archive URL and cryptographic digest. Require HTTPS for the public registry. The index and archive format are versioned and validated strictly; unknown schema versions and malformed records fail closed. The registry distributes packages but does not define package semantics. Publishing, namespace ownership, account management, private registry authentication, and signing are separate work.
 
 Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
+
+The v1 index is a bounded TOML document with `schema_version = 1` and a
+`packages` array. Each record contains `namespace`, `name`, `version`,
+`archive_url`, and `archive_digest`. Package segments are lower-case ASCII
+letters, digits, and `-`, and records are strictly sorted by their textual
+`(namespace, name, version)` tuple. Versions are strict SemVer, archive URLs
+are HTTPS without credentials, query, or fragment components, and digests use
+`blake3:` followed by 64 lower-case hexadecimal characters. Unknown fields,
+schema versions, duplicate records, and records outside the size or count
+limits are rejected.
+
+The v1 archive is an uncompressed binary stream: eight bytes `NIAPKG\0\0`,
+little-endian `u32` schema `1`, and little-endian `u32` entry count. Every
+entry contains a `u8` kind (`0` file, `1` directory), a little-endian `u32`
+UTF-8 path length, the path bytes, a little-endian `u64` content length, and
+the content bytes. Entries are strictly sorted by unique normalized relative
+path. Paths cannot contain separators that escape the destination, empty,
+`.` or `..` segments, backslashes, NULs, or colons. Directories have zero
+content length; links and unknown entry kinds are not part of the format.
+Indexes are limited to 1 MiB and 100,000 records. Archives are limited to
+256 MiB, 100,000 entries, and 4096 bytes per path. The complete archive is
+digest-checked before decoding, and extraction validates the complete tree,
+writes to a newly allocated staging directory, and atomically publishes it.
 
 ## Lockfile
 
