@@ -86,8 +86,9 @@ cached registry metadata and artifacts only. `nia update` refreshes registry
 selections within requirements and Git selectors; the CLI reports registry
 version changes separately from Git revision changes. Unchanged resolution
 leaves lockfile bytes untouched. A workspace update holds the package state
-lock across all member resolutions and either publishes the complete result or
-restores the original lock before releasing the lock.
+lock across all member resolutions, intersects their registry constraints in
+one graph, and either publishes the complete result or restores the original
+lock before releasing the lock.
 
 Introduce the new lock schema with registry support and reject every older schema. Do not dual-read, auto-migrate, or rewrite legacy lockfiles. Since Nia is still in development, users regenerate a lockfile using the new resolver.
 

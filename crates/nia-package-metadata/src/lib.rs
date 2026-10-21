@@ -1861,28 +1861,26 @@ fn update_lock_inner(
                 workspace
                     .member_packages()?
                     .into_iter()
-                    .map(|member| member.root),
+                    .map(|member| (member.root, member.name)),
             );
-            if raw.package.is_some() && !roots.contains(&state_root) {
-                roots.push(state_root.clone());
+            if raw.package.is_some() && !roots.iter().any(|(root, _)| root == &state_root) {
+                roots.push((state_root.clone(), String::new()));
             }
         } else {
-            roots.push(state_root.clone());
+            roots.push((state_root.clone(), String::new()));
         }
         let registries = read_registry_endpoints(&state_root)?;
         let refresh_names = names.iter().cloned().collect::<BTreeSet<_>>();
-        for root in roots {
-            PackageGraph::resolve_for_update(
-                &root,
-                PackageGraphOptions {
-                    include_development: true,
-                },
-                registries.clone(),
-                refresh_names.clone(),
-                registry_fetch.clone(),
-                transaction_lock_path.clone(),
-            )?;
-        }
+        PackageGraph::resolve_for_update(
+            roots,
+            PackageGraphOptions {
+                include_development: true,
+            },
+            registries,
+            refresh_names,
+            registry_fetch.clone(),
+            transaction_lock_path.clone(),
+        )?;
         Ok(())
     })();
     if let Err(error) = update {
@@ -2060,15 +2058,15 @@ impl PackageGraph {
     }
 
     fn resolve_for_update(
-        root: &Path,
+        roots: Vec<(PathBuf, String)>,
         options: PackageGraphOptions,
         registries: BTreeMap<String, RegistryEndpoint>,
         refresh_names: BTreeSet<String>,
         registry_fetch: Option<RegistryFetch>,
         transaction_lock: PathBuf,
     ) -> io::Result<Self> {
-        Self::resolve_with_registry_overrides(
-            root,
+        Self::resolve_roots_with_registry_overrides(
+            roots,
             options,
             LockPolicy::default(),
             RegistryResolution {
@@ -2088,6 +2086,29 @@ impl PackageGraph {
         policy: LockPolicy,
         resolution: RegistryResolution,
     ) -> io::Result<Self> {
+        Self::resolve_roots_with_registry_overrides(
+            vec![(root.to_path_buf(), String::new())],
+            options,
+            policy,
+            resolution,
+        )
+    }
+
+    fn resolve_roots_with_registry_overrides(
+        roots: Vec<(PathBuf, String)>,
+        options: PackageGraphOptions,
+        policy: LockPolicy,
+        resolution: RegistryResolution,
+    ) -> io::Result<Self> {
+        let root = roots
+            .first()
+            .map(|(root, _)| root.as_path())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "package graph requires at least one root",
+                )
+            })?;
         let mut fetcher = PackageFetcher::for_root_with_registries(
             root,
             policy,
@@ -2098,7 +2119,10 @@ impl PackageGraph {
             resolution.transaction_lock.clone(),
         )?;
         let mut nodes = Vec::new();
-        let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
+        let mut pending = roots
+            .iter()
+            .map(|(root, logical_root)| (root.clone(), logical_root.clone(), true, Vec::new()))
+            .collect::<Vec<_>>();
         let mut seen = BTreeSet::new();
         let mut edges = Vec::new();
         while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
@@ -2232,8 +2256,8 @@ impl PackageGraph {
             let mut overrides = std::mem::take(&mut next_fetcher.registry_overrides);
             overrides.insert(package, selected);
             drop(next_fetcher);
-            return Self::resolve_with_registry_overrides(
-                root,
+            return Self::resolve_roots_with_registry_overrides(
+                roots,
                 options,
                 policy,
                 RegistryResolution {
@@ -6830,6 +6854,85 @@ mod tests {
         assert!(error.to_string().contains("HTTPS"), "{error}");
         assert_eq!(std::fs::read(&lock_path).unwrap(), original);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_update_intersects_registry_constraints_across_members() {
+        use std::sync::Arc;
+
+        let root = lock_test_root("workspace-registry-conflict");
+        let left = root.join("left");
+        let right = root.join("right");
+        fs::create_dir_all(&left).unwrap();
+        fs::create_dir_all(&right).unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"left\", \"right\"]\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        for (member_root, name, requirement) in [(&left, "left", "^1.0"), (&right, "right", "^2.0")]
+        {
+            fs::write(
+                member_root.join("nia.toml"),
+                format!(
+                    "[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n[dependencies]\njson = {{ registry = \"nia\", package = \"acme/json\", version = \"{requirement}\" }}\n"
+                ),
+            )
+            .unwrap();
+        }
+
+        let mut archives = BTreeMap::new();
+        let mut records = String::from("schema_version = 1\n");
+        for version in ["1.5.0", "2.1.0"] {
+            let manifest = format!(
+                "[package]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\n"
+            );
+            let entries = [
+                ("nia.toml", manifest.as_bytes()),
+                ("src/lib.nia", b"pub fn value() -> i32 = 1;".as_slice()),
+            ];
+            let mut archive = Vec::new();
+            archive.extend_from_slice(b"NIAPKG\0\0");
+            archive.extend_from_slice(&1u32.to_le_bytes());
+            archive.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+            for (path, contents) in entries {
+                archive.push(0);
+                archive.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                archive.extend_from_slice(path.as_bytes());
+                archive.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+                archive.extend_from_slice(contents);
+            }
+            let digest = *blake3::hash(&archive).as_bytes();
+            let url = format!("https://cdn.example.test/json-{version}.nia");
+            archives.insert(url.clone(), archive);
+            records.push_str(&format!(
+                "[[packages]]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\narchive_url = \"{url}\"\narchive_digest = \"blake3:{}\"\n",
+                hex_digest(&digest)
+            ));
+        }
+        let index_url = "https://packages.example.test/index.toml";
+        let index = records.into_bytes();
+        let fetch: RegistryFetch = Arc::new(move |url| {
+            if url == index_url {
+                return Ok(index.clone());
+            }
+            archives
+                .get(url)
+                .cloned()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "unexpected registry URL"))
+        });
+        let lock_path = root.join("nia.lock");
+        PackageLock::default().write_atomic(&lock_path).unwrap();
+        let original_lock = fs::read(&lock_path).unwrap();
+
+        let error = update_lock_with_registry_fetcher(&root, &[], fetch).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("no single version"), "{message}");
+        assert!(message.contains("left@1.0.0 -> json"), "{message}");
+        assert!(message.contains("right@1.0.0 -> json"), "{message}");
+        assert_eq!(fs::read(&lock_path).unwrap(), original_lock);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
