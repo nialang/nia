@@ -53,8 +53,10 @@ writes to a newly allocated staging directory, and atomically publishes it.
 ## Lockfile
 
 `nia.lock` schema version 2 is authoritative for every selected source. Each
-entry has a tagged source record. Git records contain the canonical URL,
-selector, resolved commit, and source fingerprint. Registry records contain
+entry has a tagged source record. Path records contain the owning package
+identity, declared relative path, target package identity, and source
+fingerprint. Git records contain the canonical URL, selector, resolved commit,
+and source fingerprint. Registry records contain
 registry identity, package namespace/name, selected SemVer version, archive
 digest, and source fingerprint. They cannot depend on mutable index responses
 after locking. Schema version 1 and any unknown schema are rejected without

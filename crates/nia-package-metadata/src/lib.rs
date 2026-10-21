@@ -468,6 +468,14 @@ pub struct PackageLock {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum LockedSource {
+    Path {
+        owner: String,
+        path: String,
+        namespace: String,
+        package: String,
+        version: String,
+        source_fingerprint: String,
+    },
     Git {
         url: String,
         selector: String,
@@ -492,17 +500,25 @@ pub struct LockedPackage {
 }
 
 impl LockedSource {
+    fn reachability_identity(&self) -> Option<String> {
+        match self {
+            Self::Path { owner, path, .. } => Some(format!("path\0{owner}\0{path}")),
+            Self::Git { url, selector, .. } => Some(format!("git\0{url}\0{selector}")),
+            Self::Registry { .. } => None,
+        }
+    }
+
     fn git_identity(&self) -> Option<(&str, &str)> {
         match self {
             Self::Git { url, selector, .. } => Some((url, selector)),
-            Self::Registry { .. } => None,
+            Self::Path { .. } | Self::Registry { .. } => None,
         }
     }
 
     fn git_revision(&self) -> Option<&str> {
         match self {
             Self::Git { revision, .. } => Some(revision),
-            Self::Registry { .. } => None,
+            Self::Path { .. } | Self::Registry { .. } => None,
         }
     }
 
@@ -512,6 +528,9 @@ impl LockedSource {
                 source_fingerprint, ..
             }
             | Self::Registry {
+                source_fingerprint, ..
+            }
+            | Self::Path {
                 source_fingerprint, ..
             } => Some(source_fingerprint),
         }
@@ -556,6 +575,18 @@ fn same_locked_selector(left: &LockedPackage, right: &LockedPackage) -> bool {
                 && left_package == right_package
                 && left_version == right_version
         }
+        (
+            LockedSource::Path {
+                owner: left_owner,
+                path: left_path,
+                ..
+            },
+            LockedSource::Path {
+                owner: right_owner,
+                path: right_path,
+                ..
+            },
+        ) => left_owner == right_owner && left_path == right_path,
         _ => false,
     }
 }
@@ -620,8 +651,18 @@ impl PackageLock {
                     archive_digest,
                     source_fingerprint,
                 } => {
-                    validate_registry_package_segment(namespace, "lockfile")?;
-                    validate_registry_package_segment(package, "lockfile")?;
+                    if namespace.is_empty()
+                        || namespace.len() > 128
+                        || namespace.contains('/')
+                        || package.is_empty()
+                        || package.len() > 128
+                        || package.contains('/')
+                    {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile path package identity is invalid",
+                        ));
+                    }
                     if registry.is_empty()
                         || registry.len() > 64
                         || !registry.bytes().all(|byte| {
@@ -639,6 +680,31 @@ impl PackageLock {
                     validate_blake3_text(archive_digest, "archive digest", error_kind)?;
                     validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
                     format!("registry\0{registry}\0{namespace}\0{package}\0{version}")
+                }
+                LockedSource::Path {
+                    owner,
+                    path,
+                    namespace,
+                    package,
+                    version,
+                    source_fingerprint,
+                } => {
+                    if owner.is_empty() || path.is_empty() || path.contains(['\r', '\n']) {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile path source is invalid",
+                        ));
+                    }
+                    validate_registry_package_segment(namespace, "lockfile")?;
+                    validate_registry_package_segment(package, "lockfile")?;
+                    PackageVersion::parse(version).map_err(|error| {
+                        io::Error::new(
+                            error_kind,
+                            format!("lockfile package version is invalid: {error}"),
+                        )
+                    })?;
+                    validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
+                    format!("path\0{owner}\0{path}")
                 }
             };
             if !identities.insert((package.name.as_str(), identity)) {
@@ -774,7 +840,78 @@ impl PackageFetcher {
 
     fn resolve(&mut self, owner: &Path, dependency: &PackageDependency) -> io::Result<PathBuf> {
         match &dependency.source {
-            DependencySource::Path(path) => Ok(owner.join(path)),
+            DependencySource::Path(path) => {
+                let unresolved = owner.join(path);
+                let Ok(destination) = unresolved.canonicalize() else {
+                    return Ok(unresolved);
+                };
+                if !destination.join("nia.toml").is_file() {
+                    return Ok(destination);
+                }
+                self.lock_state()?;
+                let manifest = PackageManifest::read(&destination)?;
+                let identity = package_source_identity_with_selection(
+                    &destination,
+                    manifest.package.clone(),
+                    &manifest.source,
+                )?;
+                let source_fingerprint =
+                    format!("blake3:{}", hex_digest(&identity.source_fingerprint));
+                let owner_identity = PackageManifest::read(owner)
+                    .map(|manifest| manifest.package.canonical_text())
+                    .unwrap_or_else(|_| owner.display().to_string());
+                let expected = LockedPackage {
+                    name: dependency.name.clone(),
+                    source: LockedSource::Path {
+                        owner: owner_identity,
+                        path: path.clone(),
+                        namespace: manifest.package.namespace.clone(),
+                        package: manifest.package.name.clone(),
+                        version: manifest.package.version.as_str().to_owned(),
+                        source_fingerprint: source_fingerprint.clone(),
+                    },
+                };
+                if let Some(entry) = self
+                    .lock
+                    .package
+                    .iter()
+                    .find(|entry| same_locked_selector(entry, &expected))
+                {
+                    if entry.source.source_fingerprint() != Some(source_fingerprint.as_str()) {
+                        if self.policy.locked {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!(
+                                    "path dependency {} changed, and locked mode forbids updating nia.lock",
+                                    dependency.name
+                                ),
+                            ));
+                        }
+                        self.lock
+                            .package
+                            .retain(|entry| !same_locked_selector(entry, &expected));
+                        self.lock.package.push(expected);
+                        self.lock.package.sort();
+                        self.dirty = true;
+                    }
+                } else if self.policy.locked {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "path dependency {} is not recorded in nia.lock, and locked mode forbids adding it",
+                            dependency.name
+                        ),
+                    ));
+                } else {
+                    self.lock
+                        .package
+                        .retain(|entry| !same_locked_selector(entry, &expected));
+                    self.lock.package.push(expected);
+                    self.lock.package.sort();
+                    self.dirty = true;
+                }
+                Ok(destination)
+            }
             DependencySource::Registry { .. } => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "registry dependencies are not resolvable yet",
@@ -843,7 +980,7 @@ impl PackageFetcher {
                     })
                     .and_then(|entry| match &entry.source {
                         LockedSource::Git { revision, .. } => Some(revision.clone()),
-                        LockedSource::Registry { .. } => None,
+                        LockedSource::Path { .. } | LockedSource::Registry { .. } => None,
                     });
                 let fetch_rev = rev.clone().or(locked_rev);
                 let key = blake3::hash(
@@ -936,7 +1073,7 @@ impl PackageFetcher {
                     })
                     .and_then(|entry| match &entry.source {
                         LockedSource::Git { revision, .. } => Some(revision.clone()),
-                        LockedSource::Registry { .. } => None,
+                        LockedSource::Path { .. } | LockedSource::Registry { .. } => None,
                     })
                     .ok_or_else(|| {
                         io::Error::new(io::ErrorKind::InvalidData, "Git revision was not recorded")
@@ -1020,12 +1157,13 @@ impl PackageFetcher {
         self.lock
             .package
             .retain(|entry| match entry.source.git_identity() {
-                Some((source, selector)) => reachable.contains(&(
-                    entry.name.clone(),
-                    source.to_owned(),
-                    selector.to_owned(),
-                )),
-                None => true,
+                Some((source, selector)) => {
+                    reachable.contains(&(entry.name.clone(), format!("git\0{source}\0{selector}")))
+                }
+                None => entry
+                    .source
+                    .reachability_identity()
+                    .is_none_or(|identity| reachable.contains(&(entry.name.clone(), identity))),
             });
         if self.lock.package.len() != before {
             self.dirty = true;
@@ -1033,7 +1171,7 @@ impl PackageFetcher {
         Ok(())
     }
 
-    fn reachable_lock_keys(&self, state_root: &Path) -> Option<BTreeSet<(String, String, String)>> {
+    fn reachable_lock_keys(&self, state_root: &Path) -> Option<BTreeSet<(String, String)>> {
         let mut reachable = BTreeSet::new();
         if !state_root.join("nia.toml").is_file() {
             // A root package without a manifest declares no dependencies.
@@ -1068,7 +1206,25 @@ impl PackageFetcher {
             let manifest = PackageManifest::read(&root).ok()?;
             for dependency in &manifest.dependencies {
                 match &dependency.source {
-                    DependencySource::Path(path) => pending.push(root.join(path)),
+                    DependencySource::Path(path) => {
+                        let owner = PackageManifest::read(&root).ok()?.package.canonical_text();
+                        let entry = self.lock.package.iter().find(|entry| {
+                            entry.name == dependency.name
+                                && matches!(
+                                    &entry.source,
+                                    LockedSource::Path {
+                                        owner: locked_owner,
+                                        path: locked_path,
+                                        ..
+                                    } if locked_owner == &owner && locked_path == path
+                                )
+                        })?;
+                        pending.push(root.join(path));
+                        reachable.insert((
+                            dependency.name.clone(),
+                            entry.source.reachability_identity()?,
+                        ));
+                    }
                     DependencySource::Git {
                         url,
                         rev,
@@ -1089,7 +1245,10 @@ impl PackageFetcher {
                             self.cache_root
                                 .join(entry.source.source_fingerprint()?.get(7..)?),
                         );
-                        reachable.insert((dependency.name.clone(), source, selector));
+                        reachable.insert((
+                            dependency.name.clone(),
+                            format!("git\0{source}\0{selector}"),
+                        ));
                     }
                     DependencySource::Registry { .. } => return None,
                 }
@@ -5847,6 +6006,67 @@ mod tests {
         assert!(message.contains("dependency `mathlib`"), "{message}");
         assert!(message.contains("mathlib`:"), "{message}");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn path_dependencies_are_locked_by_owner_path_and_source_fingerprint() {
+        let root = lock_test_root("path-lock");
+        let consumer = root.join("consumer");
+        let dependency = root.join("vendor/json");
+        fs::create_dir_all(consumer.join("src")).unwrap();
+        fs::create_dir_all(dependency.join("src")).unwrap();
+        fs::write(
+            consumer.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { path = \"../vendor/json\" }\n",
+        )
+        .unwrap();
+        fs::write(dependency.join("nia.toml"), "[package]\nname = \"json\"\n").unwrap();
+        fs::write(
+            dependency.join("src/lib.nia"),
+            "pub fn value() -> i32 = 1;\n",
+        )
+        .unwrap();
+
+        PackageGraph::resolve(&consumer, false).unwrap();
+        let lock_path = consumer.join("nia.lock");
+        let first_lock = fs::read(&lock_path).unwrap();
+        let lock = PackageLock::read(&lock_path).unwrap();
+        assert!(matches!(
+            &lock.package[0].source,
+            LockedSource::Path {
+                owner,
+                path,
+                namespace,
+                package,
+                version,
+                source_fingerprint,
+            } if owner == "local/app@0.0.0"
+                && path == "../vendor/json"
+                && namespace == "local"
+                && package == "json"
+                && version == "0.0.0"
+                && source_fingerprint.starts_with("blake3:")
+        ));
+
+        let locked = LockPolicy {
+            locked: true,
+            offline: true,
+        };
+        PackageGraph::resolve_with_policy(&consumer, PackageGraphOptions::default(), locked)
+            .unwrap();
+        fs::write(
+            dependency.join("src/lib.nia"),
+            "pub fn value() -> i32 = 2;\n",
+        )
+        .unwrap();
+        assert!(
+            PackageGraph::resolve_with_policy(&consumer, PackageGraphOptions::default(), locked)
+                .is_err()
+        );
+        assert_eq!(fs::read(&lock_path).unwrap(), first_lock);
+        PackageGraph::resolve(&consumer, false).unwrap();
+        assert_ne!(fs::read(&lock_path).unwrap(), first_lock);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
