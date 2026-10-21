@@ -577,7 +577,23 @@ fn digest_hex(digest: &[u8; 32]) -> String {
 }
 
 fn read_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
-    let file = fs::File::open(path)?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(invalid_index("registry cache entry must be a regular file"));
+    }
     let mut bytes = Vec::new();
     file.take((limit + 1) as u64).read_to_end(&mut bytes)?;
     if bytes.len() > limit {
@@ -594,10 +610,8 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
-        if fs::symlink_metadata(path).is_ok() {
-            fs::remove_file(path)?;
-        }
-        fs::rename(&temporary, path)
+        nia_compat::replace_path(&temporary, path)?;
+        nia_compat::sync_directory(parent)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -987,6 +1001,27 @@ mod tests {
         assert!(cache.write_archive(&[0; 32], &bytes).is_err());
         fs::write(cache.archive_path(&digest), b"tampered").unwrap();
         assert!(cache.read_archive(&digest).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn registry_cache_rejects_symlinked_indexes() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-cache-link-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = RegistryCache::new(&root);
+        let outside = root.join("outside.toml");
+        let index_path = cache.index_path("nia");
+        fs::create_dir_all(index_path.parent().unwrap()).unwrap();
+        fs::write(&outside, b"schema_version = 1\npackages = []\n").unwrap();
+        std::os::unix::fs::symlink(&outside, &index_path).unwrap();
+
+        let error = cache.read_index("nia").unwrap_err();
+
+        assert_ne!(error.kind(), io::ErrorKind::NotFound);
         fs::remove_dir_all(root).unwrap();
     }
 
