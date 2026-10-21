@@ -1021,7 +1021,7 @@ fn append_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
 fn append_definition_key(bytes: &mut Vec<u8>, definition: &DefinitionId) {
     append_bytes(bytes, definition.module.package.namespace.as_bytes());
     append_bytes(bytes, definition.module.package.name.as_bytes());
-    append_bytes(bytes, definition.module.package.version.as_bytes());
+    append_bytes(bytes, definition.module.package.version.as_str().as_bytes());
     append_bytes(bytes, definition.module.path.as_bytes());
     append_bytes(bytes, definition.name.as_bytes());
     bytes.push(definition.kind);

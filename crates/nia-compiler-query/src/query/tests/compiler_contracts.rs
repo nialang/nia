@@ -154,7 +154,7 @@ fn stable_type_graph_publication_remaps_session_handles() {
             nia_package_metadata::PackageId {
                 namespace: "example".into(),
                 name: "demo".into(),
-                version: "1.0.0".into(),
+                version: "1.0.0".parse().unwrap(),
             },
             &[pointer_ty],
         )
@@ -178,7 +178,7 @@ fn stable_type_graph_order_is_independent_of_session_allocation_order() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let first = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
     let first_db = first.database();
@@ -237,7 +237,7 @@ fn stable_type_graph_publication_encodes_generic_parameter_identity() {
             nia_package_metadata::PackageId {
                 namespace: "example".into(),
                 name: "demo".into(),
-                version: "1.0.0".into(),
+                version: "1.0.0".parse().unwrap(),
             },
             &[generic],
         )
@@ -257,7 +257,7 @@ fn stable_type_graph_rehydrates_into_current_type_store() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let graph = nia_package_metadata::StableTypeGraph {
         nodes: vec![
@@ -326,7 +326,7 @@ fn stable_type_graph_publication_carries_trait_objects_and_projections() {
             nia_package_metadata::PackageId {
                 namespace: "example".into(),
                 name: "traits".into(),
-                version: "1.0.0".into(),
+                version: "1.0.0".parse().unwrap(),
             },
             &[object, projection],
         )
@@ -367,7 +367,7 @@ fn stable_type_graph_publication_remaps_nominal_definition_identity() {
             nia_package_metadata::PackageId {
                 namespace: "example".into(),
                 name: "demo".into(),
-                version: "1.0.0".into(),
+                version: "1.0.0".parse().unwrap(),
             },
             &[nominal],
         )
@@ -401,7 +401,7 @@ fn stable_type_graph_publication_preserves_nominal_type_arguments() {
             nia_package_metadata::PackageId {
                 namespace: "example".into(),
                 name: "demo".into(),
-                version: "1.0.0".into(),
+                version: "1.0.0".parse().unwrap(),
             },
             &[nominal],
         )
@@ -440,7 +440,7 @@ fn stable_const_arguments_preserve_declared_type_identity() {
             nia_package_metadata::PackageId {
                 namespace: "example".into(),
                 name: "const-types".into(),
-                version: "1.0.0".into(),
+                version: "1.0.0".parse().unwrap(),
             },
             &[make(u8_ty), make(usize_ty)],
         )
@@ -467,7 +467,7 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
     let dependency = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "dependency".into(),
-        version: "2.0.0".into(),
+        version: "2.0.0".parse().unwrap(),
     };
     let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
     let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
@@ -499,7 +499,7 @@ fn stable_type_graph_round_trips_closure_owner_instance() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let defs = database
         .db
@@ -568,7 +568,7 @@ fn stable_definition_index_remaps_current_session_identities() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let index = database
         .stable_definition_index(&|_| Ok(package.clone()))
@@ -598,12 +598,12 @@ fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
     let first = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "first".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let second = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "second".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let mut index = StableModuleIndex::new();
     let allocator = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
@@ -647,7 +647,7 @@ fn stable_module_index_uses_explicit_module_package_resolution() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let entry = fixture.entry_id();
     let index = database
@@ -673,7 +673,7 @@ fn loaded_definition_resolver_validates_stable_identity() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let index = database
         .stable_definition_index(&|_| Ok(package.clone()))
@@ -693,7 +693,7 @@ fn loaded_definition_resolver_validates_stable_identity() {
                 &nia_package_metadata::PackageId {
                     namespace: "other".into(),
                     name: "demo".into(),
-                    version: "1.0.0".into(),
+                    version: "1.0.0".parse().unwrap(),
                 }
             )
             .is_err()
@@ -707,7 +707,7 @@ fn loaded_definition_resolver_handles_nested_identity() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "demo".into(),
-        version: "1.0.0".into(),
+        version: "1.0.0".parse().unwrap(),
     };
     let index = database
         .stable_definition_index(&|_| Ok(package.clone()))

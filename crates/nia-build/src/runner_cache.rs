@@ -47,7 +47,9 @@ pub(super) fn package_id(key: &str) -> nia_package_metadata::PackageId {
         name: "build-runner".to_string(),
         // The content key gives generated runner symbols a stable package
         // identity without coupling that identity to physical cache paths.
-        version: format!("0.0.0+{key}"),
+        version: format!("0.0.0+{key}")
+            .parse()
+            .expect("runner cache key is a valid SemVer build identifier"),
     }
 }
 
