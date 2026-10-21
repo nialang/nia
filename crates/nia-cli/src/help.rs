@@ -147,7 +147,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         },
         HelpTopic::Update => HelpDoc {
             title: "nia update",
-            about: "Fetch Git dependency selectors again and rewrite nia.lock.",
+            about: "Refresh Git revisions and registry versions in nia.lock.",
             usage: &["nia update [name ...] [--root <dir>]"],
             commands: &[],
             examples: &["nia update", "nia update regex"],

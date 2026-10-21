@@ -69,7 +69,8 @@ fn main() -> ExitCode {
 ",
             nia_compat::COMPILER_VERSION
         )),
-        Ok(CliAction::Run(mut cli)) => {
+        Ok(CliAction::Run(cli)) => {
+            let mut cli = *cli;
             if let Err(error) = resolve_output_policy(&mut cli) {
                 report_cli_error(&error, cli.diagnostics_format);
                 return ExitCode::from(USAGE_EXIT_CODE);
@@ -1241,7 +1242,7 @@ mod tests {
         )
         .expect("parse JSON progress")
         {
-            CliAction::Run(cli) => cli,
+            CliAction::Run(cli) => *cli,
             _ => panic!("expected runnable command"),
         };
         resolve_output_policy(&mut cli).expect("resolve JSON stream formats");
@@ -1256,7 +1257,7 @@ mod tests {
         )
         .expect("parse explicit text diagnostics")
         {
-            CliAction::Run(cli) => cli,
+            CliAction::Run(cli) => *cli,
             _ => panic!("expected runnable command"),
         };
         let error = resolve_output_policy(&mut cli).expect_err("reject mixed stderr formats");

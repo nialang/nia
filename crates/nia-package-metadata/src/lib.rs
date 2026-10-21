@@ -1722,7 +1722,7 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
             )
         })?;
     let state_root = workspace_state_root(manifest_root)?;
-    let before = {
+    let (before, original_lock) = {
         let mut fetcher = PackageFetcher::for_root(&state_root, LockPolicy::default())?;
         fetcher.lock_state()?;
         let before = fetcher.lock.package.clone();
@@ -1737,33 +1737,58 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
                 ));
             }
         }
+        let original_lock = fetcher.lock.clone();
         fetcher.lock.package.retain(|entry| {
             entry.source.update_kind().is_none()
                 || (!names.is_empty() && !names.contains(&entry.name))
         });
         fetcher.dirty = true;
         fetcher.finish()?;
-        before
+        (before, original_lock)
         // The cache lock is released here; resolution below takes it again.
     };
-    let raw = read_raw_manifest(&state_root)?;
-    let mut roots = Vec::new();
-    if raw.workspace.is_some() {
-        let workspace = WorkspaceManifest::read(&state_root)?;
-        roots.extend(
-            workspace
-                .member_packages()?
-                .into_iter()
-                .map(|member| member.root),
-        );
-        if raw.package.is_some() && !roots.contains(&state_root) {
+    let update = (|| {
+        let raw = read_raw_manifest(&state_root)?;
+        let mut roots = Vec::new();
+        if raw.workspace.is_some() {
+            let workspace = WorkspaceManifest::read(&state_root)?;
+            roots.extend(
+                workspace
+                    .member_packages()?
+                    .into_iter()
+                    .map(|member| member.root),
+            );
+            if raw.package.is_some() && !roots.contains(&state_root) {
+                roots.push(state_root.clone());
+            }
+        } else {
             roots.push(state_root.clone());
         }
-    } else {
-        roots.push(state_root.clone());
-    }
-    for root in roots {
-        PackageGraph::resolve(&root, true)?;
+        let registries = read_registry_endpoints(&state_root)?;
+        for root in roots {
+            PackageGraph::resolve_with_policy_and_registries(
+                &root,
+                PackageGraphOptions {
+                    include_development: true,
+                },
+                LockPolicy::default(),
+                registries.clone(),
+            )?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = update {
+        let mut fetcher = PackageFetcher::for_root(&state_root, LockPolicy::default())?;
+        fetcher.lock_state()?;
+        fetcher.lock = original_lock;
+        fetcher.dirty = true;
+        fetcher.finish().map_err(|restore_error| {
+            io::Error::new(
+                restore_error.kind(),
+                format!("{error}; additionally failed to restore nia.lock: {restore_error}"),
+            )
+        })?;
+        return Err(error);
     }
     let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
     Ok(collect_lock_updates(&before, &after))
@@ -6431,6 +6456,41 @@ mod tests {
         assert_eq!(updates[0].selector, "registry:nia/acme/json");
         assert_eq!(updates[0].old_value.as_deref(), Some("1.0.0"));
         assert_eq!(updates[0].new_value.as_deref(), Some("1.1.0"));
+    }
+
+    #[test]
+    fn failed_registry_update_restores_the_original_lockfile() {
+        let root = lock_test_root("registry-update-rollback");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"http://invalid.example.test\"\n",
+        )
+        .unwrap();
+        let lock_path = root.join("nia.lock");
+        PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![LockedPackage {
+                name: "json".into(),
+                source: LockedSource::Registry {
+                    registry: "nia".into(),
+                    namespace: "acme".into(),
+                    package: "json".into(),
+                    version: "1.0.0".into(),
+                    archive_digest: format!("blake3:{}", "00".repeat(32)),
+                    source_fingerprint: format!("blake3:{}", "11".repeat(32)),
+                },
+            }],
+        }
+        .write_atomic(&lock_path)
+        .unwrap();
+        let original = std::fs::read(&lock_path).unwrap();
+
+        let error = update_lock(&root, &[]).unwrap_err();
+
+        assert!(error.to_string().contains("HTTPS"), "{error}");
+        assert_eq!(std::fs::read(&lock_path).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

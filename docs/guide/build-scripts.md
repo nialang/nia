@@ -123,21 +123,24 @@ the agent instead.
 Git fetches request a shallow history with depth 1, which includes the selected
 commit and the files needed to check it out without downloading its ancestors.
 
-The first build records each Git dependency's commit and content hash in
-`nia.lock` next to the root `nia.toml` (the workspace root in a workspace), and
-stores the checkout under `.nia/packages` beside it.
-Later builds reuse the locked commit, even when a `branch` or `tag` has moved,
-and reject a cached checkout whose contents no longer match the recorded hash.
+The first build records each Git dependency's commit and content hash, and each
+registry dependency's selected version, archive digest, and content hash, in
+`nia.lock` next to the root `nia.toml` (the workspace root in a workspace).
+Git checkouts and verified registry packages are cached under `.nia/packages`
+beside it. Later builds reuse the locked source and reject cached content that
+no longer matches its recorded hash.
 Entries that no manifest in the package or workspace still reaches, in any
 dependency scope, are removed on the next build. Commit `nia.lock` and ignore
 `.nia/`.
 
-`nia update` fetches every locked selector again and rewrites `nia.lock`;
-`nia update <name> ...` refreshes only those dependencies. It resolves every
-package that shares the lock file, so running it from one workspace member
-updates the whole workspace. `nia build` and `nia test` accept `--locked`,
+`nia update` refreshes every locked Git selector and registry version, then
+reports revision changes separately from version changes. `nia update <name>
+...` refreshes only those dependencies. It resolves every package that shares
+the lock file, so running it from one workspace member updates the whole
+workspace. `nia build` and `nia test` accept `--locked`,
 which fails instead of adding, changing, or removing a lock entry, and
-`--offline`, which fails instead of fetching a dependency that is not cached.
+`--offline`, which uses cached Git checkouts, registry indexes, and registry
+archives only.
 CI builds should pass `--locked`.
 
 ## Workspaces

@@ -854,7 +854,7 @@ fn write_runner_output(f: &mut fmt::Formatter<'_>, stream: &str, bytes: &[u8]) -
 
 impl std::error::Error for BuildError {}
 
-/// Fetches Git dependency selectors again and rewrites `nia.lock` for
+/// Refreshes Git selectors and registry versions in `nia.lock` for
 /// `nia update`. `root` defaults to the current directory; an empty `names`
 /// updates every locked dependency.
 pub fn run_update(

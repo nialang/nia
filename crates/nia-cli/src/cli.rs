@@ -174,7 +174,7 @@ pub(crate) struct EmitExeOptions {
 pub(crate) enum CliAction {
     Help(HelpTopic),
     Version,
-    Run(Cli),
+    Run(Box<Cli>),
 }
 
 #[derive(Debug)]
@@ -280,7 +280,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
         HelpTopic::EmitKind(kind) => parse_emit(&scanned, kind)?,
         HelpTopic::Main => unreachable!("the main topic is not a command"),
     };
-    Ok(CliAction::Run(global.into_cli(command)))
+    Ok(CliAction::Run(Box::new(global.into_cli(command))))
 }
 
 /// Scans the global options before the command and returns the command's
@@ -990,7 +990,7 @@ mod tests {
 
     fn run(args: &[&str]) -> Cli {
         match parse(args) {
-            Ok(CliAction::Run(cli)) => cli,
+            Ok(CliAction::Run(cli)) => *cli,
             Ok(action) => panic!("{args:?}: expected a command, got {action:?}"),
             Err(error) => panic!("{args:?}: {}", error.message),
         }
