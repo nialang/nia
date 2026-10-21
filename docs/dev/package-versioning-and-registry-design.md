@@ -23,7 +23,21 @@ The initial resolver selects one version per `(namespace, name)` across the comp
 
 ## Registry
 
-Support a configured default registry named `nia` alongside path and Git sources. A versioned index maps `(namespace, package, version)` to an immutable archive URL and cryptographic digest. Require HTTPS for the public registry. The index and archive format are versioned and validated strictly; unknown schema versions and malformed records fail closed. The registry distributes packages but does not define package semantics. Publishing, namespace ownership, account management, private registry authentication, and signing are separate work.
+Support a configured default registry named `nia` alongside path and Git
+sources. Workspace roots configure endpoints in `nia.toml`:
+
+```toml
+[registries]
+nia = "https://packages.example.test"
+```
+
+A versioned index maps `(namespace, package, version)` to an immutable archive
+URL and cryptographic digest. Require HTTPS for the public registry. The index
+and archive format are versioned and validated strictly; unknown schema
+versions and malformed records fail closed. The registry distributes packages
+but does not define package semantics. Publishing, namespace ownership,
+account management, private registry authentication, and signing are separate
+work.
 
 Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
 
