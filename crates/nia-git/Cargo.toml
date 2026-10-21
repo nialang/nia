@@ -22,4 +22,5 @@ zeroize.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+nia-git = { path = ".", features = ["test-support"] }
 rcgen = "0.14.10"
