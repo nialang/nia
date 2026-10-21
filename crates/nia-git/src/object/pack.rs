@@ -66,6 +66,8 @@ fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
     if count > 1_000_000 {
         return Err(invalid_packet("Git pack contains too many objects"));
     }
+    // Object headers and delta bases must never consume the checksum trailer.
+    let pack = &pack[..payload_end];
     let mut cursor = 12usize;
     let mut objects = BTreeMap::<usize, GitObject>::new();
     let mut unresolved = Vec::new();
@@ -246,6 +248,17 @@ mod tests {
     use sha1::{Digest, Sha1};
 
     #[test]
+    fn truncated_object_header_cannot_consume_pack_checksum() {
+        let mut pack = b"PACK".to_vec();
+        pack.extend_from_slice(&2u32.to_be_bytes());
+        pack.extend_from_slice(&1u32.to_be_bytes());
+        // A blob header whose size continuation is absent from the payload.
+        pack.push(0xb0);
+        pack.extend_from_slice(&Sha1::digest(&pack));
+        assert!(decode_pack_object(&pack, &[0; 20]).is_err());
+    }
+
+    #[test]
     fn packed_object_checksums_are_part_of_the_trust_boundary() {
         let mut pack = b"PACK".to_vec();
         pack.extend_from_slice(&2u32.to_be_bytes());
@@ -259,5 +272,81 @@ mod tests {
             decode_pack_object(&pack, &wanted).unwrap_err().to_string(),
             "Git pack checksum does not match"
         );
+    }
+}
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_pack_bytes_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = decode_pack_object(&bytes, &[0; 20]);
+        }
+
+        #[test]
+        fn checksummed_pack_payloads_do_not_panic(
+            payload in prop::collection::vec(any::<u8>(), 0..1024),
+            count in 0u32..8,
+        ) {
+            let mut pack = b"PACK".to_vec();
+            pack.extend_from_slice(&2u32.to_be_bytes());
+            pack.extend_from_slice(&count.to_be_bytes());
+            pack.extend(payload);
+            pack.extend_from_slice(&Sha1::digest(&pack));
+            let _ = decode_pack_object(&pack, &[0; 20]);
+        }
+    }
+
+    #[test]
+    fn all_single_byte_object_headers_stay_inside_payload() {
+        for byte in 0..=255 {
+            let mut pack = b"PACK".to_vec();
+            pack.extend_from_slice(&2u32.to_be_bytes());
+            pack.extend_from_slice(&1u32.to_be_bytes());
+            pack.push(byte);
+            pack.extend_from_slice(&Sha1::digest(&pack));
+            assert!(decode_pack_object(&pack, &[0; 20]).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod round_trip_properties {
+    use super::*;
+    use flate2::{Compression, write::ZlibEncoder};
+    use proptest::prelude::*;
+    use std::io::Write;
+
+    proptest! {
+        #[test]
+        fn blob_pack_round_trip(data in prop::collection::vec(any::<u8>(), 0..4096), version in 2u32..=3) {
+            let mut pack = b"PACK".to_vec();
+            pack.extend_from_slice(&version.to_be_bytes());
+            pack.extend_from_slice(&1u32.to_be_bytes());
+            let mut size = data.len();
+            let first = 0x30 | (size & 15) as u8;
+            size >>= 4;
+            pack.push(first | if size == 0 { 0 } else { 0x80 });
+            while size != 0 {
+                let byte = (size & 127) as u8;
+                size >>= 7;
+                pack.push(byte | if size == 0 { 0 } else { 0x80 });
+            }
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+            encoder.write_all(&data).unwrap();
+            pack.extend(encoder.finish().unwrap());
+            pack.extend_from_slice(&Sha1::digest(&pack));
+            let mut hash = Sha1::new();
+            hash.update(format!("blob {}\0", data.len()).as_bytes());
+            hash.update(&data);
+            let id: [u8; 20] = hash.finalize().into();
+            let decoded = decode_pack_object(&pack, &id).unwrap();
+            prop_assert_eq!(decoded.kind, ObjectKind::Blob);
+            prop_assert_eq!(decoded.data, data);
+            prop_assert_eq!(decoded.id, id);
+        }
     }
 }

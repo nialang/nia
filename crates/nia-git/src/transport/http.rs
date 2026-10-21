@@ -629,14 +629,17 @@ fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
         if size == 0 {
             return Ok(output);
         }
-        if input.len() < size + 2 || &input[size..size + 2] != b"\r\n" {
+        let chunk_end = size
+            .checked_add(2)
+            .ok_or_else(|| invalid_packet("Git HTTP chunk size overflows"))?;
+        if input.len() < chunk_end || &input[size..chunk_end] != b"\r\n" {
             return Err(invalid_packet("Git HTTP chunk is truncated"));
         }
         output.extend_from_slice(&input[..size]);
         if output.len() > MAX_RESPONSE_BYTES {
             return Err(invalid_packet("Git HTTP response is too large"));
         }
-        input = &input[size + 2..];
+        input = &input[chunk_end..];
     }
 }
 
@@ -749,6 +752,14 @@ mod tests {
     use super::*;
     use std::io::{self, Read, Write};
     use std::net::TcpStream;
+
+    #[test]
+    fn chunk_lengths_near_usize_max_are_rejected() {
+        for length in [usize::MAX, usize::MAX - 1] {
+            let body = format!("{length:x}\r\n");
+            assert!(decode_chunked_body(body.as_bytes()).is_err());
+        }
+    }
 
     #[test]
     fn http_response_parser_handles_content_length_and_chunked_bodies() {
@@ -1067,5 +1078,42 @@ mod tests {
                 .starts_with("CONNECT [2001:db8::1]:443 HTTP/1.1\r\nHost: [2001:db8::1]:443\r\n")
         );
         assert!(!request.contains("Authorization:"));
+    }
+}
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_http_and_chunked_bodies_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = parse_http_response(&bytes);
+            let _ = decode_chunked_body(&bytes);
+        }
+
+        #[test]
+        fn arbitrary_chunk_lengths_do_not_panic(length in any::<usize>(), bytes in prop::collection::vec(any::<u8>(), 0..256)) {
+            let mut input = format!("{length:x}\r\n").into_bytes();
+            input.extend(bytes);
+            let _ = decode_chunked_body(&input);
+        }
+
+        #[test]
+        fn fixed_and_chunked_http_round_trip(chunks in prop::collection::vec(prop::collection::vec(any::<u8>(), 1..128), 0..16)) {
+            let expected: Vec<u8> = chunks.iter().flatten().copied().collect();
+            let mut fixed = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", expected.len()).into_bytes();
+            fixed.extend_from_slice(&expected);
+            prop_assert_eq!(parse_http_response(&fixed).unwrap(), expected.clone());
+            let mut chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+            for chunk in chunks {
+                write!(chunked, "{:x}\r\n", chunk.len()).unwrap();
+                chunked.extend_from_slice(&chunk);
+                chunked.extend_from_slice(b"\r\n");
+            }
+            chunked.extend_from_slice(b"0\r\n\r\n");
+            prop_assert_eq!(parse_http_response(&chunked).unwrap(), expected);
+        }
     }
 }

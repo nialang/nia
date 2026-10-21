@@ -83,3 +83,30 @@ pub(crate) fn read_packet_section(stream: &mut impl Read) -> io::Result<Vec<u8>>
         stream.read_exact(&mut section[offset..])?;
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_packet_lines_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = decode_packet_lines(&bytes);
+            let _ = read_packet_section(&mut bytes.as_slice());
+        }
+
+        #[test]
+        fn packet_lines_round_trip(payloads in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..1024), 0..16)) {
+            let mut wire = Vec::new();
+            let mut expected = Vec::new();
+            for payload in payloads {
+                encode_packet_line(&payload, &mut wire).unwrap();
+                expected.push(PacketLine::Data(payload));
+            }
+            wire.extend_from_slice(b"000000010002");
+            expected.extend([PacketLine::Flush, PacketLine::Delimiter, PacketLine::ResponseEnd]);
+            prop_assert_eq!(decode_packet_lines(&wire).unwrap(), expected);
+        }
+    }
+}

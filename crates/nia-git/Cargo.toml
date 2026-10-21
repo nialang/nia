@@ -23,4 +23,5 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 nia-git = { path = ".", features = ["test-support"] }
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 rcgen = "0.14.10"

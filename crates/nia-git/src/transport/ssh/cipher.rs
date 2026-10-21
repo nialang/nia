@@ -166,3 +166,32 @@ mod tests {
         assert_eq!(fresh_receiver.sequence(), 0);
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_encrypted_packets_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let mut receiver = SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32]).unwrap();
+            let _ = receiver.read_packet(bytes.as_slice());
+        }
+
+        #[test]
+        fn encrypted_packets_round_trip_and_detect_tampering(payload in prop::collection::vec(any::<u8>(), 0..4096), position in any::<usize>()) {
+            let new = || SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32]).unwrap();
+            let mut sender = new();
+            let mut wire = Vec::new();
+            write_encrypted_ssh_packet(&mut wire, &mut sender, &payload).unwrap();
+            let mut receiver = new();
+            prop_assert_eq!(receiver.read_packet(wire.as_slice()).unwrap().payload, payload);
+            let index = position % wire.len();
+            wire[index] ^= 1;
+            let mut receiver = new();
+            prop_assert!(receiver.read_packet(wire.as_slice()).is_err());
+            prop_assert_eq!(receiver.sequence(), 0);
+        }
+    }
+}

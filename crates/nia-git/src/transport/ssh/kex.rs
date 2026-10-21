@@ -646,3 +646,33 @@ mod tests {
         assert!(derive_ssh_key(&shared[..31], &exchange_hash, &session_id, b'A', 16).is_err());
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_key_exchange_messages_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let mut init = vec![20];
+            init.extend_from_slice(&[0; 16]);
+            init.extend_from_slice(&bytes);
+            let _ = parse_ssh_kexinit(&init);
+            let mut reply = vec![31];
+            reply.extend_from_slice(&bytes);
+            let _ = parse_ssh_kex_ecdh_reply(&reply);
+            let _ = verify_ssh_ed25519_host_key(&bytes, &bytes, &[0; 32]);
+        }
+
+        #[test]
+        fn generated_kexinit_negotiates_supported_algorithms(cookie in any::<[u8; 16]>()) {
+            let encoded = build_client_kexinit(&cookie);
+            let init = parse_ssh_kexinit(&encoded).unwrap();
+            let negotiated = negotiate_ssh_algorithms(&init, &init).unwrap();
+            prop_assert_eq!(negotiated.kex, "curve25519-sha256");
+            prop_assert_eq!(negotiated.host_key, "ssh-ed25519");
+            prop_assert_eq!(negotiated.cipher_client_to_server, "aes128-ctr");
+        }
+    }
+}

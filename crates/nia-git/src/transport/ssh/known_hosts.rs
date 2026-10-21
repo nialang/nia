@@ -333,3 +333,41 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::super::wire::encode_ssh_string;
+    use super::*;
+    use crate::transport::http::base64_encode;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_known_hosts_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            if let Ok(hosts) = KnownHosts::parse(&bytes) {
+                let _ = hosts.verify("example.test", 22, &[0; 32]);
+            }
+            // ASCII text reaches line, marker, and key parsing more often than raw bytes.
+            let text: Vec<u8> = bytes.iter().map(|byte| byte & 0x7f).collect();
+            let _ = KnownHosts::parse(&text);
+        }
+
+        #[test]
+        fn known_host_key_and_revocation_are_enforced(key in any::<[u8; 32]>(), port in 1u16..=u16::MAX) {
+            let mut blob = Vec::new();
+            encode_ssh_string(b"ssh-ed25519", &mut blob).unwrap();
+            encode_ssh_string(&key, &mut blob).unwrap();
+            let encoded = base64_encode(&blob);
+            let encoded = std::str::from_utf8(&encoded).unwrap();
+            let host = if port == 22 { "example.test".to_owned() } else { format!("[example.test]:{port}") };
+            let line = format!("{host} ssh-ed25519 {encoded}\n");
+            let hosts = KnownHosts::parse(line.as_bytes()).unwrap();
+            prop_assert!(hosts.verify("example.test", port, &blob).is_ok());
+            let mut wrong = blob.clone();
+            *wrong.last_mut().unwrap() ^= 1;
+            prop_assert!(hosts.verify("example.test", port, &wrong).is_err());
+            let revoked = KnownHosts::parse(format!("@revoked {line}").as_bytes()).unwrap();
+            prop_assert!(revoked.verify("example.test", port, &blob).is_err());
+        }
+    }
+}

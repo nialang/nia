@@ -290,3 +290,35 @@ mod tests {
         assert!(read_ssh_packet(&malformed[..], 8).is_err());
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_ssh_packets_and_strings_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            for block_size in [0, 8, 16, 128, 255] {
+                let _ = read_ssh_packet(bytes.as_slice(), block_size);
+            }
+            let _ = read_ssh_identification(bytes.as_slice());
+            let mut reader = SshReader::new(&bytes);
+            let _ = reader.string();
+            let _ = reader.name_list();
+            let _ = reader.finish();
+        }
+
+        #[test]
+        fn ssh_packet_round_trip(payload in prop::collection::vec(any::<u8>(), 0..4096), exponent in 3u32..8) {
+            let block_size = 1usize << exponent;
+            let mut padding_len = block_size - ((payload.len() + 5) % block_size);
+            if padding_len < 4 { padding_len += block_size; }
+            let wire = encode_ssh_packet(&payload, block_size, &vec![42; padding_len]).unwrap();
+            prop_assert_eq!(read_ssh_packet(wire.as_slice(), block_size).unwrap().payload, payload);
+            for end in [0, 3, wire.len() - 1] {
+                prop_assert!(read_ssh_packet(&wire[..end], block_size).is_err());
+            }
+        }
+    }
+}

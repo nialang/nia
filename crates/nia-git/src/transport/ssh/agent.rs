@@ -382,3 +382,60 @@ mod tests {
         assert!(agent_request(&mut stream, &[]).is_err());
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+    use std::io::{Cursor, Read, Write};
+
+    struct PropertyStream {
+        response: Cursor<Vec<u8>>,
+        requests: Vec<u8>,
+    }
+
+    impl Read for PropertyStream {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            self.response.read(output)
+        }
+    }
+
+    impl Write for PropertyStream {
+        fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+            self.requests.extend_from_slice(input);
+            Ok(input.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_agent_messages_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = parse_agent_identities(&bytes);
+            let _ = agent_signing_algorithm(&bytes);
+            let mut identities = vec![12];
+            identities.extend_from_slice(&bytes);
+            let _ = parse_agent_identities(&identities);
+            let mut stream = PropertyStream {
+                response: Cursor::new(bytes),
+                requests: Vec::new(),
+            };
+            let _ = agent_request(&mut stream, &[11]);
+        }
+
+        #[test]
+        fn agent_request_round_trip(payload in prop::collection::vec(any::<u8>(), 1..4096)) {
+            let mut response = (payload.len() as u32).to_be_bytes().to_vec();
+            response.extend_from_slice(&payload);
+            let mut stream = PropertyStream {
+                response: Cursor::new(response),
+                requests: Vec::new(),
+            };
+            prop_assert_eq!(agent_request(&mut stream, &[11]).unwrap(), payload);
+            prop_assert_eq!(stream.requests, [0, 0, 0, 1, 11]);
+        }
+    }
+}

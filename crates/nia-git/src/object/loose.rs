@@ -112,3 +112,25 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn loose_objects_round_trip(data in prop::collection::vec(any::<u8>(), 0..4096), kind in 0usize..4) {
+            let kind = [ObjectKind::Commit, ObjectKind::Tree, ObjectKind::Blob, ObjectKind::Tag][kind];
+            let encoded = encode_loose_object(kind, &data).unwrap();
+            let object = decode_loose_object(&encoded).unwrap();
+            prop_assert_eq!(object.kind, kind);
+            prop_assert_eq!(object.data, data);
+        }
+
+        #[test]
+        fn arbitrary_compressed_objects_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = decode_loose_object(&bytes);
+        }
+    }
+}
