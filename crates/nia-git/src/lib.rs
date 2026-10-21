@@ -4,7 +4,9 @@
 //! code consumes filesystem roots and never sees Git object representations.
 
 use std::io;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "test-support")]
+use std::path::Path;
+use std::path::PathBuf;
 
 use cap_std::fs::Dir;
 
@@ -62,59 +64,31 @@ fn invalid_packet(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-/// Checks out a commit into a missing or empty directory without Git metadata.
+/// Checks out a commit into an already opened, empty directory without Git metadata.
 ///
-/// The caller must exclusively own the destination during checkout. Existing
-/// contents and linked destination directories are rejected. On failure, a
-/// partially materialized tree may remain for the caller to discard.
-pub fn checkout_source(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
-    checkout_source_with_destination(source, revision, Some(destination), None)
-}
-
-/// Checks out into an already opened destination directory. All output remains
-/// relative to `destination_dir`, even if its original path is later replaced.
-pub fn checkout_source_into(
-    source: &str,
-    revision: &str,
-    destination_dir: &Dir,
-) -> io::Result<String> {
+/// All output remains relative to the directory handle, even if its original
+/// path is later replaced. On failure, a partial tree may remain for the caller
+/// to discard.
+pub fn checkout_source(source: &str, revision: &str, destination_dir: &Dir) -> io::Result<String> {
     if destination_dir.entries()?.next().transpose()?.is_some() {
         return Err(invalid_packet("Git checkout destination must be empty"));
     }
-    checkout_source_with_destination(source, revision, None, Some(destination_dir))
-}
-
-fn checkout_source_with_destination(
-    source: &str,
-    revision: &str,
-    destination_path: Option<&Path>,
-    destination_dir: Option<&Dir>,
-) -> io::Result<String> {
     if let Some(repository) = source.strip_prefix("file:///") {
         let repository = if cfg!(windows) && repository.as_bytes().get(1) == Some(&b':') {
             PathBuf::from(repository)
         } else {
             PathBuf::from(format!("/{repository}"))
         };
-        return match destination_dir {
-            Some(directory) => {
-                transport::local::checkout_local_into(&repository, revision, directory)
-            }
-            None => transport::local::checkout_local(
-                &repository,
-                revision,
-                destination_path.expect("path destination is present"),
-            ),
-        };
+        return transport::local::checkout_local_into(&repository, revision, destination_dir);
     }
     if source.starts_with("http://") || source.starts_with("https://") {
-        return checkout_http(source, revision, destination_path, destination_dir);
+        return checkout_http(source, revision, destination_dir);
     }
     if source.starts_with("git://") {
-        return checkout_git(source, revision, destination_path, destination_dir);
+        return checkout_git(source, revision, destination_dir);
     }
     if source.starts_with("ssh://") || source.starts_with("git@") {
-        return checkout_ssh(source, revision, destination_path, destination_dir);
+        return checkout_ssh(source, revision, destination_dir);
     }
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

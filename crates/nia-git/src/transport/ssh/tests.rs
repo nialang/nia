@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::checkout_source;
+use cap_std::{ambient_authority, fs::Dir};
 
 #[test]
 fn encrypted_service_read_validates_and_skips_ignore_and_debug_messages() {
@@ -59,18 +60,20 @@ fn ssh_checkout_does_not_publish_a_pack_when_remote_process_fails() {
         |_| {},
         |root, source, config, _, _| {
             let destination = root.join("failed-checkout");
-            let error =
-                checkout_ssh_with_config(source, "HEAD", &destination, config, false).unwrap_err();
+            std::fs::create_dir(&destination).unwrap();
+            let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
+            let error = checkout_ssh_with_config(source, "HEAD", &destination_dir, config, false)
+                .unwrap_err();
             assert!(error.to_string().contains("status 17"), "{error}");
-            assert!(!destination.exists());
+            assert!(std::fs::read_dir(destination).unwrap().next().is_none());
         },
     );
 }
 
 #[test]
 fn ssh_sources_reject_invalid_urls_before_loading_credentials() {
-    let destination =
-        std::env::temp_dir().join(format!("nia-git-ssh-invalid-{}", std::process::id()));
+    let destination = nia_test_support::test_dir("git-ssh-invalid");
+    let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
     for source in [
         "ssh://user:password@example.test/repository.git",
         "ssh://example.test/repository.git?query",
@@ -78,7 +81,7 @@ fn ssh_sources_reject_invalid_urls_before_loading_credentials() {
         "git@example.test:",
     ] {
         assert!(
-            checkout_source(source, "HEAD", &destination).is_err(),
+            checkout_source(source, "HEAD", &destination_dir).is_err(),
             "{source}"
         );
     }

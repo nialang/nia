@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Checkout through the public API using real repositories and local wire servers.
 
-#[cfg(any(unix, windows))]
 use cap_std::{ambient_authority, fs::Dir};
 use nia_git::checkout_source;
-#[cfg(any(unix, windows))]
-use nia_git::checkout_source_into;
-use std::io::{Read, Write};
+use std::{
+    io::{Read, Write},
+    path::Path,
+};
 
 // The server fixture owns its wire encoding independently of the client parser.
 const MAX_PACKET_PAYLOAD: usize = 65_516;
+
+fn create_checkout_directory(path: &Path) -> Dir {
+    std::fs::create_dir_all(path).unwrap();
+    Dir::open_ambient_dir(path, ambient_authority()).unwrap()
+}
 
 fn parse_hex_usize(header: &[u8]) -> std::io::Result<usize> {
     let header = std::str::from_utf8(header)
@@ -94,7 +99,8 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
             .replace('\\', "/")
             .trim_start_matches('/')
     );
-    let revision = checkout_source(&source, "HEAD", &destination).unwrap();
+    let destination_dir = create_checkout_directory(&destination);
+    let revision = checkout_source(&source, "HEAD", &destination_dir).unwrap();
     assert_eq!(revision.len(), 40);
     assert_eq!(
         std::fs::read_to_string(destination.join("nia.toml")).unwrap(),
@@ -117,7 +123,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
             Dir::open_ambient_dir(&anchored_destination, ambient_authority()).unwrap();
         std::fs::rename(&anchored_destination, &moved_destination).unwrap();
         std::os::unix::fs::symlink(&outside, &anchored_destination).unwrap();
-        checkout_source_into(&source, "HEAD", &destination_dir).unwrap();
+        checkout_source(&source, "HEAD", &destination_dir).unwrap();
         assert!(moved_destination.join("nia.toml").is_file());
         assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
         std::fs::remove_file(&anchored_destination).unwrap();
@@ -157,7 +163,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
-        checkout_source_into(&source, "HEAD", &destination_dir).unwrap();
+        checkout_source(&source, "HEAD", &destination_dir).unwrap();
         assert!(moved_destination.join("nia.toml").is_file());
         assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
         std::fs::remove_dir(&anchored_destination).unwrap();
@@ -165,12 +171,15 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
 
     git(&["gc", "--aggressive", "--prune=now"]);
     let packed_destination = root.join("packed-checkout");
-    let packed_revision = checkout_source(&source, "HEAD", &packed_destination).unwrap();
+    let packed_directory = create_checkout_directory(&packed_destination);
+    let packed_revision = checkout_source(&source, "HEAD", &packed_directory).unwrap();
     assert_eq!(packed_revision, revision);
     assert_eq!(
         std::fs::read_to_string(packed_destination.join("src/nested/lib.nia")).unwrap(),
         "pub fn main() {}\n"
     );
+    drop(destination_dir);
+    drop(packed_directory);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -302,7 +311,8 @@ fn http_smart_protocol_fetches_a_real_pack_without_system_git() {
     });
 
     let source = format!("http://127.0.0.1:{port}/repository.git");
-    let fetched_revision = checkout_source(&source, "main", &destination).unwrap();
+    let destination_dir = create_checkout_directory(&destination);
+    let fetched_revision = checkout_source(&source, "main", &destination_dir).unwrap();
     assert_eq!(fetched_revision, revision);
     assert_eq!(
         std::fs::read_to_string(destination.join("src/nested/lib.nia")).unwrap(),
@@ -310,6 +320,7 @@ fn http_smart_protocol_fetches_a_real_pack_without_system_git() {
     );
     assert!(!destination.join(".git").exists());
     server.join().unwrap();
+    drop(destination_dir);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -453,7 +464,7 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
         assert!(output.status.success(), "{output:?}");
         directory
     };
-    let fetched_revision = checkout_source_into(&source, "main", &destination_dir).unwrap();
+    let fetched_revision = checkout_source(&source, "main", &destination_dir).unwrap();
     assert_eq!(fetched_revision, revision);
     assert_eq!(
         std::fs::read_to_string(moved_destination.join("src/lib.nia")).unwrap(),
@@ -465,5 +476,6 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
     #[cfg(windows)]
     std::fs::remove_dir(&destination).unwrap();
     server.join().unwrap();
+    drop(destination_dir);
     std::fs::remove_dir_all(root).unwrap();
 }
