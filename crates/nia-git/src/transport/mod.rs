@@ -2,4 +2,5 @@
 //! Git transport implementations.
 
 pub(crate) mod git_tcp;
+pub(crate) mod http;
 pub(crate) mod local;
