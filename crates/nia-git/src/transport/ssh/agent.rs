@@ -6,12 +6,12 @@ use super::wire::MAX_SSH_PACKET_BYTES;
 use super::wire::{SshReader, encode_ssh_string};
 use crate::invalid_packet;
 use std::io::{self, Read, Write};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::time::Duration;
 
 trait SshAgentStream: Read + Write {}
 const MAX_AGENT_IDENTITIES: u32 = 1024;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const AGENT_IO_TIMEOUT: Duration = Duration::from_secs(30);
 impl<T: Read + Write> SshAgentStream for T {}
 
@@ -213,14 +213,138 @@ fn set_agent_io_timeout(
 
 #[cfg(windows)]
 fn connect_agent_stream() -> Option<Box<dyn SshAgentStream>> {
+    use std::os::windows::fs::OpenOptionsExt;
+
     let socket =
         std::env::var_os("SSH_AUTH_SOCK").unwrap_or_else(|| r"\\.\pipe\openssh-ssh-agent".into());
-    std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
+        .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED)
         .open(socket)
-        .ok()
-        .map(|stream| Box::new(stream) as Box<dyn SshAgentStream>)
+        .ok()?;
+    Some(Box::new(WindowsAgentStream {
+        file,
+        timeout: AGENT_IO_TIMEOUT,
+    }))
+}
+
+#[cfg(windows)]
+struct WindowsAgentStream {
+    file: std::fs::File,
+    timeout: Duration,
+}
+
+#[cfg(windows)]
+impl Read for WindowsAgentStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, GetLastError};
+        use windows_sys::Win32::Storage::FileSystem::ReadFile;
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let length = u32::try_from(buffer.len()).unwrap_or(u32::MAX);
+        let handle = self.file.as_raw_handle();
+        let mut overlapped = OVERLAPPED::default();
+        let mut transferred = 0;
+        // SAFETY: the buffer and OVERLAPPED remain live until completion below.
+        let complete = unsafe {
+            ReadFile(
+                handle,
+                buffer.as_mut_ptr(),
+                length,
+                &mut transferred,
+                &mut overlapped,
+            )
+        };
+        if complete != 0 {
+            return Ok(transferred as usize);
+        }
+        // SAFETY: GetLastError reads the calling thread's last Win32 error.
+        let error = unsafe { GetLastError() };
+        if error != ERROR_IO_PENDING {
+            return Err(io::Error::from_raw_os_error(error as i32));
+        }
+        wait_agent_io(handle, &mut overlapped, &mut transferred, self.timeout)?;
+        Ok(transferred as usize)
+    }
+}
+
+#[cfg(windows)]
+impl Write for WindowsAgentStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, GetLastError};
+        use windows_sys::Win32::Storage::FileSystem::WriteFile;
+        use windows_sys::Win32::System::IO::OVERLAPPED;
+
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let length = u32::try_from(buffer.len()).unwrap_or(u32::MAX);
+        let handle = self.file.as_raw_handle();
+        let mut overlapped = OVERLAPPED::default();
+        let mut transferred = 0;
+        // SAFETY: the buffer and OVERLAPPED remain live until completion below.
+        let complete = unsafe {
+            WriteFile(
+                handle,
+                buffer.as_ptr(),
+                length,
+                &mut transferred,
+                &mut overlapped,
+            )
+        };
+        if complete != 0 {
+            return Ok(transferred as usize);
+        }
+        // SAFETY: GetLastError reads the calling thread's last Win32 error.
+        let error = unsafe { GetLastError() };
+        if error != ERROR_IO_PENDING {
+            return Err(io::Error::from_raw_os_error(error as i32));
+        }
+        wait_agent_io(handle, &mut overlapped, &mut transferred, self.timeout)?;
+        Ok(transferred as usize)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn wait_agent_io(
+    handle: std::os::windows::io::RawHandle,
+    overlapped: &mut windows_sys::Win32::System::IO::OVERLAPPED,
+    transferred: &mut u32,
+    timeout: Duration,
+) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::{ERROR_TIMEOUT, GetLastError};
+    use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, GetOverlappedResultEx};
+
+    let timeout_ms = u32::try_from(timeout.as_millis()).expect("agent timeout fits u32");
+    // SAFETY: this is the outstanding operation on an overlapped pipe handle.
+    if unsafe { GetOverlappedResultEx(handle, overlapped, transferred, timeout_ms, 0) } != 0 {
+        return Ok(());
+    }
+    // SAFETY: GetLastError reads the calling thread's last Win32 error.
+    let error = unsafe { GetLastError() };
+    if error == ERROR_TIMEOUT {
+        // SAFETY: cancel this operation, then wait for cancellation to complete
+        // before the caller's buffer and OVERLAPPED storage leave scope.
+        unsafe {
+            CancelIoEx(handle, overlapped);
+            GetOverlappedResult(handle, overlapped, transferred, 1);
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "SSH agent I/O timed out",
+        ));
+    }
+    Err(io::Error::from_raw_os_error(error as i32))
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -409,6 +533,71 @@ mod tests {
             error.kind(),
             io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_agent_pipe_times_out_when_the_agent_does_not_reply() {
+        use std::{
+            os::windows::fs::OpenOptionsExt,
+            sync::atomic::{AtomicU64, Ordering},
+        };
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE},
+            Storage::FileSystem::{FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX},
+            System::Pipes::{
+                ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_WAIT,
+            },
+        };
+
+        static NEXT_PIPE: AtomicU64 = AtomicU64::new(0);
+        let name = format!(
+            r"\\.\pipe\nia-agent-timeout-{}-{}",
+            std::process::id(),
+            NEXT_PIPE.fetch_add(1, Ordering::Relaxed)
+        );
+        let wide_name = name.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+        // SAFETY: wide_name is nul-terminated and remains live for the call.
+        let server = unsafe {
+            CreateNamedPipeW(
+                wide_name.as_ptr(),
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                1,
+                4096,
+                4096,
+                0,
+                std::ptr::null(),
+            )
+        };
+        assert_ne!(server, INVALID_HANDLE_VALUE);
+        struct PipeHandle(windows_sys::Win32::Foundation::HANDLE);
+        impl Drop for PipeHandle {
+            fn drop(&mut self) {
+                // SAFETY: this guard uniquely owns the pipe handle.
+                unsafe { CloseHandle(self.0) };
+            }
+        }
+        let _server = PipeHandle(server);
+
+        let mut client = WindowsAgentStream {
+            file: std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(FILE_FLAG_OVERLAPPED)
+                .open(&name)
+                .unwrap(),
+            timeout: Duration::from_millis(25),
+        };
+        // SAFETY: server is a live, synchronous named-pipe instance.
+        let connected = unsafe { ConnectNamedPipe(server, std::ptr::null_mut()) };
+        if connected == 0 {
+            // SAFETY: GetLastError reads the calling thread's last Win32 error.
+            assert_eq!(unsafe { GetLastError() }, ERROR_PIPE_CONNECTED);
+        }
+
+        let error = agent_request(&mut client, &[11]).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
     }
 }
 
