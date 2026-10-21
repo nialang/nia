@@ -2067,6 +2067,66 @@ impl PackageGraph {
         )
     }
 
+    /// Resolves one graph containing every selected workspace member.
+    ///
+    /// This intersects registry constraints across member roots before a
+    /// caller starts work for any individual member.
+    pub fn resolve_members_with_policy(
+        members: &[WorkspaceMember],
+        options: PackageGraphOptions,
+        policy: LockPolicy,
+    ) -> io::Result<Self> {
+        let Some(first) = members.first() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "package graph requires at least one workspace member",
+            ));
+        };
+        let roots = members
+            .iter()
+            .map(|member| (member.root.clone(), member.name.clone()))
+            .collect();
+        let state_root = workspace_state_root(&first.root)?;
+        for member in members.iter().skip(1) {
+            if workspace_state_root(&member.root)? != state_root {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "workspace members do not share a package state root",
+                ));
+            }
+        }
+        let declared_members = WorkspaceManifest::read(&state_root)?.member_packages()?;
+        for member in members {
+            let root = member.root.canonicalize()?;
+            if !declared_members
+                .iter()
+                .any(|declared| declared.name == member.name && declared.root == root)
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "package `{}` is not a member of this workspace",
+                        member.name
+                    ),
+                ));
+            }
+        }
+        let registries = read_registry_endpoints(&first.root)?;
+        Self::resolve_roots_with_registry_overrides(
+            roots,
+            options,
+            policy,
+            RegistryResolution {
+                registries,
+                overrides: BTreeMap::new(),
+                refresh_names: None,
+                fetch: None,
+                transaction_lock: None,
+                attempt: 0,
+            },
+        )
+    }
+
     fn resolve_for_update(
         roots: Vec<(PathBuf, String)>,
         options: PackageGraphOptions,
@@ -5893,6 +5953,57 @@ mod tests {
         fs::write(cached.join("nia.toml"), "[package]\nname = \"cached\"\n").unwrap();
         assert!(PackageManifest::read(&cached).is_ok());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_member_graph_resolves_all_declared_roots_together() {
+        let root = lock_test_root("workspace-member-graph");
+        for name in ["left", "right"] {
+            let member = root.join(name);
+            fs::create_dir_all(&member).unwrap();
+            fs::write(
+                member.join("nia.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n"),
+            )
+            .unwrap();
+        }
+        fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"left\", \"right\"]\n",
+        )
+        .unwrap();
+        let members = WorkspaceManifest::read(&root)
+            .unwrap()
+            .member_packages()
+            .unwrap();
+
+        let graph = PackageGraph::resolve_members_with_policy(
+            &members,
+            PackageGraphOptions::default(),
+            LockPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            graph
+                .nodes
+                .iter()
+                .map(|node| (node.root.as_str(), node.manifest.package.name.as_str()))
+                .collect::<Vec<_>>(),
+            [("left", "left"), ("right", "right")]
+        );
+        let outsider = WorkspaceMember {
+            name: "outsider".into(),
+            root: root.clone(),
+        };
+        let error = PackageGraph::resolve_members_with_policy(
+            &[outsider],
+            PackageGraphOptions::default(),
+            LockPolicy::default(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("not a member of this workspace"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

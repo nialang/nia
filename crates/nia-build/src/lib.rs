@@ -877,6 +877,19 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     let Some(selected) = select_workspace_members(&request)? else {
         return run_build_single(request);
     };
+    if selected.len() > 1 {
+        nia_package_metadata::PackageGraph::resolve_members_with_policy(
+            &selected,
+            nia_package_metadata::PackageGraphOptions {
+                include_development: request.test_mode,
+            },
+            request.lock_policy,
+        )
+        .map_err(|error| BuildError::ResolvePackageGraph {
+            path: selected[0].root.clone(),
+            error,
+        })?;
+    }
     let mut first_error = None;
     for member in selected {
         let mut member_request = request.clone();
@@ -4311,6 +4324,78 @@ mod tests {
         )
         .expect_err("package selector needs workspace");
         assert!(error.to_string().contains("require a workspace manifest"));
+    }
+
+    #[test]
+    fn workspace_build_checks_registry_constraints_before_building_members() {
+        let root = temp_root("workspace_registry_constraints");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"left\", \"right\"]\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        for (name, requirement) in [("left", "^1.0"), ("right", "^2.0")] {
+            let member = root.join(name);
+            std::fs::create_dir_all(&member).unwrap();
+            std::fs::write(
+                member.join("nia.toml"),
+                format!(
+                    "[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n[dependencies]\njson = {{ registry = \"nia\", package = \"acme/json\", version = \"{requirement}\" }}\n"
+                ),
+            )
+            .unwrap();
+            std::fs::write(member.join("build.nia"), "").unwrap();
+        }
+
+        let cache = nia_package_metadata::RegistryCache::new(root.join(".nia/registry"));
+        let mut index = String::from("schema_version = 1\n");
+        for version in ["1.5.0", "2.1.0"] {
+            let manifest = format!(
+                "[package]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\n"
+            );
+            let entries = [
+                ("nia.toml", manifest.as_bytes()),
+                ("src/lib.nia", b"pub fn value() -> i32 = 1;".as_slice()),
+            ];
+            let mut archive = Vec::new();
+            archive.extend_from_slice(b"NIAPKG\0\0");
+            archive.extend_from_slice(&1u32.to_le_bytes());
+            archive.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+            for (path, contents) in entries {
+                archive.push(0);
+                archive.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                archive.extend_from_slice(path.as_bytes());
+                archive.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+                archive.extend_from_slice(contents);
+            }
+            let digest_hash = blake3::hash(&archive);
+            let digest = *digest_hash.as_bytes();
+            cache.write_archive(&digest, &archive).unwrap();
+            index.push_str(&format!(
+                "[[packages]]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\narchive_url = \"https://cdn.example.test/json-{version}.nia\"\narchive_digest = \"blake3:{}\"\n",
+                digest_hash.to_hex()
+            ));
+        }
+        cache.write_index("nia", index.as_bytes()).unwrap();
+
+        let error = run_build(
+            BuildRequest::new(test_toolchain_layout())
+                .with_root(&root)
+                .with_workspace_all(true)
+                .with_lock_policy(LockPolicy {
+                    locked: false,
+                    offline: true,
+                }),
+        )
+        .unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("no single version"), "{message}");
+        assert!(message.contains("left@1.0.0 -> json"), "{message}");
+        assert!(message.contains("right@1.0.0 -> json"), "{message}");
+        assert!(!root.join("left/.nia-build").exists());
+        assert!(!root.join("right/.nia-build").exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
