@@ -1,148 +1,45 @@
 # Package Versioning and Registry Design
 
-This document proposes the next package-management design stage. It is a
-design boundary, not an implementation specification: resolver and manifest
-changes should be split into reviewed tasks after the policy decisions below
-are accepted.
+This is the implementation contract for package identity, dependency resolution, and registry distribution. Nia is pre-release software: the new rules apply uniformly and obsolete manifest or lockfile formats are rejected.
 
-## Current behavior
+## Package versions
 
-`nia.toml` already requires a package version string and `PackageId` includes
-that string in compiler identity. The version is currently validated as a
-bounded, non-empty string; it is not parsed as SemVer and dependencies cannot
-state version requirements.
+Every package identity uses a strict SemVer 2.0.0 version, regardless of whether its source is a workspace member, path, Git checkout, or registry archive. Parse versions into a SemVer value at package metadata boundaries; do not retain an unchecked string as the identity. Prerelease and build metadata follow SemVer. The compiler's own `0.3.0-dev` version and the standard-library suffix are valid SemVer values.
 
-Dependencies currently select exactly one source: a relative path or a Git
-URL. A Git dependency may select one `rev`, `tag`, or `branch`, or follow
-`HEAD`. `nia.lock` records the dependency alias, canonical source, selector,
-resolved commit, and content hash. The cache is keyed by the content hash.
-This makes a Git checkout reproducible after resolution, but provides no
-version-based discovery or compatibility policy.
+Package release versions and source selectors are separate concepts. A package version identifies the package contents' declared release. Git `rev`, `tag`, and `branch` select source revisions and never substitute for, or relax, the package version. All path and Git manifests must declare valid SemVer too.
 
-The graph currently resolves each declaration under a dependency-qualified
-logical root. The compiler package identity includes namespace, package name,
-and version, while build module roots are exposed under the dependency alias.
-Two package versions could therefore have distinct compiler identities, but
-the build layer can reject colliding module roots. The resolver has no global
-version selection or conflict explanation today.
+## Dependency declarations and resolution
 
-## Version requirements
-
-Use SemVer 2.0.0 for published package versions and registry requirements.
-Require normalized `major.minor.patch` versions for releases, permit prerelease
-and build metadata according to SemVer, and reject malformed or abbreviated
-versions in package manifests intended for publication. Existing local and
-Git packages should retain their current free-form `package.version` behavior
-initially, so this change does not silently break existing manifests. A later
-manifest edition can opt into strict package-version validation if uniform
-validation is required.
-
-Registry dependency declarations should use an explicit requirement field:
+Dependencies select exactly one explicit source: `path`, `git`, or `registry`. Registry dependencies require an explicit SemVer requirement:
 
 ```toml
 [dependencies]
 json = { registry = "nia", version = "^1.4" }
 ```
 
-Use standard SemVer requirement syntax and make the default compatibility
-operator explicit in documentation (`^` is not implied when omitted). Require
-a requirement for registry sources. Keep Git `rev`, `tag`, and `branch`
-selectors as source-selection controls; do not reinterpret them as SemVer.
-Path dependencies remain local overrides and do not enter version solving.
+Use standard SemVer requirement syntax; do not infer a compatibility operator when it is omitted. Path dependencies remain direct local sources. Git source selectors retain their current semantics. Registry dependencies select immutable published package versions. No source fallback or implicit override is permitted.
 
-## Version unification
+The initial resolver selects one version per `(namespace, name)` across the complete selected graph, including build, runtime, and selected development scopes. Intersect all requirements and select the highest stable version satisfying them. Prereleases are eligible only when a requirement explicitly admits that prerelease. On conflict, report each requiring package, its constraint, and its dependency chain. Reject aliases duplicated within a manifest; aliases may differ from package names. Multiple versions of the same identity are unsupported.
 
-For the first registry resolver, select one version of a package identity
-(`namespace`, `name`) across the complete selected graph, including build,
-runtime, and selected development scopes. Intersect all requirements and choose
-the highest stable version satisfying them; use prereleases only when a
-requirement explicitly admits that prerelease. If the intersection is empty,
-report every requiring package and its constraint. This gives deterministic
-resolution and prevents the current module-root layer from receiving two
-incompatible packages under one dependency name.
+## Registry
 
-Keep dependency aliases as the names visible to Nia source code and build
-scripts. Allow an alias to differ from the package's published name, but reject
-two declarations with the same alias in one package manifest. Do not support
-multiple versions of one package identity in the initial registry release.
-Supporting side-by-side versions later would need explicit aliasing and module
-root rules through the compiler and build-script interfaces, not only a
-resolver change.
+Support a configured default registry named `nia` alongside path and Git sources. A versioned index maps `(namespace, package, version)` to an immutable archive URL and cryptographic digest. Require HTTPS for the public registry. The index and archive format are versioned and validated strictly; unknown schema versions and malformed records fail closed. The registry distributes packages but does not define package semantics. Publishing, namespace ownership, account management, private registry authentication, and signing are separate work.
 
-## Registry and Git relationship
+Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
 
-Add registry sources alongside, not in place of, Git and path sources. Registry
-packages are the versioned, discoverable path for ordinary releases. Git
-remains useful for unreleased code, forks, and pinned source dependencies;
-path remains the local development override. No implicit fallback from a
-missing registry package to Git is allowed.
+## Lockfile
 
-Start with one configured default registry named `nia` and a versioned index
-that maps `(namespace, package, version)` to an immutable archive URL and
-cryptographic digest. The registry service is a distribution and discovery
-layer; it does not own package semantics. Keep the index format and transport
-replaceable so private registries can be added without changing dependency
-identity. Defer publishing commands, namespace ownership policy, and registry
-accounts to separate designs.
+`nia.lock` is authoritative for every selected source. Registry entries record registry identity, package identity, selected SemVer version, archive digest, and source fingerprint. They cannot depend on mutable index responses after locking. `--locked` resolves only from lock entries and cached artifacts and fails before network access if required data is unavailable. `--offline` uses cached registry metadata and artifacts only. `nia update` refreshes registry selections within requirements and Git selectors as today; unchanged resolution leaves lockfile bytes untouched.
 
-The registry archive digest is checked before extraction. Package source
-identity is then checked using the existing manifest and source-selection
-rules. Registry downloads use the existing cache area but have a distinct
-source identity so equal bytes from unrelated registries cannot alias unless
-the lock explicitly records them as the same source.
+Introduce the new lock schema with registry support and reject every older schema. Do not dual-read, auto-migrate, or rewrite legacy lockfiles. Since Nia is still in development, users regenerate a lockfile using the new resolver.
 
-## Lockfile behavior
+## Implementation order
 
-Keep `nia.lock` as the authoritative selected graph for all source types.
-Registry lock entries should record registry identity, namespace, package
-name, selected SemVer version, archive digest, and source fingerprint. They
-must not depend on a mutable index response after locking. `--locked` must
-resolve entirely from lock entries and cached artifacts, failing before a
-network request if either is unavailable. `--offline` may use cached registry
-metadata and artifacts only.
+1. Enforce strict SemVer package identity for every source and provide parsed version/requirement value types.
+2. Define registry dependency manifest types and canonical graph fingerprints.
+3. Implement deterministic single-version solving and dependency-chain conflict diagnostics.
+4. Specify and validate the versioned registry index and archive format.
+5. Implement registry fetching, digest verification, atomic cache publication, the new lock schema, and `--locked`/`--offline` behavior.
+6. Complete update behavior, documentation, CLI reporting, and end-to-end tests.
 
-`nia update` should refresh registry selections within their declared
-requirements and update Git selectors as it does now. An unchanged resolution
-must leave the lockfile bytes untouched. A lockfile schema bump should be
-introduced only with registry entries; existing Git-only lockfiles should
-remain readable and should not need rewriting just because SemVer support is
-added.
-
-## Security and trust boundaries
-
-Require HTTPS for the default public registry. Verify the index and archive
-digests before parsing or extraction, bound metadata and archive sizes, reject
-path traversal and symlinks that escape the package root, and publish cache
-entries atomically only after validation. Registry credentials must use a
-separate host-scoped credential lookup and must never enter manifests,
-lockfiles, cache keys, or diagnostics. Private registry authentication and
-signing policy need a focused follow-up before implementation.
-
-## Proposed implementation order
-
-1. Accept the version and unification policy, especially the no-side-by-side
-   rule for the first release.
-2. Add strict SemVer value and requirement parsing with isolated unit tests.
-3. Extend manifest types and canonical graph fingerprints for registry
-   declarations while leaving Git and path semantics unchanged.
-4. Implement deterministic single-version solving with dependency-chain
-   conflict diagnostics and adversarial graph tests.
-5. Design and validate the registry index and archive format before wiring
-   network access.
-6. Add registry fetching, digest verification, atomic cache publication,
-   lockfile entries, and `--locked`/`--offline` behavior.
-7. Add update behavior, documentation, CLI reporting, and end-to-end tests.
-
-## Decisions to confirm
-
-- Use SemVer 2.0.0 requirements for registry dependencies while preserving
-  current free-form versions for existing path and Git packages during the
-  transition.
-- Unify one selected version per `(namespace, name)` across the selected graph
-  in the first registry release; reject incompatible constraints with the
-  full dependency chain.
-- Add a default `nia` registry beside existing Git and path sources, with
-  immutable archives and digest-checked index records.
-- Keep the registry transport and index replaceable, and defer publishing,
-  namespace governance, private registry authentication, and signing policy
-  to follow-up designs.
+The manifest and lockfile rules have no compatibility mode. Changes needed to make the package model coherent should be made directly while the project is unreleased.
