@@ -1290,6 +1290,7 @@ dependencies = [
  "nia-git",
  "nia-ids",
  "nia-query",
+ "semver",
  "serde",
  "toml",
 ]
