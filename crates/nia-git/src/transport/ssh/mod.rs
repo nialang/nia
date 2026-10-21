@@ -185,7 +185,7 @@ fn authenticate_publickey(
     let request = build_publickey_auth_request(username, &keys.session_id, signer)?;
     write_encrypted_ssh_packet(stream, &mut keys.outbound, &request)?;
     match read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)? {
-        payload if payload.first() == Some(&52) => Ok(()),
+        payload if payload.as_slice() == [52] => Ok(()),
         payload if payload.first() == Some(&51) => {
             let mut reader = SshReader::new(&payload[1..]);
             let methods = String::from_utf8_lossy(reader.string()?).into_owned();

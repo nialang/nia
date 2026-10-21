@@ -28,7 +28,12 @@ impl std::fmt::Debug for SshAes128CtrDirection {
 }
 
 impl SshAes128CtrDirection {
-    pub(super) fn new(encryption_key: &[u8], iv: &[u8], mac_key: &[u8]) -> io::Result<Self> {
+    pub(super) fn new(
+        encryption_key: &[u8],
+        iv: &[u8],
+        mac_key: &[u8],
+        sequence: u32,
+    ) -> io::Result<Self> {
         let key: &[u8; 16] = encryption_key
             .try_into()
             .map_err(|_| invalid_packet("SSH AES-128 key has invalid length"))?;
@@ -41,7 +46,7 @@ impl SshAes128CtrDirection {
         Ok(Self {
             cipher: Aes128Ctr::new(key.into(), iv.into()),
             mac_key: hmac::Key::new(hmac::HMAC_SHA256, mac_key),
-            sequence: 0,
+            sequence,
         })
     }
 
@@ -141,8 +146,8 @@ mod tests {
         let key = [1u8; 16];
         let iv = [2u8; 16];
         let mac_key = [3u8; 32];
-        let mut sender = SshAes128CtrDirection::new(&key, &iv, &mac_key).unwrap();
-        let mut receiver = SshAes128CtrDirection::new(&key, &iv, &mac_key).unwrap();
+        let mut sender = SshAes128CtrDirection::new(&key, &iv, &mac_key, 0).unwrap();
+        let mut receiver = SshAes128CtrDirection::new(&key, &iv, &mac_key, 0).unwrap();
         let first = sender.encode(&[21, 1, 2, 3, 4], &[5; 6]).unwrap();
         let second = sender.encode(&[21, 9, 8, 7], &[6; 7]).unwrap();
         let mut wire = first;
@@ -158,12 +163,25 @@ mod tests {
         assert_eq!(sender.sequence(), 2);
         assert_eq!(receiver.sequence(), 2);
 
-        let mut fresh_sender = SshAes128CtrDirection::new(&key, &iv, &mac_key).unwrap();
+        let mut fresh_sender = SshAes128CtrDirection::new(&key, &iv, &mac_key, 0).unwrap();
         let mut corrupted = fresh_sender.encode(&[21, 0], &[7; 9]).unwrap();
         *corrupted.last_mut().unwrap() ^= 1;
-        let mut fresh_receiver = SshAes128CtrDirection::new(&key, &iv, &mac_key).unwrap();
+        let mut fresh_receiver = SshAes128CtrDirection::new(&key, &iv, &mac_key, 0).unwrap();
         assert!(fresh_receiver.read_packet(&corrupted[..]).is_err());
         assert_eq!(fresh_receiver.sequence(), 0);
+    }
+
+    #[test]
+    fn ssh_packet_mac_starts_from_negotiated_plaintext_count() {
+        let key = [9u8; 16];
+        let iv = [8u8; 16];
+        let mac_key = [7u8; 32];
+        let mut sender = SshAes128CtrDirection::new(&key, &iv, &mac_key, 3).unwrap();
+        let packet = sender.encode(&[21], &[4; 10]).unwrap();
+        let mut matching = SshAes128CtrDirection::new(&key, &iv, &mac_key, 3).unwrap();
+        assert_eq!(matching.read_packet(&packet[..]).unwrap().payload, [21]);
+        let mut reset = SshAes128CtrDirection::new(&key, &iv, &mac_key, 0).unwrap();
+        assert!(reset.read_packet(&packet[..]).is_err());
     }
 }
 
@@ -175,13 +193,13 @@ mod properties {
     proptest! {
         #[test]
         fn arbitrary_encrypted_packets_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
-            let mut receiver = SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32]).unwrap();
+            let mut receiver = SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32], 0).unwrap();
             let _ = receiver.read_packet(bytes.as_slice());
         }
 
         #[test]
         fn encrypted_packets_round_trip_and_detect_tampering(payload in prop::collection::vec(any::<u8>(), 0..4096), position in any::<usize>()) {
-            let new = || SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32]).unwrap();
+            let new = || SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32], 0).unwrap();
             let mut sender = new();
             let mut wire = Vec::new();
             write_encrypted_ssh_packet(&mut wire, &mut sender, &payload).unwrap();

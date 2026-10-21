@@ -54,7 +54,11 @@ impl<'a> SshReader<'a> {
     }
 
     pub(super) fn boolean(&mut self) -> io::Result<bool> {
-        Ok(self.take(1)?[0] != 0)
+        match self.take(1)?[0] {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(invalid_packet("SSH boolean is not zero or one")),
+        }
     }
 
     pub(super) fn string(&mut self) -> io::Result<&'a [u8]> {
@@ -288,6 +292,19 @@ mod tests {
         let mut malformed = encoded;
         malformed[4] = 3;
         assert!(read_ssh_packet(&malformed[..], 8).is_err());
+    }
+
+    #[test]
+    fn ssh_boolean_accepts_only_canonical_wire_values() {
+        for (wire, expected) in [(0, false), (1, true)] {
+            assert_eq!(SshReader::new(&[wire]).boolean().unwrap(), expected);
+        }
+        for wire in [2, 0x7f, 0xff] {
+            assert_eq!(
+                SshReader::new(&[wire]).boolean().unwrap_err().kind(),
+                io::ErrorKind::InvalidData
+            );
+        }
     }
 }
 

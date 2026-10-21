@@ -14,9 +14,71 @@ use std::io::{self, Read, Write};
 use zeroize::Zeroizing;
 
 const MAX_DERIVED_KEY_BYTES: usize = 1024 * 1024;
+const MAX_KEX_MESSAGES: u32 = 1024;
+const MAX_KEX_BYTES: usize = 1024 * 1024;
+
+struct PlainKeyExchange<'a, S: Read + Write> {
+    stream: &'a mut S,
+    sent: u32,
+    received: u32,
+    received_bytes: usize,
+}
+
+impl<S: Read + Write> PlainKeyExchange<'_, S> {
+    fn write(&mut self, payload: &[u8]) -> io::Result<()> {
+        write_plain_ssh_packet(self.stream, payload)?;
+        self.sent += 1;
+        Ok(())
+    }
+
+    fn read(&mut self) -> io::Result<Vec<u8>> {
+        if self.received == MAX_KEX_MESSAGES {
+            return Err(invalid_packet("SSH key exchange exceeds message limit"));
+        }
+        let packet = read_ssh_packet(&mut *self.stream, 8)?;
+        self.received += 1;
+        self.received_bytes += packet.payload.len();
+        if self.received_bytes > MAX_KEX_BYTES {
+            return Err(invalid_packet("SSH key exchange exceeds size limit"));
+        }
+        Ok(packet.payload)
+    }
+
+    fn read_expected(&mut self, expected: u8) -> io::Result<Vec<u8>> {
+        loop {
+            let payload = self.read()?;
+            match payload.first().copied() {
+                Some(message) if message == expected => return Ok(payload),
+                Some(2 | 4) => {
+                    let mut reader = SshReader::new(&payload[1..]);
+                    if payload[0] == 4 {
+                        reader.boolean()?;
+                    }
+                    reader.string()?;
+                    if payload[0] == 4 {
+                        reader.string()?;
+                    }
+                    reader.finish()?;
+                }
+                Some(1) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::ConnectionAborted,
+                        "SSH server disconnected during key exchange",
+                    ));
+                }
+                _ => {
+                    return Err(invalid_packet(
+                        "SSH server sent an unexpected key exchange message",
+                    ));
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SshKexInit {
+    pub(super) first_kex_packet_follows: bool,
     pub(super) kex_algorithms: Vec<String>,
     pub(super) host_key_algorithms: Vec<String>,
     pub(super) encryption_client_to_server: Vec<String>,
@@ -42,10 +104,13 @@ pub(super) fn parse_ssh_kexinit(payload: &[u8]) -> io::Result<SshKexInit> {
     let compression_server_to_client = reader.name_list()?;
     let _languages_client_to_server = reader.name_list()?;
     let _languages_server_to_client = reader.name_list()?;
-    let _first_kex_packet_follows = reader.boolean()?;
-    let _reserved = reader.u32()?;
+    let first_kex_packet_follows = reader.boolean()?;
+    if reader.u32()? != 0 {
+        return Err(invalid_packet("SSH KEXINIT reserved field is not zero"));
+    }
     reader.finish()?;
     Ok(SshKexInit {
+        first_kex_packet_follows,
         kex_algorithms,
         host_key_algorithms,
         encryption_client_to_server,
@@ -156,14 +221,20 @@ pub(super) fn perform_ssh_key_exchange(
     stream.flush()?;
     let client_identification = b"SSH-2.0-NiaGit_0.3";
     let server_identification = read_ssh_identification(&mut *stream)?;
+    let mut exchange = PlainKeyExchange {
+        stream,
+        sent: 0,
+        received: 0,
+        received_bytes: 0,
+    };
 
     let mut cookie = [0u8; 16];
     rand::SystemRandom::new()
         .fill(&mut cookie)
         .map_err(|_| io::Error::other("SSH KEXINIT cookie generation failed"))?;
     let client_kexinit = build_client_kexinit(&cookie);
-    write_plain_ssh_packet(&mut *stream, &client_kexinit)?;
-    let server_kexinit = read_expected_ssh_message(&mut *stream, 20)?;
+    exchange.write(&client_kexinit)?;
+    let server_kexinit = exchange.read_expected(20)?;
     let client_algorithms = parse_ssh_kexinit(&client_kexinit)?;
     let server_algorithms = parse_ssh_kexinit(&server_kexinit)?;
     let negotiated = negotiate_ssh_algorithms(&client_algorithms, &server_algorithms)?;
@@ -184,8 +255,14 @@ pub(super) fn perform_ssh_key_exchange(
 
     let client_kex = Curve25519ClientKex::generate()?;
     let client_public = *client_kex.client_public();
-    write_plain_ssh_packet(&mut *stream, &build_client_kex_ecdh_init(&client_public))?;
-    let reply = parse_ssh_kex_ecdh_reply(&read_expected_ssh_message(&mut *stream, 31)?)?;
+    exchange.write(&build_client_kex_ecdh_init(&client_public))?;
+    if server_algorithms.first_kex_packet_follows
+        && (server_algorithms.kex_algorithms.first() != Some(&negotiated.kex)
+            || server_algorithms.host_key_algorithms.first() != Some(&negotiated.host_key))
+    {
+        exchange.read()?;
+    }
+    let reply = parse_ssh_kex_ecdh_reply(&exchange.read_expected(31)?)?;
     let shared_secret = Zeroizing::new(client_kex.complete(&reply.server_public)?);
     let exchange_hash = curve25519_exchange_hash(Curve25519ExchangeHashInput {
         client_identification,
@@ -200,8 +277,10 @@ pub(super) fn perform_ssh_key_exchange(
     verify_ssh_ed25519_host_key(&reply.server_host_key, &reply.signature, &exchange_hash)?;
     known_hosts.verify(&url.host, url.port, &reply.server_host_key)?;
 
-    write_plain_ssh_packet(&mut *stream, &[21])?;
-    let _ = read_expected_ssh_message(&mut *stream, 21)?;
+    exchange.write(&[21])?;
+    if exchange.read_expected(21)? != [21] {
+        return Err(invalid_packet("SSH NEWKEYS has trailing bytes"));
+    }
 
     let session_id = exchange_hash;
     let iv_client_to_server = Zeroizing::new(derive_ssh_key(
@@ -251,35 +330,16 @@ pub(super) fn perform_ssh_key_exchange(
             &key_client_to_server,
             &iv_client_to_server,
             &mac_client_to_server,
+            exchange.sent,
         )?,
         inbound: SshAes128CtrDirection::new(
             &key_server_to_client,
             &iv_server_to_client,
             &mac_server_to_client,
+            exchange.received,
         )?,
         session_id,
     })
-}
-
-fn read_expected_ssh_message(stream: &mut impl Read, expected: u8) -> io::Result<Vec<u8>> {
-    loop {
-        let packet = read_ssh_packet(&mut *stream, 8)?;
-        match packet.payload.first().copied() {
-            Some(message) if message == expected => return Ok(packet.payload),
-            Some(2 | 4) => continue,
-            Some(1) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "SSH server disconnected during key exchange",
-                ));
-            }
-            _ => {
-                return Err(invalid_packet(
-                    "SSH server sent an unexpected key exchange message",
-                ));
-            }
-        }
-    }
 }
 
 /// Client side `curve25519-sha256` exchange state.
@@ -465,6 +525,104 @@ pub(super) fn derive_ssh_key(
 mod tests {
     use super::*;
     use ring::signature::KeyPair;
+
+    struct MemoryStream {
+        input: io::Cursor<Vec<u8>>,
+        output: Vec<u8>,
+    }
+
+    impl Read for MemoryStream {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            self.input.read(output)
+        }
+    }
+
+    impl Write for MemoryStream {
+        fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+            self.output.extend_from_slice(input);
+            Ok(input.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn plaintext_stream(payloads: &[Vec<u8>]) -> MemoryStream {
+        let mut input = Vec::new();
+        for payload in payloads {
+            write_plain_ssh_packet(&mut input, payload).unwrap();
+        }
+        MemoryStream {
+            input: io::Cursor::new(input),
+            output: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn plaintext_key_exchange_counts_messages_and_validates_ignored_packets() {
+        let mut ignore = vec![2];
+        encode_ssh_string(b"notice", &mut ignore).unwrap();
+        let mut debug = vec![4, 0];
+        encode_ssh_string(b"diagnostic", &mut debug).unwrap();
+        encode_ssh_string(b"en", &mut debug).unwrap();
+        let mut stream = plaintext_stream(&[ignore, debug, vec![20, 1]]);
+        let mut exchange = PlainKeyExchange {
+            stream: &mut stream,
+            sent: 0,
+            received: 0,
+            received_bytes: 0,
+        };
+        assert_eq!(exchange.read_expected(20).unwrap(), [20, 1]);
+        assert_eq!(exchange.received, 3);
+        assert!(exchange.received_bytes < MAX_KEX_BYTES);
+
+        let mut malformed = plaintext_stream(&[vec![2, 0]]);
+        let mut exchange = PlainKeyExchange {
+            stream: &mut malformed,
+            sent: 0,
+            received: 0,
+            received_bytes: 0,
+        };
+        assert_eq!(
+            exchange.read_expected(20).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+
+        let mut packets = vec![vec![2]; MAX_KEX_MESSAGES as usize];
+        for packet in &mut packets {
+            encode_ssh_string(b"", packet).unwrap();
+        }
+        packets.push(vec![20]);
+        let mut too_many = plaintext_stream(&packets);
+        let mut exchange = PlainKeyExchange {
+            stream: &mut too_many,
+            sent: 0,
+            received: 0,
+            received_bytes: 0,
+        };
+        assert_eq!(
+            exchange.read_expected(20).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+
+        let mut large_packets = Vec::new();
+        for _ in 0..5 {
+            let mut packet = vec![2];
+            encode_ssh_string(&vec![0; 220_000], &mut packet).unwrap();
+            large_packets.push(packet);
+        }
+        let mut oversized = plaintext_stream(&large_packets);
+        let mut exchange = PlainKeyExchange {
+            stream: &mut oversized,
+            sent: 0,
+            received: 0,
+            received_bytes: 0,
+        };
+        assert_eq!(
+            exchange.read_expected(20).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
     #[test]
     fn ssh_kexinit_decodes_name_lists_and_negotiates_client_preference() {
         fn put_string(value: &[u8], output: &mut Vec<u8>) {
@@ -504,6 +662,7 @@ mod tests {
 
         let generated = build_client_kexinit(&[42; 16]);
         let parsed = parse_ssh_kexinit(&generated).unwrap();
+        assert!(!parsed.first_kex_packet_follows);
         assert_eq!(parsed.kex_algorithms, ["curve25519-sha256"]);
         assert_eq!(parsed.host_key_algorithms, ["ssh-ed25519"]);
         assert_eq!(parsed.encryption_client_to_server, ["aes128-ctr"]);
@@ -514,6 +673,21 @@ mod tests {
         assert_eq!(init[0], 30);
         assert_eq!(&init[1..5], &32u32.to_be_bytes());
         assert_eq!(&init[5..], &[17; 32]);
+
+        let mut optimistic = generated.clone();
+        let boolean_offset = optimistic.len() - 5;
+        optimistic[boolean_offset] = 1;
+        assert!(
+            parse_ssh_kexinit(&optimistic)
+                .unwrap()
+                .first_kex_packet_follows
+        );
+        let mut reserved = generated;
+        *reserved.last_mut().unwrap() = 1;
+        assert_eq!(
+            parse_ssh_kexinit(&reserved).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]

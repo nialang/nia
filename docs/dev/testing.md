@@ -100,6 +100,7 @@ their original error kinds. The current limits are:
 | SSH agent identities | 1,024 |
 | SSH channel incoming message payloads, including stderr and control messages | 128 MiB per session |
 | SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
+| SSH plaintext key exchange | 1,024 messages / 1 MiB |
 | Checkout directory depth / entries | 64 / 1,000,000 |
 | Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |
 
@@ -135,6 +136,13 @@ channel validates recipients, packet and window limits, and exit requests in
 both normal reads and waits for send-window space. Unknown channel requests
 that require a reply receive CHANNEL_FAILURE. Incoming stderr and ignored
 control messages count toward the session traffic budget.
+SSH transport MAC sequence numbers continue from the plaintext handshake
+through NEWKEYS because strict key exchange is not negotiated. The handshake
+validates ignored/debug messages, bounds their count and aggregate size, and
+discards one guessed server key-exchange packet when
+`first_kex_packet_follows` is incorrect. Noncanonical booleans, a nonzero
+KEXINIT reserved field, and trailing bytes in authentication success are
+rejected.
 
 ## Where Tests Live
 
