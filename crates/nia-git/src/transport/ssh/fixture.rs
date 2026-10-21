@@ -24,6 +24,14 @@ pub(crate) fn with_checkout_fixture(
     mutator: impl FnOnce(&Path),
     callback: impl FnOnce(&Path, &str, &Path, &Path, &str),
 ) {
+    with_checkout_fixture_status(0, mutator, callback);
+}
+
+pub(super) fn with_checkout_fixture_status(
+    exit_status: u32,
+    mutator: impl FnOnce(&Path),
+    callback: impl FnOnce(&Path, &str, &Path, &Path, &str),
+) {
     use std::net::TcpListener;
     use std::process::{Command, Stdio};
 
@@ -392,6 +400,15 @@ pub(crate) fn with_checkout_fixture(
         let mut eof = vec![96];
         eof.extend_from_slice(&client_channel.to_be_bytes());
         write_encrypted_ssh_packet(&mut stream, &mut outbound, &eof).unwrap();
+        let mut status = vec![98];
+        status.extend_from_slice(&client_channel.to_be_bytes());
+        put_string(b"exit-status", &mut status);
+        status.push(0);
+        status.extend_from_slice(&exit_status.to_be_bytes());
+        write_encrypted_ssh_packet(&mut stream, &mut outbound, &status).unwrap();
+        let mut close = vec![97];
+        close.extend_from_slice(&client_channel.to_be_bytes());
+        write_encrypted_ssh_packet(&mut stream, &mut outbound, &close).unwrap();
         loop {
             let close = inbound.read_packet(&mut stream).unwrap().payload;
             if close[0] == 93 {

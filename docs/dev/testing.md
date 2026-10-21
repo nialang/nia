@@ -98,6 +98,8 @@ their original error kinds. The current limits are:
 | Symbolic reference / annotated tag dereferences | 8 / 8 |
 | SSH identity / known hosts | 1 MiB / 16 MiB |
 | SSH agent identities | 1,024 |
+| SSH channel incoming message payloads, including stderr and control messages | 128 MiB per session |
+| SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
 | Checkout directory depth / entries | 64 / 1,000,000 |
 | Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |
 
@@ -125,6 +127,14 @@ framing fields in trailers or bytes after the final terminator. Chunk
 extensions are ignored after checking the header for control characters.
 Upload-pack sideband 2 carries progress and is ignored; sideband 3 reports
 failure. HTTP, Git TCP, and SSH checkout fixtures include progress packets.
+SSH channel EOF closes only the remote data direction. Checkout continues
+reading through channel close so a later nonzero exit status or exit signal
+fails the transfer before writing files. A transport EOF before channel close
+is an error; a peer may close without sending an optional exit status. The
+channel validates recipients, packet and window limits, and exit requests in
+both normal reads and waits for send-window space. Unknown channel requests
+that require a reply receive CHANNEL_FAILURE. Incoming stderr and ignored
+control messages count toward the session traffic budget.
 
 ## Where Tests Live
 

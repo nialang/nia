@@ -4,6 +4,21 @@ use super::*;
 use crate::checkout_source;
 
 #[test]
+fn ssh_checkout_does_not_publish_a_pack_when_remote_process_fails() {
+    fixture::with_checkout_fixture_status(
+        17,
+        |_| {},
+        |root, source, config, _, _| {
+            let destination = root.join("failed-checkout");
+            let error =
+                checkout_ssh_with_config(source, "HEAD", &destination, config, false).unwrap_err();
+            assert!(error.to_string().contains("status 17"), "{error}");
+            assert!(!destination.exists());
+        },
+    );
+}
+
+#[test]
 fn ssh_sources_reject_invalid_urls_before_loading_credentials() {
     let destination =
         std::env::temp_dir().join(format!("nia-git-ssh-invalid-{}", std::process::id()));

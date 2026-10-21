@@ -2,6 +2,7 @@
 //! SSH transport, authentication, and channel state.
 
 mod agent;
+mod channel;
 mod cipher;
 mod identity;
 mod kex;
@@ -9,6 +10,7 @@ mod known_hosts;
 mod wire;
 
 use agent::SshAgent;
+use channel::SshExecChannel;
 use cipher::{SshAes128CtrDirection, write_encrypted_ssh_packet};
 use identity::{SshSigner, load_ssh_identity};
 use kex::perform_ssh_key_exchange;
@@ -260,316 +262,17 @@ fn open_git_upload_pack<'a, S: Read + Write>(
             ));
         }
     }
-    Ok(SshExecChannel {
+    SshExecChannel::new(
         stream,
-        outbound: &mut keys.outbound,
-        inbound: &mut keys.inbound,
-        local_channel,
+        keys,
         remote_channel,
         remote_window,
-        remote_max_packet: usize::try_from(remote_max_packet)
-            .map_err(|_| invalid_packet("SSH channel packet limit overflows usize"))?,
-        local_window: SSH_CHANNEL_WINDOW,
-        local_max_packet: SSH_CHANNEL_MAX_PACKET,
-        pending: Vec::new(),
-        pending_offset: 0,
-        eof: false,
-        eof_sent: false,
-        close_sent: false,
-    })
+        remote_max_packet,
+    )
 }
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-struct SshExecChannel<'a, S: Read + Write> {
-    stream: &'a mut S,
-    outbound: &'a mut SshAes128CtrDirection,
-    inbound: &'a mut SshAes128CtrDirection,
-    local_channel: u32,
-    remote_channel: u32,
-    remote_window: u32,
-    remote_max_packet: usize,
-    local_window: u32,
-    local_max_packet: usize,
-    pending: Vec<u8>,
-    pending_offset: usize,
-    eof: bool,
-    eof_sent: bool,
-    close_sent: bool,
-}
-
-impl<S: Read + Write> SshExecChannel<'_, S> {
-    fn finish_writing(&mut self) -> io::Result<()> {
-        if !self.eof_sent {
-            let mut payload = vec![96];
-            payload.extend_from_slice(&self.remote_channel.to_be_bytes());
-            write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
-            self.eof_sent = true;
-        }
-        Ok(())
-    }
-
-    fn send_channel_close(&mut self) -> io::Result<()> {
-        if !self.close_sent {
-            let mut payload = vec![97];
-            payload.extend_from_slice(&self.remote_channel.to_be_bytes());
-            write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
-            self.close_sent = true;
-        }
-        Ok(())
-    }
-
-    fn receive_data(&mut self) -> io::Result<()> {
-        loop {
-            let packet = self.inbound.read_packet(&mut *self.stream)?;
-            let Some(message) = packet.payload.first().copied() else {
-                return Err(invalid_packet("SSH channel packet is empty"));
-            };
-            let mut reader = SshReader::new(&packet.payload[1..]);
-            match message {
-                94 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet("SSH channel data has the wrong recipient"));
-                    }
-                    let data = reader.string()?;
-                    reader.finish()?;
-                    if data.is_empty()
-                        || data.len() > self.local_window as usize
-                        || data.len() > self.local_max_packet
-                    {
-                        return Err(invalid_packet("SSH channel data exceeds its window"));
-                    }
-                    self.local_window -= data.len() as u32;
-                    self.pending.extend_from_slice(data);
-                    self.pending_offset = 0;
-                    return Ok(());
-                }
-                95 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet(
-                            "SSH extended channel data has the wrong recipient",
-                        ));
-                    }
-                    let _data_type = reader.u32()?;
-                    let data = reader.string()?;
-                    reader.finish()?;
-                    if data.len() > self.local_window as usize || data.len() > self.local_max_packet
-                    {
-                        return Err(invalid_packet("SSH extended data exceeds its window"));
-                    }
-                    self.local_window -= data.len() as u32;
-                    self.local_window = self
-                        .local_window
-                        .checked_add(data.len() as u32)
-                        .ok_or_else(|| invalid_packet("SSH channel window overflows"))?;
-                    let mut adjust = vec![93];
-                    adjust.extend_from_slice(&self.remote_channel.to_be_bytes());
-                    adjust.extend_from_slice(&(data.len() as u32).to_be_bytes());
-                    write_encrypted_ssh_packet(self.stream, self.outbound, &adjust)?;
-                }
-                93 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet(
-                            "SSH window adjustment has the wrong recipient",
-                        ));
-                    }
-                    let adjustment = reader.u32()?;
-                    reader.finish()?;
-                    self.remote_window = self
-                        .remote_window
-                        .checked_add(adjustment)
-                        .ok_or_else(|| invalid_packet("SSH remote channel window overflows"))?;
-                }
-                96 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet("SSH channel EOF has the wrong recipient"));
-                    }
-                    reader.finish()?;
-                    self.eof = true;
-                    return Ok(());
-                }
-                97 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet("SSH channel close has the wrong recipient"));
-                    }
-                    reader.finish()?;
-                    self.eof = true;
-                    self.send_channel_close()?;
-                    return Ok(());
-                }
-                98 => continue,
-                1 => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::ConnectionAborted,
-                        "SSH server disconnected during Git transfer",
-                    ));
-                }
-                2 | 4 => continue,
-                _ => {
-                    return Err(invalid_packet(
-                        "SSH server sent an unexpected channel message",
-                    ));
-                }
-            }
-        }
-    }
-
-    fn wait_for_remote_window(&mut self) -> io::Result<()> {
-        while self.remote_window == 0 {
-            let packet = self.inbound.read_packet(&mut *self.stream)?;
-            let Some(message) = packet.payload.first().copied() else {
-                return Err(invalid_packet("SSH channel packet is empty"));
-            };
-            let mut reader = SshReader::new(&packet.payload[1..]);
-            match message {
-                93 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet(
-                            "SSH window adjustment has the wrong recipient",
-                        ));
-                    }
-                    self.remote_window = self
-                        .remote_window
-                        .checked_add(reader.u32()?)
-                        .ok_or_else(|| invalid_packet("SSH remote channel window overflows"))?;
-                    reader.finish()?;
-                }
-                94 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet("SSH channel data has the wrong recipient"));
-                    }
-                    let data = reader.string()?;
-                    reader.finish()?;
-                    if data.is_empty()
-                        || data.len() > self.local_window as usize
-                        || data.len() > self.local_max_packet
-                    {
-                        return Err(invalid_packet("SSH channel data exceeds its window"));
-                    }
-                    self.local_window -= data.len() as u32;
-                    self.pending.extend_from_slice(data);
-                }
-                95 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet(
-                            "SSH extended channel data has the wrong recipient",
-                        ));
-                    }
-                    let _data_type = reader.u32()?;
-                    let data = reader.string()?;
-                    reader.finish()?;
-                    if data.len() > self.local_window as usize || data.len() > self.local_max_packet
-                    {
-                        return Err(invalid_packet("SSH extended data exceeds its window"));
-                    }
-                    self.local_window -= data.len() as u32;
-                    self.local_window = self
-                        .local_window
-                        .checked_add(data.len() as u32)
-                        .ok_or_else(|| invalid_packet("SSH channel window overflows"))?;
-                    let mut adjust = vec![93];
-                    adjust.extend_from_slice(&self.remote_channel.to_be_bytes());
-                    adjust.extend_from_slice(&(data.len() as u32).to_be_bytes());
-                    write_encrypted_ssh_packet(self.stream, self.outbound, &adjust)?;
-                }
-                96 | 97 => {
-                    if reader.u32()? != self.local_channel {
-                        return Err(invalid_packet(
-                            "SSH channel closure has the wrong recipient",
-                        ));
-                    }
-                    self.eof = true;
-                    return Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "SSH server closed the channel while awaiting window space",
-                    ));
-                }
-                98 => continue,
-                2 | 4 => continue,
-                _ => {
-                    return Err(invalid_packet(
-                        "SSH server sent an unexpected channel message",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<S: Read + Write> Read for SshExecChannel<'_, S> {
-    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        if output.is_empty() {
-            return Ok(0);
-        }
-        if self.pending_offset == self.pending.len() {
-            self.pending.clear();
-            self.pending_offset = 0;
-            if self.eof {
-                self.send_channel_close()?;
-                return Ok(0);
-            }
-            self.receive_data()?;
-            if self.eof && self.pending.is_empty() {
-                self.send_channel_close()?;
-                return Ok(0);
-            }
-        }
-        let amount = output.len().min(self.pending.len() - self.pending_offset);
-        output[..amount]
-            .copy_from_slice(&self.pending[self.pending_offset..self.pending_offset + amount]);
-        self.pending_offset += amount;
-        let adjustment = u32::try_from(amount)
-            .map_err(|_| invalid_packet("SSH channel read length overflows uint32"))?;
-        self.local_window = self
-            .local_window
-            .checked_add(adjustment)
-            .ok_or_else(|| invalid_packet("SSH local channel window overflows"))?;
-        let mut payload = vec![93];
-        payload.extend_from_slice(&self.remote_channel.to_be_bytes());
-        payload.extend_from_slice(&adjustment.to_be_bytes());
-        write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
-        Ok(amount)
-    }
-}
-
-impl<S: Read + Write> Write for SshExecChannel<'_, S> {
-    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        if input.is_empty() {
-            return Ok(0);
-        }
-        if self.eof_sent {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "SSH channel write side is closed",
-            ));
-        }
-        if self.remote_window == 0 {
-            self.wait_for_remote_window()?;
-        }
-        let amount = input
-            .len()
-            .min(self.remote_max_packet)
-            .min(self.remote_window as usize);
-        let mut payload = vec![94];
-        payload.extend_from_slice(&self.remote_channel.to_be_bytes());
-        encode_ssh_string(&input[..amount], &mut payload)?;
-        write_encrypted_ssh_packet(self.stream, self.outbound, &payload)?;
-        self.remote_window -= amount as u32;
-        Ok(amount)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
-    }
-}
-
-impl<S: Read + Write> Drop for SshExecChannel<'_, S> {
-    fn drop(&mut self) {
-        let _ = self.send_channel_close();
-    }
 }
 
 fn read_expected_encrypted_ssh_message(
