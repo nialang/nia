@@ -30,7 +30,9 @@ pub fn runtime_symbol_package_identity() -> String {
     nia_package_metadata::PackageId {
         namespace: "nia".to_string(),
         name: "runtime".to_string(),
-        version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH),
+        version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH)
+            .parse()
+            .expect("runtime package identity is valid SemVer"),
     }
     .canonical_text()
 }
@@ -294,7 +296,9 @@ impl RuntimeSpec {
             package: nia_package_metadata::PackageId {
                 namespace: "nia".to_string(),
                 name: "runtime".to_string(),
-                version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH),
+                version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH)
+                    .parse()
+                    .expect("runtime package identity is valid SemVer"),
             },
             entry_point: RuntimeEntryPoint {
                 module_identity: format!(

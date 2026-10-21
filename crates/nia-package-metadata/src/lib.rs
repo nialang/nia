@@ -18,10 +18,13 @@
 //! epoch.
 
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
+    fmt,
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
@@ -50,7 +53,59 @@ const TYPE_GRAPH_SCHEMA: u32 = PROTOCOL_EPOCH;
 pub struct PackageId {
     pub namespace: String,
     pub name: String,
-    pub version: String,
+    pub version: PackageVersion,
+}
+
+/// A parsed SemVer package release. Build metadata remains part of package
+/// identity even though SemVer precedence ignores it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PackageVersion {
+    parsed: Version,
+    text: String,
+}
+
+impl PackageVersion {
+    /// Parses a strict SemVer 2.0.0 release.
+    pub fn parse(value: &str) -> Result<Self, semver::Error> {
+        let parsed = Version::parse(value)?;
+        Ok(Self {
+            parsed,
+            text: value.to_owned(),
+        })
+    }
+
+    /// Returns the canonical SemVer text used in manifests and metadata.
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
+impl FromStr for PackageVersion {
+    type Err = semver::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl fmt::Display for PackageVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.text)
+    }
+}
+
+impl Ord for PackageVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.parsed
+            .cmp(&other.parsed)
+            .then_with(|| self.text.cmp(&other.text))
+    }
+}
+
+impl PartialOrd for PackageVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl PackageId {
@@ -60,7 +115,7 @@ impl PackageId {
             "{}/{}@{}",
             canonical_component(&self.namespace),
             canonical_component(&self.name),
-            canonical_component(&self.version)
+            canonical_component(self.version.as_str())
         )
     }
 
@@ -69,7 +124,12 @@ impl PackageId {
         Self {
             namespace: "nia".into(),
             name: "std".into(),
-            version: format!("{}+std{}", COMPILER_VERSION, toolchain::STANDARD_LIBRARY),
+            version: PackageVersion::parse(&format!(
+                "{}+std{}",
+                COMPILER_VERSION,
+                toolchain::STANDARD_LIBRARY
+            ))
+            .expect("compiler standard library identity is valid SemVer"),
         }
     }
 }
@@ -1235,7 +1295,7 @@ impl PackageManifest {
             package: PackageId {
                 namespace: "local".into(),
                 name: root_name.into(),
-                version: "0.0.0".into(),
+                version: PackageVersion::parse("0.0.0").expect("static package version"),
             },
             protocol_epoch: None,
             library_path: None,
@@ -1269,12 +1329,20 @@ impl PackageManifest {
             )?
             .unwrap_or_else(|| "local".into()),
             name: raw_package.name,
-            version: resolve_inheritable(
-                raw_package.version,
-                workspace.as_ref().and_then(|ws| ws.package.version.clone()),
-                "package.version",
-            )?
-            .unwrap_or_else(|| "0.0.0".into()),
+            version: PackageVersion::parse(
+                &resolve_inheritable(
+                    raw_package.version,
+                    workspace.as_ref().and_then(|ws| ws.package.version.clone()),
+                    "package.version",
+                )?
+                .unwrap_or_else(|| "0.0.0".into()),
+            )
+            .map_err(|error| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("package.version must be a valid SemVer 2.0.0 version: {error}"),
+                )
+            })?,
         };
         manifest.protocol_epoch = resolve_inheritable(
             raw_package.protocol_epoch,
@@ -2146,13 +2214,11 @@ fn dependency_path(
 fn validate_package_id(package: &PackageId) -> io::Result<()> {
     if package.namespace.is_empty()
         || package.name.is_empty()
-        || package.version.is_empty()
         || package.namespace.len() > 128
         || package.name.len() > 128
-        || package.version.len() > 128
         || package.namespace.contains('/')
         || package.name.contains('/')
-        || Version::parse(&package.version).is_err()
+        || package.version.as_str().len() > 128
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -3298,8 +3364,10 @@ impl std::error::Error for MetadataError {}
 fn validate_id(id: &PackageId) -> Result<(), MetadataError> {
     validate_string(&id.namespace)?;
     validate_string(&id.name)?;
-    validate_string(&id.version)?;
-    Version::parse(&id.version).map_err(|_| MetadataError::InvalidManifest)?;
+    validate_string(id.version.as_str())?;
+    if id.version.as_str().len() > 128 {
+        return Err(MetadataError::InvalidString);
+    }
     Ok(())
 }
 
@@ -3343,7 +3411,7 @@ fn validate_string(value: &str) -> Result<(), MetadataError> {
 fn put_id(output: &mut Vec<u8>, id: &PackageId) -> Result<(), MetadataError> {
     put_string(output, &id.namespace)?;
     put_string(output, &id.name)?;
-    put_string(output, &id.version)
+    put_string(output, id.version.as_str())
 }
 fn put_module_id(output: &mut Vec<u8>, module: &ModuleId) -> Result<(), MetadataError> {
     validate_module_id(module)?;
@@ -3559,7 +3627,9 @@ fn get_id(cursor: &mut Cursor<&[u8]>) -> Result<PackageId, MetadataError> {
     Ok(PackageId {
         namespace: get_string(cursor)?,
         name: get_string(cursor)?,
-        version: get_string(cursor)?,
+        version: get_string(cursor)?
+            .parse()
+            .map_err(|_| MetadataError::InvalidManifest)?,
     })
 }
 fn put_string(output: &mut Vec<u8>, value: &str) -> Result<(), MetadataError> {
@@ -3662,7 +3732,7 @@ mod tests {
         PackageId {
             namespace: "example".into(),
             name: "identity".into(),
-            version: "1.0.0".into(),
+            version: "1.0.0".parse().unwrap(),
         }
     }
 
@@ -3671,12 +3741,12 @@ mod tests {
         let first = PackageId {
             namespace: "acme".into(),
             name: "lib@tools".into(),
-            version: "1.0.0".into(),
+            version: "1.0.0".parse().unwrap(),
         };
         let second = PackageId {
             namespace: "acme".into(),
             name: "lib".into(),
-            version: "1.0.0".into(),
+            version: "1.0.0".parse().unwrap(),
         };
 
         assert_eq!(first.canonical_text(), "acme/lib%40tools@1.0.0");
@@ -3686,7 +3756,7 @@ mod tests {
         let escaped = PackageId {
             namespace: "acme/team".into(),
             name: "%40@\0\u{7f}".into(),
-            version: "1.0.0".into(),
+            version: "1.0.0".parse().unwrap(),
         };
         assert_eq!(escaped.canonical_text(), "acme%2Fteam/%2540%40%00%7F@1.0.0");
         assert_ne!(canonical_component("%40"), canonical_component("@"));
@@ -3698,23 +3768,22 @@ mod tests {
             let id = PackageId {
                 namespace: "example".into(),
                 name: "valid".into(),
-                version: version.into(),
+                version: PackageVersion::parse(version).unwrap(),
             };
             assert!(validate_package_id(&id).is_ok(), "{version}");
             assert!(validate_id(&id).is_ok(), "{version}");
         }
 
         for version in ["", "1", "1.2", "01.2.3", "1.2.3-01", "v1.2.3"] {
-            let id = PackageId {
-                namespace: "example".into(),
-                name: "invalid".into(),
-                version: version.into(),
-            };
-            assert!(validate_package_id(&id).is_err(), "{version:?}");
-            assert!(validate_id(&id).is_err(), "{version:?}");
+            assert!(PackageVersion::parse(version).is_err(), "{version:?}");
         }
 
-        assert!(Version::parse(&PackageId::standard_library().version).is_ok());
+        assert!(Version::parse(PackageId::standard_library().version.as_str()).is_ok());
+
+        let first = PackageVersion::parse("1.2.3+one").unwrap();
+        let second = PackageVersion::parse("1.2.3+two").unwrap();
+        assert_ne!(first, second);
+        assert_ne!(first.cmp(&second), Ordering::Equal);
     }
 
     #[test]
@@ -4377,7 +4446,7 @@ mod tests {
         assert_eq!(workspace.package.namespace.as_deref(), Some("example"));
         let manifest = PackageManifest::read(&member).unwrap();
         assert_eq!(manifest.package.namespace, "example");
-        assert_eq!(manifest.package.version, "0.3.0-dev");
+        assert_eq!(manifest.package.version.as_str(), "0.3.0-dev");
         assert_eq!(manifest.protocol_epoch, Some(1));
         assert_eq!(manifest.dependencies[0].name, "json");
         assert_eq!(
@@ -4418,7 +4487,7 @@ mod tests {
             Some([".".to_owned()].as_slice())
         );
         assert_eq!(package.package.namespace, "example");
-        assert_eq!(package.package.version, "1.2.3");
+        assert_eq!(package.package.version.as_str(), "1.2.3");
         std::fs::remove_dir_all(root).unwrap();
     }
 
