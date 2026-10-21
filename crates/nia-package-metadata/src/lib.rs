@@ -94,6 +94,99 @@ impl fmt::Display for PackageVersionRequirement {
     }
 }
 
+/// Registry package name used as the key for single-version resolution.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RegistryPackageName {
+    pub namespace: String,
+    pub name: String,
+}
+
+/// One registry constraint and the dependency path that introduced it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryVersionConstraint {
+    pub package: RegistryPackageName,
+    pub requirement: PackageVersionRequirement,
+    pub requiring_package: PackageId,
+    pub dependency_chain: Vec<String>,
+}
+
+/// Selects one version per registry package from a complete candidate set.
+/// Stable releases are preferred; prereleases are considered only when no
+/// stable candidate satisfies every constraint.
+pub fn solve_registry_versions(
+    constraints: &[RegistryVersionConstraint],
+    candidates: &[PackageId],
+) -> io::Result<BTreeMap<RegistryPackageName, PackageId>> {
+    let mut grouped = BTreeMap::<RegistryPackageName, Vec<&RegistryVersionConstraint>>::new();
+    for constraint in constraints {
+        grouped
+            .entry(constraint.package.clone())
+            .or_default()
+            .push(constraint);
+    }
+
+    let mut selected = BTreeMap::new();
+    for (package, package_constraints) in grouped {
+        let matches_all = |candidate: &&PackageId| {
+            candidate.namespace == package.namespace
+                && candidate.name == package.name
+                && package_constraints
+                    .iter()
+                    .all(|constraint| constraint.requirement.matches(&candidate.version))
+        };
+        let stable = candidates
+            .iter()
+            .filter(matches_all)
+            .filter(|candidate| candidate.version.parsed.pre.is_empty())
+            .max_by(|left, right| {
+                left.version
+                    .parsed
+                    .cmp(&right.version.parsed)
+                    .then_with(|| left.version.as_str().cmp(right.version.as_str()))
+            });
+        let prerelease = || {
+            candidates.iter().filter(matches_all).max_by(|left, right| {
+                left.version
+                    .parsed
+                    .cmp(&right.version.parsed)
+                    .then_with(|| left.version.as_str().cmp(right.version.as_str()))
+            })
+        };
+        if let Some(candidate) = stable.or_else(prerelease) {
+            selected.insert(package, candidate.clone());
+        } else {
+            let mut details = package_constraints
+                .iter()
+                .map(|constraint| {
+                    let chain = if constraint.dependency_chain.is_empty() {
+                        constraint.requiring_package.canonical_text()
+                    } else {
+                        constraint.dependency_chain.join(" -> ")
+                    };
+                    format!(
+                        "{} requires {} ({})",
+                        constraint.requiring_package.canonical_text(),
+                        constraint.requirement,
+                        chain
+                    )
+                })
+                .collect::<Vec<_>>();
+            details.sort();
+            details.dedup();
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "no single version of {}/{} satisfies all registry constraints: {}",
+                    package.namespace,
+                    package.name,
+                    details.join("; ")
+                ),
+            ));
+        }
+    }
+    Ok(selected)
+}
+
 impl PackageVersion {
     /// Parses a strict SemVer 2.0.0 release.
     pub fn parse(value: &str) -> Result<Self, semver::Error> {
@@ -4944,6 +5037,84 @@ mod tests {
         };
 
         assert_ne!(graph("^1.4").fingerprint(), graph("^2.0").fingerprint());
+    }
+
+    #[test]
+    fn registry_solver_intersects_constraints_and_prefers_highest_stable_release() {
+        let package = RegistryPackageName {
+            namespace: "acme".into(),
+            name: "json".into(),
+        };
+        let requiring_package = |name: &str| PackageId {
+            namespace: "acme".into(),
+            name: name.into(),
+            version: PackageVersion::parse("1.0.0").unwrap(),
+        };
+        let constraint =
+            |name: &str, requirement: &str, chain: &[&str]| RegistryVersionConstraint {
+                package: package.clone(),
+                requirement: PackageVersionRequirement::parse(requirement).unwrap(),
+                requiring_package: requiring_package(name),
+                dependency_chain: chain.iter().map(|part| (*part).into()).collect(),
+            };
+        let candidates =
+            ["1.4.0", "1.6.2", "1.9.0", "2.0.0", "1.7.0-beta.1"].map(|version| PackageId {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+                version: PackageVersion::parse(version).unwrap(),
+            });
+        let solved = solve_registry_versions(
+            &[
+                constraint("app", "^1.4", &["app", "json"]),
+                constraint("tools", ">=1.6, <2.0", &["app", "tools", "json"]),
+            ],
+            &candidates,
+        )
+        .unwrap();
+        assert_eq!(solved[&package].version.as_str(), "1.9.0");
+    }
+
+    #[test]
+    fn registry_solver_only_admits_explicit_prereleases_and_reports_all_chains() {
+        let package = RegistryPackageName {
+            namespace: "acme".into(),
+            name: "json".into(),
+        };
+        let requiring = PackageId {
+            namespace: "acme".into(),
+            name: "app".into(),
+            version: PackageVersion::parse("1.0.0").unwrap(),
+        };
+        let constraint = |requirement: &str, chain: &[&str]| RegistryVersionConstraint {
+            package: package.clone(),
+            requirement: PackageVersionRequirement::parse(requirement).unwrap(),
+            requiring_package: requiring.clone(),
+            dependency_chain: chain.iter().map(|part| (*part).into()).collect(),
+        };
+        let candidate = |version: &str| PackageId {
+            namespace: package.namespace.clone(),
+            name: package.name.clone(),
+            version: PackageVersion::parse(version).unwrap(),
+        };
+
+        let selected = solve_registry_versions(
+            &[constraint("=1.5.0-beta.1", &["app", "json"])],
+            &[candidate("1.5.0-beta.1"), candidate("1.4.0")],
+        )
+        .unwrap();
+        assert_eq!(selected[&package].version.as_str(), "1.5.0-beta.1");
+
+        let error = solve_registry_versions(
+            &[
+                constraint("^1.0", &["app", "first", "json"]),
+                constraint("^2.0", &["app", "second", "json"]),
+            ],
+            &[candidate("1.8.0"), candidate("2.3.0")],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("app -> first -> json"));
+        assert!(error.contains("app -> second -> json"));
     }
 
     /// Creates a one-commit Git repository holding package `name` and returns
