@@ -82,3 +82,20 @@ pub(crate) fn checkout_git(source: &str, revision: &str, destination: &Path) -> 
     let pack = parse_upload_pack_response(&response)?;
     write_pack_checkout(&pack, &commit, destination)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_tcp_url_parser_defaults_port_and_rejects_credentials() {
+        let default = parse_git_tcp_url("git://example.test/org/repository.git").unwrap();
+        assert_eq!(default.host, "example.test");
+        assert_eq!(default.port, 9418);
+        assert_eq!(default.path, "/org/repository.git");
+        let custom = parse_git_tcp_url("git://example.test:19418/org/repository.git").unwrap();
+        assert_eq!(custom.port, 19418);
+        assert!(parse_git_tcp_url("git://user@example.test/repository.git").is_err());
+        assert!(parse_git_tcp_url("git://example.test/repo\n.git").is_err());
+    }
+}

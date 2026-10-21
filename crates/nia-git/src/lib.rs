@@ -18,8 +18,6 @@ mod object;
 use object::{encode_hex, parse_object_id};
 mod transport;
 use transport::git_tcp::checkout_git;
-#[cfg(test)]
-use transport::git_tcp::parse_git_tcp_url;
 use transport::http::checkout_http;
 use transport::local::{checkout_local, fs_create_dir};
 
