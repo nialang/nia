@@ -638,6 +638,7 @@ impl PackageLock {
         }
         let mut identities = BTreeSet::new();
         let mut registry_versions = BTreeMap::<(&str, &str, &str), &str>::new();
+        let mut registry_sources = BTreeMap::<(&str, &str), &str>::new();
         for package in &self.package {
             validate_dependency_name(&package.name).map_err(|error| {
                 io::Error::new(
@@ -700,6 +701,15 @@ impl PackageLock {
                     })?;
                     validate_blake3_text(archive_digest, "archive digest", error_kind)?;
                     validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
+                    if registry_sources
+                        .insert((namespace, package), registry)
+                        .is_some_and(|previous| previous != registry)
+                    {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile selects one registry package from multiple registries",
+                        ));
+                    }
                     if registry_versions
                         .insert((registry, namespace, package), version)
                         .is_some_and(|previous| previous != version)
@@ -5138,6 +5148,33 @@ mod tests {
         *version = "1.4".into();
         assert!(invalid.write_atomic(&path).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lockfile_rejects_registry_package_coordinates_from_multiple_registries() {
+        let entry = |name: &str, registry: &str| LockedPackage {
+            name: name.into(),
+            source: LockedSource::Registry {
+                registry: registry.into(),
+                namespace: "acme".into(),
+                package: "json".into(),
+                version: "1.0.0".into(),
+                archive_digest: format!("blake3:{}", "a".repeat(64)),
+                source_fingerprint: format!("blake3:{}", "b".repeat(64)),
+            },
+        };
+        let lock = PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![entry("public_json", "nia"), entry("internal_json", "corp")],
+        };
+
+        let error = lock.validate(io::ErrorKind::InvalidInput).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("one registry package from multiple registries")
+        );
     }
 
     #[test]
