@@ -520,10 +520,32 @@ impl LockedSource {
         }
     }
 
-    fn git_revision(&self) -> Option<&str> {
+    fn update_kind(&self) -> Option<LockUpdateKind> {
+        match self {
+            Self::Git { .. } => Some(LockUpdateKind::Git),
+            Self::Registry { .. } => Some(LockUpdateKind::Registry),
+            Self::Path { .. } => None,
+        }
+    }
+
+    fn update_value(&self) -> Option<&str> {
         match self {
             Self::Git { revision, .. } => Some(revision),
-            Self::Path { .. } | Self::Registry { .. } => None,
+            Self::Registry { version, .. } => Some(version),
+            Self::Path { .. } => None,
+        }
+    }
+
+    fn update_selector(&self) -> Option<String> {
+        match self {
+            Self::Git { selector, .. } => Some(selector.clone()),
+            Self::Registry {
+                registry,
+                namespace,
+                package,
+                ..
+            } => Some(format!("registry:{registry}/{namespace}/{package}")),
+            Self::Path { .. } => None,
         }
     }
 
@@ -1658,14 +1680,22 @@ impl PackageFetcher {
 pub struct LockUpdate {
     pub name: String,
     pub selector: String,
-    /// `None` when the entry was added.
-    pub old_rev: Option<String>,
-    /// `None` when the entry was removed.
-    pub new_rev: Option<String>,
+    pub kind: LockUpdateKind,
+    /// Selected revision or version; `None` when the entry was added.
+    pub old_value: Option<String>,
+    /// Selected revision or version; `None` when the entry was removed.
+    pub new_value: Option<String>,
 }
 
-/// Fetches the selectors of the named Git dependencies again, or of every
-/// locked dependency when `names` is empty, and rewrites `nia.lock`.
+/// Source family reported by [`LockUpdate`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockUpdateKind {
+    Git,
+    Registry,
+}
+
+/// Fetches the named Git and registry dependencies again, or every locked
+/// dependency when `names` is empty, and rewrites `nia.lock`.
 ///
 /// `start` is any directory inside a package or workspace. Every package that
 /// shares the lock file is resolved with all dependency scopes, so updating
@@ -1687,17 +1717,18 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
         fetcher.lock_state()?;
         let before = fetcher.lock.package.clone();
         for name in names {
-            if !before.iter().any(|entry| {
-                &entry.name == name && matches!(entry.source, LockedSource::Git { .. })
-            }) {
+            if !before
+                .iter()
+                .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("`{name}` is not a locked Git dependency"),
+                    format!("`{name}` is not a locked Git or registry dependency"),
                 ));
             }
         }
         fetcher.lock.package.retain(|entry| {
-            !matches!(entry.source, LockedSource::Git { .. })
+            entry.source.update_kind().is_none()
                 || (!names.is_empty() && !names.contains(&entry.name))
         });
         fetcher.dirty = true;
@@ -1725,39 +1756,52 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
         PackageGraph::resolve(&root, true)?;
     }
     let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
+    Ok(collect_lock_updates(&before, &after))
+}
+
+fn collect_lock_updates(before: &[LockedPackage], after: &[LockedPackage]) -> Vec<LockUpdate> {
     let mut updates = Vec::new();
-    for old in &before {
-        let Some((_, selector)) = old.source.git_identity() else {
+    for old in before {
+        let (Some(kind), Some(selector), Some(old_value)) = (
+            old.source.update_kind(),
+            old.source.update_selector(),
+            old.source.update_value(),
+        ) else {
             continue;
         };
-        let old_revision = old.source.git_revision().unwrap().to_owned();
         let new = after.iter().find(|entry| same_locked_selector(entry, old));
-        let new_revision = new.and_then(|entry| entry.source.git_revision());
-        if new_revision != Some(old_revision.as_str()) {
+        let new_value = new.and_then(|entry| entry.source.update_value());
+        if new_value != Some(old_value) {
             updates.push(LockUpdate {
                 name: old.name.clone(),
-                selector: selector.to_owned(),
-                old_rev: Some(old_revision),
-                new_rev: new_revision.map(str::to_owned),
+                selector,
+                kind,
+                old_value: Some(old_value.to_owned()),
+                new_value: new_value.map(str::to_owned),
             });
         }
     }
-    for new in &after {
-        let Some((_, selector)) = new.source.git_identity() else {
+    for new in after {
+        let (Some(kind), Some(selector), Some(new_value)) = (
+            new.source.update_kind(),
+            new.source.update_selector(),
+            new.source.update_value(),
+        ) else {
             continue;
         };
         if !before.iter().any(|entry| same_locked_selector(entry, new)) {
             updates.push(LockUpdate {
                 name: new.name.clone(),
-                selector: selector.to_owned(),
-                old_rev: None,
-                new_rev: new.source.git_revision().map(str::to_owned),
+                selector,
+                kind,
+                old_value: None,
+                new_value: Some(new_value.to_owned()),
             });
         }
     }
     updates
         .sort_by(|left, right| (&left.name, &left.selector).cmp(&(&right.name, &right.selector)));
-    Ok(updates)
+    updates
 }
 
 /// The `nia.lock` selector recorded for a Git dependency.
@@ -6160,7 +6204,12 @@ mod tests {
             .into_iter()
             .find(|entry| entry.name == name)
             .unwrap();
-        entry.source.git_revision().unwrap().to_owned()
+        match entry.source {
+            LockedSource::Git { revision, .. } => revision,
+            LockedSource::Path { .. } | LockedSource::Registry { .. } => {
+                panic!("expected Git lock entry")
+            }
+        }
     }
 
     #[test]
@@ -6192,7 +6241,7 @@ mod tests {
         let updates = update_lock(&consumer, &["first".into()]).unwrap();
         assert_eq!(updates.len(), 1, "{updates:?}");
         assert_eq!(updates[0].name, "first");
-        assert_eq!(updates[0].old_rev.as_deref(), Some(first_rev.as_str()));
+        assert_eq!(updates[0].old_value.as_deref(), Some(first_rev.as_str()));
         assert_ne!(locked_rev(&consumer, "first"), first_rev);
         assert_eq!(locked_rev(&consumer, "second"), second_rev);
 
@@ -6210,6 +6259,27 @@ mod tests {
         let error = update_lock(&consumer, &["missing".into()]).unwrap_err();
         assert!(error.to_string().contains("`missing`"), "{error}");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lock_updates_report_registry_version_changes() {
+        let source = |version: &str| LockedPackage {
+            name: "json".into(),
+            source: LockedSource::Registry {
+                registry: "nia".into(),
+                namespace: "acme".into(),
+                package: "json".into(),
+                version: version.into(),
+                archive_digest: format!("blake3:{}", "00".repeat(32)),
+                source_fingerprint: format!("blake3:{}", "11".repeat(32)),
+            },
+        };
+        let updates = collect_lock_updates(&[source("1.0.0")], &[source("1.1.0")]);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].kind, LockUpdateKind::Registry);
+        assert_eq!(updates[0].selector, "registry:nia/acme/json");
+        assert_eq!(updates[0].old_value.as_deref(), Some("1.0.0"));
+        assert_eq!(updates[0].new_value.as_deref(), Some("1.1.0"));
     }
 
     #[test]

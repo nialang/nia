@@ -493,26 +493,30 @@ fn run_package_request(request: nia_build::BuildRequest, format: DiagnosticsForm
 fn run_update(root: Option<PathBuf>, names: &[String], format: DiagnosticsFormat) -> ExitCode {
     match nia_build::run_update(root, names) {
         Ok(updates) => {
-            let short = |rev: &str| rev.get(..12).unwrap_or(rev).to_owned();
+            let short = |value: &str| value.get(..12).unwrap_or(value).to_owned();
             for update in &updates {
                 let label = format!("{} ({})", update.name, update.selector);
-                match (&update.old_rev, &update.new_rev) {
+                let verb = match update.kind {
+                    nia_build::LockUpdateKind::Git => "revision",
+                    nia_build::LockUpdateKind::Registry => "version",
+                };
+                match (&update.old_value, &update.new_value) {
                     (Some(old), Some(new)) => write_stderr(format_args!(
-                        "Updated {label} {} -> {}
+                        "Updated {label} {verb} {} -> {}
 ",
                         short(old),
                         short(new)
                     )),
                     (None, Some(new)) => {
                         write_stderr(format_args!(
-                            "Added {label} {}
+                            "Added {label} {verb} {}
 ",
                             short(new)
                         ));
                     }
                     (Some(old), None) => {
                         write_stderr(format_args!(
-                            "Removed {label} {}
+                            "Removed {label} {verb} {}
 ",
                             short(old)
                         ));

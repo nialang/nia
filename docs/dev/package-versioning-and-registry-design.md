@@ -77,8 +77,9 @@ after locking. Schema version 1 and any unknown schema are rejected without
 migration. `--locked` resolves only from lock entries and cached artifacts and
 fails before network access if required data is unavailable. `--offline` uses
 cached registry metadata and artifacts only. `nia update` refreshes registry
-selections within requirements and Git selectors as today; unchanged
-resolution leaves lockfile bytes untouched.
+selections within requirements and Git selectors; the CLI reports registry
+version changes separately from Git revision changes. Unchanged resolution
+leaves lockfile bytes untouched.
 
 Introduce the new lock schema with registry support and reject every older schema. Do not dual-read, auto-migrate, or rewrite legacy lockfiles. Since Nia is still in development, users regenerate a lockfile using the new resolver.
 

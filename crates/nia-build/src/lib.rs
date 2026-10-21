@@ -85,7 +85,7 @@ pub use configure_observation::{
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
-pub use nia_package_metadata::{LockPolicy, LockUpdate};
+pub use nia_package_metadata::{LockPolicy, LockUpdate, LockUpdateKind};
 pub use output_recovery::OutputRecoveryError;
 pub use process_output::{ProcessOutputStream, ProcessOutputWriter};
 pub use progress::{
