@@ -298,8 +298,8 @@ pub(crate) fn checkout_http(
     write_pack_checkout(&pack, &commit, destination)
 }
 
-/// Fetches one HTTPS resource using the same proxy, TLS, and credential
-/// policy as Git HTTP transport.
+/// Fetches one public HTTPS resource using the Git HTTP proxy and TLS policy.
+/// Resource requests do not inherit Git credentials from the credential helper.
 pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
     let url = parse_http_git_url(source)?;
     if !url.secure {
@@ -309,18 +309,7 @@ pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
         ));
     }
     let proxy = http_proxy_for_url(&url)?;
-    let authorization = lookup_http_authorization(&url);
-    let authorization_bytes = authorization.as_ref().map(|value| value.as_slice());
-    http_request_with_proxy(
-        &url,
-        "GET",
-        &url.path,
-        &[],
-        "",
-        authorization_bytes,
-        proxy.as_ref(),
-    )
-    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))
+    http_request_with_proxy(&url, "GET", &url.path, &[], "", None, proxy.as_ref())
 }
 
 #[cfg(test)]
@@ -1127,6 +1116,11 @@ mod tests {
                 request.push(byte[0]);
             }
             assert!(request.starts_with(b"GET /resource HTTP/1.1\r\n"));
+            assert!(
+                !request
+                    .windows(b"Authorization:".len())
+                    .any(|window| window.eq_ignore_ascii_case(b"Authorization:"))
+            );
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nregistry-body")
                 .unwrap();
