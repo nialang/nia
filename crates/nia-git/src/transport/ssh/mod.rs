@@ -34,6 +34,8 @@ use crate::{
 
 const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
 const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
+const MAX_SSH_CONTROL_MESSAGES: usize = 1024;
+const MAX_SSH_CONTROL_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SshUrl {
@@ -280,30 +282,60 @@ fn read_expected_encrypted_ssh_message(
     direction: &mut SshAes128CtrDirection,
     expected: u8,
 ) -> io::Result<Vec<u8>> {
-    loop {
-        let payload = read_expected_encrypted_ssh_message_any(stream, direction)?;
-        if payload.first() == Some(&expected) {
-            return Ok(payload);
-        }
-        if payload.first() == Some(&1) {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "SSH server disconnected during authentication",
-            ));
-        }
-        if !matches!(payload.first(), Some(2 | 4)) {
-            return Err(invalid_packet(
-                "SSH server sent an unexpected service message",
-            ));
-        }
+    let payload = read_expected_encrypted_ssh_message_any(stream, direction)?;
+    if payload.first() == Some(&expected) {
+        return Ok(payload);
     }
+    if payload.first() == Some(&1) {
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "SSH server disconnected during authentication",
+        ));
+    }
+    Err(invalid_packet(
+        "SSH server sent an unexpected service message",
+    ))
 }
 
 fn read_expected_encrypted_ssh_message_any(
     stream: &mut impl Read,
     direction: &mut SshAes128CtrDirection,
 ) -> io::Result<Vec<u8>> {
-    Ok(direction.read_packet(stream)?.payload)
+    let mut ignored_messages = 0;
+    let mut ignored_bytes: usize = 0;
+    loop {
+        let payload = direction.read_packet(&mut *stream)?.payload;
+        if !is_ignorable_ssh_message(&payload)? {
+            return Ok(payload);
+        }
+        ignored_messages += 1;
+        ignored_bytes = ignored_bytes.saturating_add(payload.len());
+        if ignored_messages > MAX_SSH_CONTROL_MESSAGES || ignored_bytes > MAX_SSH_CONTROL_BYTES {
+            return Err(invalid_packet(
+                "SSH control messages exceed resource limits",
+            ));
+        }
+    }
+}
+
+fn is_ignorable_ssh_message(payload: &[u8]) -> io::Result<bool> {
+    match payload.first() {
+        Some(2) => {
+            let mut reader = SshReader::new(&payload[1..]);
+            reader.string()?;
+            reader.finish()?;
+            Ok(true)
+        }
+        Some(4) => {
+            let mut reader = SshReader::new(&payload[1..]);
+            reader.boolean()?;
+            reader.string()?;
+            reader.string()?;
+            reader.finish()?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
 }
 
 pub(crate) fn checkout_ssh(source: &str, revision: &str, destination: &Path) -> io::Result<String> {

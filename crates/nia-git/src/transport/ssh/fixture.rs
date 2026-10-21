@@ -409,9 +409,11 @@ pub(super) fn with_checkout_fixture_status(
         status.push(0);
         status.extend_from_slice(&exit_status.to_be_bytes());
         write_encrypted_ssh_packet(&mut stream, &mut outbound, &status).unwrap();
-        let mut close = vec![97];
-        close.extend_from_slice(&client_channel.to_be_bytes());
-        write_encrypted_ssh_packet(&mut stream, &mut outbound, &close).unwrap();
+        if exit_status == 0 {
+            let mut close = vec![97];
+            close.extend_from_slice(&client_channel.to_be_bytes());
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &close).unwrap();
+        }
         loop {
             let close = inbound.read_packet(&mut stream).unwrap().payload;
             if close[0] == 93 {
