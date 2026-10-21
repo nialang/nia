@@ -34,7 +34,10 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 mod registry;
-pub use registry::{RegistryIndex, RegistryIndexPackage};
+pub use registry::{
+    RegistryArchiveEntry, RegistryArchiveEntryKind, RegistryIndex, RegistryIndexPackage,
+    decode_registry_archive, extract_registry_archive,
+};
 
 /// Protocol epoch for stable compiler-owned metadata.
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
