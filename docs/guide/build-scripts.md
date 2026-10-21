@@ -90,16 +90,34 @@ A dependency names exactly one source:
 | Workspace | `{ workspace = true }`; see [Workspaces](#workspaces) |
 
 `rev` must be a full 40-digit commit hash. Without a selector, Git sources
-follow the remote `HEAD`. Nia fetches Git sources itself, without a system Git
-client, and accepts `https://`, `http://`, `git://`, `ssh://`, SCP-style
-`git@host:path`, and `file:///` URLs. URLs cannot embed credentials. `http://`
-and `git://` are neither encrypted nor authenticated; prefer HTTPS or SSH.
+follow the remote `HEAD`. Nia fetches Git sources itself and accepts
+`https://`, `http://`, `git://`, `ssh://`, SCP-style `git@host:path`, and
+`file:///` URLs. URLs cannot embed credentials. `http://` and `git://` are
+neither encrypted nor authenticated; prefer HTTPS or SSH.
+
+For HTTPS, Nia asks `git credential fill` for a username and password matching
+the repository host and path, then sends them with HTTP Basic authentication.
+This uses the configured Git credential helper (such as Git Credential
+Manager); the Git executable is needed only for this lookup, while Nia still
+performs the fetch itself. Credentials are held in memory for the request and
+are not written to the manifest, lockfile, or cache. Nia does not send
+credentials over plain HTTP.
+
+HTTP Git sources honor `HTTP_PROXY` and `http_proxy`; HTTPS sources honor
+`HTTPS_PROXY` and `https_proxy`. Both fall back to `ALL_PROXY` or `all_proxy`,
+and `NO_PROXY` or `no_proxy` can bypass the proxy for listed hosts or domains,
+optionally restricted to a port. Proxies must be unauthenticated `http://`
+URLs. HTTPS requests use CONNECT and validate TLS against the repository host;
+repository credentials are sent only inside that encrypted connection.
 
 SSH sources verify the server key against `~/.ssh/known_hosts` (or
 `%USERPROFILE%\.ssh\known_hosts` on Windows), accepting plain and hashed
-OpenSSH entries, and reject unknown or changed host keys. Nia authenticates
-with an unencrypted `~/.ssh/id_ed25519`; SSH agents and other key types are
-not used.
+OpenSSH entries, and reject unknown or changed host keys. Nia first uses an
+Ed25519 identity from the running SSH agent (`SSH_AUTH_SOCK` on Unix-like
+systems or the OpenSSH agent named pipe on Windows). If no compatible agent
+identity is available, it reads an unencrypted `~/.ssh/id_ed25519`. Encrypted
+key files and other key types are not supported directly; load an Ed25519 key
+into the agent instead.
 
 The first build records each Git dependency's commit and content hash in
 `nia.lock` next to the root `nia.toml` (the workspace root in a workspace), and
