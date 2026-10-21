@@ -50,6 +50,29 @@ pub struct RegistryCache {
     root: PathBuf,
 }
 
+/// Configured registry endpoint used for index retrieval.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryEndpoint {
+    pub name: String,
+    pub base_url: String,
+}
+
+impl RegistryEndpoint {
+    /// Validates a registry name and HTTPS base URL.
+    pub fn new(name: impl Into<String>, base_url: impl Into<String>) -> io::Result<Self> {
+        let name = name.into();
+        let base_url = base_url.into();
+        validate_registry_name(&name)?;
+        validate_registry_base_url(&base_url)?;
+        Ok(Self { name, base_url })
+    }
+
+    /// Returns the canonical index URL beneath this endpoint.
+    pub fn index_url(&self) -> String {
+        format!("{}/index.toml", self.base_url.trim_end_matches('/'))
+    }
+}
+
 impl RegistryCache {
     /// Creates a cache handle. The directory is created on first write.
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -361,6 +384,65 @@ fn validate_registry_name(registry: &str) -> io::Result<()> {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     {
         return Err(invalid_index("registry name is invalid"));
+    }
+    Ok(())
+}
+
+fn validate_registry_base_url(url: &str) -> io::Result<()> {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return Err(invalid_index("registry endpoint must use HTTPS"));
+    };
+    if rest.is_empty()
+        || rest.contains(['?', '#', '@', '\\'])
+        || rest
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    {
+        return Err(invalid_index("registry endpoint URL is invalid"));
+    }
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    if authority.is_empty() {
+        return Err(invalid_index("registry endpoint URL is invalid"));
+    }
+    let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
+        let (host, suffix) = bracketed
+            .split_once(']')
+            .ok_or_else(|| invalid_index("registry endpoint URL is invalid"))?;
+        if host.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err(invalid_index("registry endpoint URL is invalid"));
+        }
+        (host, suffix.strip_prefix(':'))
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        if host.contains(':') {
+            return Err(invalid_index("registry endpoint URL is invalid"));
+        }
+        (host, Some(port))
+    } else {
+        (authority, None)
+    };
+    if host.is_empty()
+        || (!authority.starts_with('[')
+            && !host
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')))
+    {
+        return Err(invalid_index("registry endpoint URL is invalid"));
+    }
+    if let Some(port) = port {
+        if port.is_empty()
+            || !port.bytes().all(|byte| byte.is_ascii_digit())
+            || port.parse::<u16>().map_or(true, |value| value == 0)
+        {
+            return Err(invalid_index("registry endpoint URL is invalid"));
+        }
+    }
+    if path
+        .trim_end_matches('/')
+        .split('/')
+        .any(|segment| segment == ".." || segment.is_empty())
+        && !path.is_empty()
+    {
+        return Err(invalid_index("registry endpoint URL is invalid"));
     }
     Ok(())
 }
@@ -750,5 +832,24 @@ mod tests {
         fs::write(cache.archive_path(&digest), b"tampered").unwrap();
         assert!(cache.read_archive(&digest).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_endpoints_require_safe_https_urls() {
+        let endpoint = RegistryEndpoint::new("nia", "https://packages.example.test/api/").unwrap();
+        assert_eq!(
+            endpoint.index_url(),
+            "https://packages.example.test/api/index.toml"
+        );
+        assert!(RegistryEndpoint::new("Nia", "https://packages.example.test").is_err());
+        for url in [
+            "http://packages.example.test",
+            "https://user@packages.example.test",
+            "https://packages.example.test/api/../other",
+            "https://packages.example.test/index?next=other",
+            "https://packages.example.test/#fragment",
+        ] {
+            assert!(RegistryEndpoint::new("nia", url).is_err(), "{url}");
+        }
     }
 }
