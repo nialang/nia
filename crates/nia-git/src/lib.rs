@@ -23,6 +23,9 @@ use pktline::{PacketLine, decode_packet_lines, encode_packet_line};
 mod object;
 use object::{encode_hex, parse_object_id};
 mod transport;
+use transport::git_tcp::checkout_git;
+#[cfg(test)]
+use transport::git_tcp::parse_git_tcp_url;
 use transport::local::{checkout_local, fs_create_dir};
 
 fn invalid_packet(message: &'static str) -> io::Error {
@@ -2433,75 +2436,6 @@ mod ssh {
             request.finish().unwrap();
         }
     }
-}
-
-#[derive(Debug, Clone)]
-struct GitTcpUrl {
-    host: String,
-    port: u16,
-    path: String,
-}
-
-fn parse_git_tcp_url(source: &str) -> io::Result<GitTcpUrl> {
-    let rest = source
-        .strip_prefix("git://")
-        .ok_or_else(|| invalid_packet("Git TCP source must use git://"))?;
-    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    if authority.is_empty() || authority.contains('@') || authority.contains(['?', '#']) {
-        return Err(invalid_packet("Git TCP URL has an invalid authority"));
-    }
-    let (host, port) = if let Some((host, port)) = authority.rsplit_once(':') {
-        if host.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(invalid_packet("Git TCP URL has an invalid port"));
-        }
-        (
-            host.to_string(),
-            port.parse::<u16>()
-                .map_err(|_| invalid_packet("Git TCP port is invalid"))?,
-        )
-    } else {
-        (authority.to_string(), 9418)
-    };
-    if path.is_empty() || path.contains(['?', '#', '\0', '\r', '\n']) {
-        return Err(invalid_packet("Git TCP URL has an invalid repository path"));
-    }
-    Ok(GitTcpUrl {
-        host,
-        port,
-        path: format!("/{path}"),
-    })
-}
-
-fn checkout_git(source: &str, revision: &str, destination: &Path) -> io::Result<String> {
-    let url = parse_git_tcp_url(source)?;
-    let address = format!("{}:{}", url.host, url.port)
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Git host has no address"))?;
-    let mut stream = TcpStream::connect_timeout(&address, std::time::Duration::from_secs(15))?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
-    stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
-
-    let handshake = format!("git-upload-pack {}\0host={}\0", url.path, url.host);
-    let mut request = Vec::new();
-    encode_packet_line(handshake.as_bytes(), &mut request)?;
-    stream.write_all(&request)?;
-    let advertisement = read_packet_section(&mut stream)?;
-    let refs = parse_advertised_refs(&advertisement)?;
-    let commit = select_advertised_revision(&refs, revision)?;
-
-    let request = build_upload_pack_request(&commit)?;
-    stream.write_all(&request)?;
-    stream.flush()?;
-    let mut response = Vec::new();
-    stream
-        .take((MAX_HTTP_RESPONSE + 1) as u64)
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_HTTP_RESPONSE {
-        return Err(invalid_packet("Git response is too large"));
-    }
-    let pack = parse_upload_pack_response(&response)?;
-    write_pack_checkout(&pack, &commit, destination)
 }
 
 fn read_packet_section(stream: &mut impl Read) -> io::Result<Vec<u8>> {
