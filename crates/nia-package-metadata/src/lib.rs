@@ -864,20 +864,23 @@ struct PackageFetcher {
     dirty: bool,
     state_lock: Option<File>,
     registries: BTreeMap<String, RegistryEndpoint>,
+    registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
     registry_selected: BTreeMap<RegistryPackageName, (String, PackageId)>,
     registry_constraints: BTreeMap<RegistryPackageName, Vec<RegistryVersionConstraint>>,
     registry_candidates: BTreeMap<RegistryPackageName, Vec<PackageId>>,
+    registry_restart: Option<(RegistryPackageName, PackageId)>,
 }
 
 impl PackageFetcher {
     fn for_root(root: &Path, policy: LockPolicy) -> io::Result<Self> {
-        Self::for_root_with_registries(root, policy, BTreeMap::new())
+        Self::for_root_with_registries(root, policy, BTreeMap::new(), BTreeMap::new())
     }
 
     fn for_root_with_registries(
         root: &Path,
         policy: LockPolicy,
         registries: BTreeMap<String, RegistryEndpoint>,
+        registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
     ) -> io::Result<Self> {
         let state_root = workspace_state_root(root)?;
         let lock_path = state_root.join("nia.lock");
@@ -891,9 +894,11 @@ impl PackageFetcher {
             dirty: false,
             state_lock: None,
             registries,
+            registry_overrides,
             registry_selected: BTreeMap::new(),
             registry_constraints: BTreeMap::new(),
             registry_candidates: BTreeMap::new(),
+            registry_restart: None,
         })
     }
 
@@ -1300,9 +1305,9 @@ impl PackageFetcher {
             )?
             .remove(package)
             .expect("constraint has a selected package");
-            let selected = locked
-                .as_ref()
-                .map(|(version, ..)| version)
+            let selected = self
+                .registry_overrides
+                .get(package)
                 .filter(|version| {
                     candidates.iter().any(|candidate| candidate == *version)
                         && self
@@ -1315,6 +1320,22 @@ impl PackageFetcher {
                             })
                 })
                 .cloned()
+                .or_else(|| {
+                    locked
+                        .as_ref()
+                        .map(|(version, ..)| version)
+                        .filter(|version| {
+                            candidates.iter().any(|candidate| candidate == *version)
+                                && self.registry_constraints.get(package).is_some_and(
+                                    |constraints| {
+                                        constraints.iter().all(|constraint| {
+                                            constraint.requirement.matches(&version.version)
+                                        })
+                                    },
+                                )
+                        })
+                        .cloned()
+                })
                 .unwrap_or(solved);
             let record = index
                 .packages
@@ -1332,18 +1353,7 @@ impl PackageFetcher {
         if let Some((previous_registry, previous)) = self.registry_selected.get(package)
             && (previous_registry != registry || previous != &selected)
         {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "conflicting registry selections for {}/{}: {} version {} and {} version {}; dependency graph backtracking is required",
-                    package.namespace,
-                    package.name,
-                    previous_registry,
-                    previous.version,
-                    registry,
-                    selected.version
-                ),
-            ));
+            self.registry_restart = Some((package.clone(), selected.clone()));
         }
         self.registry_selected
             .insert(package.clone(), (registry.to_owned(), selected.clone()));
@@ -1901,7 +1911,23 @@ impl PackageGraph {
         policy: LockPolicy,
         registries: BTreeMap<String, RegistryEndpoint>,
     ) -> io::Result<Self> {
-        let mut fetcher = PackageFetcher::for_root_with_registries(root, policy, registries)?;
+        Self::resolve_with_registry_overrides(root, options, policy, registries, BTreeMap::new(), 0)
+    }
+
+    fn resolve_with_registry_overrides(
+        root: &Path,
+        options: PackageGraphOptions,
+        policy: LockPolicy,
+        registries: BTreeMap<String, RegistryEndpoint>,
+        registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
+        attempt: usize,
+    ) -> io::Result<Self> {
+        let mut fetcher = PackageFetcher::for_root_with_registries(
+            root,
+            policy,
+            registries.clone(),
+            registry_overrides,
+        )?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
         let mut seen = BTreeSet::new();
@@ -2022,6 +2048,30 @@ impl PackageGraph {
             (&left.owner_root, &left.dependency.name)
                 .cmp(&(&right.owner_root, &right.dependency.name))
         });
+        if let Some((package, selected)) = fetcher.registry_restart.take() {
+            if attempt >= 64 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "registry dependency resolution did not converge for {}/{}",
+                        package.namespace, package.name
+                    ),
+                ));
+            }
+            let mut next_fetcher = fetcher;
+            next_fetcher.state_lock.take();
+            let mut overrides = std::mem::take(&mut next_fetcher.registry_overrides);
+            overrides.insert(package, selected);
+            drop(next_fetcher);
+            return Self::resolve_with_registry_overrides(
+                root,
+                options,
+                policy,
+                registries,
+                overrides,
+                attempt + 1,
+            );
+        }
         fetcher.prune_unreachable()?;
         fetcher.finish()?;
         Ok(Self {
@@ -6021,6 +6071,107 @@ mod tests {
                 .unwrap()
                 .package
                 .is_empty()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_restarts_when_later_registry_constraints_change_selection() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-backtracking-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let consumer = root.join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+        fs::write(
+            consumer.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\na = { registry = \"nia\", package = \"acme/a\", version = \"^1.0\" }\nz = { registry = \"nia\", package = \"acme/z\", version = \"^1.0\" }\n[registries]\nnia = \"https://registry.example.test\"\n",
+        )
+        .unwrap();
+        let archive = |name: &str, version: &str, dependency: Option<&str>| {
+            let manifest = match dependency {
+                Some(requirement) => format!(
+                    "[package]\nnamespace = \"acme\"\nname = \"{name}\"\nversion = \"{version}\"\n[dependencies]\nshared = {{ registry = \"nia\", package = \"acme/shared\", version = \"{requirement}\" }}\n"
+                ),
+                None => format!(
+                    "[package]\nnamespace = \"acme\"\nname = \"{name}\"\nversion = \"{version}\"\n"
+                ),
+            };
+            let entries = [
+                (0u8, "nia.toml", manifest.as_bytes()),
+                (0u8, "src/lib.nia", b"pub fn value() -> i32 = 1;".as_slice()),
+            ];
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"NIAPKG\0\0");
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+            for (kind, path, contents) in entries {
+                bytes.push(kind);
+                bytes.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                bytes.extend_from_slice(path.as_bytes());
+                bytes.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+                bytes.extend_from_slice(contents);
+            }
+            bytes
+        };
+        let releases = [
+            ("a", "1.0.0", Some(">=1.0.0, <1.1.0")),
+            ("shared", "1.0.0", None),
+            ("shared", "1.1.0", None),
+            ("z", "1.0.0", Some("^1.0")),
+        ];
+        let cache = RegistryCache::new(consumer.join(".nia/registry"));
+        let mut records = Vec::new();
+        for (name, version, dependency) in releases {
+            let bytes = archive(name, version, dependency);
+            let digest = *blake3::hash(&bytes).as_bytes();
+            let digest_text = format!("blake3:{}", hex_digest(&digest));
+            cache.write_archive(&digest, &bytes).unwrap();
+            records.push((name, version, digest_text));
+        }
+        records.sort_by_key(|(name, version, _)| (*name, *version));
+        let mut index = String::from("schema_version = 1\n");
+        for (name, version, digest) in records {
+            index.push_str(&format!(
+                "[[packages]]\nnamespace = \"acme\"\nname = \"{name}\"\nversion = \"{version}\"\narchive_url = \"https://cdn.example.test/{name}-{version}.nia\"\narchive_digest = \"{digest}\"\n"
+            ));
+        }
+        cache.write_index("nia", index.as_bytes()).unwrap();
+
+        let graph = PackageGraph::resolve_with_policy(
+            &consumer,
+            PackageGraphOptions::default(),
+            LockPolicy {
+                locked: false,
+                offline: true,
+            },
+        )
+        .unwrap();
+        let shared_versions = graph
+            .nodes
+            .iter()
+            .filter(|node| node.manifest.package.name == "shared")
+            .map(|node| node.manifest.package.version.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(shared_versions, BTreeSet::from(["1.0.0"]));
+        let lock = PackageLock::read(&consumer.join("nia.lock")).unwrap();
+        assert_eq!(
+            lock.package
+                .iter()
+                .filter_map(|entry| match &entry.source {
+                    LockedSource::Registry {
+                        package, version, ..
+                    } if package == "shared" => {
+                        Some(version.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            ["1.0.0"]
         );
         fs::remove_dir_all(root).unwrap();
     }

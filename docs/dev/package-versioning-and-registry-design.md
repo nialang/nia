@@ -93,3 +93,8 @@ Introduce the new lock schema with registry support and reject every older schem
 6. Complete update behavior, documentation, CLI reporting, and end-to-end tests.
 
 The manifest and lockfile rules have no compatibility mode. Changes needed to make the package model coherent should be made directly while the project is unreleased.
+
+Registry graph resolution may restart from the root when a later dependency
+constraint changes an already selected release. Each restart carries explicit
+candidate overrides and is bounded; the resolver reports a non-converging graph
+as an error instead of accepting multiple versions of one registry package.
