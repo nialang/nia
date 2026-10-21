@@ -27,10 +27,11 @@ use std::{
     str::FromStr,
 };
 
+use cap_std::fs::Dir;
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
-use registry::RegistryFetch;
+use registry::{RegistryFetch, open_cache_directory, open_cache_root};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -953,6 +954,22 @@ impl PackageFetcher {
         })
     }
 
+    fn package_cache(&self, create: bool) -> io::Result<Option<Dir>> {
+        match open_cache_root(&self.cache_root, create) {
+            Ok(directory) => Ok(Some(directory)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !create => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn cached_package(&self, cache: &Dir, name: &str) -> io::Result<Option<PathBuf>> {
+        match open_cache_directory(cache, name, false) {
+            Ok(_) => Ok(Some(self.cache_root.join(name))),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     fn resolve(&mut self, owner: &Path, dependency: &PackageDependency) -> io::Result<PathBuf> {
         match &dependency.source {
             DependencySource::Path(path) => {
@@ -1047,6 +1064,7 @@ impl PackageFetcher {
                     .refresh_names
                     .as_ref()
                     .is_some_and(|names| names.is_empty() || names.contains(&dependency.name));
+                let mut cache_directory = self.package_cache(false)?;
                 if let Some(entry) = self.lock.package.iter().find(|entry| {
                     entry.name == dependency.name
                         && matches!(
@@ -1062,8 +1080,12 @@ impl PackageFetcher {
                     else {
                         unreachable!()
                     };
-                    let destination = self.cache_root.join(&source_fingerprint[7..]);
-                    if destination.is_dir() {
+                    let destination = cache_directory
+                        .as_ref()
+                        .map(|cache| self.cached_package(cache, &source_fingerprint[7..]))
+                        .transpose()?
+                        .flatten();
+                    if let Some(destination) = destination {
                         let manifest = PackageManifest::read(&destination)?;
                         let identity = package_source_identity_with_selection(
                             &destination,
@@ -1116,7 +1138,12 @@ impl PackageFetcher {
                     .as_bytes(),
                 );
                 let destination = self.cache_root.join(key.to_hex().as_str());
-                if !destination.is_dir() {
+                let cached_destination = cache_directory
+                    .as_ref()
+                    .map(|cache| self.cached_package(cache, key.to_hex().as_str()))
+                    .transpose()?
+                    .flatten();
+                if cached_destination.is_none() {
                     if self.policy.locked && fetch_rev.is_none() {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidInput,
@@ -1135,8 +1162,12 @@ impl PackageFetcher {
                             ),
                         ));
                     }
-                    fs::create_dir_all(&self.cache_root)?;
-                    let staging = allocate_package_staging(&self.cache_root)?;
+                    let cache = match cache_directory.take() {
+                        Some(cache) => cache,
+                        None => open_cache_root(&self.cache_root, true)?,
+                    };
+                    let staging_name = allocate_package_staging(&cache)?;
+                    let staging = self.cache_root.join(&staging_name);
                     let fetched_revision = match checkout_source(
                         &source,
                         fetch_rev
@@ -1147,16 +1178,18 @@ impl PackageFetcher {
                     ) {
                         Ok(revision) => revision,
                         Err(error) => {
-                            let _ = fs::remove_dir_all(&staging);
+                            let _ = cache.remove_dir_all(&staging_name);
                             return Err(error);
                         }
                     };
-                    if let Err(error) = fs::rename(&staging, &destination) {
-                        let _ = fs::remove_dir_all(&staging);
-                        if !destination.is_dir() {
+                    let destination_name = key.to_hex().to_string();
+                    if let Err(error) = cache.rename(&staging_name, &cache, &destination_name) {
+                        let _ = cache.remove_dir_all(&staging_name);
+                        if self.cached_package(&cache, &destination_name)?.is_none() {
                             return Err(error);
                         }
                     }
+                    cache_directory = Some(cache);
                     self.lock.package.retain(|entry| {
                         !(entry.name == dependency.name
                             && matches!(
@@ -1175,6 +1208,7 @@ impl PackageFetcher {
                         },
                     });
                 }
+                let destination = cached_destination.unwrap_or(destination);
                 let manifest = PackageManifest::read(&destination)?;
                 let identity = package_source_identity_with_selection(
                     &destination,
@@ -1204,10 +1238,22 @@ impl PackageFetcher {
                     format!("blake3:{}", hex_digest(&identity.source_fingerprint));
                 let final_destination = self.cache_root.join(&source_fingerprint[7..]);
                 if final_destination != destination {
-                    if final_destination.exists() {
-                        let _ = fs::remove_dir_all(&destination);
+                    let cache = cache_directory
+                        .as_ref()
+                        .expect("package cache directory was opened");
+                    if self
+                        .cached_package(cache, &source_fingerprint[7..])?
+                        .is_some()
+                    {
+                        let destination_name = destination
+                            .file_name()
+                            .expect("package cache path has a final component");
+                        let _ = cache.remove_dir_all(destination_name);
                     } else {
-                        fs::rename(&destination, &final_destination)?;
+                        let source_name = destination
+                            .file_name()
+                            .expect("package cache path has a final component");
+                        cache.rename(source_name, cache, &source_fingerprint[7..])?;
                     }
                 }
                 self.lock.package.retain(|entry| {
@@ -1428,8 +1474,10 @@ impl PackageFetcher {
         }
         self.registry_selected
             .insert(package.clone(), (registry.to_owned(), selected.clone()));
-        fs::create_dir_all(&self.cache_root)?;
-        let staging = allocate_package_staging(&self.cache_root)?;
+        let cache = open_cache_root(&self.cache_root, true)?;
+        let staging_name = allocate_package_staging(&cache)?;
+        let staging = self.cache_root.join(&staging_name);
+        let staging_directory = cache.open_dir(&staging_name)?;
         let temporary = staging.join("package");
         let result = (|| {
             extract_registry_archive(&archive, &archive_digest, &temporary)?;
@@ -1462,28 +1510,35 @@ impl PackageFetcher {
                 ));
             }
             let destination = self.cache_root.join(&source_fingerprint[7..]);
-            if !destination.exists() {
-                fs::rename(&temporary, &destination)?;
-            } else {
-                let cached_manifest = PackageManifest::read(&destination)?;
-                let cached_identity = package_source_identity_with_selection(
-                    &destination,
-                    cached_manifest.package.clone(),
-                    &cached_manifest.source,
-                )?;
-                let cached_fingerprint =
-                    format!("blake3:{}", hex_digest(&cached_identity.source_fingerprint));
-                if cached_manifest.package != selected || cached_fingerprint != source_fingerprint {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!(
-                            "cached registry dependency `{}` does not match its content address; delete `{}` to fetch it again",
-                            dependency.name,
-                            display_path(&destination)
-                        ),
-                    ));
+            match cache.symlink_metadata(&source_fingerprint[7..]) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    staging_directory.rename("package", &cache, &source_fingerprint[7..])?;
                 }
-                fs::remove_dir_all(&temporary)?;
+                Err(error) => return Err(error),
+                Ok(_) => {
+                    open_cache_directory(&cache, &source_fingerprint[7..], false)?;
+                    let cached_manifest = PackageManifest::read(&destination)?;
+                    let cached_identity = package_source_identity_with_selection(
+                        &destination,
+                        cached_manifest.package.clone(),
+                        &cached_manifest.source,
+                    )?;
+                    let cached_fingerprint =
+                        format!("blake3:{}", hex_digest(&cached_identity.source_fingerprint));
+                    if cached_manifest.package != selected
+                        || cached_fingerprint != source_fingerprint
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!(
+                                "cached registry dependency `{}` does not match its content address; delete `{}` to fetch it again",
+                                dependency.name,
+                                display_path(&destination)
+                            ),
+                        ));
+                    }
+                    staging_directory.remove_dir_all("package")?;
+                }
             }
             self.record_registry_lock(
                 dependency,
@@ -1494,7 +1549,8 @@ impl PackageFetcher {
             )?;
             Ok(destination)
         })();
-        let _ = fs::remove_dir_all(&staging);
+        drop(staging_directory);
+        let _ = cache.remove_dir_all(&staging_name);
         result
     }
 
@@ -1972,13 +2028,13 @@ fn git_lock_selector(
     }
 }
 
-fn allocate_package_staging(cache_root: &Path) -> io::Result<PathBuf> {
+fn allocate_package_staging(cache_root: &Dir) -> io::Result<String> {
     static NEXT_STAGING_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     for _ in 0..32 {
         let sequence = NEXT_STAGING_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = cache_root.join(format!(".fetch-{}-{sequence}.tmp", std::process::id()));
-        match fs::create_dir(&path) {
-            Ok(()) => return Ok(path),
+        let name = format!(".fetch-{}-{sequence}.tmp", std::process::id());
+        match cache_root.create_dir(&name) {
+            Ok(()) => return Ok(name),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error),
         }
@@ -5955,6 +6011,70 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn package_cache_rejects_linked_roots_and_entries() {
+        let root = lock_test_root("package-cache-links");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        let fetcher = PackageFetcher::for_root(&root, LockPolicy::default()).unwrap();
+        let state = fetcher.cache_root.parent().unwrap();
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(state).unwrap();
+        std::os::unix::fs::symlink(&outside, &fetcher.cache_root).unwrap();
+        assert!(fetcher.package_cache(true).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_file(&fetcher.cache_root).unwrap();
+        fs::create_dir(&fetcher.cache_root).unwrap();
+        std::os::unix::fs::symlink(&outside, fetcher.cache_root.join("cached")).unwrap();
+        let cache = fetcher.package_cache(false).unwrap().unwrap();
+        assert!(fetcher.cached_package(&cache, "cached").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+        fs::remove_file(fetcher.cache_root.join("cached")).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_cache_rejects_junctioned_roots_and_entries() {
+        let root = lock_test_root("package-cache-junctions");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        let fetcher = PackageFetcher::for_root(&root, LockPolicy::default()).unwrap();
+        let state = fetcher.cache_root.parent().unwrap();
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(state).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&fetcher.cache_root)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(fetcher.package_cache(true).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_dir(&fetcher.cache_root).unwrap();
+        fs::create_dir(&fetcher.cache_root).unwrap();
+        let entry = fetcher.cache_root.join("cached");
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&entry)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let cache = fetcher.package_cache(false).unwrap().unwrap();
+        assert!(fetcher.cached_package(&cache, "cached").is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+        drop(cache);
+        fs::remove_dir(entry).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn workspace_member_graph_resolves_all_declared_roots_together() {
         let root = lock_test_root("workspace-member-graph");
@@ -6966,6 +7086,15 @@ mod tests {
             "1.1.0"
         );
         assert_eq!(std::fs::read(package.join("src/lib.nia")).unwrap(), [2]);
+        assert!(
+            std::fs::read_dir(root.join(".nia/packages"))
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".fetch-"))
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
