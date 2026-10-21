@@ -22,6 +22,9 @@ zeroize.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 nia-test-support.workspace = true
 nia-git = { path = ".", features = ["test-support"] }

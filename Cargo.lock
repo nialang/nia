@@ -1110,6 +1110,7 @@ dependencies = [
  "aes",
  "ctr",
  "flate2",
+ "libc",
  "nia-compat",
  "nia-git",
  "nia-test-support",
