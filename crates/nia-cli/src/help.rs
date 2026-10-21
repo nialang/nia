@@ -116,7 +116,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 ("test", "run package tests"),
                 (
                     "update [name ...]",
-                    "fetch Git dependencies again and rewrite nia.lock",
+                    "refresh Git revisions and registry versions in nia.lock",
                 ),
                 ("check <path>", "check a package or source file"),
                 ("emit --<target> <path>", "inspect or write compiler output"),
@@ -336,6 +336,17 @@ mod tests {
                     && (topic != HelpTopic::Main || spec.scope.contains(Scope::GLOBAL));
                 assert_eq!(listed, expected, "{topic:?}: `{}`", spec.usage);
             }
+        }
+    }
+
+    #[test]
+    fn update_help_describes_git_and_registry_refreshes() {
+        let main = help_text(HelpTopic::Main, HelpStyle::Plain);
+        let update = help_text(HelpTopic::Update, HelpStyle::Plain);
+
+        for text in [&main, &update] {
+            assert!(text.contains("Git revisions"), "{text}");
+            assert!(text.contains("registry versions"), "{text}");
         }
     }
 
