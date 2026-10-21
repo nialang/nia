@@ -27,8 +27,8 @@ use std::{
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
-use serde::{Deserialize, Serialize};
 use semver::Version;
+use serde::{Deserialize, Serialize};
 
 /// Protocol epoch for stable compiler-owned metadata.
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
@@ -3679,8 +3679,8 @@ mod tests {
             version: "1.0.0".into(),
         };
 
-        assert_eq!(first.canonical_text(), "acme/lib%40tools@1.0");
-        assert_eq!(second.canonical_text(), "acme/lib@tools%401.0");
+        assert_eq!(first.canonical_text(), "acme/lib%40tools@1.0.0");
+        assert_eq!(second.canonical_text(), "acme/lib@tools%401.0.0");
         assert_ne!(first.canonical_text(), second.canonical_text());
 
         let escaped = PackageId {
