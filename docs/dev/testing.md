@@ -94,6 +94,7 @@ their original error kinds. The current limits are:
 | Delta dependency depth | 64 |
 | Streamed packet-line advertisement, including flush | 16 MiB |
 | Loose reference / packed references | 4 KiB / 16 MiB |
+| Symbolic reference / annotated tag dereferences | 8 / 8 |
 | SSH identity / known hosts | 1 MiB / 16 MiB |
 | SSH agent identities | 1,024 |
 | Checkout directory depth / entries | 64 / 1,000,000 |
@@ -111,6 +112,10 @@ before allocating each delta result. Dependency queues resolve each delta once
 without cloning its base. The byte budgets cover decoded payloads; container
 and allocator overhead, compressed input buffers, and transient decoder buffers
 are additional memory.
+Local revision lookup validates reference names before accessing files and
+rejects links or reparse points below the repository root. Loose and packed
+references share commit and bounded tag resolution. Local repositories must
+remain stable during checkout; path checks do not prevent concurrent changes.
 
 ## Where Tests Live
 
