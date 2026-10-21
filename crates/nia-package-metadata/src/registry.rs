@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Strict registry index records and parsing.
 
-use std::io;
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use serde::Deserialize;
 
@@ -10,6 +15,12 @@ use crate::{PackageId, PackageVersion};
 const INDEX_SCHEMA_VERSION: u32 = 1;
 const MAX_INDEX_BYTES: usize = 1024 * 1024;
 const MAX_INDEX_PACKAGES: usize = 100_000;
+const PACKAGE_ARCHIVE_MAGIC: &[u8; 8] = b"NIAPKG\0\0";
+const PACKAGE_ARCHIVE_SCHEMA: u32 = 1;
+const MAX_PACKAGE_ARCHIVE_BYTES: usize = 256 * 1024 * 1024;
+const MAX_PACKAGE_ARCHIVE_ENTRIES: usize = 100_000;
+const MAX_PACKAGE_ARCHIVE_PATH_BYTES: usize = 4096;
+static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// One validated versioned registry index.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +34,21 @@ pub struct RegistryIndexPackage {
     pub package: PackageId,
     pub archive_url: String,
     pub archive_digest: [u8; 32],
+}
+
+/// One entry decoded from a v1 package archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryArchiveEntry {
+    pub path: String,
+    pub kind: RegistryArchiveEntryKind,
+    pub contents: Vec<u8>,
+}
+
+/// Supported entry types in the package archive format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryArchiveEntryKind {
+    File,
+    Directory,
 }
 
 #[derive(Deserialize)]
@@ -105,6 +131,227 @@ impl RegistryIndex {
             });
         }
         Ok(Self { packages })
+    }
+}
+
+/// Decodes and validates a digest-pinned Nia package archive.
+pub fn decode_registry_archive(
+    archive: &[u8],
+    expected_digest: &[u8; 32],
+) -> io::Result<Vec<RegistryArchiveEntry>> {
+    if archive.len() > MAX_PACKAGE_ARCHIVE_BYTES {
+        return Err(invalid_index(
+            "registry package archive exceeds the size limit",
+        ));
+    }
+    if blake3::hash(archive).as_bytes() != expected_digest {
+        return Err(invalid_index("registry package archive digest mismatch"));
+    }
+    let mut reader = ArchiveReader::new(archive);
+    if reader.take(8)? != PACKAGE_ARCHIVE_MAGIC {
+        return Err(invalid_index("registry package archive has invalid magic"));
+    }
+    if reader.u32()? != PACKAGE_ARCHIVE_SCHEMA {
+        return Err(invalid_index("unsupported registry package archive schema"));
+    }
+    let count = reader.u32()? as usize;
+    if count > MAX_PACKAGE_ARCHIVE_ENTRIES {
+        return Err(invalid_index(
+            "registry package archive has too many entries",
+        ));
+    }
+    let mut entries = Vec::with_capacity(count);
+    let mut previous: Option<String> = None;
+    for _ in 0..count {
+        let kind = match reader.u8()? {
+            0 => RegistryArchiveEntryKind::File,
+            1 => RegistryArchiveEntryKind::Directory,
+            _ => {
+                return Err(invalid_index(
+                    "registry package archive entry type is invalid",
+                ));
+            }
+        };
+        let path_len = reader.u32()? as usize;
+        if path_len == 0 || path_len > MAX_PACKAGE_ARCHIVE_PATH_BYTES {
+            return Err(invalid_index(
+                "registry package archive path length is invalid",
+            ));
+        }
+        let path = std::str::from_utf8(reader.take(path_len)?)
+            .map_err(|_| invalid_index("registry package archive path is not UTF-8"))?
+            .to_owned();
+        validate_archive_path(&path)?;
+        if previous.as_ref().is_some_and(|previous| previous >= &path) {
+            return Err(invalid_index(
+                "registry package archive paths must be uniquely sorted",
+            ));
+        }
+        previous = Some(path.clone());
+        let contents_len = usize::try_from(reader.u64()?)
+            .map_err(|_| invalid_index("registry package archive file is too large"))?;
+        if matches!(kind, RegistryArchiveEntryKind::Directory) && contents_len != 0 {
+            return Err(invalid_index("registry package directory has contents"));
+        }
+        let contents = reader.take(contents_len)?.to_vec();
+        entries.push(RegistryArchiveEntry {
+            path,
+            kind,
+            contents,
+        });
+    }
+    if !reader.is_empty() {
+        return Err(invalid_index("registry package archive has trailing bytes"));
+    }
+    validate_archive_tree(&entries)?;
+    Ok(entries)
+}
+
+/// Verifies and atomically extracts a package archive into a new directory.
+pub fn extract_registry_archive(
+    archive: &[u8],
+    expected_digest: &[u8; 32],
+    destination: &Path,
+) -> io::Result<()> {
+    let entries = decode_registry_archive(archive, expected_digest)?;
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let staging = allocate_archive_staging(parent)?;
+    let result = (|| {
+        for entry in &entries {
+            let path = staging.join(&entry.path);
+            match entry.kind {
+                RegistryArchiveEntryKind::Directory => fs::create_dir_all(path)?,
+                RegistryArchiveEntryKind::File => {
+                    if let Some(parent) = path.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+                    file.write_all(&entry.contents)?;
+                    file.sync_all()?;
+                }
+            }
+        }
+        if fs::symlink_metadata(destination).is_ok() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "registry package destination already exists",
+            ));
+        }
+        fs::rename(&staging, destination)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn allocate_archive_staging(parent: &Path) -> io::Result<PathBuf> {
+    for _ in 0..128 {
+        let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(
+            ".nia-package-{}-{sequence}.tmp",
+            std::process::id()
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate registry package staging directory",
+    ))
+}
+
+fn validate_archive_path(path: &str) -> io::Result<()> {
+    if path.starts_with('/') || path.contains(['\\', '\0', ':']) {
+        return Err(invalid_index(
+            "registry package archive path is not relative",
+        ));
+    }
+    let parsed = Path::new(path);
+    let components = parsed.components().collect::<Vec<_>>();
+    if components.is_empty()
+        || components
+            .iter()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || components.iter().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_none_or(|part| part.is_empty() || part == "." || part == "..")
+        })
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(invalid_index("registry package archive path is invalid"));
+    }
+    Ok(())
+}
+
+fn validate_archive_tree(entries: &[RegistryArchiveEntry]) -> io::Result<()> {
+    let kinds = entries
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry.kind))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for entry in entries {
+        let mut parent = Path::new(&entry.path).parent();
+        while let Some(path) = parent {
+            if path.as_os_str().is_empty() {
+                break;
+            }
+            if let Some(RegistryArchiveEntryKind::File) =
+                kinds.get(path.to_str().unwrap_or_default()).copied()
+            {
+                return Err(invalid_index(
+                    "registry package archive file is used as a directory",
+                ));
+            }
+            parent = path.parent();
+        }
+    }
+    Ok(())
+}
+
+struct ArchiveReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> ArchiveReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn take(&mut self, count: usize) -> io::Result<&'a [u8]> {
+        let end = self
+            .offset
+            .checked_add(count)
+            .filter(|end| *end <= self.bytes.len())
+            .ok_or_else(|| invalid_index("registry package archive is truncated"))?;
+        let bytes = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+
+    fn u8(&mut self) -> io::Result<u8> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u32(&mut self) -> io::Result<u32> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
+
+    fn u64(&mut self) -> io::Result<u64> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.offset == self.bytes.len()
     }
 }
 
@@ -194,6 +441,21 @@ fn invalid_index(message: &'static str) -> io::Error {
 mod tests {
     use super::*;
 
+    fn archive(entries: &[(u8, &str, &[u8])]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(PACKAGE_ARCHIVE_MAGIC);
+        bytes.extend_from_slice(&PACKAGE_ARCHIVE_SCHEMA.to_le_bytes());
+        bytes.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+        for (kind, path, contents) in entries {
+            bytes.push(*kind);
+            bytes.extend_from_slice(&(path.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(path.as_bytes());
+            bytes.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(contents);
+        }
+        bytes
+    }
+
     fn record(namespace: &str, name: &str, version: &str, url: &str) -> String {
         format!(
             "[[packages]]\nnamespace = \"{namespace}\"\nname = \"{name}\"\nversion = \"{version}\"\narchive_url = \"{url}\"\narchive_digest = \"blake3:{}\"\n",
@@ -258,5 +520,58 @@ mod tests {
             );
             assert!(RegistryIndex::parse_toml(input.as_bytes()).is_err());
         }
+    }
+
+    #[test]
+    fn package_archive_checks_digest_bounds_paths_and_entry_kinds() {
+        let good = archive(&[
+            (1, "src", b""),
+            (0, "src/lib.nia", b"pub fn answer() -> i32 = 42;\n"),
+        ]);
+        let digest = *blake3::hash(&good).as_bytes();
+        let entries = decode_registry_archive(&good, &digest).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].contents, b"pub fn answer() -> i32 = 42;\n");
+
+        let wrong_digest = [0; 32];
+        assert!(decode_registry_archive(&good, &wrong_digest).is_err());
+        for bad in [
+            archive(&[(0, "../outside", b"x")]),
+            archive(&[(0, "src\\outside", b"x")]),
+            archive(&[(0, "src//outside", b"x")]),
+            archive(&[(2, "link", b"target")]),
+            archive(&[(0, "file", b""), (0, "file/child", b"x")]),
+        ] {
+            let digest = *blake3::hash(&bad).as_bytes();
+            assert!(decode_registry_archive(&bad, &digest).is_err());
+        }
+        let mut trailing = good.clone();
+        trailing.push(0);
+        assert!(decode_registry_archive(&trailing, &blake3::hash(&trailing).into()).is_err());
+        assert!(decode_registry_archive(&good[..good.len() - 1], &digest).is_err());
+    }
+
+    #[test]
+    fn package_archive_extracts_atomically_and_refuses_existing_destinations() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-archive-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let destination = root.join("cache/package");
+        let bytes = archive(&[(0, "nia.toml", b"[package]\nname = \"demo\"\n")]);
+        let digest = *blake3::hash(&bytes).as_bytes();
+        extract_registry_archive(&bytes, &digest, &destination).unwrap();
+        assert_eq!(
+            fs::read(destination.join("nia.toml")).unwrap(),
+            b"[package]\nname = \"demo\"\n"
+        );
+        assert_eq!(
+            extract_registry_archive(&bytes, &digest, &destination)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }
