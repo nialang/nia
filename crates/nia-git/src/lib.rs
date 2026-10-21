@@ -11,9 +11,6 @@ use zeroize::Zeroizing;
 const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_HTTP_RESPONSE: usize = 128 * 1024 * 1024;
 const MAX_PACKET_PAYLOAD: usize = 65_516;
-const MAX_SSH_IDENTIFICATION_LINE: usize = 255;
-const MAX_SSH_PRE_IDENTIFICATION_LINES: usize = 50;
-const MAX_SSH_PACKET_BYTES: usize = 256 * 1024;
 
 mod pktline;
 use pktline::{PacketLine, decode_packet_lines, encode_packet_line};
