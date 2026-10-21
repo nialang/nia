@@ -52,7 +52,17 @@ writes to a newly allocated staging directory, and atomically publishes it.
 
 ## Lockfile
 
-`nia.lock` is authoritative for every selected source. Registry entries record registry identity, package identity, selected SemVer version, archive digest, and source fingerprint. They cannot depend on mutable index responses after locking. `--locked` resolves only from lock entries and cached artifacts and fails before network access if required data is unavailable. `--offline` uses cached registry metadata and artifacts only. `nia update` refreshes registry selections within requirements and Git selectors as today; unchanged resolution leaves lockfile bytes untouched.
+`nia.lock` schema version 2 is authoritative for every selected source. Each
+entry has a tagged source record. Git records contain the canonical URL,
+selector, resolved commit, and source fingerprint. Registry records contain
+registry identity, package namespace/name, selected SemVer version, archive
+digest, and source fingerprint. They cannot depend on mutable index responses
+after locking. Schema version 1 and any unknown schema are rejected without
+migration. `--locked` resolves only from lock entries and cached artifacts and
+fails before network access if required data is unavailable. `--offline` uses
+cached registry metadata and artifacts only. `nia update` refreshes registry
+selections within requirements and Git selectors as today; unchanged
+resolution leaves lockfile bytes untouched.
 
 Introduce the new lock schema with registry support and reject every older schema. Do not dual-read, auto-migrate, or rewrite legacy lockfiles. Since Nia is still in development, users regenerate a lockfile using the new resolver.
 

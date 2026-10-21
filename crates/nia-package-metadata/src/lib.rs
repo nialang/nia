@@ -453,7 +453,7 @@ pub struct PackageDependencyReport {
 }
 
 /// Current on-disk lockfile schema.
-pub const LOCKFILE_VERSION: u32 = 1;
+pub const LOCKFILE_VERSION: u32 = 2;
 const MAX_LOCKFILE_BYTES: usize = 4 * 1024 * 1024;
 
 /// Reproducible package source selections recorded in `nia.lock`.
@@ -461,18 +461,103 @@ const MAX_LOCKFILE_BYTES: usize = 4 * 1024 * 1024;
 #[serde(deny_unknown_fields)]
 pub struct PackageLock {
     pub version: u32,
-    #[serde(default)]
+    #[serde(default, rename = "packages")]
     pub package: Vec<LockedPackage>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum LockedSource {
+    Git {
+        url: String,
+        selector: String,
+        revision: String,
+        source_fingerprint: String,
+    },
+    Registry {
+        registry: String,
+        namespace: String,
+        package: String,
+        version: String,
+        archive_digest: String,
+        source_fingerprint: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LockedPackage {
     pub name: String,
-    pub source: String,
-    pub selector: String,
-    pub rev: String,
-    pub content_hash: String,
+    pub source: LockedSource,
+}
+
+impl LockedSource {
+    fn git_identity(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Git { url, selector, .. } => Some((url, selector)),
+            Self::Registry { .. } => None,
+        }
+    }
+
+    fn git_revision(&self) -> Option<&str> {
+        match self {
+            Self::Git { revision, .. } => Some(revision),
+            Self::Registry { .. } => None,
+        }
+    }
+
+    fn source_fingerprint(&self) -> Option<&str> {
+        match self {
+            Self::Git {
+                source_fingerprint, ..
+            }
+            | Self::Registry {
+                source_fingerprint, ..
+            } => Some(source_fingerprint),
+        }
+    }
+}
+
+fn same_locked_selector(left: &LockedPackage, right: &LockedPackage) -> bool {
+    if left.name != right.name {
+        return false;
+    }
+    match (&left.source, &right.source) {
+        (
+            LockedSource::Git {
+                url: left_url,
+                selector: left_selector,
+                ..
+            },
+            LockedSource::Git {
+                url: right_url,
+                selector: right_selector,
+                ..
+            },
+        ) => left_url == right_url && left_selector == right_selector,
+        (
+            LockedSource::Registry {
+                registry: left_registry,
+                namespace: left_namespace,
+                package: left_package,
+                version: left_version,
+                ..
+            },
+            LockedSource::Registry {
+                registry: right_registry,
+                namespace: right_namespace,
+                package: right_package,
+                version: right_version,
+                ..
+            },
+        ) => {
+            left_registry == right_registry
+                && left_namespace == right_namespace
+                && left_package == right_package
+                && left_version == right_version
+        }
+        _ => false,
+    }
 }
 
 impl Default for PackageLock {
@@ -500,42 +585,66 @@ impl PackageLock {
                     format!("invalid lockfile package name: {error}"),
                 )
             })?;
-            if package.source.is_empty() || package.source.contains(['\r', '\n']) {
-                return Err(io::Error::new(error_kind, "lockfile source is invalid"));
-            }
-            if package.selector.is_empty() || package.selector.contains(['\r', '\n']) {
-                return Err(io::Error::new(error_kind, "lockfile selector is invalid"));
-            }
-            if package.rev.len() != 40 || !package.rev.bytes().all(|byte| byte.is_ascii_hexdigit())
-            {
+            let identity = match &package.source {
+                LockedSource::Git {
+                    url,
+                    selector,
+                    revision,
+                    source_fingerprint,
+                } => {
+                    if url.is_empty() || url.contains(['\r', '\n']) {
+                        return Err(io::Error::new(error_kind, "lockfile Git URL is invalid"));
+                    }
+                    if selector.is_empty() || selector.contains(['\r', '\n']) {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile Git selector is invalid",
+                        ));
+                    }
+                    if revision.len() != 40
+                        || !revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile Git revision must be a full hexadecimal commit",
+                        ));
+                    }
+                    validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
+                    format!("git\0{url}\0{selector}")
+                }
+                LockedSource::Registry {
+                    registry,
+                    namespace,
+                    package,
+                    version,
+                    archive_digest,
+                    source_fingerprint,
+                } => {
+                    validate_registry_package_segment(namespace, "lockfile")?;
+                    validate_registry_package_segment(package, "lockfile")?;
+                    if registry.is_empty()
+                        || registry.len() > 64
+                        || !registry.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                        })
+                    {
+                        return Err(io::Error::new(error_kind, "lockfile registry is invalid"));
+                    }
+                    PackageVersion::parse(version).map_err(|error| {
+                        io::Error::new(
+                            error_kind,
+                            format!("lockfile package version is invalid: {error}"),
+                        )
+                    })?;
+                    validate_blake3_text(archive_digest, "archive digest", error_kind)?;
+                    validate_blake3_text(source_fingerprint, "source fingerprint", error_kind)?;
+                    format!("registry\0{registry}\0{namespace}\0{package}\0{version}")
+                }
+            };
+            if !identities.insert((package.name.as_str(), identity)) {
                 return Err(io::Error::new(
                     error_kind,
-                    "lockfile revision must be a full hexadecimal commit",
-                ));
-            }
-            if !package.content_hash.starts_with("blake3:") || package.content_hash.len() != 71 {
-                return Err(io::Error::new(
-                    error_kind,
-                    "lockfile content hash must be a blake3 digest",
-                ));
-            }
-            if !package.content_hash[7..]
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-            {
-                return Err(io::Error::new(
-                    error_kind,
-                    "lockfile content hash must be hexadecimal",
-                ));
-            }
-            if !identities.insert((
-                package.name.as_str(),
-                package.source.as_str(),
-                package.selector.as_str(),
-            )) {
-                return Err(io::Error::new(
-                    error_kind,
-                    "lockfile contains duplicate package selectors",
+                    "lockfile contains duplicate package source identities",
                 ));
             }
         }
@@ -607,6 +716,21 @@ impl PackageLock {
     }
 }
 
+fn validate_blake3_text(value: &str, label: &str, kind: io::ErrorKind) -> io::Result<()> {
+    if !value.starts_with("blake3:")
+        || value.len() != 71
+        || !value[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(io::Error::new(
+            kind,
+            format!("lockfile {label} must be a blake3 digest"),
+        ));
+    }
+    Ok(())
+}
+
 /// How resolution may change `nia.lock` and the package cache.
 ///
 /// The policy never changes which packages are selected, so it is not part of
@@ -670,10 +794,19 @@ impl PackageFetcher {
                 let selector = git_lock_selector(rev, tag, branch);
                 if let Some(entry) = self.lock.package.iter().find(|entry| {
                     entry.name == dependency.name
-                        && entry.source == source
-                        && entry.selector == selector
+                        && matches!(
+                            &entry.source,
+                            LockedSource::Git { url, selector: locked_selector, .. }
+                                if url == &source && locked_selector == &selector
+                        )
                 }) {
-                    let destination = self.cache_root.join(&entry.content_hash[7..]);
+                    let LockedSource::Git {
+                        source_fingerprint, ..
+                    } = &entry.source
+                    else {
+                        unreachable!()
+                    };
+                    let destination = self.cache_root.join(&source_fingerprint[7..]);
                     if destination.is_dir() {
                         let manifest = PackageManifest::read(&destination)?;
                         let identity = package_source_identity_with_selection(
@@ -682,7 +815,7 @@ impl PackageFetcher {
                             &manifest.source,
                         )?;
                         if format!("blake3:{}", hex_digest(&identity.source_fingerprint))
-                            == entry.content_hash
+                            == *source_fingerprint
                         {
                             return Ok(destination);
                         }
@@ -702,10 +835,16 @@ impl PackageFetcher {
                     .iter()
                     .find(|entry| {
                         entry.name == dependency.name
-                            && entry.source == source
-                            && entry.selector == selector
+                            && matches!(
+                                &entry.source,
+                                LockedSource::Git { url, selector: locked_selector, .. }
+                                    if url == &source && locked_selector == &selector
+                            )
                     })
-                    .map(|entry| entry.rev.clone());
+                    .and_then(|entry| match &entry.source {
+                        LockedSource::Git { revision, .. } => Some(revision.clone()),
+                        LockedSource::Registry { .. } => None,
+                    });
                 let fetch_rev = rev.clone().or(locked_rev);
                 let key = blake3::hash(
                     format!(
@@ -761,15 +900,20 @@ impl PackageFetcher {
                     }
                     self.lock.package.retain(|entry| {
                         !(entry.name == dependency.name
-                            && entry.source == source
-                            && entry.selector == selector)
+                            && matches!(
+                                &entry.source,
+                                LockedSource::Git { url, selector: locked_selector, .. }
+                                    if url == &source && locked_selector == &selector
+                            ))
                     });
                     self.lock.package.push(LockedPackage {
                         name: dependency.name.clone(),
-                        source: source.clone(),
-                        selector: selector.clone(),
-                        rev: fetched_revision,
-                        content_hash: String::new(),
+                        source: LockedSource::Git {
+                            url: source.clone(),
+                            selector: selector.clone(),
+                            revision: fetched_revision,
+                            source_fingerprint: String::new(),
+                        },
                     });
                 }
                 let manifest = PackageManifest::read(&destination)?;
@@ -784,15 +928,22 @@ impl PackageFetcher {
                     .iter()
                     .find(|entry| {
                         entry.name == dependency.name
-                            && entry.source == source
-                            && entry.selector == selector
+                            && matches!(
+                                &entry.source,
+                                LockedSource::Git { url, selector: locked_selector, .. }
+                                    if url == &source && locked_selector == &selector
+                            )
                     })
-                    .map(|entry| entry.rev.clone())
+                    .and_then(|entry| match &entry.source {
+                        LockedSource::Git { revision, .. } => Some(revision.clone()),
+                        LockedSource::Registry { .. } => None,
+                    })
                     .ok_or_else(|| {
                         io::Error::new(io::ErrorKind::InvalidData, "Git revision was not recorded")
                     })?;
-                let content_hash = format!("blake3:{}", hex_digest(&identity.source_fingerprint));
-                let final_destination = self.cache_root.join(&content_hash[7..]);
+                let source_fingerprint =
+                    format!("blake3:{}", hex_digest(&identity.source_fingerprint));
+                let final_destination = self.cache_root.join(&source_fingerprint[7..]);
                 if final_destination != destination {
                     if final_destination.exists() {
                         let _ = fs::remove_dir_all(&destination);
@@ -802,22 +953,23 @@ impl PackageFetcher {
                 }
                 self.lock.package.retain(|entry| {
                     !(entry.name == dependency.name
-                        && entry.source == source
-                        && entry.selector == selector)
+                        && matches!(
+                            &entry.source,
+                            LockedSource::Git { url, selector: locked_selector, .. }
+                                if url == &source && locked_selector == &selector
+                        ))
                 });
                 self.lock.package.push(LockedPackage {
                     name: dependency.name.clone(),
-                    source,
-                    selector,
-                    rev,
-                    content_hash,
+                    source: LockedSource::Git {
+                        url: source,
+                        selector,
+                        revision: rev,
+                        source_fingerprint,
+                    },
                 });
                 self.lock.package.sort_by(|left, right| {
-                    (&left.name, &left.source, &left.selector).cmp(&(
-                        &right.name,
-                        &right.source,
-                        &right.selector,
-                    ))
+                    (&left.name, &left.source).cmp(&(&right.name, &right.source))
                 });
                 self.dirty = true;
                 Ok(final_destination)
@@ -865,13 +1017,16 @@ impl PackageFetcher {
             return Ok(());
         };
         let before = self.lock.package.len();
-        self.lock.package.retain(|entry| {
-            reachable.contains(&(
-                entry.name.clone(),
-                entry.source.clone(),
-                entry.selector.clone(),
-            ))
-        });
+        self.lock
+            .package
+            .retain(|entry| match entry.source.git_identity() {
+                Some((source, selector)) => reachable.contains(&(
+                    entry.name.clone(),
+                    source.to_owned(),
+                    selector.to_owned(),
+                )),
+                None => true,
+            });
         if self.lock.package.len() != before {
             self.dirty = true;
         }
@@ -924,10 +1079,16 @@ impl PackageFetcher {
                         let selector = git_lock_selector(rev, tag, branch);
                         let entry = self.lock.package.iter().find(|entry| {
                             entry.name == dependency.name
-                                && entry.source == source
-                                && entry.selector == selector
+                                && entry.source.git_identity().is_some_and(
+                                    |(url, locked_selector)| {
+                                        url == source && locked_selector == selector
+                                    },
+                                )
                         })?;
-                        pending.push(self.cache_root.join(entry.content_hash.get(7..)?));
+                        pending.push(
+                            self.cache_root
+                                .join(entry.source.source_fingerprint()?.get(7..)?),
+                        );
                         reachable.insert((dependency.name.clone(), source, selector));
                     }
                     DependencySource::Registry { .. } => return None,
@@ -941,17 +1102,8 @@ impl PackageFetcher {
         if !self.dirty {
             return Ok(());
         }
-        let key = |entry: &LockedPackage| {
-            (
-                entry.name.clone(),
-                entry.source.clone(),
-                entry.selector.clone(),
-                entry.rev.clone(),
-                entry.content_hash.clone(),
-            )
-        };
-        let mut before = self.original.iter().map(key).collect::<Vec<_>>();
-        let mut after = self.lock.package.iter().map(key).collect::<Vec<_>>();
+        let mut before = self.original.clone();
+        let mut after = self.lock.package.clone();
         before.sort();
         after.sort();
         if before == after {
@@ -1001,17 +1153,19 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
         fetcher.lock_state()?;
         let before = fetcher.lock.package.clone();
         for name in names {
-            if !before.iter().any(|entry| &entry.name == name) {
+            if !before.iter().any(|entry| {
+                &entry.name == name && matches!(entry.source, LockedSource::Git { .. })
+            }) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!("`{name}` is not a locked Git dependency"),
                 ));
             }
         }
-        fetcher
-            .lock
-            .package
-            .retain(|entry| !names.is_empty() && !names.contains(&entry.name));
+        fetcher.lock.package.retain(|entry| {
+            !matches!(entry.source, LockedSource::Git { .. })
+                || (!names.is_empty() && !names.contains(&entry.name))
+        });
         fetcher.dirty = true;
         fetcher.finish()?;
         before
@@ -1037,32 +1191,33 @@ pub fn update_lock(start: &Path, names: &[String]) -> io::Result<Vec<LockUpdate>
         PackageGraph::resolve(&root, true)?;
     }
     let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
-    let key = |entry: &LockedPackage| {
-        (
-            entry.name.clone(),
-            entry.source.clone(),
-            entry.selector.clone(),
-        )
-    };
     let mut updates = Vec::new();
     for old in &before {
-        let new = after.iter().find(|entry| key(entry) == key(old));
-        if new.map(|entry| &entry.rev) != Some(&old.rev) {
+        let Some((_, selector)) = old.source.git_identity() else {
+            continue;
+        };
+        let old_revision = old.source.git_revision().unwrap().to_owned();
+        let new = after.iter().find(|entry| same_locked_selector(entry, old));
+        let new_revision = new.and_then(|entry| entry.source.git_revision());
+        if new_revision != Some(old_revision.as_str()) {
             updates.push(LockUpdate {
                 name: old.name.clone(),
-                selector: old.selector.clone(),
-                old_rev: Some(old.rev.clone()),
-                new_rev: new.map(|entry| entry.rev.clone()),
+                selector: selector.to_owned(),
+                old_rev: Some(old_revision),
+                new_rev: new_revision.map(str::to_owned),
             });
         }
     }
     for new in &after {
-        if !before.iter().any(|entry| key(entry) == key(new)) {
+        let Some((_, selector)) = new.source.git_identity() else {
+            continue;
+        };
+        if !before.iter().any(|entry| same_locked_selector(entry, new)) {
             updates.push(LockUpdate {
                 name: new.name.clone(),
-                selector: new.selector.clone(),
+                selector: selector.to_owned(),
                 old_rev: None,
-                new_rev: Some(new.rev.clone()),
+                new_rev: new.source.git_revision().map(str::to_owned),
             });
         }
     }
@@ -4060,10 +4215,12 @@ mod tests {
             version: LOCKFILE_VERSION,
             package: vec![LockedPackage {
                 name: "regex".into(),
-                source: "https://example.com/regex.git".into(),
-                selector: "branch:main".into(),
-                rev: "0123456789012345678901234567890123456789".into(),
-                content_hash: format!("blake3:{}", "a".repeat(64)),
+                source: LockedSource::Git {
+                    url: "https://example.com/regex.git".into(),
+                    selector: "branch:main".into(),
+                    revision: "0123456789012345678901234567890123456789".into(),
+                    source_fingerprint: format!("blake3:{}", "a".repeat(64)),
+                },
             }],
         };
         lock.write_atomic(&path).unwrap();
@@ -4073,7 +4230,50 @@ mod tests {
             PackageLock::read(&path).unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
+        fs::write(&path, "version = 1\npackage = []\n").unwrap();
+        assert!(
+            PackageLock::read(&path).is_err(),
+            "lock schema v1 is obsolete"
+        );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn registry_lock_records_pin_release_archive_and_source_fingerprint() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-lock-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("nia.lock");
+        let entry = LockedPackage {
+            name: "json".into(),
+            source: LockedSource::Registry {
+                registry: "nia".into(),
+                namespace: "acme".into(),
+                package: "json".into(),
+                version: "1.4.2".into(),
+                archive_digest: format!("blake3:{}", "a".repeat(64)),
+                source_fingerprint: format!("blake3:{}", "b".repeat(64)),
+            },
+        };
+        let lock = PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![entry],
+        };
+        lock.write_atomic(&path).unwrap();
+        assert_eq!(PackageLock::read(&path).unwrap(), lock);
+        let mut invalid = lock;
+        let LockedSource::Registry { version, .. } = &mut invalid.package[0].source else {
+            unreachable!();
+        };
+        *version = "1.4".into();
+        assert!(invalid.write_atomic(&path).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -4090,10 +4290,12 @@ mod tests {
         let path = root.join("nia.lock");
         let entry = |selector: &str| LockedPackage {
             name: "regex".into(),
-            source: "https://example.com/regex.git".into(),
-            selector: selector.into(),
-            rev: "0123456789012345678901234567890123456789".into(),
-            content_hash: format!("blake3:{}", "a".repeat(64)),
+            source: LockedSource::Git {
+                url: "https://example.com/regex.git".into(),
+                selector: selector.into(),
+                revision: "0123456789012345678901234567890123456789".into(),
+                source_fingerprint: format!("blake3:{}", "a".repeat(64)),
+            },
         };
         let lock = PackageLock {
             version: LOCKFILE_VERSION,
@@ -4161,10 +4363,12 @@ mod tests {
         );
         let old_entry = LockedPackage {
             name: "dep".into(),
-            source: repository_url.clone(),
-            selector: "tag:previous".into(),
-            rev: "0123456789012345678901234567890123456789".into(),
-            content_hash: format!("blake3:{}", "b".repeat(64)),
+            source: LockedSource::Git {
+                url: repository_url.clone(),
+                selector: "tag:previous".into(),
+                revision: "0123456789012345678901234567890123456789".into(),
+                source_fingerprint: format!("blake3:{}", "b".repeat(64)),
+            },
         };
         PackageLock {
             version: LOCKFILE_VERSION,
@@ -4186,13 +4390,13 @@ mod tests {
         let mut fetcher = PackageFetcher::for_root(&consumer, LockPolicy::default()).unwrap();
         fetcher.resolve(&consumer, &dependency).unwrap();
         assert!(fetcher.lock.package.contains(&old_entry));
-        assert!(
-            fetcher
-                .lock
-                .package
-                .iter()
-                .any(|entry| entry.name == "dep" && entry.selector == "branch:main")
-        );
+        assert!(fetcher.lock.package.iter().any(|entry| {
+            entry.name == "dep"
+                && matches!(
+                    &entry.source,
+                    LockedSource::Git { selector, .. } if selector == "branch:main"
+                )
+        }));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -5246,13 +5450,13 @@ mod tests {
     }
 
     fn locked_rev(root: &Path, name: &str) -> String {
-        PackageLock::read(&root.join("nia.lock"))
-            .unwrap()
+        let lock = PackageLock::read(&root.join("nia.lock")).unwrap();
+        let entry = lock
             .package
             .into_iter()
             .find(|entry| entry.name == name)
-            .unwrap()
-            .rev
+            .unwrap();
+        entry.source.git_revision().unwrap().to_owned()
     }
 
     #[test]
@@ -5549,9 +5753,18 @@ mod tests {
         );
         let lock = PackageLock::read(&consumer.join("nia.lock")).unwrap();
         assert_eq!(lock.package.len(), 1);
-        assert_eq!(lock.package[0].selector, "branch:main");
-        assert_eq!(lock.package[0].rev.len(), 40);
-        assert!(lock.package[0].content_hash.starts_with("blake3:"));
+        let LockedSource::Git {
+            selector,
+            revision,
+            source_fingerprint,
+            ..
+        } = &lock.package[0].source
+        else {
+            panic!("expected a Git lock entry");
+        };
+        assert_eq!(selector, "branch:main");
+        assert_eq!(revision.len(), 40);
+        assert!(source_fingerprint.starts_with("blake3:"));
 
         std::fs::remove_dir_all(root).unwrap();
     }
