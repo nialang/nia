@@ -317,7 +317,7 @@ mod tests {
     }
 
     fn direction() -> SshAes128CtrDirection {
-        SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32]).unwrap()
+        SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32], 0).unwrap()
     }
 
     fn keys() -> SshTransportKeys {

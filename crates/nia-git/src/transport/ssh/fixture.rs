@@ -211,6 +211,9 @@ pub(super) fn with_checkout_fixture_status(
                 .starts_with(b"SSH-2.0-NiaGit")
         );
         stream.write_all(b"SSH-2.0-TestServer\r\n").unwrap();
+        let mut ignore = vec![2];
+        put_string(b"pre-kex notification", &mut ignore);
+        write_plain_ssh_packet(&mut stream, &ignore).unwrap();
 
         let client_kexinit = read_ssh_packet(&mut stream, 8).unwrap().payload;
         let client_proposals = parse_ssh_kexinit(&client_kexinit).unwrap();
@@ -256,10 +259,10 @@ pub(super) fn with_checkout_fixture_status(
             derive_ssh_key(&shared_secret, &exchange_hash, &session_id, letter, length).unwrap()
         };
         let mut inbound =
-            SshAes128CtrDirection::new(&derive(b'C', 16), &derive(b'A', 16), &derive(b'E', 32))
+            SshAes128CtrDirection::new(&derive(b'C', 16), &derive(b'A', 16), &derive(b'E', 32), 3)
                 .unwrap();
         let mut outbound =
-            SshAes128CtrDirection::new(&derive(b'D', 16), &derive(b'B', 16), &derive(b'F', 32))
+            SshAes128CtrDirection::new(&derive(b'D', 16), &derive(b'B', 16), &derive(b'F', 32), 4)
                 .unwrap();
 
         let service_request = inbound.read_packet(&mut stream).unwrap().payload;
