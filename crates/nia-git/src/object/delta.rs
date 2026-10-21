@@ -106,3 +106,32 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn arbitrary_delta_instructions_do_not_panic(
+            base in prop::collection::vec(any::<u8>(), 0..128),
+            instructions in prop::collection::vec(any::<u8>(), 0..1024),
+            result_len in 0u8..128,
+        ) {
+            // Supply valid, small declared sizes so arbitrary instructions reach the decoder.
+            let mut delta = vec![base.len() as u8, result_len];
+            delta.extend(instructions);
+            if let Ok(result) = apply_delta(&base, &delta) {
+                prop_assert_eq!(result.len(), usize::from(result_len));
+            }
+        }
+
+        #[test]
+        fn insert_delta_reconstructs_payload(payload in prop::collection::vec(any::<u8>(), 1..128)) {
+            let mut delta = vec![0, payload.len() as u8, payload.len() as u8];
+            delta.extend_from_slice(&payload);
+            prop_assert_eq!(apply_delta(&[], &delta).unwrap(), payload);
+        }
+    }
+}

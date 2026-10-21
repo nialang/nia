@@ -81,6 +81,9 @@ impl SshEd25519Identity {
         let public_blob = outer.string()?.to_vec();
         let private_block = outer.string()?;
         outer.finish()?;
+        if !private_block.len().is_multiple_of(8) {
+            return Err(invalid_packet("SSH private key block is not aligned"));
+        }
 
         let mut public_reader = SshReader::new(&public_blob);
         let public_algorithm = public_reader.string()?;
@@ -111,7 +114,7 @@ impl SshEd25519Identity {
         let private_key = private_reader.string()?;
         let _comment = private_reader.string()?;
         let padding = private_reader.take(private_reader.remaining())?;
-        if padding.is_empty()
+        if padding.len() > 8
             || padding
                 .iter()
                 .enumerate()
@@ -539,5 +542,81 @@ mod windows_identity_permission_tests {
         icacls(&key, &["/remove:g", "*S-1-1-0"]);
         verify_ssh_identity_permissions(&key).unwrap();
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod properties {
+    use super::super::wire::encode_ssh_string;
+    use super::*;
+    use crate::transport::http::base64_encode;
+    use proptest::prelude::*;
+
+    fn encoded_identity(seed: &[u8; 32], comment: &[u8], padding: Option<usize>) -> Vec<u8> {
+        let pair = signature::Ed25519KeyPair::from_seed_unchecked(seed).unwrap();
+        let public = pair.public_key().as_ref();
+        let mut public_blob = Vec::new();
+        encode_ssh_string(b"ssh-ed25519", &mut public_blob).unwrap();
+        encode_ssh_string(public, &mut public_blob).unwrap();
+        let mut private = Vec::new();
+        private.extend_from_slice(&7u32.to_be_bytes());
+        private.extend_from_slice(&7u32.to_be_bytes());
+        encode_ssh_string(b"ssh-ed25519", &mut private).unwrap();
+        encode_ssh_string(public, &mut private).unwrap();
+        encode_ssh_string(&[seed.as_slice(), public].concat(), &mut private).unwrap();
+        encode_ssh_string(comment, &mut private).unwrap();
+        let padding_len = padding.unwrap_or((8 - private.len() % 8) % 8);
+        private.extend((0..padding_len).map(|index| (index as u8).wrapping_add(1)));
+        let mut outer = b"openssh-key-v1\0".to_vec();
+        for value in [b"none".as_slice(), b"none", b""] {
+            encode_ssh_string(value, &mut outer).unwrap();
+        }
+        outer.extend_from_slice(&1u32.to_be_bytes());
+        encode_ssh_string(&public_blob, &mut outer).unwrap();
+        encode_ssh_string(&private, &mut outer).unwrap();
+        let encoded = base64_encode(&outer);
+        format!(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----\n",
+            std::str::from_utf8(&encoded).unwrap()
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn oversized_private_key_padding_is_rejected() {
+        let input = encoded_identity(&[1; 32], b"test", Some(256));
+        assert!(SshEd25519Identity::parse_openssh(&input).is_err());
+    }
+
+    #[test]
+    fn aligned_private_key_without_padding_is_accepted() {
+        // Ed25519 fields consume 131 bytes before the comment. Five comment
+        // bytes align the private block to the none cipher's eight-byte block.
+        let input = encoded_identity(&[1; 32], b"12345", Some(0));
+        assert!(SshEd25519Identity::parse_openssh(&input).is_ok());
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_openssh_inputs_do_not_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = SshEd25519Identity::parse_openssh(&bytes);
+            let encoded = base64_encode(&bytes);
+            let armored = format!("-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----\n", std::str::from_utf8(&encoded).unwrap());
+            let _ = SshEd25519Identity::parse_openssh(armored.as_bytes());
+        }
+
+        #[test]
+        fn generated_openssh_identities_round_trip(seed in any::<[u8; 32]>(), comment in prop::collection::vec(any::<u8>(), 0..64)) {
+            let input = encoded_identity(&seed, &comment, None);
+            let identity = SshEd25519Identity::parse_openssh(&input).unwrap();
+            let pair = signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
+            signature::UnparsedPublicKey::new(&signature::ED25519, pair.public_key().as_ref())
+                .verify(b"property test", identity.sign(b"property test").as_ref()).unwrap();
+        }
+
+        #[test]
+        fn oversized_openssh_padding_is_rejected(padding in 9usize..512) {
+            prop_assert!(SshEd25519Identity::parse_openssh(&encoded_identity(&[1; 32], b"test", Some(padding))).is_err());
+        }
     }
 }

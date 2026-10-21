@@ -1,0 +1,68 @@
+name: git parser properties
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/git-parsers.yml"
+      - ".cargo/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/nia-git/**"
+      - "docs/dev/testing.md"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/git-parsers.yml"
+      - ".cargo/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/nia-git/**"
+      - "docs/dev/testing.md"
+  schedule:
+    - cron: "31 3 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: git-parsers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  properties:
+    name: nia-git parser properties (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2022
+    env:
+      CARGO_TERM_COLOR: always
+      PROPTEST_CASES: "4096"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version --verbose
+          cargo --version
+
+      - name: Run nia-git parser properties
+        run: cargo test --locked -p nia-git --lib properties
+
+      - name: Upload minimized property cases
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-git-proptest-regressions-${{ matrix.os }}
+          path: crates/nia-git/**/proptest-regressions/
+          if-no-files-found: ignore

@@ -50,6 +50,35 @@ cargo test -p nia-cli --test commands -- readme
 
 On Windows, add `--no-default-features --target x86_64-pc-windows-msvc`.
 
+### Untrusted parser properties
+
+`nia-git` uses stable `proptest` suites for parser boundaries that consume
+network, repository, or credential data. The suites cover packet lines, loose
+and packed objects, delta instructions, HTTP responses and chunk framing, and
+SSH wire, cipher, key exchange, host-key, private-key, and agent messages.
+They are bounded randomized tests, not a coverage-guided fuzz campaign or a
+security proof.
+
+Run the focused suite with the default sample count:
+
+```sh
+cargo test -p nia-git --lib properties
+```
+
+Increase the sample count when changing a parser boundary. CI uses 4096 cases
+per property test:
+
+```sh
+PROPTEST_CASES=4096 cargo test -p nia-git --lib properties
+```
+
+On PowerShell, set `$env:PROPTEST_CASES = '4096'` for the command. Proptest
+stores minimized failing cases under `proptest-regressions/`; keep those files
+with the owning parser when a failure is reproducible. They replay automatically
+on subsequent runs. To repeat a randomized run, set `PROPTEST_RNG_SEED` to the
+same unsigned 64-bit integer before both runs (for example, `12345`). CI runs
+the suite independently on Linux and Windows and uploads regression files.
+
 ## Where Tests Live
 
 | Location | Contents |
