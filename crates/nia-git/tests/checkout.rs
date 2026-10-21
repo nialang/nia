@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Checkout through the public API using real repositories and local wire servers.
 
+#[cfg(any(unix, windows))]
+use cap_std::{ambient_authority, fs::Dir};
 use nia_git::checkout_source;
+#[cfg(any(unix, windows))]
+use nia_git::checkout_source_into;
 use std::io::{Read, Write};
 
 // The server fixture owns its wire encoding independently of the client parser.
@@ -101,6 +105,63 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
         "pub fn main() {}\n"
     );
     assert!(!destination.join(".git").exists());
+
+    #[cfg(unix)]
+    {
+        let anchored_destination = root.join("anchored-checkout");
+        let moved_destination = root.join("moved-checkout");
+        let outside = root.join("outside");
+        std::fs::create_dir(&anchored_destination).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let destination_dir =
+            Dir::open_ambient_dir(&anchored_destination, ambient_authority()).unwrap();
+        std::fs::rename(&anchored_destination, &moved_destination).unwrap();
+        std::os::unix::fs::symlink(&outside, &anchored_destination).unwrap();
+        checkout_source_into(&source, "HEAD", &destination_dir, &anchored_destination).unwrap();
+        assert!(moved_destination.join("nia.toml").is_file());
+        assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+        std::fs::remove_file(&anchored_destination).unwrap();
+    }
+
+    #[cfg(windows)]
+    {
+        use cap_std::fs::{OpenOptions as CapOpenOptions, OpenOptionsExt};
+        use std::process::Command;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+
+        let anchored_destination = root.join("anchored-checkout");
+        let moved_destination = root.join("moved-checkout");
+        let outside = root.join("outside");
+        std::fs::create_dir(&anchored_destination).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let parent_dir = Dir::open_ambient_dir(&root, ambient_authority()).unwrap();
+        let mut options = CapOpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+        let destination_dir = Dir::from_std_file(
+            parent_dir
+                .open_with("anchored-checkout", &options)
+                .unwrap()
+                .into_std(),
+        );
+        std::fs::rename(&anchored_destination, &moved_destination).unwrap();
+        let output = Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&anchored_destination)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        checkout_source_into(&source, "HEAD", &destination_dir, &anchored_destination).unwrap();
+        assert!(moved_destination.join("nia.toml").is_file());
+        assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+        std::fs::remove_dir(&anchored_destination).unwrap();
+    }
 
     git(&["gc", "--aggressive", "--prune=now"]);
     let packed_destination = root.join("packed-checkout");
