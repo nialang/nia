@@ -863,6 +863,7 @@ struct PackageFetcher {
     policy: LockPolicy,
     dirty: bool,
     state_lock: Option<File>,
+    transaction_lock: Option<PathBuf>,
     registries: BTreeMap<String, RegistryEndpoint>,
     registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
     registry_selected: BTreeMap<RegistryPackageName, (String, PackageId)>,
@@ -879,6 +880,7 @@ struct RegistryResolution {
     overrides: BTreeMap<RegistryPackageName, PackageId>,
     refresh_names: Option<BTreeSet<String>>,
     fetch: Option<RegistryFetch>,
+    transaction_lock: Option<PathBuf>,
     attempt: usize,
 }
 
@@ -895,8 +897,17 @@ impl fmt::Debug for PackageFetcher {
 }
 
 impl PackageFetcher {
+    #[cfg(test)]
     fn for_root(root: &Path, policy: LockPolicy) -> io::Result<Self> {
-        Self::for_root_with_registries(root, policy, BTreeMap::new(), BTreeMap::new(), None, None)
+        Self::for_root_with_registries(
+            root,
+            policy,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            None,
+            None,
+            None,
+        )
     }
 
     fn for_root_with_registries(
@@ -906,6 +917,7 @@ impl PackageFetcher {
         registry_overrides: BTreeMap<RegistryPackageName, PackageId>,
         refresh_names: Option<BTreeSet<String>>,
         registry_fetch: Option<RegistryFetch>,
+        transaction_lock: Option<PathBuf>,
     ) -> io::Result<Self> {
         let state_root = workspace_state_root(root)?;
         let lock_path = state_root.join("nia.lock");
@@ -918,6 +930,7 @@ impl PackageFetcher {
             policy,
             dirty: false,
             state_lock: None,
+            transaction_lock,
             registries,
             registry_overrides,
             registry_selected: BTreeMap::new(),
@@ -1557,13 +1570,19 @@ impl PackageFetcher {
                 .parent()
                 .expect("package cache has a state directory");
             fs::create_dir_all(state_directory)?;
+            let state_lock_path = self
+                .transaction_lock
+                .clone()
+                .unwrap_or_else(|| state_directory.join("packages.lock"));
             let lock = OpenOptions::new()
                 .create(true)
                 .truncate(false)
                 .read(true)
                 .write(true)
-                .open(state_directory.join("packages.lock"))?;
-            lock.lock()?;
+                .open(state_lock_path)?;
+            if self.transaction_lock.is_none() {
+                lock.lock()?;
+            }
             self.lock = PackageLock::read(&self.lock_path)?;
             self.original = self.lock.package.clone();
             self.state_lock = Some(lock);
@@ -1808,25 +1827,31 @@ fn update_lock_inner(
             )
         })?;
     let state_root = workspace_state_root(manifest_root)?;
-    let (before, original_lock) = {
-        let mut fetcher = PackageFetcher::for_root(&state_root, LockPolicy::default())?;
-        fetcher.lock_state()?;
-        let before = fetcher.lock.package.clone();
-        for name in names {
-            if !before
-                .iter()
-                .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("`{name}` is not a locked Git or registry dependency"),
-                ));
-            }
+    let transaction_lock_path = state_root.join(".nia/packages.lock");
+    let transaction_lock_directory = transaction_lock_path
+        .parent()
+        .expect("package state lock has a parent directory");
+    fs::create_dir_all(transaction_lock_directory)?;
+    let transaction_lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&transaction_lock_path)?;
+    transaction_lock.lock()?;
+    let original_lock = PackageLock::read(&state_root.join("nia.lock"))?;
+    let before = original_lock.package.clone();
+    for name in names {
+        if !before
+            .iter()
+            .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("`{name}` is not a locked Git or registry dependency"),
+            ));
         }
-        let original_lock = fetcher.lock.clone();
-        fetcher.finish()?;
-        (before, original_lock)
-    };
+    }
     let update = (|| {
         let raw = read_raw_manifest(&state_root)?;
         let mut roots = Vec::new();
@@ -1855,25 +1880,26 @@ fn update_lock_inner(
                 registries.clone(),
                 refresh_names.clone(),
                 registry_fetch.clone(),
+                transaction_lock_path.clone(),
             )?;
         }
         Ok(())
     })();
     if let Err(error) = update {
-        let mut fetcher = PackageFetcher::for_root(&state_root, LockPolicy::default())?;
-        fetcher.lock_state()?;
-        fetcher.lock = original_lock;
-        fetcher.dirty = true;
-        fetcher.finish().map_err(|restore_error| {
-            io::Error::new(
-                restore_error.kind(),
-                format!("{error}; additionally failed to restore nia.lock: {restore_error}"),
-            )
-        })?;
+        original_lock
+            .write_atomic(&state_root.join("nia.lock"))
+            .map_err(|restore_error| {
+                io::Error::new(
+                    restore_error.kind(),
+                    format!("{error}; additionally failed to restore nia.lock: {restore_error}"),
+                )
+            })?;
         return Err(error);
     }
     let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
-    Ok(collect_lock_updates(&before, &after))
+    let updates = collect_lock_updates(&before, &after);
+    drop(transaction_lock);
+    Ok(updates)
 }
 
 fn collect_lock_updates(before: &[LockedPackage], after: &[LockedPackage]) -> Vec<LockUpdate> {
@@ -2027,6 +2053,7 @@ impl PackageGraph {
                 overrides: BTreeMap::new(),
                 refresh_names: None,
                 fetch: None,
+                transaction_lock: None,
                 attempt: 0,
             },
         )
@@ -2038,6 +2065,7 @@ impl PackageGraph {
         registries: BTreeMap<String, RegistryEndpoint>,
         refresh_names: BTreeSet<String>,
         registry_fetch: Option<RegistryFetch>,
+        transaction_lock: PathBuf,
     ) -> io::Result<Self> {
         Self::resolve_with_registry_overrides(
             root,
@@ -2048,6 +2076,7 @@ impl PackageGraph {
                 overrides: BTreeMap::new(),
                 refresh_names: Some(refresh_names),
                 fetch: registry_fetch,
+                transaction_lock: Some(transaction_lock),
                 attempt: 0,
             },
         )
@@ -2066,6 +2095,7 @@ impl PackageGraph {
             resolution.overrides,
             resolution.refresh_names.clone(),
             resolution.fetch.clone(),
+            resolution.transaction_lock.clone(),
         )?;
         let mut nodes = Vec::new();
         let mut pending = vec![(root.to_path_buf(), String::new(), true, Vec::new())];
@@ -6593,7 +6623,7 @@ mod tests {
 
     #[test]
     fn registry_update_fetches_a_new_release_and_rewrites_the_lock() {
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, mpsc};
 
         let root = lock_test_root("registry-update");
         std::fs::create_dir_all(&root).unwrap();
@@ -6635,6 +6665,7 @@ mod tests {
             .into_bytes()
         };
         let state = Arc::new(Mutex::new(index("1.0.0", &digest_1)));
+        let lock_probe = Arc::new(Mutex::new(None));
         let archives = Arc::new(BTreeMap::from([
             (
                 "https://cdn.example.test/json-1.0.0.nia".to_owned(),
@@ -6648,8 +6679,37 @@ mod tests {
         let fetch: RegistryFetch = {
             let state = state.clone();
             let archives = archives.clone();
+            let lock_probe = lock_probe.clone();
+            let lock_path = root.join(".nia/packages.lock");
             Arc::new(move |url: &str| {
                 if url == "https://packages.example.test/index.toml" {
+                    let mut probe = lock_probe.lock().unwrap();
+                    if probe.is_none() {
+                        let (started_tx, started_rx) = mpsc::channel();
+                        let (acquired_tx, acquired_rx) = mpsc::channel();
+                        let lock_path = lock_path.clone();
+                        let contender = std::thread::spawn(move || {
+                            let lock = OpenOptions::new()
+                                .create(true)
+                                .truncate(false)
+                                .read(true)
+                                .write(true)
+                                .open(lock_path)?;
+                            started_tx.send(()).unwrap();
+                            lock.lock()?;
+                            acquired_tx.send(()).unwrap();
+                            Ok::<_, io::Error>(())
+                        });
+                        started_rx.recv().unwrap();
+                        assert!(
+                            matches!(
+                                acquired_rx.recv_timeout(std::time::Duration::from_millis(50)),
+                                Err(mpsc::RecvTimeoutError::Timeout)
+                            ),
+                            "another resolver acquired the package state lock during update"
+                        );
+                        *probe = Some((acquired_rx, contender));
+                    }
                     return Ok(state.lock().unwrap().clone());
                 }
                 if let Some(archive) = archives.get(url) {
@@ -6663,6 +6723,9 @@ mod tests {
         };
 
         let initial = update_lock_with_registry_fetcher(&root, &[], fetch.clone()).unwrap();
+        let (acquired, contender) = lock_probe.lock().unwrap().take().unwrap();
+        contender.join().unwrap().unwrap();
+        acquired.recv().unwrap();
         assert_eq!(initial.len(), 1);
         assert_eq!(initial[0].new_value.as_deref(), Some("1.0.0"));
         let first_lock = PackageLock::read(&root.join("nia.lock")).unwrap();
