@@ -2,7 +2,7 @@
 //! Git packfile reading, validation, and object decoding.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     io::{self, Read},
     path::Path,
 };
@@ -16,6 +16,19 @@ use crate::{input::read_limited_file, invalid_packet};
 
 const MAX_PACK_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PACK_OBJECTS: u32 = 1_000_000;
+const MAX_DECODED_PACK_BYTES: usize = 512 * 1024 * 1024;
+const MAX_DELTA_DEPTH: usize = 64;
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum DeltaBase {
+    Offset(usize),
+    Id([u8; 20]),
+}
+
+struct PendingDelta {
+    offset: usize,
+    instructions: Vec<u8>,
+}
 
 pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Result<GitObject> {
     let pack_dir = git_dir.join("objects").join("pack");
@@ -48,6 +61,14 @@ pub(crate) fn read_packed_object(git_dir: &Path, wanted: &[u8; 20]) -> io::Resul
 }
 
 fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
+    decode_pack_object_with_limit(pack, wanted, MAX_DECODED_PACK_BYTES)
+}
+
+fn decode_pack_object_with_limit(
+    pack: &[u8],
+    wanted: &[u8; 20],
+    mut remaining_bytes: usize,
+) -> io::Result<GitObject> {
     if pack.len() > MAX_PACK_BYTES {
         return Err(invalid_packet("Git pack exceeds size limit"));
     }
@@ -76,27 +97,40 @@ fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
     let pack = &pack[..payload_end];
     let mut cursor = 12usize;
     let mut objects = BTreeMap::<usize, GitObject>::new();
-    let mut unresolved = Vec::new();
+    let mut waiting = BTreeMap::<DeltaBase, Vec<PendingDelta>>::new();
+    let mut ready = VecDeque::new();
     for _ in 0..count {
         let offset = cursor;
         let (kind, declared_size) = read_pack_header(pack, &mut cursor)?;
+        // Charge before inflation. Delta instruction streams and their later
+        // reconstructed results both count, even after instructions are freed.
+        remaining_bytes = remaining_bytes
+            .checked_sub(declared_size)
+            .ok_or_else(|| invalid_packet("Git pack exceeds decoded size limit"))?;
         match kind {
             1..=4 => {
-                let (data, consumed) =
-                    read_zlib_stream(&pack[cursor..payload_end], Some(declared_size))?;
+                let (data, consumed) = read_zlib_stream(&pack[cursor..payload_end], declared_size)?;
                 cursor = cursor
                     .checked_add(consumed)
                     .ok_or_else(|| invalid_packet("Git pack offset overflow"))?;
                 let object = make_object(pack_kind(kind)?, data)?;
                 objects.insert(offset, object);
+                ready.push_back((offset, 0));
             }
             6 => {
                 let base_offset = read_ofs_delta_base(pack, &mut cursor, offset)?;
-                let (delta, consumed) = read_zlib_stream(&pack[cursor..payload_end], None)?;
+                let (delta, consumed) =
+                    read_zlib_stream(&pack[cursor..payload_end], declared_size)?;
                 cursor = cursor
                     .checked_add(consumed)
                     .ok_or_else(|| invalid_packet("Git pack offset overflow"))?;
-                unresolved.push((offset, base_offset, None, delta));
+                waiting
+                    .entry(DeltaBase::Offset(base_offset))
+                    .or_default()
+                    .push(PendingDelta {
+                        offset,
+                        instructions: delta,
+                    });
             }
             7 => {
                 if pack.len().saturating_sub(cursor) < 20 {
@@ -106,43 +140,48 @@ fn decode_pack_object(pack: &[u8], wanted: &[u8; 20]) -> io::Result<GitObject> {
                     .try_into()
                     .expect("length checked");
                 cursor += 20;
-                let (delta, consumed) = read_zlib_stream(&pack[cursor..payload_end], None)?;
+                let (delta, consumed) =
+                    read_zlib_stream(&pack[cursor..payload_end], declared_size)?;
                 cursor = cursor
                     .checked_add(consumed)
                     .ok_or_else(|| invalid_packet("Git pack offset overflow"))?;
-                unresolved.push((offset, 0, Some(base_id), delta));
+                waiting
+                    .entry(DeltaBase::Id(base_id))
+                    .or_default()
+                    .push(PendingDelta {
+                        offset,
+                        instructions: delta,
+                    });
             }
             _ => return Err(invalid_packet("unsupported Git pack object type")),
         }
     }
-    while !unresolved.is_empty() {
-        let mut progress = false;
-        let mut remaining = Vec::with_capacity(unresolved.len());
-        for (offset, base_offset, base_id, delta) in unresolved {
-            let base = if let Some(base_id) = base_id {
-                objects
-                    .values()
-                    .find(|object| object.id == base_id)
-                    .cloned()
-            } else {
-                objects.get(&base_offset).cloned()
-            };
-            let Some(base) = base else {
-                remaining.push((offset, base_offset, base_id, delta));
-                continue;
-            };
-            let data = apply_delta(&base.data, &delta)?;
-            let object = make_object(base.kind, data)?;
-            objects.insert(offset, object);
-            progress = true;
-        }
-        if !progress {
-            return Err(invalid_packet("Git delta base object is missing"));
-        }
-        unresolved = remaining;
-    }
     if cursor != payload_end {
         return Err(invalid_packet("Git pack has trailing object data"));
+    }
+    // Each base wakes only its dependents. Forward ref-deltas are supported
+    // without repeated full scans or copies of their base object's data.
+    while let Some((base_offset, depth)) = ready.pop_front() {
+        let base_id = objects[&base_offset].id;
+        for key in [DeltaBase::Offset(base_offset), DeltaBase::Id(base_id)] {
+            let Some(dependents) = waiting.remove(&key) else {
+                continue;
+            };
+            if depth == MAX_DELTA_DEPTH {
+                return Err(invalid_packet("Git pack exceeds delta depth limit"));
+            }
+            for delta in dependents {
+                let base = &objects[&base_offset];
+                let data = apply_delta(&base.data, &delta.instructions, remaining_bytes)?;
+                remaining_bytes -= data.len();
+                let object = make_object(base.kind, data)?;
+                objects.insert(delta.offset, object);
+                ready.push_back((delta.offset, depth + 1));
+            }
+        }
+    }
+    if !waiting.is_empty() {
+        return Err(invalid_packet("Git delta base object is missing"));
     }
     objects
         .into_values()
@@ -205,16 +244,13 @@ fn read_ofs_delta_base(pack: &[u8], cursor: &mut usize, object_offset: usize) ->
         .ok_or_else(|| invalid_packet("Git ofs-delta base offset is invalid"))
 }
 
-fn read_zlib_stream(input: &[u8], expected_size: Option<usize>) -> io::Result<(Vec<u8>, usize)> {
+fn read_zlib_stream(input: &[u8], expected_size: usize) -> io::Result<(Vec<u8>, usize)> {
     let mut decoder = ZlibDecoder::new(input);
     let mut data = Vec::new();
     (&mut decoder)
-        .take((expected_size.unwrap_or(MAX_OBJECT_BYTES) + 1) as u64)
+        .take((expected_size + 1) as u64)
         .read_to_end(&mut data)?;
-    if data.len() > MAX_OBJECT_BYTES
-        || expected_size.is_some_and(|expected| data.len() != expected)
-        || decoder.total_in() == 0
-    {
+    if data.len() > MAX_OBJECT_BYTES || data.len() != expected_size || decoder.total_in() == 0 {
         return Err(invalid_packet(
             "Git pack object size does not match its header",
         ));
@@ -252,8 +288,180 @@ fn make_object(kind: ObjectKind, data: Vec<u8>) -> io::Result<GitObject> {
 
 #[cfg(test)]
 mod tests {
-    use super::decode_pack_object;
+    use super::*;
+    use flate2::{Compression, write::ZlibEncoder};
     use sha1::{Digest, Sha1};
+    use std::io::Write;
+
+    fn pack_header(count: u32) -> Vec<u8> {
+        let mut pack = b"PACK".to_vec();
+        pack.extend_from_slice(&2u32.to_be_bytes());
+        pack.extend_from_slice(&count.to_be_bytes());
+        pack
+    }
+
+    fn append_object(pack: &mut Vec<u8>, kind: u8, size: usize, base: &[u8], data: &[u8]) -> usize {
+        let offset = pack.len();
+        let mut remaining = size >> 4;
+        pack.push((kind << 4) | (size & 15) as u8 | if remaining == 0 { 0 } else { 128 });
+        while remaining != 0 {
+            let digit = (remaining & 127) as u8;
+            remaining >>= 7;
+            pack.push(digit | if remaining == 0 { 0 } else { 128 });
+        }
+        pack.extend_from_slice(base);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(data).unwrap();
+        pack.extend(encoder.finish().unwrap());
+        offset
+    }
+
+    fn finish_pack(mut pack: Vec<u8>) -> Vec<u8> {
+        pack.extend_from_slice(&Sha1::digest(&pack));
+        pack
+    }
+
+    fn blob_id(data: &[u8]) -> [u8; 20] {
+        let mut hash = Sha1::new();
+        hash.update(format!("blob {}\0", data.len()).as_bytes());
+        hash.update(data);
+        hash.finalize().into()
+    }
+
+    #[test]
+    fn decoded_budget_counts_all_objects_and_delta_results() {
+        let mut pack = pack_header(2);
+        append_object(&mut pack, 3, 3, &[], b"abc");
+        append_object(&mut pack, 3, 3, &[], b"xyz");
+        let pack = finish_pack(pack);
+        assert_eq!(
+            decode_pack_object_with_limit(&pack, &blob_id(b"abc"), 6)
+                .unwrap()
+                .data,
+            b"abc"
+        );
+        assert_eq!(
+            decode_pack_object_with_limit(&pack, &blob_id(b"abc"), 5)
+                .unwrap_err()
+                .to_string(),
+            "Git pack exceeds decoded size limit"
+        );
+
+        let mut pack = pack_header(2);
+        let delta = [3, 3, 3, b'x', b'y', b'z'];
+        // Ref-delta precedes its base, exercising the forward dependency path.
+        append_object(&mut pack, 7, delta.len(), &blob_id(b"abc"), &delta);
+        append_object(&mut pack, 3, 3, &[], b"abc");
+        let pack = finish_pack(pack);
+        assert_eq!(
+            decode_pack_object_with_limit(&pack, &blob_id(b"xyz"), 12)
+                .unwrap()
+                .data,
+            b"xyz"
+        );
+        assert_eq!(
+            decode_pack_object_with_limit(&pack, &blob_id(b"xyz"), 11)
+                .unwrap_err()
+                .to_string(),
+            "Git pack exceeds decoded size limit"
+        );
+    }
+
+    #[test]
+    fn delta_instruction_stream_must_match_declared_pack_size() {
+        for kind in [6, 7] {
+            for declared in [3, 5] {
+                let mut pack = pack_header(2);
+                let base_offset = append_object(&mut pack, 3, 1, &[], b"a");
+                let base = if kind == 6 {
+                    vec![(pack.len() - base_offset) as u8]
+                } else {
+                    blob_id(b"a").to_vec()
+                };
+                append_object(&mut pack, kind, declared, &base, &[1, 1, 1, b'b']);
+                let error = decode_pack_object(&finish_pack(pack), &blob_id(b"b")).unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    "Git pack object size does not match its header"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reverse_ordered_ref_delta_chains_resolve_once_and_enforce_depth() {
+        for depth in [MAX_DELTA_DEPTH, MAX_DELTA_DEPTH + 1] {
+            let mut pack = pack_header(depth as u32 + 1);
+            for value in (1..=depth).rev() {
+                append_object(
+                    &mut pack,
+                    7,
+                    4,
+                    &blob_id(&[(value - 1) as u8]),
+                    &[1, 1, 1, value as u8],
+                );
+            }
+            append_object(&mut pack, 3, 1, &[], &[0]);
+            let result = decode_pack_object(&finish_pack(pack), &blob_id(&[depth as u8]));
+            if depth == MAX_DELTA_DEPTH {
+                assert_eq!(result.unwrap().data, [depth as u8]);
+            } else {
+                assert_eq!(
+                    result.unwrap_err().to_string(),
+                    "Git pack exceeds delta depth limit"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn missing_delta_base_is_rejected() {
+        let mut pack = pack_header(1);
+        append_object(&mut pack, 7, 4, &blob_id(b"a"), &[1, 1, 1, b'b']);
+        assert_eq!(
+            decode_pack_object(&finish_pack(pack), &blob_id(b"b"))
+                .unwrap_err()
+                .to_string(),
+            "Git delta base object is missing"
+        );
+    }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn mixed_delta_chains_obey_the_exact_decoded_budget(
+                steps in prop::collection::vec((any::<u8>(), any::<bool>()), 1..32),
+            ) {
+                let mut pack = pack_header(steps.len() as u32 + 1);
+                let mut previous = 0;
+                let mut base_offset = append_object(&mut pack, 3, 1, &[], &[previous]);
+                for &(value, by_offset) in &steps {
+                    let base = if by_offset {
+                        let mut distance = pack.len() - base_offset;
+                        let mut encoded = vec![(distance & 127) as u8];
+                        while distance >= 128 {
+                            distance = (distance >> 7) - 1;
+                            encoded.push(128 | (distance & 127) as u8);
+                        }
+                        encoded.reverse();
+                        encoded
+                    } else {
+                        blob_id(&[previous]).to_vec()
+                    };
+                    base_offset = append_object(&mut pack, if by_offset { 6 } else { 7 }, 4, &base, &[1, 1, 1, value]);
+                    previous = value;
+                }
+                let pack = finish_pack(pack);
+                let budget = 1 + steps.len() * 5;
+                let wanted = blob_id(&[previous]);
+                prop_assert_eq!(decode_pack_object_with_limit(&pack, &wanted, budget).unwrap().data, [previous]);
+                prop_assert_eq!(decode_pack_object_with_limit(&pack, &wanted, budget - 1).unwrap_err().to_string(), "Git pack exceeds decoded size limit");
+            }
+        }
+    }
 
     #[test]
     fn overflowing_ofs_delta_offset_cannot_wrap_to_valid_base() {
@@ -276,7 +484,7 @@ mod tests {
         let encoded = encoder.finish().unwrap();
         for removed in 1..=4 {
             assert!(
-                super::read_zlib_stream(&encoded[..encoded.len() - removed], Some(7)).is_err(),
+                super::read_zlib_stream(&encoded[..encoded.len() - removed], 7).is_err(),
                 "removed {removed} trailer bytes"
             );
         }

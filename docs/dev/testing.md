@@ -90,6 +90,8 @@ their original error kinds. The current limits are:
 | Local pack or compressed loose object | 128 MiB |
 | Decoded object or delta result | 64 MiB per object |
 | Objects in a pack | 1,000,000 |
+| Pack decoded objects, delta instructions, and reconstructed results combined | 512 MiB |
+| Delta dependency depth | 64 |
 | Streamed packet-line advertisement, including flush | 16 MiB |
 | Loose reference / packed references | 4 KiB / 16 MiB |
 | SSH identity / known hosts | 1 MiB / 16 MiB |
@@ -103,7 +105,12 @@ ancestors. The caller owns it throughout checkout and discards partial output
 on failure. Tree entries cannot name Git metadata, traverse directories, or
 use Windows device names and alternate data streams. These checks do not
 protect against another process concurrently replacing destination paths.
-The per-object bounds do not yet bound all decoded objects retained by a pack.
+Pack inflation charges the declared size before reading, validates the decoded
+size for both objects and delta instructions, and checks the remaining budget
+before allocating each delta result. Dependency queues resolve each delta once
+without cloning its base. The byte budgets cover decoded payloads; container
+and allocator overhead, compressed input buffers, and transient decoder buffers
+are additional memory.
 
 ## Where Tests Live
 

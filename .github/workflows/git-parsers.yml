@@ -65,8 +65,8 @@ jobs:
       - name: Run nia-git parser properties
         run: cargo test --locked -p nia-git --lib properties
 
-      - name: Run checkout boundary regressions
-        run: cargo test --locked -p nia-git --lib transport::local::tests
+      - name: Run parser and checkout boundary regressions
+        run: cargo test --locked -p nia-git --lib
 
       - name: Upload minimized property cases
         if: always()
