@@ -4,6 +4,55 @@ use super::*;
 use crate::checkout_source;
 
 #[test]
+fn encrypted_service_read_validates_and_skips_ignore_and_debug_messages() {
+    let direction = || SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32], 0).unwrap();
+    let mut sender = direction();
+    let mut input = Vec::new();
+    let mut ignore = vec![2];
+    encode_ssh_string(b"notice", &mut ignore).unwrap();
+    write_encrypted_ssh_packet(&mut input, &mut sender, &ignore).unwrap();
+    let mut debug = vec![4, 1];
+    encode_ssh_string(b"diagnostic", &mut debug).unwrap();
+    encode_ssh_string(b"en", &mut debug).unwrap();
+    write_encrypted_ssh_packet(&mut input, &mut sender, &debug).unwrap();
+    let mut accepted = vec![6];
+    encode_ssh_string(b"ssh-userauth", &mut accepted).unwrap();
+    write_encrypted_ssh_packet(&mut input, &mut sender, &accepted).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_expected_encrypted_ssh_message(&mut input.as_slice(), &mut receiver, 6).unwrap(),
+        accepted
+    );
+
+    let mut sender = direction();
+    let mut malformed = Vec::new();
+    write_encrypted_ssh_packet(&mut malformed, &mut sender, &[4, 2]).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_expected_encrypted_ssh_message_any(&mut malformed.as_slice(), &mut receiver)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+
+    let mut sender = direction();
+    let mut excessive = Vec::new();
+    for _ in 0..=MAX_SSH_CONTROL_MESSAGES {
+        let mut ignore = vec![2];
+        encode_ssh_string(b"", &mut ignore).unwrap();
+        write_encrypted_ssh_packet(&mut excessive, &mut sender, &ignore).unwrap();
+    }
+    write_encrypted_ssh_packet(&mut excessive, &mut sender, &[52]).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_expected_encrypted_ssh_message_any(&mut excessive.as_slice(), &mut receiver)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+}
+
+#[test]
 fn ssh_checkout_does_not_publish_a_pack_when_remote_process_fails() {
     fixture::with_checkout_fixture_status(
         17,

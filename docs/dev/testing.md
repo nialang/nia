@@ -101,6 +101,7 @@ their original error kinds. The current limits are:
 | SSH channel incoming message payloads, including stderr and control messages | 128 MiB per session |
 | SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
 | SSH plaintext key exchange | 1,024 messages / 1 MiB |
+| SSH encrypted IGNORE/DEBUG before a service/auth/exec response | 1,024 messages / 1 MiB per wait |
 | Checkout directory depth / entries | 64 / 1,000,000 |
 | Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |
 
