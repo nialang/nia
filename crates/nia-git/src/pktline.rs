@@ -41,7 +41,7 @@ pub(super) fn decode_packet_lines(mut input: &[u8]) -> io::Result<Vec<PacketLine
     Ok(packets)
 }
 
-pub(super) fn encode_packet_line(payload: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
+pub(crate) fn encode_packet_line(payload: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
     if payload.len() > MAX_PACKET_PAYLOAD {
         return Err(invalid_packet("Git packet-line exceeds protocol limit"));
     }
