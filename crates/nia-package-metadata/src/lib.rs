@@ -164,14 +164,14 @@ pub fn solve_registry_versions(
             .max_by(|left, right| {
                 left.version
                     .parsed
-                    .cmp(&right.version.parsed)
+                    .cmp_precedence(&right.version.parsed)
                     .then_with(|| left.version.as_str().cmp(right.version.as_str()))
             });
         let prerelease = || {
             candidates.iter().filter(matches_all).max_by(|left, right| {
                 left.version
                     .parsed
-                    .cmp(&right.version.parsed)
+                    .cmp_precedence(&right.version.parsed)
                     .then_with(|| left.version.as_str().cmp(right.version.as_str()))
             })
         };
@@ -7486,6 +7486,24 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     .unwrap();
             assert_eq!(selected[&package].version.as_str(), "1.9.0+two");
         }
+        let numeric_build_metadata = [
+            PackageId {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+                version: PackageVersion::parse("1.9.0+9").unwrap(),
+            },
+            PackageId {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+                version: PackageVersion::parse("1.9.0+10").unwrap(),
+            },
+        ];
+        let selected = solve_registry_versions(
+            &[constraint("app", "^1.4", &["app", "json"])],
+            &numeric_build_metadata,
+        )
+        .unwrap();
+        assert_eq!(selected[&package].version.as_str(), "1.9.0+9");
     }
 
     #[test]
