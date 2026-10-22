@@ -20,6 +20,7 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
+    ffi::OsStr,
     fmt,
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Write},
@@ -27,7 +28,7 @@ use std::{
     str::FromStr,
 };
 
-use cap_std::fs::Dir;
+use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
@@ -3664,20 +3665,20 @@ pub fn package_source_identity_with_selection(
             }
         }
     }
+    let root_directory = open_cache_root(&root, false)?;
     let mut files = Vec::new();
     let mut seen_files = BTreeSet::new();
     for source_root in &selected_roots {
-        let Some(directory) = open_selected_source_root(&root, source_root)? else {
+        let Some(directory) = open_selected_source_root(&root_directory, source_root)? else {
             continue;
         };
-        let canonical = directory.canonicalize()?;
-        if !canonical.starts_with(&root) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "package source root escapes the package directory",
-            ));
-        }
-        collect_source_files(&root, &directory, &excludes, &mut files, &mut seen_files)?;
+        collect_source_files(
+            &directory,
+            if source_root == "." { "" } else { source_root },
+            &excludes,
+            &mut files,
+            &mut seen_files,
+        )?;
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     files.dedup_by(|left, right| left.path == right.path);
@@ -3709,22 +3710,21 @@ pub fn package_source_identity_with_selection(
     })
 }
 
-fn open_selected_source_root(root: &Path, source_root: &str) -> io::Result<Option<PathBuf>> {
+fn open_selected_source_root(root: &Dir, source_root: &str) -> io::Result<Option<Dir>> {
     if source_root == "." {
-        return Ok(Some(root.to_path_buf()));
+        return root.try_clone().map(Some);
     }
-    let mut directory = root.to_path_buf();
+    let mut directory = root.try_clone()?;
     for component in Path::new(source_root).components() {
         let std::path::Component::Normal(name) = component else {
             continue;
         };
-        directory.push(name);
-        let metadata = match fs::symlink_metadata(&directory) {
+        let metadata = match directory.symlink_metadata(name) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(error),
             Err(error) => return Err(error),
         };
-        if nia_compat::is_link_or_reparse_point(&metadata) {
+        if metadata.is_symlink() {
             return Ok(None);
         }
         if !metadata.is_dir() {
@@ -3733,6 +3733,17 @@ fn open_selected_source_root(root: &Path, source_root: &str) -> io::Result<Optio
                 "package source root must be a directory",
             ));
         }
+        let name = name.to_str().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "package source selection paths must be valid UTF-8",
+            )
+        })?;
+        directory = match open_cache_directory(&directory, name, false) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => return Ok(None),
+            Err(error) => return Err(error),
+        };
     }
     Ok(Some(directory))
 }
@@ -3776,27 +3787,29 @@ fn validate_selection_path(value: &str) -> io::Result<String> {
 }
 
 fn collect_source_files(
-    root: &Path,
-    directory: &Path,
+    directory: &Dir,
+    prefix: &str,
     excludes: &BTreeSet<String>,
     files: &mut Vec<PackageSourceFile>,
     seen_files: &mut BTreeSet<String>,
 ) -> io::Result<()> {
-    let mut pending = vec![directory.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(&directory)? {
+    let mut pending = vec![(directory.try_clone()?, prefix.to_owned())];
+    while let Some((directory, prefix)) = pending.pop() {
+        for entry in directory.entries()? {
             let entry = entry?;
-            let path = entry.path();
-            let relative = path.strip_prefix(root).expect("source path under root");
-            let name = relative
-                .to_str()
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "package source paths must be valid UTF-8",
-                    )
-                })?
-                .replace('\\', "/");
+            let entry_name = entry.file_name();
+            let entry_name_text = entry_name.to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "package source paths must be valid UTF-8",
+                )
+            })?;
+            let name = if prefix.is_empty() {
+                entry_name_text.to_owned()
+            } else {
+                format!("{prefix}/{entry_name_text}")
+            };
+            let relative = Path::new(&name);
             if excluded_source_entry(relative)
                 || excludes
                     .iter()
@@ -3804,13 +3817,25 @@ fn collect_source_files(
             {
                 continue;
             }
-            let file_type = entry.file_type()?;
-            if file_type.is_symlink() {
+            let metadata = directory.symlink_metadata(&entry_name)?;
+            if metadata.is_symlink() {
                 continue;
             }
-            if file_type.is_dir() {
-                pending.push(path);
-            } else if file_type.is_file() {
+            if metadata.is_dir() {
+                let child = match open_cache_directory(&directory, entry_name_text, false) {
+                    Ok(child) => child,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                    Err(error) if error.kind() == io::ErrorKind::InvalidData => continue,
+                    Err(error) => {
+                        let current = directory.symlink_metadata(&entry_name)?;
+                        if current.is_symlink() {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
+                pending.push((child, name));
+            } else if metadata.is_file() {
                 if !seen_files.insert(name.clone()) {
                     continue;
                 }
@@ -3820,7 +3845,10 @@ fn collect_source_files(
                         "package source contains too many files",
                     ));
                 }
-                let (byte_len, fingerprint) = fingerprint_source_file(&path)?;
+                let Some(file) = open_source_file(&directory, &entry_name)? else {
+                    continue;
+                };
+                let (byte_len, fingerprint) = fingerprint_source_file(file)?;
                 files.push(PackageSourceFile {
                     path: name,
                     byte_len,
@@ -3832,8 +3860,43 @@ fn collect_source_files(
     Ok(())
 }
 
-fn fingerprint_source_file(path: &Path) -> io::Result<(u64, [u8; 32])> {
-    let mut file = File::open(path)?;
+fn open_source_file(directory: &Dir, name: &OsStr) -> io::Result<Option<File>> {
+    let mut options = CapOpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use cap_std::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        options
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+    }
+    let file = match directory.open_with(name, &options) {
+        Ok(file) => file.into_std(),
+        Err(error) => {
+            if let Ok(metadata) = directory.symlink_metadata(name)
+                && metadata.is_symlink()
+            {
+                return Ok(None);
+            }
+            return Err(error);
+        }
+    };
+    let metadata = file.metadata()?;
+    if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
+        return Ok(None);
+    }
+    Ok(Some(file))
+}
+
+fn fingerprint_source_file(mut file: File) -> io::Result<(u64, [u8; 32])> {
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0; 64 * 1024];
     let mut byte_len = 0u64;
@@ -5637,6 +5700,12 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(&outside, b"outside").unwrap();
         symlink(&outside, root.join("linked.nia")).unwrap();
+        let root_directory = open_cache_root(&root.canonicalize().unwrap(), false).unwrap();
+        assert!(
+            open_source_file(&root_directory, OsStr::new("linked.nia"))
+                .unwrap()
+                .is_none()
+        );
         let identity = package_source_identity(&root, package()).unwrap();
         assert!(identity.files.iter().all(|file| file.path != "linked.nia"));
         std::fs::remove_file(root.join("linked.nia")).unwrap();
