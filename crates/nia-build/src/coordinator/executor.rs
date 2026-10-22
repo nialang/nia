@@ -1471,7 +1471,7 @@ mod package_manifest_import_tests {
             std::fs::write(
                 package.join("nia.toml"),
                 format!(
-                    "[package]\nname = \"{}\"\n[library]\npath = \"src/lib.nia\"\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"{}\"\n[library]\npath = \"src/lib.nia\"\n",
                     package.file_name().unwrap().to_string_lossy()
                 ),
             )

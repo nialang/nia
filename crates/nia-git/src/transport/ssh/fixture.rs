@@ -138,7 +138,7 @@ pub(super) fn with_checkout_fixture_status(
     std::fs::create_dir_all(repository.join("src")).unwrap();
     std::fs::write(
         repository.join("nia.toml"),
-        "[package]\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n",
+        "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n",
     )
     .unwrap();
     std::fs::write(

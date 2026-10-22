@@ -86,7 +86,11 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
     git(&["init", "-q"]);
     git(&["config", "user.email", "nia-test@example.invalid"]);
     git(&["config", "user.name", "Nia Test"]);
-    std::fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+    std::fs::write(
+        repository.join("nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n",
+    )
+    .unwrap();
     std::fs::write(repository.join("src/nested/lib.nia"), "pub fn main() {}\n").unwrap();
     git(&["add", "nia.toml", "src"]);
     git(&["commit", "-qm", "fixture"]);
@@ -104,7 +108,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
     assert_eq!(revision.len(), 40);
     assert_eq!(
         std::fs::read_to_string(destination.join("nia.toml")).unwrap(),
-        "[package]\nname = \"dep\"\n"
+        "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n"
     );
     assert_eq!(
         std::fs::read_to_string(destination.join("src/nested/lib.nia")).unwrap(),
@@ -212,7 +216,11 @@ fn http_smart_protocol_fetches_a_real_pack_without_system_git() {
     git(&["init", "-q"]);
     git(&["config", "user.email", "nia-test@example.invalid"]);
     git(&["config", "user.name", "Nia Test"]);
-    std::fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+    std::fs::write(
+        repository.join("nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n",
+    )
+    .unwrap();
     std::fs::write(repository.join("src/nested/lib.nia"), "pub fn main() {}\n").unwrap();
     git(&["add", "nia.toml", "src"]);
     git(&["commit", "-qm", "fixture"]);
@@ -353,7 +361,11 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
     git(&["init", "-q"]);
     git(&["config", "user.email", "nia-test@example.invalid"]);
     git(&["config", "user.name", "Nia Test"]);
-    std::fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+    std::fs::write(
+        repository.join("nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n",
+    )
+    .unwrap();
     std::fs::write(repository.join("src/lib.nia"), "pub fn main() {}\n").unwrap();
     git(&["add", "nia.toml", "src"]);
     git(&["commit", "-qm", "fixture"]);

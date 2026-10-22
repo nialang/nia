@@ -94,7 +94,7 @@ fn workspace_members_can_use_the_same_dependency_alias_for_different_packages() 
         fs::create_dir_all(dependency.join("src")).unwrap();
         fs::write(
             member.join("nia.toml"),
-            "[package]\nname = \"".to_owned()
+            "[package]\nversion = \"1.0.0\"\nname = \"".to_owned()
                 + member_name
                 + "\"\n[dependencies]\nshared = { path = \"../../dependencies/"
                 + dependency_name
@@ -103,7 +103,7 @@ fn workspace_members_can_use_the_same_dependency_alias_for_different_packages() 
         .unwrap();
         fs::write(
             dependency.join("nia.toml"),
-            "[package]\nname = \"".to_owned()
+            "[package]\nversion = \"1.0.0\"\nname = \"".to_owned()
                 + dependency_name
                 + "\"\n[library]\npath = \"src/lib.nia\"\n",
         )
@@ -161,7 +161,7 @@ fn workspace_test_selection_continues_by_default_and_honors_fail_fast() {
         fs::create_dir_all(member.join("tests")).unwrap();
         fs::write(
             member.join("nia.toml"),
-            format!("[package]\nname = \"{name}\"\n"),
+            format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n"),
         )
         .unwrap();
         fs::write(
