@@ -2289,6 +2289,8 @@ impl PackageGraph {
         let mut seen = BTreeSet::new();
         let mut edges = Vec::new();
         while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
+            open_cache_root(&current, false)
+                .map_err(|error| dependency_context(&logical_root, error))?;
             let canonical = current.canonicalize()?;
             if ancestors.iter().any(|ancestor| ancestor == &canonical) {
                 return Err(io::Error::new(
@@ -2809,6 +2811,12 @@ impl WorkspaceManifest {
             } else {
                 canonical_root.join(member)
             };
+            open_cache_root(&member_path, false).map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!("workspace member `{member}` is not a real directory: {error}"),
+                )
+            })?;
             if !member_path.join("nia.toml").is_file() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -8086,6 +8094,24 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn package_graph_rejects_linked_root_directories() {
+        use std::os::unix::fs::symlink;
+
+        let root = lock_test_root("linked-graph-root");
+        let actual = root.join("actual");
+        let linked = root.join("linked");
+        fs::create_dir_all(&actual).unwrap();
+        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        symlink(&actual, &linked).unwrap();
+
+        assert!(PackageGraph::resolve(&linked, false).is_err());
+        assert!(!actual.join("nia.lock").exists());
+        fs::remove_file(linked).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(windows)]
     #[test]
     fn path_dependencies_reject_junctioned_package_roots() {
@@ -8112,6 +8138,28 @@ mod tests {
         assert!(PackageGraph::resolve(&consumer, false).is_err());
         assert!(!consumer.join("nia.lock").exists());
         fs::remove_dir(link).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_graph_rejects_junctioned_root_directories() {
+        let root = lock_test_root("junctioned-graph-root");
+        let actual = root.join("actual");
+        let linked = root.join("linked");
+        fs::create_dir_all(&actual).unwrap();
+        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked)
+            .arg(&actual)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(PackageGraph::resolve(&linked, false).is_err());
+        assert!(!actual.join("nia.lock").exists());
+        fs::remove_dir(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
