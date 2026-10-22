@@ -866,6 +866,14 @@ fn open_regular_file(path: &Path, label: &'static str) -> io::Result<File> {
     Ok(file)
 }
 
+fn regular_file_exists(path: &Path, label: &'static str) -> io::Result<bool> {
+    match open_regular_file(path, label) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 fn open_package_state_lock(path: &Path) -> io::Result<File> {
     let parent_path = path.parent().unwrap_or_else(|| Path::new("."));
     let parent = open_cache_root(parent_path, true)?;
@@ -1067,7 +1075,7 @@ impl PackageFetcher {
                     Err(error) => return Err(error),
                 };
                 let destination = canonical_real_directory(&unresolved)?;
-                if !destination.join("nia.toml").is_file() {
+                if !regular_file_exists(&destination.join("nia.toml"), "package manifest")? {
                     return Ok(destination);
                 }
                 self.lock_state()?;
@@ -1800,7 +1808,7 @@ impl PackageFetcher {
 
     fn reachable_lock_keys(&self, state_root: &Path) -> Option<BTreeSet<(String, String)>> {
         let mut reachable = BTreeSet::new();
-        if !state_root.join("nia.toml").is_file() {
+        if !regular_file_exists(&state_root.join("nia.toml"), "package manifest").ok()? {
             // A root package without a manifest declares no dependencies.
             return Some(reachable);
         }
@@ -1827,7 +1835,9 @@ impl PackageFetcher {
             if !seen.insert(root.clone()) {
                 continue;
             }
-            if seen.len() > 1024 || !root.join("nia.toml").is_file() {
+            if seen.len() > 1024
+                || !regular_file_exists(&root.join("nia.toml"), "package manifest").ok()?
+            {
                 return None;
             }
             let manifest = PackageManifest::read(&root).ok()?;
@@ -1989,15 +1999,19 @@ fn update_lock_inner(
     registry_fetch: Option<RegistryFetch>,
 ) -> io::Result<Vec<LockUpdate>> {
     let start = canonical_real_directory(start)?;
-    let manifest_root = start
-        .ancestors()
-        .find(|directory| directory.join("nia.toml").is_file())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("no nia.toml found at or above `{}`", display_path(&start)),
-            )
-        })?;
+    let mut manifest_root = None;
+    for directory in start.ancestors() {
+        if regular_file_exists(&directory.join("nia.toml"), "package manifest")? {
+            manifest_root = Some(directory);
+            break;
+        }
+    }
+    let manifest_root = manifest_root.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no nia.toml found at or above `{}`", display_path(&start)),
+        )
+    })?;
     let state_root = workspace_state_root(manifest_root)?;
     let transaction_lock_path = state_root.join(".nia/packages.lock");
     let transaction_lock = open_package_state_lock(&transaction_lock_path)?;
@@ -2379,7 +2393,7 @@ impl PackageGraph {
             if !seen.insert((canonical.clone(), logical_root.clone())) {
                 continue;
             }
-            if !is_root && !canonical.join("nia.toml").is_file() {
+            if !is_root && !regular_file_exists(&canonical.join("nia.toml"), "package manifest")? {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!(
@@ -2920,7 +2934,7 @@ impl WorkspaceManifest {
                     format!("workspace member `{member}` is not a real directory: {error}"),
                 )
             })?;
-            if !member_path.join("nia.toml").is_file() {
+            if !regular_file_exists(&member_path.join("nia.toml"), "package manifest")? {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("workspace member `{member}` does not contain nia.toml"),
@@ -2942,7 +2956,7 @@ impl WorkspaceManifest {
             if member != "." {
                 let mut cursor = Some(member_path.as_path());
                 while let Some(directory) = cursor.filter(|path| *path != canonical_root) {
-                    if directory.join("nia.toml").is_file()
+                    if regular_file_exists(&directory.join("nia.toml"), "package manifest")?
                         && read_raw_manifest(directory)?.workspace.is_some()
                     {
                         return Err(io::Error::new(
@@ -3012,7 +3026,7 @@ impl WorkspaceManifest {
         let mut cursor = package_root.parent();
         while let Some(root) = cursor {
             let manifest_path = root.join("nia.toml");
-            if manifest_path.is_file() {
+            if regular_file_exists(&manifest_path, "package manifest")? {
                 let raw = read_raw_manifest(root)?;
                 if raw.workspace.is_some() {
                     let workspace = Self::read(root)?;
@@ -3044,29 +3058,30 @@ impl WorkspaceManifest {
 
     /// Finds the nearest workspace at or above a directory.
     pub fn discover(start: &Path) -> io::Result<Option<Self>> {
-        let start = if start.is_file() {
+        let start = if canonical_real_directory(start).is_ok() {
+            start.to_path_buf()
+        } else {
             let parent = start.parent().unwrap_or_else(|| Path::new("."));
             open_cache_root(parent, false)?;
             open_regular_file(start, "workspace discovery input")?;
             parent.to_path_buf()
-        } else {
-            start.to_path_buf()
         };
         let start = canonical_real_directory(&start)?;
         let mut cursor = Some(start.as_path());
         let mut package_root = None;
         while let Some(root) = cursor {
             let manifest = root.join("nia.toml");
-            if manifest.is_file() && read_raw_manifest(root)?.workspace.is_some() {
+            let has_manifest = regular_file_exists(&manifest, "package manifest")?;
+            if has_manifest && read_raw_manifest(root)?.workspace.is_some() {
                 if let Some(package_root) = package_root {
                     return Self::discover_for_package(package_root);
                 }
                 return Self::read(root).map(Some);
             }
             if package_root.is_none()
-                && (manifest.is_file()
-                    || root.join("build.nia").is_file()
-                    || root.join("pkg.nia").is_file())
+                && (has_manifest
+                    || regular_file_exists(&root.join("build.nia"), "build script")?
+                    || regular_file_exists(&root.join("pkg.nia"), "package script")?)
             {
                 package_root = Some(root);
             }
@@ -3106,7 +3121,7 @@ impl WorkspaceManifest {
 
 fn workspace_state_root(package_root: &Path) -> io::Result<PathBuf> {
     let package_root = canonical_real_directory(package_root)?;
-    if !package_root.join("nia.toml").is_file() {
+    if !regular_file_exists(&package_root.join("nia.toml"), "package manifest")? {
         return Ok(package_root);
     }
     let raw = read_raw_manifest(&package_root)?;
@@ -3818,7 +3833,9 @@ pub fn package_source_identity_with_selection(
         .iter()
         .map(|value| validate_selection_path(value))
         .collect::<io::Result<BTreeSet<_>>>()?;
-    if root.join("nia.toml").is_file() && read_raw_manifest(&root)?.workspace.is_some() {
+    if regular_file_exists(&root.join("nia.toml"), "package manifest")?
+        && read_raw_manifest(&root)?.workspace.is_some()
+    {
         let workspace = WorkspaceManifest::read(&root)?;
         for member in workspace.members {
             if member != "." {
