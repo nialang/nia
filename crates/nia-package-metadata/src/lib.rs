@@ -22,7 +22,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fmt,
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
     str::FromStr,
@@ -797,16 +797,27 @@ impl PackageLock {
 }
 
 fn open_regular_file(path: &Path, label: &'static str) -> io::Result<File> {
-    let mut options = OpenOptions::new();
+    let parent_path = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = open_cache_root(parent_path, false)?;
+    let name = path
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{label} path has no name"),
+            )
+        })?;
+    let mut options = CapOpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt as _;
+        use cap_std::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW);
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::OpenOptionsExt as _;
+        use cap_std::fs::OpenOptionsExt as _;
         use windows_sys::Win32::Storage::FileSystem::{
             FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
         };
@@ -814,7 +825,7 @@ fn open_regular_file(path: &Path, label: &'static str) -> io::Result<File> {
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
     }
-    let file = options.open(path)?;
+    let file = parent.open_with(name, &options)?.into_std();
     let metadata = file.metadata()?;
     if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
         return Err(io::Error::new(
@@ -5196,6 +5207,7 @@ fn read_exact(cursor: &mut Cursor<&[u8]>, bytes: &mut [u8]) -> Result<(), Metada
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::OpenOptions;
 
     #[test]
     fn registry_package_identity_cannot_mix_registry_sources() {
@@ -5399,6 +5411,7 @@ mod tests {
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
+        assert!(PackageLock::read(&parent_link.join("nia.lock")).is_err());
         assert!(
             PackageLock::default()
                 .write_atomic(&parent_link.join("nia.lock"))
@@ -5429,6 +5442,7 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         symlink(&outside, &link).unwrap();
 
+        assert!(PackageLock::read(&link.join("nia.lock")).is_err());
         assert!(
             PackageLock::default()
                 .write_atomic(&link.join("nia.lock"))
