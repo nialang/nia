@@ -1739,6 +1739,9 @@ impl PackageFetcher {
             if entry.source == expected.source && entry.name == expected.name {
                 return Ok(());
             }
+            if entry.source == expected.source && self.policy.locked {
+                return Ok(());
+            }
             if entry.source != expected.source
                 && matches!(
                     &entry.source,
@@ -8263,6 +8266,15 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::write(
             root.join("nia.toml"),
             "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nbeta = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        PackageGraph::resolve_with_policy(
+            &root,
+            PackageGraphOptions::default(),
+            LockPolicy {
+                locked: true,
+                offline: false,
+            },
         )
         .unwrap();
         update_lock_with_registry_fetcher(&root, &[], fetch).unwrap();
