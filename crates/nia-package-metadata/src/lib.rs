@@ -1067,13 +1067,14 @@ impl PackageFetcher {
 
     fn resolve(
         &mut self,
-        owner: &Path,
+        owner_root: &Path,
+        owner: &PackageId,
         dependency: &PackageDependency,
         dependency_chain: &[String],
     ) -> io::Result<PathBuf> {
         match &dependency.source {
             DependencySource::Path(path) => {
-                let unresolved = owner.join(path);
+                let unresolved = owner_root.join(path);
                 match open_cache_root(&unresolved, false) {
                     Ok(_) => {}
                     Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -1094,7 +1095,7 @@ impl PackageFetcher {
                 )?;
                 let source_fingerprint =
                     format!("blake3:{}", hex_digest(&identity.source_fingerprint));
-                let owner_identity = PackageManifest::read(owner)?.package.canonical_text();
+                let owner_identity = owner.canonical_text();
                 let expected = LockedPackage {
                     name: dependency.name.clone(),
                     source: LockedSource::Path {
@@ -1410,7 +1411,7 @@ impl PackageFetcher {
 
     fn resolve_registry(
         &mut self,
-        owner: &Path,
+        owner: &PackageId,
         dependency: &PackageDependency,
         dependency_chain: &[String],
         registry: &str,
@@ -1419,6 +1420,15 @@ impl PackageFetcher {
     ) -> io::Result<PathBuf> {
         self.lock_state()?;
         record_registry_source(&mut self.registry_sources, package, registry)?;
+        self.registry_constraints
+            .entry(package.clone())
+            .or_default()
+            .push(RegistryVersionConstraint {
+                package: package.clone(),
+                requirement: requirement.clone(),
+                requiring_package: owner.clone(),
+                dependency_chain: dependency_chain.to_vec(),
+            });
         let refresh = self
             .refresh_names
             .as_ref()
@@ -1462,10 +1472,15 @@ impl PackageFetcher {
                 .is_some_and(|(_, digest, _)| cache.read_archive(digest).is_ok());
         let (selected, archive_digest, locked_fingerprint, archive) = if self.policy.locked
             || (locked_cache_hit
-                && locked
-                    .as_ref()
-                    .is_some_and(|(selected, ..)| requirement.matches(&selected.version)))
-        {
+                && locked.as_ref().is_some_and(|(selected, ..)| {
+                    self.registry_constraints[package]
+                        .iter()
+                        .all(|constraint| constraint.requirement.matches(&selected.version))
+                        && self
+                            .registry_overrides
+                            .get(package)
+                            .is_none_or(|version| version == selected)
+                })) {
             let (selected, digest, source_fingerprint) = locked.ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -1519,26 +1534,9 @@ impl PackageFetcher {
                     ),
                 ));
             }
-            let requiring_package = PackageManifest::read(owner)
-                .map(|manifest| manifest.package)
-                .unwrap_or_else(|_| PackageId {
-                    namespace: String::new(),
-                    name: dependency.name.clone(),
-                    version: PackageVersion::parse("0.0.0").expect("valid fallback version"),
-                });
-            let constraint = RegistryVersionConstraint {
-                package: package.clone(),
-                requirement: requirement.clone(),
-                requiring_package: requiring_package.clone(),
-                dependency_chain: dependency_chain.to_vec(),
-            };
             self.registry_candidates
                 .entry(package.clone())
                 .or_insert_with(|| candidates.clone());
-            self.registry_constraints
-                .entry(package.clone())
-                .or_default()
-                .push(constraint);
             let solved = solve_registry_versions(
                 self.registry_constraints
                     .get(package)
@@ -1851,7 +1849,7 @@ impl PackageFetcher {
             for dependency in &manifest.dependencies {
                 match &dependency.source {
                     DependencySource::Path(path) => {
-                        let owner = PackageManifest::read(&root).ok()?.package.canonical_text();
+                        let owner = manifest.package.canonical_text();
                         let entry = self.lock.package.iter().find(|entry| {
                             matches!(
                                 &entry.source,
@@ -2454,7 +2452,8 @@ impl PackageGraph {
                 }
                 let mut dependency_chain = package_chain.clone();
                 dependency_chain.push(dependency.name.clone());
-                let path = dependency_path(&mut fetcher, &canonical, dependency, &dependency_chain)
+                let path = fetcher
+                    .resolve(&canonical, &manifest.package, dependency, &dependency_chain)
                     .and_then(|path| {
                         canonical_real_directory(&path).map_err(|error| {
                             io::Error::new(
@@ -3775,15 +3774,6 @@ fn display_path(path: &Path) -> String {
     text.strip_prefix(r"\\?\")
         .map(str::to_owned)
         .unwrap_or(text)
-}
-
-fn dependency_path(
-    fetcher: &mut PackageFetcher,
-    root: &Path,
-    dependency: &PackageDependency,
-    dependency_chain: &[String],
-) -> io::Result<std::path::PathBuf> {
-    fetcher.resolve(root, dependency, dependency_chain)
 }
 
 fn validate_package_id(package: &PackageId) -> io::Result<()> {
@@ -5903,7 +5893,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             scope: DependencyScope::Runtime,
         };
         let mut fetcher = PackageFetcher::for_root(&consumer, LockPolicy::default()).unwrap();
-        fetcher.resolve(&consumer, &dependency, &[]).unwrap();
+        fetcher
+            .resolve(
+                &consumer,
+                &PackageManifest::implicit("consumer").package,
+                &dependency,
+                &[],
+            )
+            .unwrap();
         assert!(fetcher.lock.package.contains(&old_entry));
         assert!(fetcher.lock.package.iter().any(|entry| {
             entry.name == "dep"
@@ -7437,6 +7434,15 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
     #[test]
     fn package_graph_restarts_when_later_registry_constraints_change_selection() {
+        check_registry_graph_with_late_constraints(false);
+    }
+
+    #[test]
+    fn package_graph_restarts_with_cached_registry_constraints() {
+        check_registry_graph_with_late_constraints(true);
+    }
+
+    fn check_registry_graph_with_late_constraints(warm_cache: bool) {
         let root = std::env::temp_dir().join(format!(
             "nia-registry-backtracking-{}-{}",
             std::process::id(),
@@ -7502,6 +7508,30 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         }
         cache.write_index("nia", index.as_bytes()).unwrap();
 
+        if warm_cache {
+            let manifest_path = consumer.join("nia.toml");
+            let manifest = fs::read(&manifest_path).unwrap();
+            fs::write(
+                &manifest_path,
+                "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nz = { registry = \"nia\", package = \"acme/z\", version = \"^1.0\" }\n[registries]\nnia = \"https://registry.example.test\"\n",
+            )
+            .unwrap();
+            let graph = PackageGraph::resolve_with_policy(
+                &consumer,
+                PackageGraphOptions::default(),
+                LockPolicy {
+                    locked: false,
+                    offline: true,
+                },
+            )
+            .unwrap();
+            assert!(graph.nodes.iter().any(|node| {
+                node.manifest.package.name == "shared"
+                    && node.manifest.package.version.as_str() == "1.1.0"
+            }));
+            fs::write(manifest_path, manifest).unwrap();
+        }
+
         let graph = PackageGraph::resolve_with_policy(
             &consumer,
             PackageGraphOptions::default(),
@@ -7533,6 +7563,37 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 .collect::<Vec<_>>(),
             ["1.0.0"]
         );
+        let lock_path = consumer.join("nia.lock");
+        let original_lock = fs::read(&lock_path).unwrap();
+        let manifest_path = consumer.join("nia.toml");
+        let manifest = fs::read_to_string(&manifest_path).unwrap().replace(
+            "[registries]",
+            "shared = { registry = \"nia\", package = \"acme/shared\", version = \">=1.1.0\" }\n[registries]",
+        );
+        fs::write(manifest_path, manifest).unwrap();
+        let error = PackageGraph::resolve_with_policy(
+            &consumer,
+            PackageGraphOptions::default(),
+            LockPolicy {
+                locked: false,
+                offline: true,
+            },
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("no single version of acme/shared"),
+            "{message}"
+        );
+        assert!(message.contains("app@1.0.0 requires >=1.1.0"), "{message}");
+        assert!(
+            message.contains("acme/a@1.0.0 requires >=1.0.0, <1.1.0"),
+            "{message}"
+        );
+        assert!(message.contains("acme/z@1.0.0 requires ^1.0"), "{message}");
+        assert!(message.contains(" -> a -> shared"), "{message}");
+        assert!(message.contains(" -> z -> shared"), "{message}");
+        assert_eq!(fs::read(&lock_path).unwrap(), original_lock);
         fs::remove_dir_all(root).unwrap();
     }
 
