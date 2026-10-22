@@ -1768,7 +1768,7 @@ impl PackageFetcher {
         }
         let mut seen = BTreeSet::new();
         while let Some(root) = pending.pop() {
-            let root = root.canonicalize().ok()?;
+            let root = canonical_real_directory(&root).ok()?;
             if !seen.insert(root.clone()) {
                 continue;
             }
@@ -8689,13 +8689,18 @@ mod tests {
         std::fs::create_dir_all(root.join("real")).unwrap();
         std::fs::write(root.join("real/lib.nia"), "pub const value: u8 = 1;").unwrap();
         let link = root.join("src").join("linked");
-        let output = std::process::Command::new("cmd")
-            .args(["/d", "/c"])
-            .arg(format!(
-                "mklink /J \"{}\" \"{}\"",
-                link.display(),
-                root.join("real").display()
-            ))
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "New-Item",
+                "-ItemType",
+                "Junction",
+                "-Path",
+            ])
+            .arg(&link)
+            .args(["-Target"])
+            .arg(root.join("real"))
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
