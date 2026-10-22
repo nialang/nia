@@ -441,24 +441,13 @@ fn write_archive_entries(root: &Dir, entries: &[RegistryArchiveEntry]) -> io::Re
         let mut directory = root.try_clone()?;
         while let Some(component) = components.next() {
             if components.peek().is_some() {
-                match directory.open_dir(component) {
-                    Ok(child) => directory = child,
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                        directory.create_dir(component)?;
-                        directory = directory.open_dir(component)?;
-                    }
-                    Err(error) => return Err(error),
-                }
+                directory = open_cache_directory(&directory, component, true)?;
                 continue;
             }
             match entry.kind {
-                RegistryArchiveEntryKind::Directory => match directory.create_dir(component) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                        directory.open_dir(component)?;
-                    }
-                    Err(error) => return Err(error),
-                },
+                RegistryArchiveEntryKind::Directory => {
+                    let _ = open_cache_directory(&directory, component, true)?;
+                }
                 RegistryArchiveEntryKind::File => {
                     let mut options = CapOpenOptions::new();
                     options.write(true).create_new(true);
@@ -1215,6 +1204,34 @@ mod tests {
         );
         assert!(fs::read_dir(&outside).unwrap().next().is_none());
         fs::remove_file(&staging).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_extraction_rejects_symlinked_staging_children() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-archive-child-link-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let staging = root.join("staging");
+        let outside = root.join("outside");
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, staging.join("src")).unwrap();
+        let staging_dir = Dir::open_ambient_dir(&staging, ambient_authority()).unwrap();
+
+        let result = write_archive_entries(
+            &staging_dir,
+            &[RegistryArchiveEntry {
+                path: "src/lib.nia".into(),
+                kind: RegistryArchiveEntryKind::File,
+                contents: b"must stay inside staging".to_vec(),
+            }],
+        );
+        assert!(result.is_err());
+        assert!(!outside.join("lib.nia").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
