@@ -56,10 +56,8 @@ current Windows environment. No remote CI execution is claimed.
   destination safely; package Git fetches open cache and staging components
   without following links. Remote pack objects are decoded from the validated
   response bytes without a temporary `.git` tree or staging-path lookup. Local
-  repository paths are canonicalized and opened component-by-component without
-  following links; refs, loose objects, and pack files are then read relative
-  to those handles. The initial canonicalization still selects the source
-  repository and relies on ownership of that source path.
+  repository paths are made absolute lexically and opened component-by-
+  component without following links; refs, loose objects, and pack files are+  then read relative to those handles. This rejects linked source components+  instead of resolving them before the handle-relative walk.
 - Byte budgets exclude allocator/container overhead and transient compression
   buffers. They bound decoded payload accounting, not exact process memory.
 - The SSH implementation is a deliberately limited client: it supports the
@@ -97,6 +95,12 @@ directory. Linked refs, object fanout, and pack directories are rejected.
 Windows and Unix variants passed locally. The current focused run passed 113
 `nia-git` unit tests, 4 Git checkout integration tests, and 76
 `nia-package-metadata` tests; Clippy and `cargo maintain check` also passed.
+
+On 2026-10-22, local repository opening stopped canonicalizing source paths
+before the handle-relative walk. Each path component, including the source
+root, is now opened without following links, eliminating the path replacement
+window between canonicalization and opening. Unix symlink and Windows junction
+regressions cover linked source components.
 
 ## Post-Review Fuzzing
 
