@@ -596,11 +596,14 @@ fn validate_registry_base_url(url: &str) -> io::Result<()> {
     {
         return Err(invalid_index("registry endpoint URL is invalid"));
     }
-    if path
-        .trim_end_matches('/')
-        .split('/')
-        .any(|segment| segment == ".." || segment.is_empty())
-        && !path.is_empty()
+    if !path.is_empty()
+        && path != "/"
+        && (path
+            .strip_suffix('/')
+            .unwrap_or(path)
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+            || path.ends_with("//"))
     {
         return Err(invalid_index("registry endpoint URL is invalid"));
     }
@@ -925,6 +928,17 @@ fn validate_archive_url(url: &str) -> io::Result<()> {
         if port.parse::<u16>().map_or(true, |port| port == 0) {
             return Err(invalid_index("registry archive URL is invalid"));
         }
+    }
+    if !path.is_empty()
+        && path != "/"
+        && (path
+            .strip_suffix('/')
+            .unwrap_or(path)
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+            || path.ends_with("//"))
+    {
+        return Err(invalid_index("registry archive URL is invalid"));
     }
     Ok(())
 }
@@ -1466,10 +1480,21 @@ mod tests {
             "http://packages.example.test",
             "https://user@packages.example.test",
             "https://packages.example.test/api/../other",
+            "https://packages.example.test/api/./other",
+            "https://packages.example.test/api//other",
+            "https://packages.example.test/api//",
             "https://packages.example.test/index?next=other",
             "https://packages.example.test/#fragment",
         ] {
             assert!(RegistryEndpoint::new("nia", url).is_err(), "{url}");
+        }
+
+        for url in [
+            "https://cdn.example.test/archive/./package.nia",
+            "https://cdn.example.test/archive//package.nia",
+            "https://cdn.example.test/archive//",
+        ] {
+            assert!(validate_archive_url(url).is_err(), "{url}");
         }
     }
 
