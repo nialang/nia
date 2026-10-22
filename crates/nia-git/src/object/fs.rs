@@ -15,7 +15,7 @@ use cap_std::{
 use crate::invalid_packet;
 
 pub(crate) fn open_directory_path(path: &Path) -> io::Result<Dir> {
-    let absolute = std::fs::canonicalize(path)?;
+    let absolute = std::path::absolute(path)?;
     let mut root_path = PathBuf::new();
     for component in absolute.components() {
         match component {
@@ -101,4 +101,42 @@ pub(crate) fn read_bounded_file(
         return Err(invalid_packet(message));
     }
     Ok(contents)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_directory_path_rejects_linked_components() {
+        let root = nia_test_support::test_dir("git-open-directory-link");
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert!(open_directory_path(&link).is_err());
+        assert!(open_directory_path(&link.join("child")).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opening_a_directory_path_rejects_reparse_components() {
+        let root = nia_test_support::test_dir("git-open-directory-junction");
+        let real = root.join("real");
+        let link = root.join("link");
+        std::fs::create_dir(&real).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&real)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(open_directory_path(&link).is_err());
+        assert!(open_directory_path(&link.join("child")).is_err());
+        std::fs::remove_dir(&link).unwrap();
+    }
 }
