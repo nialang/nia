@@ -1037,7 +1037,12 @@ impl PackageFetcher {
         }
     }
 
-    fn resolve(&mut self, owner: &Path, dependency: &PackageDependency) -> io::Result<PathBuf> {
+    fn resolve(
+        &mut self,
+        owner: &Path,
+        dependency: &PackageDependency,
+        dependency_chain: &[String],
+    ) -> io::Result<PathBuf> {
         match &dependency.source {
             DependencySource::Path(path) => {
                 let unresolved = owner.join(path);
@@ -1118,7 +1123,14 @@ impl PackageFetcher {
                 registry,
                 package,
                 requirement,
-            } => self.resolve_registry(owner, dependency, registry, package, requirement),
+            } => self.resolve_registry(
+                owner,
+                dependency,
+                dependency_chain,
+                registry,
+                package,
+                requirement,
+            ),
             DependencySource::Git {
                 url,
                 rev,
@@ -1372,6 +1384,7 @@ impl PackageFetcher {
         &mut self,
         owner: &Path,
         dependency: &PackageDependency,
+        dependency_chain: &[String],
         registry: &str,
         package: &RegistryPackageName,
         requirement: &PackageVersionRequirement,
@@ -1489,7 +1502,7 @@ impl PackageFetcher {
                 package: package.clone(),
                 requirement: requirement.clone(),
                 requiring_package: requiring_package.clone(),
-                dependency_chain: vec![requiring_package.canonical_text(), dependency.name.clone()],
+                dependency_chain: dependency_chain.to_vec(),
             };
             self.registry_candidates
                 .entry(package.clone())
@@ -2328,11 +2341,19 @@ impl PackageGraph {
         let mut nodes = Vec::new();
         let mut pending = roots
             .iter()
-            .map(|(root, logical_root)| (root.clone(), logical_root.clone(), true, Vec::new()))
+            .map(|(root, logical_root)| {
+                (
+                    root.clone(),
+                    logical_root.clone(),
+                    true,
+                    Vec::new(),
+                    Vec::new(),
+                )
+            })
             .collect::<Vec<_>>();
         let mut seen = BTreeSet::new();
         let mut edges = Vec::new();
-        while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
+        while let Some((current, logical_root, is_root, ancestors, chain)) = pending.pop() {
             open_cache_root(&current, false)
                 .map_err(|error| dependency_context(&logical_root, error))?;
             let canonical = canonical_real_directory(&current)?;
@@ -2379,6 +2400,11 @@ impl PackageGraph {
                 &manifest.source,
             )
             .map_err(in_node)?;
+            let package_chain = if chain.is_empty() {
+                vec![manifest.package.canonical_text()]
+            } else {
+                chain
+            };
             for dependency in &manifest.dependencies {
                 let child_root = if logical_root.is_empty() {
                     dependency.name.clone()
@@ -2401,7 +2427,9 @@ impl PackageGraph {
                     ));
                     continue;
                 }
-                let path = dependency_path(&mut fetcher, &canonical, dependency)
+                let mut dependency_chain = package_chain.clone();
+                dependency_chain.push(dependency.name.clone());
+                let path = dependency_path(&mut fetcher, &canonical, dependency, &dependency_chain)
                     .and_then(|path| {
                         canonical_real_directory(&path).map_err(|error| {
                             io::Error::new(
@@ -2420,7 +2448,7 @@ impl PackageGraph {
                 ));
                 let mut next_ancestors = ancestors.clone();
                 next_ancestors.push(canonical.clone());
-                pending.push((path, child_root, false, next_ancestors));
+                pending.push((path, child_root, false, next_ancestors, dependency_chain));
             }
             nodes.push(PackageGraphNode {
                 manifest,
@@ -3703,8 +3731,9 @@ fn dependency_path(
     fetcher: &mut PackageFetcher,
     root: &Path,
     dependency: &PackageDependency,
+    dependency_chain: &[String],
 ) -> io::Result<std::path::PathBuf> {
-    fetcher.resolve(root, dependency)
+    fetcher.resolve(root, dependency, dependency_chain)
 }
 
 fn validate_package_id(package: &PackageId) -> io::Result<()> {
@@ -5817,7 +5846,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             scope: DependencyScope::Runtime,
         };
         let mut fetcher = PackageFetcher::for_root(&consumer, LockPolicy::default()).unwrap();
-        fetcher.resolve(&consumer, &dependency).unwrap();
+        fetcher.resolve(&consumer, &dependency, &[]).unwrap();
         assert!(fetcher.lock.package.contains(&old_entry));
         assert!(fetcher.lock.package.iter().any(|entry| {
             entry.name == "dep"
