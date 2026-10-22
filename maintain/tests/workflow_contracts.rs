@@ -128,7 +128,8 @@ fn build_std_workflow_exchanges_and_executes_cross_host_artifacts() {
         "foreach ($optimization in @(0, 2))",
         "Get-FileHash -Algorithm SHA256",
         "(($checksums -join \"`n\") + \"`n\")",
-        "sha256sum --check SHA256SUMS",
+        "shasum -a 256 --check SHA256SUMS",
+        "shasum -a 256 \"${executable}\"",
         "$process.WaitForExit(30000)",
         "$process.ExitCode -ne 0",
         "timeout 30s qemu-aarch64-static",
@@ -141,6 +142,49 @@ fn build_std_workflow_exchanges_and_executes_cross_host_artifacts() {
             .join("maintain/fixtures/cross-execution.nia")
             .is_file()
     );
+}
+
+#[test]
+fn build_std_workflow_exchanges_and_executes_cross_host_darwin_artifacts() {
+    let workflow = workflow("build-std.yml");
+    let job = workflow
+        .split("\n  run-darwin-cross:\n")
+        .nth(1)
+        .expect("Darwin cross-execution job")
+        .split("\n  run-")
+        .next()
+        .unwrap();
+    assert!(job.contains("needs: [correctness, windows]"));
+    assert!(job.contains("name: nia-linux-built-darwin"));
+    assert!(job.contains("name: nia-windows-built-darwin"));
+    for target in ["x86_64-apple-macos", "aarch64-apple-macos"] {
+        assert!(
+            workflow.contains(&format!("target: {target}")),
+            "missing {target}"
+        );
+    }
+    assert!(workflow.contains("probe-${{ matrix.target }}-O${optimization}"));
+    for command in [
+        "Cross-link Darwin executables on Linux",
+        "Cross-link Darwin executables on Windows",
+        "name: nia-linux-built-darwin",
+        "name: nia-windows-built-darwin",
+        "Run cross-host Darwin executables",
+        "sha256sum --check SHA256SUMS",
+        "sleep 30",
+        "kill \"${pid}\"",
+        "source=%s",
+        "actions/download-artifact@v8",
+        "actions/upload-artifact@v7",
+    ] {
+        assert!(
+            workflow.contains(command),
+            "missing Darwin cross-execution contract {command}"
+        );
+    }
+    assert!(workflow.contains("runner: macos-15-intel"));
+    assert!(workflow.contains("runner: macos-15"));
+    assert!(workflow.contains("name: nia-darwin-cross-execution-evidence-${{ matrix.name }}"));
 }
 
 #[test]

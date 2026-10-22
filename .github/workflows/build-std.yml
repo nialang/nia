@@ -152,6 +152,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Cross-link Darwin executables on Linux
+        run: |
+          mkdir -p target/cross-execution/darwin
+          for target in x86_64-apple-macos aarch64-apple-macos; do
+            for optimization in 0 2; do
+              target/release/nia --resource-root lib --target "${target}" \
+                emit --exe "-O${optimization}" maintain/fixtures/cross-execution.nia \
+                -o "target/cross-execution/darwin/probe-${target}-O${optimization}"
+            done
+          done
+          (cd target/cross-execution/darwin && sha256sum probe-* > SHA256SUMS)
+
+      - name: Publish Linux-built Darwin executables
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-linux-built-darwin
+          path: target/cross-execution/darwin
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run clean/warm/edit/corruption/failure build baseline
         run: |
           cargo maintain baseline build \
@@ -297,6 +317,37 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Cross-link Darwin executables on Windows
+        shell: pwsh
+        run: |
+          $destination = 'target/cross-execution/darwin'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          foreach ($target in @('x86_64-apple-macos', 'aarch64-apple-macos')) {
+            foreach ($optimization in @(0, 2)) {
+              & .\target\x86_64-pc-windows-msvc\release\nia.exe --resource-root lib --target $target `
+                emit --exe "-O$optimization" maintain/fixtures/cross-execution.nia `
+                -o "$destination/probe-$target-O$optimization"
+              if ($LASTEXITCODE -ne 0) { throw "cross-link failed: $target O$optimization" }
+            }
+          }
+          $checksums = Get-ChildItem "$destination/probe-*" | Sort-Object Name | ForEach-Object {
+            $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$digest  $($_.Name)"
+          }
+          [IO.File]::WriteAllText(
+            "$destination/SHA256SUMS",
+            (($checksums -join "`n") + "`n"),
+            [Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Publish Windows-built Darwin executables
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-windows-built-darwin
+          path: target/cross-execution/darwin
+          if-no-files-found: error
+          retention-days: 14
+
   run-windows-cross:
     name: Run Linux-built Windows executables
     needs: correctness
@@ -398,5 +449,82 @@ jobs:
             cross-execution/SHA256SUMS
             cross-execution/*.stdout
             cross-execution/*.stderr
+          if-no-files-found: warn
+          retention-days: 30
+
+  run-darwin-cross:
+    name: Run cross-host Darwin executables (${{ matrix.name }})
+    needs: [correctness, windows]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-macos
+          - name: aarch64
+            runner: macos-15
+            target: aarch64-apple-macos
+    steps:
+      - name: Download Linux-built Darwin executables
+        uses: actions/download-artifact@v8
+        with:
+          name: nia-linux-built-darwin
+          path: cross-execution/linux
+
+      - name: Download Windows-built Darwin executables
+        uses: actions/download-artifact@v8
+        with:
+          name: nia-windows-built-darwin
+          path: cross-execution/windows
+
+      - name: Verify and execute Darwin artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cross-execution/evidence
+          for source in linux windows; do
+            cd "cross-execution/${source}"
+            shasum -a 256 --check SHA256SUMS
+            for optimization in 0 2; do
+              executable="probe-${{ matrix.target }}-O${optimization}"
+              chmod +x "${executable}"
+              "./${executable}" > "${executable}.stdout" 2> "${executable}.stderr" &
+              pid=$!
+              (
+                sleep 30
+                kill "${pid}" 2>/dev/null || true
+              ) &
+              watchdog=$!
+              set +e
+              wait "${pid}"
+              status=$?
+              set -e
+              kill "${watchdog}" 2>/dev/null || true
+              wait "${watchdog}" 2>/dev/null || true
+              test "${status}" -eq 0
+              test "$(cat "${executable}.stderr")" = cross-execution-ok
+              digest="$(shasum -a 256 "${executable}" | cut -d ' ' -f 1)"
+              printf 'commit=%s run_id=%s job=%s source=%s target=%s optimization=O%s sha256=%s exit=0\n' \
+                "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "${GITHUB_JOB}" "${source}" \
+                "${{ matrix.target }}" "${optimization}" "${digest}" \
+                >> "../evidence/${source}.txt"
+            done
+            cd ../..
+          done
+
+      - name: Publish Darwin cross-execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-darwin-cross-execution-evidence-${{ matrix.name }}
+          path: |
+            cross-execution/evidence
+            cross-execution/linux/*.stdout
+            cross-execution/linux/*.stderr
+            cross-execution/windows/*.stdout
+            cross-execution/windows/*.stderr
           if-no-files-found: warn
           retention-days: 30
