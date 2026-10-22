@@ -362,7 +362,17 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
         let ret = bindings::openat(current.fd, &storage[componentStart], bindings::openDirectory | bindings::openNoFollow, 0);
         if ret < 0 {
             let cause = errno();
+            let mut escaped = false;
+            if cause == .SymlinkLoop or cause == .NotDir {
+                let mut linkStat: bindings::DarwinStat;
+                if bindings::fstatat(current.fd, &storage[componentStart], &mut linkStat, bindings::atSymlinkNoFollow) == 0
+                    and linkStat.kind() == .Symlink
+                {
+                    escaped = true;
+                }
+            }
             if ownsCurrent { _ = current.close(); }
+            if escaped { return .CrossDevice!; }
             return cause!;
         }
         if ownsCurrent { _ = current.close(); }

@@ -515,7 +515,11 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let path = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
     match cwd.metadata(path, fs::MetadataOptions::init()) {
         !metadata => { _ = metadata; return process::ExitCode(3)!; },
-        error! => { _ = error; },
+        fs::OperationError::System {
+            operation: fs::Operation::Metadata,
+            cause: fs::Error::CrossDevice,
+        }! => {},
+        error! => { _ = error; return process::ExitCode(3)!; },
     }
     match cwd.openFile(path, fs::OpenOptions::readOnly()) {
         !file => { return process::ExitCode(1)!; },
