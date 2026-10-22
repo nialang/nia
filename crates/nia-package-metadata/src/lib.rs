@@ -2041,17 +2041,6 @@ fn update_lock_inner(
     let lock_path = state_root.join("nia.lock");
     let (original_lock, original_bytes) = PackageLock::read_snapshot(&lock_path)?;
     let before = original_lock.package.clone();
-    for name in names {
-        if !before
-            .iter()
-            .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("`{name}` is not a locked Git or registry dependency"),
-            ));
-        }
-    }
     let updates = with_lockfile_rollback(&lock_path, original_bytes.as_deref(), || {
         let raw = read_raw_manifest(&state_root)?;
         let mut roots = Vec::new();
@@ -2068,6 +2057,42 @@ fn update_lock_inner(
             }
         } else {
             roots.push((state_root.clone(), String::new()));
+        }
+        let manifests = roots
+            .iter()
+            .map(|(root, _)| PackageManifest::read(root))
+            .collect::<io::Result<Vec<_>>>()?;
+        for name in names {
+            let direct_registry_alias = manifests.iter().any(|manifest| {
+                manifest.dependencies.iter().any(|dependency| {
+                    dependency.name == *name
+                        && matches!(
+                            &dependency.source,
+                            DependencySource::Registry { registry, package, .. }
+                                if before.iter().any(|entry| matches!(
+                                    &entry.source,
+                                    LockedSource::Registry {
+                                        registry: locked_registry,
+                                        namespace,
+                                        package: locked_package,
+                                        ..
+                                    } if locked_registry == registry
+                                        && namespace == &package.namespace
+                                        && locked_package == &package.name
+                                ))
+                        )
+                })
+            });
+            if !before
+                .iter()
+                .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
+                && !direct_registry_alias
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("`{name}` is not a locked Git or registry dependency"),
+                ));
+            }
         }
         let registries = read_registry_endpoints(&state_root)?;
         let refresh_names = names.iter().cloned().collect::<BTreeSet<_>>();
@@ -8122,6 +8147,93 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     .to_string_lossy()
                     .starts_with(".fetch-"))
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_update_keeps_explicit_refresh_across_aliases() {
+        use std::sync::{Arc, Mutex};
+
+        let root = lock_test_root("registry-update-aliases");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nalpha = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\nbeta = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        let make_archive = |version: &str| {
+            let manifest = format!(
+                "[package]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\n"
+            );
+            let entries = [
+                ("nia.toml", manifest.as_bytes()),
+                ("src/lib.nia", b"x".as_slice()),
+            ];
+            let mut archive = Vec::new();
+            archive.extend_from_slice(b"NIAPKG\0\0");
+            archive.extend_from_slice(&1u32.to_le_bytes());
+            archive.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+            for (path, contents) in entries {
+                archive.push(0);
+                archive.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                archive.extend_from_slice(path.as_bytes());
+                archive.extend_from_slice(&(contents.len() as u64).to_le_bytes());
+                archive.extend_from_slice(contents);
+            }
+            archive
+        };
+        let archive_1 = make_archive("1.0.0");
+        let archive_2 = make_archive("1.1.0");
+        let digest_1 = *blake3::hash(&archive_1).as_bytes();
+        let digest_2 = *blake3::hash(&archive_2).as_bytes();
+        let index = |version: &str, digest: &[u8; 32]| {
+            format!(
+                "schema_version = 1\n[[packages]]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"{version}\"\narchive_url = \"https://cdn.example.test/json-{version}.nia\"\narchive_digest = \"blake3:{}\"\n",
+                hex_digest(digest)
+            )
+            .into_bytes()
+        };
+        let state = Arc::new(Mutex::new(index("1.0.0", &digest_1)));
+        let archives = Arc::new(BTreeMap::from([
+            (
+                "https://cdn.example.test/json-1.0.0.nia".to_owned(),
+                archive_1,
+            ),
+            (
+                "https://cdn.example.test/json-1.1.0.nia".to_owned(),
+                archive_2,
+            ),
+        ]));
+        let fetch: RegistryFetch = {
+            let state = state.clone();
+            let archives = archives.clone();
+            Arc::new(move |url: &str| {
+                if url == "https://packages.example.test/index.toml" {
+                    return Ok(state.lock().unwrap().clone());
+                }
+                archives.get(url).cloned().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::NotFound, "unexpected registry URL")
+                })
+            })
+        };
+
+        let initial = update_lock_with_registry_fetcher(&root, &[], fetch.clone()).unwrap();
+        assert_eq!(initial.len(), 1);
+        let initial_lock = PackageLock::read(&root.join("nia.lock")).unwrap();
+        assert_eq!(initial_lock.package.len(), 1);
+        assert!(initial_lock.package.iter().all(|entry| matches!(
+            &entry.source,
+            LockedSource::Registry { version, .. } if version == "1.0.0"
+        )));
+
+        *state.lock().unwrap() = index("1.1.0", &digest_2);
+        let updates = update_lock_with_registry_fetcher(&root, &["beta".into()], fetch).unwrap();
+        assert_eq!(updates.len(), 1, "{updates:?}");
+        let lock = PackageLock::read(&root.join("nia.lock")).unwrap();
+        assert!(lock.package.iter().all(|entry| matches!(
+            &entry.source,
+            LockedSource::Registry { version, .. } if version == "1.1.0"
+        )));
         std::fs::remove_dir_all(root).unwrap();
     }
 
