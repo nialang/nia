@@ -301,7 +301,13 @@ pub(crate) fn checkout_http(
 
 /// Fetches one public HTTPS resource using the Git HTTP proxy and TLS policy.
 /// Resource requests do not inherit Git credentials from the credential helper.
-pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
+pub fn fetch_https_with_limit(source: &str, limit: usize) -> io::Result<Vec<u8>> {
+    if limit == 0 || limit > MAX_RESPONSE_BYTES * 2 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Git HTTPS response limit is invalid",
+        ));
+    }
     let url = parse_http_git_url(source)?;
     if !url.secure {
         return Err(io::Error::new(
@@ -310,7 +316,7 @@ pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
         ));
     }
     let proxy = http_proxy_for_url(&url)?;
-    http_request_with_proxy(&url, "GET", &url.path, &[], "", None, proxy.as_ref())
+    http_request_with_proxy_limit(&url, "GET", &url.path, &[], "", None, proxy.as_ref(), limit)
 }
 
 #[cfg(test)]
@@ -335,6 +341,7 @@ pub(crate) fn fetch_https_with_test_root(source: &str, root_der: &[u8]) -> io::R
             content_type: "",
             authorization: None,
             proxy: None,
+            response_limit: MAX_RESPONSE_BYTES,
         },
         roots,
     )
@@ -349,6 +356,29 @@ pub(crate) fn http_request_with_proxy(
     authorization: Option<&[u8]>,
     proxy: Option<&HttpProxy>,
 ) -> io::Result<Vec<u8>> {
+    http_request_with_proxy_limit(
+        url,
+        method,
+        path,
+        body,
+        content_type,
+        authorization,
+        proxy,
+        MAX_RESPONSE_BYTES,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn http_request_with_proxy_limit(
+    url: &HttpGitUrl,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    content_type: &str,
+    authorization: Option<&[u8]>,
+    proxy: Option<&HttpProxy>,
+    response_limit: usize,
+) -> io::Result<Vec<u8>> {
     let roots = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
@@ -361,6 +391,7 @@ pub(crate) fn http_request_with_proxy(
             content_type,
             authorization,
             proxy,
+            response_limit,
         },
         roots,
     )
@@ -373,6 +404,7 @@ struct HttpRequest<'a> {
     content_type: &'a str,
     authorization: Option<&'a [u8]>,
     proxy: Option<&'a HttpProxy>,
+    response_limit: usize,
 }
 
 fn http_request_with_roots(
@@ -432,6 +464,7 @@ fn http_request_with_roots(
             request.body,
             request.content_type,
             request.authorization,
+            request.response_limit,
         );
     }
     http_request_stream_with_target(
@@ -442,6 +475,7 @@ fn http_request_with_roots(
         request.body,
         request.content_type,
         request.authorization,
+        request.response_limit,
     )
 }
 
@@ -454,6 +488,7 @@ pub(crate) fn establish_proxy_tunnel(mut stream: &TcpStream, url: &HttpGitUrl) -
     read_proxy_connect_response(stream)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn http_request_stream<S: Read + Write>(
     stream: S,
     url: &HttpGitUrl,
@@ -462,10 +497,21 @@ pub(crate) fn http_request_stream<S: Read + Write>(
     body: &[u8],
     content_type: &str,
     authorization: Option<&[u8]>,
+    response_limit: usize,
 ) -> io::Result<Vec<u8>> {
-    http_request_stream_with_target(stream, url, method, path, body, content_type, authorization)
+    http_request_stream_with_target(
+        stream,
+        url,
+        method,
+        path,
+        body,
+        content_type,
+        authorization,
+        response_limit,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn http_request_stream_with_target<S: Read + Write>(
     mut stream: S,
     url: &HttpGitUrl,
@@ -474,6 +520,7 @@ fn http_request_stream_with_target<S: Read + Write>(
     body: &[u8],
     content_type: &str,
     authorization: Option<&[u8]>,
+    response_limit: usize,
 ) -> io::Result<Vec<u8>> {
     let host_header = format_authority(&url.host, url.port, if url.secure { 443 } else { 80 });
     write!(
@@ -493,10 +540,10 @@ fn http_request_stream_with_target<S: Read + Write>(
     stream.write_all(body)?;
     let response = read_limited(
         stream,
-        MAX_RESPONSE_BYTES,
+        response_limit.saturating_add(MAX_HTTP_HEADER_BYTES),
         "Git HTTP response exceeds size limit",
     )?;
-    parse_http_response(&response)
+    parse_http_response_with_limit(&response, response_limit)
 }
 
 fn format_authority(host: &str, port: u16, default_port: u16) -> String {
@@ -575,8 +622,13 @@ fn parse_http_field(line: &str) -> io::Result<(&str, &str)> {
     Ok((name, value.trim_matches([' ', '\t'])))
 }
 
+#[cfg(any(test, feature = "fuzzing"))]
 pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
-    if response.len() > MAX_RESPONSE_BYTES {
+    parse_http_response_with_limit(response, MAX_RESPONSE_BYTES)
+}
+
+fn parse_http_response_with_limit(response: &[u8], limit: usize) -> io::Result<Vec<u8>> {
+    if response.len() > limit.saturating_add(MAX_HTTP_HEADER_BYTES) {
         return Err(invalid_packet("Git HTTP response exceeds size limit"));
     }
     let header_end = response
@@ -641,8 +693,11 @@ pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
     }
     let body = &response[header_end + 4..];
     if chunked {
-        decode_chunked_body(body)
+        decode_chunked_body_with_limit(body, limit)
     } else if let Some(length) = content_length {
+        if length > limit {
+            return Err(invalid_packet("Git HTTP response exceeds size limit"));
+        }
         if body.len() != length {
             return Err(invalid_packet(
                 "Git HTTP body length does not match content length",
@@ -650,12 +705,20 @@ pub(crate) fn parse_http_response(response: &[u8]) -> io::Result<Vec<u8>> {
         }
         Ok(body[..length].to_vec())
     } else {
+        if body.len() > limit {
+            return Err(invalid_packet("Git HTTP response exceeds size limit"));
+        }
         Ok(body.to_vec())
     }
 }
 
-fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
-    if input.len() > MAX_RESPONSE_BYTES {
+#[cfg(test)]
+fn decode_chunked_body(input: &[u8]) -> io::Result<Vec<u8>> {
+    decode_chunked_body_with_limit(input, MAX_RESPONSE_BYTES)
+}
+
+fn decode_chunked_body_with_limit(mut input: &[u8], limit: usize) -> io::Result<Vec<u8>> {
+    if input.len() > limit.saturating_add(MAX_HTTP_HEADER_BYTES) {
         return Err(invalid_packet("Git HTTP response exceeds size limit"));
     }
     let mut output = Vec::new();
@@ -719,7 +782,7 @@ fn decode_chunked_body(mut input: &[u8]) -> io::Result<Vec<u8>> {
         if input.len() < chunk_end || &input[size..chunk_end] != b"\r\n" {
             return Err(invalid_packet("Git HTTP chunk is truncated"));
         }
-        if size > MAX_RESPONSE_BYTES.saturating_sub(output.len()) {
+        if size > limit.saturating_sub(output.len()) {
             return Err(invalid_packet("Git HTTP response exceeds size limit"));
         }
         output.extend_from_slice(&input[..size]);
@@ -1087,6 +1150,20 @@ mod tests {
     }
 
     #[test]
+    fn http_response_parser_enforces_caller_body_limit_for_fixed_and_chunked_data() {
+        for response in [
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata".as_slice(),
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\ndata\r\n0\r\n\r\n",
+        ] {
+            assert!(parse_http_response_with_limit(response, 3).is_err());
+            assert_eq!(
+                parse_http_response_with_limit(response, 4).unwrap(),
+                b"data"
+            );
+        }
+    }
+
+    #[test]
     fn https_resource_fetch_performs_tls_handshake_and_reads_response() {
         use std::io::{Read as _, Write as _};
         use std::net::TcpListener;
@@ -1251,6 +1328,7 @@ mod tests {
             &[],
             "",
             Some(b"bmlhOnNlY3JldA=="),
+            MAX_RESPONSE_BYTES,
         )
         .unwrap();
         assert!(
