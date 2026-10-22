@@ -655,6 +655,7 @@ impl PackageLock {
         }
         let mut identities = BTreeSet::new();
         let mut registry_versions = BTreeMap::<(&str, &str, &str), &str>::new();
+        let mut registry_bindings = BTreeMap::<(&str, &str, &str), (&str, &str, &str)>::new();
         let mut registry_sources = BTreeMap::<(&str, &str), &str>::new();
         for package in &self.package {
             validate_dependency_name(&package.name).map_err(|error| {
@@ -743,6 +744,20 @@ impl PackageLock {
                         return Err(io::Error::new(
                             error_kind,
                             "lockfile selects multiple versions of one registry package",
+                        ));
+                    }
+                    if registry_bindings
+                        .insert(
+                            (registry, namespace, package),
+                            (version, archive_digest, source_fingerprint),
+                        )
+                        .is_some_and(|previous| {
+                            previous != (version, archive_digest, source_fingerprint)
+                        })
+                    {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile binds one registry package to multiple archive or source fingerprints",
                         ));
                     }
                     format!("registry\0{registry}\0{namespace}\0{package}")
@@ -5801,6 +5816,32 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             error
                 .to_string()
                 .contains("one registry package from multiple registries")
+        );
+    }
+
+    #[test]
+    fn lockfile_rejects_registry_aliases_with_different_content_bindings() {
+        let entry = |name: &str, archive_byte: char, source_byte: char| LockedPackage {
+            name: name.into(),
+            source: LockedSource::Registry {
+                registry: "nia".into(),
+                namespace: "acme".into(),
+                package: "json".into(),
+                version: "1.0.0".into(),
+                archive_digest: format!("blake3:{}", archive_byte.to_string().repeat(64)),
+                source_fingerprint: format!("blake3:{}", source_byte.to_string().repeat(64)),
+            },
+        };
+        let error = PackageLock {
+            version: LOCKFILE_VERSION,
+            package: vec![entry("json", 'a', 'b'), entry("json_alias", 'c', 'd')],
+        }
+        .validate(io::ErrorKind::InvalidInput)
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("multiple archive or source fingerprints")
         );
     }
 
