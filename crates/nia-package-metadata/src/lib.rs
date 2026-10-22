@@ -3227,8 +3227,20 @@ fn expand_workspace_paths(root: &Path, patterns: &[String], role: &str) -> io::R
         }
         let mut found = false;
         for path in paths {
-            if !path.is_dir() || !path.join("nia.toml").is_file() {
-                continue;
+            match open_cache_root(&path, false) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(io::Error::new(
+                        error.kind(),
+                        format!("{role} `{pattern}` is not a real directory: {error}"),
+                    ));
+                }
+            }
+            match read_raw_manifest(&path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
             }
             let canonical = path.canonicalize()?;
             let relative = canonical.strip_prefix(root).map_err(|_| {
@@ -6386,6 +6398,60 @@ mod tests {
             root.canonicalize().unwrap()
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_members_reject_linked_directories() {
+        use std::os::unix::fs::symlink;
+
+        let root = lock_test_root("linked-workspace-member");
+        let member_parent = root.join("packages");
+        let outside = root.join("outside");
+        let linked_member = member_parent.join("app");
+        fs::create_dir_all(&member_parent).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"packages/app\"]\n",
+        )
+        .unwrap();
+        fs::write(outside.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        symlink(&outside, &linked_member).unwrap();
+
+        assert!(WorkspaceManifest::read(&root).is_err());
+        assert!(!root.join("nia.lock").exists());
+        fs::remove_file(linked_member).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn workspace_members_reject_junctioned_directories() {
+        let root = lock_test_root("junctioned-workspace-member");
+        let member_parent = root.join("packages");
+        let outside = root.join("outside");
+        let linked_member = member_parent.join("app");
+        fs::create_dir_all(&member_parent).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"packages/app\"]\n",
+        )
+        .unwrap();
+        fs::write(outside.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked_member)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(WorkspaceManifest::read(&root).is_err());
+        assert!(!root.join("nia.lock").exists());
+        fs::remove_dir(linked_member).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
