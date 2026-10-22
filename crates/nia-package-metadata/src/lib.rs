@@ -766,7 +766,7 @@ impl PackageLock {
     /// Read a bounded, strict TOML lockfile. A missing lockfile is empty.
     pub fn read(path: &Path) -> io::Result<Self> {
         let mut bytes = Vec::new();
-        match open_lockfile(path) {
+        match open_regular_file(path, "package lockfile") {
             Ok(file) => file
                 .take((MAX_LOCKFILE_BYTES + 1) as u64)
                 .read_to_end(&mut bytes)?,
@@ -829,7 +829,7 @@ impl PackageLock {
     }
 }
 
-fn open_lockfile(path: &Path) -> io::Result<File> {
+fn open_regular_file(path: &Path, label: &'static str) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -852,7 +852,7 @@ fn open_lockfile(path: &Path) -> io::Result<File> {
     if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "package lockfile must be a regular, non-link file",
+            format!("{label} must be a regular, non-link file"),
         ));
     }
     Ok(file)
@@ -3051,7 +3051,7 @@ fn read_package_manifest(
 fn read_raw_manifest(root: &Path) -> io::Result<RawPackageManifest> {
     let path = root.join("nia.toml");
     let mut contents = Vec::new();
-    File::open(path)?
+    open_regular_file(&path, "package manifest")?
         .take((MAX_MANIFEST_BYTES + 1) as u64)
         .read_to_end(&mut contents)?;
     if contents.len() > MAX_MANIFEST_BYTES {
@@ -6128,6 +6128,59 @@ mod tests {
                     .is_err()
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_manifest_rejects_symlinked_manifest_files() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("outside.toml");
+        std::fs::write(&target, "[package]\nname = \"demo\"\n").unwrap();
+        symlink(&target, root.join("nia.toml")).unwrap();
+
+        assert!(PackageManifest::read(&root).is_err());
+
+        std::fs::remove_file(root.join("nia.toml")).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_manifest_rejects_junctioned_manifest_files() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-junction-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let target = root.join("outside");
+        let link = root.join("nia.toml");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("manifest.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(PackageManifest::read(&root).is_err());
+
+        std::fs::remove_dir(link).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
