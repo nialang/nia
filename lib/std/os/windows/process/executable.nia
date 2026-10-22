@@ -17,9 +17,11 @@
 
 using pkg::os::windows::bindings::{
     fileAttributeDirectory, invalidFileAttributes, GetFileAttributesW,
+    GetCurrentDirectoryW, maxPathUnits,
 };
 using pkg::os::windows::types::{maxPathBytes, Errno};
-using pkg::os::windows::encoding::{cStringLen, utf8ToWide};
+using pkg::os::windows::encoding::{cStringLen, utf8ToWide, wideStringLen};
+using pkg::os::windows::error::lastError;
 using pkg::os::windows::path::normalizeSeparators;
 
 const defaultPathExt: &[u8] = &b".COM;.EXE;.BAT;.CMD";
@@ -85,6 +87,9 @@ fn findInDirectory(
     cwd: ?&u8,
     storage: &mut [u16],
 ) Errno!bool {
+    if directory.len() == 0 and cwd is null {
+        return findInCurrentDirectory(name, extensions, storage);
+    }
     let mut candidate: [u8; maxPathBytes] = [0; maxPathBytes];
     let mut cursor: usize = 0;
     if directory.len() == 0 {
@@ -116,6 +121,58 @@ fn findInDirectory(
         extensionStart = extensionEnd + 1;
     }
     !false
+}
+
+fn findInCurrentDirectory(
+    name: &[u8],
+    extensions: &[u8],
+    storage: &mut [u16],
+) Errno!bool {
+    let length = GetCurrentDirectoryW(maxPathUnits as u32, &mut storage[0]);
+    if length == 0 { return lastError()!; }
+    if length as usize >= storage.len() { return .TooLong!; }
+    let base = length as usize;
+    if base + 1 >= storage.len() { return .TooLong!; }
+    storage[base] = 92;
+    let mut cursor = base + 1;
+    _ = utf8ToWide(&name[0], &mut storage[cursor..]).?;
+    cursor += wideStringLen(&storage[cursor]);
+    if isWideFile(storage) { return !true; }
+    let nameEnd = cursor;
+    let mut extensionStart: usize = 0;
+    while extensionStart < extensions.len() {
+        let mut extensionEnd = extensionStart;
+        while extensionEnd < extensions.len() and extensions[extensionEnd] != b';' {
+            extensionEnd += 1;
+        }
+        if extensionEnd > extensionStart {
+            cursor = nameEnd;
+            appendWideBytes(storage, &mut cursor, &extensions[extensionStart..extensionEnd]).?;
+            if isWideFile(storage) { return !true; }
+        }
+        extensionStart = extensionEnd + 1;
+    }
+    !false
+}
+
+fn appendWideBytes(storage: &mut [u16], cursor: &mut usize, bytes: &[u8]) Errno!() {
+    if cursor.* >= storage.len() { return .TooLong!; }
+    let mut text: [u8; maxPathBytes] = [0; maxPathBytes];
+    if bytes.len() >= text.len() { return .TooLong!; }
+    let mut index: usize = 0;
+    while index < bytes.len() {
+        text[index] = bytes[index];
+        index += 1;
+    }
+    text[index] = 0;
+    _ = utf8ToWide(&text[0], &mut storage[cursor.*..]).?;
+    cursor.* += wideStringLen(&storage[cursor.*]);
+    !()
+}
+
+fn isWideFile(storage: &mut [u16]) bool {
+    let attributes = GetFileAttributesW(&storage[0]);
+    attributes != invalidFileAttributes and (attributes & fileAttributeDirectory) == 0
 }
 
 fn isFile(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!bool {

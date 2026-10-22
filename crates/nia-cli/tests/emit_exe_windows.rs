@@ -666,6 +666,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
 "#,
     );
     std::fs::rename(&child, root.join("tools/child.exe")).expect("place child tool");
+    let _cwd_child = emit(
+        &root,
+        "cwd-child",
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    !()
+}
+"#,
+    );
     let tools = root.join("tools").to_string_lossy().replace('\\', "\\\\");
     // The parent image lives outside the working directory, so a lookup that
     // fell back to the parent's image directory or to Windows' own search
@@ -711,6 +723,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withEnvironment(&search);
     if status(searched) != 7 {
         return process::ExitCode(4)!;
+    }
+    // An empty PATH segment names the child's inherited current directory.
+    let current: [process::EnvEntry; 1] = [process::EnvEntry::init(&"Path", &";$TOOLS")];
+    let currentDirectory = process::Command::init(std::PathView::init(&"cwd-child"), env)
+        .withEnvironment(&current);
+    if status(currentDirectory) != 0 {
+        return process::ExitCode(6)!;
     }
     // A bare name outside that `Path` is not found, even in the working
     // directory or the parent's image directory.
