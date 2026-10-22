@@ -22,7 +22,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fmt,
-    fs::{self, File},
+    fs::File,
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
     str::FromStr,
@@ -2545,25 +2545,38 @@ fn write_fingerprint_field(encoded: &mut Vec<u8>, value: &[u8]) {
 }
 
 fn validate_library_entry(root: &Path, library_path: &str) -> io::Result<()> {
-    let path = root.join(library_path);
-    let metadata = fs::symlink_metadata(&path).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("package library entry `{library_path}` is unavailable: {error}"),
-        )
-    })?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("package library entry `{library_path}` must be a regular file"),
-        ));
-    }
-    let canonical = path.canonicalize()?;
-    if !canonical.starts_with(root) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("package library entry `{library_path}` escapes the package root"),
-        ));
+    let mut components = Path::new(library_path)
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(name) => Some(name),
+            _ => None,
+        })
+        .peekable();
+    let mut directory = open_cache_root(root, false)?;
+    while let Some(name) = components.next() {
+        if components.peek().is_some() {
+            let name = name.to_str().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "package library path is not UTF-8",
+                )
+            })?;
+            directory = open_cache_directory(&directory, name, false).map_err(|error| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "package library entry `{library_path}` must use real directories: {error}"
+                    ),
+                )
+            })?;
+            continue;
+        }
+        if open_source_file(&directory, name)?.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("package library entry `{library_path}` must be a regular file"),
+            ));
+        }
     }
     Ok(())
 }
@@ -5241,7 +5254,7 @@ fn read_exact(cursor: &mut Cursor<&[u8]>, bytes: &mut [u8]) -> Result<(), Metada
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::OpenOptions;
+    use std::fs::{self, OpenOptions};
 
     #[test]
     fn registry_package_identity_cannot_mix_registry_sources() {
@@ -8644,5 +8657,58 @@ mod tests {
 
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_file(outside).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_graph_rejects_library_paths_through_linked_directories() {
+        use std::os::unix::fs::symlink;
+
+        let root = lock_test_root("linked-library-directory");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::write(root.join("real/lib.nia"), "pub const value: u8 = 1;").unwrap();
+        symlink(root.join("real"), root.join("src/linked")).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[library]\npath = \"src/linked/lib.nia\"\n",
+        )
+        .unwrap();
+
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        assert!(error.to_string().contains("must use real directories"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_graph_rejects_library_paths_through_junctioned_directories() {
+        let root = lock_test_root("junctioned-library-directory");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("real")).unwrap();
+        std::fs::write(root.join("real/lib.nia"), "pub const value: u8 = 1;").unwrap();
+        let link = root.join("src").join("linked");
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c"])
+            .arg(format!(
+                "mklink /J \"{}\" \"{}\"",
+                link.display(),
+                root.join("real").display()
+            ))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\n[library]\npath = \"src/linked/lib.nia\"\n",
+        )
+        .unwrap();
+
+        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        assert!(error.to_string().contains("must use real directories"));
+
+        std::fs::remove_dir(link).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
