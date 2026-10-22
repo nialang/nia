@@ -766,7 +766,7 @@ impl PackageLock {
     /// Read a bounded, strict TOML lockfile. A missing lockfile is empty.
     pub fn read(path: &Path) -> io::Result<Self> {
         let mut bytes = Vec::new();
-        match File::open(path) {
+        match open_lockfile(path) {
             Ok(file) => file
                 .take((MAX_LOCKFILE_BYTES + 1) as u64)
                 .read_to_end(&mut bytes)?,
@@ -790,6 +790,7 @@ impl PackageLock {
     /// Atomically replace a lockfile, creating its parent directory as needed.
     pub fn write_atomic(&self, path: &Path) -> io::Result<()> {
         self.validate(io::ErrorKind::InvalidInput)?;
+        validate_lockfile_destination(path)?;
         let text = toml::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -825,6 +826,49 @@ impl PackageLock {
             }
         }
         Ok(())
+    }
+}
+
+fn open_lockfile(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        };
+        options
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "package lockfile must be a regular, non-link file",
+        ));
+    }
+    Ok(file)
+}
+
+fn validate_lockfile_destination(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() => {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "package lockfile destination must be a regular, non-link file",
+            ))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
@@ -5317,6 +5361,66 @@ mod tests {
             "lock schema v1 is obsolete"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lockfile_rejects_symlinked_reads_and_writes() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-lock-symlink-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("outside.lock");
+        let link = root.join("nia.lock");
+        fs::write(&target, "version = 2\npackage = []\n").unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert!(PackageLock::read(&link).is_err());
+        assert!(PackageLock::default().write_atomic(&link).is_err());
+        assert_eq!(
+            fs::read_to_string(target).unwrap(),
+            "version = 2\npackage = []\n"
+        );
+
+        fs::remove_file(link).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn lockfile_rejects_junctioned_reads_and_writes() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-lock-junction-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.join("outside");
+        let link = root.join("nia.lock");
+        fs::create_dir_all(&outside).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(PackageLock::read(&link).is_err());
+        assert!(PackageLock::default().write_atomic(&link).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_dir(link).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
