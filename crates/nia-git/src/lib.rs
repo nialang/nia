@@ -99,7 +99,13 @@ pub fn checkout_source(source: &str, revision: &str, destination_dir: &Dir) -> i
 /// Fetches a bounded public HTTPS resource with the Git transport's TLS and
 /// proxy policy, without sending Git credential-helper credentials.
 pub fn fetch_https(source: &str) -> io::Result<Vec<u8>> {
-    transport::http::fetch_https(source)
+    transport::http::fetch_https_with_limit(source, transport::MAX_RESPONSE_BYTES)
+}
+
+/// Fetches one public HTTPS resource with a caller-selected response limit.
+/// Registry formats use distinct, smaller bounds for indexes and archives.
+pub fn fetch_https_with_limit(source: &str, limit: usize) -> io::Result<Vec<u8>> {
+    transport::http::fetch_https_with_limit(source, limit)
 }
 
 /// Restricts a copied fixture identity the way `chmod 600` would, so it

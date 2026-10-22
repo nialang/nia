@@ -12,4 +12,4 @@ pub(super) fn fuzz_http_response(input: &[u8]) {
     let _ = http::parse_http_response(input);
 }
 
-const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;
+pub(crate) const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;

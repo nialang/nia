@@ -107,10 +107,16 @@ impl RegistryClient {
         }
     }
 
-    fn fetch(&self, url: &str) -> io::Result<Vec<u8>> {
+    fn fetch(&self, url: &str, limit: usize) -> io::Result<Vec<u8>> {
         match &self.fetch {
-            Some(fetch) => fetch(url),
-            None => nia_git::fetch_https(url),
+            Some(fetch) => {
+                let bytes = fetch(url)?;
+                if bytes.len() > limit {
+                    return Err(invalid_index("registry resource exceeds its size limit"));
+                }
+                Ok(bytes)
+            }
+            None => nia_git::fetch_https_with_limit(url, limit),
         }
     }
 
@@ -119,7 +125,7 @@ impl RegistryClient {
         if offline {
             return self.cache.read_index(&self.endpoint.name);
         }
-        let bytes = self.fetch(&self.endpoint.index_url())?;
+        let bytes = self.fetch(&self.endpoint.index_url(), MAX_INDEX_BYTES)?;
         self.cache.write_index(&self.endpoint.name, &bytes)
     }
 
@@ -142,7 +148,7 @@ impl RegistryClient {
                 "registry package archive is not cached and offline mode forbids fetching",
             ));
         }
-        let bytes = self.fetch(&package.archive_url)?;
+        let bytes = self.fetch(&package.archive_url, MAX_PACKAGE_ARCHIVE_BYTES)?;
         self.cache.write_archive(&package.archive_digest, &bytes)?;
         Ok(bytes)
     }
@@ -1470,6 +1476,30 @@ mod tests {
         cache.write_archive(&digest, &bytes).unwrap();
         assert_eq!(client.archive(&package, true).unwrap(), bytes);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_transport_enforces_index_limit_before_cache_publication() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-index-limit-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = RegistryCache::new(&root);
+        let endpoint = RegistryEndpoint::new("nia", "https://packages.example.test").unwrap();
+        let client = RegistryClient::with_fetcher(endpoint, cache.clone(), |_| {
+            Ok(vec![b'x'; MAX_INDEX_BYTES + 1])
+        });
+
+        let error = client.index(false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            cache.read_index("nia").unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        if root.exists() {
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
