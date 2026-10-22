@@ -31,6 +31,8 @@ using pkg::os::windows::error::{
 };
 using pkg::os::windows::path::{
     pathFromHandle,
+    handlePathLength,
+    isPathWithin,
 };
 
 const windowsEpochTicks: u64 = 116444736000000000;
@@ -39,13 +41,25 @@ const ticksPerSecond: u64 = 10000000;
 pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let fullPath = pathFromHandle(dir, path, &mut storage[..]).?;
-    metadataPath(fullPath, followSymlinks)
+    metadataPath(dir, fullPath, followSymlinks)
 }
 
-fn metadataPath(path: &u16, followSymlinks: bool) Errno!FileMetadata {
+fn metadataPath(dir: FileDescriptor, path: &u16, followSymlinks: bool) Errno!FileMetadata {
     let flags = fileFlagBackupSemantics | if followSymlinks { 0 } else { fileFlagOpenReparsePoint };
     let handle = CreateFileW(path, fileReadAttributes, fileShareRead | fileShareWrite | fileShareDelete, 0, openExisting, flags, 0);
     if handle == invalidHandle { return lastError()!; }
+    let mut rootStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let rootLength = handlePathLength(dir.handle, &mut rootStorage[..]);
+    let mut candidateStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let candidateLength = handlePathLength(handle, &mut candidateStorage[..]);
+    let within = match (rootLength, candidateLength) {
+        (!root, !candidate) => isPathWithin(&rootStorage[0], root, &candidateStorage[0], candidate),
+        _ => false,
+    };
+    if not within {
+        _ = CloseHandle(handle);
+        return .SymlinkLoop!;
+    }
     let result = metadataHandle(handle);
     let closed = CloseHandle(handle);
     if closed == 0 {
