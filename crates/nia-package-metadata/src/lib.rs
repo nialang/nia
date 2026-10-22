@@ -32,7 +32,9 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
-use registry::{RegistryFetch, open_cache_directory, open_cache_root, write_atomic_path};
+use registry::{
+    RegistryFetch, open_cache_directory, open_cache_root, sync_open_directory, write_atomic_path,
+};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -2035,7 +2037,7 @@ fn update_lock_inner(
             ));
         }
     }
-    let update = (|| {
+    let updates = with_lockfile_rollback(&lock_path, original_bytes.as_deref(), || {
         let raw = read_raw_manifest(&state_root)?;
         let mut roots = Vec::new();
         if raw.workspace.is_some() {
@@ -2064,23 +2066,48 @@ fn update_lock_inner(
             registry_fetch.clone(),
             transaction_lock_path.clone(),
         )?;
-        Ok(())
-    })();
-    if let Err(error) = update {
-        if let Some(bytes) = original_bytes {
-            write_atomic_path(&lock_path, &bytes).map_err(|restore_error| {
+        let after = PackageLock::read(&lock_path)?.package;
+        Ok(collect_lock_updates(&before, &after))
+    })?;
+    drop(transaction_lock);
+    Ok(updates)
+}
+
+fn with_lockfile_rollback<T>(
+    path: &Path,
+    original_bytes: Option<&[u8]>,
+    update: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    match update() {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            restore_lockfile_snapshot(path, original_bytes).map_err(|restore_error| {
                 io::Error::new(
                     restore_error.kind(),
                     format!("{error}; additionally failed to restore nia.lock: {restore_error}"),
                 )
             })?;
+            Err(error)
         }
-        return Err(error);
     }
-    let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
-    let updates = collect_lock_updates(&before, &after);
-    drop(transaction_lock);
-    Ok(updates)
+}
+
+fn restore_lockfile_snapshot(path: &Path, original_bytes: Option<&[u8]>) -> io::Result<()> {
+    if let Some(bytes) = original_bytes {
+        return write_atomic_path(path, bytes);
+    }
+    let parent = open_cache_root(path.parent().unwrap_or_else(|| Path::new(".")), false)?;
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "package lockfile path has no name",
+        )
+    })?;
+    match parent.remove_file(name) {
+        Ok(()) => sync_open_directory(&parent),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 fn collect_lock_updates(before: &[LockedPackage], after: &[LockedPackage]) -> Vec<LockUpdate> {
@@ -8112,6 +8139,34 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert!(error.to_string().contains("HTTPS"), "{error}");
         assert!(!lock_path.exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn update_rolls_back_failures_after_lockfile_publication() {
+        for original in [
+            None,
+            Some(b"# original\r\nversion=2\r\npackages=[]\r\n".as_slice()),
+        ] {
+            let root = lock_test_root("update-published-lock-rollback");
+            fs::create_dir_all(&root).unwrap();
+            let lock_path = root.join("nia.lock");
+            if let Some(bytes) = original {
+                fs::write(&lock_path, bytes).unwrap();
+            }
+            let (_, original_bytes) = PackageLock::read_snapshot(&lock_path).unwrap();
+            let error = with_lockfile_rollback(&lock_path, original_bytes.as_deref(), || {
+                PackageLock::default().write_atomic(&lock_path)?;
+                assert!(lock_path.is_file());
+                Err::<(), _>(io::Error::other("injected failure after lock publication"))
+            })
+            .unwrap_err();
+            assert_eq!(error.to_string(), "injected failure after lock publication");
+            match original {
+                Some(bytes) => assert_eq!(fs::read(&lock_path).unwrap(), bytes),
+                None => assert!(!lock_path.exists()),
+            }
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]

@@ -90,6 +90,9 @@ leaves lockfile bytes untouched. A workspace update holds the package state
 lock across all member resolutions, intersects their registry constraints in
 one graph, and either publishes the complete result or restores the original
 lock before releasing the lock.
+Rollback restores the original bytes, including formatting, or removes a
+newly published lockfile when no lockfile existed before the update. The
+transaction also covers reading the published result for change reporting.
 
 Introduce the new lock schema with registry support and reject every older schema. Do not dual-read, auto-migrate, or rewrite legacy lockfiles. Since Nia is still in development, users regenerate a lockfile using the new resolver.
 

@@ -784,7 +784,7 @@ fn write_atomic_os(parent: &Dir, name: &OsStr, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
-fn sync_open_directory(directory: &Dir) -> io::Result<()> {
+pub(super) fn sync_open_directory(directory: &Dir) -> io::Result<()> {
     #[cfg(not(windows))]
     {
         directory.try_clone()?.into_std_file().sync_all()
