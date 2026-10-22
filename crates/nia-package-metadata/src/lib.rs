@@ -2796,6 +2796,7 @@ impl PackageManifest {
             for (name, declaration) in declarations {
                 let source = match declaration.workspace {
                     Some(true) => {
+                        declaration.validate_workspace_reference(&name)?;
                         let source = workspace
                             .as_ref()
                             .and_then(|ws| ws.dependencies.get(&name))
@@ -3515,6 +3516,26 @@ struct RawDependency {
 }
 
 impl RawDependency {
+    fn validate_workspace_reference(&self, name: &str) -> io::Result<()> {
+        if self.path.is_some()
+            || self.git.is_some()
+            || self.registry.is_some()
+            || self.package.is_some()
+            || self.version.is_some()
+            || self.rev.is_some()
+            || self.tag.is_some()
+            || self.branch.is_some()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "dependency `{name}` cannot combine workspace inheritance with source fields"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     fn into_source(self, name: &str) -> io::Result<DependencySource> {
         if let Some(registry) = self.registry {
             if self.path.is_some()
@@ -7107,6 +7128,47 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 .contains("`package.version.workspace` must be true")
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_dependency_references_reject_source_overrides() {
+        let root = lock_test_root("workspace-dependency-source-overrides");
+        let member = root.join("app");
+        fs::create_dir_all(&member).unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"app\"]\n[workspace.dependencies]\njson = { path = \"vendor/json\" }\n",
+        )
+        .unwrap();
+        for scope in ["build-dependencies", "dependencies", "dev-dependencies"] {
+            for override_field in [
+                "path = \"other\"",
+                "git = \"https://example.test/json.git\"",
+                "registry = \"nia\"",
+                "package = \"acme/json\"",
+                "version = \"^1.0\"",
+                "rev = \"0123456789abcdef0123456789abcdef01234567\"",
+                "tag = \"v1.0.0\"",
+                "branch = \"main\"",
+            ] {
+                fs::write(
+                    member.join("nia.toml"),
+                    format!(
+                        "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[{scope}]\njson = {{ workspace = true, {override_field} }}\n"
+                    ),
+                )
+                .unwrap();
+                let error = PackageManifest::read(&member).unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+                assert!(
+                    error
+                        .to_string()
+                        .contains("cannot combine workspace inheritance"),
+                    "{scope}: {override_field}: {error}"
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

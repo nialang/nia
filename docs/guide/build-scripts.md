@@ -168,7 +168,9 @@ Members opt into shared identity fields and dependencies with
 `{ workspace = true }`. A workspace dependency's path is rooted at the
 workspace directory. For example, a member can place `json = { workspace =
 true }` under `[dependencies]` or `[build-dependencies]` to select the shared
-source in that scope.
+source in that scope. An inherited dependency must contain only
+`workspace = true`; adding source, package, version, or Git selector fields is
+an error.
 
 Member and default-member paths accept glob patterns such as `crates/*`.
 Exclusions apply to matching directories and their descendants. A package
