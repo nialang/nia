@@ -3701,7 +3701,7 @@ pub fn package_source_identity_with_selection(
     package: PackageId,
     selection: &PackageSourceSelection,
 ) -> io::Result<PackageSourceIdentity> {
-    let root = root.canonicalize()?;
+    let root = canonical_real_directory(root)?;
     let mut selected_roots = selection
         .source_roots
         .iter()
@@ -6022,6 +6022,44 @@ mod tests {
         std::fs::remove_dir(root.join("linked")).unwrap();
         std::fs::remove_dir(root.join("nested").join("linked")).unwrap();
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_source_identity_rejects_linked_package_roots() {
+        use std::os::unix::fs::symlink;
+
+        let root = lock_test_root("linked-source-root");
+        let actual = root.join("actual");
+        let linked = root.join("linked");
+        fs::create_dir_all(&actual).unwrap();
+        fs::write(actual.join("main.nia"), "main").unwrap();
+        symlink(&actual, &linked).unwrap();
+
+        assert!(package_source_identity(&linked, package()).is_err());
+        fs::remove_file(linked).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_source_identity_rejects_junctioned_package_roots() {
+        let root = lock_test_root("junctioned-source-root");
+        let actual = root.join("actual");
+        let linked = root.join("linked");
+        fs::create_dir_all(&actual).unwrap();
+        fs::write(actual.join("main.nia"), "main").unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked)
+            .arg(&actual)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(package_source_identity(&linked, package()).is_err());
+        fs::remove_dir(linked).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
