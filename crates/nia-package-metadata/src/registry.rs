@@ -187,12 +187,7 @@ impl RegistryCache {
         let root = open_cache_root(&self.root, true)?;
         let indexes = open_cache_directory(&root, "indexes", true)?;
         let registry_directory = open_cache_directory(&indexes, registry, true)?;
-        write_atomic(
-            &registry_directory,
-            "index.toml",
-            &self.root.join("indexes").join(registry),
-            bytes,
-        )?;
+        write_atomic(&registry_directory, "index.toml", bytes)?;
         Ok(index)
     }
 
@@ -219,12 +214,7 @@ impl RegistryCache {
         decode_registry_archive(bytes, digest)?;
         let root = open_cache_root(&self.root, true)?;
         let archives = open_cache_directory(&root, "archives", true)?;
-        write_atomic(
-            &archives,
-            &format!("{}.nia", digest_hex(digest)),
-            &self.root.join("archives"),
-            bytes,
-        )
+        write_atomic(&archives, &format!("{}.nia", digest_hex(digest)), bytes)
     }
 }
 
@@ -732,14 +722,14 @@ pub(super) fn write_atomic_path(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .file_name()
         .filter(|name| !name.is_empty())
         .ok_or_else(|| invalid_index("registry cache entry has no name"))?;
-    write_atomic_os(&parent, name, parent_path, bytes)
+    write_atomic_os(&parent, name, bytes)
 }
 
-fn write_atomic(parent: &Dir, name: &str, parent_path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_atomic_os(parent, OsStr::new(name), parent_path, bytes)
+fn write_atomic(parent: &Dir, name: &str, bytes: &[u8]) -> io::Result<()> {
+    write_atomic_os(parent, OsStr::new(name), bytes)
 }
 
-fn write_atomic_os(parent: &Dir, name: &OsStr, parent_path: &Path, bytes: &[u8]) -> io::Result<()> {
+fn write_atomic_os(parent: &Dir, name: &OsStr, bytes: &[u8]) -> io::Result<()> {
     match parent.symlink_metadata(name) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
             return Err(invalid_index("registry cache entry must be a regular file"));
@@ -753,9 +743,6 @@ fn write_atomic_os(parent: &Dir, name: &OsStr, parent_path: &Path, bytes: &[u8])
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
-        #[cfg(windows)]
-        nia_compat::replace_path(parent_path.join(&temporary), parent_path.join(name))?;
-        #[cfg(not(windows))]
         parent.rename(&temporary, parent, name)?;
         sync_open_directory(parent)
     })();
@@ -1347,7 +1334,6 @@ mod tests {
         write_atomic(
             &registry_handle,
             "index.toml",
-            &registry_path,
             b"schema_version = 1\npackages = []\n",
         )
         .unwrap();
