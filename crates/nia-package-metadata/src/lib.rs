@@ -658,6 +658,15 @@ impl PackageLock {
                     if url.is_empty() || url.contains(['\r', '\n']) {
                         return Err(io::Error::new(error_kind, "lockfile Git URL is invalid"));
                     }
+                    let canonical_url = canonical_git_source(url).map_err(|error| {
+                        io::Error::new(error_kind, format!("lockfile Git URL is invalid: {error}"))
+                    })?;
+                    if canonical_url != *url {
+                        return Err(io::Error::new(
+                            error_kind,
+                            "lockfile Git URL is not canonical",
+                        ));
+                    }
                     if selector.is_empty() || selector.contains(['\r', '\n']) {
                         return Err(io::Error::new(
                             error_kind,
@@ -731,7 +740,15 @@ impl PackageLock {
                     version,
                     source_fingerprint,
                 } => {
-                    if owner.is_empty() || path.is_empty() || path.contains(['\r', '\n']) {
+                    if owner.is_empty()
+                        || owner.bytes().any(|byte| byte < 0x20 || byte == 0x7f)
+                        || path.is_empty()
+                        || path.contains(['\r', '\n', '\0'])
+                        || Path::new(path).is_absolute()
+                        || path.starts_with('/')
+                        || path.starts_with('\\')
+                        || path.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+                    {
                         return Err(io::Error::new(
                             error_kind,
                             "lockfile path source is invalid",
@@ -5405,6 +5422,44 @@ mod tests {
         assert!(
             PackageLock::read(&path).is_err(),
             "lock schema v1 is obsolete"
+        );
+        fs::write(
+            &path,
+            r#"version = 2
+[[package]]
+name = "regex"
+[package.source]
+kind = "git"
+url = "https://example.com/regex.git/"
+selector = "branch:main"
+revision = "0123456789012345678901234567890123456789"
+source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"#,
+        )
+        .unwrap();
+        assert!(
+            PackageLock::read(&path).is_err(),
+            "Git URLs must be canonical"
+        );
+        fs::write(
+            &path,
+            r#"version = 2
+[[package]]
+name = "regex"
+[package.source]
+kind = "path"
+owner = "local/app@1.0.0"
+path = "/outside"
+namespace = "local"
+package = "regex"
+version = "1.0.0"
+source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"#,
+        )
+        .unwrap();
+        assert!(
+            PackageLock::read(&path).is_err(),
+            "path lock roots must be relative"
         );
         let _ = fs::remove_dir_all(root);
     }
