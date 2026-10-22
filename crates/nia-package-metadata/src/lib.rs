@@ -2195,7 +2195,7 @@ impl PackageGraph {
         }
         let declared_members = WorkspaceManifest::read(&state_root)?.member_packages()?;
         for member in members {
-            let root = member.root.canonicalize()?;
+            let root = canonical_real_directory(&member.root)?;
             if !declared_members
                 .iter()
                 .any(|declared| declared.name == member.name && declared.root == root)
@@ -2843,7 +2843,7 @@ impl WorkspaceManifest {
                     format!("workspace member `{member}` does not contain nia.toml"),
                 ));
             }
-            let physical_root = member_path.canonicalize()?;
+            let physical_root = canonical_real_directory(&member_path)?;
             if !physical_root.starts_with(&canonical_root) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -2914,7 +2914,7 @@ impl WorkspaceManifest {
             dependencies.insert(name.clone(), dependency.into_source(&name)?);
         }
         Ok(Self {
-            root: root.canonicalize()?,
+            root: canonical_root,
             members,
             default_members,
             exclude,
@@ -3045,8 +3045,7 @@ fn read_package_manifest(
         WorkspaceManifest::discover_for_package(root)?
     };
     if let Some(workspace) = &workspace {
-        let relative = root
-            .canonicalize()?
+        let relative = canonical_real_directory(root)?
             .strip_prefix(&workspace.root)
             .map_err(|_| {
                 io::Error::new(
@@ -3132,7 +3131,7 @@ fn rebase_workspace_dependency(
         return Ok(source);
     };
     let target = normalize_path(&workspace.root.join(path));
-    let package_root = package_root.canonicalize()?;
+    let package_root = canonical_real_directory(package_root)?;
     let from = package_root.components().collect::<Vec<_>>();
     let to = target.components().collect::<Vec<_>>();
     let common = from
