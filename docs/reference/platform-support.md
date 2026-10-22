@@ -126,8 +126,8 @@ macOS entry symbol `main` (`_main` in Mach-O) is Nia startup, not a C runtime
 | macOS Intel and Apple silicon | executable and standard-library suites | native executables | release archives published |
 | Linux i686 target | cross-linked and executed in the Linux matrix | selected freestanding executables | target output; no separate compiler host archive |
 
-Darwin executables can be cross-linked from Linux and Windows; running them is
-tested only for executables linked on macOS.
+Darwin executables are cross-linked from Linux and Windows and run on the
+matching macOS Intel and Apple silicon runners in the build correctness matrix.
 
 ## Toolchain Policy
 
@@ -150,7 +150,6 @@ Nia does not support:
 - POSIX signal semantics on Windows: `Signal::Term` and `Signal::Kill` are
   termination requests implemented with `TerminateProcess`, and the result
   reports the Windows exit code rather than a signal;
-- running Darwin executables that were cross-linked on Linux or Windows;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or wasm32 executables;
 - every possible LLVM installation layout.
