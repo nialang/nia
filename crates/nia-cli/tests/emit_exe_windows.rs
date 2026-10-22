@@ -524,31 +524,41 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = fs::Dir::cwd().?;
     defer cwd.close().?;
+    match cwd.metadata(
+        fs::RelativePathView::fromText(&"escape/sentinel.txt").?,
+        fs::MetadataOptions::init(),
+    ) {
+        !metadata => {
+            _ = metadata;
+            return process::ExitCode(1)!;
+        },
+        error! => { _ = error; },
+    }
     let createPath = fs::RelativePathView::fromText(&"escape/new-dir").?;
     match cwd.createDir(createPath, fs::CreateDirOptions::init()) {
-        !ok => { _ = ok; return process::ExitCode(1)!; },
+        !ok => { _ = ok; return process::ExitCode(2)!; },
         error! => { _ = error; },
     }
     let deleteFilePath = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
     match cwd.deleteFile(deleteFilePath) {
-        !ok => { _ = ok; return process::ExitCode(2)!; },
+        !ok => { _ = ok; return process::ExitCode(3)!; },
         error! => { _ = error; },
     }
     let deleteDirPath = fs::RelativePathView::fromText(&"escape/sentinel-dir").?;
     match cwd.deleteDir(deleteDirPath) {
-        !ok => { _ = ok; return process::ExitCode(3)!; },
+        !ok => { _ = ok; return process::ExitCode(4)!; },
         error! => { _ = error; },
     }
     let localSource = fs::RelativePathView::fromText(&"rename-source.txt").?;
     let outsideDestination = fs::RelativePathView::fromText(&"escape/renamed.txt").?;
     match cwd.rename(localSource, outsideDestination) {
-        !ok => { _ = ok; return process::ExitCode(4)!; },
+        !ok => { _ = ok; return process::ExitCode(5)!; },
         error! => { _ = error; },
     }
     let outsideSource = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
     let localDestination = fs::RelativePathView::fromText(&"stolen.txt").?;
     match cwd.rename(outsideSource, localDestination) {
-        !ok => { _ = ok; return process::ExitCode(5)!; },
+        !ok => { _ = ok; return process::ExitCode(6)!; },
         error! => { _ = error; },
     }
     !()
