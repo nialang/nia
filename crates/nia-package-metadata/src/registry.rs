@@ -507,7 +507,17 @@ fn validate_archive_component(component: &str) -> io::Result<()> {
             stem.strip_prefix(prefix).is_some_and(|suffix| {
                 matches!(
                     suffix,
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                    "1" | "2"
+                        | "3"
+                        | "4"
+                        | "5"
+                        | "6"
+                        | "7"
+                        | "8"
+                        | "9"
+                        | "\u{00b9}"
+                        | "\u{00b2}"
+                        | "\u{00b3}"
                 )
             })
         });
@@ -1075,6 +1085,8 @@ mod tests {
             archive(&[(2, "link", b"target")]),
             archive(&[(0, "CON", b"x")]),
             archive(&[(0, "nul.txt", b"x")]),
+            archive(&[(0, "COM\u{00b9}", b"x")]),
+            archive(&[(0, "lpt\u{00b2}.log", b"x")]),
             archive(&[(0, "name.", b"x")]),
             archive(&[(0, "name ", b"x")]),
             archive(&[(0, ".GiT", b"x")]),
