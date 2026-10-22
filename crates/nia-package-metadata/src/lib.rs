@@ -1019,9 +1019,14 @@ impl PackageFetcher {
         match &dependency.source {
             DependencySource::Path(path) => {
                 let unresolved = owner.join(path);
-                let Ok(destination) = unresolved.canonicalize() else {
-                    return Ok(unresolved);
+                match open_cache_root(&unresolved, false) {
+                    Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                        return Ok(unresolved);
+                    }
+                    Err(error) => return Err(error),
                 };
+                let destination = unresolved.canonicalize()?;
                 if !destination.join("nia.toml").is_file() {
                     return Ok(destination);
                 }
@@ -8053,6 +8058,60 @@ mod tests {
         assert_eq!(fs::read(&lock_path).unwrap(), first_lock);
         PackageGraph::resolve(&consumer, false).unwrap();
         assert_ne!(fs::read(&lock_path).unwrap(), first_lock);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_dependencies_reject_linked_package_roots() {
+        use std::os::unix::fs::symlink;
+
+        let root = lock_test_root("linked-path-dependency");
+        let consumer = root.join("consumer");
+        let outside = root.join("outside");
+        let link = consumer.join("vendor").join("json");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(
+            consumer.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
+        )
+        .unwrap();
+        fs::write(outside.join("nia.toml"), "[package]\nname = \"json\"\n").unwrap();
+        symlink(&outside, &link).unwrap();
+
+        assert!(PackageGraph::resolve(&consumer, false).is_err());
+        assert!(!consumer.join("nia.lock").exists());
+        fs::remove_file(link).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn path_dependencies_reject_junctioned_package_roots() {
+        let root = lock_test_root("junctioned-path-dependency");
+        let consumer = root.join("consumer");
+        let outside = root.join("outside");
+        let link = consumer.join("vendor").join("json");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(
+            consumer.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
+        )
+        .unwrap();
+        fs::write(outside.join("nia.toml"), "[package]\nname = \"json\"\n").unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(PackageGraph::resolve(&consumer, false).is_err());
+        assert!(!consumer.join("nia.lock").exists());
+        fs::remove_dir(link).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
