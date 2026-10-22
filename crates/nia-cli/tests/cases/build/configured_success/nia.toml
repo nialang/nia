@@ -1,5 +1,6 @@
 [package]
 name = "configured-success"
+version = "1.0.0"
 
 [dependencies]
 assets = { path = "packages/assets" }

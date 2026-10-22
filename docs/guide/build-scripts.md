@@ -52,7 +52,8 @@ fixtures = { path = "tests/fixtures" }
 | Key | Meaning |
 | --- | --- |
 | `package.name` | required package name |
-| `package.namespace`, `package.version` | identity fields; default `local` and `0.0.0` |
+| `package.namespace` | identity namespace; defaults to `local` |
+| `package.version` | required strict SemVer identity, or explicitly inherited from `workspace.package.version` |
 | `package.protocol-epoch` | rejects compilers from another release line when set |
 | `library.path` | the file that other packages open with `using <dependency>;` |
 | `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |

@@ -2720,6 +2720,17 @@ impl PackageManifest {
                 .unwrap_or("root")
                 .to_ascii_lowercase(),
         );
+        let version = resolve_inheritable(
+            raw_package.version,
+            workspace.as_ref().and_then(|ws| ws.package.version.clone()),
+            "package.version",
+        )?
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "package.version must be declared or explicitly inherited from workspace.package",
+            )
+        })?;
         manifest.package = PackageId {
             namespace: resolve_inheritable(
                 raw_package.namespace,
@@ -2730,15 +2741,7 @@ impl PackageManifest {
             )?
             .unwrap_or_else(|| "local".into()),
             name: raw_package.name,
-            version: PackageVersion::parse(
-                &resolve_inheritable(
-                    raw_package.version,
-                    workspace.as_ref().and_then(|ws| ws.package.version.clone()),
-                    "package.version",
-                )?
-                .unwrap_or_else(|| "0.0.0".into()),
-            )
-            .map_err(|error| {
+            version: PackageVersion::parse(&version).map_err(|error| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("package.version must be a valid SemVer 2.0.0 version: {error}"),
@@ -5825,7 +5828,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         git(&["-c", "init.defaultBranch=main", "init", "-q"]);
         git(&["config", "user.email", "nia-test@example.invalid"]);
         git(&["config", "user.name", "Nia Test"]);
-        fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+        fs::write(
+            repository.join("nia.toml"),
+            "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
@@ -6416,7 +6423,9 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         for epoch in [PROTOCOL_EPOCH - 1, PROTOCOL_EPOCH + 1] {
             std::fs::write(
                 root.join("nia.toml"),
-                format!("[package]\nname = \"demo\"\nprotocol-epoch = {epoch}\n"),
+                format!(
+                    "[package]\nname = \"demo\"\nversion = \"1.0.0\"\nprotocol-epoch = {epoch}\n"
+                ),
             )
             .unwrap();
             assert!(
@@ -6426,6 +6435,24 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     .is_err()
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_manifest_requires_an_explicit_package_version() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-version-required-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("nia.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        let error = PackageManifest::read(&root).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("package.version"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -6444,7 +6471,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ));
         std::fs::create_dir_all(&root).unwrap();
         let target = root.join("outside.toml");
-        std::fs::write(&target, "[package]\nname = \"demo\"\n").unwrap();
+        std::fs::write(&target, "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n").unwrap();
         symlink(&target, root.join("nia.toml")).unwrap();
 
         assert!(PackageManifest::read(&root).is_err());
@@ -6467,7 +6494,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let target = root.join("outside");
         let link = root.join("nia.toml");
         std::fs::create_dir_all(&target).unwrap();
-        std::fs::write(target.join("manifest.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        std::fs::write(
+            target.join("manifest.toml"),
+            "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let output = std::process::Command::new("cmd")
             .args(["/d", "/c", "mklink", "/J"])
             .arg(&link)
@@ -6518,7 +6549,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nhelper = { path = \"../third:party\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nhelper = { path = \"../third:party\" }\n",
         )
         .unwrap();
         let manifest = PackageManifest::read(&root).unwrap();
@@ -6529,7 +6560,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nhelper = { path = \"/tmp/helper\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nhelper = { path = \"/tmp/helper\" }\n",
         )
         .unwrap();
         assert!(PackageManifest::read(&root).is_err());
@@ -6597,7 +6628,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[workspace]\nmembers = [\"packages/app\"]\n",
         )
         .unwrap();
-        fs::write(outside.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            outside.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         symlink(&outside, &linked_member).unwrap();
 
         assert!(WorkspaceManifest::read(&root).is_err());
@@ -6615,7 +6650,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let actual = root.join("actual");
         let linked = root.join("linked");
         fs::create_dir_all(&actual).unwrap();
-        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            actual.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         symlink(&actual, &linked).unwrap();
 
         assert!(WorkspaceManifest::discover(&linked).is_err());
@@ -6635,7 +6674,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let actual = root.join("actual");
         let linked = root.join("linked");
         fs::create_dir_all(&actual).unwrap();
-        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            actual.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let output = std::process::Command::new("cmd")
             .args(["/d", "/c", "mklink", "/J"])
             .arg(&linked)
@@ -6668,7 +6711,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[workspace]\nmembers = [\"packages/app\"]\n",
         )
         .unwrap();
-        fs::write(outside.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            outside.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let output = std::process::Command::new("cmd")
             .args(["/d", "/c", "mklink", "/J"])
             .arg(&linked_member)
@@ -6728,7 +6775,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[workspace]\nmembers = [\"crates/app\"]\n",
         )
         .unwrap();
-        std::fs::write(member.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
 
         let fetcher = PackageFetcher::for_root(&member, LockPolicy::default()).unwrap();
         assert_eq!(
@@ -6741,7 +6792,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         let cached = fetcher.cache_root.join("cached");
         fs::create_dir_all(&cached).unwrap();
-        fs::write(cached.join("nia.toml"), "[package]\nname = \"cached\"\n").unwrap();
+        fs::write(
+            cached.join("nia.toml"),
+            "[package]\nname = \"cached\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         assert!(PackageManifest::read(&cached).is_ok());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -6751,7 +6806,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     fn package_cache_rejects_linked_roots_and_entries() {
         let root = lock_test_root("package-cache-links");
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let fetcher = PackageFetcher::for_root(&root, LockPolicy::default()).unwrap();
         let state = fetcher.cache_root.parent().unwrap();
         let outside = root.join("outside");
@@ -6776,7 +6835,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     fn package_cache_rejects_junctioned_roots_and_entries() {
         let root = lock_test_root("package-cache-junctions");
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let fetcher = PackageFetcher::for_root(&root, LockPolicy::default()).unwrap();
         let state = fetcher.cache_root.parent().unwrap();
         let outside = root.join("outside");
@@ -6868,7 +6931,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             fs::create_dir_all(root.join("packages").join(name)).unwrap();
             fs::write(
                 root.join("packages").join(name).join("nia.toml"),
-                format!("[package]\nname = \"{name}\"\n"),
+                format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n"),
             )
             .unwrap();
         }
@@ -6885,7 +6948,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         fs::write(
             root.join("packages/excluded/nia.toml"),
-            "[workspace]\n[package]\nname = \"excluded\"\n",
+            "[workspace]\n[package]\nname = \"excluded\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
         assert_eq!(
@@ -6897,7 +6960,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         fs::write(
             root.join("packages/core/nia.toml"),
-            "[workspace]\n[package]\nname = \"core\"\n",
+            "[workspace]\n[package]\nname = \"core\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
         assert!(
@@ -6917,7 +6980,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             fs::create_dir_all(root.join(name)).unwrap();
             fs::write(
                 root.join(name).join("nia.toml"),
-                "[package]\nname = \"app\"\n",
+                "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
             )
             .unwrap();
         }
@@ -6966,12 +7029,12 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("crates/lib/src")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[workspace]\nmembers = [\"crates/lib\"]\n[package]\nname = \"root\"\n",
+            "[workspace]\nmembers = [\"crates/lib\"]\n[package]\nname = \"root\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
         std::fs::write(
             root.join("crates/lib/nia.toml"),
-            "[package]\nname = \"lib\"\n",
+            "[package]\nname = \"lib\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
         std::fs::write(root.join("src/main.nia"), "root").unwrap();
@@ -7019,7 +7082,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         std::fs::write(
             member.join("nia.toml"),
-            "[package]\nname = \"app\"\nversion.workspace = false\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\nversion.workspace = false\n",
         )
         .unwrap();
         assert!(PackageManifest::read(&member).is_err());
@@ -7032,7 +7095,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[build-dependencies]\njson = { git = \"https://example.test/json.git\", tag = \"v1\" }\n[dependencies]\nregex = { git = \"ssh://git@example.test/regex.git\", rev = \"0123456789abcdef0123456789abcdef01234567\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[build-dependencies]\njson = { git = \"https://example.test/json.git\", tag = \"v1\" }\n[dependencies]\nregex = { git = \"ssh://git@example.test/regex.git\", rev = \"0123456789abcdef0123456789abcdef01234567\" }\n",
         )
         .unwrap();
         let manifest = PackageManifest::read(&root).unwrap();
@@ -7049,7 +7112,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert_eq!(manifest.dependencies[1].scope, DependencyScope::Runtime);
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nregex = { git = \"git@example.test:org/regex.git\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nregex = { git = \"git@example.test:org/regex.git\" }\n",
         )
         .unwrap();
         let manifest = PackageManifest::read(&root).unwrap();
@@ -7064,7 +7127,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\ninvalid = { git = \"https://example.test/x.git\", rev = \"a\", branch = \"main\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\ninvalid = { git = \"https://example.test/x.git\", rev = \"a\", branch = \"main\" }\n",
         )
         .unwrap();
         assert!(PackageManifest::read(&root).is_err());
@@ -7086,7 +7149,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ] {
             std::fs::write(
                 root.join("nia.toml"),
-                format!("[package]\nname = \"root\"\n[dependencies]\n{declaration}\n"),
+                format!("[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\n{declaration}\n"),
             )
             .unwrap();
             assert!(PackageManifest::read(&root).is_err(), "{declaration}");
@@ -7107,7 +7170,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.4\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.4\" }\n",
         )
         .unwrap();
         let manifest = PackageManifest::read(&root).unwrap();
@@ -7136,7 +7199,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ] {
             std::fs::write(
                 root.join("nia.toml"),
-                format!("[package]\nname = \"root\"\n[dependencies]\n{declaration}\n"),
+                format!("[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\n{declaration}\n"),
             )
             .unwrap();
             assert!(PackageManifest::read(&root).is_err(), "{declaration}");
@@ -7158,7 +7221,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::create_dir_all(&consumer).unwrap();
         fs::write(
             consumer.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\n nia = \"https://registry.example.test\"\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\n nia = \"https://registry.example.test\"\n",
         )
         .unwrap();
         let archive = {
@@ -7304,7 +7367,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::create_dir_all(&consumer).unwrap();
         fs::write(
             consumer.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\na = { registry = \"nia\", package = \"acme/a\", version = \"^1.0\" }\nz = { registry = \"nia\", package = \"acme/z\", version = \"^1.0\" }\n[registries]\nnia = \"https://registry.example.test\"\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\na = { registry = \"nia\", package = \"acme/a\", version = \"^1.0\" }\nz = { registry = \"nia\", package = \"acme/z\", version = \"^1.0\" }\n[registries]\nnia = \"https://registry.example.test\"\n",
         )
         .unwrap();
         let archive = |name: &str, version: &str, dependency: Option<&str>| {
@@ -7573,7 +7636,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         git(&["config", "user.name", "Nia Test"]);
         std::fs::write(
             repository.join("nia.toml"),
-            format!("[package]\nname = \"{name}\"\n"),
+            format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n"),
         )
         .unwrap();
         std::fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
@@ -7630,7 +7693,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::write(
             consumer.join("nia.toml"),
             format!(
-                "[package]\nname = \"consumer\"\n[dependencies]\nfirst = {{ git = \"{first}\", branch = \"main\" }}\nsecond = {{ git = \"{second}\" }}\n"
+                "[package]\nname = \"consumer\"\nversion = \"1.0.0\"\n[dependencies]\nfirst = {{ git = \"{first}\", branch = \"main\" }}\nsecond = {{ git = \"{second}\" }}\n"
             ),
         )
         .unwrap();
@@ -7697,7 +7760,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"https://packages.example.test\"\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"https://packages.example.test\"\n",
         )
         .unwrap();
         let make_archive = |version: &str, value: u8| {
@@ -7857,7 +7920,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"http://invalid.example.test\"\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"http://invalid.example.test\"\n",
         )
         .unwrap();
         let lock_path = root.join("nia.lock");
@@ -7892,7 +7955,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"http://invalid.example.test\"\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"http://invalid.example.test\"\n",
         )
         .unwrap();
         let lock_path = root.join("nia.lock");
@@ -8007,7 +8070,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let manifest = |dependencies: &str| {
             std::fs::write(
                 consumer.join("nia.toml"),
-                format!("[package]\nname = \"consumer\"\n[dependencies]\n{dependencies}"),
+                format!("[package]\nname = \"consumer\"\nversion = \"1.0.0\"\n[dependencies]\n{dependencies}"),
             )
             .unwrap();
         };
@@ -8053,7 +8116,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::write(
             consumer.join("nia.toml"),
             format!(
-                "[package]\nname = \"consumer\"\n[dependencies]\nfirst = {{ git = \"{first}\" }}\n"
+                "[package]\nname = \"consumer\"\nversion = \"1.0.0\"\n[dependencies]\nfirst = {{ git = \"{first}\" }}\n"
             ),
         )
         .unwrap();
@@ -8102,7 +8165,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let manifest = |dependencies: &str| {
             std::fs::write(
                 consumer.join("nia.toml"),
-                format!("[package]\nname = \"consumer\"\n[dependencies]\n{dependencies}"),
+                format!("[package]\nname = \"consumer\"\nversion = \"1.0.0\"\n[dependencies]\n{dependencies}"),
             )
             .unwrap();
         };
@@ -8131,7 +8194,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::write(
             consumer.join("nia.toml"),
             format!(
-                "[package]\nname = \"consumer\"\n[dev-dependencies]\nfixtures = {{ git = \"{fixtures}\" }}\n"
+                "[package]\nname = \"consumer\"\nversion = \"1.0.0\"\n[dev-dependencies]\nfixtures = {{ git = \"{fixtures}\" }}\n"
             ),
         )
         .unwrap();
@@ -8158,7 +8221,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             std::fs::write(
                 workspace.join(member).join("nia.toml"),
                 format!(
-                    "[package]\nname = \"{member}\"\n[dependencies]\n{dependency} = {{ git = \"{url}\" }}\n"
+                    "[package]\nname = \"{member}\"\nversion = \"1.0.0\"\n[dependencies]\n{dependency} = {{ git = \"{url}\" }}\n"
                 ),
             )
             .unwrap();
@@ -8208,7 +8271,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         git(&["-c", "init.defaultBranch=main", "init", "-q"]);
         git(&["config", "user.email", "nia-test@example.invalid"]);
         git(&["config", "user.name", "Nia Test"]);
-        std::fs::write(repository.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+        std::fs::write(
+            repository.join("nia.toml"),
+            "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         std::fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
@@ -8219,7 +8286,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::write(
             consumer.join("nia.toml"),
             format!(
-                "[package]\nname = \"consumer\"\n[dependencies]\ndep = {{ git = \"{repository_url}\", branch = \"main\" }}\n"
+                "[package]\nname = \"consumer\"\nversion = \"1.0.0\"\n[dependencies]\ndep = {{ git = \"{repository_url}\", branch = \"main\" }}\n"
             ),
         )
         .unwrap();
@@ -8265,10 +8332,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&dep).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\ndep = { path = \"dep\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\ndep = { path = \"dep\" }\n",
         )
         .unwrap();
-        std::fs::write(dep.join("nia.toml"), "[package]\nname = \"dep\"\n").unwrap();
+        std::fs::write(
+            dep.join("nia.toml"),
+            "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let graph = PackageGraph::resolve(&root, false).unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert!(
@@ -8291,12 +8362,12 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&dep).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\ndep = { path = \"dep\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\ndep = { path = \"dep\" }\n",
         )
         .unwrap();
         std::fs::write(
             dep.join("nia.toml"),
-            "[package]\nname = \"dep\"\n[dependencies]\nroot = { path = \"..\" }\n",
+            "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n[dependencies]\nroot = { path = \"..\" }\n",
         )
         .unwrap();
         let error = PackageGraph::resolve(&root, false).unwrap_err();
@@ -8310,7 +8381,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("vendor/mathlib")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
         )
         .unwrap();
         let error = PackageGraph::resolve(&root, false).unwrap_err();
@@ -8327,7 +8398,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
         )
         .unwrap();
         let error = PackageGraph::resolve(&root, false).unwrap_err();
@@ -8347,10 +8418,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::create_dir_all(dependency.join("src")).unwrap();
         fs::write(
             consumer.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { path = \"../vendor/json\" }\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { path = \"../vendor/json\" }\n",
         )
         .unwrap();
-        fs::write(dependency.join("nia.toml"), "[package]\nname = \"json\"\n").unwrap();
+        fs::write(
+            dependency.join("nia.toml"),
+            "[package]\nname = \"json\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         fs::write(
             dependency.join("src/lib.nia"),
             "pub fn value() -> i32 = 1;\n",
@@ -8370,11 +8445,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 package,
                 version,
                 source_fingerprint,
-            } if owner == "local/app@0.0.0"
+            } if owner == "local/app@1.0.0"
                 && path == "../vendor/json"
                 && namespace == "local"
                 && package == "json"
-                && version == "0.0.0"
+                && version == "1.0.0"
                 && source_fingerprint.starts_with("blake3:")
         ));
 
@@ -8412,10 +8487,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::create_dir_all(&outside).unwrap();
         fs::write(
             consumer.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
         )
         .unwrap();
-        fs::write(outside.join("nia.toml"), "[package]\nname = \"json\"\n").unwrap();
+        fs::write(
+            outside.join("nia.toml"),
+            "[package]\nname = \"json\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         symlink(&outside, &link).unwrap();
 
         assert!(PackageGraph::resolve(&consumer, false).is_err());
@@ -8433,7 +8512,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let actual = root.join("actual");
         let linked = root.join("linked");
         fs::create_dir_all(&actual).unwrap();
-        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            actual.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         symlink(&actual, &linked).unwrap();
 
         assert!(PackageGraph::resolve(&linked, false).is_err());
@@ -8453,10 +8536,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::create_dir_all(&outside).unwrap();
         fs::write(
             consumer.join("nia.toml"),
-            "[package]\nname = \"app\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
         )
         .unwrap();
-        fs::write(outside.join("nia.toml"), "[package]\nname = \"json\"\n").unwrap();
+        fs::write(
+            outside.join("nia.toml"),
+            "[package]\nname = \"json\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let output = std::process::Command::new("cmd")
             .args(["/d", "/c", "mklink", "/J"])
             .arg(&link)
@@ -8478,7 +8565,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let actual = root.join("actual");
         let linked = root.join("linked");
         fs::create_dir_all(&actual).unwrap();
-        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        fs::write(
+            actual.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
         let output = std::process::Command::new("cmd")
             .args(["/d", "/c", "mklink", "/J"])
             .arg(&linked)
@@ -8501,17 +8592,17 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&regex).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\njson = { path = \"vendor/json\" }\n",
         )
         .unwrap();
         std::fs::write(
             json.join("nia.toml"),
-            "[package]\nname = \"json\"\n[dependencies]\nregex = { path = \"vendor/regex\" }\n",
+            "[package]\nname = \"json\"\nversion = \"1.0.0\"\n[dependencies]\nregex = { path = \"vendor/regex\" }\n",
         )
         .unwrap();
         std::fs::write(
             regex.join("nia.toml"),
-            "[package]\nname = \"regex\"\nunknown = 1\n",
+            "[package]\nname = \"regex\"\nversion = \"1.0.0\"\nunknown = 1\n",
         )
         .unwrap();
         let error = PackageGraph::resolve(&root, false).unwrap_err();
@@ -8532,7 +8623,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&build).unwrap();
         std::fs::create_dir_all(&runtime).unwrap();
         std::fs::create_dir_all(&development).unwrap();
-        std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\nruntime = { path = \"runtime\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").unwrap();
+        std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\nruntime = { path = \"runtime\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").unwrap();
         for (dir, name) in [
             (&build, "build"),
             (&runtime, "runtime"),
@@ -8540,7 +8631,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ] {
             std::fs::write(
                 dir.join("nia.toml"),
-                format!("[package]\nname = \"{name}\"\n"),
+                format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n"),
             )
             .unwrap();
         }
@@ -8559,12 +8650,12 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&development).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
         )
         .unwrap();
         std::fs::write(
             development.join("nia.toml"),
-            "[package]\nname = \"development\"\n",
+            "[package]\nname = \"development\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
         let graph = PackageGraph::resolve(&root, false).unwrap();
@@ -8608,10 +8699,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&shared).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nruntime = { path = \"shared\" }\n[dev-dependencies]\ndevelopment = { path = \"shared\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nruntime = { path = \"shared\" }\n[dev-dependencies]\ndevelopment = { path = \"shared\" }\n",
         )
         .unwrap();
-        std::fs::write(shared.join("nia.toml"), "[package]\nname = \"shared\"\n").unwrap();
+        std::fs::write(
+            shared.join("nia.toml"),
+            "[package]\nname = \"shared\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
 
         let graph =
             PackageGraph::resolve_with_options(&root, PackageGraphOptions::default()).unwrap();
@@ -8683,13 +8778,13 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
         )
         .unwrap();
         std::fs::create_dir_all(root.join("development")).unwrap();
         std::fs::write(
             root.join("development/nia.toml"),
-            "[package]\nname = \"development\"\n",
+            "[package]\nname = \"development\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
 
@@ -8720,7 +8815,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[library]\npath = \"src/first.nia\"\n[source]\nroots = [\"src\"]\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/first.nia\"\n[source]\nroots = [\"src\"]\n",
         )
         .unwrap();
         std::fs::write(root.join("src/first.nia"), "pub const value: u8 = 1;").unwrap();
@@ -8729,7 +8824,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[library]\npath = \"src/second.nia\"\n[source]\nroots = [\"src\"]\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/second.nia\"\n[source]\nroots = [\"src\"]\n",
         )
         .unwrap();
         let second = PackageGraph::resolve(&root, false).unwrap().fingerprint();
@@ -8751,7 +8846,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[library]\npath = \"../outside.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"../outside.nia\"\n",
         )
         .unwrap();
 
@@ -8774,8 +8869,8 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ));
         std::fs::create_dir_all(&root).unwrap();
         for manifest in [
-            "[package]\nname = \"root\"\n[library]\npath = \"lib.nia\"\n[source]\nroots = [\"src\"]\n",
-            "[package]\nname = \"root\"\n[library]\npath = \"src/lib.nia\"\n[source]\nroots = [\"src\"]\nexclude = [\"src/lib.nia\"]\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"lib.nia\"\n[source]\nroots = [\"src\"]\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/lib.nia\"\n[source]\nroots = [\"src\"]\nexclude = [\"src/lib.nia\"]\n",
         ] {
             std::fs::write(root.join("nia.toml"), manifest).unwrap();
             let error = PackageManifest::read(&root).unwrap_err();
@@ -8804,7 +8899,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         symlink(&outside, root.join("src/lib.nia")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[library]\npath = \"src/lib.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/lib.nia\"\n",
         )
         .unwrap();
 
@@ -8827,7 +8922,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         symlink(root.join("real"), root.join("src/linked")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[library]\npath = \"src/linked/lib.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/linked/lib.nia\"\n",
         )
         .unwrap();
 
@@ -8862,7 +8957,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert!(output.status.success(), "{output:?}");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[library]\npath = \"src/linked/lib.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/linked/lib.nia\"\n",
         )
         .unwrap();
 
