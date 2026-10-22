@@ -109,3 +109,7 @@ Registry graph resolution may restart from the root when a later dependency
 constraint changes an already selected release. Each restart carries explicit
 candidate overrides and is bounded; the resolver reports a non-converging graph
 as an error instead of accepting multiple versions of one registry package.
+Cached locked releases contribute constraints to the same graph as newly
+selected releases. A graph restart applies its candidate overrides before
+reusing a cached selection, so adding a compatible requirement can select a
+lower release without repeatedly restoring the previous locked version.
