@@ -3667,10 +3667,8 @@ pub fn package_source_identity_with_selection(
     let mut files = Vec::new();
     let mut seen_files = BTreeSet::new();
     for source_root in &selected_roots {
-        let directory = if source_root == "." {
-            root.clone()
-        } else {
-            root.join(source_root)
+        let Some(directory) = open_selected_source_root(&root, source_root)? else {
+            continue;
         };
         let canonical = directory.canonicalize()?;
         if !canonical.starts_with(&root) {
@@ -3709,6 +3707,34 @@ pub fn package_source_identity_with_selection(
         source_fingerprint: *blake3::hash(&encoded).as_bytes(),
         files,
     })
+}
+
+fn open_selected_source_root(root: &Path, source_root: &str) -> io::Result<Option<PathBuf>> {
+    if source_root == "." {
+        return Ok(Some(root.to_path_buf()));
+    }
+    let mut directory = root.to_path_buf();
+    for component in Path::new(source_root).components() {
+        let std::path::Component::Normal(name) = component else {
+            continue;
+        };
+        directory.push(name);
+        let metadata = match fs::symlink_metadata(&directory) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(error),
+            Err(error) => return Err(error),
+        };
+        if nia_compat::is_link_or_reparse_point(&metadata) {
+            return Ok(None);
+        }
+        if !metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "package source root must be a directory",
+            ));
+        }
+    }
+    Ok(Some(directory))
 }
 
 fn validate_selection_path(value: &str) -> io::Result<String> {
@@ -5615,6 +5641,87 @@ mod tests {
         assert!(identity.files.iter().all(|file| file.path != "linked.nia"));
         std::fs::remove_file(root.join("linked.nia")).unwrap();
         std::fs::remove_file(outside).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_source_identity_ignores_linked_source_roots() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-linked-source-roots-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("actual")).unwrap();
+        std::fs::create_dir_all(root.join("nested/actual")).unwrap();
+        std::fs::write(root.join("actual/main.nia"), "actual").unwrap();
+        std::fs::write(root.join("nested/actual/lib.nia"), "nested").unwrap();
+        symlink(root.join("actual"), root.join("linked")).unwrap();
+        symlink(root.join("nested/actual"), root.join("nested/linked")).unwrap();
+
+        let identity = package_source_identity_with_selection(
+            &root,
+            package(),
+            &PackageSourceSelection {
+                source_roots: vec!["linked".into(), "nested/linked".into()],
+                excludes: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        assert!(identity.files.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_source_identity_ignores_junctioned_source_roots() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-package-junctioned-source-roots-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("actual")).unwrap();
+        std::fs::create_dir_all(root.join("nested/actual")).unwrap();
+        std::fs::write(root.join("actual/main.nia"), "actual").unwrap();
+        std::fs::write(root.join("nested/actual/lib.nia"), "nested").unwrap();
+        for (link, target) in [
+            (root.join("linked"), root.join("actual")),
+            (
+                root.join("nested").join("linked"),
+                root.join("nested").join("actual"),
+            ),
+        ] {
+            let output = std::process::Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(&link)
+                .arg(&target)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+        }
+
+        let identity = package_source_identity_with_selection(
+            &root,
+            package(),
+            &PackageSourceSelection {
+                source_roots: vec!["linked".into(), "nested/linked".into()],
+                excludes: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        assert!(identity.files.is_empty());
+        std::fs::remove_dir(root.join("linked")).unwrap();
+        std::fs::remove_dir(root.join("nested").join("linked")).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
