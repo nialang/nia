@@ -4,6 +4,7 @@
 LIBRARY kernel32.dll
 EXPORTS
     CloseHandle
+    CompareStringOrdinal
     CreateDirectoryW
     CreateFileW
     CreatePipe

@@ -1,14 +1,25 @@
-using pkg::os::windows::bindings::{fileNameNormalized, GetFinalPathNameByHandleW};
+using pkg::os::windows::bindings::{fileNameNormalized, GetFinalPathNameByHandleW, CompareStringOrdinal};
 using pkg::os::windows::types::{Errno, FileDescriptor};
 using pkg::os::windows::error::lastError;
 using pkg::os::windows::encoding::{utf8ToWide, wideStringLen};
 
 pub(pkg) fn handlePath(handle: usize, storage: &mut [u16]) Errno!&u16 {
+    _ = handlePathLength(handle, storage).?;
+    !&storage[0]
+}
+
+pub(pkg) fn handlePathLength(handle: usize, storage: &mut [u16]) Errno!usize {
     if storage.len() == 0 or storage.len() > u32::MAX as usize { return .TooLong!; }
     let length = GetFinalPathNameByHandleW(handle, storage.ptrMut(), storage.len() as u32, fileNameNormalized);
     if length == 0 { return lastError()!; }
     if length as usize >= storage.len() { return .TooLong!; }
-    !&storage[0]
+    !(length as usize)
+}
+
+pub(pkg) fn isPathWithin(root: &u16, rootLength: usize, candidate: &u16, candidateLength: usize) bool {
+    if candidateLength < rootLength { return false; }
+    if CompareStringOrdinal(root, rootLength as i32, candidate, rootLength as i32, 1) != 2 { return false; }
+    candidateLength == rootLength or root[rootLength - 1] == 92 or root[rootLength - 1] == 47 or candidate[rootLength] == 92 or candidate[rootLength] == 47
 }
 
 // Paths stay in UTF-16 between the handle lookup and the native operation.
