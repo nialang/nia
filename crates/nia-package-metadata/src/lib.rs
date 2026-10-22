@@ -993,6 +993,7 @@ struct PackageFetcher {
     registry_sources: BTreeMap<RegistryPackageName, String>,
     registry_constraints: BTreeMap<RegistryPackageName, Vec<RegistryVersionConstraint>>,
     registry_candidates: BTreeMap<RegistryPackageName, Vec<PackageId>>,
+    registry_aliases: BTreeMap<RegistryPackageName, String>,
     registry_restart: Option<(RegistryPackageName, PackageId)>,
     refresh_names: Option<BTreeSet<String>>,
     registry_fetch: Option<RegistryFetch>,
@@ -1060,6 +1061,7 @@ impl PackageFetcher {
             registry_sources: BTreeMap::new(),
             registry_constraints: BTreeMap::new(),
             registry_candidates: BTreeMap::new(),
+            registry_aliases: BTreeMap::new(),
             registry_restart: None,
             refresh_names,
             registry_fetch,
@@ -1704,8 +1706,21 @@ impl PackageFetcher {
         archive_digest: &[u8; 32],
         source_fingerprint: &str,
     ) -> io::Result<()> {
+        let alias = self
+            .registry_aliases
+            .entry(RegistryPackageName {
+                namespace: package.namespace.clone(),
+                name: package.name.clone(),
+            })
+            .and_modify(|alias| {
+                if dependency.name < *alias {
+                    *alias = dependency.name.clone();
+                }
+            })
+            .or_insert_with(|| dependency.name.clone())
+            .clone();
         let expected = LockedPackage {
-            name: dependency.name.clone(),
+            name: alias,
             source: LockedSource::Registry {
                 registry: registry.to_owned(),
                 namespace: package.namespace.clone(),
@@ -1721,14 +1736,16 @@ impl PackageFetcher {
             .iter()
             .find(|entry| same_locked_selector(entry, &expected))
         {
-            if entry.source == expected.source {
+            if entry.source == expected.source && entry.name == expected.name {
                 return Ok(());
             }
-            if matches!(
-                &entry.source,
-                LockedSource::Registry { version, .. }
-                    if version == package.version.as_str()
-            ) {
+            if entry.source != expected.source
+                && matches!(
+                    &entry.source,
+                    LockedSource::Registry { version, .. }
+                        if version == package.version.as_str()
+                )
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
@@ -1747,24 +1764,9 @@ impl PackageFetcher {
                 ),
             ));
         }
-        self.lock.package.retain(|entry| {
-            if entry.name != dependency.name {
-                return true;
-            }
-            match &entry.source {
-                LockedSource::Registry {
-                    registry: locked_registry,
-                    namespace,
-                    package: locked_package,
-                    ..
-                } => {
-                    locked_registry != registry
-                        || namespace != &package.namespace
-                        || locked_package != &package.name
-                }
-                _ => true,
-            }
-        });
+        self.lock
+            .package
+            .retain(|entry| !same_locked_selector(entry, &expected));
         self.lock.package.push(expected);
         self.lock.package.sort();
         self.dirty = true;
@@ -8246,9 +8248,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             &entry.source,
             LockedSource::Registry { version, .. } if version == "1.0.0"
         )));
+        assert_eq!(initial_lock.package[0].name, "alpha");
 
         *state.lock().unwrap() = index("1.1.0", &digest_2);
-        let updates = update_lock_with_registry_fetcher(&root, &["beta".into()], fetch).unwrap();
+        let updates =
+            update_lock_with_registry_fetcher(&root, &["beta".into()], fetch.clone()).unwrap();
         assert_eq!(updates.len(), 1, "{updates:?}");
         assert_eq!(updates[0].name, "beta");
         let lock = PackageLock::read(&root.join("nia.lock")).unwrap();
@@ -8256,6 +8260,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             &entry.source,
             LockedSource::Registry { version, .. } if version == "1.1.0"
         )));
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[dependencies]\nbeta = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        update_lock_with_registry_fetcher(&root, &[], fetch).unwrap();
+        let lock = PackageLock::read(&root.join("nia.lock")).unwrap();
+        assert_eq!(lock.package[0].name, "beta");
         std::fs::remove_dir_all(root).unwrap();
     }
 
