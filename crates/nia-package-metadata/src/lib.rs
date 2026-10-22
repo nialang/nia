@@ -81,6 +81,19 @@ pub struct PackageVersionRequirement(semver::VersionReq);
 impl PackageVersionRequirement {
     /// Parses a standard SemVer requirement expression.
     pub fn parse(value: &str) -> Result<Self, semver::Error> {
+        let trimmed = value.trim_start();
+        if trimmed
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_digit())
+            && !trimmed.contains(['*', 'x', 'X'])
+        {
+            // semver accepts a bare partial version as an implicit caret
+            // requirement. Nia requires callers to choose that policy
+            // explicitly, so preserve the parser's error type while rejecting
+            // the shorthand at the metadata boundary.
+            return Err(semver::VersionReq::parse("?").expect_err("invalid requirement"));
+        }
         semver::VersionReq::parse(value).map(Self)
     }
 
@@ -5428,7 +5441,8 @@ mod tests {
         let prerelease = PackageVersionRequirement::parse("=1.5.0-beta.1").unwrap();
         assert!(prerelease.matches(&PackageVersion::parse("1.5.0-beta.1").unwrap()));
         assert!(!prerelease.matches(&PackageVersion::parse("1.5.0-beta.2").unwrap()));
-        assert!(PackageVersionRequirement::parse("1.4").is_ok());
+        assert!(PackageVersionRequirement::parse("1.4").is_err());
+        assert!(PackageVersionRequirement::parse("1.4.*").is_ok());
         assert!(PackageVersionRequirement::parse("not a requirement").is_err());
     }
 
