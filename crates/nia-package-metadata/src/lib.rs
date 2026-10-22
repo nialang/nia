@@ -1199,13 +1199,25 @@ impl PackageFetcher {
                     .transpose()?
                     .flatten();
                 if cached_destination.is_none() {
-                    if self.policy.locked && fetch_rev.is_none() {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
+                    if self.policy.locked {
+                        let message = if fetch_rev.is_some() {
+                            format!(
+                                "locked Git dependency `{}` is not in the package cache, and `--locked` forbids fetching it",
+                                dependency.name
+                            )
+                        } else {
                             format!(
                                 "Git dependency `{}` ({selector}) is not recorded in nia.lock, and `--locked` forbids adding it",
                                 dependency.name
-                            ),
+                            )
+                        };
+                        return Err(io::Error::new(
+                            if fetch_rev.is_some() {
+                                io::ErrorKind::NotFound
+                            } else {
+                                io::ErrorKind::InvalidInput
+                            },
+                            message,
                         ));
                     }
                     if self.policy.offline {
@@ -7869,12 +7881,13 @@ mod tests {
         assert!(error.to_string().contains("--locked"), "{error}");
         assert!(!consumer.join("nia.lock").exists());
 
-        // A matching lock resolves, even after the cache is cleared.
+        // A matching lock resolves from cache but cannot fetch a missing checkout.
         PackageGraph::resolve(&consumer, false).unwrap();
         let lock = std::fs::read(consumer.join("nia.lock")).unwrap();
         PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap();
         std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
-        PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap();
+        let error = PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap_err();
+        assert!(error.to_string().contains("--locked"), "{error}");
         assert_eq!(std::fs::read(consumer.join("nia.lock")).unwrap(), lock);
 
         // Neither adding nor removing an entry is allowed.
