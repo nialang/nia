@@ -1031,7 +1031,7 @@ impl PackageFetcher {
                     }
                     Err(error) => return Err(error),
                 };
-                let destination = unresolved.canonicalize()?;
+                let destination = canonical_real_directory(&unresolved)?;
                 if !destination.join("nia.toml").is_file() {
                     return Ok(destination);
                 }
@@ -2296,7 +2296,7 @@ impl PackageGraph {
         while let Some((current, logical_root, is_root, ancestors)) = pending.pop() {
             open_cache_root(&current, false)
                 .map_err(|error| dependency_context(&logical_root, error))?;
-            let canonical = current.canonicalize()?;
+            let canonical = canonical_real_directory(&current)?;
             if ancestors.iter().any(|ancestor| ancestor == &canonical) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -2348,7 +2348,9 @@ impl PackageGraph {
                 };
                 if !options.includes(dependency.scope) {
                     let source_root = match &dependency.source {
-                        DependencySource::Path(path) => canonical.join(path).canonicalize().ok(),
+                        DependencySource::Path(path) => {
+                            canonical_real_directory(&canonical.join(path)).ok()
+                        }
                         DependencySource::Git { .. } | DependencySource::Registry { .. } => None,
                     };
                     edges.push((
@@ -2362,7 +2364,7 @@ impl PackageGraph {
                 }
                 let path = dependency_path(&mut fetcher, &canonical, dependency)
                     .and_then(|path| {
-                        path.canonicalize().map_err(|error| {
+                        canonical_real_directory(&path).map_err(|error| {
                             io::Error::new(
                                 error.kind(),
                                 format!("`{}`: {error}", display_path(&path)),
@@ -3012,7 +3014,7 @@ impl WorkspaceManifest {
             }
             members.push(WorkspaceMember {
                 name: manifest.package.name,
-                root: root.canonicalize()?,
+                root: canonical_real_directory(&root)?,
             });
         }
         Ok(members)
@@ -3264,7 +3266,7 @@ fn expand_workspace_paths(root: &Path, patterns: &[String], role: &str) -> io::R
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error),
             }
-            let canonical = path.canonicalize()?;
+            let canonical = canonical_real_directory(&path)?;
             let relative = canonical.strip_prefix(root).map_err(|_| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
