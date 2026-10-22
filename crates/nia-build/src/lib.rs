@@ -4274,7 +4274,7 @@ mod tests {
             std::fs::create_dir_all(&member).expect("create workspace member");
             std::fs::write(
                 member.join("nia.toml"),
-                format!("[package]\nname = \"{name}\"\n"),
+                format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n"),
             )
             .expect("write member manifest");
             std::fs::write(member.join("build.nia"), "").expect("write build script");
@@ -4446,12 +4446,12 @@ mod tests {
         std::fs::create_dir_all(&dependency).expect("create build dependency");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"app\"\n[build-dependencies]\njson = { path = \"vendor/json\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"app\"\n[build-dependencies]\njson = { path = \"vendor/json\" }\n",
         )
         .expect("write root manifest");
         std::fs::write(
             dependency.join("nia.toml"),
-            "[package]\nname = \"json\"\n[library]\npath = \"src/json.nia\"\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"json\"\n[library]\npath = \"src/json.nia\"\n",
         )
         .expect("write dependency manifest");
         std::fs::create_dir_all(dependency.join("src")).expect("create library source directory");
@@ -4500,7 +4500,7 @@ mod tests {
         }
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"app\"\n[build-dependencies]\nfirst = { path = \"first\" }\nsecond = { path = \"second\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"app\"\n[build-dependencies]\nfirst = { path = \"first\" }\nsecond = { path = \"second\" }\n",
         )
         .expect("write root manifest");
         for (package, name, shared_path) in [
@@ -4510,7 +4510,7 @@ mod tests {
             std::fs::write(
                 package.join("nia.toml"),
                 format!(
-                    "[package]\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nshared = {{ path = \"{shared_path}\" }}\n"
+                    "[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nshared = {{ path = \"{shared_path}\" }}\n"
                 ),
             )
             .expect("write dependency manifest");
@@ -4521,7 +4521,7 @@ mod tests {
         ] {
             std::fs::write(
                 package.join("nia.toml"),
-                format!("[package]\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n"),
+                format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n"),
             )
             .expect("write transitive manifest");
         }
@@ -4573,7 +4573,7 @@ mod tests {
         std::fs::write(root.join("build.nia"), "").expect("write build script");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nruntime = { path = \"runtime\" }\n[build-dependencies]\nbuild = { path = \"build\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[dependencies]\nruntime = { path = \"runtime\" }\n[build-dependencies]\nbuild = { path = \"build\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
         )
         .expect("write manifest");
         for (path, name) in [
@@ -4583,7 +4583,7 @@ mod tests {
         ] {
             std::fs::write(
                 path.join("nia.toml"),
-                format!("[package]\nname = \"{name}\"\n"),
+                format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n"),
             )
             .expect("write dependency manifest");
         }
@@ -4654,21 +4654,24 @@ mod tests {
         }
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\n[dependencies]\nbar = { path = \"root-bar\" }\nfoo = { path = \"foo\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[dependencies]\nbar = { path = \"root-bar\" }\nfoo = { path = \"foo\" }\n",
         )
         .expect("write root manifest");
         std::fs::write(
             root.join("root-bar/nia.toml"),
-            "[package]\nname = \"bar\"\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"bar\"\n",
         )
         .expect("write root bar manifest");
         std::fs::write(
             root.join("foo/nia.toml"),
-            "[package]\nname = \"foo\"\n[dependencies]\nbar = { path = \"bar\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"foo\"\n[dependencies]\nbar = { path = \"bar\" }\n",
         )
         .expect("write foo manifest");
-        std::fs::write(root.join("foo/bar/nia.toml"), "[package]\nname = \"bar\"\n")
-            .expect("write transitive bar manifest");
+        std::fs::write(
+            root.join("foo/bar/nia.toml"),
+            "[package]\nversion = \"1.0.0\"\nname = \"bar\"\n",
+        )
+        .expect("write transitive bar manifest");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
         let invocation =
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
@@ -4703,7 +4706,7 @@ mod tests {
                     .expect("create nested build dependency");
                 std::fs::write(
                     repository.join("nia.toml"),
-                    "[package]\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nnested = { path = \"nested\" }\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nnested = { path = \"nested\" }\n",
                 )
                 .expect("write SSH package manifest");
                 std::fs::write(
@@ -4713,7 +4716,7 @@ mod tests {
                 .expect("write SSH package library");
                 std::fs::write(
                     nested.join("nia.toml"),
-                    "[package]\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
                 )
                 .expect("write nested manifest");
                 std::fs::write(nested.join("src/lib.nia"), "pub const value: u8 = 7;\n")
@@ -4751,7 +4754,7 @@ mod tests {
 
                 std::fs::write(
                 consumer.join("nia.toml"),
-                "[package]\nname = \"consumer\"\n[build-dependencies]\nsshdep.workspace = true\n",
+                "[package]\nversion = \"1.0.0\"\nname = \"consumer\"\n[build-dependencies]\nsshdep.workspace = true\n",
             )
             .expect("write consumer manifest");
                 std::fs::write(
@@ -4813,7 +4816,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 std::fs::create_dir_all(nested.join("src")).expect("create nested dependency");
                 std::fs::write(
                     repository.join("nia.toml"),
-                    "[package]\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[dependencies]\nnested = { path = \"nested\" }\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[dependencies]\nnested = { path = \"nested\" }\n",
                 )
                 .expect("write SSH package manifest");
                 std::fs::write(
@@ -4823,7 +4826,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 .expect("write SSH package library");
                 std::fs::write(
                     nested.join("nia.toml"),
-                    "[package]\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
                 )
                 .expect("write transitive manifest");
                 std::fs::write(nested.join("src/lib.nia"), "pub const value: u8 = 7;\n")
@@ -4856,7 +4859,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 std::fs::write(
                     consumer.join("nia.toml"),
                     format!(
-                        "[package]\nname = \"consumer\"\n[dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
+                        "[package]\nversion = \"1.0.0\"\nname = \"consumer\"\n[dependencies]\nsshdep = {{ git = \"{source}\" }}\n"
                     ),
                 )
                 .expect("write consumer manifest");

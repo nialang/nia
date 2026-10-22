@@ -7099,10 +7099,15 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         std::fs::write(
             member.join("nia.toml"),
-            "[package]\nname = \"app\"\nversion = \"1.0.0\"\nversion.workspace = false\n",
+            "[package]\nname = \"app\"\nversion.workspace = false\n",
         )
         .unwrap();
-        assert!(PackageManifest::read(&member).is_err());
+        let error = PackageManifest::read(&member).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("`package.version.workspace` must be true")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

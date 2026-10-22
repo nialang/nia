@@ -307,12 +307,12 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         std::fs::create_dir_all(root.join(name)).expect("create dependency root");
         std::fs::write(
             root.join(name).join("nia.toml"),
-            format!("[package]\nname = \"{name}\"\n"),
+            format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n"),
         )
         .expect("write dependency manifest");
     }
     std::fs::create_dir_all(&root).expect("create package root");
-    std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
+    std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
 
     let compile_request = |test_mode: bool| {
         let options = PackageGraphOptions {

@@ -427,12 +427,12 @@ fn test_only_source_edits_do_not_invalidate_ordinary_build_artifacts() {
     fs::create_dir_all(workspace.join("tests/src")).unwrap();
     fs::write(
         workspace.join("nia.toml"),
-        "[package]\nname = \"root\"\n[dev-dependencies]\ntests = { path = \"tests\" }\n",
+        "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[dev-dependencies]\ntests = { path = \"tests\" }\n",
     )
     .unwrap();
     fs::write(
         workspace.join("tests/nia.toml"),
-        "[package]\nname = \"tests\"\n",
+        "[package]\nversion = \"1.0.0\"\nname = \"tests\"\n",
     )
     .unwrap();
     fs::write(
