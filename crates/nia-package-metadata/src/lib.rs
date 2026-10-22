@@ -872,6 +872,11 @@ fn open_package_state_lock(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+fn canonical_real_directory(path: &Path) -> io::Result<PathBuf> {
+    open_cache_root(path, false)?;
+    path.canonicalize()
+}
+
 fn validate_blake3_text(value: &str, label: &str, kind: io::ErrorKind) -> io::Result<()> {
     if !value.starts_with("blake3:")
         || value.len() != 71
@@ -1928,7 +1933,7 @@ fn update_lock_inner(
     names: &[String],
     registry_fetch: Option<RegistryFetch>,
 ) -> io::Result<Vec<LockUpdate>> {
-    let start = start.canonicalize()?;
+    let start = canonical_real_directory(start)?;
     let manifest_root = start
         .ancestors()
         .find(|directory| directory.join("nia.toml").is_file())
@@ -2774,7 +2779,7 @@ impl WorkspaceManifest {
                 "workspace manifest has too many declarations",
             ));
         }
-        let canonical_root = root.canonicalize()?;
+        let canonical_root = canonical_real_directory(root)?;
         let exclude = workspace
             .exclude
             .iter()
@@ -2905,7 +2910,7 @@ impl WorkspaceManifest {
 
     /// Finds the nearest workspace containing `package_root` as a declared member.
     pub fn discover_for_package(package_root: &Path) -> io::Result<Option<Self>> {
-        let package_root = package_root.canonicalize()?;
+        let package_root = canonical_real_directory(package_root)?;
         let mut cursor = package_root.parent();
         while let Some(root) = cursor {
             let manifest_path = root.join("nia.toml");
@@ -2942,11 +2947,14 @@ impl WorkspaceManifest {
     /// Finds the nearest workspace at or above a directory.
     pub fn discover(start: &Path) -> io::Result<Option<Self>> {
         let start = if start.is_file() {
-            start.parent().unwrap_or(start).to_path_buf()
+            let parent = start.parent().unwrap_or_else(|| Path::new("."));
+            open_cache_root(parent, false)?;
+            open_regular_file(start, "workspace discovery input")?;
+            parent.to_path_buf()
         } else {
             start.to_path_buf()
         };
-        let start = start.canonicalize()?;
+        let start = canonical_real_directory(&start)?;
         let mut cursor = Some(start.as_path());
         let mut package_root = None;
         while let Some(root) = cursor {
@@ -2999,16 +3007,17 @@ impl WorkspaceManifest {
 }
 
 fn workspace_state_root(package_root: &Path) -> io::Result<PathBuf> {
+    let package_root = canonical_real_directory(package_root)?;
     if !package_root.join("nia.toml").is_file() {
-        return package_root.canonicalize();
+        return Ok(package_root);
     }
-    let raw = read_raw_manifest(package_root)?;
+    let raw = read_raw_manifest(&package_root)?;
     if raw.workspace.is_some() {
-        return package_root.canonicalize();
+        return Ok(package_root);
     }
-    Ok(WorkspaceManifest::discover_for_package(package_root)?
+    Ok(WorkspaceManifest::discover_for_package(&package_root)?
         .map(|workspace| workspace.root)
-        .unwrap_or(package_root.canonicalize()?))
+        .unwrap_or(package_root))
 }
 
 fn read_package_manifest(
@@ -6422,6 +6431,54 @@ mod tests {
         assert!(WorkspaceManifest::read(&root).is_err());
         assert!(!root.join("nia.lock").exists());
         fs::remove_file(linked_member).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_entry_points_reject_linked_start_directories() {
+        use std::os::unix::fs::symlink;
+
+        let root = lock_test_root("linked-package-entry");
+        let actual = root.join("actual");
+        let linked = root.join("linked");
+        fs::create_dir_all(&actual).unwrap();
+        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        symlink(&actual, &linked).unwrap();
+
+        assert!(WorkspaceManifest::discover(&linked).is_err());
+        assert!(WorkspaceManifest::discover_for_package(&linked).is_err());
+        assert!(update_lock(&linked, &[]).is_err());
+        assert!(!actual.join("nia.lock").exists());
+        assert!(!actual.join(".nia/packages.lock").exists());
+
+        fs::remove_file(linked).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_entry_points_reject_junctioned_start_directories() {
+        let root = lock_test_root("junctioned-package-entry");
+        let actual = root.join("actual");
+        let linked = root.join("linked");
+        fs::create_dir_all(&actual).unwrap();
+        fs::write(actual.join("nia.toml"), "[package]\nname = \"app\"\n").unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked)
+            .arg(&actual)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(WorkspaceManifest::discover(&linked).is_err());
+        assert!(WorkspaceManifest::discover_for_package(&linked).is_err());
+        assert!(update_lock(&linked, &[]).is_err());
+        assert!(!actual.join("nia.lock").exists());
+        assert!(!actual.join(".nia/packages.lock").exists());
+
+        fs::remove_dir(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
