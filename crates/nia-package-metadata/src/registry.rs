@@ -397,7 +397,7 @@ pub fn extract_registry_archive(
     let staging_name = allocate_archive_staging(&parent_dir)?;
     let result = (|| {
         {
-            let staging_dir = parent_dir.open_dir(&staging_name)?;
+            let staging_dir = open_cache_directory(&parent_dir, &staging_name, false)?;
             write_archive_entries(&staging_dir, &entries)?;
         }
         match parent_dir.symlink_metadata(destination_name) {
@@ -1246,6 +1246,30 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(!outside.join("lib.nia").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_extraction_rejects_replaced_staging_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-registry-archive-staging-link-{}-{}",
+            std::process::id(),
+            STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let staging = root.join("staging");
+        let outside = root.join("outside");
+        fs::create_dir_all(&staging).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let parent = Dir::open_ambient_dir(&root, ambient_authority()).unwrap();
+        let staging_dir = open_cache_directory(&parent, "staging", false).unwrap();
+        fs::remove_dir(&staging).unwrap();
+        std::os::unix::fs::symlink(&outside, &staging).unwrap();
+        drop(staging_dir);
+
+        assert!(open_cache_directory(&parent, "staging", false).is_err());
+        assert!(!outside.join("lib.nia").exists());
+        fs::remove_file(&staging).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
