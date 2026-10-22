@@ -622,12 +622,12 @@ fn validate_registry_url(
         }
     }
     if !path.is_empty()
-        && (path
-            .strip_suffix('/')
-            .unwrap_or(path)
-            .split('/')
-            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-            || path.ends_with("//"))
+        && (path.contains("//")
+            || path
+                .strip_suffix('/')
+                .unwrap_or(path)
+                .split('/')
+                .any(|segment| segment.is_empty() || segment == "." || segment == ".."))
     {
         return Err(invalid_index(invalid_url_error));
     }
@@ -1465,6 +1465,7 @@ mod tests {
             "https://packages.example.test/api/./other",
             "https://packages.example.test/api//other",
             "https://packages.example.test/api//",
+            "https://packages.example.test//",
             "https://packages.example.test/index?next=other",
             "https://packages.example.test/#fragment",
         ] {
@@ -1475,6 +1476,7 @@ mod tests {
             "https://cdn.example.test/archive/./package.nia",
             "https://cdn.example.test/archive//package.nia",
             "https://cdn.example.test/archive//",
+            "https://cdn.example.test//",
         ] {
             assert!(validate_archive_url(url).is_err(), "{url}");
         }
