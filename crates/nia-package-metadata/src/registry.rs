@@ -725,7 +725,21 @@ fn read_bounded(parent: &Dir, name: &str, limit: usize) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+pub(super) fn write_atomic_path(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent_path = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = open_cache_root(parent_path, true)?;
+    let name = path
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| invalid_index("registry cache entry has no name"))?;
+    write_atomic_os(&parent, name, parent_path, bytes)
+}
+
 fn write_atomic(parent: &Dir, name: &str, parent_path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic_os(parent, OsStr::new(name), parent_path, bytes)
+}
+
+fn write_atomic_os(parent: &Dir, name: &OsStr, parent_path: &Path, bytes: &[u8]) -> io::Result<()> {
     match parent.symlink_metadata(name) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
             return Err(invalid_index("registry cache entry must be a regular file"));

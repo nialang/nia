@@ -23,7 +23,7 @@ use std::{
     ffi::OsStr,
     fmt,
     fs::{self, File, OpenOptions},
-    io::{self, Cursor, Read, Write},
+    io::{self, Cursor, Read},
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -32,7 +32,7 @@ use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
-use registry::{RegistryFetch, open_cache_directory, open_cache_root};
+use registry::{RegistryFetch, open_cache_directory, open_cache_root, write_atomic_path};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -790,42 +790,9 @@ impl PackageLock {
     /// Atomically replace a lockfile, creating its parent directory as needed.
     pub fn write_atomic(&self, path: &Path) -> io::Result<()> {
         self.validate(io::ErrorKind::InvalidInput)?;
-        validate_lockfile_destination(path)?;
         let text = toml::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent)?;
-        let mut temporary = None;
-        for suffix in 0..32 {
-            let temp = parent.join(format!(".nia.lock.{}.{}.tmp", std::process::id(), suffix));
-            match OpenOptions::new().create_new(true).write(true).open(&temp) {
-                Ok(file) => {
-                    temporary = Some((temp, file));
-                    break;
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(error),
-            }
-        }
-        let (temp, mut file) = temporary.ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "could not allocate lockfile temporary path",
-            )
-        })?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        if let Err(error) = fs::rename(&temp, path) {
-            if error.kind() == io::ErrorKind::AlreadyExists {
-                fs::remove_file(path)?;
-                fs::rename(&temp, path)?;
-            } else {
-                let _ = fs::remove_file(&temp);
-                return Err(error);
-            }
-        }
-        Ok(())
+        write_atomic_path(path, text.as_bytes())
     }
 }
 
@@ -856,20 +823,6 @@ fn open_regular_file(path: &Path, label: &'static str) -> io::Result<File> {
         ));
     }
     Ok(file)
-}
-
-fn validate_lockfile_destination(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() => {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "package lockfile destination must be a regular, non-link file",
-            ))
-        }
-        Ok(_) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
 }
 
 fn validate_blake3_text(value: &str, label: &str, kind: io::ErrorKind) -> io::Result<()> {
@@ -5417,9 +5370,52 @@ mod tests {
 
         assert!(PackageLock::read(&link).is_err());
         assert!(PackageLock::default().write_atomic(&link).is_err());
+        let parent_link = root.join("linked-parent");
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&parent_link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            PackageLock::default()
+                .write_atomic(&parent_link.join("nia.lock"))
+                .is_err()
+        );
         assert!(fs::read_dir(&outside).unwrap().next().is_none());
 
+        fs::remove_dir(parent_link).unwrap();
         fs::remove_dir(link).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lockfile_rejects_symlinked_parent_writes() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-lock-parent-link-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.join("outside");
+        let link = root.join("linked-parent");
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, &link).unwrap();
+
+        assert!(
+            PackageLock::default()
+                .write_atomic(&link.join("nia.lock"))
+                .is_err()
+        );
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_file(link).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
