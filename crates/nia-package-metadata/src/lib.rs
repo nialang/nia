@@ -2107,7 +2107,33 @@ fn update_lock_inner(
             transaction_lock_path.clone(),
         )?;
         let after = PackageLock::read(&lock_path)?.package;
-        Ok(collect_lock_updates(&before, &after))
+        let mut updates = collect_lock_updates(&before, &after);
+        if !names.is_empty() {
+            let mut requested_registry_aliases = BTreeMap::new();
+            for name in names {
+                if let Some(dependency) = manifests
+                    .iter()
+                    .flat_map(|manifest| manifest.dependencies.iter())
+                    .find(|dependency| dependency.name == *name)
+                    && let DependencySource::Registry {
+                        registry, package, ..
+                    } = &dependency.source
+                {
+                    requested_registry_aliases.insert(
+                        format!("registry:{registry}/{}/{}", package.namespace, package.name),
+                        name.clone(),
+                    );
+                }
+            }
+            for update in &mut updates {
+                if update.kind == LockUpdateKind::Registry
+                    && let Some(alias) = requested_registry_aliases.get(&update.selector)
+                {
+                    update.name = alias.clone();
+                }
+            }
+        }
+        Ok(updates)
     })?;
     drop(transaction_lock);
     Ok(updates)
@@ -8229,6 +8255,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         *state.lock().unwrap() = index("1.1.0", &digest_2);
         let updates = update_lock_with_registry_fetcher(&root, &["beta".into()], fetch).unwrap();
         assert_eq!(updates.len(), 1, "{updates:?}");
+        assert_eq!(updates[0].name, "beta");
         let lock = PackageLock::read(&root.join("nia.lock")).unwrap();
         assert!(lock.package.iter().all(|entry| matches!(
             &entry.source,
