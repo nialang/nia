@@ -1589,7 +1589,7 @@ impl PackageFetcher {
         let cache = open_cache_root(&self.cache_root, true)?;
         let staging_name = allocate_package_staging(&cache)?;
         let staging = self.cache_root.join(&staging_name);
-        let staging_directory = cache.open_dir(&staging_name)?;
+        let staging_directory = open_cache_directory(&cache, &staging_name, false)?;
         let temporary = staging.join("package");
         let result = (|| {
             extract_registry_archive(&archive, &archive_digest, &temporary)?;
