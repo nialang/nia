@@ -825,6 +825,42 @@ fn open_regular_file(path: &Path, label: &'static str) -> io::Result<File> {
     Ok(file)
 }
 
+fn open_package_state_lock(path: &Path) -> io::Result<File> {
+    let parent_path = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = open_cache_root(parent_path, true)?;
+    let name = path
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "package state lock has no name",
+            )
+        })?;
+    let mut options = CapOpenOptions::new();
+    options.read(true).write(true).create(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use cap_std::fs::OpenOptionsExt as _;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = parent.open_with(name, &options)?.into_std();
+    let metadata = file.metadata()?;
+    if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "package state lock must be a regular, non-link file",
+        ));
+    }
+    Ok(file)
+}
+
 fn validate_blake3_text(value: &str, label: &str, kind: io::ErrorKind) -> io::Result<()> {
     if !value.starts_with("blake3:")
         || value.len() != 71
@@ -1635,17 +1671,11 @@ impl PackageFetcher {
                 .cache_root
                 .parent()
                 .expect("package cache has a state directory");
-            fs::create_dir_all(state_directory)?;
             let state_lock_path = self
                 .transaction_lock
                 .clone()
                 .unwrap_or_else(|| state_directory.join("packages.lock"));
-            let lock = OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .read(true)
-                .write(true)
-                .open(state_lock_path)?;
+            let lock = open_package_state_lock(&state_lock_path)?;
             if self.transaction_lock.is_none() {
                 lock.lock()?;
             }
@@ -1894,16 +1924,7 @@ fn update_lock_inner(
         })?;
     let state_root = workspace_state_root(manifest_root)?;
     let transaction_lock_path = state_root.join(".nia/packages.lock");
-    let transaction_lock_directory = transaction_lock_path
-        .parent()
-        .expect("package state lock has a parent directory");
-    fs::create_dir_all(transaction_lock_directory)?;
-    let transaction_lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&transaction_lock_path)?;
+    let transaction_lock = open_package_state_lock(&transaction_lock_path)?;
     transaction_lock.lock()?;
     let original_lock = PackageLock::read(&state_root.join("nia.lock"))?;
     let before = original_lock.package.clone();
@@ -5416,6 +5437,67 @@ mod tests {
         assert!(fs::read_dir(&outside).unwrap().next().is_none());
 
         fs::remove_file(link).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_state_lock_rejects_linked_directories_and_files() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-state-lock-links-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.join("outside");
+        let linked_directory = root.join("linked-state");
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, &linked_directory).unwrap();
+        assert!(open_package_state_lock(&linked_directory.join("packages.lock")).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        let target = outside.join("lock-target");
+        let linked_file = root.join("linked.lock");
+        fs::write(&target, b"untouched").unwrap();
+        symlink(&target, &linked_file).unwrap();
+        assert!(open_package_state_lock(&linked_file).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"untouched");
+
+        fs::remove_file(linked_file).unwrap();
+        fs::remove_file(linked_directory).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn package_state_lock_rejects_junctioned_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-state-lock-junction-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.join("outside");
+        let linked_directory = root.join("linked-state");
+        fs::create_dir_all(&outside).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&linked_directory)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        assert!(open_package_state_lock(&linked_directory.join("packages.lock")).is_err());
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+
+        fs::remove_dir(linked_directory).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
