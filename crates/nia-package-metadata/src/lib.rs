@@ -2058,45 +2058,9 @@ fn update_lock_inner(
         } else {
             roots.push((state_root.clone(), String::new()));
         }
-        let manifests = roots
-            .iter()
-            .map(|(root, _)| PackageManifest::read(root))
-            .collect::<io::Result<Vec<_>>>()?;
-        for name in names {
-            let direct_registry_alias = manifests.iter().any(|manifest| {
-                manifest.dependencies.iter().any(|dependency| {
-                    dependency.name == *name
-                        && matches!(
-                            &dependency.source,
-                            DependencySource::Registry { registry, package, .. }
-                                if before.iter().any(|entry| matches!(
-                                    &entry.source,
-                                    LockedSource::Registry {
-                                        registry: locked_registry,
-                                        namespace,
-                                        package: locked_package,
-                                        ..
-                                    } if locked_registry == registry
-                                        && namespace == &package.namespace
-                                        && locked_package == &package.name
-                                ))
-                        )
-                })
-            });
-            if !before
-                .iter()
-                .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
-                && !direct_registry_alias
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("`{name}` is not a locked Git or registry dependency"),
-                ));
-            }
-        }
         let registries = read_registry_endpoints(&state_root)?;
         let refresh_names = names.iter().cloned().collect::<BTreeSet<_>>();
-        PackageGraph::resolve_for_update(
+        let graph = PackageGraph::resolve_for_update(
             roots,
             PackageGraphOptions {
                 include_development: true,
@@ -2106,14 +2070,45 @@ fn update_lock_inner(
             registry_fetch.clone(),
             transaction_lock_path.clone(),
         )?;
+        for name in names {
+            let registry_alias = graph.dependencies.iter().any(|report| {
+                report.dependency.name == *name
+                    && matches!(
+                        &report.dependency.source,
+                        DependencySource::Registry { registry, package, .. }
+                            if before.iter().any(|entry| matches!(
+                                &entry.source,
+                                LockedSource::Registry {
+                                    registry: locked_registry,
+                                    namespace,
+                                    package: locked_package,
+                                    ..
+                                } if locked_registry == registry
+                                    && namespace == &package.namespace
+                                    && locked_package == &package.name
+                            ))
+                    )
+            });
+            if !before
+                .iter()
+                .any(|entry| &entry.name == name && entry.source.update_kind().is_some())
+                && !registry_alias
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("`{name}` is not a locked Git or registry dependency"),
+                ));
+            }
+        }
         let after = PackageLock::read(&lock_path)?.package;
         let mut updates = collect_lock_updates(&before, &after);
         if !names.is_empty() {
             let mut requested_registry_aliases = BTreeMap::new();
             for name in names {
-                if let Some(dependency) = manifests
+                if let Some(dependency) = graph
+                    .dependencies
                     .iter()
-                    .flat_map(|manifest| manifest.dependencies.iter())
+                    .map(|report| &report.dependency)
                     .find(|dependency| dependency.name == *name)
                     && let DependencySource::Registry {
                         registry, package, ..
