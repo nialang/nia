@@ -147,13 +147,9 @@ in [Development setup](../dev/setup.md).
 
 Nia does not support:
 
-- complete Windows filesystem and process coverage in the standard library.
-  Startup, child processes with redirected standard streams, explicit
-  environments, waiting, and termination work; broader filesystem behavior
-  and Windows-specific process semantics are not covered;
-- POSIX signals on Windows: `Signal::Term` and `Signal::Kill` are termination
-  requests implemented with `TerminateProcess`, and the result reports the
-  Windows exit code rather than a signal;
+- POSIX signal semantics on Windows: `Signal::Term` and `Signal::Kill` are
+  termination requests implemented with `TerminateProcess`, and the result
+  reports the Windows exit code rather than a signal;
 - running Darwin executables that were cross-linked on Linux or Windows;
 - a complete bare-metal build workflow;
 - LLVM-backed wasm32 compilation or wasm32 executables;
