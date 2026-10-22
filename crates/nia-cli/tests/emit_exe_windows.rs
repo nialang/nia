@@ -426,12 +426,68 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if seen != 2 { return process::ExitCode(6)!; }
     !()
 }
+
 "#,
     );
     let status = Command::new(exe)
         .current_dir(&root)
         .status_timeout("run reparse point kind regression");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn windows_directory_capabilities_reject_junction_escape() {
+    let root = temp_dir("windows_directory_junction_escape");
+    let outside = temp_dir("windows_directory_junction_escape_target");
+    std::fs::create_dir(outside.join("target")).expect("create target directory");
+    let junction = Command::new("cmd")
+        .args([
+            "/d",
+            "/c",
+            "mklink",
+            "/J",
+            "escape",
+            outside.join("target").to_str().unwrap(),
+        ])
+        .current_dir(&root)
+        .output_timeout_for_runtime("create directory escape junction");
+    assert!(
+        junction.status.success(),
+        "{}",
+        String::from_utf8_lossy(&junction.stderr)
+    );
+    let exe = emit(
+        &root,
+        "junction_escape",
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut dir = fs::Dir::cwd().?;
+    defer dir.close().?;
+    let path = fs::RelativePathView::fromText(&"escape/target").?;
+    match dir.openDir(path, fs::OpenDirOptions::init()) {
+        !opened => {
+            _ = opened;
+            return process::ExitCode(1)!;
+        },
+        error! => {
+            _ = error;
+        },
+    }
+    !()
+}
+"#,
+    );
+    assert_eq!(
+        Command::new(exe)
+            .current_dir(&root)
+            .status_timeout("run Windows junction escape regression")
+            .code(),
+        Some(0)
+    );
 }
 
 #[test]

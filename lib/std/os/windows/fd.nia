@@ -56,6 +56,8 @@ using pkg::os::windows::error::{
 using pkg::os::windows::path::{
     pathFromHandle,
     handlePath,
+    handlePathLength,
+    isPathWithin,
     joinPath,
 };
 using pkg::os::windows::encoding::{
@@ -170,6 +172,18 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
     if not followSymlinks { flags = flags | fileFlagOpenReparsePoint; }
     let handle = CreateFileW(native, access, fileShareRead | fileShareWrite | fileShareDelete, 0, disposition, flags, 0);
     if handle == invalidHandle { return lastError()!; }
+    let mut rootStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let rootLength = handlePathLength(dir.handle, &mut rootStorage[..]);
+    let mut candidateStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let candidateLength = handlePathLength(handle, &mut candidateStorage[..]);
+    let within = match (rootLength, candidateLength) {
+        (!root, !candidate) => isPathWithin(&rootStorage[0], root, &candidateStorage[0], candidate),
+        _ => false,
+    };
+    if not within {
+        _ = CloseHandle(handle);
+        return .SymlinkLoop!;
+    }
     if directory {
         let metadata = match metadataHandle(handle) {
             !value => value,
@@ -181,6 +195,18 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
         if metadata.kind() != .Directory {
             _ = CloseHandle(handle);
             return .NotDir!;
+        }
+    } else if not followSymlinks {
+        let metadata = match metadataHandle(handle) {
+            !value => value,
+            error! => {
+                _ = CloseHandle(handle);
+                return error!;
+            },
+        };
+        if metadata.kind() == .Symlink {
+            _ = CloseHandle(handle);
+            return .SymlinkLoop!;
         }
     }
     !.init(handle)

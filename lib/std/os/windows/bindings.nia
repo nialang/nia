@@ -99,6 +99,13 @@ pub(pkg) extern fn GetFinalPathNameByHandleW(
     length: u32,
     flags: u32,
 ) u32;
+pub(pkg) extern fn CompareStringOrdinal(
+    first: &u16,
+    firstLength: i32,
+    second: &u16,
+    secondLength: i32,
+    ignoreCase: i32,
+) i32;
 pub(pkg) extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protection: u32) usize;
 pub(pkg) extern fn VirtualFree(address: usize, size: usize, freeType: u32) i32;
 pub(pkg) extern fn GetSystemInfo(info: &mut SystemInfo) ();
