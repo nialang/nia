@@ -638,7 +638,7 @@ named, after the steps it depends on.
 | `-p, --package <name>` | selects a workspace member; repeatable |
 | `--workspace` | selects every workspace member |
 | `--locked` | fails instead of changing `nia.lock` |
-| `--offline` | fails instead of fetching a Git dependency that is not cached |
+| `--offline` | uses cached Git checkouts, registry indexes, and registry archives only |
 | `--dry-run` | configures and validates the graph without running any step |
 | `--explain` | shows the selected step, targets, action closure, and configure-cache decision |
 | `--print-plan` | prints the frozen graph: modules, artifacts, actions, and steps |
