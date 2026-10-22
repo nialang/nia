@@ -491,6 +491,92 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn windows_directory_mutations_reject_junction_escape() {
+    let root = temp_dir("windows_directory_mutation_junction_escape");
+    let outside = temp_dir("windows_directory_mutation_junction_escape_target");
+    std::fs::write(outside.join("sentinel.txt"), b"outside").expect("write outside sentinel");
+    std::fs::create_dir(outside.join("sentinel-dir")).expect("create outside sentinel directory");
+    std::fs::write(root.join("rename-source.txt"), b"source").expect("write rename source");
+    let junction = Command::new("cmd")
+        .args([
+            "/d",
+            "/c",
+            "mklink",
+            "/J",
+            "escape",
+            outside.to_str().unwrap(),
+        ])
+        .current_dir(&root)
+        .output_timeout_for_runtime("create mutation escape junction");
+    assert!(
+        junction.status.success(),
+        "{}",
+        String::from_utf8_lossy(&junction.stderr)
+    );
+    let exe = emit(
+        &root,
+        "mutation_junction_escape",
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut cwd = fs::Dir::cwd().?;
+    defer cwd.close().?;
+    let createPath = fs::RelativePathView::fromText(&"escape/new-dir").?;
+    match cwd.createDir(createPath, fs::CreateDirOptions::init()) {
+        !ok => { _ = ok; return process::ExitCode(1)!; },
+        error! => { _ = error; },
+    }
+    let deleteFilePath = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
+    match cwd.deleteFile(deleteFilePath) {
+        !ok => { _ = ok; return process::ExitCode(2)!; },
+        error! => { _ = error; },
+    }
+    let deleteDirPath = fs::RelativePathView::fromText(&"escape/sentinel-dir").?;
+    match cwd.deleteDir(deleteDirPath) {
+        !ok => { _ = ok; return process::ExitCode(3)!; },
+        error! => { _ = error; },
+    }
+    let localSource = fs::RelativePathView::fromText(&"rename-source.txt").?;
+    let outsideDestination = fs::RelativePathView::fromText(&"escape/renamed.txt").?;
+    match cwd.rename(localSource, outsideDestination) {
+        !ok => { _ = ok; return process::ExitCode(4)!; },
+        error! => { _ = error; },
+    }
+    let outsideSource = fs::RelativePathView::fromText(&"escape/sentinel.txt").?;
+    let localDestination = fs::RelativePathView::fromText(&"stolen.txt").?;
+    match cwd.rename(outsideSource, localDestination) {
+        !ok => { _ = ok; return process::ExitCode(5)!; },
+        error! => { _ = error; },
+    }
+    !()
+}
+"#,
+    );
+    assert_eq!(
+        Command::new(exe)
+            .current_dir(&root)
+            .status_timeout("run Windows mutation junction escape regression")
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        std::fs::read(outside.join("sentinel.txt")).expect("read outside sentinel"),
+        b"outside"
+    );
+    assert!(outside.join("sentinel-dir").is_dir());
+    assert!(!outside.join("new-dir").exists());
+    assert_eq!(
+        std::fs::read(root.join("rename-source.txt")).expect("read rename source"),
+        b"source"
+    );
+    assert!(!outside.join("renamed.txt").exists());
+    assert!(!root.join("stolen.txt").exists());
+}
+
+#[test]
 fn windows_startup_and_spawn_accept_environments_beyond_fixed_buffers() {
     let root = temp_dir("windows_large_environment");
     let value = "\u{4e2d}".repeat(30000);

@@ -212,34 +212,115 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
     !.init(handle)
 }
 
-pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
-    _ = permissions;
-    let mut parentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let parentPath = pathFromHandle(dir, parent, &mut parentStorage[..]).?;
+fn createDirPath(parent: &u16, name: &u8) Errno!() {
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let fullPath = joinPath(parentPath, name, &mut storage[..]).?;
+    let fullPath = joinPath(parent, name, &mut storage[..]).?;
     if CreateDirectoryW(fullPath, 0) == 0 { return lastError()!; }
     !()
 }
 
-pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
-    let mut parentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let parentPath = pathFromHandle(dir, parent, &mut parentStorage[..]).?;
+fn deletePath(parent: &u16, name: &u8, directory: bool) Errno!() {
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let fullPath = joinPath(parentPath, name, &mut storage[..]).?;
-    if directory { if RemoveDirectoryW(fullPath) == 0 { return lastError()!; } } else if DeleteFileW(fullPath) == 0 { return lastError()!; }
+    let fullPath = joinPath(parent, name, &mut storage[..]).?;
+    if directory {
+        if RemoveDirectoryW(fullPath) == 0 { return lastError()!; }
+    } else if DeleteFileW(fullPath) == 0 {
+        return lastError()!;
+    }
     !()
 }
 
-pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
-    let mut oldParentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let oldParentPath = pathFromHandle(oldDir, oldParent, &mut oldParentStorage[..]).?;
+fn renamePath(oldParent: &u16, oldName: &u8, newParent: &u16, newName: &u8) Errno!() {
     let mut oldStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let oldPath = joinPath(oldParentPath, oldName, &mut oldStorage[..]).?;
-    let mut newParentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let newParentPath = pathFromHandle(newDir, newParent, &mut newParentStorage[..]).?;
+    let oldPath = joinPath(oldParent, oldName, &mut oldStorage[..]).?;
     let mut newStorage: [u16; maxPathUnits] = [0; maxPathUnits];
-    let newPath = joinPath(newParentPath, newName, &mut newStorage[..]).?;
+    let newPath = joinPath(newParent, newName, &mut newStorage[..]).?;
     if MoveFileExW(oldPath, newPath, 1) == 0 { return lastError()!; }
     !()
+}
+
+pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
+    _ = permissions;
+    let parentHandle = openAtBeneath(
+        dir,
+        parent,
+        .ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        false,
+    ).?;
+    let mut parentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let parentPath = handlePath(parentHandle.handle, &mut parentStorage[..]);
+    let result = match parentPath {
+        !parentPath => createDirPath(parentPath, name),
+        error! => error!,
+    };
+    result.cleanupAfter(parentHandle.close())
+}
+
+pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
+    let parentHandle = openAtBeneath(
+        dir,
+        parent,
+        .ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        false,
+    ).?;
+    let mut parentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let parentPath = handlePath(parentHandle.handle, &mut parentStorage[..]);
+    let result = match parentPath {
+        !parentPath => deletePath(parentPath, name, directory),
+        error! => error!,
+    };
+    result.cleanupAfter(parentHandle.close())
+}
+
+pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
+    let oldParentHandle = openAtBeneath(
+        oldDir,
+        oldParent,
+        .ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        false,
+    ).?;
+    let newParentHandle = match openAtBeneath(
+        newDir,
+        newParent,
+        .ReadOnly,
+        true,
+        false,
+        false,
+        false,
+        0,
+        false,
+    ) {
+        !handle => handle,
+        error! => {
+            _ = oldParentHandle.close();
+            return error!;
+        },
+    };
+    let mut oldParentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let oldParentPath = handlePath(oldParentHandle.handle, &mut oldParentStorage[..]);
+    let mut newParentStorage: [u16; maxPathUnits] = [0; maxPathUnits];
+    let newParentPath = handlePath(newParentHandle.handle, &mut newParentStorage[..]);
+    let result = match (oldParentPath, newParentPath) {
+        (!oldParentPath, !newParentPath) => renamePath(oldParentPath, oldName, newParentPath, newName),
+        (error!, _) => error!,
+        (_, error!) => error!,
+    };
+    result
+        .cleanupAfter(oldParentHandle.close())
+        .cleanupAfter(newParentHandle.close())
 }
