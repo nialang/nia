@@ -550,54 +550,78 @@ fn validate_registry_name(registry: &str) -> io::Result<()> {
 }
 
 fn validate_registry_base_url(url: &str) -> io::Result<()> {
-    let Some(rest) = url.strip_prefix("https://") else {
-        return Err(invalid_index("registry endpoint must use HTTPS"));
+    validate_registry_url(
+        url,
+        "registry endpoint must use HTTPS",
+        "registry endpoint URL is invalid",
+    )
+}
+
+fn validate_registry_url(
+    url: &str,
+    https_error: &'static str,
+    invalid_url_error: &'static str,
+) -> io::Result<()> {
+    let Some(authority_and_path) = url.strip_prefix("https://") else {
+        return Err(invalid_index(https_error));
     };
-    if rest.is_empty()
-        || rest.contains(['?', '#', '@', '\\'])
-        || rest
+    let (authority, path) = authority_and_path
+        .split_once('/')
+        .unwrap_or((authority_and_path, ""));
+    if authority.is_empty()
+        || authority.contains('@')
+        || url.contains(['?', '#'])
+        || authority_and_path
             .bytes()
-            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace() || byte == b'\\')
     {
-        return Err(invalid_index("registry endpoint URL is invalid"));
-    }
-    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    if authority.is_empty() {
-        return Err(invalid_index("registry endpoint URL is invalid"));
+        return Err(invalid_index(invalid_url_error));
     }
     let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
         let (host, suffix) = bracketed
             .split_once(']')
-            .ok_or_else(|| invalid_index("registry endpoint URL is invalid"))?;
+            .ok_or_else(|| invalid_index(invalid_url_error))?;
         if host.parse::<std::net::Ipv6Addr>().is_err() {
-            return Err(invalid_index("registry endpoint URL is invalid"));
+            return Err(invalid_index(invalid_url_error));
         }
-        (host, suffix.strip_prefix(':'))
+        let port = if suffix.is_empty() {
+            None
+        } else {
+            Some(
+                suffix
+                    .strip_prefix(':')
+                    .ok_or_else(|| invalid_index(invalid_url_error))?,
+            )
+        };
+        (host, port)
     } else if let Some((host, port)) = authority.rsplit_once(':') {
         if host.contains(':') {
-            return Err(invalid_index("registry endpoint URL is invalid"));
+            return Err(invalid_index(invalid_url_error));
         }
         (host, Some(port))
     } else {
         (authority, None)
     };
-    if host.is_empty()
-        || (!authority.starts_with('[')
-            && !host
+    let valid_host = if authority.starts_with('[') {
+        host.parse::<std::net::Ipv6Addr>().is_ok()
+    } else {
+        !host.is_empty()
+            && host
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')))
-    {
-        return Err(invalid_index("registry endpoint URL is invalid"));
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+    };
+    if !valid_host {
+        return Err(invalid_index(invalid_url_error));
     }
-    if let Some(port) = port
-        && (port.is_empty()
-            || !port.bytes().all(|byte| byte.is_ascii_digit())
-            || port.parse::<u16>().map_or(true, |value| value == 0))
-    {
-        return Err(invalid_index("registry endpoint URL is invalid"));
+    if let Some(port) = port {
+        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(invalid_index(invalid_url_error));
+        }
+        if port.parse::<u16>().map_or(true, |port| port == 0) {
+            return Err(invalid_index(invalid_url_error));
+        }
     }
     if !path.is_empty()
-        && path != "/"
         && (path
             .strip_suffix('/')
             .unwrap_or(path)
@@ -605,7 +629,7 @@ fn validate_registry_base_url(url: &str) -> io::Result<()> {
             .any(|segment| segment.is_empty() || segment == "." || segment == "..")
             || path.ends_with("//"))
     {
-        return Err(invalid_index("registry endpoint URL is invalid"));
+        return Err(invalid_index(invalid_url_error));
     }
     Ok(())
 }
@@ -870,77 +894,11 @@ impl<'a> ArchiveReader<'a> {
 }
 
 fn validate_archive_url(url: &str) -> io::Result<()> {
-    let Some(authority_and_path) = url.strip_prefix("https://") else {
-        return Err(invalid_index("registry archive URL must use HTTPS"));
-    };
-    let (authority, path) = authority_and_path
-        .split_once('/')
-        .unwrap_or((authority_and_path, ""));
-    if authority.is_empty()
-        || authority.contains('@')
-        || url.contains(['?', '#'])
-        || path
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace() || byte == b'\\')
-    {
-        return Err(invalid_index("registry archive URL is invalid"));
-    }
-    let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
-        let (host, suffix) = bracketed
-            .split_once(']')
-            .ok_or_else(|| invalid_index("registry archive URL is invalid"))?;
-        if host.parse::<std::net::Ipv6Addr>().is_err() {
-            return Err(invalid_index("registry archive URL is invalid"));
-        }
-        let port = if suffix.is_empty() {
-            None
-        } else {
-            Some(
-                suffix
-                    .strip_prefix(':')
-                    .ok_or_else(|| invalid_index("registry archive URL is invalid"))?,
-            )
-        };
-        (host, port)
-    } else if let Some((host, port)) = authority.rsplit_once(':') {
-        if host.contains(':') {
-            return Err(invalid_index("registry archive URL is invalid"));
-        }
-        (host, Some(port))
-    } else {
-        (authority, None)
-    };
-    let valid_host = if authority.starts_with('[') {
-        host.parse::<std::net::Ipv6Addr>().is_ok()
-    } else {
-        !host.is_empty()
-            && host
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
-    };
-    if !valid_host {
-        return Err(invalid_index("registry archive URL is invalid"));
-    }
-    if let Some(port) = port {
-        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(invalid_index("registry archive URL is invalid"));
-        }
-        if port.parse::<u16>().map_or(true, |port| port == 0) {
-            return Err(invalid_index("registry archive URL is invalid"));
-        }
-    }
-    if !path.is_empty()
-        && path != "/"
-        && (path
-            .strip_suffix('/')
-            .unwrap_or(path)
-            .split('/')
-            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-            || path.ends_with("//"))
-    {
-        return Err(invalid_index("registry archive URL is invalid"));
-    }
-    Ok(())
+    validate_registry_url(
+        url,
+        "registry archive URL must use HTTPS",
+        "registry archive URL is invalid",
+    )
 }
 
 fn parse_blake3_digest(value: &str) -> io::Result<[u8; 32]> {
@@ -1518,6 +1476,31 @@ mod tests {
             "https://cdn.example.test/archive//package.nia",
             "https://cdn.example.test/archive//",
         ] {
+            assert!(validate_archive_url(url).is_err(), "{url}");
+        }
+    }
+
+    #[test]
+    fn registry_urls_validate_ipv6_authorities_and_root_paths_consistently() {
+        for url in [
+            "https://[::1]",
+            "https://[::1]/",
+            "https://[::1]:443/api/",
+            "https://packages.example.test/",
+        ] {
+            assert!(RegistryEndpoint::new("nia", url).is_ok(), "{url}");
+            assert!(validate_archive_url(url).is_ok(), "{url}");
+        }
+        for url in [
+            "https://[::1]suffix",
+            "https://[::1]443/api",
+            "https://[::1]:/api",
+            "https://[::1]:0/api",
+            "https://[::1]:65536/api",
+            "https://packages.example.test//",
+            "https://[::1]//",
+        ] {
+            assert!(RegistryEndpoint::new("nia", url).is_err(), "{url}");
             assert!(validate_archive_url(url).is_err(), "{url}");
         }
     }
