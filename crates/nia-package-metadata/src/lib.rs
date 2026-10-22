@@ -1976,7 +1976,13 @@ fn update_lock_inner(
     let transaction_lock_path = state_root.join(".nia/packages.lock");
     let transaction_lock = open_package_state_lock(&transaction_lock_path)?;
     transaction_lock.lock()?;
-    let original_lock = PackageLock::read(&state_root.join("nia.lock"))?;
+    let lock_path = state_root.join("nia.lock");
+    let had_lock = match open_regular_file(&lock_path, "package lockfile") {
+        Ok(_) => true,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error),
+    };
+    let original_lock = PackageLock::read(&lock_path)?;
     let before = original_lock.package.clone();
     for name in names {
         if !before
@@ -2021,14 +2027,18 @@ fn update_lock_inner(
         Ok(())
     })();
     if let Err(error) = update {
-        original_lock
-            .write_atomic(&state_root.join("nia.lock"))
-            .map_err(|restore_error| {
-                io::Error::new(
-                    restore_error.kind(),
-                    format!("{error}; additionally failed to restore nia.lock: {restore_error}"),
-                )
-            })?;
+        if had_lock {
+            original_lock
+                .write_atomic(&lock_path)
+                .map_err(|restore_error| {
+                    io::Error::new(
+                        restore_error.kind(),
+                        format!(
+                            "{error}; additionally failed to restore nia.lock: {restore_error}"
+                        ),
+                    )
+                })?;
+        }
         return Err(error);
     }
     let after = PackageLock::read(&state_root.join("nia.lock"))?.package;
@@ -7812,6 +7822,22 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         assert!(error.to_string().contains("HTTPS"), "{error}");
         assert_eq!(std::fs::read(&lock_path).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_update_without_a_lockfile_preserves_absence() {
+        let root = lock_test_root("registry-update-no-lock");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\njson = { registry = \"nia\", package = \"acme/json\", version = \"^1.0\" }\n[registries]\nnia = \"http://invalid.example.test\"\n",
+        )
+        .unwrap();
+        let lock_path = root.join("nia.lock");
+        let error = update_lock(&root, &[]).unwrap_err();
+        assert!(error.to_string().contains("HTTPS"), "{error}");
+        assert!(!lock_path.exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 
