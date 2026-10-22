@@ -95,12 +95,13 @@ Introduce the new lock schema with registry support and reject every older schem
 
 ## Implementation order
 
-1. Enforce strict SemVer package identity for every source and provide parsed version/requirement value types.
-2. Define registry dependency manifest types and canonical graph fingerprints.
-3. Implement deterministic single-version solving and dependency-chain conflict diagnostics.
-4. Specify and validate the versioned registry index and archive format.
-5. Implement registry fetching, digest verification, atomic cache publication, the new lock schema, and `--locked`/`--offline` behavior.
-6. Complete update behavior, documentation, CLI reporting, and end-to-end tests.
+The implementation has completed all six milestones: strict SemVer identities;
+registry dependency declarations and graph fingerprints; deterministic
+single-version selection with bounded graph restarts; strict v1 index and
+archive validation; verified fetching, atomic cache publication, lock schema
+2, and locked/offline resolution; and update behavior, CLI reporting,
+documentation, and end-to-end coverage. Future package work should extend this
+contract directly and keep obsolete formats rejected.
 
 The manifest and lockfile rules have no compatibility mode. Changes needed to make the package model coherent should be made directly while the project is unreleased.
 
