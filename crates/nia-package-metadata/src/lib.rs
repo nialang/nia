@@ -795,12 +795,19 @@ impl PackageLock {
 
     /// Read a bounded, strict TOML lockfile. A missing lockfile is empty.
     pub fn read(path: &Path) -> io::Result<Self> {
+        Self::read_snapshot(path).map(|(lock, _)| lock)
+    }
+
+    /// Retains validated original bytes for transaction rollback.
+    fn read_snapshot(path: &Path) -> io::Result<(Self, Option<Vec<u8>>)> {
         let mut bytes = Vec::new();
         match open_regular_file(path, "package lockfile") {
             Ok(file) => file
                 .take((MAX_LOCKFILE_BYTES + 1) as u64)
                 .read_to_end(&mut bytes)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok((Self::default(), None));
+            }
             Err(error) => return Err(error),
         };
         if bytes.len() > MAX_LOCKFILE_BYTES {
@@ -814,7 +821,7 @@ impl PackageLock {
         let lock: Self = toml::from_str(text)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         lock.validate(io::ErrorKind::InvalidData)?;
-        Ok(lock)
+        Ok((lock, Some(bytes)))
     }
 
     /// Atomically replace a lockfile, creating its parent directory as needed.
@@ -2017,12 +2024,7 @@ fn update_lock_inner(
     let transaction_lock = open_package_state_lock(&transaction_lock_path)?;
     transaction_lock.lock()?;
     let lock_path = state_root.join("nia.lock");
-    let had_lock = match open_regular_file(&lock_path, "package lockfile") {
-        Ok(_) => true,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-        Err(error) => return Err(error),
-    };
-    let original_lock = PackageLock::read(&lock_path)?;
+    let (original_lock, original_bytes) = PackageLock::read_snapshot(&lock_path)?;
     let before = original_lock.package.clone();
     for name in names {
         if !before
@@ -2067,17 +2069,13 @@ fn update_lock_inner(
         Ok(())
     })();
     if let Err(error) = update {
-        if had_lock {
-            original_lock
-                .write_atomic(&lock_path)
-                .map_err(|restore_error| {
-                    io::Error::new(
-                        restore_error.kind(),
-                        format!(
-                            "{error}; additionally failed to restore nia.lock: {restore_error}"
-                        ),
-                    )
-                })?;
+        if let Some(bytes) = original_bytes {
+            write_atomic_path(&lock_path, &bytes).map_err(|restore_error| {
+                io::Error::new(
+                    restore_error.kind(),
+                    format!("{error}; additionally failed to restore nia.lock: {restore_error}"),
+                )
+            })?;
         }
         return Err(error);
     }
@@ -7962,12 +7960,18 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         }
         .write_atomic(&lock_path)
         .unwrap();
-        let original = std::fs::read(&lock_path).unwrap();
+        let original = format!(
+            "# Preserve this lockfile exactly when update fails.\r\n{}",
+            std::fs::read_to_string(&lock_path)
+                .unwrap()
+                .replace("version = 2", "version=2")
+        );
+        std::fs::write(&lock_path, original.as_bytes()).unwrap();
 
         let error = update_lock(&root, &[]).unwrap_err();
 
         assert!(error.to_string().contains("HTTPS"), "{error}");
-        assert_eq!(std::fs::read(&lock_path).unwrap(), original);
+        assert_eq!(std::fs::read(&lock_path).unwrap(), original.as_bytes());
         std::fs::remove_dir_all(root).unwrap();
     }
 
