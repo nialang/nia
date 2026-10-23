@@ -260,7 +260,7 @@ fn offer_publickey(
 ) -> io::Result<Option<String>> {
     let query = build_publickey_query(username, signer)?;
     write_encrypted_ssh_packet(stream, &mut keys.outbound, &query)?;
-    let response = read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)?;
+    let response = read_userauth_response(stream, &mut keys.inbound)?;
     match response.first().copied() {
         Some(60) => {
             let mut reader = SshReader::new(&response[1..]);
@@ -278,11 +278,40 @@ fn offer_publickey(
 
     let request = build_publickey_auth_request(username, &keys.session_id, signer)?;
     write_encrypted_ssh_packet(stream, &mut keys.outbound, &request)?;
-    let response = read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)?;
+    let response = read_userauth_response(stream, &mut keys.inbound)?;
     if response.as_slice() == [52] {
         return Ok(None);
     }
     read_authentication_failure(&response).map(Some)
+}
+
+/// Reads an authentication reply, discarding `USERAUTH_BANNER` messages.
+/// Servers may send a banner before any reply until authentication
+/// succeeds; it is display text for interactive users, so it is validated
+/// and dropped, within the same bounds as IGNORE and DEBUG.
+fn read_userauth_response(
+    stream: &mut impl Read,
+    direction: &mut SshAes128CtrDirection,
+) -> io::Result<Vec<u8>> {
+    let mut banners = 0;
+    let mut banner_bytes: usize = 0;
+    loop {
+        let payload = read_expected_encrypted_ssh_message_any(stream, direction)?;
+        if payload.first() != Some(&53) {
+            return Ok(payload);
+        }
+        let mut reader = SshReader::new(&payload[1..]);
+        reader.string()?;
+        reader.string()?;
+        reader.finish()?;
+        banners += 1;
+        banner_bytes = banner_bytes.saturating_add(payload.len());
+        if banners > MAX_SSH_CONTROL_MESSAGES || banner_bytes > MAX_SSH_CONTROL_BYTES {
+            return Err(invalid_packet(
+                "SSH authentication banners exceed resource limits",
+            ));
+        }
+    }
 }
 
 fn read_authentication_failure(payload: &[u8]) -> io::Result<String> {

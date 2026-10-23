@@ -81,7 +81,8 @@ their corpora are in [`fuzz/`](fuzz/).
   handshake bounds ignored and debug messages, discards one guessed server
   key-exchange packet when `first_kex_packet_follows` is wrong, and rejects
   noncanonical booleans, a nonzero KEXINIT reserved field, and trailing bytes in
-  authentication success.
+  authentication success. Authentication banners are validated and discarded,
+  not displayed.
 - **SSH channel.** The channel validates recipients, flow-control windows,
   packet sizes, EOF and close ordering, and exit requests, both in normal reads
   and while waiting for send-window space. EOF closes only the remote data
@@ -133,6 +134,7 @@ readers share one bounded-read helper.
 | SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
 | SSH plaintext key exchange | 1,024 messages / 1 MiB |
 | SSH encrypted IGNORE/DEBUG before a service, auth, or exec response | 1,024 messages / 1 MiB per wait |
+| SSH authentication banners before each auth response | 1,024 messages / 1 MiB |
 | Credential helper output / run time | 64 KiB / 30 s |
 | Checkout directory depth / entries | 64 / 1,000,000 |
 | Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |

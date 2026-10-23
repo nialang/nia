@@ -321,6 +321,14 @@ pub(super) fn with_checkout_fixture_accepting(
             };
             let auth_request = packet.payload;
             assert_eq!(auth_request[0], 50);
+            if log.offered.is_empty() {
+                // Servers with a `Banner` setting send it before the first
+                // authentication reply.
+                let mut banner = vec![53];
+                put_string(b"Authorized use only\r\n", &mut banner);
+                put_string(b"en", &mut banner);
+                write_encrypted_ssh_packet(&mut stream, &mut outbound, &banner).unwrap();
+            }
             let mut offset = 1;
             assert_eq!(take_string(&auth_request, &mut offset), b"git");
             assert_eq!(take_string(&auth_request, &mut offset), b"ssh-connection");
