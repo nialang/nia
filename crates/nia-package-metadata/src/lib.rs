@@ -3254,6 +3254,16 @@ fn read_package_manifest(
                 format!("package `{relative}` is not a member of workspace"),
             ));
         }
+        // Registry endpoints are read only from the root that owns `nia.lock`;
+        // a member table would otherwise be silently ignored.
+        if relative != "." && !raw.registries.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "workspace member `{relative}` declares `[registries]`; configure registries in the workspace root nia.toml"
+                ),
+            ));
+        }
     }
     Ok((raw, workspace))
 }
@@ -6761,6 +6771,47 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 .root,
             root.canonicalize().unwrap()
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_members_cannot_configure_registries() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-workspace-member-registries-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let member = root.join("app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(root.join("nia.toml"), "[workspace]\nmembers = [\"app\"]\n").unwrap();
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+
+        let error = PackageManifest::read(&member).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error.to_string().contains("workspace root nia.toml"),
+            "{error}"
+        );
+
+        // The same table is accepted on the workspace root.
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"app\"]\n[registries]\nnia = \"https://packages.example.test\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        PackageManifest::read(&member).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
