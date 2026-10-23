@@ -5,7 +5,9 @@ use super::identity::SshSigner;
 use super::wire::MAX_SSH_PACKET_BYTES;
 use super::wire::{SshReader, encode_ssh_string};
 use crate::invalid_packet;
+use std::cell::RefCell;
 use std::io::{self, Read, Write};
+use std::rc::Rc;
 #[cfg(any(unix, windows))]
 use std::time::Duration;
 
@@ -15,38 +17,45 @@ const MAX_AGENT_IDENTITIES: u32 = 1024;
 const AGENT_IO_TIMEOUT: Duration = Duration::from_secs(30);
 impl<T: Read + Write> SshAgentStream for T {}
 
-pub(super) struct SshAgent {
-    stream: Box<dyn SshAgentStream>,
+/// One agent key. Identities from the same agent share its connection, so
+/// authentication can offer them one at a time in the agent's order.
+pub(super) struct SshAgentIdentity {
+    stream: Rc<RefCell<Box<dyn SshAgentStream>>>,
     public_key: Vec<u8>,
     signature_algorithm: Vec<u8>,
     signature_flags: u32,
 }
 
-impl SshAgent {
-    pub(super) fn connect() -> io::Result<Option<Self>> {
-        let Some(mut stream) = connect_agent_stream() else {
-            return Ok(None);
-        };
-        let response = agent_request(&mut *stream, &[11])?;
-        let public_key = parse_agent_identities(&response)?;
-        let Some(public_key) = public_key else {
-            return Ok(None);
-        };
-        let (_, signature_algorithm, signature_flags) = agent_signing_algorithm(&public_key)?;
-        Ok(Some(Self {
-            stream,
-            public_key,
-            signature_algorithm,
-            signature_flags,
-        }))
-    }
+/// Lists the running agent's supported identities in the order the agent
+/// reports them. No agent, or an agent without supported keys, yields none.
+pub(super) fn agent_identities() -> io::Result<Vec<SshAgentIdentity>> {
+    let Some(mut stream) = connect_agent_stream() else {
+        return Ok(Vec::new());
+    };
+    let response = agent_request(&mut *stream, &[11])?;
+    let public_keys = parse_agent_identities(&response)?;
+    let stream = Rc::new(RefCell::new(stream));
+    public_keys
+        .into_iter()
+        .map(|public_key| {
+            let (_, signature_algorithm, signature_flags) = agent_signing_algorithm(&public_key)?;
+            Ok(SshAgentIdentity {
+                stream: Rc::clone(&stream),
+                public_key,
+                signature_algorithm,
+                signature_flags,
+            })
+        })
+        .collect()
+}
 
+impl SshAgentIdentity {
     fn sign(&mut self, message: &[u8]) -> io::Result<Vec<u8>> {
         let mut request = vec![13];
         encode_ssh_string(&self.public_key, &mut request)?;
         encode_ssh_string(message, &mut request)?;
         request.extend_from_slice(&self.signature_flags.to_be_bytes());
-        let response = agent_request(&mut *self.stream, &request)?;
+        let response = agent_request(&mut **self.stream.borrow_mut(), &request)?;
         if response.first() != Some(&14) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -73,7 +82,7 @@ impl SshAgent {
     }
 }
 
-impl SshSigner for SshAgent {
+impl SshSigner for SshAgentIdentity {
     fn public_key_blob(&self) -> &[u8] {
         &self.public_key
     }
@@ -121,9 +130,11 @@ pub(super) fn agent_signing_algorithm(blob: &[u8]) -> io::Result<(Vec<u8>, Vec<u
     Ok(result)
 }
 
-pub(super) fn parse_agent_identities(response: &[u8]) -> io::Result<Option<Vec<u8>>> {
+/// Returns the supported public keys from an identities reply, keeping the
+/// agent's order; `ssh-add` order is the user's preference.
+pub(super) fn parse_agent_identities(response: &[u8]) -> io::Result<Vec<Vec<u8>>> {
     if response.first() == Some(&5) {
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let Some(message) = response.first().copied() else {
         return Err(invalid_packet(
@@ -149,23 +160,7 @@ pub(super) fn parse_agent_identities(response: &[u8]) -> io::Result<Option<Vec<u
         }
     }
     reader.finish()?;
-    let selected = public_keys
-        .iter()
-        .find(|key| {
-            agent_signing_algorithm(key).is_ok_and(|(algorithm, _, _)| algorithm == b"ssh-ed25519")
-        })
-        .or_else(|| {
-            public_keys.iter().find(|key| {
-                agent_signing_algorithm(key)
-                    .is_ok_and(|(algorithm, _, _)| algorithm == b"ecdsa-sha2-nistp256")
-            })
-        })
-        .or_else(|| {
-            public_keys.iter().find(|key| {
-                agent_signing_algorithm(key).is_ok_and(|(algorithm, _, _)| algorithm == b"ssh-rsa")
-            })
-        });
-    Ok(selected.cloned())
+    Ok(public_keys)
 }
 
 pub(super) fn agent_request<S: Read + Write + ?Sized>(
@@ -408,8 +403,8 @@ mod agent_tests {
         };
         let (_, signature_algorithm, signature_flags) =
             agent_signing_algorithm(&public_key).unwrap();
-        let mut agent = SshAgent {
-            stream: Box::new(stream),
+        let mut agent = SshAgentIdentity {
+            stream: Rc::new(RefCell::new(Box::new(stream))),
             public_key: public_key.clone(),
             signature_algorithm,
             signature_flags,
@@ -433,22 +428,10 @@ mod agent_tests {
 mod tests {
     use super::*;
     #[test]
-    fn ssh_agent_identity_reply_selects_ed25519_and_rejects_bad_frames() {
+    fn ssh_agent_identity_reply_keeps_agent_order_and_rejects_bad_frames() {
         let mut ed25519 = Vec::new();
         encode_ssh_string(b"ssh-ed25519", &mut ed25519).unwrap();
         encode_ssh_string(&[7; 32], &mut ed25519).unwrap();
-        let mut rsa = Vec::new();
-        encode_ssh_string(b"ssh-rsa", &mut rsa).unwrap();
-        encode_ssh_string(&[1, 2, 3], &mut rsa).unwrap();
-
-        let mut identities = vec![12];
-        identities.extend_from_slice(&2u32.to_be_bytes());
-        encode_ssh_string(&rsa, &mut identities).unwrap();
-        encode_ssh_string(b"rsa fixture", &mut identities).unwrap();
-        encode_ssh_string(&ed25519, &mut identities).unwrap();
-        encode_ssh_string(b"ed25519 fixture", &mut identities).unwrap();
-        assert_eq!(parse_agent_identities(&identities).unwrap(), Some(ed25519));
-
         let mut ecdsa = Vec::new();
         encode_ssh_string(b"ecdsa-sha2-nistp256", &mut ecdsa).unwrap();
         encode_ssh_string(b"nistp256", &mut ecdsa).unwrap();
@@ -457,42 +440,33 @@ mod tests {
         encode_ssh_string(b"ssh-rsa", &mut rsa).unwrap();
         encode_ssh_string(&[1, 0, 1], &mut rsa).unwrap();
         encode_ssh_string(&[0x7f; 256], &mut rsa).unwrap();
-        let mut identities = vec![12];
-        identities.extend_from_slice(&2u32.to_be_bytes());
-        encode_ssh_string(&rsa, &mut identities).unwrap();
-        encode_ssh_string(b"rsa fixture", &mut identities).unwrap();
-        encode_ssh_string(&ecdsa, &mut identities).unwrap();
-        encode_ssh_string(b"ecdsa fixture", &mut identities).unwrap();
-        assert_eq!(
-            parse_agent_identities(&identities).unwrap(),
-            Some(ecdsa.clone())
-        );
-        assert_eq!(
-            agent_signing_algorithm(&rsa).unwrap(),
-            (b"ssh-rsa".to_vec(), b"rsa-sha2-512".to_vec(), 4)
-        );
-        assert_eq!(parse_agent_identities(&[5]).unwrap(), None);
-        assert!(parse_agent_identities(&[12, 0, 0, 0]).is_err());
-    }
+        let mut short_rsa = Vec::new();
+        encode_ssh_string(b"ssh-rsa", &mut short_rsa).unwrap();
+        encode_ssh_string(&[1, 2, 3], &mut short_rsa).unwrap();
 
-    #[test]
-    fn ssh_agent_prefers_ecdsa_then_rsa_and_uses_rsa_sha2_flags() {
-        let mut rsa = Vec::new();
-        encode_ssh_string(b"ssh-rsa", &mut rsa).unwrap();
-        encode_ssh_string(&[1, 0, 1], &mut rsa).unwrap();
-        encode_ssh_string(&[0x7f; 256], &mut rsa).unwrap();
+        // The agent's order wins over key type, and unsupported keys are
+        // skipped rather than failing the whole reply.
         let mut identities = vec![12];
-        identities.extend_from_slice(&1u32.to_be_bytes());
-        encode_ssh_string(&rsa, &mut identities).unwrap();
-        encode_ssh_string(b"rsa fixture", &mut identities).unwrap();
+        identities.extend_from_slice(&4u32.to_be_bytes());
+        for (key, comment) in [
+            (&rsa, "rsa fixture"),
+            (&short_rsa, "short rsa fixture"),
+            (&ecdsa, "ecdsa fixture"),
+            (&ed25519, "ed25519 fixture"),
+        ] {
+            encode_ssh_string(key, &mut identities).unwrap();
+            encode_ssh_string(comment.as_bytes(), &mut identities).unwrap();
+        }
         assert_eq!(
             parse_agent_identities(&identities).unwrap(),
-            Some(rsa.clone())
+            [rsa.clone(), ecdsa, ed25519]
         );
         assert_eq!(
             agent_signing_algorithm(&rsa).unwrap(),
             (b"ssh-rsa".to_vec(), b"rsa-sha2-512".to_vec(), 4)
         );
+        assert!(parse_agent_identities(&[5]).unwrap().is_empty());
+        assert!(parse_agent_identities(&[12, 0, 0, 0]).is_err());
     }
 
     #[test]

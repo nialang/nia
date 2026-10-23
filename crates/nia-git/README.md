@@ -97,7 +97,13 @@ their corpora are in [`fuzz/`](fuzz/).
   principals: on Unix, the file must be owned by the current user, opened
   without following links, and have no group or other permission bits; on
   Windows, the owner and every read grant must be the current user, SYSTEM, or
-  Administrators, and allow entries of other types are rejected. Agent sockets
+  Administrators, and allow entries of other types are rejected. Agent keys are
+  offered in the agent's order, then `id_ed25519` unless the agent holds the
+  same key, at most five in all, one below OpenSSH's default `MaxAuthTries`.
+  Each key is first offered without a signature, and only a key the server
+  answers with `PK_OK` is signed, so rejected keys never reach the agent's
+  signing path. When every key is rejected, the error lists their SHA-256
+  fingerprints. Agent sockets
   and named pipes have a 30-second I/O timeout; a timed-out Windows pipe
   operation is cancelled and waited for before its buffers are released.
 
@@ -148,9 +154,8 @@ so the limits bound accounting rather than exact process memory.
   messages and algorithms fail closed. Interoperability is tested against a
   local protocol fixture, not a third-party server.
 - Agent and credential-helper behavior depends on local processes and
-  operating-system facilities outside Nia's control. Only the first agent
-  identity of the preferred key type is offered; other agent keys and the
-  identity file are not tried after the server rejects it.
+  operating-system facilities outside Nia's control. At most five identities
+  are offered per connection; a sixth agent key is never tried.
 - HTTP redirects, proxy authentication, and interim responses are not
   supported.
 
