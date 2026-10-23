@@ -126,7 +126,7 @@ fn body_check_without_method_lookup_does_not_build_global_extension_method_index
 fn body_check_method_lookup_uses_extension_method_identity_query() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module module1; using entry::module1; using module1::S; pub fun main(s: S) i32 { _ = s.make(); 1 }",
+        "module module1; using root::module1; using module1::S; pub fun main(s: S) i32 { _ = s.make(); 1 }",
     );
     let module_id = fixture.entry_id();
     fixture.add_child(

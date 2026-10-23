@@ -1,4 +1,4 @@
-using entry::analysis;
+using root::analysis;
 using std::fmt;
 using std::io;
 using std::process;

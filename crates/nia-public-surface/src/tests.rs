@@ -33,11 +33,11 @@ fn lexical_imports_restore_outer_names_and_preserve_variant_and_failure_identity
     let source = r#"
 pub module api;
 fun inspect() () {
-    using entry::api::{value as chosen, Color as Palette};
+    using root::api::{value as chosen, Color as Palette};
     using Palette::Red as Selected;
     _ = Selected;
     {
-        using entry::api::missing as chosen;
+        using root::api::missing as chosen;
         _ = chosen;
     }
     _ = chosen;
@@ -169,7 +169,7 @@ fn type_exposure_index_collects_direct_public_and_using_names() {
         entry_id,
         r#"
 pub module facade;
-using entry::facade::FacadeUsed as LocalUsed;
+using root::facade::FacadeUsed as LocalUsed;
 "#,
     );
     let facade = defs(

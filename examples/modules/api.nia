@@ -1,5 +1,5 @@
-using entry::geometry;
-using entry::colors;
+using root::geometry;
+using root::colors;
 
 pub using geometry;
 pub using geometry::{Point, add};

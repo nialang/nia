@@ -8,7 +8,7 @@ fn executable_incremental_body_check_preserves_extension_method_receiver_types()
         "main.nia",
         r#"
 module writer;
-using entry::writer;
+using root::writer;
 
 pub fun main() i32 {
 let mut sink = writer::Sink::init();
@@ -160,7 +160,7 @@ fn trait_signature_subset_resolves_imported_extend_target_types() {
         "main.nia",
         r#"
 module platform;
-using entry::platform;
+using root::platform;
 
 trait IntoError[Target] {
 fun intoError(self) Target;
@@ -218,7 +218,7 @@ fn trait_signature_subset_resolves_reexported_extend_target_types() {
         "main.nia",
         r#"
 module platform;
-using entry::platform;
+using root::platform;
 
 trait IntoError[Target] {
 fun intoError(self) Target;
@@ -243,7 +243,7 @@ fun intoError(self) Error {
         "platform.nia",
         r#"
 module types;
-using entry::platform::types;
+using root::platform::types;
 
 pub using types::{Errno};
 "#,
@@ -287,7 +287,7 @@ fn executable_incremental_body_check_preserves_reexported_trait_witness_receiver
         "main.nia",
         r#"
 module platform;
-using entry::platform;
+using root::platform;
 
 trait IntoError[Target] {
 fun intoError(self) Target;
@@ -335,7 +335,7 @@ fail().cast_error()
         "platform.nia",
         r#"
 module types;
-using entry::platform::types;
+using root::platform::types;
 
 pub using types::{Errno};
 "#,

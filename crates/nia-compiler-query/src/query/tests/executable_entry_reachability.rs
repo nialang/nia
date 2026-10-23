@@ -8,8 +8,9 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
         "main.nia",
         "trait Show { fun show(self) i32; } extend i32 : Show { fun show(self) i32 { self } } pub fun main() i32 { 1.show() }",
     );
-    fixture
-        .add_freestanding_runtime("using entry; pub extern fun _start() () { _ = entry::main(); }");
+    fixture.add_freestanding_runtime(
+        "using program; pub extern fun _start() () { _ = program::main(); }",
+    );
     let mut loaded = fixture.program();
     loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
@@ -52,7 +53,7 @@ fn freestanding_runtime_source_is_the_only_user_entry_root() {
         "pub fun main() i32 { 7 } pub fun mymain() i32 { 11 }",
     );
     fixture.add_freestanding_runtime(
-        "using entry; pub extern fun _start() () { _ = entry::mymain(); }",
+        "using program; pub extern fun _start() () { _ = program::mymain(); }",
     );
     let entry_id = fixture.entry_id();
     let mut loaded = fixture.program();
@@ -90,9 +91,9 @@ fn freestanding_runtime_helpers_follow_ordinary_source_reachability() {
     let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 7 }");
     let loaded = fixture.freestanding_program_with_runtime(
         r#"
-using entry;
+using program;
 
-fun used() i32 { entry::main() }
+fun used() i32 { program::main() }
 fun unused() i32 { 99 }
 pub extern fun _start() () { _ = &used; }
 "#,
@@ -208,8 +209,9 @@ fn freestanding_entry_checked_program_uses_executable_reachability() {
         "main.nia",
         "extend never { fun nope(self) () {} } pub fun main() i32 { 1 }",
     );
-    fixture
-        .add_freestanding_runtime("using entry; pub extern fun _start() () { _ = entry::main(); }");
+    fixture.add_freestanding_runtime(
+        "using program; pub extern fun _start() () { _ = program::main(); }",
+    );
     let mut loaded = fixture.program();
     loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
@@ -245,7 +247,7 @@ fn executable_reachability_keeps_matched_trait_impl_method_bodies() {
         "main.nia",
         r#"
 module parse;
-using entry::parse;
+using root::parse;
 
 pub fun main() i32 {
 (parse::Input {}).parse[i32]()
@@ -279,8 +281,9 @@ fun from(input: Input) i32 {
 }
 "#,
     );
-    fixture
-        .add_freestanding_runtime("using entry; pub extern fun _start() () { _ = entry::main(); }");
+    fixture.add_freestanding_runtime(
+        "using program; pub extern fun _start() () { _ = program::main(); }",
+    );
     let mut loaded = fixture.program();
     loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);

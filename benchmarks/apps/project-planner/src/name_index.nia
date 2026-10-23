@@ -1,4 +1,4 @@
-using entry::model;
+using root::model;
 using std::collections;
 using std::hash;
 using std::mem;

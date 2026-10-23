@@ -830,7 +830,7 @@ fn imported_generic_const_iterable_executes_trait_witnesses() {
         &root.join("main.nia"),
         r#"
 module pair;
-using entry::pair;
+using root::pair;
 
 const fun total(values: pair::Pair[usize]) usize {
     let mut result: usize = 0;
@@ -954,7 +954,7 @@ fn unused_const_function_rejects_imported_runtime_only_iterator_witness() {
         &root.join("main.nia"),
         r#"
 module counter;
-using entry::counter;
+using root::counter;
 
 const fun total(iter: counter::Counter) usize {
     let mut result: usize = 0;
@@ -1052,7 +1052,7 @@ fn unused_const_function_rejects_imported_runtime_only_iterable_witness() {
         &root.join("main.nia"),
         r#"
 module bounds;
-using entry::bounds;
+using root::bounds;
 
 const fun total(values: bounds::Bounds) usize {
     let mut result: usize = 0;

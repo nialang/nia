@@ -1,34 +1,34 @@
 path: fail/using_type_provenance/main.nia
 code: E0201
-summary: `using entry::...` could not be resolved: name `missing` is unavailable because its `using` directive did not find it
-label: 13..20 Primary Source this imported name could not be resolved
+summary: `using root::...` could not be resolved: name `missing` is unavailable because its `using` directive did not find it
+label: 12..19 Primary Source this imported name could not be resolved
 help: check the imported module path and make sure `missing` is declared there
-related: 0..21 the `using` directive is here
+related: 0..20 the `using` directive is here
 
 path: fail/using_type_provenance/main.nia
 code: E0201
 summary: type `missing` is unavailable
-label: 39..46 Primary Source name `missing` is unavailable because its `using` directive did not find it
+label: 38..45 Primary Source name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
-related: 13..20 the imported type is selected here
-related: 0..21 the `using` directive is here
-cause: fail/using_type_provenance/main.nia E0201 13..20
+related: 12..19 the imported type is selected here
+related: 0..20 the `using` directive is here
+cause: fail/using_type_provenance/main.nia E0201 12..19
 
 path: fail/using_type_provenance/main.nia
 code: E0201
 summary: type `missing` is unavailable
-label: 48..55 Primary Source name `missing` is unavailable because its `using` directive did not find it
+label: 47..54 Primary Source name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
-related: 13..20 the imported type is selected here
-related: 0..21 the `using` directive is here
-cause: fail/using_type_provenance/main.nia E0201 13..20
+related: 12..19 the imported type is selected here
+related: 0..20 the `using` directive is here
+cause: fail/using_type_provenance/main.nia E0201 12..19
 
 report:
-error[E0201]: `using entry::...` could not be resolved: name `missing` is unavailable because its `using` directive did not find it
-  --> fail/using_type_provenance/main.nia:1:14
+error[E0201]: `using root::...` could not be resolved: name `missing` is unavailable because its `using` directive did not find it
+  --> fail/using_type_provenance/main.nia:1:13
   |
-1 | using entry::missing;
-  |              ^^^^^^^ this imported name could not be resolved
+1 | using root::missing;
+  |             ^^^^^^^ this imported name could not be resolved
 help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
 
@@ -38,9 +38,9 @@ error[E0201]: type `missing` is unavailable
 3 | fun main(value: missing) missing { value }
   |                 ^^^^^^^ name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
-related: fail/using_type_provenance/main.nia:1:14: the imported type is selected here
+related: fail/using_type_provenance/main.nia:1:13: the imported type is selected here
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
-note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:14
+note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:13
 
 error[E0201]: type `missing` is unavailable
   --> fail/using_type_provenance/main.nia:3:26
@@ -48,8 +48,8 @@ error[E0201]: type `missing` is unavailable
 3 | fun main(value: missing) missing { value }
   |                          ^^^^^^^ name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
-related: fail/using_type_provenance/main.nia:1:14: the imported type is selected here
+related: fail/using_type_provenance/main.nia:1:13: the imported type is selected here
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
-note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:14
+note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:13
 
 summary: 3 errors, 0 warnings

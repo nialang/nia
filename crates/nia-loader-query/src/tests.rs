@@ -204,8 +204,9 @@ fn test_loader_context(
         entry_path: entry_path.clone(),
         package_root: None,
         module_map: effective_module_map(
-            &entry_path,
             module_map,
+            &entry_path,
+            &RuntimeSpec::Bare,
             Some(test_toolchain_layout().as_ref()),
         ),
         sources,
@@ -403,8 +404,9 @@ fn facade_cache_identity(
 ) -> FacadeCacheIdentity {
     let provider = provider_cache_identity(file);
     let effective_module_map = effective_module_map(
-        entry_path,
         module_map.clone(),
+        entry_path,
+        &RuntimeSpec::Bare,
         Some(test_toolchain_layout().as_ref()),
     );
     let module_map = frontend_module_map_fingerprint(&effective_module_map);
@@ -438,8 +440,9 @@ fn module_dependencies_cache_identity(
     let source = source_content_fingerprint(&file.text);
     let source_len = file.text.len();
     let effective_module_map = effective_module_map(
-        entry_path,
         module_map.clone(),
+        entry_path,
+        &RuntimeSpec::Bare,
         Some(test_toolchain_layout().as_ref()),
     );
     let module_map = frontend_module_map_fingerprint(&effective_module_map);

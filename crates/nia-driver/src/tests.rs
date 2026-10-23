@@ -147,7 +147,7 @@ pub fun identity[T](value: T) T { value }
         &source,
         r#"
 module generic;
-using entry::generic;
+using root::generic;
 using std::process;
 
 fun helper0() i32 { 0 }

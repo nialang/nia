@@ -987,7 +987,7 @@ where T: Len {
         &root.join("main.nia"),
         r#"
 module api;
-using entry::api;
+using root::api;
 
 fun main(slice: &[u8]) usize {
     let array = [1u8, 2u8, 3u8];

@@ -63,6 +63,15 @@ pub(crate) fn runtime_package_root_path(runtime: &SourceRuntimeSpec) -> SourcePa
     )
 }
 
+/// Logical directory that scopes the runtime's private dependencies.
+fn runtime_package_directory(runtime: &SourceRuntimeSpec) -> nia_source::SourceIdentity {
+    let root = runtime.package_root_identity();
+    let directory = root
+        .rsplit_once('/')
+        .map_or(root, |(directory, _)| directory);
+    nia_source::SourceIdentity::new(directory)
+}
+
 fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
     let mut registry = nia_query::QueryRegistry::new();
     macro_rules! register {
@@ -260,8 +269,9 @@ impl LoaderDatabase {
             HashSet::new()
         };
         let module_map = effective_module_map(
-            &entry_path,
             request.module_map,
+            &entry_path,
+            &request.runtime,
             request.toolchain.as_deref(),
         );
         let sources = request.sources;
@@ -982,8 +992,9 @@ fn load_program_trace(
 ) -> nia_query::QueryTrace {
     let entry_path = SourcePath::new(entry_path.into());
     let module_map = effective_module_map(
-        &entry_path,
         module_map,
+        &entry_path,
+        &RuntimeSpec::Bare,
         Some(tests::test_toolchain_layout().as_ref()),
     );
     let db = QueryDb::new_registered(
@@ -1019,12 +1030,20 @@ fn load_program_trace(
     db.query_trace().expect("query trace")
 }
 
+/// Adds the names the loader supplies: the runtime's private `program`
+/// dependency, when a source runtime is injected, and the default `std`.
 fn effective_module_map(
-    entry_path: &SourcePath,
     module_map: ModuleMap,
+    entry_path: &SourcePath,
+    runtime: &RuntimeSpec,
     toolchain: Option<&ToolchainLayout>,
 ) -> ModuleMap {
-    let module_map = module_map.with_entry(entry_path.clone());
+    let module_map = match runtime.source() {
+        Some(runtime) => {
+            module_map.with_runtime_program(&runtime_package_directory(runtime), entry_path.clone())
+        }
+        None => module_map,
+    };
     let Some(toolchain) = toolchain else {
         return module_map;
     };

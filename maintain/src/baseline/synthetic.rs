@@ -234,7 +234,7 @@ fn nia_root(graph: &ModuleGraph, accepts_leaf_edit: bool) -> String {
     }
     source.push('\n');
     for index in &graph.roots {
-        writeln!(source, "using entry::{};", module_name(*index)).expect("writing to String");
+        writeln!(source, "using root::{};", module_name(*index)).expect("writing to String");
     }
     source.push_str(
         "using std::io;\nusing std::process;\nusing process::{Init, ExitCode};\n\n\

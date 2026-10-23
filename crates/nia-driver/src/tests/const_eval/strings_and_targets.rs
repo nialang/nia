@@ -115,7 +115,7 @@ pub const os: [char; 5] = "linux";
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const n: usize = config::os.len();
 
@@ -310,7 +310,7 @@ pub const fun sample_os() [char; os_len] {
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const n: usize = config::sample_os().len();
 
@@ -342,7 +342,7 @@ pub const fun sample_os() [char; os_len] {
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const os = config::sample_os();
 "#,

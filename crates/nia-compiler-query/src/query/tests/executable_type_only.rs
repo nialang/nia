@@ -8,7 +8,7 @@ fn executable_type_only_modules_keep_signature_const_enum_values() {
         "main.nia",
         r#"
 module types;
-using entry::types;
+using root::types;
 
 pub fun main(value: types::Mode) i32 {
 0
@@ -85,7 +85,7 @@ fn executable_type_only_modules_keep_signature_const_array_lengths() {
         "main.nia",
         r#"
 module types;
-using entry::types;
+using root::types;
 
 pub fun main(value: types::Packet) i32 {
 0
@@ -156,7 +156,7 @@ fn executable_body_and_type_only_layouts_use_artifact_pointer_width() {
         "main.nia",
         r#"
 module types;
-using entry::types;
+using root::types;
 
 pub fun main(value: types::Word) usize {
 value.value

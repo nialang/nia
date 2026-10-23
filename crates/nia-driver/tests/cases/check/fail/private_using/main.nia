@@ -1,4 +1,4 @@
 module api;
-using entry::api;
+using root::api;
 using api::hidden;
 fun main() i32 { hidden() }

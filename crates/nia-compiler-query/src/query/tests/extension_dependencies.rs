@@ -225,7 +225,7 @@ pub trait CheckedAdd[Rhs] {
         "math",
         "math.nia",
         r#"
-using entry::traits;
+using root::traits;
 using traits::CheckedAdd;
 
 extend u8 : CheckedAdd[u8] {

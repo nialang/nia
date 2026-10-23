@@ -239,7 +239,7 @@ impl QueryKey<LoaderContext> for ModuleUnusedImportsFactQuery {
                 db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
             );
         };
-        if !node.module_path.is_entry_package() {
+        if !node.module_path.is_program_tree() {
             return Ok(Vec::new());
         }
         let declarations = db.get(module_declarations_query(db, &node.path)?)?;

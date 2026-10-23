@@ -750,7 +750,7 @@ pub const fun plus_one(value: usize) usize {
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 struct Buffer[N: usize] {
     values: [i32; N],
@@ -1256,7 +1256,7 @@ pub struct Packet[N: usize] {
         &root.join("main.nia"),
         r#"
 module types;
-using entry::types;
+using root::types;
 
 const fun packet_size[N: usize]() usize
 where types::Packet[N]: Sized {

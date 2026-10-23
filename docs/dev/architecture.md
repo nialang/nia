@@ -429,7 +429,7 @@ Executable emission does not lower every checked body. It first computes a
 fixed point from entry points and semantic references:
 
 ```text
-entry::main
+runtime entry symbol -> program::main
     |
     v
 SemanticFacts / FunctionIr references

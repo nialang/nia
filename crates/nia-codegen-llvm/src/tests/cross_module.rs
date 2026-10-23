@@ -92,7 +92,7 @@ fn emits_cross_module_function_and_global_references() {
         &main,
         r#"
 module math;
-using entry::math;
+using root::math;
 
 static imported_ptr: & i32 = & math::base;
 
@@ -153,7 +153,7 @@ fn emits_cross_module_struct_literals() {
         &main,
         r#"
 module geom;
-using entry::geom;
+using root::geom;
 
 fun main() i32 {
     let mut p = geom::Point { x: 40, y: 2 };

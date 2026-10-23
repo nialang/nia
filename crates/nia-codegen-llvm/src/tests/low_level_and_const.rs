@@ -160,7 +160,7 @@ pub const slot: Slot = Slot { pointer: &55usize };
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 fun main() usize {
     let value: defs::Slot = defs::slot;
@@ -306,7 +306,7 @@ pub const values: &[u8; 3] = &[4, 5, 6];
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 fun main() usize {
     defs::values.*[0] as usize + defs::values.*[2] as usize
@@ -832,7 +832,7 @@ fn emits_arrays_sized_by_imported_const_values() {
         &main,
         r#"
 module config;
-using entry::config;
+using root::config;
 
 fun main() i32 {
     let mut values: [i32; config::width] = [1, 2, 3, 4];
@@ -885,7 +885,7 @@ extend Item {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 using defs::*;
 
 fun literal_count() Boxed {
@@ -925,7 +925,7 @@ fn emits_imported_generic_struct_with_imported_const_array_field_length() {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 using defs::Boxed;
 
 fun take(box: Boxed[u8]) u8 {

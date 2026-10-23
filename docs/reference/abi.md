@@ -342,7 +342,7 @@ with the extension of their own signedness, and `f32` widens to `f64`.
 ### Executable Exports
 
 An executable's C interface is every top-level `pub extern fun` definition of
-its entry package. Those definitions are compiled and kept even when no Nia
+its root module. Those definitions are compiled and kept even when no Nia
 code calls them, so linked foreign code can call them by name. Other
 functions, including non-`pub` `extern` definitions, are compiled only when
 reachable.

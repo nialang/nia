@@ -636,7 +636,7 @@ fn imported_const_call_rejects_unsatisfied_generic_where_bound() {
         &root.join("main.nia"),
         r#"
 module api;
-using entry::api;
+using root::api;
 
 const width: usize = api::constrained[i32]();
 
@@ -1415,7 +1415,7 @@ pub const fun add(lhs: u8, rhs: u8) u8 {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 
 const overflow: u8 = math::add(255u8, 1u8);
 

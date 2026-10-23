@@ -1,9 +1,11 @@
-using entry;
+using program;
 using std::process;
 
 // The user entry contract is shared by all Nia-provided process startups.
+// `program` is this runtime's dependency on the program it starts; it is
+// visible only inside the runtime.
 pub(root) fun callUserMain(init: process::Init) process::ExitCode {
-    if entry::main(init) is error! {
+    if program::main(init) is error! {
         return error;
     }
     process::ExitCode(0)

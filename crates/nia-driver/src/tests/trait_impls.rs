@@ -347,7 +347,7 @@ fn cross_module_trait_impls_are_checked() {
         &root.join("main.nia"),
         r#"
 module traits;
-using entry::traits;
+using root::traits;
 
 struct Point {
     x: i32,
@@ -479,7 +479,7 @@ fn cross_module_receiver_parse_resolves_result_protocol_impl() {
         &root.join("main.nia"),
         r#"
 module parse;
-using entry::parse;
+using root::parse;
 
 fun main() i32 {
     (&"abc").parse[i32]()
@@ -556,7 +556,7 @@ where W: Writer
         &root.join("main.nia"),
         r#"
 module io;
-using entry::io;
+using root::io;
 
 struct File {
     raw: i32,
@@ -630,7 +630,7 @@ extend FileDescriptor {
     write(
         &root.join("fs.nia"),
         r#"
-using entry::os;
+using root::os;
 
 pub using os::{Error};
 
@@ -648,7 +648,7 @@ extend File {
     write(
         &root.join("io.nia"),
         r#"
-using entry::fs;
+using root::fs;
 
 pub trait Writer {
     type Error;
@@ -691,8 +691,8 @@ extend fs::File : Writer {
 module os;
 module fs;
 module io;
-using entry::fs;
-using entry::io;
+using root::fs;
+using root::io;
 
 fun main() () {
     let mut stdout = fs::File::standard_output();

@@ -62,8 +62,8 @@ fn executable_reachability_expands_where_predicates_through_generic_extension_wr
         r#"
 module error;
 module facade;
-using entry::error;
-using entry::facade;
+using root::error;
+using root::facade;
 
 enum Error: i32 {
 Bad = 1,
@@ -128,7 +128,7 @@ pub fun cast_error(self) Target!T {
         "facade",
         "facade.nia",
         r#"
-using entry::error;
+using root::error;
 "#,
     );
     let loaded = fixture.freestanding_program();
@@ -166,8 +166,8 @@ fn executable_reachability_expands_generic_trait_calls_to_cross_module_impl_bodi
         r#"
 module error;
 module impls;
-using entry::error;
-using entry::impls;
+using root::error;
+using root::impls;
 
 pub fun main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
@@ -213,7 +213,7 @@ pub fun cast_error(self) Target!T {
         "impls",
         "impls.nia",
         r#"
-using entry::error;
+using root::error;
 
 pub struct Source {
 value: i32,
@@ -265,8 +265,8 @@ fn executable_reachability_expands_generic_trait_calls_from_incremental_wrapper_
         r#"
 module error;
 module impls;
-using entry::error;
-using entry::impls;
+using root::error;
+using root::impls;
 
 pub fun main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
@@ -312,7 +312,7 @@ pub fun cast_error(self) Target!T {
         "impls",
         "impls.nia",
         r#"
-using entry::error;
+using root::error;
 
 pub struct Source {
 value: i32,

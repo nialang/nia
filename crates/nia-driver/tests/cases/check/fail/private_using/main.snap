@@ -1,20 +1,20 @@
 path: fail/private_using/main.nia
 code: E0201
 summary: `using api::...` could not be resolved: name `hidden` is unavailable because the imported item is private
-label: 41..47 Primary Source this imported name could not be resolved
+label: 40..46 Primary Source this imported name could not be resolved
 help: make `hidden` public in its defining module, or use it from an allowed scope
-related: 30..48 the `using` directive is here
+related: 29..47 the `using` directive is here
 related: 69..91 the private item is declared here
 
 path: fail/private_using/main.nia
 code: E0201
 summary: name `hidden` is unavailable because the imported item is private
-label: 66..72 Primary Source use of unresolved imported name
+label: 65..71 Primary Source use of unresolved imported name
 help: make `hidden` public in its defining module, or use it from an allowed scope
-related: 41..47 the imported name is selected here
-related: 30..48 the `using` directive is here
+related: 40..46 the imported name is selected here
+related: 29..47 the `using` directive is here
 related: 69..91 the hidden imported item is declared here
-cause: fail/private_using/main.nia E0201 41..47
+cause: fail/private_using/main.nia E0201 40..46
 
 report:
 error[E0201]: `using api::...` could not be resolved: name `hidden` is unavailable because the imported item is private

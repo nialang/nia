@@ -219,6 +219,11 @@ impl LoadedProgramFixture {
             ),
             source,
         );
+        // The loader binds the runtime's `program` dependency through the
+        // module map; this hand-built graph binds it directly.
+        let program = self.graph.entry();
+        self.graph
+            .bind_package_alias(implementation, sym("program"), program);
         self.graph.mark_executable_root_subtree(start);
         implementation
     }
@@ -275,7 +280,7 @@ impl LoadedProgramFixture {
 
     pub(super) fn freestanding_program(&self) -> LoadedProgram {
         self.freestanding_program_with_runtime(
-            "using entry; pub extern fun _start() () { _ = &entry::main; }",
+            "using program; pub extern fun _start() () { _ = &program::main; }",
         )
     }
 

@@ -381,7 +381,7 @@ extend GenericIter : Iterator {
         &main,
         r#"
 module iter;
-using entry::iter;
+using root::iter;
 
 fun main() i32 {
     let mut total = 0;

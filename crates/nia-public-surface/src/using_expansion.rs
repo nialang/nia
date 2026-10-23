@@ -221,8 +221,7 @@ pub(super) fn resolve_namespace_path(
         ));
     };
     let shadowed = path_segment_name(first).is_some_and(|name| {
-        !nia_imports::is_entry_module_root(name)
-            && !nia_imports::is_runtime_module_root(name)
+        !nia_imports::is_runtime_module_root(name)
             && context
                 .lexical_namespaces
                 .is_some_and(|names| names.contains(&name))

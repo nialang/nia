@@ -171,7 +171,7 @@ fn toolchain_module_diagnostics_render_their_retained_source_lines() {
     // reachable runtime bodies are checked, so break the entry contract.
     let runtime_main = resources.join("runtime/main.nia");
     let text = fs::read_to_string(&runtime_main).expect("read runtime entry contract");
-    let marker = "    if entry::main(init) is error! {";
+    let marker = "    if program::main(init) is error! {";
     assert!(text.contains(marker), "{text}");
     let text = text.replacen(marker, &format!("    let flag: i32 = true;\n{marker}"), 1);
     fs::write(&runtime_main, text).expect("write broken runtime entry contract");
@@ -190,7 +190,7 @@ fn toolchain_module_diagnostics_render_their_retained_source_lines() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(!output.status.success(), "{stderr}");
-    assert!(stderr.contains("runtime/main.nia:6:21"), "{stderr}");
+    assert!(stderr.contains("runtime/main.nia:8:21"), "{stderr}");
     assert!(stderr.contains("let flag: i32 = true;"), "{stderr}");
     assert!(!stderr.contains(":1:1"), "{stderr}");
 }

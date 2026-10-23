@@ -66,7 +66,7 @@ pub const config = Config { width: 4usize };
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const fun id[T](value: T) T {
     value
@@ -850,7 +850,7 @@ pub const packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const selected: u8 = config::packet.payload;
 "#,

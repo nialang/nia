@@ -470,7 +470,7 @@ fn executable_checked_modules_keep_type_owner_modules_type_only() {
         "main.nia",
         r#"
 module types;
-using entry::types;
+using root::types;
 
 pub fun main(value: types::Used) i32 {
 value.value

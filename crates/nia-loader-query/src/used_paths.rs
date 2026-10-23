@@ -114,9 +114,6 @@ impl QualifiedPathModuleCollector<'_> {
                 .push(alias.with_appended_segments_with_processing_mode(rest, false, processing));
             return;
         }
-        if nia_imports::is_entry_module_root(*first) {
-            return;
-        }
         if !self.local_module_names.contains(first) && self.module_map.contains_root(*first) {
             self.packages.push(*first);
             self.paths.push(UsedModulePath::Package {
@@ -628,10 +625,7 @@ fn collect_explicit_imports_from_root_group_item(
 ) {
     match item {
         UsingGroupItem::Name(name) => {
-            if !nia_imports::is_entry_module_root(name.name)
-                && !local_module_names.contains(&name.name)
-                && module_map.contains_root(name.name)
-            {
+            if !local_module_names.contains(&name.name) && module_map.contains_root(name.name) {
                 imports.push(ExplicitUsingImport {
                     name_span: using_name_span(name),
                     alias: name.alias.unwrap_or(name.name),
@@ -737,10 +731,7 @@ fn collect_root_group_modules(
     for item in items {
         match item {
             UsingGroupItem::Name(name) => {
-                if !nia_imports::is_entry_module_root(name.name)
-                    && !local_module_names.contains(&name.name)
-                    && module_map.contains_root(name.name)
-                {
+                if !local_module_names.contains(&name.name) && module_map.contains_root(name.name) {
                     packages.push(name.name);
                     paths.push(UsedModulePath::Package {
                         package: name.name,
@@ -1009,12 +1000,6 @@ impl UsedModuleRoot {
             }
             ModuleRootSegment::Root => {
                 return Some(Self::Root {
-                    base: host_segments(&host[1..]),
-                });
-            }
-            ModuleRootSegment::Named(name) if nia_imports::is_entry_module_root(name) => {
-                return Some(Self::Package {
-                    package: name,
                     base: host_segments(&host[1..]),
                 });
             }

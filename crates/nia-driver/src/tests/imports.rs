@@ -99,7 +99,7 @@ fn loads_entry_and_imported_modules_once() {
     let root = temp_dir("loads_entry_and_imported_modules_once");
     write(
         &root.join("main.nia"),
-        r#"module math; using entry::math; fun main() i32 { 0 }"#,
+        r#"module math; using root::math; fun main() i32 { 0 }"#,
     );
     write(
         &root.join("math.nia"),
@@ -149,7 +149,7 @@ fn reports_missing_imported_modules() {
     write(
         &root.join("main.nia"),
         r#"module missing;
-using entry::missing; fun main() {}"#,
+using root::missing; fun main() {}"#,
     );
 
     let program = load_program(
@@ -220,8 +220,8 @@ pub fun answer() i32 {
 }
 
 #[test]
-fn entry_inside_mapped_package_still_names_entry_module() {
-    let root = temp_dir("entry_inside_mapped_package_still_names_entry_module");
+fn mapped_package_cannot_reach_back_into_the_program() {
+    let root = temp_dir("mapped_package_cannot_reach_back_into_the_program");
     let dep_root = root.join("dep.nia");
     write(
         &root.join("main.nia"),
@@ -237,26 +237,46 @@ fun main() i32 {
     );
     write(&dep_root, "pub module api; pub fun main_value() i32 { 7 }");
     fs::create_dir_all(root.join("dep")).expect("create dep dir");
-    write(
-        &root.join("dep/api.nia"),
-        r#"
-using entry;
-
-pub fun answer() i32 {
-    entry::main_value()
-}
-"#,
-    );
-    let mut module_map = ModuleMap::new();
-    module_map
-        .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
-        .expect("insert module map entry");
-    let program = check_program_with_map(
-        root.join("main.nia").to_string_lossy().into_owned(),
-        module_map,
-    );
-
-    assert_no_error_diagnostics(&program.diagnostics);
+    // Dependencies point away from the program: `root` is the dependency's
+    // own root, and neither `entry` nor `program` names the program.
+    for (body, expected) in [
+        ("root::main_value()", None),
+        (
+            "entry::main_value()",
+            Some("requires `entry` to be a module namespace"),
+        ),
+        (
+            "program::main_value()",
+            Some("requires `program` to be a module namespace"),
+        ),
+    ] {
+        let using = expected
+            .and_then(|_| body.split_once("::"))
+            .map_or(String::new(), |(name, _)| format!("using {name};\n"));
+        write(
+            &root.join("dep/api.nia"),
+            &format!("{using}pub fun answer() i32 {{ {body} }}\n"),
+        );
+        let mut module_map = ModuleMap::new();
+        module_map
+            .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
+            .expect("insert module map entry");
+        let program = check_program_with_map(
+            root.join("main.nia").to_string_lossy().into_owned(),
+            module_map,
+        );
+        match expected {
+            None => assert_no_error_diagnostics(&program.diagnostics),
+            Some(message) => assert!(
+                program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.diagnostic.summary.contains(message)),
+                "{body}: {:?}",
+                program.diagnostics
+            ),
+        }
+    }
 }
 
 #[test]
@@ -265,7 +285,7 @@ fn checks_each_loaded_module() {
     write(
         &root.join("main.nia"),
         r#"module math;
-using entry::math; fun main() i32 { 0 }"#,
+using root::math; fun main() i32 { 0 }"#,
     );
     write(&root.join("math.nia"), r#"fun bad() i32 { true }"#);
 
@@ -490,10 +510,10 @@ fn using_cycles_do_not_load_or_cycle_modules() {
         &root.join("main.nia"),
         r#"module b;
 module a;
-using entry::a; fun main() {}"#,
+using root::a; fun main() {}"#,
     );
-    write(&root.join("a.nia"), r#"using entry::b;"#);
-    write(&root.join("b.nia"), r#"using entry::a;"#);
+    write(&root.join("a.nia"), r#"using root::b;"#);
+    write(&root.join("b.nia"), r#"using root::a;"#);
 
     let program = load_program(
         root.join("main.nia").to_string_lossy().into_owned(),
@@ -516,13 +536,13 @@ fun main() {}",
             "",
         ),
         (
-            "using entry::impl; pub using impl;
+            "using root::impl; pub using impl;
 fun main() {}",
             "",
             "",
         ),
         (
-            "using entry::impl as q; pub using q;
+            "using root::impl as q; pub using q;
 fun main() {}",
             "",
             "",
@@ -542,11 +562,11 @@ fun main() {}",
         (
             "module a;
 module b;
-using entry::a::m::z;
+using root::a::m::z;
 fun main() {}",
-            "using entry::b::m;
+            "using root::b::m;
 pub using m;",
-            "using entry::a::m;
+            "using root::a::m;
 pub using m;",
         ),
     ]
@@ -599,36 +619,56 @@ fun main() usize {
 }
 
 #[test]
-fn child_module_can_call_public_entry_items_through_entry_namespace() {
-    let root = temp_dir("child_module_can_call_public_entry_items_through_entry_namespace");
+fn child_module_reaches_root_items_through_root() {
+    let root = temp_dir("child_module_reaches_root_items_through_root");
     write(
         &root.join("main.nia"),
         r#"
-module runtime;
-using entry::runtime;
+module runner;
+using root::runner;
 
 pub fun app_main() i32 {
     42
 }
 
 fun main() i32 {
-    runtime::call_app_main()
+    runner::call_app_main()
 }
 "#,
     );
     write(
-        &root.join("runtime.nia"),
+        &root.join("runner.nia"),
         r#"
-using entry;
-
 pub fun call_app_main() i32 {
-    entry::app_main()
+    root::app_main()
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn entry_and_program_are_ordinary_names_outside_the_runtime() {
+    let root = temp_dir("entry_and_program_are_ordinary_names_outside_the_runtime");
+    for name in ["entry", "program"] {
+        write(
+            &root.join("main.nia"),
+            &format!("using {name};\nfun main() i32 {{ 0 }}\n"),
+        );
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| {
+                diagnostic
+                    .diagnostic
+                    .summary
+                    .contains(&format!("requires `{name}` to be a module namespace"))
+            }),
+            "{name}: {:?}",
+            program.diagnostics
+        );
+    }
 }
 
 #[test]
@@ -661,7 +701,7 @@ fn resolves_imported_extension_method_function_pointers() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 
 fun call(p: & math::Point, f: &fun(& math::Point) i32) i32 {
     f(p)
@@ -703,8 +743,8 @@ module math;
 module helpers;
 module core;
 module app;
-using entry::core;
-using entry::app;
+using root::core;
+using root::app;
 
 fun main(p: core::Point) i32 {
     app::score(p)
@@ -714,7 +754,7 @@ fun main(p: core::Point) i32 {
     write(
         &root.join("core.nia"),
         r#"
-using entry::ops;
+using root::ops;
 
 pub struct Point {
     x: i32,
@@ -729,9 +769,9 @@ pub fun base() i32 {
     write(
         &root.join("app.nia"),
         r#"
-using entry::core;
-using entry::math;
-using entry::ops;
+using root::core;
+using root::math;
+using root::ops;
 
 pub fun score(p: core::Point) i32 {
     p.len2() + math::via_helpers() + ops::from_cycle()
@@ -741,7 +781,7 @@ pub fun score(p: core::Point) i32 {
     write(
         &root.join("math.nia"),
         r#"
-using entry::helpers;
+using root::helpers;
 
 pub fun via_helpers() i32 {
     helpers::call_core()
@@ -751,8 +791,8 @@ pub fun via_helpers() i32 {
     write(
         &root.join("helpers.nia"),
         r#"
-using entry::core;
-using entry::ops;
+using root::core;
+using root::ops;
 
 pub fun call_core() i32 {
     core::base() + ops::from_cycle()
@@ -762,8 +802,8 @@ pub fun call_core() i32 {
     write(
         &root.join("ops.nia"),
         r#"
-using entry::core;
-using entry::helpers;
+using root::core;
+using root::helpers;
 
 extend core::Point {
     pub fun len2(& self) i32 {
@@ -788,8 +828,8 @@ fn deduplicates_imported_paths() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math as math_a;
-using entry::math as math_b;
+using root::math as math_a;
+using root::math as math_b;
 fun main() {}
 "#,
     );
@@ -814,7 +854,7 @@ fn resolves_qualified_imported_type_paths() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 fun origin(p: math::Point) math::Point { p }
 "#,
     );
@@ -838,7 +878,7 @@ fn resolves_qualified_imported_function_calls() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 fun main() i32 {
     math::add(40, 2)
 }
@@ -867,7 +907,7 @@ fn extends_imported_type_in_current_module() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 
 extend math::Point {
     fun len2(& self) i32 {
@@ -897,8 +937,8 @@ fn imports_public_extension_methods() {
         r#"
 module math;
 module point_ext;
-using entry::math;
-using entry::point_ext;
+using root::math;
+using root::point_ext;
 
 fun main(p: math::Point) i32 {
     p.len2()
@@ -912,7 +952,7 @@ fun main(p: math::Point) i32 {
     write(
         &root.join("point_ext.nia"),
         r#"
-using entry::math;
+using root::math;
 
 extend math::Point {
     pub fun len2(& self) i32 {
@@ -935,9 +975,9 @@ fn merges_public_extensions_for_one_type_from_multiple_modules() {
 module math;
 module first;
 module second;
-using entry::math;
-using entry::first;
-using entry::second;
+using root::math;
+using root::first;
+using root::second;
 
 fun main(p: math::Point) i32 {
     p.first() + p.second()
@@ -948,7 +988,7 @@ fun main(p: math::Point) i32 {
     write(
         &root.join("first.nia"),
         r#"
-using entry::math;
+using root::math;
 
 extend math::Point {
     pub fun first(& self) i32 { 1 }
@@ -958,7 +998,7 @@ extend math::Point {
     write(
         &root.join("second.nia"),
         r#"
-using entry::math;
+using root::math;
 
 extend math::Point {
     pub fun second(& self) i32 { 2 }
@@ -977,7 +1017,7 @@ fn imports_public_extension_associated_const_values() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 
 fun main() usize {
     math::Marker::LIMIT
@@ -1007,7 +1047,7 @@ fn imports_public_extension_associated_const_values_with_builtin_initializer() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 
 fun main() usize {
     math::Marker::LIMIT
@@ -1983,8 +2023,8 @@ fn predeclared_trait_method_names_still_load_scoped_user_extensions() {
         r#"
 module types;
 module extensions;
-using entry::types;
-using entry::extensions;
+using root::types;
+using root::extensions;
 fun main(value: types::Widget) usize { value.len() }
 "#,
     );
@@ -1994,7 +2034,7 @@ fun main(value: types::Widget) usize { value.len() }
     );
     write(
         &root.join("extensions.nia"),
-        "using entry::types; extend types::Widget { pub fun len(&self) usize { self.value } }",
+        "using root::types; extend types::Widget { pub fun len(&self) usize { self.value } }",
     );
     let program = check_program(root.join("main.nia").to_string_lossy());
     assert_no_error_diagnostics(&program.diagnostics);
@@ -2010,8 +2050,8 @@ module api;
 module types;
 module impls;
 
-using entry::api;
-using entry::types;
+using root::api;
+using root::types;
 
 fun need[T](value: T) i32
 where T: api::Show
@@ -2036,8 +2076,8 @@ pub trait Show {
     write(
         &root.join("impls.nia"),
         r#"
-using entry::api;
-using entry::types;
+using root::api;
+using root::types;
 
 extend types::Box : api::Show {
     fun show(&self) i32 {
@@ -2061,9 +2101,9 @@ module api;
 module types;
 module impls;
 
-using entry::api;
-using entry::types;
-using entry::impls;
+using root::api;
+using root::types;
+using root::impls;
 
 fun need[T](value: T) i32
 where T: api::Show
@@ -2088,8 +2128,8 @@ pub trait Show {
     write(
         &root.join("impls.nia"),
         r#"
-using entry::api;
-using entry::types;
+using root::api;
+using root::types;
 
 extend types::Box : api::Show {
     pub fun show(&self) i32 {
@@ -2191,7 +2231,7 @@ fn reexported_module_and_value_with_same_name_resolve_by_context() {
         r#"
 module range;
 module facade;
-using entry::facade;
+using root::facade;
 
 fun main() usize {
     let mut iter: facade::range::Range[usize] = facade::range(1usize..4usize);
@@ -2206,7 +2246,7 @@ fun main() usize {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::range;
+using root::range;
 
 pub using range;
 pub using range::range;
@@ -2341,8 +2381,8 @@ fn imports_public_extension_methods_through_import_closure() {
 module point_ext;
 module math;
 module facade;
-using entry::math;
-using entry::facade;
+using root::math;
+using root::facade;
 
 fun main(p: math::Point) i32 {
     p.len2()
@@ -2353,11 +2393,11 @@ fun main(p: math::Point) i32 {
         &root.join("math.nia"),
         r#"pub struct Point { x: i32, y: i32 }"#,
     );
-    write(&root.join("facade.nia"), r#"using entry::point_ext;"#);
+    write(&root.join("facade.nia"), r#"using root::point_ext;"#);
     write(
         &root.join("point_ext.nia"),
         r#"
-using entry::math;
+using root::math;
 
 extend math::Point {
     pub fun len2(& self) i32 {
@@ -2380,17 +2420,14 @@ fn facade_reexported_type_exposes_public_inherent_extension_methods() {
 module facade;
 module impls;
 module types;
-using entry::facade;
+using root::facade;
 
 fun main(p: facade::Point) i32 {
     p.len2()
 }
 "#,
     );
-    write(
-        &root.join("facade.nia"),
-        r#"pub using entry::types::Point;"#,
-    );
+    write(&root.join("facade.nia"), r#"pub using root::types::Point;"#);
     write(
         &root.join("types.nia"),
         r#"pub struct Point { x: i32, y: i32 }"#,
@@ -2398,7 +2435,7 @@ fun main(p: facade::Point) i32 {
     write(
         &root.join("impls.nia"),
         r#"
-using entry::types;
+using root::types;
 
 extend types::Point {
     pub fun len2(& self) i32 {
@@ -2423,7 +2460,7 @@ fn executable_facade_reexport_does_not_body_check_unused_reexport_extension_prov
 module facade;
 module impls;
 module types;
-using entry::facade;
+using root::facade;
 
 fun consume(used: facade::Used) i32 {
     _ = used;
@@ -2438,7 +2475,7 @@ fun main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-pub using entry::types::{Used, Unused};
+pub using root::types::{Used, Unused};
 "#,
     );
     write(
@@ -2451,7 +2488,7 @@ pub struct Unused {}
     write(
         &root.join("impls.nia"),
         r#"
-using entry::types;
+using root::types;
 
 extend types::Unused {
     pub fun expensive_or_invalid(&self) i32 {
@@ -2487,7 +2524,7 @@ fn facade_reexported_generic_alias_exposes_methods_and_contextual_constructors()
 module facade;
 module impls;
 module types;
-using entry::facade;
+using root::facade;
 
 fun main() usize {
     let mut bag = facade::Bag[i32]::init();
@@ -2496,7 +2533,7 @@ fun main() usize {
 }
 "#,
     );
-    write(&root.join("facade.nia"), r#"pub using entry::types::Bag;"#);
+    write(&root.join("facade.nia"), r#"pub using root::types::Bag;"#);
     write(
         &root.join("types.nia"),
         r#"
@@ -2510,7 +2547,7 @@ pub type Bag[T] = RawBag[T];
     write(
         &root.join("impls.nia"),
         r#"
-using entry::types;
+using root::types;
 
 extend[T] types::RawBag[T] {
     pub fun init() types::RawBag[T] {
@@ -2535,7 +2572,7 @@ fn imports_generic_structural_extension_methods() {
         &root.join("main.nia"),
         r#"
 module ptr;
-using entry::ptr;
+using root::ptr;
 
 extern fun read_readonly() &u8;
 
@@ -2579,7 +2616,7 @@ fn imported_enum_extension_method_function_pointer_uses_nominal_prefix() {
         &root.join("main.nia"),
         r#"
 module errors;
-using entry::errors;
+using root::errors;
 
 fun main() i32 {
     let code: &fun(errors::Error) i32 = &errors::Error::code;
@@ -2614,7 +2651,7 @@ fn imported_extension_method_where_clause_constrains_candidates() {
         &root.join("main.nia"),
         r#"
 module containers;
-using entry::containers;
+using root::containers;
 
 fun main(boxed: containers::Box[bool]) i32 {
     boxed.tag()
@@ -2661,8 +2698,8 @@ fn imported_extension_method_where_clause_allows_satisfied_candidates() {
         r#"
 module containers;
 module impls;
-using entry::containers;
-using entry::impls;
+using root::containers;
+using root::impls;
 
 fun need[T](value: T) i32
 where T: containers::Marker
@@ -2686,7 +2723,7 @@ pub trait Marker {
     write(
         &root.join("impls.nia"),
         r#"
-using entry::containers;
+using root::containers;
 
 extend i32 : containers::Marker {
     fun mark(self) i32 {
@@ -2708,7 +2745,7 @@ fn imports_generic_structural_extension_methods_through_import_closure() {
         r#"
 module ptr;
 module share;
-using entry::share;
+using root::share;
 
 extern fun read_readonly() &u8;
 
@@ -2724,7 +2761,7 @@ fun main(mut_ptr: &mut u8) i32 {
 }
 "#,
     );
-    write(&root.join("share.nia"), r#"using entry::ptr;"#);
+    write(&root.join("share.nia"), r#"using root::ptr;"#);
     write(
         &root.join("ptr.nia"),
         r#"
@@ -2754,7 +2791,7 @@ fn lowers_imported_generic_structural_extension_instances() {
         r#"
 module ptr;
 module share;
-using entry::share;
+using root::share;
 
 extern fun read_readonly() &u8;
 
@@ -2770,7 +2807,7 @@ fun main(mut_ptr: &mut u8) i32 {
 }
 "#,
     );
-    write(&root.join("share.nia"), r#"using entry::ptr;"#);
+    write(&root.join("share.nia"), r#"using root::ptr;"#);
     write(
         &root.join("ptr.nia"),
         r#"
@@ -2815,7 +2852,7 @@ fn imports_generic_structural_extension_methods_with_alias_targets() {
         &root.join("main.nia"),
         r#"
 module ptr;
-using entry::ptr;
+using root::ptr;
 
 fun main(ptr: &u8) i32 {
     if ptr.alias_null() {
@@ -2851,8 +2888,8 @@ fn does_not_import_private_extension_methods_through_import_closure() {
 module point_ext;
 module math;
 module facade;
-using entry::math;
-using entry::facade;
+using root::math;
+using root::facade;
 
 fun main(p: math::Point) i32 {
     p.len2()
@@ -2863,11 +2900,11 @@ fun main(p: math::Point) i32 {
         &root.join("math.nia"),
         r#"pub struct Point { x: i32, y: i32 }"#,
     );
-    write(&root.join("facade.nia"), r#"using entry::point_ext;"#);
+    write(&root.join("facade.nia"), r#"using root::point_ext;"#);
     write(
         &root.join("point_ext.nia"),
         r#"
-using entry::math;
+using root::math;
 
 extend math::Point {
     fun len2(& self) i32 {
@@ -2899,7 +2936,7 @@ fn rejects_private_cross_module_items() {
     let root = temp_dir("rejects_private_cross_module_items");
     let source = r#"
 module math;
-using entry::math;
+using root::math;
 fun take(p: math::Point) i32 {
     math::add(1, 2)
 }
@@ -2962,7 +2999,7 @@ fun add(a: i32, b: i32) i32 { a + b }
 fn reports_imported_value_used_as_type() {
     let root = temp_dir("reports_imported_value_used_as_type");
     let source = r#"module values;
-using entry::values::answer;
+using root::values::answer;
 
 fun main(value: answer) () {
     _ = value;
@@ -3056,7 +3093,7 @@ fun main(value: answer) () {
 fn reports_imported_type_used_as_value() {
     let root = temp_dir("reports_imported_type_used_as_value");
     let source = r#"module types;
-using entry::types::Point;
+using root::types::Point;
 
 fun main() () {
     Point;
@@ -3107,7 +3144,7 @@ fn self_import_loads_child_module_by_stem_path() {
         &root.join("main.nia"),
         r#"
 module hash_map;
-using entry::hash_map;
+using root::hash_map;
 
 fun main() i32 {
     hash_map::score()
@@ -3146,7 +3183,7 @@ fn super_import_loads_sibling_under_parent_module_stem() {
         &root.join("main.nia"),
         r#"
 module hash_map;
-using entry::hash_map;
+using root::hash_map;
 
 fun main() i32 {
     hash_map::score()
@@ -3196,7 +3233,7 @@ fn pub_super_items_are_hidden_outside_parent_subtree() {
         &root.join("main.nia"),
         r#"
 module hash_map;
-using entry::hash_map::probe;
+using root::hash_map::probe;
 
 fun main() i32 {
     probe::value()
@@ -3232,7 +3269,7 @@ fn using_can_import_pub_super_items_visible_from_parent_subtree() {
         &root.join("main.nia"),
         r#"
 module command;
-using entry::command;
+using root::command;
 
 fun main() i32 {
     command::score()
@@ -3346,7 +3383,7 @@ fn using_super_after_first_segment_reports_specific_diagnostic() {
         r#"
 module command;
 module output;
-using entry::command::cli;
+using root::command::cli;
 
 fun main() () {}
 "#,
@@ -3381,7 +3418,7 @@ fn failed_explicit_using_suppresses_dependent_name_cascades() {
         &root.join("main.nia"),
         r#"
 module api;
-using entry::api::{MissingType, missing_value};
+using root::api::{MissingType, missing_value};
 
 fun main() () {
     let value: MissingType = missing_value();
@@ -3429,7 +3466,7 @@ fun main() () {
 #[test]
 fn failed_using_call_reports_call_and_import_evidence() {
     let root = temp_dir("failed_using_call_reports_call_and_import_evidence");
-    let source = r#"using entry::api::missing_value;
+    let source = r#"using root::api::missing_value;
 
 fun main() i32 {
     missing_value()
@@ -3497,7 +3534,7 @@ fun main() i32 {
 #[test]
 fn failed_using_assignment_reports_import_evidence() {
     let root = temp_dir("failed_using_assignment_reports_import_evidence");
-    let source = r#"using entry::api::missing_value;
+    let source = r#"using root::api::missing_value;
 
 fun main() () {
     missing_value = 1;

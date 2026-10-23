@@ -148,7 +148,7 @@ fn readiness_coordinator_retries_units_only_after_exact_owner_publication() {
         &main,
         r#"
 module geom;
-using entry::geom;
+using root::geom;
 
 fun main() i32 {
     let mut point = geom::Point { x: 40, y: 2 };

@@ -120,7 +120,7 @@ where T: Step + Ord[T]
         &main,
         r#"
 module iter;
-using entry::iter;
+using root::iter;
 using std::process;
 
 struct Counter {

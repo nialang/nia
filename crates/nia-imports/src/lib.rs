@@ -28,9 +28,7 @@ use nia_symbol::{
     KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, stable_hash, symbol_identity_key,
 };
 
-/// Reserved module-map name for the entry package.
-pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
-/// Reserved module-map name for package-relative roots.
+/// Reserved module-map name for the root of the current module tree.
 pub const ROOT_MODULE_MAP_NAME: &str = "root";
 /// Reserved module-map name for compiler builtins.
 pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
@@ -38,10 +36,12 @@ pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
 pub const STD_MODULE_MAP_NAME: &str = "std";
 /// Reserved, private module-map name for toolchain runtime resources.
 pub const RUNTIME_MODULE_MAP_NAME: &str = "runtime";
+/// Dependency name through which the runtime reaches the program it starts.
+/// It is visible only inside the runtime's module tree.
+pub const PROGRAM_MODULE_MAP_NAME: &str = "program";
 
 /// Names that cannot be inserted as ordinary package roots.
 pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
-    ENTRY_MODULE_MAP_NAME,
     ROOT_MODULE_MAP_NAME,
     BUILTIN_MODULE_MAP_NAME,
     RUNTIME_MODULE_MAP_NAME,
@@ -79,18 +79,12 @@ fn module_root_symbol_from_text(name: &str) -> SymbolId {
 
 fn reserved_module_root_symbol(name: &str) -> Option<SymbolId> {
     match name {
-        ENTRY_MODULE_MAP_NAME => Some(known::ENTRY),
         ROOT_MODULE_MAP_NAME => None,
         BUILTIN_MODULE_MAP_NAME => Some(known::BUILTIN),
         STD_MODULE_MAP_NAME => Some(known::STD),
         RUNTIME_MODULE_MAP_NAME => Some(known::RUNTIME),
         _ => None,
     }
-}
-
-/// Reports whether a symbol denotes the entry module root.
-pub fn is_entry_module_root(symbol: SymbolId) -> bool {
-    symbol == known::ENTRY
 }
 
 /// Reports whether a symbol denotes the standard-library root.
@@ -169,13 +163,6 @@ impl ModuleMap {
         Ok(())
     }
 
-    /// Returns a copy with the entry root installed.
-    pub fn with_entry(&self, entry_path: SourcePath) -> Self {
-        let mut map = self.clone();
-        map.entries.insert(known::ENTRY, entry_path);
-        map
-    }
-
     /// Returns a copy with a default standard-library root.
     pub fn with_default_std(&self, std_path: SourcePath) -> Self {
         let mut map = self.clone();
@@ -220,6 +207,30 @@ impl ModuleMap {
         self.scopes
             .entry(directory.normalized_path().trim_end_matches('/').to_owned())
             .or_default();
+    }
+
+    /// Binds the runtime's `program` dependency to the program's entry file.
+    ///
+    /// The runtime reaches the program it starts the way a package reaches a
+    /// dependency: through a name visible only inside its own directory, so
+    /// no other module can name it. The binding resolves to the program
+    /// tree's root, which the graph already owns.
+    pub fn with_runtime_program(
+        &self,
+        runtime_directory: &SourceIdentity,
+        program: SourcePath,
+    ) -> Self {
+        let mut map = self.clone();
+        map.scopes
+            .entry(
+                runtime_directory
+                    .normalized_path()
+                    .trim_end_matches('/')
+                    .to_owned(),
+            )
+            .or_default()
+            .insert(known::PROGRAM, program);
+        map
     }
 
     /// Adds a dependency alias visible only inside one logical package directory.
@@ -285,13 +296,18 @@ impl ModuleMap {
         name: SymbolId,
     ) -> Option<(SymbolId, &SourcePath)> {
         if let Some(path) = self.source_scope(source).and_then(|scope| scope.get(&name)) {
+            // The runtime's `program` is the program tree itself, not a
+            // separate instance of the same files.
+            if name == known::PROGRAM {
+                return Some((known::PROGRAM_TREE, path));
+            }
             let key = format!(
                 "nia.package.instance:{}",
                 path.identity_ref().normalized_path()
             );
             return Some((module_root_symbol_from_text(&key), path));
         }
-        if self.has_scope(source) && ![known::ENTRY, known::STD, known::RUNTIME].contains(&name) {
+        if self.has_scope(source) && ![known::STD, known::RUNTIME].contains(&name) {
             return None;
         }
         self.entries.get(&name).map(|path| (name, path))
@@ -359,9 +375,9 @@ impl ModulePath {
         self.segments.is_empty()
     }
 
-    /// Reports whether this path belongs to the entry package.
-    pub fn is_entry_package(&self) -> bool {
-        is_entry_module_root(self.package)
+    /// Reports whether this path belongs to the program's own module tree.
+    pub fn is_program_tree(&self) -> bool {
+        self.package == known::PROGRAM_TREE
     }
 
     /// Reports whether this path belongs to the standard library.
@@ -541,14 +557,17 @@ impl ModuleGraph {
         let entry_source_id = sources
             .id_for_path(&entry_path)
             .map_err(|error| Ice::new(error.to_string()))?;
-        let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
+        let entry_module_path = ModulePath {
+            package: known::PROGRAM_TREE,
+            segments: Vec::new(),
+        };
         let entry_stable_key = StableModuleKey::from_source_identity(entry_path.identity());
         let mut by_stable_key = nia_hash::FastHashMap::default();
         by_stable_key.insert(entry_stable_key.clone(), entry);
         let mut by_module_path = nia_hash::FastHashMap::default();
         by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = SymbolMap::default();
-        package_roots.insert(known::ENTRY, entry);
+        package_roots.insert(known::PROGRAM_TREE, entry);
         let mut by_source_id = nia_hash::FastHashMap::default();
         by_source_id.insert(entry_source_id, entry);
         Ok(Self {
@@ -616,7 +635,7 @@ impl ModuleGraph {
         let entry = graph.intern_module(
             entry_path,
             ModulePath {
-                package: known::ENTRY,
+                package: known::PROGRAM_TREE,
                 segments: vec![known::MAIN],
             },
             None,
@@ -783,9 +802,6 @@ impl ModuleGraph {
         current_module: ModuleId,
         name: SymbolId,
     ) -> Option<ModuleId> {
-        if is_entry_module_root(name) {
-            return Some(self.entry);
-        }
         if is_runtime_module_root(name) {
             // Runtime resources are injected by the loader and are never
             // addressable from user source. Their own children still resolve
@@ -1132,7 +1148,7 @@ impl ModuleGraph {
     ) -> nia_ice::IceResult<(SourceId, SourcePath)> {
         let sibling = parent.entry_module
             || (parent.module_path.is_package_root()
-                && (parent.module_path.is_entry_package() || is_package_root_file(&parent.path)));
+                && (parent.module_path.is_program_tree() || is_package_root_file(&parent.path)));
         self.intern_child_source_path(parent.source_id, child, sibling)
     }
 
@@ -1249,9 +1265,6 @@ pub trait ModuleGraphLookup {
             ModuleRootSegment::Parent => self.parent_module(current_module),
             ModuleRootSegment::Root => self.current_package_root_module(current_module),
             ModuleRootSegment::Named(name) => {
-                if is_entry_module_root(name) {
-                    return Some(self.entry_module());
-                }
                 if is_runtime_module_root(name) {
                     return self
                         .module_path(current_module)
@@ -1610,7 +1623,7 @@ pub fn declared_child_source_path_for_with_symbols_and_entry(
 ) -> SourcePath {
     let sibling = entry_module
         || (parent_module_path.is_package_root()
-            && (parent_module_path.is_entry_package() || is_package_root_file(parent_path)));
+            && (parent_module_path.is_program_tree() || is_package_root_file(parent_path)));
     declared_child_source_path_with_layout(symbols, parent_path, child, sibling)
 }
 
@@ -1714,8 +1727,8 @@ mod tests {
         .expect("create module graph");
         let entry = graph.entry();
         let package_root = graph
-            .package_root(&known::ENTRY)
-            .expect("entry package root");
+            .package_root(&known::PROGRAM_TREE)
+            .expect("program tree root");
 
         assert_ne!(entry, package_root);
         assert_eq!(
@@ -1727,9 +1740,10 @@ mod tests {
             "src/pkg.nia"
         );
         assert_eq!(graph.current_package_root(entry), Some(package_root));
+        // `entry` is no longer a path root; it is an ordinary name.
         assert_eq!(
-            graph.root_module_for_segment(entry, ModuleRootSegment::Named(known::ENTRY)),
-            Some(entry)
+            graph.root_module_for_name(entry, module_root_symbol_from_text("entry")),
+            None
         );
         assert_eq!(
             graph.root_module_for_segment(entry, ModuleRootSegment::Root),
@@ -1867,9 +1881,10 @@ mod tests {
             assert!(error.contains(reserved));
         }
 
-        let entry = map.with_entry(SourcePath::new("src/main.nia"));
-        assert_eq!(entry.get("entry"), Some(&SourcePath::new("src/main.nia")));
-        let std = entry.with_default_std(SourcePath::new("stdlib/root.nia"));
+        // `entry` is an ordinary name, so a package may use it.
+        map.try_insert("entry", SourcePath::new("deps/entry.nia"))
+            .expect("entry is not reserved");
+        let std = map.with_default_std(SourcePath::new("stdlib/root.nia"));
         assert_eq!(std.std_path(), Some(&SourcePath::new("stdlib/root.nia")));
         let preserved = std.with_default_std(SourcePath::new("other/std.nia"));
         assert_eq!(
@@ -1925,9 +1940,13 @@ mod tests {
 
     #[test]
     fn module_path_navigation_and_root_classification_are_stable() {
-        let root = ModulePath::root("entry");
+        let root = ModulePath {
+            package: known::PROGRAM_TREE,
+            segments: Vec::new(),
+        };
+        assert!(!ModulePath::root("entry").is_program_tree());
         assert!(root.is_package_root());
-        assert!(root.is_entry_package());
+        assert!(root.is_program_tree());
         assert!(!root.is_std_package());
         assert!(!root.is_runtime_start_module());
         assert_eq!(root.parent(), None);
@@ -1947,11 +1966,14 @@ mod tests {
     fn unknown_module_symbols_keep_distinct_identity_text() {
         let first = SymbolId::from_stable_hash(0x1111);
         let second = SymbolId::from_stable_hash(0x2222);
-        assert_eq!(module_symbol_text(known::ENTRY), "entry");
+        assert_eq!(module_symbol_text(known::PROGRAM), "program");
         assert_eq!(module_symbol_text(first), "sym:0000000000001111");
         assert_ne!(module_symbol_text(first), module_symbol_text(second));
 
-        let parent = ModulePath::root("entry");
+        let parent = ModulePath {
+            package: known::PROGRAM_TREE,
+            segments: Vec::new(),
+        };
         let source = SourcePath::new("src/main.nia");
         let first_path = declared_child_source_path_for(&source, &parent, first);
         let second_path = declared_child_source_path_for(&source, &parent, second);

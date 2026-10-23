@@ -513,7 +513,7 @@ fn imported_generic_pointer_union_is_shared_across_const_and_runtime_calls() {
         &root.join("main.nia"),
         r#"
 module pointers;
-using entry::pointers;
+using root::pointers;
 
 const compileSlot: pointers::PointerSlot[usize] =
     pointers::pass[usize](pointers::firstSlot);

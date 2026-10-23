@@ -4,7 +4,7 @@ use super::*;
 fn query_loader_scopes_structural_methods_through_trait_reexports() {
     let root = temp_dir("query_loader_scopes_structural_methods_through_trait_reexports");
     let main = root.join("main.nia");
-    write(&main, "module parse; using entry::parse; fun main() () {}");
+    write(&main, "module parse; using root::parse; fun main() () {}");
     fs::create_dir_all(root.join("parse")).expect("create facade directory");
     write(
         &root.join("parse/implementation.nia"),

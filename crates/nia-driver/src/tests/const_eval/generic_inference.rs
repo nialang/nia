@@ -621,7 +621,7 @@ pub const point: Point = Point{x: 4, y: 8};
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const fun id[T](value: T) T {
     value
@@ -807,7 +807,7 @@ pub const fun id[T](value: T) T {
         &root.join("main.nia"),
         r#"
 module helpers;
-using entry::helpers;
+using root::helpers;
 
 fun main() i32 {
     const width = 4usize;
@@ -844,7 +844,7 @@ pub const fun word_bytes() usize {
         &root.join("main.nia"),
         r#"
 module helpers;
-using entry::helpers;
+using root::helpers;
 
 fun main() i32 {
     const n: usize = helpers::word_bytes();
@@ -871,7 +871,7 @@ pub const width = 4usize;
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const fun id[T](value: T) T {
     value

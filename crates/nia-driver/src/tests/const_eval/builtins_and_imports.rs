@@ -282,7 +282,7 @@ fn imported_const_values_drive_array_lengths() {
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 fun main() i32 {
     let mut values: [i32; config::width] = [1, 2, 3, 4];

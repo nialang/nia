@@ -509,8 +509,8 @@ fn executable_backend_lowering_uses_canonical_external_extension_where_predicate
         r#"
 module ext;
 module bounds;
-using entry::ext;
-using entry::bounds;
+using root::ext;
+using root::bounds;
 
 pub fun main() i32 {
 let value = ext::Box[bounds::Token]::init(bounds::Token {});
@@ -524,7 +524,7 @@ value.get()
         "ext",
         "ext.nia",
         r#"
-using entry::bounds;
+using root::bounds;
 
 pub struct Box[T]
 where T: bounds::Marker
@@ -575,7 +575,7 @@ fn executable_backend_lowering_includes_shallow_primitive_extension_owners() {
         "main.nia",
         r#"
 module unicode;
-using entry::unicode;
+using root::unicode;
 
 pub fun main() i32 {
 'a'.encoded_len()
@@ -690,7 +690,7 @@ fn executable_backend_signatures_include_checked_shallow_provider_impls() {
         "main.nia",
         r#"
 module provider;
-using entry::provider;
+using root::provider;
 
 pub fun main() i32 {
 'a'.activate()
@@ -748,8 +748,8 @@ fn executable_backend_lowering_includes_cross_module_trait_default_vtable_instan
         r#"
 module module1;
 module module2;
-using entry::module1;
-using entry::module2;
+using root::module1;
+using root::module2;
 
 pub fun main() i32 {
 let mut page = module2::Page::init();
@@ -783,7 +783,7 @@ fun helper() i32 {
         "module2",
         "module2.nia",
         r#"
-using entry::module1;
+using root::module1;
 using module1::Allocator;
 
 pub struct Page {}
@@ -935,7 +935,7 @@ fn executable_backend_lowering_closes_vtables_from_generic_function_instances() 
         "main.nia",
         r#"
 module dispatch;
-using entry::dispatch;
+using root::dispatch;
 
 pub fun main() i32 {
 let mut page = dispatch::Page::init();
@@ -1090,8 +1090,8 @@ fn executable_backend_lowering_assigns_repeated_vtable_to_one_stable_owner() {
 module common;
 module left;
 module right;
-using entry::left;
-using entry::right;
+using root::left;
+using root::right;
 
 pub fun main() i32 {
 left::read() + right::read()
@@ -1123,7 +1123,7 @@ fun read(& self) i32 {
         "left",
         "left.nia",
         r#"
-using entry::common;
+using root::common;
 
 pub fun read() i32 {
 let cell = common::Cell {};
@@ -1137,7 +1137,7 @@ value.read()
         "right",
         "right.nia",
         r#"
-using entry::common;
+using root::common;
 
 pub fun read() i32 {
 let cell = common::Cell {};
@@ -1169,7 +1169,7 @@ fn executable_backend_lowering_closes_cross_module_generic_local_static_instance
         "main.nia",
         r#"
 module slots;
-using entry::slots;
+using root::slots;
 
 pub fun main() i32 {
 let mut left = slots::slot[i32]();

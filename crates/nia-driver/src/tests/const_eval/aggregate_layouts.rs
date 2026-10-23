@@ -582,7 +582,7 @@ fn imported_generic_const_function_infers_type_arg_from_typed_value() {
         &root.join("main.nia"),
         r#"
 module identity;
-using entry::identity;
+using root::identity;
 
 const width: usize = 4;
 const n: usize = identity::id(width);
@@ -673,7 +673,7 @@ fn imported_generic_const_function_substitutes_type_args_for_layout_builtins() {
         &root.join("main.nia"),
         r#"
 module layout;
-using entry::layout;
+using root::layout;
 
 struct Pair {
     a: u8,
@@ -709,7 +709,7 @@ fn imported_generic_scalar_union_is_shared_across_const_and_runtime_calls() {
         &root.join("main.nia"),
         r#"
 module bits;
-using entry::bits;
+using root::bits;
 
 const compileSlot: bits::ScalarSlot[f32] = bits::slot[f32](1.0);
 const compileBits: u32 = bits::readBits[f32](compileSlot);
@@ -755,7 +755,7 @@ fn imported_generic_struct_union_preserves_padding_across_const_and_runtime_call
         &root.join("main.nia"),
         r#"
 module bits;
-using entry::bits;
+using root::bits;
 
 const compileBytes: [u8; 5] = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
 const compilePair: bits::Pair[u32] = bits::decode[u32](compileBytes);
@@ -811,7 +811,7 @@ fn imported_generic_nested_union_preserves_storage_across_const_and_runtime_call
         &root.join("main.nia"),
         r#"
 module bits;
-using entry::bits;
+using root::bits;
 
 const compileSlot: bits::Outer[u32] = bits::layered[u32](1144201745, 26197);
 const compileBytes: [u8; 4] = bits::readBytes[u32](compileSlot);
@@ -869,7 +869,7 @@ fn imported_generic_vector_union_is_shared_across_const_and_runtime_calls() {
         &root.join("main.nia"),
         r#"
 module bits;
-using entry::bits;
+using root::bits;
 
 const compileVector: u16x2 = std::builtin::insert(
     std::builtin::splat[u16x2](4386),
@@ -952,7 +952,7 @@ pub const pair_size: usize = std::builtin::size[Pair]();
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const n: usize = config::pair_size;
 
@@ -984,7 +984,7 @@ pub struct Packet {
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const n: usize = std::builtin::size[config::Packet]();
 
@@ -1054,7 +1054,7 @@ extend Item {
         &root.join("main.nia"),
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 using defs::*;
 
 fun make() Boxed {
@@ -1101,7 +1101,7 @@ extend Item {
         &root.join("main.nia"),
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 using defs::*;
 
 fun make() Boxed {

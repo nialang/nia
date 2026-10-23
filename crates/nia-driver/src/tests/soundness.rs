@@ -177,7 +177,7 @@ pub trait Source {
         &root.join("main.nia"),
         r#"
 module traits;
-using entry::traits;
+using root::traits;
 
 struct Counter {
     value: i32,
@@ -539,8 +539,8 @@ pub struct Buf[N: usize] {
     write(
         &root.join("impls.nia"),
         r#"
-using entry::api;
-using entry::types;
+using root::api;
+using root::types;
 
 extend[N: usize] types::Buf[N] : api::HasLen {
     pub const Len: usize = N;
@@ -554,9 +554,9 @@ module api;
 module types;
 module impls;
 
-using entry::api;
-using entry::types;
-using entry::impls;
+using root::api;
+using root::types;
+using root::impls;
 
 const fun len[T]() usize
 where T: api::HasLen

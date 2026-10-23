@@ -13,10 +13,9 @@ fn diagnostic_reports_retain_dependency_overlays_across_edits_and_cache() {
         "module api; module consumer; pub fun main() i32 { consumer::run() }\n",
     );
     write(&api, "fun hidden(value: i32) i32 { value }\n");
-    write(&consumer, "pub fun run() i32 { entry::api::hidden(1) }\n");
+    write(&consumer, "pub fun run() i32 { root::api::hidden(1) }\n");
     let api_overlay = "// declaration overlay\n\nfun hidden(value: i32) i32 { value }\n";
-    let consumer_overlay =
-        "// consumer overlay\n\npub fun run() i32 { entry::api::hidden(true) }\n";
+    let consumer_overlay = "// consumer overlay\n\npub fun run() i32 { root::api::hidden(true) }\n";
     let request = || CheckRequest::new(entry.to_string_lossy().into_owned());
     let make_driver = |verify_frontend_cache| {
         let driver = Driver::with_config(DriverConfig {
@@ -37,7 +36,7 @@ fn diagnostic_reports_retain_dependency_overlays_across_edits_and_cache() {
     assert!(driver.compiler_query_executions("checked_program") > 0);
     let text = crate::render_program_diagnostics(&retained, None, None);
     let json = crate::render_program_diagnostics_json(&retained);
-    assert!(text.contains("entry::api::hidden(true)"), "{text}");
+    assert!(text.contains("root::api::hidden(true)"), "{text}");
     assert!(text.contains("api.nia:3:1:"), "{text}");
     assert!(text.contains("consumer.nia:3:"), "{text}");
     for (verify, other_driver) in [(false, make_driver(false)), (true, make_driver(true))] {
@@ -73,7 +72,7 @@ fn diagnostic_reports_retain_dependency_overlays_across_edits_and_cache() {
         .map(|error| crate::render_driver_error(error, None, None))
         .collect::<Vec<_>>();
     for report in &reports {
-        assert!(report.contains("entry::api::hidden(true)"), "{report}");
+        assert!(report.contains("root::api::hidden(true)"), "{report}");
         assert!(report.contains("api.nia:3:1:"), "{report}");
     }
     driver
@@ -85,7 +84,7 @@ fn diagnostic_reports_retain_dependency_overlays_across_edits_and_cache() {
     driver
         .set_source(
             consumer.to_string_lossy(),
-            "pub fun run() i32 { entry::api::hidden(1) }\n",
+            "pub fun run() i32 { root::api::hidden(1) }\n",
         )
         .expect("repair argument");
     driver

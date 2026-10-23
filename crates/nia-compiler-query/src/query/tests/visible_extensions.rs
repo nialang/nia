@@ -7,7 +7,7 @@ fn executable_visible_extensions_follow_facade_provider_chains() {
         "main.nia",
         r#"
 module facade;
-using entry::facade;
+using root::facade;
 
 pub fun main() i32 {
 let init = facade::Init::init();
@@ -43,7 +43,7 @@ pub using self::types::{Args, ArgsIter, Init};
         nia_ids::Visibility::Private,
         "facade/args_impl.nia",
         r#"
-using entry::facade::types::{Args, ArgsIter};
+using root::facade::types::{Args, ArgsIter};
 
 extend Args {
 pub fun iter(&self) ArgsIter {
@@ -64,7 +64,7 @@ pub fun next(&mut self) ?i32 {
         nia_ids::Visibility::Private,
         "facade/init_impl.nia",
         r#"
-using entry::facade::types::{Args, Init};
+using root::facade::types::{Args, Init};
 
 extend Init {
 pub fun init() Init {
@@ -101,7 +101,7 @@ fn visible_extensions_do_not_expand_using_type_modules_as_provider_modules() {
         "main.nia",
         r#"
 module facade;
-using entry::facade;
+using root::facade;
 
 pub fun main(value: facade::Used) i32 {
 value.len()
@@ -126,7 +126,7 @@ pub using self::types::{Unused, Used};
         nia_ids::Visibility::Private,
         "facade/impls.nia",
         r#"
-using entry::facade::types::Used;
+using root::facade::types::Used;
 
 extend Used {
 pub fun len(&self) i32 {
@@ -170,7 +170,7 @@ fn visible_trait_impls_follow_facade_reexport_item_modules() {
         "main.nia",
         r#"
 module parse;
-using entry::parse;
+using root::parse;
 
 pub fun main() i32 {
 (&"abc").parse[i32]()

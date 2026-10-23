@@ -102,7 +102,7 @@ fn body_check_resolves_trait_method_candidates_through_program_trait_method_inde
         "main.nia",
         r#"
 module traits;
-using entry::traits::{Ops, Value};
+using root::traits::{Ops, Value};
 
 fun main() i32 {
 let value = Value {};

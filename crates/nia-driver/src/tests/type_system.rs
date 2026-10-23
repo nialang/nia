@@ -1082,7 +1082,7 @@ fn reports_generic_type_argument_count_mismatches() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 struct Point {}
 struct Box[T] { value: T }
 type Pair[T, U] = T;
@@ -1124,7 +1124,7 @@ fn checks_qualified_explicit_generic_function_calls() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 fun main(flag: bool) i32 {
     let mut x: i32 = math::id[i32](1);
     _ = math::id[i32](flag);
@@ -1167,7 +1167,7 @@ fn checks_qualified_inferred_generic_function_calls() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 fun main(flag: bool) i32 {
     let mut x: i32 = math::id(1);
     _ = math::choose(1, flag);
@@ -1897,7 +1897,7 @@ fn checks_cross_module_struct_literals() {
         &root.join("main.nia"),
         r#"
 module geom;
-using entry::geom;
+using root::geom;
 
 fun main() i32 {
     let mut p = geom::Point { x: 40, y: 2 };

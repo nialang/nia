@@ -212,7 +212,10 @@ pub mod known {
 
     known_symbol!(EMPTY, "");
 
-    known_symbol!(ENTRY, "entry");
+    /// Package identity of the program's own module tree. It is not an
+    /// identifier, so no source path can name it.
+    pub const PROGRAM_TREE: SymbolId = SymbolId::from_stable_hash(stable_hash("<program>"));
+    known_symbol!(PROGRAM, "program");
     known_symbol!(MODULE, "module");
     known_symbol!(BUILTIN, "builtin");
     known_symbol!(PLACE_MODULE, "place");
@@ -386,7 +389,8 @@ pub mod known {
     /// Complete text-to-identity registry used by deterministic resolvers.
     pub const WELL_KNOWN: &[(SymbolId, &str)] = &[
         (EMPTY, ""),
-        (ENTRY, "entry"),
+        (PROGRAM_TREE, "<program>"),
+        (PROGRAM, "program"),
         (MODULE, "module"),
         (BUILTIN, "builtin"),
         (PLACE_MODULE, "place"),
@@ -542,11 +546,6 @@ pub mod known {
         (ENDIAN, "endian"),
         (POINTER_WIDTH, "pointerWidth"),
     ];
-
-    /// Returns [`ENTRY`].
-    pub const fn entry() -> SymbolId {
-        ENTRY
-    }
 
     /// Returns [`MODULE`].
     pub const fn module() -> SymbolId {
@@ -767,7 +766,7 @@ mod tests {
     #[test]
     fn stable_hash_is_content_based() {
         assert_eq!(SymbolId::from_stable_hash(stable_hash("std")), known::std());
-        assert_ne!(known::std(), known::entry());
+        assert_ne!(known::std(), known::PROGRAM_TREE);
     }
 
     #[test]
@@ -795,8 +794,8 @@ mod tests {
         );
         assert_eq!(optional_symbol_text_or_unresolved(&resolver, None), None);
         assert_eq!(
-            optional_symbol_text_or_unresolved(&resolver, Some(known::entry())),
-            Some("entry".to_owned())
+            optional_symbol_text_or_unresolved(&resolver, Some(known::PROGRAM)),
+            Some("program".to_owned())
         );
     }
 
@@ -806,7 +805,7 @@ mod tests {
 
         assert_eq!(symbol_for_known_text("std"), Some(known::std()));
         assert_eq!(symbol_for_known_text("not_registered"), None);
-        assert_eq!(known_symbol_text_or_identity(known::entry()), "entry");
+        assert_eq!(known_symbol_text_or_identity(known::PROGRAM), "program");
         assert_eq!(
             known_symbol_text_or_identity(unknown),
             "sym:0000000000001234"

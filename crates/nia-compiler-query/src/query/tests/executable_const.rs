@@ -165,7 +165,7 @@ fn executable_filtered_const_resolves_forwarded_array_len_values() {
         "main.nia",
         r#"
 module facade;
-using entry::facade;
+using root::facade;
 
 pub fun main() i32 {
 let mut values: [u8; facade::LEN] = [0; facade::LEN];
@@ -223,7 +223,7 @@ fn executable_filtered_const_resolves_local_forwarded_array_len_in_method_body()
         "main.nia",
         r#"
 module raw;
-using entry::raw;
+using root::raw;
 
 const LEN: usize = raw::LEN;
 
@@ -281,7 +281,7 @@ fn signature_const_resolves_receiver_locals_for_omitted_patterns() {
         "main.nia",
         r#"
 module palette;
-using entry::palette;
+using root::palette;
 
 pub fun main() i32 {
     let values: [u8; palette::SIZE] = [0; palette::SIZE];

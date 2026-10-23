@@ -37,7 +37,7 @@ fn codegen_preparation_does_not_cross_backend_aggregate_barrier() {
 fn scoped_backend_schedule_exposes_each_module_before_aggregate_finish() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; pub fun main() i32 { helper::value() }",
+        "module helper; using root::helper; pub fun main() i32 { helper::value() }",
     );
     let entry = fixture.entry_id();
     let helper = fixture.add_child(entry, "helper", "helper.nia", "pub fun value() i32 { 1 }");
@@ -93,7 +93,7 @@ fn backend_definition_manifest_precedes_finalization_at_every_optimization_level
         "main.nia",
         r#"
 module geom;
-using entry::geom;
+using root::geom;
 
 pub fun main() i32 {
 let mut point = geom::Point { x: 40, y: 2 };

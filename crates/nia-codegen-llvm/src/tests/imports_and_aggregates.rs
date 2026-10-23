@@ -10,8 +10,8 @@ fn emits_cross_module_function_pointer_type_alias_fields() {
         r#"
 module build;
 module types;
-using entry::build;
-using entry::types;
+using root::build;
+using root::types;
 
 fun inc(value: i32) i32 {
     value + 1
@@ -47,7 +47,7 @@ extend Step {
     std::fs::write(
         root.join("build.nia"),
         r#"
-using entry::types;
+using root::types;
 
 pub struct Build {
     registered: types::Step,
@@ -98,7 +98,7 @@ fn emits_imported_open_enum_as_error_union_payload() {
         &main,
         r#"
 module errors;
-using entry::errors;
+using root::errors;
 
 fun maybe(flag: bool) errors::Error!i32 {
     if flag {
@@ -152,7 +152,7 @@ fn emits_local_struct_with_imported_nominal_field() {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 using defs::Item;
 
 struct HoldsItem {
@@ -219,7 +219,7 @@ fn emits_local_struct_array_field_when_module_has_import() {
         &main,
         r#"
 module empty;
-using entry::empty;
+using root::empty;
 
 struct S {
     x: i32,
@@ -267,7 +267,7 @@ fn emits_imported_struct_array_field_expression_edges() {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 fun main() i32 {
     let mut bag = defs::make_bag();
@@ -323,7 +323,7 @@ fn emits_imported_aggregate_function_pointer_call_abi() {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 fun main() i32 {
     let callback: &fun(defs::Pair) defs::Pair = & defs::id_pair;
@@ -374,7 +374,7 @@ fn emits_imported_enum_variant_values_and_match_patterns() {
         &main,
         r#"
 module module_enum_defs;
-using entry::module_enum_defs;
+using root::module_enum_defs;
 
 using module_enum_defs::Mode;
 
@@ -430,7 +430,7 @@ fn emits_enum_switch_with_only_returning_arms() {
         &main,
         r#"
 module module_enum_defs;
-using entry::module_enum_defs;
+using root::module_enum_defs;
 
 fun main() i32 {
     let mut box = module_enum_defs::make_box();
@@ -524,7 +524,7 @@ fn emits_imported_enum_variant_widening_cast() {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 fun main() i32 {
     defs::Mode::B as i32
@@ -564,7 +564,7 @@ fn emits_using_imported_type_associated_function_call() {
         &main,
         r#"
 module module_assoc_defs;
-using entry::module_assoc_defs;
+using root::module_assoc_defs;
 
 using module_assoc_defs::Box;
 
@@ -617,7 +617,7 @@ fn emits_size_builtin_when_module_has_import() {
         &main,
         r#"
 module empty;
-using entry::empty;
+using root::empty;
 
 struct S {
     x: i32,
@@ -696,7 +696,7 @@ fn emits_imported_array_length_size_builtin() {
         &main,
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 fun main() i32 {
     let mut b = defs::make_box();

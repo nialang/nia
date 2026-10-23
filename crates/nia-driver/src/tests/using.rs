@@ -8,7 +8,7 @@ fn using_brings_imported_function_into_scope() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 using math::add;
 
 fun main() i32 {
@@ -32,7 +32,7 @@ fn using_supports_group_and_rename() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 using math::{add, sub as minus};
 
 fun main() i32 {
@@ -59,7 +59,7 @@ fn using_group_supports_nested_enum_wildcard() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 using math::{add, sub as minus, Operator::*};
 
 fun main(flag: bool) math::Operator {
@@ -88,7 +88,7 @@ fn using_wildcard_imports_public_surface() {
         &root.join("main.nia"),
         r#"
 module math;
-using entry::math;
+using root::math;
 using math::*;
 
 fun main(p: Point) i32 {
@@ -116,7 +116,7 @@ fn using_wildcard_imports_pub_using_reexports() {
         r#"
 module facade;
 module impl;
-using entry::facade;
+using root::facade;
 using facade::*;
 
 fun main(p: Point) i32 {
@@ -127,7 +127,7 @@ fun main(p: Point) i32 {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::impl;
+using root::impl;
 pub using impl::*;
 "#,
     );
@@ -150,7 +150,7 @@ fn pub_using_wildcard_does_not_reexport_non_public_child_modules() {
         &root.join("main.nia"),
         r#"
 module parent;
-using entry::parent;
+using root::parent;
 
 fun main() i32 {
     parent::facade::internal::secret()
@@ -210,7 +210,7 @@ fn pub_using_module_namespace_is_visible_downstream() {
         r#"
 module facade;
 module impl;
-using entry::facade;
+using root::facade;
 
 fun main() i32 {
     facade::impl::add(40, 2)
@@ -220,7 +220,7 @@ fun main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::impl;
+using root::impl;
 pub using impl;
 "#,
     );
@@ -241,7 +241,7 @@ fn using_wildcard_brings_reexported_module_namespace_into_scope() {
         r#"
 module facade;
 module impl;
-using entry::facade;
+using root::facade;
 using facade::*;
 
 fun main() i32 {
@@ -252,7 +252,7 @@ fun main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::impl;
+using root::impl;
 pub using impl;
 "#,
     );
@@ -273,7 +273,7 @@ fn pub_using_reexports_for_downstream_modules() {
         r#"
 module facade;
 module impl;
-using entry::facade;
+using root::facade;
 
 fun main() i32 {
     facade::add(40, 2)
@@ -283,7 +283,7 @@ fun main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::impl;
+using root::impl;
 pub using impl::add;
 "#,
     );
@@ -304,7 +304,7 @@ fn pub_using_group_supports_nested_enum_wildcard() {
         r#"
 module facade;
 module math;
-using entry::facade;
+using root::facade;
 
 fun main(flag: bool) facade::Operator {
     let mut n = facade::add(40, facade::minus(4, 2));
@@ -315,7 +315,7 @@ fun main(flag: bool) facade::Operator {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::math;
+using root::math;
 pub using math::{Operator, add, sub as minus, Operator::*};
 "#,
     );
@@ -341,7 +341,7 @@ fn pub_using_root_group_reexports_modules_items_and_variants() {
 module facade;
 module math;
 module palette;
-using entry::facade;
+using root::facade;
 
 fun main(flag: bool) facade::palette::Color {
     let mut n = facade::add(40, 2);
@@ -352,8 +352,8 @@ fun main(flag: bool) facade::palette::Color {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::math;
-using entry::palette;
+using root::math;
+using root::palette;
 pub using {math, math::add, palette, palette::Color::{Red, DDD}};
 "#,
     );
@@ -384,7 +384,7 @@ module d;
 module e;
 module f;
 module h;
-using entry::rootmod;
+using root::rootmod;
 using rootmod::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
 
 fun main(flag: bool) rootmod::a::h::Color {
@@ -396,23 +396,23 @@ fun main(flag: bool) rootmod::a::h::Color {
     write(
         &root.join("rootmod.nia"),
         r#"
-using entry::a;
+using root::a;
 pub using a;
 "#,
     );
     write(
         &root.join("a.nia"),
         r#"
-using entry::b;
-using entry::d;
-using entry::h;
+using root::b;
+using root::d;
+using root::h;
 pub using {b, d, h};
 "#,
     );
     write(
         &root.join("b.nia"),
         r#"
-using entry::c;
+using root::c;
 pub using c;
 "#,
     );
@@ -423,14 +423,14 @@ pub using c;
     write(
         &root.join("d.nia"),
         r#"
-using entry::e;
+using root::e;
 pub using e;
 "#,
     );
     write(
         &root.join("e.nia"),
         r#"
-using entry::f;
+using root::f;
 pub using f;
 pub fun g(a: i32) i32 { a + 3 }
 "#,
@@ -447,7 +447,7 @@ fn using_unknown_name_reports_diagnostic() {
     let root = temp_dir("using_unknown_name_reports_diagnostic");
     let source = r#"
 module math;
-using entry::math;
+using root::math;
 using math::missing;
 
 fun main() i32 { 0 }
@@ -499,8 +499,8 @@ fn using_group_error_highlights_failed_selector() {
     let root = temp_dir("using_group_error_highlights_failed_selector");
     let source = r#"
 module api;
-using entry::api;
-using entry::api::{present, missing_value};
+using root::api;
+using root::api::{present, missing_value};
 
 fun main() () {}
 "#;
@@ -527,7 +527,7 @@ fun main() () {}
 #[test]
 fn using_private_item_reports_declaration_evidence() {
     let root = temp_dir("using_private_item_reports_declaration_evidence");
-    let source = "\nmodule api;\nusing entry::api;\nusing api::hidden;\n\nfun main() () {}\n";
+    let source = "\nmodule api;\nusing root::api;\nusing api::hidden;\n\nfun main() () {}\n";
     let api_source = "fun hidden() () {}\n";
     write(&root.join("main.nia"), source);
     write(&root.join("api.nia"), api_source);
@@ -562,7 +562,7 @@ fn qualified_unknown_value_offers_bounded_spelling_help() {
     let root = temp_dir("qualified_unknown_value_offers_bounded_spelling_help");
     write(
         &root.join("main.nia"),
-        "module api;\nusing entry::api;\nfun main() () { api::pront(); }\n",
+        "module api;\nusing root::api;\nfun main() () { api::pront(); }\n",
     );
     write(&root.join("api.nia"), "pub fun print() () {}\n");
 
@@ -598,7 +598,7 @@ fn qualified_unknown_type_offers_bounded_spelling_help() {
     let root = temp_dir("qualified_unknown_type_offers_bounded_spelling_help");
     write(
         &root.join("main.nia"),
-        "module api;\nusing entry::api;\nfun main() api::Pint { api::Pint {} }\n",
+        "module api;\nusing root::api;\nfun main() api::Pint { api::Pint {} }\n",
     );
     write(&root.join("api.nia"), "pub struct Point {}\n");
 
@@ -637,7 +637,7 @@ fn pub_using_module_path_reexports_module_namespace() {
         r#"
 module math;
 module facade;
-using entry::facade;
+using root::facade;
 
 fun main() i32 {
     facade::math::add(40, 2)
@@ -647,7 +647,7 @@ fun main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-pub using entry::math;
+pub using root::math;
 "#,
     );
     write(
@@ -704,7 +704,7 @@ fn using_cross_module_enum_variant_three_segments() {
         &root.join("main.nia"),
         r#"
 module palette;
-using entry::palette;
+using root::palette;
 using palette::Color::{Red, Black as Dark};
 
 fun main() palette::Color {
@@ -732,7 +732,7 @@ fn pub_using_enum_variant_reexports_for_downstream() {
         r#"
 module facade;
 module palette;
-using entry::facade;
+using root::facade;
 
 fun main() facade::Color {
     facade::Red
@@ -742,7 +742,7 @@ fun main() facade::Color {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::palette;
+using root::palette;
 pub using palette::Color;
 pub using palette::Color::Red;
 "#,
@@ -789,7 +789,7 @@ fn qualified_cross_module_enum_variant_access() {
         &root.join("main.nia"),
         r#"
 module palette;
-using entry::palette;
+using root::palette;
 
 fun main() palette::Color {
     let mut c: palette::Color = palette::Color::Red;
@@ -813,7 +813,7 @@ fn lowers_cross_module_enum_equality_as_intrinsic_operator() {
         &root.join("main.nia"),
         r#"
 module palette;
-using entry::palette;
+using root::palette;
 
 fun same(a: palette::Color, b: palette::Color) bool {
     a == b
@@ -854,7 +854,7 @@ fn using_imported_type_supports_enum_variants_and_associated_functions() {
         &root.join("main.nia"),
         r#"
 module defs;
-using entry::defs;
+using root::defs;
 
 using defs::{Box, Mode};
 
@@ -895,7 +895,7 @@ fn match_exhaustive_over_cross_module_enum() {
         &root.join("main.nia"),
         r#"
 module palette;
-using entry::palette;
+using root::palette;
 
 fun pick(c: palette::Color) i32 {
     match c {
@@ -925,7 +925,7 @@ fn match_over_cross_module_enum_reports_missing_variants() {
         &root.join("main.nia"),
         r#"
 module palette;
-using entry::palette;
+using root::palette;
 
 fun pick(c: palette::Color) i32 {
     match c {
@@ -960,7 +960,7 @@ fn uses_cross_module_public_union() {
         &root.join("main.nia"),
         r#"
 module bits;
-using entry::bits;
+using root::bits;
 
 fun main() i32 {
     let mut value = bits::Bits { i: 7 };
@@ -984,7 +984,7 @@ fn rejects_cross_module_nia_types_at_extern_abi_boundaries() {
         &root.join("main.nia"),
         r#"
 module types;
-using entry::types;
+using root::types;
 
 extern fun bad_struct(point: types::Point);
 extern fun bad_union(bits: types::Bits);
@@ -1024,7 +1024,7 @@ fn entry_checking_rejects_extern_abi_types_with_or_without_calls() {
         &root.join("main.nia"),
         r#"
 module types;
-using entry::types;
+using root::types;
 
 extern fun called(flag: bool);
 extern fun unreachable(point: types::Point);
@@ -1072,7 +1072,7 @@ fn rejects_cross_module_aliases_to_invalid_extern_abi_types() {
         &root.join("main.nia"),
         r#"
 module types;
-using entry::types;
+using root::types;
 
 extern fun bad_flag(flag: types::Flag);
 extern fun bad_generic(flag: types::Identity[bool]);
@@ -1136,7 +1136,7 @@ fn using_diagnostics(source: &str, api: &str) -> Vec<(String, String, usize)> {
 #[test]
 fn failed_group_selector_leaves_valid_sibling_usable() {
     let source = r#"module api;
-using entry::api::{present, absent};
+using root::api::{present, absent};
 
 fun main() i32 {
     present()
@@ -1148,7 +1148,7 @@ fun main() i32 {
         diagnostics,
         [(
             "E0201".to_string(),
-            "`using entry::...` could not be resolved: name `absent` is unavailable because its `using` directive did not find it".to_string(),
+            "`using root::...` could not be resolved: name `absent` is unavailable because its `using` directive did not find it".to_string(),
             source.find("absent").expect("absent"),
         )]
     );
@@ -1157,7 +1157,7 @@ fun main() i32 {
 #[test]
 fn unused_import_warning_skips_failed_names_and_marks_the_selector() {
     let source = r#"module api;
-using entry::api::{present, absent};
+using root::api::{present, absent};
 
 fun main() i32 {
     0

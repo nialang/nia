@@ -89,7 +89,7 @@ fn backend_lowering_uses_executable_per_item_ir() {
 fn codegen_tracks_and_reuses_backend_stage_products() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; pub fun main() i32 { helper::id[i32](1) }",
+        "module helper; using root::helper; pub fun main() i32 { helper::id[i32](1) }",
     );
     let module_id = fixture.entry_id();
     let helper_id = fixture.add_child(
@@ -462,7 +462,7 @@ count(Pair[usize] { first: 1, second: 2 })
 fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; pub fun main() i32 { helper::value() }",
+        "module helper; using root::helper; pub fun main() i32 { helper::value() }",
     );
     let module_id = fixture.entry_id();
     let helper_id = fixture.add_child(

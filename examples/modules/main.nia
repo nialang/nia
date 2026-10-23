@@ -5,8 +5,8 @@ pub module geometry;
 
 using std::io;
 using std::process;
-using entry::api;
-using entry::config;
+using root::api;
+using root::config;
 using api::{Point, add as plus, Color::Green};
 using process::{Init, ExitCode};
 

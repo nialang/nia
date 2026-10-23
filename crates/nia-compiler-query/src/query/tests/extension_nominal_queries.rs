@@ -8,7 +8,7 @@ fn visible_extensions_use_signature_type_normalization_and_nominal_provider_quer
         "main.nia",
         r#"
 module facade;
-using entry::facade;
+using root::facade;
 
 pub fun main(value: facade::Used) i32 {
     value.len()
@@ -33,7 +33,7 @@ pub using self::types::Used;
         nia_ids::Visibility::Private,
         "facade/impls.nia",
         r#"
-using entry::facade::types::Used;
+using root::facade::types::Used;
 
 extend Used {
     pub fun len(&self) i32 {

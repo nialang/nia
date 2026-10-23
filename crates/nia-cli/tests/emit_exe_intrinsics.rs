@@ -618,7 +618,7 @@ fn emit_exe_const_functions_run_at_comptime_and_runtime() {
         &main,
         r#"
 module pairs;
-using entry::pairs;
+using root::pairs;
 using std::process;
 
 struct Width {

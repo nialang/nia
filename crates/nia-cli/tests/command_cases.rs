@@ -100,7 +100,7 @@ fn run_check_configuration(
         .arg("--runtime")
         .arg("freestanding")
         .output_timeout_in_session("run private freestanding entry check");
-    assert_failure(private_runtime, &["private", "entry::main"]);
+    assert_failure(private_runtime, &["private", "program::main"]);
 
     for _ in 0..2 {
         let mut public_runtime = support::nia_command();
@@ -184,7 +184,7 @@ fn run_option_errors(source: &Path) {
         command(["-O9", "check"], source),
         &["unknown optimization level `-O9`", "-Oz"],
     );
-    for reserved in ["entry", "root", "builtin"] {
+    for reserved in ["root", "builtin", "runtime"] {
         let mut process = support::nia_command();
         let output = process
             .arg("check")

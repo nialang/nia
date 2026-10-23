@@ -1149,7 +1149,6 @@ impl<'a> TypeResolver<'a> {
 
     fn root_module_for_segment(&self, segment: &TypePathSegment) -> Option<ModuleId> {
         if let PathSegmentKind::Name(name) = segment.kind
-            && !nia_imports::is_entry_module_root(name)
             && !nia_imports::is_runtime_module_root(name)
             && let Some(scope) = self.using_scope
             && scope.shadows_module_namespace(&name, segment.span)

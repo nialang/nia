@@ -769,9 +769,9 @@ module tree. `pub module` makes a child module part of the public surface, and
 `pub using` re-exports names from another module.
 
 `using` paths start from a module in scope or from a root: `std` for the
-standard library, `root` for the root of the current module tree, `entry` for the program's
-entry package, `self` and `super` for the current and parent modules, or a
-dependency name declared in `nia.toml`. `using` accepts groups
+standard library, `root` for the root of the current module tree, `self` and
+`super` for the current and parent modules, or a dependency name declared in
+`nia.toml`. `using` accepts groups
 (`using std::{io, fmt};`), renames (`using geometry::origin as zero;`), and
 wildcards (`using geometry::*;`).
 

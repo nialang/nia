@@ -13,7 +13,7 @@ fn emit_llvm_retains_reachable_imports_from_a_declarations_only_module() {
         &main,
         r#"
 module native;
-using entry::native;
+using root::native;
 using std::process;
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -75,7 +75,7 @@ fun main(init: process::Init) process::ExitCode!() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("entry::main"), "{stderr}");
+    assert!(stderr.contains("program::main"), "{stderr}");
 }
 
 #[test]
@@ -253,7 +253,7 @@ pub(root) module x86;
             .with_extension("")
             .join("startup.nia"),
         r#"
-using entry;
+using program;
 
 @[if arch == "x86_64"]
 fun syscallExit(code: i32) () {
@@ -282,7 +282,7 @@ fun syscallExit(code: i32) () {
 }
 
 extern fun niaStartStack() () {
-    syscallExit(entry::mymain());
+    syscallExit(program::mymain());
     loop {}
 }
 "#,
@@ -330,12 +330,12 @@ pub extern fun _start() () {
     // The runtime roots Windows startup in `startup.nia` by definition name.
     std::fs::write(
         std_start_windows_x86_64.with_file_name("startup.nia"),
-        "using entry;\n\nextern fun ExitProcess(code: u32) ();\n\nextern fun niaWindowsStart() () { ExitProcess(11u32); loop {} }\n",
+        "using program;\n\nextern fun ExitProcess(code: u32) ();\n\nextern fun niaWindowsStart() () { ExitProcess(11u32); loop {} }\n",
     )
     .expect("write custom Windows startup");
     std::fs::write(
         std_start_macos_arch.with_file_name("startup.nia"),
-        "using entry;\n\nextern fun exit(code: i32) ();\n\npub(root) extern fun niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(entry::mymain()); loop {} }\n",
+        "using program;\n\nextern fun exit(code: i32) ();\n\npub(root) extern fun niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(program::mymain()); loop {} }\n",
     )
     .expect("write custom Darwin startup");
     for arch in ["x86_64", "aarch64"] {

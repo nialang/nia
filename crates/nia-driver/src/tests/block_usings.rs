@@ -15,7 +15,7 @@ fn block_imports_failed_namespace_hides_a_declared_module() {
         r#"
 module api;
 fun inspect() () {
-    using entry::api::missing as api;
+    using root::api::missing as api;
     _ = api::value();
     let value: api::Point = .{};
     _ = value;
@@ -70,12 +70,12 @@ struct Alias { wrong: bool }
 enum Color { Blue }
 fun get() bool { false }
 const WIDTH: bool = false;
-const fun width() usize { using entry::api::WIDTH; WIDTH }
+const fun width() usize { using root::api::WIDTH; WIDTH }
 fun array() [i32; width()] { [1, 2] }
 pub fun main() i32 {
-    using entry::api::{Point as Alias, Color, value as get, WIDTH};
+    using root::api::{Point as Alias, Color, value as get, WIDTH};
     using Color::Red as Shade;
-    using entry::api as model;
+    using root::api as model;
     let point: Alias = .{ x: get() };
     let color: Color = Shade;
     let qualified_color: Color = Color::Red;
@@ -84,8 +84,8 @@ pub fun main() i32 {
     _ = qualified_color;
     _ = values;
     {
-        using entry::other::value as get;
-        using entry::other as api;
+        using root::other::value as get;
+        using root::other as api;
         using api::value as through_alias;
         let flag: bool = get();
         let module_flag: bool = api::value();
@@ -127,11 +127,11 @@ fn block_imports_do_not_leak_and_keep_failed_alias_causes() {
 module api;
 fun need(value: i32) i32 { value }
 fun inspect() () {
-    { using entry::api::value as nested; _ = nested(); }
+    { using root::api::value as nested; _ = nested(); }
     { _ = nested(); }
     _ = nested();
     {
-        using entry::api::{Missing as Alias, missing as invoke};
+        using root::api::{Missing as Alias, missing as invoke};
         let value: Alias = .{};
         let nested_type: Alias::Member = .{};
         _ = value;
@@ -200,18 +200,18 @@ fn block_imports_wildcards_and_duplicates_keep_namespace_boundaries() {
         r#"
 module api;
 fun inspect() () {
-    using entry::api::{Item as shared, value as shared};
+    using root::api::{Item as shared, value as shared};
     let item: shared = .{};
     _ = item;
     _ = shared();
     {
-        using entry::api::*;
+        using root::api::*;
         using Color::*;
         let red: Color = Red;
         let blue: Color = Blue;
         _ = red;
         _ = blue;
-        using entry::api::value;
+        using root::api::value;
     }
 }
 "#,
@@ -240,7 +240,7 @@ fn block_imports_causes_and_scope_edits_match_clean_and_cached_checks() {
     let failing = r#"module api;
 fun need(value: i32) i32 { value }
 fun main() () {
-    using entry::api::{Missing as Alias, missing as invoke};
+    using root::api::{Missing as Alias, missing as invoke};
     let value: Alias = .{};
     _ = value;
     _ = invoke();
@@ -253,7 +253,7 @@ fun main() () {
         .replace("missing as", "present as")
         .replace("need(true)", "need(1)");
     let nested = valid
-        .replace("    using entry", "    { using entry")
+        .replace("    using root", "    { using root")
         .replace("present as invoke};", "present as invoke}; }");
     let shifted = format!("// move all import and consumer spans\n{failing}");
     let cache = root.join("cache");

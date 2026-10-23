@@ -9,7 +9,7 @@ fn public_const_values_are_visible_through_import_closure() {
         r#"
 module facade;
 module defs;
-using entry::facade;
+using root::facade;
 
 fun main() i32 {
     facade::answer
@@ -19,7 +19,7 @@ fun main() i32 {
     write(
         &root.join("facade.nia"),
         r#"
-using entry::defs;
+using root::defs;
 pub using defs::answer;
 "#,
     );
@@ -77,7 +77,7 @@ fn scalar_const_values_drive_static_initializers() {
         &root.join("main.nia"),
         r#"
 module values;
-using entry::values;
+using root::values;
 
 const localFloat: f32 = 1.5f32;
 const localBool: bool = true;
@@ -149,7 +149,7 @@ fn aggregate_const_values_drive_static_initializers() {
         &root.join("main.nia"),
         r#"
 module values;
-using entry::values;
+using root::values;
 
 struct Config {
     bytes: [u8; 2],
@@ -580,7 +580,7 @@ fn imported_const_functions_are_ordinary_const_values() {
         &root.join("main.nia"),
         r#"
 module config;
-using entry::config;
+using root::config;
 
 const width: usize = config::width(2);
 
@@ -840,7 +840,7 @@ fn imported_const_functions_and_methods_work_at_comptime_and_runtime() {
         &root.join("main.nia"),
         r#"
 module widths;
-using entry::widths;
+using root::widths;
 
 const arrayLen: usize = widths::double(2) + widths::Width::fromValue(3).doubled();
 

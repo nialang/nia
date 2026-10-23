@@ -166,7 +166,7 @@ fn executable_checked_modules_do_not_body_check_modules_for_generic_metadata_onl
         "main.nia",
         r#"
 module helper;
-using entry::helper;
+using root::helper;
 
 pub fun main() i32 {
 helper::id[i32](1)

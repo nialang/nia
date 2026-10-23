@@ -1,6 +1,6 @@
-using entry::lexer;
-using entry::model;
-using entry::name_index;
+using root::lexer;
+using root::model;
+using root::name_index;
 using std::collections;
 using std::mem;
 

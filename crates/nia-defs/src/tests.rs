@@ -15,7 +15,7 @@ fn collects_top_level_defs_into_separate_namespaces() {
     let (module, errors) = parse_module(
         r#"
 module math;
-using entry::math;
+using root::math;
 struct Point { x: i32, y: i32 }
 enum Color { Red, Green }
 type Byte = u8;
@@ -49,7 +49,7 @@ static mut counter = 0;
 fn public_surface_facts_rebase_without_revision_or_module_handles() {
     let (module, errors) = parse_module(
         r#"
-pub using entry::dep::{Thing, Choice::*};
+pub using root::dep::{Thing, Choice::*};
 pub struct Local[T] { value: T }
 pub enum Choice { First, Second }
 pub fun make() () {}

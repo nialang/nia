@@ -129,7 +129,7 @@ fn emits_imported_generic_structural_extension_method_calls() {
         r#"
 module share;
 module ptr;
-using entry::share;
+using root::share;
 
 extern fun read_readonly() &u8;
 
@@ -146,7 +146,7 @@ fun main(mut_ptr: &mut u8) i32 {
 "#,
     )
     .expect("write main source");
-    std::fs::write(root.join("share.nia"), "using entry::ptr;").expect("write share source");
+    std::fs::write(root.join("share.nia"), "using root::ptr;").expect("write share source");
     std::fs::write(
         root.join("ptr.nia"),
         r#"

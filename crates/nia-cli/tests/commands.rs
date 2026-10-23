@@ -382,7 +382,7 @@ fn failed_using_use_is_grouped_under_its_root_diagnostic() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        "using entry::api::missing_value;\n\nfun main() i32 { missing_value() }\n",
+        "using root::api::missing_value;\n\nfun main() i32 { missing_value() }\n",
     )
     .expect("write source");
     std::fs::write(root.join("api.nia"), "").expect("write imported module");
@@ -468,7 +468,7 @@ fun main() i32 {
 fn interactive_terminal_reports_color_text_without_coloring_json() {
     let root = temp_dir("interactive_terminal_reports_color_text_without_coloring_json");
     let main = root.join("main.nia");
-    std::fs::write(&main, "using entry::missing;\nfun main() i32 { 0 }\n")
+    std::fs::write(&main, "using root::missing;\nfun main() i32 { 0 }\n")
         .expect("write invalid import source");
     std::fs::write(root.join("entry.nia"), "").expect("write imported module");
 

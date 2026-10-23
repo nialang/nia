@@ -93,7 +93,7 @@ one [module](#modules-and-visibility).
 
 Program startup is supplied by the selected runtime; see the
 [runtime model](platform-support.md#runtime-model). With the `freestanding`
-runtime the entry package declares a public `main` with this signature:
+runtime the program's root module declares a public `main` with this signature:
 
 ```nia
 using std::process;
@@ -641,8 +641,8 @@ extern static mut shared_counter: usize;
 - `extern static` declares a foreign global and requires a type; it has no
   initializer.
 - `extern fun` cannot be `const` or generic.
-- In an executable, every top-level `pub extern fun` definition of the entry
-  package is exported even if Nia code never calls it.
+- In an executable, every top-level `pub extern fun` definition of the program's
+  root module is exported even if Nia code never calls it.
 
 There are no `extern { ... }` blocks and no ABI strings. Which types may cross
 the boundary, symbol naming, and argument promotion for variadic calls are
@@ -2161,7 +2161,6 @@ Paths separate segments with `::`. These roots are reserved:
 
 | Root | Names |
 | --- | --- |
-| `entry` | the package being compiled |
 | `root` | the root of the module tree that contains the current module |
 | `std` | the standard library |
 | `self` | the current module |
@@ -2176,14 +2175,14 @@ visible in the whole file; in a block, only in that block.
 
 ```nia
 using std::process;                       // a module
-using entry::math as m;                   // renamed
+using root::math as m;                    // renamed
 using math::add;                          // one item
 using math::{add, sub as minus};          // a group with renames
 using math::*;                            // the module's public surface
 using palette::Color::Red;                // one enum variant
 using palette::Color::*;                  // every variant
 using {math, palette::Color};             // a group of paths
-using entry::a::{b::c::f, d::{g, h::Kind::*}};  // nested groups
+using root::a::{b::c::f, d::{g, h::Kind::*}};   // nested groups
 ```
 
 `using module::*` imports every public item of the module, its public child
@@ -2202,7 +2201,7 @@ re-exported module (`facade::impl::add`). Re-exports may chain.
 
 ```nia
 // facade.nia
-using entry::impl;
+using root::impl;
 pub using impl;                  // the module itself
 pub using impl::{frob as run};   // one item, renamed
 pub using impl::Color::*;        // every variant

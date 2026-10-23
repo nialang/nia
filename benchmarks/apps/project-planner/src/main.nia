@@ -6,10 +6,10 @@ pub module name_index;
 pub module parser;
 pub module report;
 
-using entry::analysis;
-using entry::input;
-using entry::parser;
-using entry::report;
+using root::analysis;
+using root::input;
+using root::parser;
+using root::report;
 using std::fs;
 using std::mem;
 using std::process;
