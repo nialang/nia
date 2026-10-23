@@ -97,8 +97,13 @@ follow the remote `HEAD`. Nia fetches Git sources itself and accepts
 `file:///` URLs. URLs cannot embed credentials. `http://` and `git://` are
 neither encrypted nor authenticated; prefer HTTPS or SSH.
 
-For HTTPS, Nia asks `git credential fill` for a username and password matching
-the repository host and path, then sends them with HTTP Basic authentication.
+For HTTPS, Nia first requests the repository anonymously. When the server
+answers `401`, Nia asks `git credential fill` for a username and password
+matching the repository host and path and retries with HTTP Basic
+authentication; public repositories never reach the credential helper.
+Accepted credentials are reported back with `git credential approve`, and
+rejected ones with `git credential reject`, so the helper keeps only working
+credentials.
 This uses the configured Git credential helper (such as Git Credential
 Manager); the Git executable is needed only for this lookup, while Nia still
 performs the fetch itself. Credentials are held in memory for the request and

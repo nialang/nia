@@ -264,52 +264,92 @@ pub(crate) fn checkout_http(
 ) -> io::Result<String> {
     let url = parse_http_git_url(source)?;
     let proxy = http_proxy_for_url(&url)?;
-    let credentials = if url.secure {
-        lookup_http_credentials(&url)
-    } else {
-        None
+    let roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
-    let header = credentials
-        .as_ref()
-        .map(GitCredentials::basic_authorization);
-    let authorization = header.as_ref().map(|value| value.as_slice());
-    // A 401 after sending helper credentials means they are stale; tell the
-    // helper so it does not offer them again.
-    let auth_error = |error: io::Error| {
-        if error.kind() == io::ErrorKind::PermissionDenied
-            && let Some(credentials) = &credentials
-        {
-            reject_http_credentials(&url, credentials);
-        }
-        explain_http_auth_error(error, &url, authorization.is_some())
+    checkout_http_with(
+        &url,
+        proxy.as_ref(),
+        &roots,
+        &|| Command::new("git"),
+        revision,
+        destination_dir,
+    )
+}
+
+/// The smart-HTTP checkout, with the TLS roots and the `git` command for
+/// credential-helper calls supplied by the caller.
+///
+/// Like Git, the first request is anonymous: the credential helper is asked
+/// only after the server answers `401`, so public repositories never reach
+/// it. Accepted credentials are approved so the helper can store or refresh
+/// them; credentials that still receive `401` are rejected so it stops
+/// offering them.
+fn checkout_http_with(
+    url: &HttpGitUrl,
+    proxy: Option<&HttpProxy>,
+    roots: &RootCertStore,
+    git: &dyn Fn() -> Command,
+    revision: &str,
+    destination_dir: &Dir,
+) -> io::Result<String> {
+    let send = |request: HttpRequest<'_>| {
+        http_request_with_roots(url, HttpRequest { proxy, ..request }, roots.clone())
     };
     let info_path = format!("{}/info/refs?service=git-upload-pack", url.path);
-    let info = http_request(
-        &url,
-        HttpRequest {
-            authorization,
-            proxy: proxy.as_ref(),
-            ..HttpRequest::get(&info_path)
-        },
-    )
-    .map_err(auth_error)?;
+    let mut credentials = None;
+    let info = match send(HttpRequest::get(&info_path)) {
+        Err(error) if url.secure && error.kind() == io::ErrorKind::PermissionDenied => {
+            let Some(found) = run_http_credential_fill(url, git()) else {
+                return Err(explain_http_auth_error(error, url, false));
+            };
+            let header = found.basic_authorization();
+            let retried = send(HttpRequest {
+                authorization: Some(header.as_slice()),
+                ..HttpRequest::get(&info_path)
+            });
+            match retried {
+                Ok(info) => {
+                    credentials = Some((found, header));
+                    info
+                }
+                Err(error) => {
+                    if error.kind() == io::ErrorKind::PermissionDenied {
+                        reject_http_credentials_with(url, &found, git());
+                    }
+                    return Err(explain_http_auth_error(error, url, true));
+                }
+            }
+        }
+        result => result.map_err(|error| explain_http_auth_error(error, url, false))?,
+    };
     let refs = parse_advertised_refs(&info)?;
     let commit = select_advertised_revision(&refs, revision)?;
 
     let request = build_upload_pack_request(&commit)?;
     let upload_path = format!("{}/git-upload-pack", url.path);
-    let response = http_request(
-        &url,
-        HttpRequest {
-            method: "POST",
-            body: &request,
-            content_type: "application/x-git-upload-pack-request",
-            authorization,
-            proxy: proxy.as_ref(),
-            ..HttpRequest::get(&upload_path)
-        },
-    )
-    .map_err(auth_error)?;
+    let authorization = credentials.as_ref().map(|(_, header)| header.as_slice());
+    let response = send(HttpRequest {
+        method: "POST",
+        body: &request,
+        content_type: "application/x-git-upload-pack-request",
+        authorization,
+        ..HttpRequest::get(&upload_path)
+    });
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            if error.kind() == io::ErrorKind::PermissionDenied
+                && let Some((found, _)) = &credentials
+            {
+                reject_http_credentials_with(url, found, git());
+            }
+            return Err(explain_http_auth_error(error, url, authorization.is_some()));
+        }
+    };
+    if let Some((found, _)) = &credentials {
+        approve_http_credentials_with(url, found, git());
+    }
     let pack = parse_upload_pack_response(&response)?;
 
     write_pack_checkout_into(&pack, &commit, destination_dir)
@@ -767,28 +807,36 @@ fn decode_chunked_body_with_limit(mut input: &[u8], limit: usize) -> io::Result<
     }
 }
 
-pub(crate) fn lookup_http_credentials(url: &HttpGitUrl) -> Option<GitCredentials> {
-    run_http_credential_fill(url, Command::new("git"))
-}
-
 /// Tells the credential helper that `credentials` were rejected, so a stored
 /// password is not offered again. Failures are ignored: the fetch has already
 /// failed with an authentication error.
-pub(crate) fn reject_http_credentials(url: &HttpGitUrl, credentials: &GitCredentials) {
-    reject_http_credentials_with(url, credentials, Command::new("git"));
+fn reject_http_credentials_with(url: &HttpGitUrl, credentials: &GitCredentials, command: Command) {
+    report_http_credentials(url, credentials, command, "reject");
 }
 
-fn reject_http_credentials_with(url: &HttpGitUrl, credentials: &GitCredentials, command: Command) {
+/// Tells the credential helper that `credentials` were accepted, so it can
+/// store or refresh them. Failures are ignored: the fetch already succeeded.
+fn approve_http_credentials_with(url: &HttpGitUrl, credentials: &GitCredentials, command: Command) {
+    report_http_credentials(url, credentials, command, "approve");
+}
+
+/// Sends `git credential approve` or `reject` for the credentials of `url`.
+fn report_http_credentials(
+    url: &HttpGitUrl,
+    credentials: &GitCredentials,
+    command: Command,
+    action: &str,
+) {
     let mut input = Zeroizing::new(credential_request(url).into_bytes());
     // `credential_request` ends with the blank terminator line; replace it
-    // with the rejected username and password.
+    // with the username and password being reported.
     input.pop();
     input.extend_from_slice(b"username=");
     input.extend_from_slice(&credentials.username);
     input.extend_from_slice(b"\npassword=");
     input.extend_from_slice(&credentials.password);
     input.extend_from_slice(b"\n\n");
-    let _ = run_git_credential(command, "reject", &input, CREDENTIAL_HELPER_TIMEOUT);
+    let _ = run_git_credential(command, action, &input, CREDENTIAL_HELPER_TIMEOUT);
 }
 
 pub(crate) fn run_http_credential_fill(
@@ -1312,6 +1360,304 @@ mod tests {
         assert!(!remaining.contains("nia:secret"), "{remaining}");
         assert!(remaining.contains("other:ignored"), "{remaining}");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// One HTTPS smart-protocol repository served from a local Git checkout.
+    /// Requests whose `Authorization` header differs from `accepted` get
+    /// `401`; with `accepted` unset every request is served anonymously.
+    struct HttpsGitFixture {
+        root: std::path::PathBuf,
+        port: u16,
+        certificate: Vec<u8>,
+        revision: String,
+        server: Option<std::thread::JoinHandle<Vec<Option<String>>>>,
+    }
+
+    impl HttpsGitFixture {
+        fn start(label: &str, accepted: Option<&'static str>, connections: usize) -> Self {
+            use crate::pktline::encode_packet_line;
+            use std::net::TcpListener;
+            use std::process::Command;
+
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "nia-git-https-{label}-{}-{nonce}",
+                std::process::id()
+            ));
+            let repository = root.join("repository");
+            std::fs::create_dir_all(&repository).unwrap();
+            let git = |args: &[&str]| {
+                let output = Command::new("git")
+                    .args(args)
+                    .current_dir(&repository)
+                    .output()
+                    .expect("Git executable is required for the test fixture");
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                String::from_utf8(output.stdout).unwrap()
+            };
+            git(&["init", "-q"]);
+            git(&["config", "user.email", "nia-test@example.invalid"]);
+            git(&["config", "user.name", "Nia Test"]);
+            std::fs::write(repository.join("lib.nia"), "pub fn main() {}\n").unwrap();
+            git(&["add", "lib.nia"]);
+            git(&["commit", "-qm", "fixture"]);
+            let revision = git(&["rev-parse", "HEAD"]).trim().to_string();
+            git(&["gc", "--prune=now", "-q"]);
+            let pack_path = std::fs::read_dir(repository.join(".git/objects/pack"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .find(|path| {
+                    path.extension()
+                        .is_some_and(|extension| extension == "pack")
+                })
+                .unwrap();
+            let pack = std::fs::read(pack_path).unwrap();
+
+            let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
+            let certificate = certified.cert.der().to_vec();
+            let server_config = Arc::new(
+                rustls::ServerConfig::builder()
+                    .with_no_client_auth()
+                    .with_single_cert(
+                        vec![rustls::pki_types::CertificateDer::from(certificate.clone())],
+                        rustls::pki_types::PrivateKeyDer::Pkcs8(
+                            rustls::pki_types::PrivatePkcs8KeyDer::from(
+                                certified.signing_key.serialize_der(),
+                            ),
+                        ),
+                    )
+                    .unwrap(),
+            );
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let advertised = revision.clone();
+            let server = std::thread::spawn(move || {
+                let mut seen = Vec::new();
+                for _ in 0..connections {
+                    let (stream, _) = listener.accept().unwrap();
+                    let connection = rustls::ServerConnection::new(server_config.clone()).unwrap();
+                    let mut stream = rustls::StreamOwned::new(connection, stream);
+                    let mut request = Vec::new();
+                    let mut byte = [0; 1];
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        stream.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                    }
+                    let headers = String::from_utf8(request).unwrap();
+                    let authorization = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("Authorization: ").map(str::to_owned));
+                    let body_length = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("Content-Length: "))
+                        .map_or(0, |length| length.trim().parse::<usize>().unwrap());
+                    let mut request_body = vec![0; body_length];
+                    stream.read_exact(&mut request_body).unwrap();
+                    seen.push(authorization.clone());
+                    let allowed =
+                        accepted.is_none_or(|expected| authorization.as_deref() == Some(expected));
+                    if !allowed {
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            )
+                            .unwrap();
+                    } else {
+                        let mut body = Vec::new();
+                        if headers.starts_with("GET ") {
+                            encode_packet_line(b"# service=git-upload-pack\n", &mut body).unwrap();
+                            body.extend_from_slice(b"0000");
+                            let line =
+                                format!("{advertised} refs/heads/main\0ofs-delta side-band-64k\n");
+                            encode_packet_line(line.as_bytes(), &mut body).unwrap();
+                            body.extend_from_slice(b"0000");
+                        } else {
+                            encode_packet_line(b"NAK\n", &mut body).unwrap();
+                            for chunk in pack.chunks(60_000) {
+                                let mut sideband = vec![1];
+                                sideband.extend_from_slice(chunk);
+                                encode_packet_line(&sideband, &mut body).unwrap();
+                            }
+                            body.extend_from_slice(b"0000");
+                        }
+                        write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .unwrap();
+                        stream.write_all(&body).unwrap();
+                    }
+                    stream.conn.send_close_notify();
+                    stream.flush().unwrap();
+                }
+                seen
+            });
+            Self {
+                root,
+                port,
+                certificate,
+                revision,
+                server: Some(server),
+            }
+        }
+
+        fn url(&self) -> HttpGitUrl {
+            parse_http_git_url(&format!("https://127.0.0.1:{}/repository.git", self.port)).unwrap()
+        }
+
+        /// A `git` command whose only credential helper answers `get` with
+        /// `nia`/`secret` and appends every `store` and `erase` request to a
+        /// log, so tests see exactly which reports the client sent.
+        fn git_with_recording_helper(
+            &self,
+            log: &std::path::Path,
+        ) -> impl Fn() -> Command + 'static {
+            let log_path = log.display().to_string().replace('\\', "/");
+            let script = self.root.join("helper.sh");
+            std::fs::write(
+                &script,
+                format!(
+                    "case \"$1\" in\n  get) printf 'username=nia\\npassword=secret\\n' ;;\n  store|erase) echo \"$1\" >> '{log_path}'; cat >> '{log_path}' ;;\nesac\n"
+                ),
+            )
+            .unwrap();
+            let script = script.display().to_string().replace('\\', "/");
+            let config = self.root.join("gitconfig");
+            std::fs::write(&config, "").unwrap();
+            move || {
+                let mut command = Command::new("git");
+                command
+                    .args([
+                        "-c",
+                        "credential.helper=",
+                        "-c",
+                        &format!("credential.helper=!sh '{script}'"),
+                        "-c",
+                        "credential.useHttpPath=true",
+                    ])
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("GIT_CONFIG_GLOBAL", &config);
+                command
+            }
+        }
+
+        /// A `git` command whose only credential helper is a `store` file.
+        fn git_with_store(&self, store: &std::path::Path) -> impl Fn() -> Command + 'static {
+            let store_path = store.display().to_string().replace('\\', "/");
+            let config = self.root.join("gitconfig");
+            std::fs::write(&config, "").unwrap();
+            move || {
+                let mut command = Command::new("git");
+                command
+                    .args([
+                        "-c",
+                        &format!("credential.helper=store --file=\"{store_path}\""),
+                        "-c",
+                        "credential.useHttpPath=true",
+                    ])
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("GIT_CONFIG_GLOBAL", &config);
+                command
+            }
+        }
+
+        fn checkout(&self, git: &dyn Fn() -> Command) -> io::Result<String> {
+            let mut roots = RootCertStore::empty();
+            roots
+                .add(rustls::pki_types::CertificateDer::from(
+                    self.certificate.clone(),
+                ))
+                .unwrap();
+            let destination = self.root.join(format!(
+                "checkout-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&destination).unwrap();
+            let destination_dir =
+                Dir::open_ambient_dir(&destination, cap_std::ambient_authority()).unwrap();
+            checkout_http_with(&self.url(), None, &roots, git, "main", &destination_dir)
+        }
+
+        fn finish(mut self) -> Vec<Option<String>> {
+            let seen = self.server.take().unwrap().join().unwrap();
+            std::fs::remove_dir_all(&self.root).unwrap();
+            seen
+        }
+    }
+
+    #[test]
+    fn public_https_repositories_never_call_the_credential_helper() {
+        let fixture = HttpsGitFixture::start("public", None, 2);
+        let calls = std::cell::Cell::new(0);
+        let git = || {
+            calls.set(calls.get() + 1);
+            Command::new("git")
+        };
+        assert_eq!(fixture.checkout(&git).unwrap(), fixture.revision);
+        assert_eq!(
+            calls.get(),
+            0,
+            "public fetch consulted the credential helper"
+        );
+        assert_eq!(fixture.finish(), [None, None]);
+    }
+
+    #[test]
+    fn private_https_repositories_authenticate_after_401_and_approve() {
+        // `nia:secret`, the value stored below.
+        const ACCEPTED: &str = "Basic bmlhOnNlY3JldA==";
+        let fixture = HttpsGitFixture::start("private", Some(ACCEPTED), 3);
+        let log = fixture.root.join("helper.log");
+        let git = fixture.git_with_recording_helper(&log);
+        assert_eq!(fixture.checkout(&git).unwrap(), fixture.revision);
+        let reports = std::fs::read_to_string(&log).unwrap_or_default();
+        // Anonymous first, then one authenticated retry reused for the pack.
+        assert_eq!(
+            fixture.finish(),
+            [None, Some(ACCEPTED.to_owned()), Some(ACCEPTED.to_owned())]
+        );
+        // Exactly one approval of the credentials that worked, and no erase.
+        assert_eq!(reports.matches("store\n").count(), 1, "{reports}");
+        assert!(!reports.contains("erase"), "{reports}");
+        assert!(
+            reports.contains("username=nia\npassword=secret"),
+            "{reports}"
+        );
+    }
+
+    #[test]
+    fn rejected_https_credentials_are_erased_from_the_helper() {
+        let fixture = HttpsGitFixture::start("rejected", Some("Basic never"), 2);
+        let store = fixture.root.join("credentials");
+        std::fs::write(
+            &store,
+            format!(
+                "https://nia:stale@127.0.0.1%3a{}/repository.git\n",
+                fixture.port
+            ),
+        )
+        .unwrap();
+        let git = fixture.git_with_store(&store);
+        let error = fixture.checkout(&git).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(
+            error.to_string().contains("credentials were rejected"),
+            "{error}"
+        );
+        let stored = std::fs::read_to_string(&store).unwrap();
+        assert_eq!(fixture.finish().len(), 2);
+        assert!(!stored.contains("nia:stale"), "{stored}");
     }
 
     #[test]
