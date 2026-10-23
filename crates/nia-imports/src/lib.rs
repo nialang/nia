@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Module maps, stable identities, and import-graph construction utilities.
 //!
-//! A [`ModuleMap`] binds package names to source roots; the `entry`, `pkg`,
+//! A [`ModuleMap`] binds package names to source roots; the `entry`, `root`,
 //! `builtin`, `std`, and private `runtime` roots are reserved for the
 //! compiler. The [`ModuleGraph`] is built from those roots and normalizes
 //! `using` paths relative to the current module, its parent, the current
@@ -31,7 +31,7 @@ use nia_symbol::{
 /// Reserved module-map name for the entry package.
 pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
 /// Reserved module-map name for package-relative roots.
-pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
+pub const ROOT_MODULE_MAP_NAME: &str = "root";
 /// Reserved module-map name for compiler builtins.
 pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
 /// Reserved module-map name for the standard library.
@@ -42,7 +42,7 @@ pub const RUNTIME_MODULE_MAP_NAME: &str = "runtime";
 /// Names that cannot be inserted as ordinary package roots.
 pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
     ENTRY_MODULE_MAP_NAME,
-    PACKAGE_MODULE_MAP_NAME,
+    ROOT_MODULE_MAP_NAME,
     BUILTIN_MODULE_MAP_NAME,
     RUNTIME_MODULE_MAP_NAME,
 ];
@@ -80,7 +80,7 @@ fn module_root_symbol_from_text(name: &str) -> SymbolId {
 fn reserved_module_root_symbol(name: &str) -> Option<SymbolId> {
     match name {
         ENTRY_MODULE_MAP_NAME => Some(known::ENTRY),
-        PACKAGE_MODULE_MAP_NAME => None,
+        ROOT_MODULE_MAP_NAME => None,
         BUILTIN_MODULE_MAP_NAME => Some(known::BUILTIN),
         STD_MODULE_MAP_NAME => Some(known::STD),
         RUNTIME_MODULE_MAP_NAME => Some(known::RUNTIME),
@@ -134,8 +134,8 @@ pub enum ModuleRootSegment {
     Current,
     /// Resolve from the current module's parent.
     Parent,
-    /// Resolve from the current package root.
-    PackageRelative,
+    /// Resolve from the root of the current module tree.
+    Root,
     /// Resolve a named package or child root.
     Named(SymbolId),
 }
@@ -772,7 +772,7 @@ impl ModuleGraph {
         match segment {
             ModuleRootSegment::Current => Some(current_module),
             ModuleRootSegment::Parent => self.get(current_module)?.parent,
-            ModuleRootSegment::PackageRelative => self.current_package_root(current_module),
+            ModuleRootSegment::Root => self.current_package_root(current_module),
             ModuleRootSegment::Named(name) => self.root_module_for_name(current_module, name),
         }
     }
@@ -1247,7 +1247,7 @@ pub trait ModuleGraphLookup {
         match segment {
             ModuleRootSegment::Current => Some(current_module),
             ModuleRootSegment::Parent => self.parent_module(current_module),
-            ModuleRootSegment::PackageRelative => self.current_package_root_module(current_module),
+            ModuleRootSegment::Root => self.current_package_root_module(current_module),
             ModuleRootSegment::Named(name) => {
                 if is_entry_module_root(name) {
                     return Some(self.entry_module());
@@ -1498,7 +1498,7 @@ pub fn visibility_allows(
     }
     match visibility {
         Visibility::Public => true,
-        Visibility::PublicPkg => {
+        Visibility::PublicRoot => {
             let Some(defining) = graph.module_path(defining_module) else {
                 return false;
             };
@@ -1680,7 +1680,7 @@ mod tests {
         assert_eq!(graph.module_id_for_stable_key(entry_key), Some(entry));
         let package = graph
             .intern_package_root(
-                &module_root_symbol_from_text("pkg"),
+                &module_root_symbol_from_text("root"),
                 SourcePath::new("pkg/./root.nia"),
             )
             .expect("intern package root");
@@ -1732,7 +1732,7 @@ mod tests {
             Some(entry)
         );
         assert_eq!(
-            graph.root_module_for_segment(entry, ModuleRootSegment::PackageRelative),
+            graph.root_module_for_segment(entry, ModuleRootSegment::Root),
             Some(package_root)
         );
 
@@ -1987,7 +1987,7 @@ mod tests {
             Some(root)
         );
         assert_eq!(
-            graph.root_module_for_segment(entry, ModuleRootSegment::PackageRelative),
+            graph.root_module_for_segment(entry, ModuleRootSegment::Root),
             Some(entry)
         );
         assert_eq!(
@@ -2067,13 +2067,13 @@ mod tests {
             other_root
         ));
         assert!(!visibility_allows(
-            Visibility::PublicPkg,
+            Visibility::PublicRoot,
             &graph,
             parent,
             other_root
         ));
         assert!(visibility_allows(
-            Visibility::PublicPkg,
+            Visibility::PublicRoot,
             &graph,
             parent,
             child

@@ -4,15 +4,15 @@
 // until cleanup succeeds. Teardown reports the first failure after attempting
 // every release and leaves failed owners available for a later retry.
 
-using pkg::collections;
-using pkg::fs;
-using pkg::mem;
-using pkg::string;
-using pkg::error::CleanupAccumulator;
-using pkg::build::error;
-using pkg::build::handles;
-using pkg::build::ownership::allocateBuildOwnerId;
-using pkg::build::records_cleanup::{
+using root::collections;
+using root::fs;
+using root::mem;
+using root::string;
+using root::error::CleanupAccumulator;
+using root::build::error;
+using root::build::handles;
+using root::build::ownership::allocateBuildOwnerId;
+using root::build::records_cleanup::{
     releaseExecutables,
     releaseModules,
     releaseObjects,
@@ -21,8 +21,8 @@ using pkg::build::records_cleanup::{
     releaseSteps,
     releaseTargets,
 };
-using pkg::build::steps;
-using pkg::build::types;
+using root::build::steps;
+using root::build::types;
 
 using error::Error;
 using error::ErrorOperation as Operation;
@@ -133,7 +133,7 @@ extend Build {
         attempt
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         packageRoot: fs::PathView,
         buildDir: fs::PathView,

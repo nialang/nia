@@ -3,7 +3,7 @@
 // Coordinates refer to logical UTF-8 source identity rather than host paths.
 // Lines and columns are one-based; columns count Unicode scalar values.
 
-using pkg::fmt;
+using root::fmt;
 
 pub struct SourceLocation {
     file: &[u8],

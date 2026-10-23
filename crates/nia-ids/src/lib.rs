@@ -209,8 +209,8 @@ pub enum Visibility {
     Private,
     /// Visible to the declaring module's supermodule.
     PublicSuper,
-    /// Visible throughout the declaring package.
-    PublicPkg,
+    /// Visible throughout the declaring module tree.
+    PublicRoot,
     /// Visible to importing packages.
     Public,
 }

@@ -197,7 +197,7 @@ fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSeg
     match kind {
         PathSegmentKind::SelfValue => ModuleRootSegment::Current,
         PathSegmentKind::Super => ModuleRootSegment::Parent,
-        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Root => ModuleRootSegment::Root,
         PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
     }
 }
@@ -947,10 +947,10 @@ fn resolve_public_namespace_segment(
                 .and_then(|node| node.parent)
                 .map(ResolvedNamespace::Module)
                 .ok_or_else(|| invalid_path(segment.span, "`super` has no parent module")),
-            PathSegmentKind::Package => graph
+            PathSegmentKind::Root => graph
                 .current_package_root(module_id)
                 .map(ResolvedNamespace::Module)
-                .ok_or_else(|| invalid_path(segment.span, "`pkg` has no package root")),
+                .ok_or_else(|| invalid_path(segment.span, "`root` has no module-tree root")),
             PathSegmentKind::Name(_) => {
                 Err(UsingFailureCause::Invalid(Diagnostic::internal_error_at(
                     codes::NAME_RESOLUTION,

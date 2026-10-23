@@ -184,7 +184,7 @@ fn run_option_errors(source: &Path) {
         command(["-O9", "check"], source),
         &["unknown optimization level `-O9`", "-Oz"],
     );
-    for reserved in ["entry", "pkg", "builtin"] {
+    for reserved in ["entry", "root", "builtin"] {
         let mut process = support::nia_command();
         let output = process
             .arg("check")

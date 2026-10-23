@@ -103,8 +103,8 @@ pub enum TokenKind {
     Or,
     /// `pub` keyword.
     Pub,
-    /// `pkg` keyword.
-    Pkg,
+    /// `root` keyword.
+    Root,
     /// `return` keyword.
     Return,
     /// `self` value keyword.

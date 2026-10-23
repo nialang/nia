@@ -1,5 +1,5 @@
-using pkg::fs::types;
-using pkg::os;
+using root::fs::types;
+using root::os;
 
 using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, OpenMode, OpenOptions};
 
@@ -20,7 +20,7 @@ extend OpenOptions {
         self.mode
     }
 
-    pub(pkg) fun osMode(&self) os::Error!os::OpenMode {
+    pub(root) fun osMode(&self) os::Error!os::OpenMode {
         match self.mode() {
             .ReadOnly => !.ReadOnly,
             .WriteOnly => !.WriteOnly,
@@ -87,7 +87,7 @@ extend CreateOptions {
         self.permissions
     }
 
-    pub(pkg) fun osMode(&self) os::Error!os::OpenMode {
+    pub(root) fun osMode(&self) os::Error!os::OpenMode {
         if self.read() {
             !.ReadWrite
         } else {

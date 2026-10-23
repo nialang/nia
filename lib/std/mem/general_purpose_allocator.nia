@@ -28,14 +28,14 @@
 // checks incrementally without a status-to-error adapter or a weaker cleanup
 // retry contract.
 
-using pkg::cmp;
-using pkg::error;
-using pkg::math;
-using pkg::iter::range;
-using pkg::mem::allocator;
-using pkg::mem::types;
-using pkg::option;
-using pkg::os;
+using root::cmp;
+using root::error;
+using root::math;
+using root::iter::range;
+using root::mem::allocator;
+using root::mem::types;
+using root::option;
+using root::os;
 
 using allocator::Allocator;
 using types::{Block, Error, Layout};
@@ -479,7 +479,7 @@ extend GeneralPurposeAllocator {
     }
 
     fun allocLarge(&mut self, layout: Layout) Error!Block {
-        let headerSize = pkg::builtin::size[LargeHeader]();
+        let headerSize = root::builtin::size[LargeHeader]();
         let withHeader = match headerSize.checkedAdd(layout.align()) {
             ?value => {
                 value
@@ -496,7 +496,7 @@ extend GeneralPurposeAllocator {
                 return .OutOfMemory!;
             },
         };
-        let blockAlign = cmp::max(pkg::builtin::align[LargeHeader](), layout.align());
+        let blockAlign = cmp::max(root::builtin::align[LargeHeader](), layout.align());
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
         let base = backing.ptr() as usize;
@@ -672,7 +672,7 @@ fun smallSlotSize(layout: Layout) ?usize {
         return null;
     }
     let mut slotSize = minSlotSize;
-    let withHeader = match pkg::builtin::size[SmallSlot]().checkedAdd(layout.align()) {
+    let withHeader = match root::builtin::size[SmallSlot]().checkedAdd(layout.align()) {
         ?value => {
             value
         },
@@ -708,7 +708,7 @@ fun smallSlotSize(layout: Layout) ?usize {
 
 fun smallPagePayloadBase(page: &mut SmallPage) ?usize {
     let base = page.block.ptr() as usize;
-    let afterHeader = match base.checkedAdd(pkg::builtin::size[SmallPage]()) {
+    let afterHeader = match base.checkedAdd(root::builtin::size[SmallPage]()) {
         ?value => {
             value
         },
@@ -778,7 +778,7 @@ fun smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
 }
 
 fun smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
-    let addr = match (slot as usize).checkedAdd(pkg::builtin::size[SmallSlot]()) {
+    let addr = match (slot as usize).checkedAdd(root::builtin::size[SmallSlot]()) {
         ?value => {
             value
         },
@@ -810,7 +810,7 @@ fun smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
 fun largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
     headerAddr
-        .checkedAdd(pkg::builtin::size[LargeHeader]())
+        .checkedAdd(root::builtin::size[LargeHeader]())
         .map[&mut u8, _](\value: usize -> value as &mut u8)
 }
 

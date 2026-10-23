@@ -62,7 +62,7 @@ fn query_loader_loads_trait_provider_declared_in_package_root() {
         &pkg_root,
         r#"
 pub module types;
-using pkg::types;
+using root::types;
 extend types::Widget : Len {
     const fun len(&self) usize { self.value }
 }
@@ -98,7 +98,7 @@ fn query_loader_processes_imports_owned_by_trait_provider() {
     write(
         &root.join("dep/providers.nia"),
         r#"
-using pkg::types;
+using root::types;
 
 extend types::Widget : Len {
     fun len(&self) usize { self.value }
@@ -167,7 +167,7 @@ fun main(value: types::Widget) usize {
     write(
         &root.join("extensions/widgets.nia"),
         r#"
-using pkg::types;
+using root::types;
 
 extend types::Widget : Len {
     fun len(&self) usize { self.value }
@@ -309,8 +309,8 @@ value.score()
     write(
         &root.join("facade.nia"),
         r#"
-pub(pkg) module providers;
-pub(pkg) module types;
+pub(root) module providers;
+pub(root) module types;
 
 using self::providers;
 pub using types::Widget;

@@ -1,6 +1,6 @@
-using pkg::fs::convert;
-using pkg::os;
-using pkg::string;
+using root::fs::convert;
+using root::os;
+using root::string;
 
 pub enum Error: i32 {
     PermissionDenied = 1,
@@ -167,14 +167,14 @@ pub struct CreateDirOptions {
 }
 
 extend Dir {
-    pub(pkg) fun borrowHandle(&self) Error!os::FileHandle {
+    pub(root) fun borrowHandle(&self) Error!os::FileHandle {
         if self.handle is ?handle {
             return !handle;
         }
         .BadFd!
     }
 
-    pub(pkg) fun takeHandle(&mut self) Error!os::FileHandle {
+    pub(root) fun takeHandle(&mut self) Error!os::FileHandle {
         let handle = self.borrowHandle().?;
         self.handle = null;
         !handle
@@ -187,14 +187,14 @@ extend Dir {
 }
 
 extend File {
-    pub(pkg) fun borrowHandle(&self) Error!os::FileHandle {
+    pub(root) fun borrowHandle(&self) Error!os::FileHandle {
         if self.handle is ?handle {
             return !handle;
         }
         .BadFd!
     }
 
-    pub(pkg) fun takeHandle(&mut self) Error!os::FileHandle {
+    pub(root) fun takeHandle(&mut self) Error!os::FileHandle {
         let handle = self.borrowHandle().?;
         self.handle = null;
         !handle
@@ -237,7 +237,7 @@ extend DirIterator {
         !(self.reader.close().?)
     }
 
-    pub(pkg) fun init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
+    pub(root) fun init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
         .{ dir, reader }
     }
 }

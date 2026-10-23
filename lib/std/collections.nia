@@ -9,16 +9,16 @@
 // in cleanup-only state: retry `deinit` with the same allocator rather than
 // using the value again.
 
-pub(pkg) module array_list;
-pub(pkg) module hash_map;
+pub(root) module array_list;
+pub(root) module hash_map;
 
-using pkg::collections::array_list;
-using pkg::collections::array_list::format as array_list_format;
-using pkg::collections::hash_map;
-using pkg::collections::hash_map::context;
-using pkg::collections::hash_map::format as hash_map_format;
-using pkg::collections::hash_map::iterators;
-using pkg::collections::hash_map::map;
+using root::collections::array_list;
+using root::collections::array_list::format as array_list_format;
+using root::collections::hash_map;
+using root::collections::hash_map::context;
+using root::collections::hash_map::format as hash_map_format;
+using root::collections::hash_map::iterators;
+using root::collections::hash_map::map;
 
 pub using array_list::ArrayList;
 pub using hash_map::{

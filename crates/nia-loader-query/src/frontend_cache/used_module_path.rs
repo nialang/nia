@@ -26,7 +26,7 @@ pub(super) fn write_used_module_path(encoded: &mut Vec<u8>, path: &UsedModulePat
             *include_declared_children,
             processing,
         ),
-        UsedModulePath::PackageRelative {
+        UsedModulePath::Root {
             segments,
             include_declared_children,
             processing,
@@ -69,7 +69,7 @@ pub(super) fn read_used_module_path(cursor: &mut Cursor<&[u8]>) -> Option<UsedMo
             include_declared_children,
             processing,
         }),
-        1 => Some(UsedModulePath::PackageRelative {
+        1 => Some(UsedModulePath::Root {
             segments,
             include_declared_children,
             processing,
@@ -134,7 +134,7 @@ pub(super) fn collect_used_module_path_symbols(
             processing,
             ..
         } => (Some(*package), segments, processing),
-        UsedModulePath::PackageRelative {
+        UsedModulePath::Root {
             segments,
             processing,
             ..

@@ -23,7 +23,7 @@ pub module io;
 pub module iter;
 pub module math;
 pub module mem;
-pub(pkg) module os;
+pub(root) module os;
 pub module option;
 pub module parse;
 pub module process;
@@ -41,5 +41,5 @@ pub using fs::{Path, PathView};
 pub using source::{SourceLocation, callerLocation};
 pub using string::{String, TextError, TextFormatError};
 
-using pkg::iter::range;
-using pkg::hash;
+using root::iter::range;
+using root::hash;

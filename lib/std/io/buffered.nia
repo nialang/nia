@@ -4,8 +4,8 @@
 // writer's invalid-transfer error identity and reject impossible byte counts
 // before mutating state.
 
-using pkg::io::traits;
-using pkg::slice;
+using root::io::traits;
+using root::slice;
 
 using traits::{Reader, Writer};
 

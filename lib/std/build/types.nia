@@ -1,9 +1,9 @@
-using pkg::collections;
-using pkg::fs;
-using pkg::mem;
-using pkg::process;
-using pkg::string;
-using pkg::build::error;
+using root::collections;
+using root::fs;
+using root::mem;
+using root::process;
+using root::string;
+using root::build::error;
 
 // Protocol-visible kinds have explicit tags. The final `_` keeps unknown
 // persisted tags representable so the encoder can reject them explicitly
@@ -42,7 +42,7 @@ pub enum Runtime: i32 {
     _
 }
 
-pub(pkg) enum ModuleSourceRoot: i32 {
+pub(root) enum ModuleSourceRoot: i32 {
     Package = 1,
     Build = 2,
     _
@@ -65,7 +65,7 @@ pub struct TargetView {
     pointerWidth: u32,
 }
 
-pub(pkg) struct TargetStorage {
+pub(root) struct TargetStorage {
     name: string::String,
     endian: string::String,
     pointerWidth: u32,
@@ -105,14 +105,14 @@ pub struct PackageHandle {
 
 pub struct PackageOptions {
     name: &[char],
-    root: fs::PathView,
+    path: fs::PathView,
     manifestDependency: bool,
 }
 
-pub(pkg) struct Package {
+pub(root) struct Package {
     index: usize,
     name: string::String,
-    root: fs::Path,
+    path: fs::Path,
     manifestDependency: bool,
 }
 
@@ -172,7 +172,7 @@ pub enum CommandArgumentKind: i32 {
     _
 }
 
-pub(pkg) union CommandArgumentPayload {
+pub(root) union CommandArgumentPayload {
     value: &[char],
     artifact: ExecutableHandle,
     object: ObjectHandle,
@@ -229,20 +229,20 @@ pub struct ExternalCommandOptions {
     stdin: ?CommandArgument,
 }
 
-pub(pkg) union OwnedCommandArgumentPayload {
+pub(root) union OwnedCommandArgumentPayload {
     value: string::String,
     artifact: ExecutableHandle,
     object: ObjectHandle,
     staticArchive: StaticArchiveHandle,
 }
 
-pub(pkg) struct OwnedCommandArgument {
+pub(root) struct OwnedCommandArgument {
     kind: CommandArgumentKind,
     payload: OwnedCommandArgumentPayload,
     package: PackageHandle,
 }
 
-pub(pkg) struct OwnedCommandEnvironmentInput {
+pub(root) struct OwnedCommandEnvironmentInput {
     name: string::String,
     value: string::String,
 }

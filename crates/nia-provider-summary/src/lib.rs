@@ -447,9 +447,9 @@ impl ProviderTypeRef {
                 .take(segments.len().saturating_sub(1))
                 .filter_map(|segment| match segment.kind {
                     PathSegmentKind::Name(name) => Some(name),
-                    PathSegmentKind::Package
-                    | PathSegmentKind::Super
-                    | PathSegmentKind::SelfValue => None,
+                    PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => {
+                        None
+                    }
                 })
                 .collect(),
             _ => Vec::new(),
@@ -557,7 +557,7 @@ fn type_ref_last_name(ty: &TypeRef) -> Option<SymbolId> {
     match &ty.kind {
         TypeKind::Path { segments } => segments.last().and_then(|segment| match segment.kind {
             PathSegmentKind::Name(name) => Some(name),
-            PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+            PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
         }),
         _ => None,
     }

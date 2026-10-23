@@ -12,11 +12,11 @@ const STD_ROOT_MODULES: [&str; 2] = ["builtin.nia", "build.nia"];
 const RUNTIME_ROOT_MODULE: &str = "start.nia";
 
 static USING: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*using\s+pkg::([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)")
+    Regex::new(r"^\s*using\s+root::([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)")
         .expect("valid using regex")
 });
 static MODULE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*(?:pub(?:\(pkg\))?\s+)?module\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+    Regex::new(r"^\s*(?:pub(?:\(root\))?\s+)?module\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
         .expect("valid module regex")
 });
 
@@ -228,10 +228,10 @@ mod tests {
         let std_root = create_roots(&directory);
         directory.write(
             "std/build.nia",
-            "pub(pkg) module core;\nusing pkg::support;\n",
+            "pub(root) module core;\nusing root::support;\n",
         );
         directory.write("std/build/core.nia", "");
-        directory.write("std/support.nia", "pub(pkg) module provider;\n");
+        directory.write("std/support.nia", "pub(root) module provider;\n");
         directory.write("std/support/provider.nia", "");
 
         assert_eq!(
@@ -251,7 +251,7 @@ mod tests {
     fn rejects_missing_package_dependency() {
         let directory = TestDirectory::new("missing-std-dependency");
         let std_root = create_roots(&directory);
-        directory.write("std/build.nia", "using pkg::missing;\n");
+        directory.write("std/build.nia", "using root::missing;\n");
 
         let error = build_host_closure(&std_root).expect_err("missing module should fail");
         assert!(error.contains("does not exist"));

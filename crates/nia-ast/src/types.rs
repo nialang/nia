@@ -16,8 +16,8 @@ use crate::{
 pub enum PathSegmentKind {
     /// Named path segment.
     Name(SymbolId),
-    /// Package-root path segment.
-    Package,
+    /// Module-tree root path segment (`root`).
+    Root,
     /// Parent-module path segment.
     Super,
     /// Current-module or value path segment.
@@ -1204,7 +1204,7 @@ fn write_symbol_identity(out: &mut String, symbol: SymbolId) {
 fn write_path_segment_identity(out: &mut String, segment: PathSegmentKind) {
     match segment {
         PathSegmentKind::Name(name) => write_symbol_identity(out, name),
-        PathSegmentKind::Package => out.push_str("pkg"),
+        PathSegmentKind::Root => out.push_str("root"),
         PathSegmentKind::Super => out.push_str("super"),
         PathSegmentKind::SelfValue => out.push_str("self"),
     }

@@ -43,7 +43,7 @@ pub use nia_compiler_query::{
     BackendOptimizationChange, BackendOptimizationReport, CheckedModule, CheckedProgram,
     CodegenProgram, DiagnosticSources, LoadedModule, LoadedProgram, ProgramDiagnostic, TimingMode,
 };
-pub use nia_imports::{ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME};
+pub use nia_imports::{ENTRY_MODULE_MAP_NAME, ModuleMap, ROOT_MODULE_MAP_NAME};
 pub use nia_loader_query::{SourceInput, SourceInputContent, SourceInputManifest};
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 pub use nia_package_metadata::PackageId;

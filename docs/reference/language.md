@@ -136,8 +136,8 @@ These words are reserved and cannot be used as identifiers:
 and       as        bool      break     const     continue  defer
 else      enum      extend    extern    false     for       fun
 if        in        is        let       loop      match     module
-mut       never     not       null      opaque    or        pkg
-pub       return    self      Self      static    struct    super
+mut       never     not       null      opaque    or        pub
+return    root      self      Self      static    struct    super
 trait     true      type      union     using     where     while
 ```
 
@@ -2162,7 +2162,7 @@ Paths separate segments with `::`. These roots are reserved:
 | Root | Names |
 | --- | --- |
 | `entry` | the package being compiled |
-| `pkg` | the package that contains the current module |
+| `root` | the root of the module tree that contains the current module |
 | `std` | the standard library |
 | `self` | the current module |
 | `super` | the parent module |
@@ -2216,7 +2216,7 @@ Items are private to their module unless marked:
 | --- | --- |
 | none | the declaring module |
 | `pub(super)` | the parent module and its descendants |
-| `pub(pkg)` | the whole current package |
+| `pub(root)` | every module in the current module tree |
 | `pub` | every module that can name it |
 
 Visibility applies to `module`, `using` (re-export), `fun`, `const fun`,

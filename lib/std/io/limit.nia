@@ -4,7 +4,7 @@
 // reader's invalid-transfer error identity and rejects impossible byte counts
 // before mutating state.
 
-using pkg::io::traits;
+using root::io::traits;
 
 using traits::Reader;
 

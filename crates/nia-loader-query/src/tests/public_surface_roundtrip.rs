@@ -94,7 +94,7 @@ fn public_surface_facts_cache_round_trips_all_stable_fields() {
     let visibilities = [
         Visibility::Private,
         Visibility::PublicSuper,
-        Visibility::PublicPkg,
+        Visibility::PublicRoot,
         Visibility::Public,
     ];
     let defs = names
@@ -139,7 +139,7 @@ fn public_surface_facts_cache_round_trips_all_stable_fields() {
             variants: vec![(sym("variant"), DefId(14))],
         }],
         module_usings: vec![ModuleUsing {
-            visibility: Visibility::PublicPkg,
+            visibility: Visibility::PublicRoot,
             span: Span::new(40, 90),
             host: vec![
                 UsingPathSegment {
@@ -147,7 +147,7 @@ fn public_surface_facts_cache_round_trips_all_stable_fields() {
                     span: Span::new(41, 45),
                 },
                 UsingPathSegment {
-                    kind: PathSegmentKind::Package,
+                    kind: PathSegmentKind::Root,
                     span: Span::new(46, 49),
                 },
                 UsingPathSegment {
@@ -189,7 +189,7 @@ fn public_surface_facts_cache_round_trips_all_stable_fields() {
                         },
                         UsingGroupItem::Nested {
                             host: vec![UsingPathSegment {
-                                kind: PathSegmentKind::Package,
+                                kind: PathSegmentKind::Root,
                                 span: Span::new(80, 81),
                             }],
                             selector: Box::new(UsingSelector::SelfName),

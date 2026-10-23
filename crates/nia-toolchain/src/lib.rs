@@ -1071,7 +1071,7 @@ mod tests {
         )
         .expect("write manifest");
         fs::write(resources.join("std/pkg.nia"), "pub module start;").expect("write std root");
-        fs::write(resources.join("runtime/pkg.nia"), "pub(pkg) module start;")
+        fs::write(resources.join("runtime/pkg.nia"), "pub(root) module start;")
             .expect("write runtime root");
         fs::write(resources.join("runtime/start.nia"), "").expect("write runtime");
         executable

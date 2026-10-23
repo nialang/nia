@@ -1,9 +1,9 @@
-using pkg::os::linux::syscall;
-using pkg::os::linux::stat;
-using pkg::os::linux::types;
-using pkg::error;
-using pkg::math;
-using pkg::option;
+using root::os::linux::syscall;
+using root::os::linux::stat;
+using root::os::linux::types;
+using root::error;
+using root::math;
+using root::option;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
@@ -223,7 +223,7 @@ pub fun openAtBeneath(
         dir.raw() as usize,
         path as usize,
         &how as usize,
-        pkg::builtin::size[OpenHow](),
+        root::builtin::size[OpenHow](),
     );
     if ret < 0 {
         ret.syscallError()!

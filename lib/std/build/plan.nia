@@ -10,14 +10,14 @@
 // close errors keep the first operation error; a failed backing free is
 // retried by the next draft or `Build::deinit`.
 
-using pkg::collections;
-using pkg::fs;
-using pkg::io;
-using pkg::mem;
-using pkg::string;
-using pkg::build::error;
-using pkg::build::types;
-using pkg::hash;
+using root::collections;
+using root::fs;
+using root::io;
+using root::mem;
+using root::string;
+using root::build::error;
+using root::build::types;
+using root::hash;
 
 using error::Error;
 using error::ErrorOperation as Operation;
@@ -575,7 +575,7 @@ extend PlanEncoder {
                 self.writeString(package.name.text()).?;
             } else {
                 self.writeU8(1).?;
-                self.writeString(package.root.text()).?;
+                self.writeString(package.path.text()).?;
             }
         }
         self.writeTarget(build.hostTarget()).?;

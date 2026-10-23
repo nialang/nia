@@ -1,12 +1,12 @@
 // Bounded observations made while the host runner configures a build plan.
 
-using pkg::collections;
-using pkg::fs;
-using pkg::io::traits::Reader;
-using pkg::mem;
-using pkg::process;
-using pkg::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
-using pkg::build::types::Build;
+using root::collections;
+using root::fs;
+using root::io::traits::Reader;
+using root::mem;
+using root::process;
+using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
+using root::build::types::Build;
 
 const maxObservationRecords: usize = 16384;
 const maxObservationBytes: usize = 16777216;
@@ -31,9 +31,9 @@ extend Build {
             !value => value,
             error! => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
         };
-        let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
-        defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
-        let mut file = root.openFile(relative, fs::OpenOptions::readOnly()).withBuildContext(
+        let mut packageDir = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
+        defer packageDir.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
+        let mut file = packageDir.openFile(relative, fs::OpenOptions::readOnly()).withBuildContext(
             Operation::Initialize,
             Subject::BuildPlan,
         ).?;
@@ -68,9 +68,9 @@ extend Build {
             !value => value,
             error! => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
         };
-        let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
-        defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
-        let state: u8 = match root.metadata(relative, fs::MetadataOptions::noFollow()) {
+        let mut packageDir = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
+        defer packageDir.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
+        let state: u8 = match packageDir.metadata(relative, fs::MetadataOptions::noFollow()) {
             !metadata => if metadata.kind() == fs::FileKind::Directory { 2 } else if metadata.kind() == fs::FileKind::File { 1 } else { 3 },
             .System { cause: .NotFound, operation: _ }! => 0,
             cause! => return .Failure {
@@ -105,9 +105,9 @@ extend Build {
             !value => value,
             error! => return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!,
         };
-        let mut root = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
-        defer root.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
-        let mut directory = root.openDir(relative, fs::OpenDirOptions::noFollow()).withBuildContext(
+        let mut packageDir = fs::Dir::cwd().withBuildContext(Operation::Initialize, Subject::PackageRoot).?;
+        defer packageDir.close().withBuildContext(Operation::Release, Subject::PackageRoot).?;
+        let mut directory = packageDir.openDir(relative, fs::OpenDirOptions::noFollow()).withBuildContext(
             Operation::Initialize,
             Subject::BuildPlan,
         ).?;

@@ -21,7 +21,7 @@ pub(crate) fn type_can_start(kind: &TokenKind) -> bool {
         TokenKind::Amp
             | TokenKind::LBracket
             | TokenKind::Ident
-            | TokenKind::Pkg
+            | TokenKind::Root
             | TokenKind::Super
             | TokenKind::SelfValue
             | TokenKind::DotDot
@@ -319,7 +319,7 @@ fn type_atom(p: &mut Parser<'_>, mode: TypeMode) -> Option<Parsed> {
             p.kind(),
             TokenKind::Ident
                 | TokenKind::Bool
-                | TokenKind::Pkg
+                | TokenKind::Root
                 | TokenKind::Super
                 | TokenKind::SelfValue
         ) && (!p.at(TokenKind::SelfValue) || p.nth_kind(1) == Some(&TokenKind::ColonColon))
@@ -499,7 +499,7 @@ fn path_segments(p: &mut Parser<'_>, mode: TypeMode) -> Option<Shape> {
                 p.kind(),
                 TokenKind::Ident
                     | TokenKind::Bool
-                    | TokenKind::Pkg
+                    | TokenKind::Root
                     | TokenKind::Super
                     | TokenKind::SelfValue
             ) {

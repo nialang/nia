@@ -1,8 +1,8 @@
-pub(pkg) module format;
-pub(pkg) module list;
-pub(pkg) module raw;
+pub(root) module format;
+pub(root) module list;
+pub(root) module raw;
 
-using pkg::collections::array_list::format;
-using pkg::collections::array_list::list;
+using root::collections::array_list::format;
+using root::collections::array_list::list;
 
 pub using list::ArrayList;

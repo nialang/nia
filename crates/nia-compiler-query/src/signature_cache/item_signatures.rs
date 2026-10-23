@@ -1024,7 +1024,7 @@ pub(crate) fn visibility_tag(visibility: Visibility) -> u8 {
     match visibility {
         Visibility::Private => 0,
         Visibility::PublicSuper => 1,
-        Visibility::PublicPkg => 2,
+        Visibility::PublicRoot => 2,
         Visibility::Public => 3,
     }
 }
@@ -1033,7 +1033,7 @@ pub(crate) fn read_visibility(cursor: &mut Cursor<&[u8]>) -> Option<Visibility> 
     Some(match read_u8(cursor)? {
         0 => Visibility::Private,
         1 => Visibility::PublicSuper,
-        2 => Visibility::PublicPkg,
+        2 => Visibility::PublicRoot,
         3 => Visibility::Public,
         _ => return None,
     })

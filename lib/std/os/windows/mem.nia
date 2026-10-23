@@ -1,5 +1,5 @@
-using pkg::math;
-using pkg::os::windows::bindings::{
+using root::math;
+using root::os::windows::bindings::{
     memCommit,
     memReserve,
     memRelease,
@@ -9,10 +9,10 @@ using pkg::os::windows::bindings::{
     GetSystemInfo,
     SystemInfo,
 };
-using pkg::os::windows::types::{
+using root::os::windows::types::{
     Errno,
 };
-using pkg::os::windows::error::{
+using root::os::windows::error::{
     lastError,
 };
 

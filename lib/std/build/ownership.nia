@@ -3,13 +3,13 @@
 // Every live Build receives a process-wide owner ID. Handles carry that ID so
 // the graph can reject values borrowed from a different Build instance.
 
-using pkg::atomic;
-using pkg::builtin::atomic as atomicBuiltin;
+using root::atomic;
+using root::builtin::atomic as atomicBuiltin;
 
 static mut nextBuildOwnerId: usize = 1;
 static mut buildOwnerIdExhausted: usize = 0;
 
-pub(pkg) fun allocateBuildOwnerId() ?usize {
+pub(root) fun allocateBuildOwnerId() ?usize {
     if atomicBuiltin::atomicLoad[usize](&buildOwnerIdExhausted, atomic::SeqCst) != 0 {
         return null;
     }

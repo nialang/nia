@@ -6,6 +6,6 @@
 // compiler-required native helpers have separate modules; required helpers are
 // retained by their source module and definition, even without a Nia call site.
 
-pub(pkg) module start;
-pub(pkg) module builtins;
-pub(pkg) module main;
+pub(root) module start;
+pub(root) module builtins;
+pub(root) module main;

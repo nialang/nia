@@ -3,14 +3,14 @@ code: E0201
 summary: type `model::Token` is restricted to its package
 label: 44..49 Primary Source type `model::Token` is not visible from this module
 help: make the type public or use it from the defining package
-related: 0..24 the restricted type is declared here
+related: 0..25 the restricted type is declared here
 
 path: fail/package_restricted_qualified_type/main.nia
 code: E0201
 summary: value `model::token_value` is restricted to its package
 label: 121..132 Primary Source value `model::token_value` is not visible from this module
 help: make the value public or use it from the defining package
-related: 26..67 the restricted value is declared here
+related: 27..69 the restricted value is declared here
 
 report:
 error[E0201]: type `model::Token` is restricted to its package

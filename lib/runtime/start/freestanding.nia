@@ -1,6 +1,6 @@
 @[if os == "linux"]
-pub(pkg) module linux;
+pub(root) module linux;
 @[if os == "windows"]
-pub(pkg) module windows;
+pub(root) module windows;
 @[if os == "macos"]
-pub(pkg) module macos;
+pub(root) module macos;

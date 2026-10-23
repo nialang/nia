@@ -1,6 +1,6 @@
-using pkg::builtin;
-using pkg::fs::types;
-using pkg::os;
+using root::builtin;
+using root::fs::types;
+using root::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
 
@@ -36,13 +36,13 @@ extend os::Error : builtin::IntoError[Error] {
 }
 
 extend[T] Error!T {
-    pub(pkg) fun withOperation(self, operation: Operation) OperationError!T {
+    pub(root) fun withOperation(self, operation: Operation) OperationError!T {
         self.mapError(&\[operation] cause: Error -> .System { operation, cause })
     }
 }
 
 extend[T] os::Error!T {
-    pub(pkg) fun withOperation(self, operation: Operation) OperationError!T {
+    pub(root) fun withOperation(self, operation: Operation) OperationError!T {
         self.mapError(&\[operation] cause: os::Error -> .System {
             operation,
             cause: cause.intoError(),
@@ -51,13 +51,13 @@ extend[T] os::Error!T {
 }
 
 extend[T] PathError!T {
-    pub(pkg) fun withOperation(self, operation: Operation) OperationError!T {
+    pub(root) fun withOperation(self, operation: Operation) OperationError!T {
         self.mapError(&\[operation] cause: PathError -> .Path { operation, cause })
     }
 }
 
 extend os::FileKind {
-    pub(pkg) fun asFsFileKind(self) FileKind {
+    pub(root) fun asFsFileKind(self) FileKind {
         match self {
             .BlockDevice => .BlockDevice,
             .CharacterDevice => .CharacterDevice,
@@ -72,13 +72,13 @@ extend os::FileKind {
 }
 
 extend os::Timestamp {
-    pub(pkg) fun asFsTimestamp(&self) Timestamp {
+    pub(root) fun asFsTimestamp(&self) Timestamp {
         .init(self.seconds(), self.nanos())
     }
 }
 
 extend os::FileMetadata {
-    pub(pkg) fun asFsMetadata(&self) Metadata {
+    pub(root) fun asFsMetadata(&self) Metadata {
         let accessed = self.accessed().map[Timestamp, _](
             \value: os::Timestamp -> value.asFsTimestamp(),
         );
@@ -100,7 +100,7 @@ extend os::FileMetadata {
 }
 
 extend os::DirectoryEntry {
-    pub(pkg) fun asFsDirEntry(&self) DirEntry {
+    pub(root) fun asFsDirEntry(&self) DirEntry {
         .init(self.kind().asFsFileKind(), self.name(), self.size())
     }
 }

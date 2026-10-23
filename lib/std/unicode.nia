@@ -1,6 +1,6 @@
-using pkg::iter;
-using pkg::iter::range;
-using pkg::math;
+using root::iter;
+using root::iter::range;
+using root::math;
 
 pub struct Utf8Scalar {
     bytes: [u8; 4],
@@ -196,7 +196,7 @@ extend char {
 }
 
 pub const fun fromScalarValue(value: u32) ?char {
-    pkg::builtin::charFromU32(value)
+    root::builtin::charFromU32(value)
 }
 
 pub const fun isValidScalarValue(value: u32) bool {

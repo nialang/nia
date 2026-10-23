@@ -1,9 +1,9 @@
-using pkg::collections::hash_map::context;
-using pkg::collections::hash_map::entries;
-using pkg::collections::hash_map::map;
-using pkg::collections::hash_map::raw;
-using pkg::collections::hash_map::types;
-using pkg::option;
+using root::collections::hash_map::context;
+using root::collections::hash_map::entries;
+using root::collections::hash_map::map;
+using root::collections::hash_map::raw;
+using root::collections::hash_map::types;
+using root::option;
 
 using context::DefaultHashMapContext;
 using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef};

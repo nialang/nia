@@ -48,7 +48,7 @@ impl Parser<'_> {
     pub(crate) fn at_namespace_segment(&self) -> bool {
         matches!(
             self.kind(),
-            TokenKind::Ident | TokenKind::Pkg | TokenKind::Super | TokenKind::SelfValue
+            TokenKind::Ident | TokenKind::Root | TokenKind::Super | TokenKind::SelfValue
         )
     }
 }

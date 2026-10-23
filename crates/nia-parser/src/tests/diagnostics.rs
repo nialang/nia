@@ -2188,7 +2188,7 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
         "continue",
         "defer",
         "module",
-        "pkg",
+        "root",
         "self",
         "Self",
         "=",

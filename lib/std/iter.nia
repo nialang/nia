@@ -3,9 +3,9 @@
 // `forEach`, `fold`, `tryFold`, and `position` borrow callbacks only for the
 // active call. Lazy adapters own their iterator state but no borrowed callback.
 
-pub(pkg) module range;
+pub(root) module range;
 
-using pkg::iter::range;
+using root::iter::range;
 
 pub trait DoubleEndedIterator : Iterator {
     fun nextBack(&mut self) ?[Self as Iterator]::Item;

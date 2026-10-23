@@ -1,4 +1,4 @@
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     errorAccessDenied,
     errorInvalidHandle,
     errorNotEnoughMemory,
@@ -28,11 +28,11 @@ using pkg::os::windows::bindings::{
     errorOperationAborted,
     GetLastError,
 };
-using pkg::os::windows::types::{
+using root::os::windows::types::{
     Errno,
 };
 
-pub(pkg) fun errno(code: u32) Errno {
+pub(root) fun errno(code: u32) Errno {
     if code == errorFileNotFound or code == errorPathNotFound { return .NoEntry; }
     if code == errorNotEnoughMemory or code == errorOutofmemory { return .NoMemory; }
     match code {
@@ -63,4 +63,4 @@ pub(pkg) fun errno(code: u32) Errno {
     }
 }
 
-pub(pkg) fun lastError() Errno { errno(GetLastError()) }
+pub(root) fun lastError() Errno { errno(GetLastError()) }

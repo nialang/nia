@@ -1,4 +1,4 @@
-using pkg::slice;
+using root::slice;
 
 pub enum Error: i32 {
     Empty = 1,

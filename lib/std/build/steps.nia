@@ -4,13 +4,13 @@
 // visits every nested owner and reports the first failure, leaving unreleased
 // list storage attached for a later Build::deinit retry.
 
-using pkg::collections;
-using pkg::mem;
-using pkg::string;
-using pkg::error::CleanupAccumulator;
-using pkg::build::commands;
-using pkg::build::error;
-using pkg::build::types;
+using root::collections;
+using root::mem;
+using root::string;
+using root::error::CleanupAccumulator;
+using root::build::commands;
+using root::build::error;
+using root::build::types;
 
 using error::Error;
 using types::{
@@ -35,33 +35,33 @@ using types::{
 };
 
 extend AggregateStep {
-    pub(pkg) fun init() AggregateStep {
+    pub(root) fun init() AggregateStep {
         .{ marker: 0 }
     }
 }
 
 extend UncacheableStep {
-    pub(pkg) fun init() UncacheableStep {
+    pub(root) fun init() UncacheableStep {
         .{ description: .init() }
     }
 
-    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, description: &[char], index: usize) Error!() {
+    pub(root) fun initialize(&mut self, allocator: &mut mem::Allocator, description: &[char], index: usize) Error!() {
         self.description = string::String::fromSlice(allocator, description)
             .withBuildContext(.Retain, .Step(index)).?;
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         self.description.deinit(allocator).withBuildContext(.Release, .Step(index))
     }
 }
 
 extend GeneratedFileStep {
-    pub(pkg) fun init() GeneratedFileStep {
+    pub(root) fun init() GeneratedFileStep {
         .{ output: .init(), contents: .init() }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         output: BuildPathView,
@@ -75,7 +75,7 @@ extend GeneratedFileStep {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.contents.deinit(allocator).withBuildContext(.Release, .Step(index)));
         cleanup.attempt(self.output.deinit(allocator).withBuildContext(.Release, .Step(index)));
@@ -84,15 +84,15 @@ extend GeneratedFileStep {
 }
 
 extend ExecutableStep {
-    pub(pkg) fun init(target: ExecutableHandle) ExecutableStep { .{ target } }
+    pub(root) fun init(target: ExecutableHandle) ExecutableStep { .{ target } }
 }
 
 extend ObjectStep {
-    pub(pkg) fun init(target: ObjectHandle) ObjectStep { .{ target } }
+    pub(root) fun init(target: ObjectHandle) ObjectStep { .{ target } }
 }
 
 extend StaticArchiveStep {
-    pub(pkg) fun init(target: StaticArchiveHandle) StaticArchiveStep { .{ target } }
+    pub(root) fun init(target: StaticArchiveHandle) StaticArchiveStep { .{ target } }
 }
 
 extend RunOptions {
@@ -106,43 +106,43 @@ extend RunOptions {
 }
 
 extend InstallExecutableStep {
-    pub(pkg) fun init(target: ExecutableHandle) InstallExecutableStep {
+    pub(root) fun init(target: ExecutableHandle) InstallExecutableStep {
         .{ target, destination: .init() }
     }
 
-    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
+    pub(root) fun initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
         self.destination = string::String::fromSlice(allocator, destination.text())
             .withBuildContext(.Retain, .Step(index)).?;
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         self.destination.deinit(allocator).withBuildContext(.Release, .Step(index))
     }
 }
 
 extend InstallStaticArchiveStep {
-    pub(pkg) fun init(target: StaticArchiveHandle) InstallStaticArchiveStep {
+    pub(root) fun init(target: StaticArchiveHandle) InstallStaticArchiveStep {
         .{ target, destination: .init() }
     }
 
-    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
+    pub(root) fun initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
         self.destination = string::String::fromSlice(allocator, destination.text())
             .withBuildContext(.Retain, .Step(index)).?;
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         self.destination.deinit(allocator).withBuildContext(.Release, .Step(index))
     }
 }
 
 extend RunExecutableStep {
-    pub(pkg) fun init(target: ExecutableHandle) RunExecutableStep {
+    pub(root) fun init(target: ExecutableHandle) RunExecutableStep {
         .{ target, arguments: .init() }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         arguments: ?&[&[char]],
@@ -163,7 +163,7 @@ extend RunExecutableStep {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         let mut elements: CleanupAccumulator[Error] = .init();
         let mut argumentIndex = self.arguments.len();
@@ -185,23 +185,23 @@ extend RunExecutableStep {
 }
 
 extend Step {
-    pub(pkg) fun initSimple(index: usize, kind: StepKind, payload: StepPayload) Step {
+    pub(root) fun initSimple(index: usize, kind: StepKind, payload: StepPayload) Step {
         .{ index, name: .init(), kind, payload }
     }
 
-    pub(pkg) fun initAggregate(index: usize) Step {
+    pub(root) fun initAggregate(index: usize) Step {
         .{ index, name: .init(), kind: .Aggregate, payload: .{ aggregate: .init() } }
     }
 
-    pub(pkg) fun initGeneratedFile(index: usize) Step {
+    pub(root) fun initGeneratedFile(index: usize) Step {
         .{ index, name: .init(), kind: .GeneratedFile, payload: .{ generatedFile: .init() } }
     }
 
-    pub(pkg) fun initUncacheable(index: usize) Step {
+    pub(root) fun initUncacheable(index: usize) Step {
         .{ index, name: .init(), kind: .Uncacheable, payload: .{ uncacheable: .init() } }
     }
 
-    pub(pkg) fun initRunExecutable(
+    pub(root) fun initRunExecutable(
         index: usize,
         kind: StepKind,
         target: ExecutableHandle,
@@ -209,19 +209,19 @@ extend Step {
         .{ index, name: .init(), kind, payload: .{ runExecutable: .init(target) } }
     }
 
-    pub(pkg) fun initInstallExecutable(index: usize, target: ExecutableHandle) Step {
+    pub(root) fun initInstallExecutable(index: usize, target: ExecutableHandle) Step {
         .{ index, name: .init(), kind: .InstallExecutable, payload: .{ installExecutable: .init(target) } }
     }
 
-    pub(pkg) fun initInstallStaticArchive(index: usize, target: StaticArchiveHandle) Step {
+    pub(root) fun initInstallStaticArchive(index: usize, target: StaticArchiveHandle) Step {
         .{ index, name: .init(), kind: .InstallStaticArchive, payload: .{ installStaticArchive: .init(target) } }
     }
 
-    pub(pkg) fun initExternalCommand(index: usize, options: ExternalCommandOptions) Step {
+    pub(root) fun initExternalCommand(index: usize, options: ExternalCommandOptions) Step {
         .{ index, name: .init(), kind: .ExternalCommand, payload: .{ externalCommand: .init(options) } }
     }
 
-    pub(pkg) fun initializeGeneratedFile(
+    pub(root) fun initializeGeneratedFile(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -232,7 +232,7 @@ extend Step {
         self.payload.generatedFile.initialize(allocator, output, contents, self.index)
     }
 
-    pub(pkg) fun initializeUncacheable(
+    pub(root) fun initializeUncacheable(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -242,7 +242,7 @@ extend Step {
         self.payload.uncacheable.initialize(allocator, description, self.index)
     }
 
-    pub(pkg) fun initializeRunExecutable(
+    pub(root) fun initializeRunExecutable(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -252,7 +252,7 @@ extend Step {
         self.payload.runExecutable.initialize(allocator, arguments, self.index)
     }
 
-    pub(pkg) fun initializeInstallExecutable(
+    pub(root) fun initializeInstallExecutable(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -262,7 +262,7 @@ extend Step {
         self.payload.installExecutable.initialize(allocator, destination, self.index)
     }
 
-    pub(pkg) fun initializeInstallStaticArchive(
+    pub(root) fun initializeInstallStaticArchive(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -272,7 +272,7 @@ extend Step {
         self.payload.installStaticArchive.initialize(allocator, destination, self.index)
     }
 
-    pub(pkg) fun initializeExternalCommand(
+    pub(root) fun initializeExternalCommand(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -282,12 +282,12 @@ extend Step {
         self.payload.externalCommand.initialize(allocator, options, self.index)
     }
 
-    pub(pkg) fun initializeName(&mut self, allocator: &mut mem::Allocator, name: &[char]) Error!() {
+    pub(root) fun initializeName(&mut self, allocator: &mut mem::Allocator, name: &[char]) Error!() {
         self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         match self.kind {
             .Uncacheable => {

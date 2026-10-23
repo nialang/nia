@@ -9,13 +9,13 @@
 // package, the same `ModuleImport` descriptors may be reused in both
 // `ModuleOptions`, while each root still declares its own visibility.
 
-using pkg::fs;
-using pkg::mem;
-using pkg::string;
-using pkg::error::CleanupAccumulator;
-using pkg::build::error;
-using pkg::build::paths::isValidBuildPath;
-using pkg::build::types;
+using root::fs;
+using root::mem;
+using root::string;
+using root::error::CleanupAccumulator;
+using root::build::error;
+using root::build::paths::isValidBuildPath;
+using root::build::types;
 
 using error::Error;
 using types::{
@@ -93,37 +93,37 @@ extend ModuleOptions {
 }
 
 extend PackageOptions {
-    pub fun init(name: &[char], root: fs::PathView) PackageOptions {
-        .{ name, root, manifestDependency: false }
+    pub fun init(name: &[char], path: fs::PathView) PackageOptions {
+        .{ name, path, manifestDependency: false }
     }
 
-    pub(pkg) fun dependency(name: &[char]) PackageOptions {
-        .{ name, root: fs::PathView::init(&""), manifestDependency: true }
+    pub(root) fun dependency(name: &[char]) PackageOptions {
+        .{ name, path: fs::PathView::init(&""), manifestDependency: true }
     }
 }
 
 extend Package {
-    pub(pkg) fun init(index: usize) Package {
-        .{ index, name: .init(), root: .init(), manifestDependency: false }
+    pub(root) fun init(index: usize) Package {
+        .{ index, name: .init(), path: .init(), manifestDependency: false }
     }
 
-    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
+    pub(root) fun initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
         self.name = string::String::fromSlice(allocator, options.name).withBuildContext(.Retain, .Package(self.index)).?;
-        self.root = fs::Path::fromView(allocator, options.root).withBuildContext(.Retain, .Package(self.index)).?;
+        self.path = fs::Path::fromView(allocator, options.path).withBuildContext(.Retain, .Package(self.index)).?;
         self.manifestDependency = options.manifestDependency;
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
-        cleanup.attempt(self.root.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
+        cleanup.attempt(self.path.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
         cleanup.finish()
     }
 }
 
 extend Module {
-    pub(pkg) fun init(
+    pub(root) fun init(
         index: usize,
         sourceRoot: ModuleSourceRoot,
         package: PackageHandle,
@@ -132,7 +132,7 @@ extend Module {
         .{ index, name: .init(), sourceRoot, package, rootSource: .init(), optimization, imports: .init() }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -153,7 +153,7 @@ extend Module {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         let mut elements: CleanupAccumulator[Error] = .init();
         let mut index = self.imports.len();
@@ -206,7 +206,7 @@ extend ModuleImport {
 }
 
 extend OwnedModuleImport {
-    pub(pkg) fun init(
+    pub(root) fun init(
         import: ModuleImport,
         index: usize,
         ownerId: usize,
@@ -220,13 +220,13 @@ extend OwnedModuleImport {
         }
     }
 
-    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
+    pub(root) fun initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
         self.name = string::String::fromSlice(allocator, import.name).withBuildContext(.Retain, .ModuleImport(self.index)).?;
         self.path = fs::Path::fromView(allocator, import.path).withBuildContext(.Retain, .ModuleImport(self.index)).?;
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.path.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
@@ -234,7 +234,7 @@ extend OwnedModuleImport {
     }
 }
 
-pub(pkg) fun validateModuleImports(imports: ?&[ModuleImport]) Error!() {
+pub(root) fun validateModuleImports(imports: ?&[ModuleImport]) Error!() {
     if imports is ?items {
         let mut index: usize = 0;
         for &import in items.iter() {
@@ -272,7 +272,7 @@ fun isValidModuleImportName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
-    if name.equals(&"entry") or name.equals(&"pkg") {
+    if name.equals(&"entry") or name.equals(&"root") {
         return false;
     }
     for &ch in name.iter() {

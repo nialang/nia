@@ -199,7 +199,7 @@ fun main() i32 {
     write(
         &root.join("dep/api.nia"),
         r#"
-using pkg::helper;
+using root::helper;
 
 pub fun answer() i32 {
     helper::answer()
@@ -1872,7 +1872,7 @@ pub trait Show {
     write(
         &root.join("dep/impls.nia"),
         r#"
-using pkg::api;
+using root::api;
 type Alias = api::Widget;
 type ShowAlias = api::Show;
 type StoredOutput = i32;
@@ -1916,8 +1916,8 @@ pub type TraitAlias = Show;
 "#,
     );
     for provider in [
-        "using pkg::api; extend api::Widget : api::Show { fun show(&self) i32 { self.value } }",
-        "using pkg::api::{Alias as Renamed, TraitAlias as RenamedTrait}; extend Renamed : RenamedTrait { fun show(&self) i32 { self.value } }",
+        "using root::api; extend api::Widget : api::Show { fun show(&self) i32 { self.value } }",
+        "using root::api::{Alias as Renamed, TraitAlias as RenamedTrait}; extend Renamed : RenamedTrait { fun show(&self) i32 { self.value } }",
     ] {
         write(&root.join("dep/providers.nia"), provider);
         let mut module_map = nia_imports::ModuleMap::new();
@@ -3303,15 +3303,15 @@ fun main() i32 {
     write(
         &root.join("dep/types.nia"),
         r#"
-pub(pkg) struct Token {
+pub(root) struct Token {
     value: i32,
 }
 
-pub(pkg) fun make_token() Token {
+pub(root) fun make_token() Token {
     Token { value: 31 }
 }
 
-pub(pkg) fun token_value(token: Token) i32 {
+pub(root) fun token_value(token: Token) i32 {
     token.value
 }
 "#,
@@ -3319,7 +3319,7 @@ pub(pkg) fun token_value(token: Token) i32 {
     write(
         &root.join("dep/api.nia"),
         r#"
-using pkg::types::{Token, make_token, token_value};
+using root::types::{Token, make_token, token_value};
 
 pub fun inside() i32 {
     let token: Token = make_token();
@@ -3547,7 +3547,7 @@ extend Value {
         Self { data }
     }
 
-    pub(pkg) fun package_score(&self) i32 {
+    pub(root) fun package_score(&self) i32 {
         self.data + 1
     }
 }
@@ -3556,7 +3556,7 @@ extend Value {
     write(
         &root.join("dep/api.nia"),
         r#"
-using pkg::model;
+using root::model;
 
 pub fun inside() i32 {
     model::Value::init(41).package_score()
@@ -3634,7 +3634,7 @@ fun main() i32 {
         r#"
 pub struct Value { data: i32 }
 
-pub(pkg) trait PackageTag {
+pub(root) trait PackageTag {
     fun tag(&self) i32;
 }
 
@@ -3646,7 +3646,7 @@ extend Value : PackageTag {
     write(
         &root.join("dep/api.nia"),
         r#"
-using pkg::model;
+using root::model;
 
 pub fun inside() i32 {
     let value = model::Value { data: 41 };
@@ -3718,14 +3718,14 @@ fun main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub(pkg) const LIMIT: usize = 123usize;
+    pub(root) const LIMIT: usize = 123usize;
 }
 "#,
     );
     write(
         &root.join("dep/api.nia"),
         r#"
-using pkg::model;
+using root::model;
 
 pub fun inside() usize {
     model::Marker::LIMIT
@@ -3777,7 +3777,7 @@ fn omitted_const_associated_calls_use_external_struct_result_types() {
         &root.join("main.nia"),
         r#"
 module model;
-using pkg::model;
+using root::model;
 
 const fun make() model::Value {
     .init(42)
@@ -3794,7 +3794,7 @@ fun main() i32 {
 pub struct Value(i32)
 
 extend Value {
-    pub(pkg) const fun init(value: i32) Value {
+    pub(root) const fun init(value: i32) Value {
         Value(value)
     }
 }

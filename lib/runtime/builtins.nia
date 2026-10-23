@@ -1,2 +1,2 @@
 @[if os == "windows"]
-pub(pkg) module windows;
+pub(root) module windows;

@@ -158,7 +158,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_runtime_start() {
         .expect("injected runtime start declaration");
     assert_eq!(
         start_declaration.visibility,
-        nia_imports::Visibility::PublicPkg
+        nia_imports::Visibility::PublicRoot
     );
 }
 

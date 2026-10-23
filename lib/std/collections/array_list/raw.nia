@@ -1,9 +1,9 @@
-using pkg::mem;
+using root::mem;
 
 pub fun danglingSlice[T](len: usize) &mut [T]
 where T: Sized
 {
-    let mut ptr = pkg::builtin::align[T]() as &mut T;
+    let mut ptr = root::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 

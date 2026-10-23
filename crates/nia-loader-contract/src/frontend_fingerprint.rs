@@ -611,7 +611,7 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
 /// Fingerprints a module map together with an optional package-root identity.
 ///
 /// A package root is loader context rather than a user-visible module-map
-/// entry, but it changes `pkg` resolution and therefore all frontend products
+/// entry, but it changes `root` resolution and therefore all frontend products
 /// derived from that context.
 pub fn frontend_module_map_fingerprint_with_package_root(
     module_map: &ModuleMap,

@@ -1,6 +1,6 @@
-using pkg::fmt::core;
-using pkg::io;
-using pkg::math;
+using root::fmt::core;
+using root::io;
+using root::math;
 
 struct ParsedSpec {
     spec: core::FormatSpec,

@@ -473,7 +473,7 @@ fn type_name_segment(segments: &[TypePathSegment]) -> Option<&TypePathSegment> {
 fn type_path_segment_name(segment: &TypePathSegment) -> Option<&SymbolId> {
     match &segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 
@@ -579,7 +579,7 @@ fn expr_from_type_path(
     let first = iter.next()?;
     let first_kind = match first.kind {
         PathSegmentKind::Name(name) => ExprKind::Ident(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => {
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => {
             ExprKind::PathRoot(first.kind)
         }
     };

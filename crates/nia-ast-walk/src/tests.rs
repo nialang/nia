@@ -128,7 +128,7 @@ fun run[N: kinds::Function]() () {}
 fn finds_static_bindings_nested_in_expression_blocks_and_closures() {
     let source = r#"
 fun collect() () {
-    static root: i32 = 0;
+    static top: i32 = 0;
     let root_value = 0;
     let closure = \[root_value] -> { static nested: i32 = 1; };
     if true { static branch: i32 = 2; }
@@ -153,7 +153,7 @@ fun collect() () {
     assert_eq!(
         declarations,
         [
-            "static root: i32 = 0;",
+            "static top: i32 = 0;",
             "static nested: i32 = 1;",
             "static branch: i32 = 2;",
             "static arm: i32 = 3;",

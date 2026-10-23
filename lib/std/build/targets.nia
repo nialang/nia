@@ -3,11 +3,11 @@
 // Public options are borrowed descriptors. The owned target records retain
 // names and archive relationships until the build plan has been encoded.
 
-using pkg::mem;
-using pkg::string;
-using pkg::error::CleanupAccumulator;
-using pkg::build::error;
-using pkg::build::types;
+using root::mem;
+using root::string;
+using root::error::CleanupAccumulator;
+using root::build::error;
+using root::build::types;
 
 using error::Error;
 using error::ErrorSubject as Subject;
@@ -26,7 +26,7 @@ using types::{
 };
 
 extend ExecutableTarget {
-    pub(pkg) fun init(
+    pub(root) fun init(
         index: usize,
         rootModule: ModuleHandle,
         targetIndex: usize,
@@ -34,7 +34,7 @@ extend ExecutableTarget {
         .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -55,7 +55,7 @@ extend ExecutableTarget {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.staticArchives.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
@@ -65,7 +65,7 @@ extend ExecutableTarget {
 }
 
 extend ObjectTarget {
-    pub(pkg) fun init(
+    pub(root) fun init(
         index: usize,
         rootModule: ModuleHandle,
         targetIndex: usize,
@@ -73,7 +73,7 @@ extend ObjectTarget {
         .{ index, name: .init(), rootModule, outputName: .init(), targetIndex }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -84,7 +84,7 @@ extend ObjectTarget {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
@@ -93,7 +93,7 @@ extend ObjectTarget {
 }
 
 extend StaticArchiveTarget {
-    pub(pkg) fun init(
+    pub(root) fun init(
         index: usize,
         rootModule: ModuleHandle,
         targetIndex: usize,
@@ -101,7 +101,7 @@ extend StaticArchiveTarget {
         .{ index, name: .init(), rootModule, outputName: .init(), targetIndex }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -112,7 +112,7 @@ extend StaticArchiveTarget {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
@@ -179,11 +179,11 @@ extend TargetView {
 }
 
 extend TargetStorage {
-    pub(pkg) fun init(pointerWidth: u32) TargetStorage {
+    pub(root) fun init(pointerWidth: u32) TargetStorage {
         .{ name: .init(), endian: .init(), pointerWidth }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         target: TargetView,
@@ -194,11 +194,11 @@ extend TargetStorage {
         !()
     }
 
-    pub(pkg) fun view(&self) TargetView {
+    pub(root) fun view(&self) TargetView {
         .init(self.name.text(), self.endian.text(), self.pointerWidth)
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.endian.deinit(allocator).withBuildContext(.Release, subject));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, subject));
@@ -325,7 +325,7 @@ extend StaticArchiveOptions {
     }
 }
 
-pub(pkg) fun executableOutputName(options: ExecutableOptions) &[char] {
+pub(root) fun executableOutputName(options: ExecutableOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -333,7 +333,7 @@ pub(pkg) fun executableOutputName(options: ExecutableOptions) &[char] {
     }
 }
 
-pub(pkg) fun objectOutputName(options: ObjectOptions) &[char] {
+pub(root) fun objectOutputName(options: ObjectOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -341,7 +341,7 @@ pub(pkg) fun objectOutputName(options: ObjectOptions) &[char] {
     }
 }
 
-pub(pkg) fun staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
+pub(root) fun staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -349,7 +349,7 @@ pub(pkg) fun staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
     }
 }
 
-pub(pkg) fun isValidStableName(name: &[char]) bool {
+pub(root) fun isValidStableName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
@@ -368,7 +368,7 @@ pub(pkg) fun isValidStableName(name: &[char]) bool {
     true
 }
 
-pub(pkg) fun isValidOutputName(name: &[char]) bool {
+pub(root) fun isValidOutputName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }

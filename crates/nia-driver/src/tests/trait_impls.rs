@@ -404,7 +404,7 @@ fn package_trait_discovery_does_not_import_structural_extension_methods() {
     write(
         &root.join("dep/providers.nia"),
         r#"
-using pkg::Show;
+using root::Show;
 extend[T] (T, T) : Show where T: Sized {
     fun show(&self) i32 { 7 }
 }

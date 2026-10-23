@@ -1,4 +1,4 @@
-using pkg::math;
+using root::math;
 
 pub enum Error: i32 {
     Invalid = 1,
@@ -35,13 +35,13 @@ extend Layout {
     pub fun of[T]() Error!Layout
     where T: Sized
     {
-        Layout::init(pkg::builtin::size[T](), pkg::builtin::align[T]())
+        Layout::init(root::builtin::size[T](), root::builtin::align[T]())
     }
 
     pub fun array[T](count: usize) Error!Layout
     where T: Sized
     {
-        let elemLen = pkg::builtin::size[T]();
+        let elemLen = root::builtin::size[T]();
         let size = match elemLen.checkedMul(count) {
             ?value => {
                 value
@@ -50,7 +50,7 @@ extend Layout {
                 return .OutOfMemory!;
             },
         };
-        Layout::init(size, pkg::builtin::align[T]())
+        Layout::init(size, root::builtin::align[T]())
     }
 
     pub fun size(&self) usize {
@@ -71,7 +71,7 @@ extend Block {
         .{ ptr, layout, releasePtr: ptr, releaseSize: layout.size() }
     }
 
-    pub(pkg) fun initWithRelease(
+    pub(root) fun initWithRelease(
         ptr: &mut u8,
         layout: Layout,
         releasePtr: &mut u8,
@@ -80,7 +80,7 @@ extend Block {
         .{ ptr, layout, releasePtr, releaseSize }
     }
 
-    pub(pkg) fun withLayout(&self, layout: Layout) Block {
+    pub(root) fun withLayout(&self, layout: Layout) Block {
         Block::initWithRelease(self.ptr, layout, self.releasePtr, self.releaseSize)
     }
 
@@ -92,11 +92,11 @@ extend Block {
         self.ptr
     }
 
-    pub(pkg) fun releasePtr(&self) &mut u8 {
+    pub(root) fun releasePtr(&self) &mut u8 {
         self.releasePtr
     }
 
-    pub(pkg) fun releaseSize(&self) usize {
+    pub(root) fun releaseSize(&self) usize {
         self.releaseSize
     }
 
@@ -124,7 +124,7 @@ extend Block {
     where T: Sized
     {
         let mut ptr = self.ptr as &mut T;
-        let elemSize = pkg::builtin::size[T]();
+        let elemSize = root::builtin::size[T]();
         if elemSize == 0 {
             &mut ptr[0..0]
         } else {

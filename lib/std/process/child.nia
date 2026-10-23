@@ -1,13 +1,13 @@
-using pkg::io;
-using pkg::error;
-using pkg::os;
-using pkg::process::convert;
-using pkg::process::types;
+using root::io;
+using root::error;
+using root::os;
+using root::process::convert;
+using root::process::types;
 
 using types::{Child, ChildState, ChildStateKind, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, Term};
 
 extend Child {
-    pub(pkg) fun init(pid: os::ProcessId) Child {
+    pub(root) fun init(pid: os::ProcessId) Child {
         .{
             state: .running(.fromOs(pid)),
             stdin: null,
@@ -16,7 +16,7 @@ extend Child {
         }
     }
 
-    pub(pkg) fun fromSpawnResult(result: os::SpawnResult) Child {
+    pub(root) fun fromSpawnResult(result: os::SpawnResult) Child {
         .{
             state: .running(.fromOs(result.pid())),
             stdin: result.stdin().map[ChildStdin, _](\handle: os::FileHandle -> ChildStdin { handle: ?handle }),

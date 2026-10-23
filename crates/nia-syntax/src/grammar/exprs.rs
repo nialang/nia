@@ -25,7 +25,7 @@ pub(crate) fn expr_can_start(kind: &TokenKind) -> bool {
             | TokenKind::Null
             | TokenKind::Ident
             | TokenKind::SelfValue
-            | TokenKind::Pkg
+            | TokenKind::Root
             | TokenKind::Super
             | TokenKind::Underscore
             | TokenKind::Backslash
@@ -458,7 +458,7 @@ fn bracket_arg_expr_skipped(kind: &TokenKind) -> bool {
             | TokenKind::Underscore
             | TokenKind::At
             | TokenKind::SelfValue
-            | TokenKind::Pkg
+            | TokenKind::Root
             | TokenKind::Super
             | TokenKind::LBracket
             | TokenKind::LParen
@@ -612,12 +612,11 @@ fn primary_until(p: &mut Parser<'_>, stops: &[TokenKind]) -> Option<Parsed> {
             let span = p.bump();
             Done::shaped(SyntaxKind::NameExpr, span, Shape::VALUE_PATH)
         }),
-        TokenKind::SelfValue | TokenKind::Pkg | TokenKind::Super | TokenKind::Underscore => {
-            p.node(|p| {
+        TokenKind::SelfValue | TokenKind::Root | TokenKind::Super | TokenKind::Underscore => p
+            .node(|p| {
                 let span = p.bump();
                 Done::new(SyntaxKind::NameExpr, span)
-            })
-        }
+            }),
         TokenKind::Backslash => closure(p),
         TokenKind::LBracket => bracket_primary(p),
         TokenKind::LParen => tuple_or_paren(p),
@@ -738,7 +737,7 @@ fn qualified_struct_literal(p: &mut Parser<'_>) -> Option<Parsed> {
 pub(crate) fn qualified_value_path(p: &mut Parser<'_>) -> Option<Parsed> {
     if !matches!(
         p.kind(),
-        TokenKind::Ident | TokenKind::Pkg | TokenKind::Super
+        TokenKind::Ident | TokenKind::Root | TokenKind::Super
     ) {
         return None;
     }

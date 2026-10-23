@@ -33,19 +33,19 @@
 // Both releases are attempted after every pass; a validation error stays
 // primary and failed frees are retried on the next pass or `Build::deinit`.
 
-using pkg::collections;
-using pkg::fs;
-using pkg::mem;
-using pkg::string;
-using pkg::build::error;
-using pkg::error::CleanupAccumulator;
-using pkg::build::commands::{validateExternalCommand, validateRunArguments};
-using pkg::build::dependencies::{findGeneratedSourceProducer, hasDependency};
-using pkg::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
-using pkg::build::handles;
-using pkg::build::modules::validateModuleImports;
-using pkg::build::paths::{isValidBuildPath, isValidPackagePath};
-using pkg::build::queries::{
+using root::collections;
+using root::fs;
+using root::mem;
+using root::string;
+using root::build::error;
+using root::error::CleanupAccumulator;
+using root::build::commands::{validateExternalCommand, validateRunArguments};
+using root::build::dependencies::{findGeneratedSourceProducer, hasDependency};
+using root::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
+using root::build::handles;
+using root::build::modules::validateModuleImports;
+using root::build::paths::{isValidBuildPath, isValidPackagePath};
+using root::build::queries::{
     findEmitObjectStep as findEmitObjectStepRecord,
     findEmitStaticArchiveStep as findEmitStaticArchiveStepRecord,
     findEmitStep as findEmitStepRecord,
@@ -55,16 +55,16 @@ using pkg::build::queries::{
     findStaticArchive as findStaticArchiveRecord,
     findStep as findStepRecord,
 };
-using pkg::build::steps;
-using pkg::build::targets::{
+using root::build::steps;
+using root::build::targets::{
     executableOutputName,
     isValidOutputName,
     isValidStableName,
     objectOutputName,
     staticArchiveOutputName,
 };
-using pkg::build::types;
-using pkg::build::validation::{
+using root::build::types;
+using root::build::validation::{
     validateExecutableHandle as validateExecutableHandleValue,
     validateModuleHandle as validateModuleHandleValue,
     validateObjectHandle as validateObjectHandleValue,
@@ -127,7 +127,7 @@ extend Build {
         let handle = PackageHandle::init(self.ownerId, packageIndex);
         if options.name.equals(&"root")
             or not isValidStableName(options.name)
-            or (not options.manifestDependency and not isValidPackagePath(options.root.text(), false))
+            or (not options.manifestDependency and not isValidPackagePath(options.path.text(), false))
         {
             return .Invalid {
                 operation: Operation::Validate,
@@ -138,7 +138,7 @@ extend Build {
             if package.name.equals(options.name)
                 or (not package.manifestDependency
                     and not options.manifestDependency
-                    and package.root.view().text().equals(options.root.text()))
+                    and package.path.view().text().equals(options.path.text()))
             {
                 return .Invalid {
                     operation: Operation::Validate,
@@ -166,7 +166,7 @@ extend Build {
         self.addPackage(PackageOptions::dependency(name))
     }
 
-    pub(pkg) fun cleanupPendingPackage(&mut self) Error!() {
+    pub(root) fun cleanupPendingPackage(&mut self) Error!() {
         if not self.hasPendingPackage {
             return !();
         }
@@ -747,7 +747,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fun cleanupPendingModule(&mut self) Error!() {
+    pub(root) fun cleanupPendingModule(&mut self) Error!() {
         if not self.hasPendingModule {
             return !();
         }
@@ -840,7 +840,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fun cleanupPendingExecutable(&mut self) Error!() {
+    pub(root) fun cleanupPendingExecutable(&mut self) Error!() {
         if not self.hasPendingExecutable {
             return !();
         }
@@ -902,7 +902,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fun cleanupPendingObject(&mut self) Error!() {
+    pub(root) fun cleanupPendingObject(&mut self) Error!() {
         if not self.hasPendingObject {
             return !();
         }
@@ -964,7 +964,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fun cleanupPendingStaticArchive(&mut self) Error!() {
+    pub(root) fun cleanupPendingStaticArchive(&mut self) Error!() {
         if not self.hasPendingStaticArchive {
             return !();
         }
@@ -1434,7 +1434,7 @@ extend Build {
         !step
     }
 
-    pub(pkg) fun cleanupPendingStep(&mut self) Error!() {
+    pub(root) fun cleanupPendingStep(&mut self) Error!() {
         if not self.hasPendingStep {
             return !();
         }

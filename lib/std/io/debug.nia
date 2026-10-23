@@ -1,7 +1,7 @@
-using pkg::builtin;
-using pkg::fmt;
-using pkg::fs;
-using pkg::io;
+using root::builtin;
+using root::fmt;
+using root::fs;
+using root::io;
 
 pub enum DebugPrintError {
     Format(fmt::Error),

@@ -15,19 +15,19 @@
 //   directory. A name without an extension also tries each `PATHEXT`
 //   extension, as the build host's probe resolver does.
 
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     fileAttributeDirectory, invalidFileAttributes, GetFileAttributesW,
     GetCurrentDirectoryW, maxPathUnits,
 };
-using pkg::os::windows::types::{maxPathBytes, Errno};
-using pkg::os::windows::encoding::{cStringLen, utf8ToWide, wideStringLen};
-using pkg::os::windows::error::lastError;
-using pkg::os::windows::path::normalizeSeparators;
+using root::os::windows::types::{maxPathBytes, Errno};
+using root::os::windows::encoding::{cStringLen, utf8ToWide, wideStringLen};
+using root::os::windows::error::lastError;
+using root::os::windows::path::normalizeSeparators;
 
 const defaultPathExt: &[u8] = &b".COM;.EXE;.BAT;.CMD";
 
 /// Writes the NUL-terminated application path for `program` into `storage`.
-pub(pkg) fun resolveExecutable(
+pub(root) fun resolveExecutable(
     program: &u8,
     envp: &&u8,
     cwd: ?&u8,
@@ -233,7 +233,7 @@ fun environmentValue(envp: &&u8, name: &[u8]) ?&[u8] {
     if envp == 0usize as &&u8 {
         return null;
     }
-    let pointerSize = pkg::builtin::size[&u8]();
+    let pointerSize = root::builtin::size[&u8]();
     let mut entry = envp;
     while entry.* != 0usize as &u8 {
         let text = entry.*;

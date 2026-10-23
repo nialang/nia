@@ -1,15 +1,15 @@
-pub(pkg) module context;
-pub(pkg) module entries;
-pub(pkg) module format;
-pub(pkg) module iterators;
-pub(pkg) module map;
-pub(pkg) module raw;
-pub(pkg) module types;
+pub(root) module context;
+pub(root) module entries;
+pub(root) module format;
+pub(root) module iterators;
+pub(root) module map;
+pub(root) module raw;
+pub(root) module types;
 
-using pkg::collections::hash_map::context;
-using pkg::collections::hash_map::format;
-using pkg::collections::hash_map::iterators;
-using pkg::collections::hash_map::map;
+using root::collections::hash_map::context;
+using root::collections::hash_map::format;
+using root::collections::hash_map::iterators;
+using root::collections::hash_map::map;
 
 pub using context::DefaultHashMapContext;
 pub using entries::{

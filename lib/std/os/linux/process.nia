@@ -16,9 +16,9 @@
 // spawn error is exposed only after reaping completes. `ECHILD` confirms that
 // no waitable pid owner remains and therefore completes cleanup.
 
-using pkg::os::linux::syscall;
-using pkg::os::linux::types;
-using pkg::os::linux::fd as linuxFd;
+using root::os::linux::syscall;
+using root::os::linux::types;
+using root::os::linux::fd as linuxFd;
 
 using types::{Errno, OpenMode, Pipe, ProcessId, SpawnAttempt, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
 
@@ -153,7 +153,7 @@ fun executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
             .syscallError();
     }
 
-    let pointerSize = pkg::builtin::size[&u8]();
+    let pointerSize = root::builtin::size[&u8]();
     let mut entry = envp;
     while entry as usize != 0 and entry.* as usize != 0 {
         let text = entry.*;
@@ -225,7 +225,7 @@ fun reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
 
 fun writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
     let mut record: SpawnErrorRecord = .init(stage, errno);
-    let mut bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..root::builtin::size[SpawnErrorRecord]()]);
     let mut written: usize = 0;
     // The parent treats EOF before a record as successful close-on-exec.
     while written < bytes.len() {
@@ -246,7 +246,7 @@ fun writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) 
 
 fun readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
     let mut record: SpawnErrorRecord = .init(.Setup, .Io);
-    let mut bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
+    let mut bytes = &mut ((&mut record as &mut u8)[0..root::builtin::size[SpawnErrorRecord]()]);
     let mut readLen: usize = 0;
     while readLen < bytes.len() {
         let amount = match fd.readSome(&mut bytes[readLen..]) {

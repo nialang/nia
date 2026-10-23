@@ -172,7 +172,7 @@ impl LoadedProgramFixture {
             .intern_declared_child_with_source_path(
                 runtime_root,
                 &sym("start"),
-                nia_ids::Visibility::PublicPkg,
+                nia_ids::Visibility::PublicRoot,
                 Span::default(),
                 start_path.clone(),
             )
@@ -181,7 +181,7 @@ impl LoadedProgramFixture {
             &self.sources,
             start,
             start_path,
-            "pub(pkg) module freestanding;",
+            "pub(root) module freestanding;",
             SourceRevision::INITIAL,
         ));
         let (platform, implementation_path) = if cfg!(windows) {
@@ -192,27 +192,27 @@ impl LoadedProgramFixture {
         let freestanding = self.add_child_with_source_path(
             start,
             "freestanding",
-            nia_ids::Visibility::PublicPkg,
+            nia_ids::Visibility::PublicRoot,
             SourcePath::with_identity(
                 "runtime/start/freestanding.nia",
                 "toolchain:/runtime/start/freestanding.nia",
             ),
-            &format!("pub(pkg) module {platform};"),
+            &format!("pub(root) module {platform};"),
         );
         let platform_module = self.add_child_with_source_path(
             freestanding,
             platform,
-            nia_ids::Visibility::PublicPkg,
+            nia_ids::Visibility::PublicRoot,
             SourcePath::with_identity(
                 format!("runtime/start/freestanding/{platform}.nia"),
                 format!("toolchain:/runtime/start/freestanding/{platform}.nia"),
             ),
-            "pub(pkg) module x86_64;",
+            "pub(root) module x86_64;",
         );
         let implementation = self.add_child_with_source_path(
             platform_module,
             "x86_64",
-            nia_ids::Visibility::PublicPkg,
+            nia_ids::Visibility::PublicRoot,
             SourcePath::with_identity(
                 implementation_path,
                 format!("toolchain:/{implementation_path}"),

@@ -3,8 +3,8 @@
 // Handles pair a dense index with the owning Build identity. They identify live
 // graph entries; serialized plans use the retained records instead.
 
-using pkg::build::error;
-using pkg::build::types;
+using root::build::error;
+using root::build::types;
 
 using error::Error;
 using types::{
@@ -20,7 +20,7 @@ using types::{
 };
 
 extend BuildInitAttempt {
-    pub(pkg) fun init(build: Build) BuildInitAttempt {
+    pub(root) fun init(build: Build) BuildInitAttempt {
         .{ build, primary: null, active: true }
     }
 
@@ -42,57 +42,57 @@ extend BuildInitAttempt {
 }
 
 extend StepHandle {
-    pub(pkg) fun init(ownerId: usize, index: usize) StepHandle {
+    pub(root) fun init(ownerId: usize, index: usize) StepHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fun ownerId(&self) usize { self.ownerId }
-    pub(pkg) fun index(&self) usize { self.index }
+    pub(root) fun ownerId(&self) usize { self.ownerId }
+    pub(root) fun index(&self) usize { self.index }
 }
 
 extend ExecutableHandle {
-    pub(pkg) fun init(ownerId: usize, index: usize) ExecutableHandle {
+    pub(root) fun init(ownerId: usize, index: usize) ExecutableHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fun ownerId(&self) usize { self.ownerId }
-    pub(pkg) fun index(&self) usize { self.index }
+    pub(root) fun ownerId(&self) usize { self.ownerId }
+    pub(root) fun index(&self) usize { self.index }
 }
 
 extend ObjectHandle {
-    pub(pkg) fun init(ownerId: usize, index: usize) ObjectHandle {
+    pub(root) fun init(ownerId: usize, index: usize) ObjectHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fun ownerId(&self) usize { self.ownerId }
-    pub(pkg) fun index(&self) usize { self.index }
+    pub(root) fun ownerId(&self) usize { self.ownerId }
+    pub(root) fun index(&self) usize { self.index }
 }
 
 extend StaticArchiveHandle {
-    pub(pkg) fun init(ownerId: usize, index: usize) StaticArchiveHandle {
+    pub(root) fun init(ownerId: usize, index: usize) StaticArchiveHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fun ownerId(&self) usize { self.ownerId }
-    pub(pkg) fun index(&self) usize { self.index }
+    pub(root) fun ownerId(&self) usize { self.ownerId }
+    pub(root) fun index(&self) usize { self.index }
 }
 
 extend ModuleHandle {
-    pub(pkg) fun init(ownerId: usize, index: usize) ModuleHandle {
+    pub(root) fun init(ownerId: usize, index: usize) ModuleHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fun ownerId(&self) usize { self.ownerId }
-    pub(pkg) fun index(&self) usize { self.index }
+    pub(root) fun ownerId(&self) usize { self.ownerId }
+    pub(root) fun index(&self) usize { self.index }
 }
 
 extend PackageHandle {
-    pub(pkg) fun init(ownerId: usize, index: usize) PackageHandle {
+    pub(root) fun init(ownerId: usize, index: usize) PackageHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fun ownerId(&self) usize { self.ownerId }
-    pub(pkg) fun index(&self) usize { self.index }
+    pub(root) fun ownerId(&self) usize { self.ownerId }
+    pub(root) fun index(&self) usize { self.index }
 }
 
 extend StepDependency {

@@ -1463,7 +1463,7 @@ fn write_visibility(encoded: &mut Vec<u8>, visibility: Visibility) {
     encoded.push(match visibility {
         Visibility::Private => 0,
         Visibility::PublicSuper => 1,
-        Visibility::PublicPkg => 2,
+        Visibility::PublicRoot => 2,
         Visibility::Public => 3,
     });
 }
@@ -1472,7 +1472,7 @@ fn read_visibility(cursor: &mut Cursor<&[u8]>) -> Option<Visibility> {
     match read_u8(cursor)? {
         0 => Some(Visibility::Private),
         1 => Some(Visibility::PublicSuper),
-        2 => Some(Visibility::PublicPkg),
+        2 => Some(Visibility::PublicRoot),
         3 => Some(Visibility::Public),
         _ => None,
     }

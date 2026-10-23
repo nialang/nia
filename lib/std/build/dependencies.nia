@@ -3,7 +3,7 @@
 // These helpers inspect retained graph records through free functions, keeping
 // dependency checks separate from Build mutation.
 
-using pkg::build::types;
+using root::build::types;
 
 using types::{
     CommandArgumentKind,
@@ -13,7 +13,7 @@ using types::{
     StepKind,
 };
 
-pub(pkg) fun hasDependency(
+pub(root) fun hasDependency(
     dependencies: &[StepDependency],
     stepIndex: usize,
     dependencyIndex: usize,
@@ -28,7 +28,7 @@ pub(pkg) fun hasDependency(
     false
 }
 
-pub(pkg) fun findGeneratedSourceProducer(
+pub(root) fun findGeneratedSourceProducer(
     ownerId: usize,
     steps: &[Step],
     path: &[char],

@@ -1,6 +1,6 @@
-using pkg::hash::traits;
-using pkg::math;
-using pkg::slice;
+using root::hash::traits;
+using root::math;
+using root::slice;
 
 using traits::Hasher;
 

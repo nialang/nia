@@ -186,7 +186,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             associated_values: vec![item_signatures::TraitImplAssociatedValueSignature {
                 def_id: DefId(52),
                 name: value_name,
-                visibility: Visibility::PublicPkg,
+                visibility: Visibility::PublicRoot,
                 span,
             }],
             methods: vec![item_signatures::TraitImplMethodSignature {

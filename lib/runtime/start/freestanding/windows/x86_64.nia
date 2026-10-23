@@ -1,4 +1,4 @@
-using pkg::builtins::windows::x86_64::__chkstk;
+using root::builtins::windows::x86_64::__chkstk;
 
 @[naked]
 pub extern fun _start() () {

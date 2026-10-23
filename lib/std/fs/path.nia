@@ -1,8 +1,8 @@
-using pkg::fs::types;
-using pkg::math;
-using pkg::mem;
-using pkg::slice;
-using pkg::string;
+using root::fs::types;
+using root::math;
+using root::mem;
+using root::slice;
+using root::string;
 
 using types::{
     NativePathView,
@@ -204,7 +204,7 @@ fun textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     if text.len() == 0 or out.len() == 0 {
         return !null;
     }
-    let itemSize = pkg::builtin::size[char]();
+    let itemSize = root::builtin::size[char]();
     let base = out.text().ptr() as usize;
     let source = text.ptr() as usize;
     if source < base {

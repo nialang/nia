@@ -5,11 +5,11 @@
 // reach the residual owner. Each helper still attempts every element and
 // returns the first cleanup error, matching Build's aggregate policy.
 
-using pkg::collections;
-using pkg::mem;
-using pkg::error::CleanupAccumulator;
-using pkg::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
-using pkg::build::types::{
+using root::collections;
+using root::mem;
+using root::error::CleanupAccumulator;
+using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
+using root::build::types::{
     ExecutableTarget,
     Module,
     ObjectTarget,
@@ -19,7 +19,7 @@ using pkg::build::types::{
     TargetStorage,
 };
 
-pub(pkg) fun releaseSteps(
+pub(root) fun releaseSteps(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Step],
 ) Error!() {
@@ -35,7 +35,7 @@ pub(pkg) fun releaseSteps(
     cleanup.finish()
 }
 
-pub(pkg) fun releasePackages(
+pub(root) fun releasePackages(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Package],
 ) Error!() {
@@ -51,7 +51,7 @@ pub(pkg) fun releasePackages(
     cleanup.finish()
 }
 
-pub(pkg) fun releaseExecutables(
+pub(root) fun releaseExecutables(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ExecutableTarget],
 ) Error!() {
@@ -67,7 +67,7 @@ pub(pkg) fun releaseExecutables(
     cleanup.finish()
 }
 
-pub(pkg) fun releaseObjects(
+pub(root) fun releaseObjects(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ObjectTarget],
 ) Error!() {
@@ -83,7 +83,7 @@ pub(pkg) fun releaseObjects(
     cleanup.finish()
 }
 
-pub(pkg) fun releaseStaticArchives(
+pub(root) fun releaseStaticArchives(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[StaticArchiveTarget],
 ) Error!() {
@@ -99,7 +99,7 @@ pub(pkg) fun releaseStaticArchives(
     cleanup.finish()
 }
 
-pub(pkg) fun releaseModules(
+pub(root) fun releaseModules(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Module],
 ) Error!() {
@@ -115,7 +115,7 @@ pub(pkg) fun releaseModules(
     cleanup.finish()
 }
 
-pub(pkg) fun releaseTargets(
+pub(root) fun releaseTargets(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[TargetStorage],
 ) Error!() {

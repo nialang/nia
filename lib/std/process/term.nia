@@ -1,5 +1,5 @@
-using pkg::os;
-using pkg::process::types;
+using root::os;
+using root::process::types;
 
 using types::{Term, TermKind};
 
@@ -20,7 +20,7 @@ extend Term {
         .{ kind: .Unknown, code: raw }
     }
 
-    pub(pkg) fun fromWaitStatus(status: os::WaitStatus) Term {
+    pub(root) fun fromWaitStatus(status: os::WaitStatus) Term {
         if status.exitCode() is ?code {
             .exited(code)
         } else if status.signal() is ?signal {

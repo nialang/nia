@@ -808,7 +808,7 @@ pub(crate) fn used_path_start(
         UsedModulePath::Package { package, .. } => {
             graph.root_module_for_name(current_module, *package)
         }
-        UsedModulePath::PackageRelative { .. } => graph.current_package_root(current_module),
+        UsedModulePath::Root { .. } => graph.current_package_root(current_module),
         UsedModulePath::ParentRelative { .. } => {
             graph.get(current_module).and_then(|node| node.parent)
         }

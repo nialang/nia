@@ -74,7 +74,7 @@ impl Lower<'_> {
             SyntaxKind::NameExpr => match node.first_token() {
                 Some(token) => match token_kind(token) {
                     TokenKind::SelfValue => ExprKind::SelfValue,
-                    TokenKind::Pkg => ExprKind::PathRoot(PathSegmentKind::Package),
+                    TokenKind::Root => ExprKind::PathRoot(PathSegmentKind::Root),
                     TokenKind::Super => ExprKind::PathRoot(PathSegmentKind::Super),
                     TokenKind::Underscore => ExprKind::Underscore,
                     _ => ExprKind::Ident(self.name(token)),

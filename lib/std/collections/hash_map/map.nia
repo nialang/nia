@@ -10,18 +10,18 @@
 // physical empty-slot budget; it may reuse an empty or a deleted control slot
 // without allocating.
 
-using pkg::cmp;
-using pkg::builtin;
-using pkg::error;
-using pkg::hash;
-using pkg::iter::range;
-using pkg::mem;
-using pkg::option;
-using pkg::os;
-using pkg::collections::hash_map::context;
-using pkg::collections::hash_map::entries;
-using pkg::collections::hash_map::raw;
-using pkg::collections::hash_map::types;
+using root::cmp;
+using root::builtin;
+using root::error;
+using root::hash;
+using root::iter::range;
+using root::mem;
+using root::option;
+using root::os;
+using root::collections::hash_map::context;
+using root::collections::hash_map::entries;
+using root::collections::hash_map::raw;
+using root::collections::hash_map::types;
 
 using context::DefaultHashMapContext;
 using entries::{
@@ -59,15 +59,15 @@ fun storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
 where K: Sized, V: Sized
 {
     let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-    let keyBytes = match pkg::builtin::size[K]().checkedMul(capacity) {
+    let keyBytes = match root::builtin::size[K]().checkedMul(capacity) {
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let valueBytes = match pkg::builtin::size[V]().checkedMul(capacity) {
+    let valueBytes = match root::builtin::size[V]().checkedMul(capacity) {
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let keysOffset = match ctrlLen.alignForward(pkg::builtin::align[K]()) {
+    let keysOffset = match ctrlLen.alignForward(root::builtin::align[K]()) {
         ?value => value,
         null => return .OutOfMemory!,
     };
@@ -75,7 +75,7 @@ where K: Sized, V: Sized
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let valuesOffset = match afterKeys.alignForward(pkg::builtin::align[V]()) {
+    let valuesOffset = match afterKeys.alignForward(root::builtin::align[V]()) {
         ?value => value,
         null => return .OutOfMemory!,
     };
@@ -84,8 +84,8 @@ where K: Sized, V: Sized
         null => return .OutOfMemory!,
     };
     let blockAlign = cmp::max(
-        pkg::builtin::align[u8](),
-        cmp::max(pkg::builtin::align[K](), pkg::builtin::align[V]()),
+        root::builtin::align[u8](),
+        cmp::max(root::builtin::align[K](), root::builtin::align[V]()),
     );
     !.{
         layout: mem::Layout::init(totalSize, blockAlign).?,
@@ -111,7 +111,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
         if HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() is !map {
             return map;
         }
-        pkg::builtin::trap()
+        root::builtin::trap()
     }
 
     pub fun tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
@@ -144,7 +144,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if HashMapWithContext[K, V, C]::tryInitContext(context) is !map {
             return map;
         }
-        pkg::builtin::trap()
+        root::builtin::trap()
     }
 
     pub fun tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
@@ -512,7 +512,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     fun insertNewUninitializedIndexAssumeCapacity(&mut self, key: K) usize {
         if self.len >= self.capacity() {
-            pkg::builtin::trap()
+            root::builtin::trap()
         }
         let valueHash = self.hashKey(&key);
         let slot = self.findInsertIndex(valueHash);
@@ -649,7 +649,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             cursor.advanceGroup();
         }
 
-        pkg::builtin::trap()
+        root::builtin::trap()
     }
 
     fun growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
@@ -696,7 +696,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.growthLeft -= 1;
     }
 
-    pub(pkg) fun setCtrl(&mut self, index: usize, value: u8) () {
+    pub(root) fun setCtrl(&mut self, index: usize, value: u8) () {
         self.ctrl[index] = value;
         if index < raw::groupWidth - 1 {
             self.ctrl[self.bucketCount + index] = value;
@@ -707,12 +707,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         let plan = storagePlan[K, V](capacity).?;
         let storage = allocator.alloc(plan.layout).?;
         self.ctrl = storageItems[u8](storage, 0, plan.ctrlLen);
-        if pkg::builtin::size[K]() == 0 {
+        if root::builtin::size[K]() == 0 {
             self.keys = raw::danglingLenSlice[K](capacity);
         } else {
             self.keys = storageItems[K](storage, plan.keysOffset, capacity);
         }
-        if pkg::builtin::size[V]() == 0 {
+        if root::builtin::size[V]() == 0 {
             self.values = raw::danglingLenSlice[V](capacity);
         } else {
             self.values = storageItems[V](storage, plan.valuesOffset, capacity);

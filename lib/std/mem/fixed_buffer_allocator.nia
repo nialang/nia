@@ -1,6 +1,6 @@
-using pkg::math;
-using pkg::mem::allocator;
-using pkg::mem::types;
+using root::math;
+using root::mem::allocator;
+using root::mem::types;
 
 using allocator::Allocator;
 using types::{Block, Error, Layout};

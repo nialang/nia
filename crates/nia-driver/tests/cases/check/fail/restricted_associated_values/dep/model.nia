@@ -3,5 +3,5 @@ pub struct Value {}
 extend Value {
     const PRIVATE_LIMIT: usize = 1usize;
     pub(super) const PARENT_LIMIT: usize = 2usize;
-    pub(pkg) const PACKAGE_LIMIT: usize = 3usize;
+    pub(root) const PACKAGE_LIMIT: usize = 3usize;
 }

@@ -1,5 +1,5 @@
-using pkg::slice;
-using pkg::unicode;
+using root::slice;
+using root::unicode;
 
 pub enum BufferError: i32 {
     EndOfStream = 1,

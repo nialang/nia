@@ -432,10 +432,10 @@ fn archive_process_failure_preserves_streams_across_workflows() {
         r#"using std::build;
 using std::fs;
 pub fun build(b: &mut build::Build) build::Error!() {
-    let root = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"main.nia"))).?;
-    let archive = b.addStaticArchive(build::StaticArchiveOptions::init(&"library", root)).?;
+    let appModule = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"main.nia"))).?;
+    let archive = b.addStaticArchive(build::StaticArchiveOptions::init(&"library", appModule)).?;
     let archiveStep = b.addEmitStaticArchiveStep(&"archive", archive).?;
-    let testStep = b.addTestSuite(&"suite", root).?;
+    let testStep = b.addTestSuite(&"suite", appModule).?;
     b.dependOn(testStep, archiveStep).?;
     b.setDefaultStep(archiveStep).?;
      !()
@@ -528,10 +528,10 @@ fn windows_archive_process_failure_preserves_streams_across_workflows() {
         r#"using std::build;
 using std::fs;
 pub fun build(b: &mut build::Build) build::Error!() {
-    let root = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"main.nia"))).?;
-    let archive = b.addStaticArchive(build::StaticArchiveOptions::init(&"library", root)).?;
+    let appModule = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"main.nia"))).?;
+    let archive = b.addStaticArchive(build::StaticArchiveOptions::init(&"library", appModule)).?;
     let archiveStep = b.addEmitStaticArchiveStep(&"archive", archive).?;
-    let testStep = b.addTestSuite(&"suite", root).?;
+    let testStep = b.addTestSuite(&"suite", appModule).?;
     b.dependOn(testStep, archiveStep).?;
     b.setDefaultStep(archiveStep).?;
     !()

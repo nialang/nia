@@ -15,9 +15,9 @@
 // A successful remap changes only a block's logical layout. Default and
 // concrete remap paths preserve the original release pointer and length.
 
-using pkg::mem::types;
-using pkg::result;
-using pkg::slice;
+using root::mem::types;
+using root::result;
+using root::slice;
 
 using types::{Block, Error, Layout};
 
@@ -104,7 +104,7 @@ extend Allocator {
 extend[T] SliceAllocation[T]
 where T: Sized
 {
-    pub(pkg) fun fromBlock(block: Block, len: usize) SliceAllocation[T] {
+    pub(root) fun fromBlock(block: Block, len: usize) SliceAllocation[T] {
         .{ block, len }
     }
 
@@ -112,7 +112,7 @@ where T: Sized
         self.len
     }
 
-    pub(pkg) fun intoBlock(self) Block {
+    pub(root) fun intoBlock(self) Block {
         self.block
     }
 
@@ -138,7 +138,7 @@ where T: Sized
 fun danglingSlice[T](len: usize) &mut [T]
 where T: Sized
 {
-    let mut ptr = pkg::builtin::align[T]() as &mut T;
+    let mut ptr = root::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 

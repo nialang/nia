@@ -3,14 +3,14 @@
 // Build paths are relative to `.nia-build/`; package paths use the same
 // component rules but may opt into the empty path for a package root.
 
-using pkg::error::CleanupAccumulator;
-using pkg::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
-using pkg::build::types::{BuildPathView, BuildPaths};
-using pkg::fs;
-using pkg::mem;
+using root::error::CleanupAccumulator;
+using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
+using root::build::types::{BuildPathView, BuildPaths};
+using root::fs;
+using root::mem;
 
 extend BuildPaths {
-    pub(pkg) fun init() BuildPaths {
+    pub(root) fun init() BuildPaths {
         .{
             packageRoot: .init(),
             buildDir: .init(),
@@ -20,7 +20,7 @@ extend BuildPaths {
         }
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.toolchainResourceRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainResourceRoot));
         cleanup.attempt(self.toolchainExecutable.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainExecutable));
@@ -40,19 +40,19 @@ extend BuildPathView {
         self.path
     }
 
-    pub(pkg) fun isValid(&self) bool {
+    pub(root) fun isValid(&self) bool {
         isValidBuildPath(self.path)
     }
 }
 
-pub(pkg) fun isValidPackagePath(path: &[char], allowEmpty: bool) bool {
+pub(root) fun isValidPackagePath(path: &[char], allowEmpty: bool) bool {
     if path.len() == 0 {
         return allowEmpty;
     }
     isValidBuildPath(path)
 }
 
-pub(pkg) fun isValidBuildPath(text: &[char]) bool {
+pub(root) fun isValidBuildPath(text: &[char]) bool {
     if text.len() == 0 or text[0] == '/' or text[text.len() - 1] == '/' {
         return false;
     }

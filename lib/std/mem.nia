@@ -8,19 +8,19 @@
 // while copying constructors accept an allocator and preserve typed allocation
 // or validation failures.
 
-pub(pkg) module arena_allocator;
-pub(pkg) module allocation;
-pub(pkg) module allocator;
-pub(pkg) module fixed_buffer_allocator;
-pub(pkg) module general_purpose_allocator;
-pub(pkg) module page_allocator;
-pub(pkg) module types;
+pub(root) module arena_allocator;
+pub(root) module allocation;
+pub(root) module allocator;
+pub(root) module fixed_buffer_allocator;
+pub(root) module general_purpose_allocator;
+pub(root) module page_allocator;
+pub(root) module types;
 
-using pkg::mem::arena_allocator;
-using pkg::mem::allocation;
-using pkg::mem::fixed_buffer_allocator;
-using pkg::mem::general_purpose_allocator;
-using pkg::mem::page_allocator;
+using root::mem::arena_allocator;
+using root::mem::allocation;
+using root::mem::fixed_buffer_allocator;
+using root::mem::general_purpose_allocator;
+using root::mem::page_allocator;
 
 pub using types::{Block, Error, Layout};
 pub using allocation::{Allocated, CallableAllocation};

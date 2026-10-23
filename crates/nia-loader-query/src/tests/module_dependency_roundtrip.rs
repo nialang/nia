@@ -19,7 +19,7 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
     let declarations = [
         ("private", Visibility::Private, nia_span::Span::new(1, 2)),
         ("super", Visibility::PublicSuper, nia_span::Span::new(3, 4)),
-        ("package", Visibility::PublicPkg, nia_span::Span::new(5, 6)),
+        ("package", Visibility::PublicRoot, nia_span::Span::new(5, 6)),
         ("public", Visibility::Public, nia_span::Span::new(7, 8)),
     ]
     .into_iter()
@@ -40,7 +40,7 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
             include_declared_children: true,
             processing: UsedModulePathProcessing::Always,
         },
-        UsedModulePath::PackageRelative {
+        UsedModulePath::Root {
             segments: vec![sym("two")],
             include_declared_children: false,
             processing: UsedModulePathProcessing::IfSelectedItem,

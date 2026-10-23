@@ -228,7 +228,7 @@ pub(super) fn visibility_tag(visibility: nia_ids::Visibility) -> u8 {
     match visibility {
         nia_ids::Visibility::Private => 0,
         nia_ids::Visibility::PublicSuper => 1,
-        nia_ids::Visibility::PublicPkg => 2,
+        nia_ids::Visibility::PublicRoot => 2,
         nia_ids::Visibility::Public => 3,
     }
 }
@@ -286,7 +286,7 @@ pub(super) fn module_graph_child_fingerprint(
     builder.write_u8(match visibility {
         nia_ids::Visibility::Private => 0,
         nia_ids::Visibility::PublicSuper => 1,
-        nia_ids::Visibility::PublicPkg => 2,
+        nia_ids::Visibility::PublicRoot => 2,
         nia_ids::Visibility::Public => 3,
     });
     builder.finish()

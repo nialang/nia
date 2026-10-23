@@ -29,7 +29,7 @@ pub const statx: usize = 332;
 
 pub fun syscall0(number: usize) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{ rax: number },
@@ -41,7 +41,7 @@ pub fun syscall0(number: usize) isize {
 
 pub fun syscall1(number: usize, arg0: usize) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{
@@ -56,7 +56,7 @@ pub fun syscall1(number: usize, arg0: usize) isize {
 
 pub fun syscall2(number: usize, arg0: usize, arg1: usize) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{
@@ -72,7 +72,7 @@ pub fun syscall2(number: usize, arg0: usize, arg1: usize) isize {
 
 pub fun syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{
@@ -89,7 +89,7 @@ pub fun syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
 
 pub fun syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{
@@ -107,7 +107,7 @@ pub fun syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usi
 
 pub fun syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{
@@ -134,7 +134,7 @@ pub fun syscall6(
     arg5: usize,
 ) isize {
     let mut ret: isize = 0;
-    pkg::builtin::asm(.{
+    root::builtin::asm(.{
         code: b"syscall",
         outputs: .{ rax: ret },
         inputs: .{

@@ -102,17 +102,17 @@ fn item(p: &mut Parser<'_>) -> Option<Parsed> {
     })
 }
 
-/// Parses `pub`, `pub(super)`, or `pub(pkg)`; `public` reports plain `pub`.
+/// Parses `pub`, `pub(super)`, or `pub(root)`; `public` reports plain `pub`.
 fn visibility(p: &mut Parser<'_>, public: &mut bool) -> Option<Parsed> {
     p.node(|p| {
         let start = p.bump().start;
         *public = true;
         if p.eat(TokenKind::LParen).is_some() {
-            if p.at(TokenKind::Super) || p.at(TokenKind::Pkg) {
+            if p.at(TokenKind::Super) || p.at(TokenKind::Root) {
                 p.bump();
                 *public = false;
             } else {
-                p.error_here("expected `super` or `pkg` in visibility");
+                p.error_here("expected `super` or `root` in visibility");
             }
             p.expect(TokenKind::RParen, "expected `)` after visibility")?;
         }

@@ -4,7 +4,7 @@ const highSurrogateEnd: u16 = 0xdbff;
 const lowSurrogateStart: u16 = 0xdc00;
 const lowSurrogateEnd: u16 = 0xdfff;
 
-pub(pkg) fun parseArguments(
+pub(root) fun parseArguments(
     command: &u16,
     wide: &mut [u16],
     bytes: &mut [u8],
@@ -76,9 +76,9 @@ pub(pkg) fun parseArguments(
 // Unit and entry counts of a Windows environment block, excluding the final
 // terminator. Each unit encodes to at most three UTF-8 bytes, so `units * 3`
 // bytes hold every entry and its NUL.
-pub(pkg) struct EnvironmentShape { units: usize, entries: usize }
+pub(root) struct EnvironmentShape { units: usize, entries: usize }
 
-pub(pkg) fun measureEnvironment(environment: &u16) EnvironmentShape {
+pub(root) fun measureEnvironment(environment: &u16) EnvironmentShape {
     let mut units: usize = 0;
     let mut entries: usize = 0;
     loop {
@@ -90,7 +90,7 @@ pub(pkg) fun measureEnvironment(environment: &u16) EnvironmentShape {
     .{ units, entries }
 }
 
-pub(pkg) fun parseEnvironment(environment: &u16, bytes: &mut [u8], pointers: &mut [&u8]) usize {
+pub(root) fun parseEnvironment(environment: &u16, bytes: &mut [u8], pointers: &mut [&u8]) usize {
     let mut input: usize = 0;
     let mut output: usize = 0;
     let mut count: usize = 0;

@@ -1,6 +1,6 @@
-using pkg::io::traits;
-using pkg::math;
-using pkg::slice;
+using root::io::traits;
+using root::math;
+using root::slice;
 
 using traits::{BufferError, Reader, Writer};
 

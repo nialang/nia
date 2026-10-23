@@ -175,8 +175,8 @@ _ = value;
     write(
         &root.join("facade.nia"),
         r#"
-pub(pkg) module providers;
-pub(pkg) module types;
+pub(root) module providers;
+pub(root) module types;
 
 pub using types::Widget;
 "#,

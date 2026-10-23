@@ -1,6 +1,6 @@
-using pkg::builtin;
-using pkg::os;
-using pkg::process::types;
+using root::builtin;
+using root::os;
+using root::process::types;
 
 using types::{ProcessId, SpawnError, SpawnStage, SystemError};
 

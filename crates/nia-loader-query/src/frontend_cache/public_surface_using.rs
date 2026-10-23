@@ -107,7 +107,7 @@ fn write_using_path_segments(encoded: &mut Vec<u8>, segments: &[UsingPathSegment
                 encoded.push(0);
                 encoded.extend_from_slice(&name.raw().to_le_bytes());
             }
-            PathSegmentKind::Package => encoded.push(1),
+            PathSegmentKind::Root => encoded.push(1),
             PathSegmentKind::Super => encoded.push(2),
             PathSegmentKind::SelfValue => encoded.push(3),
         }
@@ -124,7 +124,7 @@ fn read_using_path_segments(
     for _ in 0..len {
         let kind = match read_u8(cursor)? {
             0 => PathSegmentKind::Name(read_symbol(cursor)?),
-            1 => PathSegmentKind::Package,
+            1 => PathSegmentKind::Root,
             2 => PathSegmentKind::Super,
             3 => PathSegmentKind::SelfValue,
             _ => return None,
@@ -293,7 +293,7 @@ fn collect_using_path_segment_symbols(
 ) {
     symbols.extend(segments.iter().filter_map(|segment| match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }));
 }
 

@@ -4,19 +4,19 @@
 // UTF-8 and formatting APIs preserve validation, allocation, and writer errors,
 // and mutation commits only after the complete operation can succeed.
 
-pub(pkg) module hash;
+pub(root) module hash;
 
-using pkg::collections;
-using pkg::builtin;
-using pkg::error;
-using pkg::fmt;
-using pkg::io;
-using pkg::mem;
-using pkg::result;
-using pkg::slice;
-using pkg::unicode;
+using root::collections;
+using root::builtin;
+using root::error;
+using root::fmt;
+using root::io;
+using root::mem;
+using root::result;
+using root::slice;
+using root::unicode;
 
-using pkg::string::hash as stringHash;
+using root::string::hash as stringHash;
 
 pub enum TextError {
     InvalidUtf8(unicode::Utf8DecodeError),

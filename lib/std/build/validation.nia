@@ -3,10 +3,10 @@
 // Each check receives the owning Build identity and the relevant handle count,
 // so ownership validation stays independent of graph mutation.
 
-using pkg::build::error;
-using pkg::build::handles;
-using pkg::build::targets;
-using pkg::build::types;
+using root::build::error;
+using root::build::handles;
+using root::build::targets;
+using root::build::types;
 
 using error::Error;
 using types::{
@@ -18,7 +18,7 @@ using types::{
     StepHandle,
 };
 
-pub(pkg) fun validateExecutableHandle(
+pub(root) fun validateExecutableHandle(
     ownerId: usize,
     count: usize,
     handle: ExecutableHandle,
@@ -32,7 +32,7 @@ pub(pkg) fun validateExecutableHandle(
     !()
 }
 
-pub(pkg) fun validateObjectHandle(
+pub(root) fun validateObjectHandle(
     ownerId: usize,
     count: usize,
     handle: ObjectHandle,
@@ -46,7 +46,7 @@ pub(pkg) fun validateObjectHandle(
     !()
 }
 
-pub(pkg) fun validateStaticArchiveHandle(
+pub(root) fun validateStaticArchiveHandle(
     ownerId: usize,
     count: usize,
     handle: StaticArchiveHandle,
@@ -60,7 +60,7 @@ pub(pkg) fun validateStaticArchiveHandle(
     !()
 }
 
-pub(pkg) fun validatePackageHandle(
+pub(root) fun validatePackageHandle(
     ownerId: usize,
     count: usize,
     handle: PackageHandle,
@@ -74,7 +74,7 @@ pub(pkg) fun validatePackageHandle(
     !()
 }
 
-pub(pkg) fun validateModuleHandle(
+pub(root) fun validateModuleHandle(
     ownerId: usize,
     count: usize,
     handle: ModuleHandle,
@@ -88,7 +88,7 @@ pub(pkg) fun validateModuleHandle(
     !()
 }
 
-pub(pkg) fun validateStepHandle(
+pub(root) fun validateStepHandle(
     ownerId: usize,
     count: usize,
     handle: StepHandle,
@@ -102,7 +102,7 @@ pub(pkg) fun validateStepHandle(
     !()
 }
 
-pub(pkg) fun validateRunnableTarget(
+pub(root) fun validateRunnableTarget(
     targetIndex: usize,
     hostTarget: usize,
     stepIndex: usize,

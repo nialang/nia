@@ -735,7 +735,7 @@ impl ValueResolver<'_> {
     fn path_segment_display(&self, segment: PathSegment<'_>) -> String {
         match segment.kind {
             PathSegmentKind::Name(name) => self.symbol_name(name),
-            PathSegmentKind::Package => "pkg".to_string(),
+            PathSegmentKind::Root => "root".to_string(),
             PathSegmentKind::Super => "super".to_string(),
             PathSegmentKind::SelfValue => "self".to_string(),
         }
@@ -855,7 +855,7 @@ fn qualified_visibility_diagnostic(
             format!("{kind} `{name}` is not visible from this module"),
             format!("make the {kind} public or move this use into its permitted scope"),
         ),
-        Visibility::PublicPkg => (
+        Visibility::PublicRoot => (
             format!("{kind} `{name}` is restricted to its package"),
             format!("{kind} `{name}` is not visible from this module"),
             format!("make the {kind} public or use it from the defining package"),
@@ -879,7 +879,7 @@ impl PathSegment<'_> {
     fn name(self) -> Option<SymbolId> {
         match self.kind {
             PathSegmentKind::Name(name) => Some(name),
-            PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+            PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
         }
     }
 }
@@ -1798,7 +1798,7 @@ fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSeg
     match kind {
         PathSegmentKind::SelfValue => ModuleRootSegment::Current,
         PathSegmentKind::Super => ModuleRootSegment::Parent,
-        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Root => ModuleRootSegment::Root,
         PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
     }
 }

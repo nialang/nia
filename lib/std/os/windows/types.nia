@@ -1,4 +1,4 @@
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     invalidHandle,
     fileAttributeDirectory,
     fileAttributeReparsePoint,
@@ -248,7 +248,7 @@ extend SpawnOptions {
 
 // Only name-surrogate reparse points are links. Other tags, such as cloud
 // placeholders, keep the kind of the file or directory they store.
-pub(pkg) fun fileKind(attributes: u32, reparseTag: u32) FileKind {
+pub(root) fun fileKind(attributes: u32, reparseTag: u32) FileKind {
     if (attributes & fileAttributeReparsePoint) != 0 and (reparseTag & reparseTagNameSurrogate) != 0 {
         .Symlink
     } else if (attributes & fileAttributeDirectory) != 0 {

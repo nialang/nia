@@ -5,26 +5,26 @@
 // failure. Child streams and handles expose explicit close and wait operations,
 // while failures retain their stage and underlying cause.
 
-pub(pkg) module args;
-pub(pkg) module child;
-pub(pkg) module command;
-pub(pkg) module convert;
-pub(pkg) module env;
-pub(pkg) module exit_code;
-pub(pkg) module init;
-pub(pkg) module pipe;
-pub(pkg) module term;
-pub(pkg) module types;
+pub(root) module args;
+pub(root) module child;
+pub(root) module command;
+pub(root) module convert;
+pub(root) module env;
+pub(root) module exit_code;
+pub(root) module init;
+pub(root) module pipe;
+pub(root) module term;
+pub(root) module types;
 
-using pkg::process::args;
-using pkg::process::child;
-using pkg::process::command;
-using pkg::process::convert;
-using pkg::process::env;
-using pkg::process::exit_code;
-using pkg::process::init;
-using pkg::process::pipe;
-using pkg::process::term;
+using root::process::args;
+using root::process::child;
+using root::process::command;
+using root::process::convert;
+using root::process::env;
+using root::process::exit_code;
+using root::process::init;
+using root::process::pipe;
+using root::process::term;
 
 pub using types::{
     Arg,

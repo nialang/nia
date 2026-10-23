@@ -1,4 +1,4 @@
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     invalidHandle, handleFlagInherit, duplicateSameAccess, nullDeviceAccess,
     fileShareRead, fileShareWrite, openExisting, errorInsufficientBuffer,
     CloseHandle, GetStdHandle, GetCurrentProcess, DuplicateHandle, CreateFileW,
@@ -6,16 +6,16 @@ using pkg::os::windows::bindings::{
     InitializeProcThreadAttributeList, UpdateProcThreadAttribute,
     DeleteProcThreadAttributeList, procThreadAttributeHandleList, GetLastError,
 };
-using pkg::os::windows::types::{Errno, StdIo, FileDescriptor};
-using pkg::os::windows::error::{lastError, errno};
-using pkg::os::windows::mem::{mapPages, unmapPages};
+using root::os::windows::types::{Errno, StdIo, FileDescriptor};
+using root::os::windows::error::{lastError, errno};
+using root::os::windows::mem::{mapPages, unmapPages};
 
 // Each prepared stream owns its child duplicate and optional parent pipe end.
 // takeParent transfers only that end; close releases everything still owned.
-pub(pkg) struct PreparedStream { child: usize, parent: usize, childOwned: bool }
+pub(root) struct PreparedStream { child: usize, parent: usize, childOwned: bool }
 
 extend PreparedStream {
-    pub(pkg) fun close(&mut self) () {
+    pub(root) fun close(&mut self) () {
         if self.childOwned { closeHandle(self.child); }
         closeHandle(self.parent);
         self.child = invalidHandle;
@@ -23,7 +23,7 @@ extend PreparedStream {
         self.childOwned = false;
     }
 
-    pub(pkg) fun takeParent(&mut self) ?FileDescriptor {
+    pub(root) fun takeParent(&mut self) ?FileDescriptor {
         if self.parent == invalidHandle { return null; }
         let handle = self.parent;
         self.parent = invalidHandle;
@@ -31,11 +31,11 @@ extend PreparedStream {
     }
 }
 
-pub(pkg) fun closeHandle(handle: usize) () {
+pub(root) fun closeHandle(handle: usize) () {
     if handle != 0 and handle != invalidHandle { _ = CloseHandle(handle); }
 }
 
-pub(pkg) fun prepareStream(mode: StdIo, standard: i32, input: bool) Errno!PreparedStream {
+pub(root) fun prepareStream(mode: StdIo, standard: i32, input: bool) Errno!PreparedStream {
     match mode {
         .Pipe => pipeStream(input),
         .Ignore => nullStream(),
@@ -70,7 +70,7 @@ fun nullStream() Errno!PreparedStream {
 
 fun pipeStream(input: bool) Errno!PreparedStream {
     let mut security: SecurityAttributes = .{
-        length: pkg::builtin::size[SecurityAttributes]() as u32, descriptor: 0, inherit: 0,
+        length: root::builtin::size[SecurityAttributes]() as u32, descriptor: 0, inherit: 0,
     };
     let mut read: usize = invalidHandle;
     let mut write: usize = invalidHandle;
@@ -92,10 +92,10 @@ fun pipeStream(input: bool) Errno!PreparedStream {
 }
 
 // The caller keeps the handle slice alive through CreateProcessW and close.
-pub(pkg) struct HandleList { address: usize, size: usize }
+pub(root) struct HandleList { address: usize, size: usize }
 
 extend HandleList {
-    pub(pkg) fun init(handles: &[usize]) Errno!HandleList {
+    pub(root) fun init(handles: &[usize]) Errno!HandleList {
         if handles.len() == 0 { return !.{ address: 0, size: 0 }; }
         let mut size: usize = 0;
         let initialized = InitializeProcThreadAttributeList(0, 1, 0, &mut size);
@@ -111,7 +111,7 @@ extend HandleList {
         }
         if UpdateProcThreadAttribute(
             address, 0, procThreadAttributeHandleList, handles.ptr() as usize,
-            handles.len() * pkg::builtin::size[usize](), 0, 0,
+            handles.len() * root::builtin::size[usize](), 0, 0,
         ) == 0 {
             let failure = lastError();
             DeleteProcThreadAttributeList(address);
@@ -121,7 +121,7 @@ extend HandleList {
         !.{ address, size: pages.releaseSize() }
     }
 
-    pub(pkg) fun close(&mut self) () {
+    pub(root) fun close(&mut self) () {
         if self.address != 0 {
             DeleteProcThreadAttributeList(self.address);
             _ = unmapPages(self.address as &mut u8, self.size);

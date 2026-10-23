@@ -5,20 +5,20 @@
 // memory, and process operations are delegated to the package-private
 // implementation modules. Startup does not depend on a C CRT entry.
 
-pub(pkg) module bindings;
-pub(pkg) module command;
-pub(pkg) module directory;
-pub(pkg) module encoding;
-pub(pkg) module error;
-pub(pkg) module fd;
-pub(pkg) module mem;
-pub(pkg) module path;
-pub(pkg) module process;
-pub(pkg) module random;
-pub(pkg) module stat;
-pub(pkg) module types;
+pub(root) module bindings;
+pub(root) module command;
+pub(root) module directory;
+pub(root) module encoding;
+pub(root) module error;
+pub(root) module fd;
+pub(root) module mem;
+pub(root) module path;
+pub(root) module process;
+pub(root) module random;
+pub(root) module stat;
+pub(root) module types;
 
-pub using pkg::os::windows::types::{
+pub using root::os::windows::types::{
     maxPathBytes,
     Errno,
     SpawnStage,
@@ -38,7 +38,7 @@ pub using pkg::os::windows::types::{
     SpawnOptions,
 };
 
-pub using pkg::os::windows::directory::{
+pub using root::os::windows::directory::{
     DirectoryReader,
     initDirectoryReader,
     closeDirectoryReader,
@@ -47,7 +47,7 @@ pub using pkg::os::windows::directory::{
     dirEntryNextOffset,
 };
 
-pub using pkg::os::windows::fd::{
+pub using root::os::windows::fd::{
     cwd,
     getCwd,
     openAt,
@@ -57,11 +57,11 @@ pub using pkg::os::windows::fd::{
     renameAtBeneath,
 };
 
-pub using pkg::os::windows::stat::{
+pub using root::os::windows::stat::{
     metadataAtBeneath,
 };
 
-pub using pkg::os::windows::mem::{
+pub using root::os::windows::mem::{
     MappedPages,
     pageSize,
     pageAlignedLen,
@@ -69,7 +69,7 @@ pub using pkg::os::windows::mem::{
     unmapPages,
 };
 
-pub using pkg::os::windows::process::{
+pub using root::os::windows::process::{
     spawn,
     wait,
     tryWait,
@@ -77,6 +77,6 @@ pub using pkg::os::windows::process::{
     exit,
 };
 
-pub using pkg::os::windows::random::{
+pub using root::os::windows::random::{
     random,
 };

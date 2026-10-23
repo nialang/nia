@@ -5,10 +5,10 @@
 // presentation or alignment values are rejected as invalid templates rather
 // than receiving fallback behavior.
 
-using pkg::io;
-using pkg::option;
-using pkg::result;
-using pkg::unicode;
+using root::io;
+using root::option;
+using root::result;
+using root::unicode;
 
 pub enum Error: i32 {
     Write = 1,

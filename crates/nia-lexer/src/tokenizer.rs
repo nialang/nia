@@ -246,7 +246,7 @@ impl<'a> Tokenizer<'a> {
             "null" => TokenKind::Null,
             "opaque" => TokenKind::Opaque,
             "or" => TokenKind::Or,
-            "pkg" => TokenKind::Pkg,
+            "root" => TokenKind::Root,
             "pub" => TokenKind::Pub,
             "return" => TokenKind::Return,
             "self" => TokenKind::SelfValue,

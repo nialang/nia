@@ -78,7 +78,7 @@ fn symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> String {
 fn path_segment_text(symbols: &dyn SymbolText, segment: &UsingPathSegment) -> String {
     match segment.kind {
         PathSegmentKind::Name(name) => symbol_text(symbols, name),
-        PathSegmentKind::Package => "pkg".to_string(),
+        PathSegmentKind::Root => "root".to_string(),
         PathSegmentKind::Super => "super".to_string(),
         PathSegmentKind::SelfValue => "self".to_string(),
     }
@@ -107,14 +107,14 @@ fn non_initial_special_segment_diagnostic(
 fn path_segment_name(segment: &UsingPathSegment) -> Option<SymbolId> {
     match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 
 fn path_segment_self_name(segment: &UsingPathSegment) -> Option<SymbolId> {
     match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 

@@ -242,10 +242,10 @@ using std::build;
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let root = b.addModule(
+    let planner = b.addModule(
         build::ModuleOptions::init(&"planner", fs::PathView::init(&"src/main.nia")),
     ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init(&"planner", root)).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init(&"planner", planner)).?;
     let emit = b.addEmitExecutableStep(&"planner", exe).?;
     b.setDefaultStep(emit).?;
     !()
@@ -317,7 +317,7 @@ let imports = [
 ```
 
 A module with these imports can then write `using mathlib;`. Inside the
-imported package, `pkg::...` refers to that package's own modules.
+imported package, `root::...` refers to that package's own modules.
 `addPackage(PackageOptions)` is reserved for temporary local source trees
 that are not declared or managed by `nia.toml`.
 
@@ -651,10 +651,10 @@ pub fun build(b: &mut build::Build) build::Error!() {
     let version = b.probeFile(fs::PathView::init(&"VERSION"), &mut versionBuffer).?;
 
     let options = build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia"));
-    let root = b.addModule(
+    let app = b.addModule(
         if release { options.withOptimization(build::OptimizationMode::O2) } else { options },
     ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init(&"app", root)).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init(&"app", app)).?;
     let emit = b.addEmitExecutableStep(&"build", exe).?;
     _ = b.addGeneratedFileStep(&"version", build::BuildPathView::init(&"version.txt"), version).?;
     b.setDefaultStep(emit).?;

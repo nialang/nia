@@ -1,5 +1,5 @@
-using pkg::start::freestanding::windows::arguments::{measureEnvironment, parseArguments, parseEnvironment};
-using pkg::main::callUserMain;
+using root::start::freestanding::windows::arguments::{measureEnvironment, parseArguments, parseEnvironment};
+using root::main::callUserMain;
 using std::os;
 using std::process;
 

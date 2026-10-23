@@ -6,14 +6,14 @@
 // exposes that outcome. Custom-allocator attempts require the same allocator
 // on each retry. Owner-discarding `run` shortcuts are not part of the API.
 
-using pkg::collections;
-using pkg::builtin;
-using pkg::error;
-using pkg::fs;
-using pkg::mem;
-using pkg::os;
-using pkg::process::convert;
-using pkg::process::types;
+using root::collections;
+using root::builtin;
+using root::error;
+using root::fs;
+using root::mem;
+using root::os;
+using root::process::convert;
+using root::process::types;
 
 using types::{
     AllocatorSpawnAttempt,

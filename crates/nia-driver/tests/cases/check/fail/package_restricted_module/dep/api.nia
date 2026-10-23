@@ -1,1 +1,1 @@
-pub(pkg) module inner;
+pub(root) module inner;

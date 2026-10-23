@@ -4,13 +4,13 @@
 // complete command declaration so Build can validate and encode it after the
 // build script returns.
 
-using pkg::fs;
-using pkg::mem;
-using pkg::string;
-using pkg::error::CleanupAccumulator;
-using pkg::build::error;
-using pkg::build::paths::{isValidBuildPath, isValidPackagePath};
-using pkg::build::types;
+using root::fs;
+using root::mem;
+using root::string;
+using root::error::CleanupAccumulator;
+using root::build::error;
+using root::build::paths::{isValidBuildPath, isValidPackagePath};
+using root::build::types;
 
 using error::Error;
 using types::{
@@ -63,7 +63,7 @@ extend CommandArgument {
     }
 }
 
-pub(pkg) fun validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
+pub(root) fun validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
     if arguments is ?values {
         for &value in values.iter() {
             if runArgumentContainsNul(value) {
@@ -77,7 +77,7 @@ pub(pkg) fun validateRunArguments(arguments: ?&[&[char]], index: usize) Error!()
     !()
 }
 
-pub(pkg) fun validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!() {
+pub(root) fun validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!() {
     if options.program.len() == 0
         or runArgumentContainsNul(options.program)
         or not isValidPackagePath(options.workingDirectory.text(), true)
@@ -444,7 +444,7 @@ extend OwnedCommandEnvironmentInput {
 }
 
 extend ExternalCommandStep {
-    pub(pkg) fun init(options: ExternalCommandOptions) ExternalCommandStep {
+    pub(root) fun init(options: ExternalCommandOptions) ExternalCommandStep {
         .{
             program: .init(),
             arguments: .init(),
@@ -457,7 +457,7 @@ extend ExternalCommandStep {
         }
     }
 
-    pub(pkg) fun initialize(
+    pub(root) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         options: ExternalCommandOptions,
@@ -514,7 +514,7 @@ extend ExternalCommandStep {
         !()
     }
 
-    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         if self.stdin is ?mut stdin {
             cleanup.attempt(stdin.deinit(allocator, index));

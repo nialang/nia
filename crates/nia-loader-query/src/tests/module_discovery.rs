@@ -28,7 +28,7 @@ fn query_loader_keeps_package_root_separate_from_entry_module() {
     write(&root.join("config.nia"), "pub const answer: i32 = 42;");
     write(
         &main,
-        "using pkg::config; fun main() i32 { config::answer }",
+        "using root::config; fun main() i32 { config::answer }",
     );
 
     let program = super::load_program_request(
@@ -61,7 +61,7 @@ fn query_loader_discovers_package_relative_qualified_expression_paths() {
     let package = root.join("pkg.nia");
     write(&package, "pub module config;");
     write(&root.join("config.nia"), "pub const answer: i32 = 42;");
-    write(&main, "fun main() i32 { pkg::config::answer }");
+    write(&main, "fun main() i32 { root::config::answer }");
 
     let program = super::load_program_request(
         test_request(main.to_string_lossy().into_owned())
@@ -82,7 +82,7 @@ fn query_loader_discovers_package_relative_qualified_type_paths() {
     write(&root.join("config.nia"), "pub struct Config {}");
     write(
         &main,
-        "fun consume(value: pkg::config::Config) () { _ = value; }",
+        "fun consume(value: root::config::Config) () { _ = value; }",
     );
 
     let program = super::load_program_request(

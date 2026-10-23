@@ -1,10 +1,10 @@
 // Darwin platform boundary. Native calls stay in the private bindings module;
 // operations without an implementation still return Unsupported explicitly.
-pub(pkg) module bindings;
-using pkg::os::macos::bindings;
-using pkg::error;
-using pkg::math;
-using pkg::option;
+pub(root) module bindings;
+using root::os::macos::bindings;
+using root::error;
+using root::math;
+using root::option;
 
 // Keep parity with Darwin's PATH_MAX-sized syscall buffers. The shorter
 // fcntl(F_GETPATH) buffer below is only used for capability containment.
@@ -453,7 +453,7 @@ fun executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
         index += 1;
     }
     if hasSeparator { return execveResult(bindings::execve(path, argv, envp)); }
-    let pointerSize = pkg::builtin::size[&u8]();
+    let pointerSize = root::builtin::size[&u8]();
     let mut entry = envp;
     while entry as usize != 0 and entry.* as usize != 0 {
         let text = entry.*;
@@ -528,7 +528,7 @@ fun reapSpawnFailure(pid: ProcessId) Errno!() {
 fun reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, value: Errno) () {
     if pipe.write() is !fd {
         let mut record: SpawnErrorRecord = .{ stage: stage as i32, code: value as i32 };
-        let bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
+        let bytes = &mut ((&mut record as &mut u8)[0..root::builtin::size[SpawnErrorRecord]()]);
         let mut written: usize = 0;
         while written < bytes.len() {
             match fd.writeSome(&bytes[written..]) {
@@ -542,7 +542,7 @@ fun reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, value: Errno) () {
 
 fun readSpawnError(fd: FileDescriptor) SpawnError! ?SpawnError {
     let mut record: SpawnErrorRecord = .{ stage: SpawnStage::Setup as i32, code: Errno::Io as i32 };
-    let bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
+    let bytes = &mut ((&mut record as &mut u8)[0..root::builtin::size[SpawnErrorRecord]()]);
     let mut readLen: usize = 0;
     while readLen < bytes.len() {
         let amount = match fd.readSome(&mut bytes[readLen..]) {
@@ -807,25 +807,25 @@ fun fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {
     !&buffer[0..length]
 }
 
-fun pathWithin(root: &[u8], candidate: &[u8]) bool {
-    if root.len() == 1 and root[0] == b'/' {
+fun pathWithin(base: &[u8], candidate: &[u8]) bool {
+    if base.len() == 1 and base[0] == b'/' {
         return candidate.len() != 0 and candidate[0] == b'/';
     }
-    if candidate.len() < root.len() { return false; }
+    if candidate.len() < base.len() { return false; }
     let mut index: usize = 0;
-    while index < root.len() {
-        if root[index] != candidate[index] { return false; }
+    while index < base.len() {
+        if base[index] != candidate[index] { return false; }
         index += 1;
     }
-    candidate.len() == root.len() or candidate[root.len()] == b'/'
+    candidate.len() == base.len() or candidate[base.len()] == b'/'
 }
 
-fun ensureContained(root: FileDescriptor, candidate: FileDescriptor) Errno!() {
-    let mut rootStorage: [u8; fdPathBytes] = [0; fdPathBytes];
+fun ensureContained(base: FileDescriptor, candidate: FileDescriptor) Errno!() {
+    let mut baseStorage: [u8; fdPathBytes] = [0; fdPathBytes];
     let mut candidateStorage: [u8; fdPathBytes] = [0; fdPathBytes];
-    let rootPath = fdPath(root, &mut rootStorage[..]).?;
+    let basePath = fdPath(base, &mut baseStorage[..]).?;
     let candidatePath = fdPath(candidate, &mut candidateStorage[..]).?;
-    if pathWithin(rootPath, candidatePath) { !() } else { .CrossDevice! }
+    if pathWithin(basePath, candidatePath) { !() } else { .CrossDevice! }
 }
 
 fun checkZero(result: i32) Errno!() {

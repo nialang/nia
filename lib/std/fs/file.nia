@@ -11,11 +11,11 @@
 // error; after success, the first close error is returned while every later
 // descriptor is still attempted.
 
-using pkg::fs::convert;
-using pkg::fs::options;
-using pkg::fs::path;
-using pkg::fs::types;
-using pkg::os;
+using root::fs::convert;
+using root::fs::options;
+using root::fs::path;
+using root::fs::types;
+using root::os;
 
 using types::{
     CreateDirOptions,

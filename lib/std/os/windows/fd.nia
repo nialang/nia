@@ -1,4 +1,4 @@
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     invalidHandle,
     errorBrokenPipe,
     errorHandleEof,
@@ -42,28 +42,28 @@ using pkg::os::windows::bindings::{
     RemoveDirectoryW,
     MoveFileExW,
 };
-using pkg::os::windows::types::{
+using root::os::windows::types::{
     Errno,
     OpenMode,
     SeekWhence,
     FileMetadata,
     FileDescriptor,
 };
-using pkg::os::windows::error::{
+using root::os::windows::error::{
     lastError,
     errno,
 };
-using pkg::os::windows::path::{
+using root::os::windows::path::{
     pathFromHandle,
     handlePath,
     handlePathLength,
     isPathWithin,
     joinPath,
 };
-using pkg::os::windows::encoding::{
+using root::os::windows::encoding::{
     wideToUtf8,
 };
-using pkg::os::windows::stat::{
+using root::os::windows::stat::{
     metadataHandle,
 };
 
@@ -113,7 +113,7 @@ extend FileDescriptor {
         let info: FileEndOfFileInfo = .{ endOfFile: len as i64 };
         if SetFileInformationByHandle(
             self.handle, fileEndOfFileInfo, (&info) as usize,
-            pkg::builtin::size[FileEndOfFileInfo]() as u32,
+            root::builtin::size[FileEndOfFileInfo]() as u32,
         ) == 0 { return lastError()!; }
         !()
     }
@@ -177,7 +177,7 @@ pub fun openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory:
     let mut candidateStorage: [u16; maxPathUnits] = [0; maxPathUnits];
     let candidateLength = handlePathLength(handle, &mut candidateStorage[..]);
     let within = match (rootLength, candidateLength) {
-        (!root, !candidate) => isPathWithin(&rootStorage[0], root, &candidateStorage[0], candidate),
+        (!base, !candidate) => isPathWithin(&rootStorage[0], base, &candidateStorage[0], candidate),
         _ => false,
     };
     if not within {

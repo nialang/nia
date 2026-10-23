@@ -5,10 +5,10 @@
 // `free`. Validation failures after the mapping succeeds release that
 // unpublished range before returning an error.
 
-using pkg::builtin;
-using pkg::mem::allocator;
-using pkg::mem::types;
-using pkg::os;
+using root::builtin;
+using root::mem::allocator;
+using root::mem::types;
+using root::os;
 
 using allocator::Allocator;
 using types::{Block, Layout};

@@ -5,12 +5,12 @@
 // Ordinary build errors propagate explicitly; `Internal` is reserved for a
 // violated build-library invariant.
 
-using pkg::builtin;
-using pkg::fmt;
-using pkg::fs;
-using pkg::io;
-using pkg::mem;
-using pkg::process;
+using root::builtin;
+using root::fmt;
+using root::fs;
+using root::io;
+using root::mem;
+using root::process;
 
 pub enum ErrorOperation {
     Initialize,

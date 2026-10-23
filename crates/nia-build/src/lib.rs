@@ -4917,8 +4917,8 @@ pub fun build(b: &mut build::Build) build::Error!() {
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let root = b.addModule(build::ModuleOptions::init(&"main", fs::PathView::init(&"src/main.nia"))).?;
-    let app = b.addExecutable(build::ExecutableOptions::init(&"app", root)).?;
+    let mainModule = b.addModule(build::ModuleOptions::init(&"main", fs::PathView::init(&"src/main.nia"))).?;
+    let app = b.addExecutable(build::ExecutableOptions::init(&"app", mainModule)).?;
     let check = b.addCheckExecutableStep(&"check", app).?;
     b.setDefaultStep(check).?;
     !()

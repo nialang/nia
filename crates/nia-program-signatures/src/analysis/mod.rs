@@ -673,7 +673,7 @@ fn visibility_rank(visibility: Visibility) -> u8 {
     match visibility {
         Visibility::Private => 0,
         Visibility::PublicSuper => 1,
-        Visibility::PublicPkg => 2,
+        Visibility::PublicRoot => 2,
         Visibility::Public => 3,
     }
 }

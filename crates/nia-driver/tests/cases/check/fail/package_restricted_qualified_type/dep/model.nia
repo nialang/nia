@@ -1,5 +1,5 @@
-pub(pkg) struct Token {}
+pub(root) struct Token {}
 
-pub(pkg) fun token_value() i32 {
+pub(root) fun token_value() i32 {
     42
 }

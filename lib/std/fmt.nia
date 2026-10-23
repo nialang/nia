@@ -1,12 +1,12 @@
 // Formatting traits, template parsing, and checked writer dispatch.
 
-pub(pkg) module core;
-pub(pkg) module primitive;
-pub(pkg) module template;
+pub(root) module core;
+pub(root) module primitive;
+pub(root) module template;
 
-using pkg::fmt::core;
-using pkg::fmt::primitive;
-using pkg::fmt::template;
+using root::fmt::core;
+using root::fmt::primitive;
+using root::fmt::template;
 
 pub using core::{Error, FormatWriter, Format, FormatAlignment, FormatPresentation, FormatSpec, Formatter};
 pub using template::printChecked;

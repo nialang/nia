@@ -1,23 +1,23 @@
-pub(pkg) module fd;
-pub(pkg) module mem;
-pub(pkg) module process;
-pub(pkg) module random;
-pub(pkg) module stat;
-pub(pkg) module syscall;
-pub(pkg) module types;
+pub(root) module fd;
+pub(root) module mem;
+pub(root) module process;
+pub(root) module random;
+pub(root) module stat;
+pub(root) module syscall;
+pub(root) module types;
 @[if arch == "x86_64"]
-pub(pkg) module x86_64;
+pub(root) module x86_64;
 @[if arch == "x86"]
-pub(pkg) module x86;
+pub(root) module x86;
 @[if arch == "aarch64"]
-pub(pkg) module aarch64;
+pub(root) module aarch64;
 
-using pkg::os::linux::fd;
-using pkg::os::linux::mem as memory;
-using pkg::os::linux::process;
-using pkg::os::linux::random as randomImpl;
-using pkg::os::linux::stat;
-using pkg::os::linux::types;
+using root::os::linux::fd;
+using root::os::linux::mem as memory;
+using root::os::linux::process;
+using root::os::linux::random as randomImpl;
+using root::os::linux::stat;
+using root::os::linux::types;
 
 pub using memory::MappedPages;
 

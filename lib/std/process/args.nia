@@ -1,8 +1,8 @@
-using pkg::cstring;
-using pkg::fmt;
-using pkg::parse;
-using pkg::process::types;
-using pkg::slice;
+using root::cstring;
+using root::fmt;
+using root::parse;
+using root::process::types;
+using root::slice;
 
 using types::{Arg, Args, ArgsIter};
 
@@ -71,7 +71,7 @@ where T: parse::FromRadix[cstring::CStringView]
 }
 
 extend Args {
-    pub(pkg) fun init(len: usize, ptr: &&u8) Args {
+    pub(root) fun init(len: usize, ptr: &&u8) Args {
         let actualLen = if ptr as usize == 0 { 0 } else { len };
         .{ len: actualLen, ptr }
     }

@@ -47,7 +47,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
                     include_declared_children: index % 2 == 0,
                     processing,
                 },
-                1 => UsedModulePath::PackageRelative {
+                1 => UsedModulePath::Root {
                     segments,
                     include_declared_children: index % 2 == 0,
                     processing,
@@ -126,8 +126,8 @@ fun second(value: facade::Widget) i32 {
     write(
         &root.join("facade.nia"),
         r#"
-pub(pkg) module providers;
-pub(pkg) module types;
+pub(root) module providers;
+pub(root) module types;
 
 using self::providers;
 pub using types::Widget;

@@ -1,10 +1,10 @@
-using pkg::collections;
-using pkg::builtin;
-using pkg::fmt;
-using pkg::math;
-using pkg::mem;
-using pkg::parse;
-using pkg::slice;
+using root::collections;
+using root::builtin;
+using root::fmt;
+using root::math;
+using root::mem;
+using root::parse;
+using root::slice;
 
 pub enum CStringError: i32 {
     EmptyInput = 1,
@@ -119,7 +119,7 @@ extend CStringView {
     // Startup arguments arrive with a guaranteed NUL terminator. This internal
     // boundary records that length; external data should use `fromBytes` for
     // bounded validation.
-    pub(pkg) fun fromTerminatedPtr(ptr: &u8) CStringView {
+    pub(root) fun fromTerminatedPtr(ptr: &u8) CStringView {
         let mut len: usize = 0;
         while ptr[len] != 0 {
             len += 1;

@@ -1,13 +1,13 @@
-pub(pkg) module freestanding;
+pub(root) module freestanding;
 @[if os == "linux" and arch == "x86_64"]
-using pkg::start::freestanding::linux::x86_64;
+using root::start::freestanding::linux::x86_64;
 @[if os == "linux" and arch == "x86"]
-using pkg::start::freestanding::linux::x86;
+using root::start::freestanding::linux::x86;
 @[if os == "linux" and arch == "aarch64"]
-using pkg::start::freestanding::linux::aarch64;
+using root::start::freestanding::linux::aarch64;
 @[if os == "windows" and arch == "x86_64"]
-using pkg::start::freestanding::windows::x86_64;
+using root::start::freestanding::windows::x86_64;
 @[if os == "macos" and arch == "x86_64"]
-using pkg::start::freestanding::macos::x86_64;
+using root::start::freestanding::macos::x86_64;
 @[if os == "macos" and arch == "aarch64"]
-using pkg::start::freestanding::macos::aarch64;
+using root::start::freestanding::macos::aarch64;

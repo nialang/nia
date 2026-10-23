@@ -22,14 +22,14 @@ pub(super) fn bind_pattern_name(pattern: &Pattern) -> Option<SymbolId> {
 pub(super) fn host_name(segment: &nia_ast::UsingHostSegment) -> Option<SymbolId> {
     match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 
 pub(super) fn type_path_name(segment: &nia_ast::TypePathSegment) -> Option<SymbolId> {
     match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 

@@ -484,7 +484,7 @@ trait Right[N: usize] : Base[N] {
 }
 
 trait Root[N: usize] : Left[N] + Right[N] {
-    fun root(& self) usize { 3usize }
+    fun top(& self) usize { 3usize }
 }
 
 struct Meter {}
@@ -495,7 +495,7 @@ extend[N: usize] Meter : Right[N] {}
 extend[N: usize] Meter : Root[N] {}
 
 fun read(value: & Root[8]) usize {
-    value.left() + value.right() + value.root()
+    value.left() + value.right() + value.top()
 }
 
 fun main() usize {
@@ -539,7 +539,7 @@ trait Right[N: usize] : BaseAlias[3usize] {
 }
 
 trait Root[N: usize] : Left[N] + Right[N] {
-    fun root(& self) usize { 3usize }
+    fun top(& self) usize { 3usize }
 }
 
 struct Meter {}
@@ -550,7 +550,7 @@ extend[N: usize] Meter : Right[N] {}
 extend[N: usize] Meter : Root[N] {}
 
 fun read(value: & Root[3]) usize {
-    value.base() + value.left() + value.right() + value.root()
+    value.base() + value.left() + value.right() + value.top()
 }
 
 fun main() usize {

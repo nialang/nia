@@ -736,7 +736,7 @@ fun clamp(value: i32) i32 {
 }
 
 // Visible anywhere in the current package.
-pub(pkg) fun span(low: i32, high: i32) i32 {
+pub(root) fun span(low: i32, high: i32) i32 {
     clamp(high - low)
 }
 ```
@@ -764,12 +764,12 @@ area=12
 
 Children of the entry file sit next to it; children of `geometry.nia` live in
 `geometry/`. Items are private to their module by default. `pub` exports an
-item, `pub(super)` exposes it to the parent module, and `pub(pkg)` to the whole
-package. `pub module` makes a child module part of the public surface, and
+item, `pub(super)` exposes it to the parent module, and `pub(root)` to the whole
+module tree. `pub module` makes a child module part of the public surface, and
 `pub using` re-exports names from another module.
 
 `using` paths start from a module in scope or from a root: `std` for the
-standard library, `pkg` for the current package, `entry` for the program's
+standard library, `root` for the root of the current module tree, `entry` for the program's
 entry package, `self` and `super` for the current and parent modules, or a
 dependency name declared in `nia.toml`. `using` accepts groups
 (`using std::{io, fmt};`), renames (`using geometry::origin as zero;`), and

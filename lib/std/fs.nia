@@ -5,16 +5,16 @@
 // into bounded stack storage; contextual operations retain both the attempted
 // operation and their path or system cause.
 
-pub(pkg) module convert;
-pub(pkg) module file;
-pub(pkg) module options;
-pub(pkg) module path;
-pub(pkg) module types;
+pub(root) module convert;
+pub(root) module file;
+pub(root) module options;
+pub(root) module path;
+pub(root) module types;
 
-using pkg::fs::file;
-using pkg::fs::options;
-using pkg::fs::path;
-using pkg::fs::types;
+using root::fs::file;
+using root::fs::options;
+using root::fs::path;
+using root::fs::types;
 
 pub using file::getCwd;
 pub using types::{

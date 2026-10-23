@@ -18,20 +18,20 @@ pub module primitive;
 pub module simd;
 pub module target;
 
-using pkg::builtin::atomic;
-using pkg::builtin::bits;
-using pkg::builtin::control;
-using pkg::builtin::error as errorBuiltin;
-using pkg::builtin::iter;
-using pkg::builtin::layout;
-using pkg::builtin::marker;
-using pkg::builtin::mem;
-using pkg::builtin::ops;
-using pkg::builtin::place;
-using pkg::builtin::primitive;
-using pkg::builtin::simd;
-using pkg::builtin::target;
-using pkg::source;
+using root::builtin::atomic;
+using root::builtin::bits;
+using root::builtin::control;
+using root::builtin::error as errorBuiltin;
+using root::builtin::iter;
+using root::builtin::layout;
+using root::builtin::marker;
+using root::builtin::mem;
+using root::builtin::ops;
+using root::builtin::place;
+using root::builtin::primitive;
+using root::builtin::simd;
+using root::builtin::target;
+using root::source;
 
 pub using atomic::{
     atomicLoad,

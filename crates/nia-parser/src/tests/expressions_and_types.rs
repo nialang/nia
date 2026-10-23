@@ -44,7 +44,7 @@ fn rejected_type_recovery_reports_the_error_and_keeps_following_items() {
 
 #[test]
 fn bracket_arguments_keep_receiver_and_namespace_value_readings() {
-    let source = "fun main() { let a = buffer[self.len + index]; let b = buffer[self::OFFSET]; let c = buffer[pkg::OFFSET]; let d = buffer[super::OFFSET]; }";
+    let source = "fun main() { let a = buffer[self.len + index]; let b = buffer[self::OFFSET]; let c = buffer[root::OFFSET]; let d = buffer[super::OFFSET]; }";
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Function(function) = &module.items[0].kind else {

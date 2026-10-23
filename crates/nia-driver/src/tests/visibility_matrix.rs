@@ -5,7 +5,7 @@ use std::fs;
 
 #[test]
 fn qualified_callable_visibility_matrix() {
-    for (visibility_rank, visibility) in ["", "pub(super)", "pub(pkg)", "pub"].iter().enumerate() {
+    for (visibility_rank, visibility) in ["", "pub(super)", "pub(root)", "pub"].iter().enumerate() {
         for (scope, scope_rank, prefix) in [
             ("same", 0, "self"),
             ("parent", 1, "self::model"),

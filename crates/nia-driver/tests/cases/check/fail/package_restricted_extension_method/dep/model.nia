@@ -7,11 +7,11 @@ extend Value {
         Self { data }
     }
 
-    pub(pkg) fun package_make(data: i32) Value {
+    pub(root) fun package_make(data: i32) Value {
         Self { data }
     }
 
-    pub(pkg) fun package_score(&self) i32 {
+    pub(root) fun package_score(&self) i32 {
         self.data + 1
     }
 }

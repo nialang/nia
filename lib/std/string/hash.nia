@@ -1,6 +1,6 @@
-using pkg::hash as hashPackage;
-using pkg::collections;
-using pkg::string as stringPackage;
+using root::hash as hashPackage;
+using root::collections;
+using root::string as stringPackage;
 
 extend[H] stringPackage::String : hashPackage::Hash[H]
 where H: hashPackage::Hasher

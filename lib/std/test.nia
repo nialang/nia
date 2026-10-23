@@ -4,8 +4,8 @@
 // context, accumulate failures, or convert it to their own suite result
 // without requiring a language-level test attribute or process trap.
 
-using pkg::fmt;
-using pkg::source::{SourceLocation, callerLocation};
+using root::fmt;
+using root::source::{SourceLocation, callerLocation};
 
 pub enum Error {
     AssertionFailed(SourceLocation) = 1,

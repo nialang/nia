@@ -2,7 +2,7 @@
 //
 // Record scans live here so query policy stays independent from mutation.
 
-using pkg::build::types;
+using root::build::types;
 
 using types::{
     ExecutableHandle,
@@ -17,7 +17,7 @@ using types::{
     StepKind,
 };
 
-pub(pkg) fun findStep(steps: &[Step], name: &[char]) ?Step {
+pub(root) fun findStep(steps: &[Step], name: &[char]) ?Step {
     for &step in steps.iter() {
         if step.name.equals(name) {
             return ?step;
@@ -26,7 +26,7 @@ pub(pkg) fun findStep(steps: &[Step], name: &[char]) ?Step {
     null
 }
 
-pub(pkg) fun findExecutable(targets: &[ExecutableTarget], name: &[char]) ?ExecutableTarget {
+pub(root) fun findExecutable(targets: &[ExecutableTarget], name: &[char]) ?ExecutableTarget {
     for &target in targets.iter() {
         if target.name.equals(name) {
             return ?target;
@@ -35,7 +35,7 @@ pub(pkg) fun findExecutable(targets: &[ExecutableTarget], name: &[char]) ?Execut
     null
 }
 
-pub(pkg) fun findObject(targets: &[ObjectTarget], name: &[char]) ?ObjectTarget {
+pub(root) fun findObject(targets: &[ObjectTarget], name: &[char]) ?ObjectTarget {
     for &target in targets.iter() {
         if target.name.equals(name) {
             return ?target;
@@ -44,7 +44,7 @@ pub(pkg) fun findObject(targets: &[ObjectTarget], name: &[char]) ?ObjectTarget {
     null
 }
 
-pub(pkg) fun findStaticArchive(targets: &[StaticArchiveTarget], name: &[char]) ?StaticArchiveTarget {
+pub(root) fun findStaticArchive(targets: &[StaticArchiveTarget], name: &[char]) ?StaticArchiveTarget {
     for &target in targets.iter() {
         if target.name.equals(name) {
             return ?target;
@@ -53,7 +53,7 @@ pub(pkg) fun findStaticArchive(targets: &[StaticArchiveTarget], name: &[char]) ?
     null
 }
 
-pub(pkg) fun findModule(modules: &[Module], name: &[char]) ?Module {
+pub(root) fun findModule(modules: &[Module], name: &[char]) ?Module {
     for &moduleRecord in modules.iter() {
         if moduleRecord.name.equals(name) {
             return ?moduleRecord;
@@ -62,7 +62,7 @@ pub(pkg) fun findModule(modules: &[Module], name: &[char]) ?Module {
     null
 }
 
-pub(pkg) fun findEmitStep(
+pub(root) fun findEmitStep(
     ownerId: usize,
     steps: &[Step],
     target: ExecutableHandle,
@@ -78,7 +78,7 @@ pub(pkg) fun findEmitStep(
     null
 }
 
-pub(pkg) fun findEmitObjectStep(
+pub(root) fun findEmitObjectStep(
     ownerId: usize,
     steps: &[Step],
     target: ObjectHandle,
@@ -94,7 +94,7 @@ pub(pkg) fun findEmitObjectStep(
     null
 }
 
-pub(pkg) fun findEmitStaticArchiveStep(
+pub(root) fun findEmitStaticArchiveStep(
     ownerId: usize,
     steps: &[Step],
     target: StaticArchiveHandle,

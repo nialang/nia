@@ -139,7 +139,7 @@ impl QualifiedPathModuleCollector<'_> {
         processing: UsedModulePathProcessing,
     ) {
         let path = match root {
-            PathSegmentKind::Package => UsedModulePath::PackageRelative {
+            PathSegmentKind::Root => UsedModulePath::Root {
                 segments,
                 include_declared_children: false,
                 processing,
@@ -798,7 +798,7 @@ pub(crate) enum UsedModulePath {
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
     },
-    PackageRelative {
+    Root {
         segments: Vec<SymbolId>,
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
@@ -852,7 +852,7 @@ impl UsedModulePath {
                 include_declared_children,
                 processing,
             },
-            UsedModulePath::PackageRelative { segments, .. } => UsedModulePath::PackageRelative {
+            UsedModulePath::Root { segments, .. } => UsedModulePath::Root {
                 segments: joined_segments(segments, extra),
                 include_declared_children,
                 processing,
@@ -885,7 +885,7 @@ impl UsedModulePath {
     pub(crate) fn segments(&self) -> &[SymbolId] {
         match self {
             UsedModulePath::Package { segments, .. }
-            | UsedModulePath::PackageRelative { segments, .. }
+            | UsedModulePath::Root { segments, .. }
             | UsedModulePath::ParentRelative { segments, .. }
             | UsedModulePath::Local { segments, .. } => segments,
         }
@@ -897,7 +897,7 @@ impl UsedModulePath {
                 include_declared_children,
                 ..
             }
-            | UsedModulePath::PackageRelative {
+            | UsedModulePath::Root {
                 include_declared_children,
                 ..
             }
@@ -915,7 +915,7 @@ impl UsedModulePath {
     pub(crate) fn processing(&self) -> UsedModulePathProcessing {
         match self {
             UsedModulePath::Package { processing, .. }
-            | UsedModulePath::PackageRelative { processing, .. }
+            | UsedModulePath::Root { processing, .. }
             | UsedModulePath::ParentRelative { processing, .. }
             | UsedModulePath::Local { processing, .. } => processing.clone(),
         }
@@ -926,7 +926,7 @@ impl UsedModulePath {
             UsedModulePath::Package {
                 package, segments, ..
             } => segments.last().cloned().or(Some(*package)),
-            UsedModulePath::PackageRelative { segments, .. }
+            UsedModulePath::Root { segments, .. }
             | UsedModulePath::ParentRelative { segments, .. }
             | UsedModulePath::Local { segments, .. } => segments.last().cloned(),
         }
@@ -977,7 +977,7 @@ enum UsedModuleRoot {
         package: SymbolId,
         base: Vec<SymbolId>,
     },
-    PackageRelative {
+    Root {
         base: Vec<SymbolId>,
     },
     ParentRelative {
@@ -1007,8 +1007,8 @@ impl UsedModuleRoot {
                     base: host_segments(&host[1..]),
                 });
             }
-            ModuleRootSegment::PackageRelative => {
-                return Some(Self::PackageRelative {
+            ModuleRootSegment::Root => {
+                return Some(Self::Root {
                     base: host_segments(&host[1..]),
                 });
             }
@@ -1064,7 +1064,7 @@ impl UsedModuleRoot {
                 include_declared_children,
                 processing,
             },
-            UsedModuleRoot::PackageRelative { base } => UsedModulePath::PackageRelative {
+            UsedModuleRoot::Root { base } => UsedModulePath::Root {
                 segments: joined_segments(base, extra),
                 include_declared_children,
                 processing,
@@ -1087,7 +1087,7 @@ impl UsedModuleRoot {
             UsedModuleRoot::Package { package, base } => {
                 Some(base.last().copied().unwrap_or(*package))
             }
-            UsedModuleRoot::PackageRelative { base }
+            UsedModuleRoot::Root { base }
             | UsedModuleRoot::ParentRelative { base }
             | UsedModuleRoot::Local { base } => base.last().cloned(),
         }
@@ -1098,7 +1098,7 @@ fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSeg
     match kind {
         PathSegmentKind::SelfValue => ModuleRootSegment::Current,
         PathSegmentKind::Super => ModuleRootSegment::Parent,
-        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Root => ModuleRootSegment::Root,
         PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
     }
 }
@@ -1204,7 +1204,7 @@ fn root_with_extra(root: &UsedModuleRoot, extra: &[SymbolId]) -> UsedModuleRoot 
             package: *package,
             base: joined_segments(base, extra),
         },
-        UsedModuleRoot::PackageRelative { base } => UsedModuleRoot::PackageRelative {
+        UsedModuleRoot::Root { base } => UsedModuleRoot::Root {
             base: joined_segments(base, extra),
         },
         UsedModuleRoot::ParentRelative { base } => UsedModuleRoot::ParentRelative {
@@ -1223,14 +1223,14 @@ pub(crate) fn host_segments(host: &[UsingHostSegment]) -> Vec<SymbolId> {
 fn using_host_segment_name(segment: &UsingHostSegment) -> Option<SymbolId> {
     match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 
 fn type_path_segment_name(segment: &TypePathSegment) -> Option<SymbolId> {
     match segment.kind {
         PathSegmentKind::Name(name) => Some(name),
-        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
     }
 }
 

@@ -1,4 +1,4 @@
-using pkg::main::callUserMain;
+using root::main::callUserMain;
 using std::os;
 using std::process;
 

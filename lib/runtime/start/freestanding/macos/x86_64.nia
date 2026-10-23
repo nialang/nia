@@ -1,4 +1,4 @@
-using pkg::start::freestanding::macos::startup::niaDarwinStart;
+using root::start::freestanding::macos::startup::niaDarwinStart;
 
 // dyld enters the Nia runtime through LC_MAIN. This is the runtime entry,
 // despite using the conventional Mach-O `main` symbol name.

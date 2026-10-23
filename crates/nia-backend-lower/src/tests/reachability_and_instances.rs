@@ -74,7 +74,7 @@ fun main() i32 {
 #[test]
 fn o2_preserves_package_visible_functions_for_cross_module_calls() {
     let source = r#"
-pub(pkg) fun provider() i32 {
+pub(root) fun provider() i32 {
     1
 }
 

@@ -33,7 +33,7 @@ pub enum SyntaxKind {
     ConditionParen,
     /// Literal or name conditional-compilation operand.
     ConditionAtom,
-    /// `pub`, `pub(super)`, or `pub(pkg)` visibility.
+    /// `pub`, `pub(super)`, or `pub(root)` visibility.
     Visibility,
     /// `module name;` declaration.
     ModuleDecl,
@@ -153,7 +153,7 @@ pub enum SyntaxKind {
     LiteralExpr,
     /// Adjacent string or byte-string literal run.
     StringExpr,
-    /// Name, `self`, `pkg`, `super`, or `_` expression.
+    /// Name, `self`, `root`, `super`, or `_` expression.
     NameExpr,
     /// Tuple expression, including the unit value.
     TupleExpr,

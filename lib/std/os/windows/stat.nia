@@ -1,4 +1,4 @@
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     invalidHandle,
     maxPathUnits,
     fileAttributeReparsePoint,
@@ -19,17 +19,17 @@ using pkg::os::windows::bindings::{
     FileTime,
     ByHandleFileInformation,
 };
-using pkg::os::windows::types::{
+using root::os::windows::types::{
     Errno,
     fileKind,
     Timestamp,
     FileMetadata,
     FileDescriptor,
 };
-using pkg::os::windows::error::{
+using root::os::windows::error::{
     lastError,
 };
-using pkg::os::windows::path::{
+using root::os::windows::path::{
     pathFromHandle,
     handlePathLength,
     isPathWithin,
@@ -53,7 +53,7 @@ fun metadataPath(dir: FileDescriptor, path: &u16, followSymlinks: bool) Errno!Fi
     let mut candidateStorage: [u16; maxPathUnits] = [0; maxPathUnits];
     let candidateLength = handlePathLength(handle, &mut candidateStorage[..]);
     let within = match (rootLength, candidateLength) {
-        (!root, !candidate) => isPathWithin(&rootStorage[0], root, &candidateStorage[0], candidate),
+        (!base, !candidate) => isPathWithin(&rootStorage[0], base, &candidateStorage[0], candidate),
         _ => false,
     };
     if not within {
@@ -86,7 +86,7 @@ fun fileTimeTimestamp(value: FileTime) Timestamp {
     }
 }
 
-pub(pkg) fun metadataHandle(handle: usize) Errno!FileMetadata {
+pub(root) fun metadataHandle(handle: usize) Errno!FileMetadata {
     let mut info: ByHandleFileInformation = .{
         attributes: 0,
         creation: .{ low: 0, high: 0 },
@@ -105,7 +105,7 @@ pub(pkg) fun metadataHandle(handle: usize) Errno!FileMetadata {
         let mut tag: FileAttributeTagInfo = .{ attributes: 0, reparseTag: 0 };
         if GetFileInformationByHandleEx(
             handle, fileAttributeTagInfo, &mut tag,
-            pkg::builtin::size[FileAttributeTagInfo]() as u32,
+            root::builtin::size[FileAttributeTagInfo]() as u32,
         ) == 0 { return lastError()!; }
         reparseTag = tag.reparseTag;
     }

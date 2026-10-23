@@ -1,6 +1,6 @@
-using pkg::math;
-using pkg::os::linux::syscall;
-using pkg::os::linux::types;
+using root::math;
+using root::os::linux::syscall;
+using root::os::linux::types;
 
 using types::Errno;
 

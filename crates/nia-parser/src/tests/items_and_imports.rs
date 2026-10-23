@@ -390,13 +390,13 @@ pub using math;
 
 #[test]
 fn parses_package_root_using() {
-    let (module, errors) = parse_module("using pkg::math;");
+    let (module, errors) = parse_module("using root::math;");
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Using(using) = &module.items[0].kind else {
         panic!("expected using");
     };
     assert_eq!(using.host.len(), 1);
-    assert!(matches!(using.host[0].kind, PathSegmentKind::Package));
+    assert!(matches!(using.host[0].kind, PathSegmentKind::Root));
     let UsingSelector::Single(name) = &using.selector else {
         panic!("expected single using selector");
     };

@@ -178,7 +178,7 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     old_fixture.modules.push(loaded_module(
         old_root,
         "pkg/root.nia",
-        "pub fun root() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     ));
     let new_root = new_fixture
         .graph
@@ -187,7 +187,7 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     new_fixture.modules.push(loaded_module(
         new_root,
         "pkg/root.nia",
-        "pub fun root() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     ));
     assert_ne!(old_child, new_child);
     assert_ne!(old_root, new_root);

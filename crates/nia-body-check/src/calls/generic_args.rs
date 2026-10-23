@@ -440,7 +440,7 @@ impl<'a> BodyChecker<'a> {
         }
         match segments[0].kind {
             PathSegmentKind::Name(name) => Some(ConstGenericValue::GenericParam(name)),
-            PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+            PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
         }
         .filter(|value| self.const_generic_value_matches_type(value, expected_ty))
     }

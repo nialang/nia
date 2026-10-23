@@ -159,17 +159,17 @@ pub module builtin;
     .expect("write custom std root");
     std::fs::write(
         &runtime_root,
-        "pub(pkg) module start; pub(pkg) module builtins;",
+        "pub(root) module start; pub(root) module builtins;",
     )
     .expect("write custom runtime root");
     std::fs::write(
         resource_root.join("runtime/builtins.nia"),
-        "pub(pkg) module windows;",
+        "pub(root) module windows;",
     )
     .expect("write builtins facade");
     std::fs::write(
         resource_root.join("runtime/builtins/windows.nia"),
-        "pub(pkg) module x86_64;",
+        "pub(root) module x86_64;",
     )
     .expect("write Windows builtins facade");
     std::fs::copy(
@@ -198,19 +198,19 @@ pub fun asm(config: AsmConfig) ();
         &std_start,
         r#"
 @[if os == "linux" and (arch == "x86_64" or arch == "x86")]
-pub(pkg) module freestanding;
+pub(root) module freestanding;
 @[if os == "windows" and arch == "x86_64"]
-pub(pkg) module freestanding;
+pub(root) module freestanding;
 @[if os == "macos" and (arch == "x86_64" or arch == "aarch64")]
-pub(pkg) module freestanding;
+pub(root) module freestanding;
 @[if os == "linux" and arch == "x86_64"]
-using pkg::start::freestanding::linux::x86_64;
+using root::start::freestanding::linux::x86_64;
 @[if os == "linux" and arch == "x86"]
-using pkg::start::freestanding::linux::x86;
+using root::start::freestanding::linux::x86;
 @[if os == "windows" and arch == "x86_64"]
-using pkg::start::freestanding::windows::x86_64;
+using root::start::freestanding::windows::x86_64;
 @[if os == "macos"]
-using pkg::start::freestanding::macos;
+using root::start::freestanding::macos;
 "#,
     )
     .expect("write custom std start facade");
@@ -218,32 +218,32 @@ using pkg::start::freestanding::macos;
         &std_start_freestanding,
         r#"
 @[if os == "linux"]
-pub(pkg) module linux;
+pub(root) module linux;
 @[if os == "windows"]
-pub(pkg) module windows;
+pub(root) module windows;
 @[if os == "macos"]
-pub(pkg) module macos;
+pub(root) module macos;
 "#,
     )
     .expect("write custom std freestanding facade");
     std::fs::write(
         &std_start_freestanding_windows,
-        "pub(pkg) module startup;\n@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n",
+        "pub(root) module startup;\n@[if arch == \"x86_64\"]\npub(root) module x86_64;\n",
     )
     .expect("write custom std Windows freestanding facade");
     std::fs::write(
         &std_start_freestanding_macos,
-        "pub(pkg) module startup;\n@[if arch == \"x86_64\"]\npub(pkg) module x86_64;\n@[if arch == \"aarch64\"]\npub(pkg) module aarch64;\n",
+        "pub(root) module startup;\n@[if arch == \"x86_64\"]\npub(root) module x86_64;\n@[if arch == \"aarch64\"]\npub(root) module aarch64;\n",
     )
     .expect("write custom Darwin freestanding facade");
     std::fs::write(
         &std_start_freestanding_linux,
         r#"
-pub(pkg) module startup;
+pub(root) module startup;
 @[if arch == "x86_64"]
-pub(pkg) module x86_64;
+pub(root) module x86_64;
 @[if arch == "x86"]
-pub(pkg) module x86;
+pub(root) module x86;
 "#,
     )
     .expect("write custom std linux facade");
@@ -324,7 +324,7 @@ pub extern fun _start() () {
     .expect("write custom i686 std start");
     std::fs::write(
         &std_start_windows_x86_64,
-        "using pkg::builtins::windows::x86_64::__chkstk;\n\n@[naked]\npub extern fun _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall niaWindowsStart\\nud2\", clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n",
+        "using root::builtins::windows::x86_64::__chkstk;\n\n@[naked]\npub extern fun _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall niaWindowsStart\\nud2\", clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n",
     )
     .expect("write custom Windows std start");
     // The runtime roots Windows startup in `startup.nia` by definition name.
@@ -335,13 +335,13 @@ pub extern fun _start() () {
     .expect("write custom Windows startup");
     std::fs::write(
         std_start_macos_arch.with_file_name("startup.nia"),
-        "using entry;\n\nextern fun exit(code: i32) ();\n\npub(pkg) extern fun niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(entry::mymain()); loop {} }\n",
+        "using entry;\n\nextern fun exit(code: i32) ();\n\npub(root) extern fun niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(entry::mymain()); loop {} }\n",
     )
     .expect("write custom Darwin startup");
     for arch in ["x86_64", "aarch64"] {
         std::fs::write(
             std_start_macos_arch.with_file_name(format!("{arch}.nia")),
-            "using pkg::start::freestanding::macos::startup::niaDarwinStart;\npub extern fun main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
+            "using root::start::freestanding::macos::startup::niaDarwinStart;\npub extern fun main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
         )
         .expect("write custom Darwin start");
     }

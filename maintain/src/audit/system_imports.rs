@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn imports_use_their_link_name_and_exports_ignore_comments() {
-        let source = "@[linkName(\"Real\")]\npub(pkg) extern fun alias(\n    value: u32,\n) i32;\n\
+        let source = "@[linkName(\"Real\")]\npub(root) extern fun alias(\n    value: u32,\n) i32;\n\
                       extern fun Plain(a: &u16) ();\npub extern fun _start() () {\n}\n";
         let names = IMPORT
             .captures_iter(source)

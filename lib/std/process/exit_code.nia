@@ -1,11 +1,11 @@
-using pkg::builtin;
-using pkg::cstring;
-using pkg::fmt;
-using pkg::fs;
-using pkg::io;
-using pkg::mem;
-using pkg::process::types;
-using pkg::test;
+using root::builtin;
+using root::cstring;
+using root::fmt;
+using root::fs;
+using root::io;
+using root::mem;
+using root::process::types;
+using root::test;
 
 using types::{Error, ExitCode, SpawnError, SystemError};
 using io::DebugPrintError;

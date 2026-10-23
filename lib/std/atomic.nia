@@ -35,310 +35,310 @@ where T: Sized
     }
 
     pub fun loadUnordered(&self) T {
-        pkg::builtin::atomicLoad[T](&self.value, Unordered)
+        root::builtin::atomicLoad[T](&self.value, Unordered)
     }
 
     pub fun loadMonotonic(&self) T {
-        pkg::builtin::atomicLoad[T](&self.value, Monotonic)
+        root::builtin::atomicLoad[T](&self.value, Monotonic)
     }
 
     pub fun loadAcquire(&self) T {
-        pkg::builtin::atomicLoad[T](&self.value, Acquire)
+        root::builtin::atomicLoad[T](&self.value, Acquire)
     }
 
     pub fun loadSeqCst(&self) T {
-        pkg::builtin::atomicLoad[T](&self.value, SeqCst)
+        root::builtin::atomicLoad[T](&self.value, SeqCst)
     }
 
     pub fun storeUnordered(&mut self, value: T) () {
-        pkg::builtin::atomicStore[T](&mut self.value, value, Unordered)
+        root::builtin::atomicStore[T](&mut self.value, value, Unordered)
     }
 
     pub fun storeMonotonic(&mut self, value: T) () {
-        pkg::builtin::atomicStore[T](&mut self.value, value, Monotonic)
+        root::builtin::atomicStore[T](&mut self.value, value, Monotonic)
     }
 
     pub fun storeRelease(&mut self, value: T) () {
-        pkg::builtin::atomicStore[T](&mut self.value, value, Release)
+        root::builtin::atomicStore[T](&mut self.value, value, Release)
     }
 
     pub fun storeSeqCst(&mut self, value: T) () {
-        pkg::builtin::atomicStore[T](&mut self.value, value, SeqCst)
+        root::builtin::atomicStore[T](&mut self.value, value, SeqCst)
     }
 
     pub fun swapMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xchg, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Xchg, value, Monotonic)
     }
 
     pub fun swapAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xchg, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Xchg, value, Acquire)
     }
 
     pub fun swapRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xchg, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Xchg, value, Release)
     }
 
     pub fun swapAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xchg, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Xchg, value, AcqRel)
     }
 
     pub fun swapSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xchg, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Xchg, value, SeqCst)
     }
 
     pub fun cmpxchgStrongMonotonic(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, Monotonic, Monotonic)
+        root::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, Monotonic, Monotonic)
     }
 
     pub fun cmpxchgStrongAcquire(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, Acquire, Acquire)
+        root::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, Acquire, Acquire)
     }
 
     pub fun cmpxchgStrongRelease(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, Release, Monotonic)
+        root::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, Release, Monotonic)
     }
 
     pub fun cmpxchgStrongAcqRel(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, AcqRel, Acquire)
+        root::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, AcqRel, Acquire)
     }
 
     pub fun cmpxchgStrongSeqCst(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, SeqCst, SeqCst)
+        root::builtin::cmpxchgStrong[T](&mut self.value, expected, desired, SeqCst, SeqCst)
     }
 
     pub fun cmpxchgWeakMonotonic(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, Monotonic, Monotonic)
+        root::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, Monotonic, Monotonic)
     }
 
     pub fun cmpxchgWeakAcquire(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, Acquire, Acquire)
+        root::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, Acquire, Acquire)
     }
 
     pub fun cmpxchgWeakRelease(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, Release, Monotonic)
+        root::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, Release, Monotonic)
     }
 
     pub fun cmpxchgWeakAcqRel(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, AcqRel, Acquire)
+        root::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, AcqRel, Acquire)
     }
 
     pub fun cmpxchgWeakSeqCst(&mut self, expected: T, desired: T) ?T {
-        pkg::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, SeqCst, SeqCst)
+        root::builtin::cmpxchgWeak[T](&mut self.value, expected, desired, SeqCst, SeqCst)
     }
 
     pub fun fetchAddMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Add, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Add, value, Monotonic)
     }
 
     pub fun fetchAddAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Add, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Add, value, Acquire)
     }
 
     pub fun fetchAddRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Add, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Add, value, Release)
     }
 
     pub fun fetchAddAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Add, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Add, value, AcqRel)
     }
 
     pub fun fetchAddSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Add, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Add, value, SeqCst)
     }
 
     pub fun fetchSubMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Sub, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Sub, value, Monotonic)
     }
 
     pub fun fetchSubAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Sub, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Sub, value, Acquire)
     }
 
     pub fun fetchSubRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Sub, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Sub, value, Release)
     }
 
     pub fun fetchSubAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Sub, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Sub, value, AcqRel)
     }
 
     pub fun fetchSubSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Sub, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Sub, value, SeqCst)
     }
 
     pub fun fetchAndMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, And, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, And, value, Monotonic)
     }
 
     pub fun fetchAndAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, And, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, And, value, Acquire)
     }
 
     pub fun fetchAndRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, And, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, And, value, Release)
     }
 
     pub fun fetchAndAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, And, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, And, value, AcqRel)
     }
 
     pub fun fetchAndSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, And, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, And, value, SeqCst)
     }
 
     pub fun fetchNandMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Nand, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Nand, value, Monotonic)
     }
 
     pub fun fetchNandAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Nand, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Nand, value, Acquire)
     }
 
     pub fun fetchNandRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Nand, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Nand, value, Release)
     }
 
     pub fun fetchNandAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Nand, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Nand, value, AcqRel)
     }
 
     pub fun fetchNandSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Nand, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Nand, value, SeqCst)
     }
 
     pub fun fetchOrMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Or, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Or, value, Monotonic)
     }
 
     pub fun fetchOrAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Or, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Or, value, Acquire)
     }
 
     pub fun fetchOrRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Or, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Or, value, Release)
     }
 
     pub fun fetchOrAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Or, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Or, value, AcqRel)
     }
 
     pub fun fetchOrSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Or, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Or, value, SeqCst)
     }
 
     pub fun fetchXorMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xor, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Xor, value, Monotonic)
     }
 
     pub fun fetchXorAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xor, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Xor, value, Acquire)
     }
 
     pub fun fetchXorRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xor, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Xor, value, Release)
     }
 
     pub fun fetchXorAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xor, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Xor, value, AcqRel)
     }
 
     pub fun fetchXorSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Xor, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Xor, value, SeqCst)
     }
 
     pub fun fetchMaxMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Max, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Max, value, Monotonic)
     }
 
     pub fun fetchMaxAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Max, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Max, value, Acquire)
     }
 
     pub fun fetchMaxRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Max, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Max, value, Release)
     }
 
     pub fun fetchMaxAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Max, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Max, value, AcqRel)
     }
 
     pub fun fetchMaxSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Max, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Max, value, SeqCst)
     }
 
     pub fun fetchMinMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Min, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, Min, value, Monotonic)
     }
 
     pub fun fetchMinAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Min, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, Min, value, Acquire)
     }
 
     pub fun fetchMinRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Min, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, Min, value, Release)
     }
 
     pub fun fetchMinAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Min, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, Min, value, AcqRel)
     }
 
     pub fun fetchMinSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, Min, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, Min, value, SeqCst)
     }
 
     pub fun fetchUmaxMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMax, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, UMax, value, Monotonic)
     }
 
     pub fun fetchUmaxAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMax, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, UMax, value, Acquire)
     }
 
     pub fun fetchUmaxRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMax, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, UMax, value, Release)
     }
 
     pub fun fetchUmaxAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMax, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, UMax, value, AcqRel)
     }
 
     pub fun fetchUmaxSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMax, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, UMax, value, SeqCst)
     }
 
     pub fun fetchUminMonotonic(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMin, value, Monotonic)
+        root::builtin::atomicRmw[T](&mut self.value, UMin, value, Monotonic)
     }
 
     pub fun fetchUminAcquire(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMin, value, Acquire)
+        root::builtin::atomicRmw[T](&mut self.value, UMin, value, Acquire)
     }
 
     pub fun fetchUminRelease(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMin, value, Release)
+        root::builtin::atomicRmw[T](&mut self.value, UMin, value, Release)
     }
 
     pub fun fetchUminAcqRel(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMin, value, AcqRel)
+        root::builtin::atomicRmw[T](&mut self.value, UMin, value, AcqRel)
     }
 
     pub fun fetchUminSeqCst(&mut self, value: T) T {
-        pkg::builtin::atomicRmw[T](&mut self.value, UMin, value, SeqCst)
+        root::builtin::atomicRmw[T](&mut self.value, UMin, value, SeqCst)
     }
 }
 
 pub fun fenceAcquire() () {
-    pkg::builtin::fence(Acquire)
+    root::builtin::fence(Acquire)
 }
 
 pub fun fenceRelease() () {
-    pkg::builtin::fence(Release)
+    root::builtin::fence(Release)
 }
 
 pub fun fenceAcqRel() () {
-    pkg::builtin::fence(AcqRel)
+    root::builtin::fence(AcqRel)
 }
 
 pub fun fenceSeqCst() () {
-    pkg::builtin::fence(SeqCst)
+    root::builtin::fence(SeqCst)
 }

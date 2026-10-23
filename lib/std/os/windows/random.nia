@@ -1,7 +1,7 @@
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     ProcessPrng,
 };
-using pkg::os::windows::types::{
+using root::os::windows::types::{
     Errno,
 };
 

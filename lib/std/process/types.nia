@@ -1,9 +1,9 @@
-using pkg::collections;
-using pkg::cstring;
-using pkg::fs;
-using pkg::io;
-using pkg::mem;
-using pkg::os;
+using root::collections;
+using root::cstring;
+using root::fs;
+using root::io;
+using root::mem;
+using root::os;
 
 pub struct ExitCode(i32)
 
@@ -120,12 +120,12 @@ pub struct Command {
     cwd: ?fs::PathView,
 }
 
-pub(pkg) enum SpawnOutcome {
+pub(root) enum SpawnOutcome {
     Success(Child),
     Failure(Error),
 }
 
-pub(pkg) struct SpawnStorage {
+pub(root) struct SpawnStorage {
     argumentBytes: collections::ArrayList[u8],
     argv: collections::ArrayList[&u8],
     environmentBytes: collections::ArrayList[u8],
@@ -182,7 +182,7 @@ pub struct EnvEntry {
     value: &[char],
 }
 
-pub(pkg) enum CommandEnvironment {
+pub(root) enum CommandEnvironment {
     Inherit(Env),
     Exact(&[EnvEntry]),
     Empty,
@@ -237,15 +237,15 @@ pub struct Init {
 }
 
 extend ProcessId {
-    pub(pkg) const fun fromRaw(raw: i32) ProcessId {
+    pub(root) const fun fromRaw(raw: i32) ProcessId {
         .{ platform: os::ProcessId::fromRaw(raw) }
     }
 
-    pub(pkg) const fun fromOs(platform: os::ProcessId) ProcessId {
+    pub(root) const fun fromOs(platform: os::ProcessId) ProcessId {
         .{ platform }
     }
 
-    pub(pkg) const fun os(&self) os::ProcessId {
+    pub(root) const fun os(&self) os::ProcessId {
         self.platform
     }
 

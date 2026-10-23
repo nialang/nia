@@ -1,5 +1,5 @@
-using pkg::hash::traits;
-using pkg::slice;
+using root::hash::traits;
+using root::slice;
 
 using traits::{Hash, Hasher};
 

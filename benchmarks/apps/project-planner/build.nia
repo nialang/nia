@@ -2,14 +2,14 @@ using std::build;
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let root = b.addModule(
+    let mainModule = b.addModule(
         build::ModuleOptions::init(
             &"project-planner",
             fs::PathView::init(&"src/main.nia"),
         ),
     ).?;
     let executable = b.addExecutable(
-        build::ExecutableOptions::init(&"project-planner", root),
+        build::ExecutableOptions::init(&"project-planner", mainModule),
     ).?;
     let emit = b.addEmitExecutableStep(&"project-planner", executable).?;
     b.setDefaultStep(emit).?;

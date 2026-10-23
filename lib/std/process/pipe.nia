@@ -1,6 +1,6 @@
-using pkg::io;
-using pkg::os;
-using pkg::process::types;
+using root::io;
+using root::os;
+using root::process::types;
 
 using types::{ChildStderr, ChildStdin, ChildStdout};
 
@@ -36,7 +36,7 @@ fun closeHandle(handle: &mut ?os::FileHandle) io::Error!() {
 }
 
 extend ChildStdin {
-    pub(pkg) fun init(handle: os::FileHandle) ChildStdin {
+    pub(root) fun init(handle: os::FileHandle) ChildStdin {
         .{ handle: ?handle }
     }
 
@@ -62,7 +62,7 @@ extend ChildStdin : io::Writer {
 }
 
 extend ChildStdout {
-    pub(pkg) fun init(handle: os::FileHandle) ChildStdout {
+    pub(root) fun init(handle: os::FileHandle) ChildStdout {
         .{ handle: ?handle }
     }
 
@@ -88,7 +88,7 @@ extend ChildStdout : io::Reader {
 }
 
 extend ChildStderr {
-    pub(pkg) fun init(handle: os::FileHandle) ChildStderr {
+    pub(root) fun init(handle: os::FileHandle) ChildStderr {
         .{ handle: ?handle }
     }
 

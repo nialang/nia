@@ -1,13 +1,13 @@
-using pkg::option;
-using pkg::os::windows::bindings::{
+using root::option;
+using root::os::windows::bindings::{
     invalidHandle, maxPathUnits,
     errorNoMoreFiles, errorFileNotFound, findDataNameUnits, findDataAlternateUnits,
     GetLastError, FindFirstFileW, FindNextFileW, FindClose, FindData,
 };
-using pkg::os::windows::types::{Errno, FileKind, DirectoryEntry, FileDescriptor, fileKind};
-using pkg::os::windows::error::{errno, lastError};
-using pkg::os::windows::path::{pathFromHandle, joinPath};
-using pkg::os::windows::encoding::{wideToUtf8, wideStringLen};
+using root::os::windows::types::{Errno, FileKind, DirectoryEntry, FileDescriptor, fileKind};
+using root::os::windows::error::{errno, lastError};
+using root::os::windows::path::{pathFromHandle, joinPath};
+using root::os::windows::encoding::{wideToUtf8, wideStringLen};
 
 const directoryRecordHeader: usize = 16;
 const encodedNameCapacity: usize = findDataNameUnits * 3;

@@ -9,10 +9,10 @@
 // from replacement storage. Borrowed views and capacities are never used to
 // recreate release ownership.
 
-using pkg::mem;
-using pkg::error;
-using pkg::slice;
-using pkg::collections::array_list::raw;
+using root::mem;
+using root::error;
+using root::slice;
+using root::collections::array_list::raw;
 
 pub struct ArrayList[T]
 where T: Sized
@@ -131,7 +131,7 @@ where T: Sized
         self.freePendingItems(allocator).?;
         let len = self.len();
         let layout = mem::Layout::array[T](len).?;
-        if pkg::builtin::size[T]() == 0 or self.capacity() == 0 {
+        if root::builtin::size[T]() == 0 or self.capacity() == 0 {
             if self.storageBlock is ?block {
                 allocator.free(block).?;
             }
@@ -169,7 +169,7 @@ where T: Sized
 
     pub fun toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         let len = self.len();
-        if len == 0 or pkg::builtin::size[T]() == 0 {
+        if len == 0 or root::builtin::size[T]() == 0 {
             return !.fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
         }
 
@@ -498,11 +498,11 @@ where T: Sized
                 value
             },
             null => {
-                pkg::builtin::trap()
+                root::builtin::trap()
             },
         };
         if newLen > self.capacity() {
-            pkg::builtin::trap()
+            root::builtin::trap()
         }
         let mut items = self.allocatedItems();
         self.items = &mut items[0..newLen];
@@ -531,18 +531,18 @@ where T: Sized
     fun addManyAtUninitializedAssumeCapacity(&mut self, index: usize, count: usize) &mut [T] {
         let len = self.len();
         if index > len {
-            pkg::builtin::trap()
+            root::builtin::trap()
         }
         let newLen = match len.checkedAdd(count) {
             ?value => {
                 value
             },
             null => {
-                pkg::builtin::trap()
+                root::builtin::trap()
             },
         };
         if newLen > self.capacity() {
-            pkg::builtin::trap()
+            root::builtin::trap()
         }
         let mut items = self.allocatedItems();
         if count != 0 and index < len {
@@ -573,7 +573,7 @@ where T: Sized
         if targetCapacity >= self.capacity() {
             return !();
         }
-        if pkg::builtin::size[T]() == 0 {
+        if root::builtin::size[T]() == 0 {
             self.capacity = usize::MAX;
             return !();
         }
@@ -602,10 +602,10 @@ where T: Sized
     }
 
     fun grownCapacity(&self, needed: usize) mem::Error!usize {
-        if pkg::builtin::size[T]() == 0 {
+        if root::builtin::size[T]() == 0 {
             return !usize::MAX;
         }
-        let elemLen = pkg::builtin::size[T]();
+        let elemLen = root::builtin::size[T]();
         let mut initCapacity = 64 / elemLen;
         if initCapacity == 0 {
             initCapacity = 1;
@@ -631,7 +631,7 @@ where T: Sized
 
     fun growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         self.freePendingItems(allocator).?;
-        if pkg::builtin::size[T]() == 0 {
+        if root::builtin::size[T]() == 0 {
             self.capacity = usize::MAX;
             return !();
         }
@@ -749,11 +749,11 @@ where T: Sized
     }
 
     fun slicePointsIntoAllocation(&self, items: &[T]) bool {
-        if items.len() == 0 or self.capacity == 0 or pkg::builtin::size[T]() == 0 {
+        if items.len() == 0 or self.capacity == 0 or root::builtin::size[T]() == 0 {
             return false;
         }
 
-        let itemSize = pkg::builtin::size[T]();
+        let itemSize = root::builtin::size[T]();
         let base = self.items.ptrMut() as usize;
         let ptr = items.ptr() as usize;
         if ptr < base {

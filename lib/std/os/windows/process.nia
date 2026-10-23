@@ -1,7 +1,7 @@
-pub(pkg) module executable;
-pub(pkg) module stdio;
+pub(root) module executable;
+pub(root) module stdio;
 
-using pkg::os::windows::bindings::{
+using root::os::windows::bindings::{
     invalidHandle, stdInputHandle, stdOutputHandle, stdErrorHandle,
     waitObject0, waitTimeout, infinite, fileAttributeDirectory, errorAccessDenied,
     invalidFileAttributes, startupUseStdHandles, createUnicodeEnvironment,
@@ -9,12 +9,12 @@ using pkg::os::windows::bindings::{
     WaitForSingleObject, GetExitCodeProcess, TerminateProcess, CloseHandle,
     CreateProcessW, StartupInfo, StartupInfoEx, ProcessInformation, maxPathUnits,
 };
-using pkg::os::windows::types::{Errno, ProcessId, WaitStatus, SpawnAttempt, SpawnOptions};
-using pkg::os::windows::error::{errno, lastError};
-using pkg::os::windows::encoding::utf8ToWide;
-using pkg::os::windows::command::{appendCommandArgument, EnvironmentBlock};
-using pkg::os::windows::process::executable::resolveExecutable;
-using pkg::os::windows::process::stdio::{prepareStream, closeHandle, HandleList};
+using root::os::windows::types::{Errno, ProcessId, WaitStatus, SpawnAttempt, SpawnOptions};
+using root::os::windows::error::{errno, lastError};
+using root::os::windows::encoding::utf8ToWide;
+using root::os::windows::command::{appendCommandArgument, EnvironmentBlock};
+using root::os::windows::process::executable::resolveExecutable;
+using root::os::windows::process::stdio::{prepareStream, closeHandle, HandleList};
 
 const signalTerm: i32 = 15;
 const signalKill: i32 = 9;
@@ -22,7 +22,7 @@ const signalKill: i32 = 9;
 pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     let mut commandStorage: [u16; maxPathUnits] = [0; maxPathUnits];
     let mut commandLen: usize = 0;
-    let pointerSize = pkg::builtin::size[&u8]();
+    let pointerSize = root::builtin::size[&u8]();
     let mut cursor = argv;
     while cursor.* != 0usize as &u8 {
         if appendCommandArgument(&mut commandStorage[..], &mut commandLen, cursor.*) is error! {
@@ -102,7 +102,7 @@ pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAtt
     defer attributes.close();
     let mut startup: StartupInfoEx = .{
         base: .{
-            cb: if count == 0 { pkg::builtin::size[StartupInfo]() as u32 } else { pkg::builtin::size[StartupInfoEx]() as u32 },
+            cb: if count == 0 { root::builtin::size[StartupInfo]() as u32 } else { root::builtin::size[StartupInfoEx]() as u32 },
             reserved: 0, desktop: 0, title: 0, x: 0, y: 0, xSize: 0, ySize: 0,
             xCountChars: 0, yCountChars: 0, fillAttribute: 0,
             flags: startupUseStdHandles, showWindow: 0, reserved2: 0, reserved2Ptr: 0,

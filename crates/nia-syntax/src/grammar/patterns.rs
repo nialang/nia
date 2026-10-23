@@ -25,7 +25,7 @@ pub(crate) fn pattern_can_start(kind: &TokenKind) -> bool {
             | TokenKind::Null
             | TokenKind::Ident
             | TokenKind::SelfValue
-            | TokenKind::Pkg
+            | TokenKind::Root
             | TokenKind::Super
             | TokenKind::Underscore
             | TokenKind::LParen

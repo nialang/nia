@@ -5,7 +5,7 @@
 
 pub module cleanup;
 
-using pkg::error::cleanup;
+using root::error::cleanup;
 
 pub using cleanup::CleanupAccumulator;
 

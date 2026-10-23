@@ -1,4 +1,4 @@
-using pkg::fmt::core;
+using root::fmt::core;
 
 fun formatSignedSpec(
     value: i128,

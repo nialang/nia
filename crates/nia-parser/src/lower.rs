@@ -219,7 +219,7 @@ impl Lower<'_> {
 
     pub(crate) fn path_segment_kind(&mut self, token: &GreenToken) -> PathSegmentKind {
         match token_kind(token) {
-            TokenKind::Pkg => PathSegmentKind::Package,
+            TokenKind::Root => PathSegmentKind::Root,
             TokenKind::Super => PathSegmentKind::Super,
             TokenKind::SelfValue => PathSegmentKind::SelfValue,
             _ => PathSegmentKind::Name(self.name(token)),
@@ -402,7 +402,7 @@ impl Lower<'_> {
             .filter(|token| {
                 matches!(
                     token_kind(token),
-                    TokenKind::Ident | TokenKind::Pkg | TokenKind::Super | TokenKind::SelfValue
+                    TokenKind::Ident | TokenKind::Root | TokenKind::Super | TokenKind::SelfValue
                 )
             })
             .map(|token| UsingHostSegment {
@@ -829,8 +829,8 @@ impl Lower<'_> {
 fn visibility(node: &GreenNode) -> Visibility {
     if has_token(node, TokenKind::Super) {
         Visibility::PublicSuper
-    } else if has_token(node, TokenKind::Pkg) {
-        Visibility::PublicPkg
+    } else if has_token(node, TokenKind::Root) {
+        Visibility::PublicRoot
     } else {
         Visibility::Public
     }

@@ -17,7 +17,7 @@ code: E0201
 summary: associated value `PACKAGE_LIMIT` is restricted to its package
 label: 189..202 Primary Source associated value `PACKAGE_LIMIT` is not visible from this module
 help: make the associated value public or use it from the defining package
-related: 141..177 the restricted associated value is declared here
+related: 142..178 the restricted associated value is declared here
 
 report:
 error[E0201]: associated value `PRIVATE_LIMIT` is private
@@ -42,6 +42,6 @@ error[E0201]: associated value `PACKAGE_LIMIT` is restricted to its package
 12 |     model::Value::PACKAGE_LIMIT
    |                   ^^^^^^^^^^^^^ associated value `PACKAGE_LIMIT` is not visible from this module
 help: make the associated value public or use it from the defining package
-related: fail/restricted_associated_values/dep/model.nia:6:14: the restricted associated value is declared here
+related: fail/restricted_associated_values/dep/model.nia:6:15: the restricted associated value is declared here
 
 summary: 3 errors, 0 warnings

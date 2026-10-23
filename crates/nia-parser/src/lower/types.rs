@@ -204,7 +204,7 @@ impl Lower<'_> {
     fn path_segment(&mut self, node: &GreenNode) -> TypePathSegment {
         let Some(token) = node.child_tokens().next() else {
             return TypePathSegment {
-                kind: PathSegmentKind::Package,
+                kind: PathSegmentKind::Root,
                 span: node.span(),
                 args: Vec::new(),
             };

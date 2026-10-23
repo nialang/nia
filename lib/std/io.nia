@@ -3,20 +3,20 @@
 // Adapters borrow or own exactly the handle stated by their type and preserve
 // partial I/O, buffering, and underlying system failures through typed errors.
 
-pub(pkg) module buffered;
-pub(pkg) module error;
-pub(pkg) module file_adapter;
-pub(pkg) module fixed_buffer;
-pub(pkg) module limit;
-pub(pkg) module debug;
-pub(pkg) module traits;
+pub(root) module buffered;
+pub(root) module error;
+pub(root) module file_adapter;
+pub(root) module fixed_buffer;
+pub(root) module limit;
+pub(root) module debug;
+pub(root) module traits;
 
-using pkg::io::buffered;
-using pkg::io::error;
-using pkg::io::file_adapter;
-using pkg::io::fixed_buffer;
-using pkg::io::limit;
-using pkg::io::debug;
+using root::io::buffered;
+using root::io::error;
+using root::io::file_adapter;
+using root::io::fixed_buffer;
+using root::io::limit;
+using root::io::debug;
 
 pub using traits::{BufferError, Reader, Writer};
 pub using error::{Error, SystemError};
