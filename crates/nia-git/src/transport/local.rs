@@ -217,7 +217,13 @@ fn charge_checkout_bytes(used: &mut usize, amount: usize) -> io::Result<()> {
 fn validate_tree_name(name: &str) -> io::Result<()> {
     let path = Path::new(name);
     let folded = name.to_ascii_lowercase();
-    let stem = folded.split('.').next().unwrap_or_default();
+    // Windows ignores trailing spaces and dots before the extension, so
+    // `con .txt` still names the CON device.
+    let stem = folded
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches([' ', '.']);
     let device = matches!(stem, "con" | "prn" | "aux" | "nul" | "conin$" | "conout$")
         || ["com", "lpt"].iter().any(|prefix| {
             stem.strip_prefix(prefix).is_some_and(|suffix| {
@@ -464,6 +470,8 @@ mod tests {
             "a/b",
             "NUL",
             "con.txt",
+            "con .txt",
+            "nul..log",
             "LPT1",
             "COM9.log",
             "..",
