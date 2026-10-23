@@ -263,37 +263,52 @@ pub(crate) fn checkout_http(
 ) -> io::Result<String> {
     let url = parse_http_git_url(source)?;
     let proxy = http_proxy_for_url(&url)?;
-    let authorization = if url.secure {
-        lookup_http_authorization(&url)
+    let credentials = if url.secure {
+        lookup_http_credentials(&url)
     } else {
         None
     };
+    let header = credentials
+        .as_ref()
+        .map(GitCredentials::basic_authorization);
+    let authorization = header.as_ref().map(|value| value.as_slice());
+    // A 401 after sending helper credentials means they are stale; tell the
+    // helper so it does not offer them again.
+    let auth_error = |error: io::Error| {
+        if error.kind() == io::ErrorKind::PermissionDenied
+            && let Some(credentials) = &credentials
+        {
+            reject_http_credentials(&url, credentials);
+        }
+        explain_http_auth_error(error, &url, authorization.is_some())
+    };
     let info_path = format!("{}/info/refs?service=git-upload-pack", url.path);
-    let authorization = authorization.as_ref().map(|value| value.as_slice());
-    let info = http_request_with_proxy(
+    let info = http_request(
         &url,
-        "GET",
-        &info_path,
-        &[],
-        "",
-        authorization,
-        proxy.as_ref(),
+        HttpRequest {
+            authorization,
+            proxy: proxy.as_ref(),
+            ..HttpRequest::get(&info_path)
+        },
     )
-    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
+    .map_err(auth_error)?;
     let refs = parse_advertised_refs(&info)?;
     let commit = select_advertised_revision(&refs, revision)?;
 
     let request = build_upload_pack_request(&commit)?;
-    let response = http_request_with_proxy(
+    let upload_path = format!("{}/git-upload-pack", url.path);
+    let response = http_request(
         &url,
-        "POST",
-        &format!("{}/git-upload-pack", url.path),
-        &request,
-        "application/x-git-upload-pack-request",
-        authorization,
-        proxy.as_ref(),
+        HttpRequest {
+            method: "POST",
+            body: &request,
+            content_type: "application/x-git-upload-pack-request",
+            authorization,
+            proxy: proxy.as_ref(),
+            ..HttpRequest::get(&upload_path)
+        },
     )
-    .map_err(|error| explain_http_auth_error(error, &url, authorization.is_some()))?;
+    .map_err(auth_error)?;
     let pack = parse_upload_pack_response(&response)?;
 
     write_pack_checkout_into(&pack, &commit, destination_dir)
@@ -316,7 +331,14 @@ pub fn fetch_https_with_limit(source: &str, limit: usize) -> io::Result<Vec<u8>>
         ));
     }
     let proxy = http_proxy_for_url(&url)?;
-    http_request_with_proxy_limit(&url, "GET", &url.path, &[], "", None, proxy.as_ref(), limit)
+    http_request(
+        &url,
+        HttpRequest {
+            proxy: proxy.as_ref(),
+            response_limit: limit,
+            ..HttpRequest::get(&url.path)
+        },
+    )
 }
 
 #[cfg(test)]
@@ -347,64 +369,40 @@ pub(crate) fn fetch_https_with_test_root(source: &str, root_der: &[u8]) -> io::R
     )
 }
 
-pub(crate) fn http_request_with_proxy(
-    url: &HttpGitUrl,
-    method: &str,
-    path: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-    proxy: Option<&HttpProxy>,
-) -> io::Result<Vec<u8>> {
-    http_request_with_proxy_limit(
-        url,
-        method,
-        path,
-        body,
-        content_type,
-        authorization,
-        proxy,
-        MAX_RESPONSE_BYTES,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn http_request_with_proxy_limit(
-    url: &HttpGitUrl,
-    method: &str,
-    path: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-    proxy: Option<&HttpProxy>,
-    response_limit: usize,
-) -> io::Result<Vec<u8>> {
+/// Sends one request with the bundled WebPKI roots.
+pub(crate) fn http_request(url: &HttpGitUrl, request: HttpRequest<'_>) -> io::Result<Vec<u8>> {
     let roots = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
-    http_request_with_roots(
-        url,
-        HttpRequest {
-            method,
-            path,
-            body,
-            content_type,
-            authorization,
-            proxy,
-            response_limit,
-        },
-        roots,
-    )
+    http_request_with_roots(url, request, roots)
 }
 
-struct HttpRequest<'a> {
-    method: &'a str,
-    path: &'a str,
-    body: &'a [u8],
-    content_type: &'a str,
-    authorization: Option<&'a [u8]>,
-    proxy: Option<&'a HttpProxy>,
-    response_limit: usize,
+/// One Git HTTP request. `path` is the origin-form path; a plain-HTTP proxy
+/// request rewrites it to absolute form before sending.
+#[derive(Clone, Copy)]
+pub(crate) struct HttpRequest<'a> {
+    pub(crate) method: &'a str,
+    pub(crate) path: &'a str,
+    pub(crate) body: &'a [u8],
+    pub(crate) content_type: &'a str,
+    pub(crate) authorization: Option<&'a [u8]>,
+    pub(crate) proxy: Option<&'a HttpProxy>,
+    pub(crate) response_limit: usize,
+}
+
+impl<'a> HttpRequest<'a> {
+    /// A credential-free GET with the default response limit.
+    pub(crate) fn get(path: &'a str) -> Self {
+        Self {
+            method: "GET",
+            path,
+            body: &[],
+            content_type: "",
+            authorization: None,
+            proxy: None,
+            response_limit: MAX_RESPONSE_BYTES,
+        }
+    }
 }
 
 fn http_request_with_roots(
@@ -459,23 +457,19 @@ fn http_request_with_roots(
         return http_request_stream(
             StreamOwned::new(tls, stream),
             url,
-            request.method,
-            &request_target,
-            request.body,
-            request.content_type,
-            request.authorization,
-            request.response_limit,
+            HttpRequest {
+                path: &request_target,
+                ..request
+            },
         );
     }
-    http_request_stream_with_target(
+    http_request_stream(
         stream,
         url,
-        request.method,
-        &request_target,
-        request.body,
-        request.content_type,
-        request.authorization,
-        request.response_limit,
+        HttpRequest {
+            path: &request_target,
+            ..request
+        },
     )
 }
 
@@ -488,40 +482,22 @@ pub(crate) fn establish_proxy_tunnel(mut stream: &TcpStream, url: &HttpGitUrl) -
     read_proxy_connect_response(stream)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Writes `request` to an established stream and reads the bounded response.
+/// `request.path` is sent verbatim as the request target.
 pub(crate) fn http_request_stream<S: Read + Write>(
-    stream: S,
+    mut stream: S,
     url: &HttpGitUrl,
-    method: &str,
-    path: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-    response_limit: usize,
+    request: HttpRequest<'_>,
 ) -> io::Result<Vec<u8>> {
-    http_request_stream_with_target(
-        stream,
-        url,
+    let HttpRequest {
         method,
-        path,
+        path: request_target,
         body,
         content_type,
         authorization,
         response_limit,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn http_request_stream_with_target<S: Read + Write>(
-    mut stream: S,
-    url: &HttpGitUrl,
-    method: &str,
-    request_target: &str,
-    body: &[u8],
-    content_type: &str,
-    authorization: Option<&[u8]>,
-    response_limit: usize,
-) -> io::Result<Vec<u8>> {
+        ..
+    } = request;
     let host_header = format_authority(&url.host, url.port, if url.secure { 443 } else { 80 });
     write!(
         stream,
@@ -790,22 +766,50 @@ fn decode_chunked_body_with_limit(mut input: &[u8], limit: usize) -> io::Result<
     }
 }
 
-pub(crate) fn lookup_http_authorization(url: &HttpGitUrl) -> Option<Zeroizing<Vec<u8>>> {
+pub(crate) fn lookup_http_credentials(url: &HttpGitUrl) -> Option<GitCredentials> {
     run_http_credential_fill(url, Command::new("git"))
+}
+
+/// Tells the credential helper that `credentials` were rejected, so a stored
+/// password is not offered again. Failures are ignored: the fetch has already
+/// failed with an authentication error.
+pub(crate) fn reject_http_credentials(url: &HttpGitUrl, credentials: &GitCredentials) {
+    reject_http_credentials_with(url, credentials, Command::new("git"));
+}
+
+fn reject_http_credentials_with(url: &HttpGitUrl, credentials: &GitCredentials, command: Command) {
+    let mut input = Zeroizing::new(credential_request(url).into_bytes());
+    // `credential_request` ends with the blank terminator line; replace it
+    // with the rejected username and password.
+    input.pop();
+    input.extend_from_slice(b"username=");
+    input.extend_from_slice(&credentials.username);
+    input.extend_from_slice(b"\npassword=");
+    input.extend_from_slice(&credentials.password);
+    input.extend_from_slice(b"\n\n");
+    let _ = run_git_credential(command, "reject", &input, CREDENTIAL_HELPER_TIMEOUT);
 }
 
 pub(crate) fn run_http_credential_fill(
     url: &HttpGitUrl,
     command: Command,
-) -> Option<Zeroizing<Vec<u8>>> {
+) -> Option<GitCredentials> {
     run_http_credential_fill_with_timeout(url, command, CREDENTIAL_HELPER_TIMEOUT)
 }
 
 fn run_http_credential_fill_with_timeout(
     url: &HttpGitUrl,
-    mut command: Command,
+    command: Command,
     timeout: Duration,
-) -> Option<Zeroizing<Vec<u8>>> {
+) -> Option<GitCredentials> {
+    let request = credential_request(url);
+    let output = run_git_credential(command, "fill", request.as_bytes(), timeout)?;
+    parse_git_credentials(&output)
+}
+
+/// The `git credential` description of an HTTPS repository, ending with the
+/// blank line that terminates the request.
+fn credential_request(url: &HttpGitUrl) -> String {
     let mut input = format!("protocol=https\nhost={}", url.host);
     if url.port != 443 {
         input.push_str(&format!(":{}", url.port));
@@ -817,10 +821,20 @@ fn run_http_credential_fill_with_timeout(
         input.push('\n');
     }
     input.push('\n');
+    input
+}
 
+/// Runs `git credential <action>` with a deadline and bounded output, and
+/// returns its standard output when it exits successfully.
+fn run_git_credential(
+    mut command: Command,
+    action: &str,
+    input: &[u8],
+    timeout: Duration,
+) -> Option<Zeroizing<Vec<u8>>> {
     prepare_credential_helper_command(&mut command);
     let mut child = command
-        .args(["credential", "fill"])
+        .args(["credential", action])
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -832,7 +846,7 @@ fn run_http_credential_fill_with_timeout(
         let _ = child.wait();
         return None;
     };
-    if stdin.write_all(input.as_bytes()).is_err() {
+    if stdin.write_all(input).is_err() {
         terminate_credential_helper(&mut child);
         let _ = child.wait();
         return None;
@@ -912,14 +926,20 @@ fn run_http_credential_fill_with_timeout(
     if output.len() > MAX_CREDENTIAL_HELPER_OUTPUT || !status.success() {
         return None;
     }
-    let credentials = parse_git_credentials(&output)?;
-    let mut plain = Zeroizing::new(Vec::with_capacity(
-        credentials.username.len() + credentials.password.len() + 1,
-    ));
-    plain.extend_from_slice(&credentials.username);
-    plain.push(b':');
-    plain.extend_from_slice(&credentials.password);
-    Some(base64_encode(&plain))
+    Some(output)
+}
+
+impl GitCredentials {
+    /// The base64 `username:password` value of a Basic `Authorization` header.
+    pub(crate) fn basic_authorization(&self) -> Zeroizing<Vec<u8>> {
+        let mut plain = Zeroizing::new(Vec::with_capacity(
+            self.username.len() + self.password.len() + 1,
+        ));
+        plain.extend_from_slice(&self.username);
+        plain.push(b':');
+        plain.extend_from_slice(&self.password);
+        base64_encode(&plain)
+    }
 }
 
 #[cfg(unix)]
@@ -1219,10 +1239,7 @@ mod tests {
             b"protocol=https\nhost=example.test\nusername=nia\npassword=secret\n",
         )
         .unwrap();
-        let mut plain = credentials.username.to_vec();
-        plain.push(b':');
-        plain.extend_from_slice(&credentials.password);
-        assert_eq!(&*base64_encode(&plain), b"bmlhOnNlY3JldA==");
+        assert_eq!(&*credentials.basic_authorization(), b"bmlhOnNlY3JldA==");
 
         assert!(parse_git_credentials(b"username=nia\n").is_none());
         assert!(parse_git_credentials(b"username=nia\npassword=one\npassword=two\n").is_none());
@@ -1256,15 +1273,22 @@ mod tests {
         )
         .unwrap();
         let url = parse_http_git_url("https://example.test/repository.git").unwrap();
-        let mut command = Command::new("git");
-        command
-            .args(["-c", &store_arg, "-c", "credential.useHttpPath=true"])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", &config);
-        assert_eq!(
-            &*run_http_credential_fill(&url, command).unwrap(),
-            b"bmlhOnNlY3JldA=="
-        );
+        let git = || {
+            let mut command = Command::new("git");
+            command
+                .args(["-c", &store_arg, "-c", "credential.useHttpPath=true"])
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", &config);
+            command
+        };
+        let credentials = run_http_credential_fill(&url, git()).unwrap();
+        assert_eq!(&*credentials.basic_authorization(), b"bmlhOnNlY3JldA==");
+
+        // Rejecting the credentials erases only that repository's entry.
+        reject_http_credentials_with(&url, &credentials, git());
+        let remaining = std::fs::read_to_string(&store).unwrap();
+        assert!(!remaining.contains("nia:secret"), "{remaining}");
+        assert!(remaining.contains("other:ignored"), "{remaining}");
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1323,12 +1347,10 @@ mod tests {
         http_request_stream(
             &mut stream,
             &url,
-            "GET",
-            "/repository.git/info/refs",
-            &[],
-            "",
-            Some(b"bmlhOnNlY3JldA=="),
-            MAX_RESPONSE_BYTES,
+            HttpRequest {
+                authorization: Some(b"bmlhOnNlY3JldA=="),
+                ..HttpRequest::get("/repository.git/info/refs")
+            },
         )
         .unwrap();
         assert!(
@@ -1449,14 +1471,12 @@ mod tests {
             host: address.ip().to_string(),
             port: address.port(),
         };
-        http_request_with_proxy(
+        http_request(
             &url,
-            "GET",
-            "/repository.git/info/refs?service=git-upload-pack",
-            &[],
-            "",
-            None,
-            Some(&proxy),
+            HttpRequest {
+                proxy: Some(&proxy),
+                ..HttpRequest::get("/repository.git/info/refs?service=git-upload-pack")
+            },
         )
         .unwrap();
         let request = server.join().unwrap();
