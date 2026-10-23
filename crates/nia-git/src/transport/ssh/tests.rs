@@ -54,6 +54,50 @@ fn encrypted_service_read_validates_and_skips_ignore_and_debug_messages() {
 }
 
 #[test]
+fn userauth_reads_skip_bounded_banners() {
+    let direction = || SshAes128CtrDirection::new(&[1; 16], &[2; 16], &[3; 32], 0).unwrap();
+    let mut banner = vec![53];
+    encode_ssh_string(b"Authorized use only", &mut banner).unwrap();
+    encode_ssh_string(b"en", &mut banner).unwrap();
+
+    let mut sender = direction();
+    let mut input = Vec::new();
+    write_encrypted_ssh_packet(&mut input, &mut sender, &banner).unwrap();
+    write_encrypted_ssh_packet(&mut input, &mut sender, &[52]).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_userauth_response(&mut input.as_slice(), &mut receiver).unwrap(),
+        [52]
+    );
+
+    // A banner missing its language tag is malformed, not skipped.
+    let mut sender = direction();
+    let mut malformed = Vec::new();
+    write_encrypted_ssh_packet(&mut malformed, &mut sender, &banner[..banner.len() - 6]).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_userauth_response(&mut malformed.as_slice(), &mut receiver)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+
+    let mut sender = direction();
+    let mut excessive = Vec::new();
+    for _ in 0..=MAX_SSH_CONTROL_MESSAGES {
+        write_encrypted_ssh_packet(&mut excessive, &mut sender, &banner).unwrap();
+    }
+    write_encrypted_ssh_packet(&mut excessive, &mut sender, &[52]).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_userauth_response(&mut excessive.as_slice(), &mut receiver)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+}
+
+#[test]
 fn ssh_checkout_does_not_publish_a_pack_when_remote_process_fails() {
     fixture::with_checkout_fixture_status(
         17,
