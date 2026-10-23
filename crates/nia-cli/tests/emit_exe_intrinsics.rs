@@ -17,12 +17,12 @@ using std::process;
 
 static mut calls: i32 = 0;
 
-fn next() i32 {
+fun next() i32 {
     calls += 1;
     calls
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let values: [i32; 4] = [next(); 4];
     if calls != 4 {
@@ -75,7 +75,7 @@ const HEX_MAX: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffffu128;
 const SIGNED_MIN: i128 = -170141183460469231731687303715884105728i128;
 const FLOAT_TO_U128: u128 = 170141183460469231731687303715884105728.0f64 as u128;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let argc = init.argc();
     let runtime = 340282366920938463463374607431768211455u128;
     if DECIMAL_MAX != u128::MAX or HEX_MAX != u128::MAX or runtime != u128::MAX {
@@ -179,7 +179,7 @@ fn emit_exe_simd_bitmask_matches_lane_bits() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let values: u8x16 = std::builtin::insert(std::builtin::insert(std::builtin::insert(std::builtin::splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
@@ -237,19 +237,19 @@ union MaskSlot {
     raw: u8,
 }
 
-const fn makeVector() u16x2 {
+const fun makeVector() u16x2 {
     std::builtin::insert(std::builtin::splat[u16x2](4386), 1, 13124)
 }
 
-const fn makeSlot(vector: u16x2) VectorSlot {
+const fun makeSlot(vector: u16x2) VectorSlot {
     VectorSlot { vector }
 }
 
-const fn readBytes(slot: VectorSlot) [u8; 4] {
+const fun readBytes(slot: VectorSlot) [u8; 4] {
     slot.bytes
 }
 
-const fn decode(bytes: [u8; 4]) u16x2 {
+const fun decode(bytes: [u8; 4]) u16x2 {
     let slot = VectorSlot { bytes: bytes };
     slot.vector
 }
@@ -267,7 +267,7 @@ const compileMaskSlot: MaskSlot = MaskSlot { mask: compileMask };
 const compileMaskRaw: u8 = compileMaskSlot.raw;
 const compileMaskBits: usize = std::builtin::bitmask(compileMask);
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let runtimeBytes = readBytes(makeSlot(makeVector()));
     let materializedBytes = readBytes(compileSlot);
@@ -318,11 +318,11 @@ fn emit_exe_simd_lane_out_of_range_traps() {
         r#"
 using std::process;
 
-fn lane(index: usize) u8 {
+fun lane(index: usize) u8 {
     std::builtin::extract(std::builtin::splat[u8x4](7), index)
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     _ = lane(4);
     !()
@@ -359,7 +359,7 @@ fn emit_exe_bit_intrinsics_are_zero_defined() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let bits = std::builtin::size[usize]() * 8usize;
@@ -414,7 +414,7 @@ fn emit_exe_char_checks_unicode_scalar_values() {
 using std::process;
 using std::unicode;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let ascii = match unicode::fromScalarValue(65) {
@@ -569,7 +569,7 @@ fn emit_exe_unaligned_vector_load_reads_lanes() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let bytes: [u8; 10] = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
@@ -643,7 +643,7 @@ union ByteBits {
 extend Counter : Iterator {
     type Item = usize;
 
-    const fn next(&mut self) ?usize {
+    const fun next(&mut self) ?usize {
         if self.current >= self.end {
             null
         } else {
@@ -654,35 +654,35 @@ extend Counter : Iterator {
     }
 }
 
-const fn double(value: usize) usize {
+const fun double(value: usize) usize {
     value * 2
 }
 
-const fn compileOnlyWidth() usize {
+const fun compileOnlyWidth() usize {
     3
 }
 
 extend Width {
-    const fn fromValue(value: usize) Width {
+    const fun fromValue(value: usize) Width {
         Self { value }
     }
 
-    const fn doubled(self) usize {
+    const fun doubled(self) usize {
         self.value * 2
     }
 
-    const fn increment(&mut self) usize {
+    const fun increment(&mut self) usize {
         self.value += 1;
         self.value
     }
 }
 
-const fn incrementedWidth() usize {
+const fun incrementedWidth() usize {
     let mut width = Width::fromValue(3);
     width.increment()
 }
 
-const fn iterationTotal(end: usize) usize {
+const fun iterationTotal(end: usize) usize {
     let mut total = 0usize;
     let mut iter = Counter { current: 0, end: end };
     for value in iter {
@@ -691,35 +691,35 @@ const fn iterationTotal(end: usize) usize {
     total
 }
 
-const fn oneBits() u32 {
+const fun oneBits() u32 {
     let bits = Bits { float: 1.0 };
     bits.integer
 }
 
-const fn oneFromBits() f32 {
+const fun oneFromBits() f32 {
     let bits = Bits { integer: 1065353216 };
     bits.float
 }
 
-const fn readBits(bits: Bits) u32 {
+const fun readBits(bits: Bits) u32 {
     bits.integer
 }
 
-const fn oneBytes() [u8; 4] {
+const fun oneBytes() [u8; 4] {
     let bits = ByteBits { float: 1.0 };
     bits.bytes
 }
 
-const fn floatFromBytes(bytes: [u8; 4]) f32 {
+const fun floatFromBytes(bytes: [u8; 4]) f32 {
     let bits = ByteBits { bytes: bytes };
     bits.float
 }
 
-const fn readByteFloat(bits: ByteBits) f32 {
+const fun readByteFloat(bits: ByteBits) f32 {
     bits.float
 }
 
-const fn pairTotal(values: pairs::Pair[usize]) usize {
+const fun pairTotal(values: pairs::Pair[usize]) usize {
     let mut total: usize = 0;
     for value in values {
         total += value;
@@ -756,11 +756,11 @@ const compilePacket: pairs::Packet[u8, 2, u16] = pairs::decodePacket(compilePack
 const compileNestedSlot: pairs::OuterSlot[u32] = pairs::layeredSlot[u32](1144201745, 26197);
 const compileNestedBytes: [u8; 4] = pairs::readLayeredBytes[u32](compileNestedSlot);
 
-fn materializedNestedSlot() pairs::OuterSlot[u32] {
+fun materializedNestedSlot() pairs::OuterSlot[u32] {
     compileNestedSlot
 }
 
-fn runtimeChecks(value: usize) bool {
+fun runtimeChecks(value: usize) bool {
     let values: [u8; arrayLen] = [0; arrayLen];
     let mut width = Width::fromValue(value);
     let runtimeImportedSlot: pairs::ScalarSlot[f32] = pairs::scalarSlot[f32](1.0);
@@ -825,7 +825,7 @@ fn runtimeChecks(value: usize) bool {
         and values.len() == 23
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if not runtimeChecks(7) {
         return process::ExitCode(1)!;
@@ -892,7 +892,7 @@ pub union OuterSlot[T] {
 extend[T] PairIter[T] : Iterator {
     type Item = T;
 
-    pub const fn next(&mut self) ?T {
+    pub const fun next(&mut self) ?T {
         match self.index {
             0usize => {
                 self.index += 1;
@@ -911,60 +911,60 @@ extend[T] Pair[T] : Iterable {
     type Item = T;
     type Iter = PairIter[T];
 
-    pub const fn iter(&self) PairIter[T] {
+    pub const fun iter(&self) PairIter[T] {
         PairIter[T] { first: self.first, second: self.second, index: 0 }
     }
 }
 
-pub const fn pair[T](first: T, second: T) Pair[T] {
+pub const fun pair[T](first: T, second: T) Pair[T] {
     Pair[T] { first: first, second: second }
 }
 
-pub const fn scalarSlot[T](value: T) ScalarSlot[T] {
+pub const fun scalarSlot[T](value: T) ScalarSlot[T] {
     ScalarSlot[T] { value }
 }
 
-pub const fn readSlotBits[T](slot: ScalarSlot[T]) u32 {
+pub const fun readSlotBits[T](slot: ScalarSlot[T]) u32 {
     slot.bits
 }
 
-pub const fn encodePair[T](values: [T; 2]) [u8; 8] {
+pub const fun encodePair[T](values: [T; 2]) [u8; 8] {
     let slot = PairBytes[T] { values: values };
     slot.bytes
 }
 
-pub const fn decodePair[T](bytes: [u8; 8]) [T; 2] {
+pub const fun decodePair[T](bytes: [u8; 8]) [T; 2] {
     let slot = PairBytes[T] { bytes: bytes };
     slot.values
 }
 
-pub const fn encodeStruct[T](value: Padded[T]) [u8; 5] {
+pub const fun encodeStruct[T](value: Padded[T]) [u8; 5] {
     let slot = PaddedBytes[T] { value: value };
     slot.prefix
 }
 
-pub const fn decodeStruct[T](bytes: [u8; 5]) Padded[T] {
+pub const fun decodeStruct[T](bytes: [u8; 5]) Padded[T] {
     let slot = PaddedBytes[T] { prefix: bytes };
     slot.value
 }
 
-pub const fn encodePacket(value: Packet[u8, 2, u16]) [u8; 5] {
+pub const fun encodePacket(value: Packet[u8, 2, u16]) [u8; 5] {
     let slot = PacketBytes[u8, 2, u16] { value: value };
     slot.prefix
 }
 
-pub const fn decodePacket(bytes: [u8; 5]) Packet[u8, 2, u16] {
+pub const fun decodePacket(bytes: [u8; 5]) Packet[u8, 2, u16] {
     let slot = PacketBytes[u8, 2, u16] { prefix: bytes };
     slot.value
 }
 
-pub const fn layeredSlot[T](wide: T, narrow: u16) OuterSlot[T] {
+pub const fun layeredSlot[T](wide: T, narrow: u16) OuterSlot[T] {
     let mut inner = InnerSlot[T] { wide: wide };
     inner.narrow = narrow;
     OuterSlot[T] { inner }
 }
 
-pub const fn readLayeredBytes[T](slot: OuterSlot[T]) [u8; 4] {
+pub const fun readLayeredBytes[T](slot: OuterSlot[T]) [u8; 4] {
     slot.bytes
 }
 "#,

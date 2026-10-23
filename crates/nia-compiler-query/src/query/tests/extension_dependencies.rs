@@ -5,7 +5,7 @@ use super::*;
 fn extension_queries_use_module_semantic_queries() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } extend S { pub fn make(value: i32) S { Self { value } } }",
+        "struct S { value: i32 } extend S { pub fun make(value: i32) S { Self { value } } }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -205,7 +205,7 @@ fn extension_queries_use_module_semantic_queries() {
 fn shallow_extension_provider_traits_participate_in_validation() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub module math; pub module traits; fn main() i32 { 0 }",
+        "pub module math; pub module traits; fun main() i32 { 0 }",
     );
     let entry_id = fixture.entry_id();
     let traits_id = fixture.add_shallow_child(
@@ -216,7 +216,7 @@ fn shallow_extension_provider_traits_participate_in_validation() {
 pub trait CheckedAdd[Rhs] {
     type Output;
 
-    fn checkedAdd(self, rhs: Rhs) ?[Self as CheckedAdd[Rhs]]::Output;
+    fun checkedAdd(self, rhs: Rhs) ?[Self as CheckedAdd[Rhs]]::Output;
 }
 "#,
     );
@@ -231,7 +231,7 @@ using traits::CheckedAdd;
 extend u8 : CheckedAdd[u8] {
     type Output = u8;
 
-    fn checkedAdd(self, rhs: u8) ?u8 {
+    fun checkedAdd(self, rhs: u8) ?u8 {
         _ = rhs;
         ?self
     }

@@ -16,7 +16,7 @@ fn emit_exe_std_hash_wyhash_matches_test_vectors() {
 using std::hash;
 using std::process;
 
-fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!() {
+fun expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!() {
     let actual = hash::wyhash(seed, input);
     if actual != expected {
         return process::ExitCode(code)!;
@@ -24,7 +24,7 @@ fn expect(seed: u64, input: &[u8], expected: u64, code: i32) process::ExitCode!(
     !()
 }
 
-fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::ExitCode!() {
+fun expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::ExitCode!() {
     let expected = hash::wyhash(seed, input);
 
     let mut one = hash::Wyhash::init(seed);
@@ -66,14 +66,14 @@ fn expectStream(seed: u64, input: &[u8], splitAt: usize, code: i32) process::Exi
     !()
 }
 
-fn hashBytes(seed: u64, bytes: &[u8]) u64 {
+fun hashBytes(seed: u64, bytes: &[u8]) u64 {
     let mut hasher = hash::Wyhash::init(seed);
     bytes.len().hash(&mut hasher);
     hasher.write(bytes);
     hasher.finish()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     expect(0u64, &b"", 0x0409638ee2bde459u64, 1).?;
     expect(1u64, &b"a", 0xa8412d091b5fe0a9u64, 2).?;
@@ -204,24 +204,24 @@ using std::process;
 struct Context {}
 
 extend Context {
-    fn init() Context {
+    fun init() Context {
         {}
     }
 }
 
 extend Context : collections::HashMapContext[i32] {
-    fn hash(&self, seed: u64, key: &i32) u64 {
+    fun hash(&self, seed: u64, key: &i32) u64 {
         _ = self;
         seed ^ (key.* as u64)
     }
 
-    fn eql(&self, left: &i32, right: &i32) bool {
+    fun eql(&self, left: &i32, right: &i32) bool {
         _ = self;
         left.* == right.*
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let direct = std::HashMap[i32, i32]::init();
     if not direct.isEmpty() {
@@ -318,19 +318,19 @@ struct TailHashContext {
 }
 
 extend ConstantHashContext {
-    fn init() ConstantHashContext {
+    fun init() ConstantHashContext {
         {}
     }
 }
 
 extend UnitContext {
-    fn init() UnitContext {
+    fun init() UnitContext {
         {}
     }
 }
 
 extend FailAllocator {
-    fn init(buffer: &mut [u8]) FailAllocator {
+    fun init(buffer: &mut [u8]) FailAllocator {
         Self {
             backing: mem::FixedBufferAllocator::init(buffer),
             allocCount: 0,
@@ -340,61 +340,61 @@ extend FailAllocator {
         }
     }
 
-    fn failNextAlloc(&mut self) () {
+    fun failNextAlloc(&mut self) () {
         self.failAllocAt = self.allocCount + 1;
     }
 
-    fn failNextFree(&mut self) () {
+    fun failNextFree(&mut self) () {
         self.failFreeAt = self.freeCount + 1;
     }
 
-    fn clearFailures(&mut self) () {
+    fun clearFailures(&mut self) () {
         self.failAllocAt = 0;
         self.failFreeAt = 0;
     }
 }
 
 extend Key {
-    fn init(value: i32) Key {
+    fun init(value: i32) Key {
         Self { value }
     }
 }
 
 extend ModuloContext {
-    fn init(modulus: i32, salt: u64) ModuloContext {
+    fun init(modulus: i32, salt: u64) ModuloContext {
         Self { modulus, salt }
     }
 }
 
 extend TailHashContext {
-    fn init(offset: usize) TailHashContext {
+    fun init(offset: usize) TailHashContext {
         Self { offset }
     }
 }
 
 extend ConstantHashContext : std::collections::HashMapContext[i32] {
-    fn hash(&self, seed: u64, key: &i32) u64 {
+    fun hash(&self, seed: u64, key: &i32) u64 {
         _ = self;
         _ = seed;
         _ = key;
         1u64
     }
 
-    fn eql(&self, left: &i32, right: &i32) bool {
+    fun eql(&self, left: &i32, right: &i32) bool {
         _ = self;
         left.* == right.*
     }
 }
 
 extend UnitContext : std::collections::HashMapContext[Unit] {
-    fn hash(&self, seed: u64, key: &Unit) u64 {
+    fun hash(&self, seed: u64, key: &Unit) u64 {
         _ = self;
         _ = seed;
         _ = key;
         0u64
     }
 
-    fn eql(&self, left: &Unit, right: &Unit) bool {
+    fun eql(&self, left: &Unit, right: &Unit) bool {
         _ = self;
         _ = left;
         _ = right;
@@ -403,7 +403,7 @@ extend UnitContext : std::collections::HashMapContext[Unit] {
 }
 
 extend FailAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if not layout.isEmpty() {
             self.allocCount += 1;
             if self.failAllocAt == self.allocCount {
@@ -413,7 +413,7 @@ extend FailAllocator : mem::Allocator {
         self.backing.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if not block.isEmpty() {
             self.freeCount += 1;
             if self.failFreeAt == self.freeCount {
@@ -423,37 +423,37 @@ extend FailAllocator : mem::Allocator {
         self.backing.free(block)
     }
 
-    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
         self.backing.resize(block, newLayout)
     }
 
-    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+    fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
         self.backing.remap(block, newLayout)
     }
 }
 
 extend ModuloContext : std::collections::HashMapContext[Key] {
-    fn hash(&self, seed: u64, key: &Key) u64 {
+    fun hash(&self, seed: u64, key: &Key) u64 {
         ((key.value % self.modulus) as u64) + seed + self.salt
     }
 
-    fn eql(&self, left: &Key, right: &Key) bool {
+    fun eql(&self, left: &Key, right: &Key) bool {
         (left.value % self.modulus) == (right.value % self.modulus)
     }
 }
 
 extend TailHashContext : std::collections::HashMapContext[i32] {
-    fn hash(&self, seed: u64, key: &i32) u64 {
+    fun hash(&self, seed: u64, key: &i32) u64 {
         _ = seed;
         (key.* as u64) + (self.offset as u64)
     }
 
-    fn eql(&self, left: &i32, right: &i32) bool {
+    fun eql(&self, left: &i32, right: &i32) bool {
         left.* == right.*
     }
 }
 
-fn run(init: process::Init) mem::Error!() {
+fun run(init: process::Init) mem::Error!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
@@ -1369,7 +1369,7 @@ fn run(init: process::Init) mem::Error!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     run(init).?;
     !()
 }
@@ -1411,7 +1411,7 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) process::ExitCode!() {
+fun run(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut map = std::HashMap[i32, i32]::initSeed(42u64);
@@ -1423,7 +1423,7 @@ fn run(init: process::Init) process::ExitCode!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     run(init).?;
     !()
 }
@@ -1465,7 +1465,7 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) mem::Error!() {
+fun run(init: process::Init) mem::Error!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut gpa = mem::GeneralPurposeAllocator::init(&mut page);
@@ -1637,7 +1637,7 @@ fn run(init: process::Init) mem::Error!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     run(init).?;
     !()
 }
@@ -1684,7 +1684,7 @@ struct FailAllocator {
 }
 
 extend FailAllocator {
-    fn init(buffer: &mut [u8]) FailAllocator {
+    fun init(buffer: &mut [u8]) FailAllocator {
         Self {
             backing: mem::FixedBufferAllocator::init(buffer),
             allocCount: 0,
@@ -1692,13 +1692,13 @@ extend FailAllocator {
         }
     }
 
-    fn failNextAlloc(&mut self) () {
+    fun failNextAlloc(&mut self) () {
         self.failAllocAt = self.allocCount + 1;
     }
 }
 
 extend FailAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if not layout.isEmpty() {
             self.allocCount += 1;
             if self.failAllocAt == self.allocCount {
@@ -1708,16 +1708,16 @@ extend FailAllocator : mem::Allocator {
         self.backing.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         self.backing.free(block)
     }
 
-    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
         self.backing.resize(block, newLayout)
     }
 }
 
-fn run(init: process::Init) mem::Error!() {
+fun run(init: process::Init) mem::Error!() {
     _ = init;
     let mut storage: [u8; 32768] = [0; 32768];
     let mut allocator = FailAllocator::init(&mut storage);
@@ -1765,7 +1765,7 @@ fn run(init: process::Init) mem::Error!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     run(init).?;
     !()
 }
@@ -1805,7 +1805,7 @@ using std::hash;
 using std::mem;
 using std::process;
 
-fn run(init: process::Init) mem::Error!() {
+fun run(init: process::Init) mem::Error!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut map = std::HashMap[i32, i32]::initSeed(321u64);
@@ -1947,7 +1947,7 @@ fn run(init: process::Init) mem::Error!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     run(init).?;
     !()
 }

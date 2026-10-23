@@ -4,20 +4,20 @@ use super::*;
 #[test]
 fn o2_skips_lowering_unused_private_functions() {
     let source = r#"
-fn used(value: i32) i32 {
+fun used(value: i32) i32 {
     let mut out = value;
     out
 }
 
-fn unused() i32 {
+fun unused() i32 {
     2
 }
 
-pub fn exported() i32 {
+pub fun exported() i32 {
     3
 }
 
-fn main() i32 {
+fun main() i32 {
     used(1)
 }
 "#;
@@ -74,11 +74,11 @@ fn main() i32 {
 #[test]
 fn o2_preserves_package_visible_functions_for_cross_module_calls() {
     let source = r#"
-pub(pkg) fn provider() i32 {
+pub(pkg) fun provider() i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -119,11 +119,11 @@ fn o2_does_not_preserve_function_refs_inside_empty_repeat_static_initializers() 
     let source = r#"
 static values: [i32; 0] = [1; 0];
 
-fn unused() i32 {
+fun unused() i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -202,19 +202,19 @@ fn o2_preserves_function_refs_inside_static_initializers() {
     let source = r#"
 static values: [usize; 2] = [0, 0];
 
-fn kept() i32 {
+fun kept() i32 {
     1
 }
 
-fn kept_id[T](value: T) T {
+fun kept_id[T](value: T) T {
     value
 }
 
-fn seed() i32 {
+fun seed() i32 {
     kept_id[i32](1)
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -300,17 +300,17 @@ fn main() i32 {
 #[test]
 fn o2_preserves_function_refs_inside_generic_local_static_instances() {
     let source = r#"
-fn kept() i32 {
+fun kept() i32 {
     1
 }
 
-fn slot[T](value: T) T {
+fun slot[T](value: T) T {
     static item: T;
     _ = value;
     item
 }
 
-fn main() i32 {
+fun main() i32 {
     _ = slot[usize](0usize);
     0
 }
@@ -369,21 +369,21 @@ fn main() i32 {
 #[test]
 fn o2_preserves_transitively_used_private_functions() {
     let source = r#"
-fn leaf(value: i32) i32 {
+fun leaf(value: i32) i32 {
     let mut out = value;
     out
 }
 
-fn middle() i32 {
+fun middle() i32 {
     let mut out = leaf(1);
     out
 }
 
-fn unused() i32 {
+fun unused() i32 {
     2
 }
 
-fn main() i32 {
+fun main() i32 {
     middle()
 }
 "#;
@@ -421,11 +421,11 @@ fn main() i32 {
 #[test]
 fn o1_skips_lowering_unused_private_functions() {
     let source = r#"
-fn unused() i32 {
+fun unused() i32 {
     2
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -464,15 +464,15 @@ fn main() i32 {
 #[test]
 fn o2_removes_unused_private_function_instances() {
     let source = r#"
-fn unused_id[T](value: T) T {
+fun unused_id[T](value: T) T {
     value
 }
 
-fn unused() i32 {
+fun unused() i32 {
     unused_id[i32](2)
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -512,12 +512,12 @@ fn main() i32 {
 #[test]
 fn o2_preserves_used_private_function_instances() {
     let source = r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     let mut out = value;
     out
 }
 
-fn main() i32 {
+fun main() i32 {
     id[i32](1)
 }
 "#;
@@ -543,12 +543,12 @@ fn main() i32 {
 #[test]
 fn exact_function_instance_keys_are_deduplicated() {
     let source = r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     let mut out = value;
     out
 }
 
-fn main() i32 {
+fun main() i32 {
     id[i32](1) + id[i32](2)
 }
 "#;
@@ -575,17 +575,17 @@ fn main() i32 {
 #[test]
 fn o2_preserves_transitively_used_private_function_instances() {
     let source = r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     let mut out = value;
     out
 }
 
-fn wrapper[T](value: T) T {
+fun wrapper[T](value: T) T {
     let mut out = id[T](value);
     out
 }
 
-fn main() i32 {
+fun main() i32 {
     wrapper[i32](1)
 }
 "#;
@@ -617,15 +617,15 @@ fn main() i32 {
 #[test]
 fn o2_preserves_public_function_instances() {
     let source = r#"
-pub fn id[T](value: T) T {
+pub fun id[T](value: T) T {
     value
 }
 
-fn unused() i32 {
+fun unused() i32 {
     id[i32](1)
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;

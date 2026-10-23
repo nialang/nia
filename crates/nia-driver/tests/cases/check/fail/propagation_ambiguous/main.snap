@@ -1,15 +1,15 @@
 path: fail/propagation_ambiguous/main.nia
 code: E0201
 summary: duplicate trait implementation header
-label: 132..138 Primary Source this unconditional implementation repeats another implementation header
+label: 133..139 Primary Source this unconditional implementation repeats another implementation header
 note: strict specializations are allowed, but these headers describe the same pattern
 
 path: fail/propagation_ambiguous/main.nia
 code: E0301
 summary: ambiguous error propagation conversion from `Source` to `Target`
-label: 264..271 Primary Source ambiguous error propagation conversion from `Source` to `Target`
-label: 264..269 Secondary Source propagated error value has type `Source`
-label: 215..273 Secondary Source function return type is the propagation boundary
+label: 267..274 Primary Source ambiguous error propagation conversion from `Source` to `Target`
+label: 267..272 Secondary Source propagated error value has type `Source`
+label: 217..276 Secondary Source function return type is the propagation boundary
 note: the propagated expression has error type `Source`, while this function returns error type `Target`
 note: more than one visible `IntoError` implementation matches this propagation
 help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit
@@ -33,8 +33,8 @@ error[E0301]: ambiguous error propagation conversion from `Source` to `Target`
    |     ----- propagated error value has type `Source`
    ::: fail/propagation_ambiguous/main.nia:12:1
    |
-12 | fn propagate(value: Source!i32) Target!i32 {
-   | -------------------------------------------- function return type is the propagation boundary
+12 | fun propagate(value: Source!i32) Target!i32 {
+   | --------------------------------------------- function return type is the propagation boundary
 note: the propagated expression has error type `Source`, while this function returns error type `Target`
 note: more than one visible `IntoError` implementation matches this propagation
 help: remove the ambiguity by keeping one conversion implementation or make the target error type explicit

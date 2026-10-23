@@ -232,7 +232,7 @@ impl<'a> Tokenizer<'a> {
             "extern" => TokenKind::Extern,
             "extend" => TokenKind::Extend,
             "false" => TokenKind::False,
-            "fn" => TokenKind::Fn,
+            "fun" => TokenKind::Fun,
             "for" => TokenKind::For,
             "if" => TokenKind::If,
             "in" => TokenKind::In,
@@ -725,10 +725,10 @@ mod tests {
     #[test]
     fn tokenizes_core_syntax() {
         assert_eq!(
-            kinds("pub fn main() i32 { let mut x = ~1; x += 2; x <<= 1; y >> 2; math::add(); }"),
+            kinds("pub fun main() i32 { let mut x = ~1; x += 2; x <<= 1; y >> 2; math::add(); }"),
             vec![
                 TokenKind::Pub,
-                TokenKind::Fn,
+                TokenKind::Fun,
                 TokenKind::Ident,
                 TokenKind::LParen,
                 TokenKind::RParen,

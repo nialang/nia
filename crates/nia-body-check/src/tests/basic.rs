@@ -5,19 +5,19 @@ use super::common::*;
 fn const_declaration_filter_checks_only_const_roots_without_bodies() {
     let checked = pipeline_const_declarations(
         r#"
-fn invalidRuntimeCallee() usize {
+fun invalidRuntimeCallee() usize {
     false
 }
 
-fn invalidOrdinary() usize {
+fun invalidOrdinary() usize {
     false
 }
 
-const fn invalidConst() usize {
+const fun invalidConst() usize {
     false
 }
 
-const fn callsRuntime() usize {
+const fun callsRuntime() usize {
     invalidRuntimeCallee()
 }
 "#,
@@ -43,7 +43,7 @@ const fn callsRuntime() usize {
             .iter()
             .filter(|diagnostic| diagnostic
                 .summary
-                .contains("const expression can only call `const fn`"))
+                .contains("const expression can only call `const fun`"))
             .count(),
         1,
         "{:?}",
@@ -61,10 +61,10 @@ struct Point {
 }
 
 extend Point {
-    fn init() Point { Point { x: 1, y: 2 } }
+    fun init() Point { Point { x: 1, y: 2 } }
 }
 
-fn make() Point {
+fun make() Point {
     let point: Point = .init();
     point
 }
@@ -77,7 +77,7 @@ fn make() Point {
 fn const_declaration_filter_accepts_slice_pointer_methods() {
     let checked = pipeline_const_declarations(
         r#"
-const fn pointer(values: [usize; 2]) usize {
+const fun pointer(values: [usize; 2]) usize {
     let mut slice = &values[..];
     let ptr = slice.ptr();
     0
@@ -101,12 +101,12 @@ struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    fn next(&mut self) ?usize {
+    fun next(&mut self) ?usize {
         null
     }
 }
 
-const fn total(iter: Counter) usize {
+const fun total(iter: Counter) usize {
     let mut result: usize = 0;
     for value in iter {
         result += value;
@@ -114,7 +114,7 @@ const fn total(iter: Counter) usize {
     result
 }
 
-const fn first(iter: Counter) usize {
+const fun first(iter: Counter) usize {
     let mut values = iter;
     match values.next() {
         ?value => value,
@@ -129,7 +129,7 @@ const fn first(iter: Counter) usize {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.summary.contains(
-                "`Iterator::next` trait witness used by const for-in must be declared `const fn`"
+                "`Iterator::next` trait witness used by const for-in must be declared `const fun`"
             )),
         "{:?}",
         checked.diagnostics
@@ -137,7 +137,7 @@ const fn first(iter: Counter) usize {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         checked.diagnostics
     );
@@ -152,7 +152,7 @@ union Bits {
     flag: bool,
 }
 
-const fn inspect() usize {
+const fun inspect() usize {
     let bits = Bits { integer: 1 };
     bits.integer
 }
@@ -183,7 +183,7 @@ union Nested {
     integer: u16,
 }
 
-const fn inspect() u16 {
+const fun inspect() u16 {
     let payload = Payload { integer: 1 };
     payload.integer
 }
@@ -206,7 +206,7 @@ union Payload {
     integer: u16,
 }
 
-const fn inspect() u16 {
+const fun inspect() u16 {
     let payload = Payload { integer: 1 };
     payload.integer
 }
@@ -220,16 +220,16 @@ const fn inspect() u16 {
 fn const_declaration_filter_rejects_function_pointer_values_and_calls() {
     let checked = pipeline_const_declarations(
         r#"
-const fn increment(value: usize) usize {
+const fun increment(value: usize) usize {
     value + 1
 }
 
-const fn storesFunctionPointer() usize {
+const fun storesFunctionPointer() usize {
     let callback = & increment;
     1
 }
 
-const fn callsFunctionPointer() usize {
+const fun callsFunctionPointer() usize {
     let callback = & increment;
     callback(1)
 }
@@ -238,8 +238,8 @@ enum ConstructorEvent {
     Data(usize),
 }
 
-const fn storesEnumConstructor() usize {
-    let callback: &fn(usize) ConstructorEvent = &ConstructorEvent::Data;
+const fun storesEnumConstructor() usize {
+    let callback: &fun(usize) ConstructorEvent = &ConstructorEvent::Data;
     1
 }
 "#,
@@ -270,7 +270,7 @@ const fn storesEnumConstructor() usize {
 fn checks_return_tail_and_local_binding_types() {
     let checked = pipeline(
         r#"
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
     let mut sum: i32 = a + b;
     sum
 }
@@ -288,7 +288,7 @@ union Bits[T] {
     value: T,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut bits = Bits[i32] { value: 10 };
     bits.value
 }
@@ -302,7 +302,7 @@ union Bits {
     i: i32,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut bits = Bits {};
     0
 }
@@ -324,7 +324,7 @@ union Bits {
     f: f32,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut bits = Bits { i: 1, f: 2.0 };
     0
 }
@@ -346,10 +346,10 @@ fn checks_unit_values_empty_structs_and_opaque_pointers() {
         r#"
 struct Empty {}
 
-fn take_opaque(p: &opaque) {}
-fn take_read_opaque(p: &opaque) {}
+fun take_opaque(p: &opaque) {}
+fun take_read_opaque(p: &opaque) {}
 
-fn main() {
+fun main() {
     let mut unit: () = ();
     let mut empty = Empty {};
     let mut value: i32 = 1;
@@ -363,7 +363,7 @@ fn main() {
 
     let bad_implicit = pipeline(
         r#"
-fn main() {
+fun main() {
     let mut value: i32 = 1;
     let mut ptr: &opaque = &value;
 }
@@ -380,7 +380,7 @@ fn main() {
 
     let bad_deref = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut value: i32 = 1;
     let mut ptr: &opaque = &value as &opaque;
     ptr.*
@@ -401,19 +401,19 @@ fn main() i32 {
 fn checks_volatile_pointer_deref_and_readonly_writes() {
     let checked = pipeline(
         r#"
-fn read_reg(reg: ^u32) u32 {
+fun read_reg(reg: ^u32) u32 {
     reg.*
 }
 
-fn write_reg(reg: ^mut u32, value: u32) () {
+fun write_reg(reg: ^mut u32, value: u32) () {
     reg.* = value;
 }
 
-fn cast_reg(addr: usize) ^mut u32 {
+fun cast_reg(addr: usize) ^mut u32 {
     addr as ^mut u32
 }
 
-fn readonly_from_mut(reg: ^mut u32) ^u32 {
+fun readonly_from_mut(reg: ^mut u32) ^u32 {
     reg
 }
 "#,
@@ -422,7 +422,7 @@ fn readonly_from_mut(reg: ^mut u32) ^u32 {
 
     let bad = pipeline(
         r#"
-fn write_readonly(reg: ^u32, value: u32) () {
+fun write_readonly(reg: ^u32, value: u32) () {
     reg.* = value;
 }
 "#,
@@ -440,9 +440,9 @@ fn write_readonly(reg: ^u32, value: u32) () {
 fn accepts_explicit_return_without_tail_expression() {
     let checked = pipeline(
         r#"
-extern fn printf(fmt: &u8, ...);
+extern fun printf(fmt: &u8, ...);
 
-fn main() i32 {
+fun main() i32 {
     let mut hello = b"hello, world!\n\0";
     printf(&hello[0]);
     return 0;
@@ -456,7 +456,7 @@ fn main() i32 {
 fn reports_mismatched_return_and_binding_types() {
     let checked = pipeline(
         r#"
-fn bad(flag: bool) i32 {
+fun bad(flag: bool) i32 {
     let mut x: bool = 1;
     flag
 }
@@ -481,22 +481,22 @@ fn bad(flag: bool) i32 {
 fn checks_optional_and_error_union_construction_and_propagation() {
     let checked = pipeline(
         r#"
-fn maybe(flag: bool) ?i32 {
+fun maybe(flag: bool) ?i32 {
     if flag {
         return ?1;
     }
     null
 }
 
-fn ok(value: i32) i32!i32 {
+fun ok(value: i32) i32!i32 {
     !value
 }
 
-fn fail(error: i32) i32!i32 {
+fun fail(error: i32) i32!i32 {
     error!
 }
 
-fn use_error(value: i32!i32) i32!i32 {
+fun use_error(value: i32!i32) i32!i32 {
     let mut unwrapped = value.?;
     !unwrapped
 }
@@ -512,11 +512,11 @@ fn materializes_const_ranges_at_runtime() {
         r#"
 const BOUNDS: usize..usize = 2usize..5usize;
 
-fn first(bounds: usize..usize) usize {
+fun first(bounds: usize..usize) usize {
     bounds.start()
 }
 
-fn main() usize {
+fun main() usize {
     first(BOUNDS)
 }
 "#,
@@ -530,7 +530,7 @@ fn error_propagation_rejects_missing_into_error_conversion() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn intoError(self) Target;
+    fun intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -544,10 +544,10 @@ enum TargetError: i32 {
 }
 
 extend SourceError : IntoError[TargetError] {
-    fn intoError(self) TargetError { TargetError::Converted }
+    fun intoError(self) TargetError { TargetError::Converted }
 }
 
-fn propagate(value: SourceError!i32) TargetError!i32 {
+fun propagate(value: SourceError!i32) TargetError!i32 {
     !(value.?)
 }
 "#,
@@ -607,20 +607,20 @@ fn error_propagation_ignores_same_named_source_trait() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn intoError(self, context: i32) Target;
+    fun intoError(self, context: i32) Target;
 }
 
 struct SourceError {}
 struct TargetError {}
 
 extend SourceError : IntoError[TargetError] {
-    fn intoError(self, context: i32) TargetError {
+    fun intoError(self, context: i32) TargetError {
         _ = context;
         {}
     }
 }
 
-fn propagate(value: SourceError!i32) TargetError!i32 {
+fun propagate(value: SourceError!i32) TargetError!i32 {
     !(value.?)
 }
 "#,
@@ -640,7 +640,7 @@ fn propagate(value: SourceError!i32) TargetError!i32 {
 fn rejects_error_union_construction_without_expected_type() {
     let checked = pipeline(
         r#"
-fn bad() i32 {
+fun bad() i32 {
     let mut a = !10i32;
     let mut b = 20i32!;
     a + b
@@ -661,11 +661,11 @@ fn bad() i32 {
 fn explains_try_propagation_return_boundary_and_operand_type() {
     let checked = pipeline(
         r#"
-fn optional_boundary(value: ?i32) i32 {
+fun optional_boundary(value: ?i32) i32 {
     value.?
 }
 
-fn invalid_operand(value: i32) i32 {
+fun invalid_operand(value: i32) i32 {
     value.?
 }
 "#,
@@ -714,7 +714,7 @@ fn invalid_operand(value: i32) i32 {
 fn unresolved_try_operand_does_not_report_a_propagation_cascade() {
     let checked = pipeline(
         r#"
-fn bad() i32 {
+fun bad() i32 {
     missing.?
 }
 
@@ -733,7 +733,7 @@ fn bad() i32 {
 fn structural_unresolved_try_operand_does_not_report_a_propagation_cascade() {
     let checked = pipeline(
         r#"
-fn bad() i32 {
+fun bad() i32 {
     (?missing).?
 }
 "#,
@@ -750,7 +750,7 @@ fn bad() i32 {
 fn checks_optional_and_error_union_if_patterns() {
     let checked = pipeline(
         r#"
-fn unwrap_optional(value: ?i32) i32 {
+fun unwrap_optional(value: ?i32) i32 {
     match value {
         ?x => {
             x
@@ -761,7 +761,7 @@ fn unwrap_optional(value: ?i32) i32 {
     }
 }
 
-fn unwrap_error(value: i32!i32) i32 {
+fun unwrap_error(value: i32!i32) i32 {
     match value {
         !x => {
             x
@@ -778,7 +778,7 @@ fn unwrap_error(value: i32!i32) i32 {
 
     let missing = pipeline(
         r#"
-fn bad(value: ?i32) i32 {
+fun bad(value: ?i32) i32 {
     let unwrapped: i32 = if value is ?x {
         x
     };
@@ -797,7 +797,7 @@ fn bad(value: ?i32) i32 {
 
     let wrong_target = pipeline(
         r#"
-fn bad(value: i32) i32 {
+fun bad(value: i32) i32 {
     match value {
         ?x => {
             x

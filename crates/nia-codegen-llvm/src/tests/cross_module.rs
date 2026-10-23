@@ -20,7 +20,7 @@ static ys: [u8; 4] = [b'z'; 4];
 static zeroes: [i32; 8] = [0; 8];
 static pair: Pair = Pair { x: 10, y: 20 };
 
-fn main() i32 {
+fun main() i32 {
     pair.x + xs[1] + zeroes[0]
 }
 "#,
@@ -60,7 +60,7 @@ static mut values: [i32; 4] = [1, 2, 3, 4];
 static p: &i32 = &target;
 static q: &i32 = &values[1 + 1];
 
-fn main() i32 {
+fun main() i32 {
     p.* + q.*
 }
 "#,
@@ -96,7 +96,7 @@ using entry::math;
 
 static imported_ptr: & i32 = & math::base;
 
-fn main() i32 {
+fun main() i32 {
     math::add(imported_ptr.*, math::base)
 }
 "#,
@@ -107,7 +107,7 @@ fn main() i32 {
         r#"
 pub static mut base: i32 = 40;
 
-pub fn add(a: i32, b: i32) i32 {
+pub fun add(a: i32, b: i32) i32 {
     a + b
 }
 "#,
@@ -155,7 +155,7 @@ fn emits_cross_module_struct_literals() {
 module geom;
 using entry::geom;
 
-fn main() i32 {
+fun main() i32 {
     let mut p = geom::Point { x: 40, y: 2 };
     p.x + p.y
 }

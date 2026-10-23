@@ -1,62 +1,62 @@
 struct Point { x: i32 }
 enum Color { Red }
 
-fn optional() () {
+fun optional() () {
     if optional_missing is ?value {
         _ = value;
     }
 }
 
-fn error_union() () {
+fun error_union() () {
     match error_missing {
         !ok => { _ = ok; },
         err! => { _ = err; }
     }
 }
 
-fn tuple() () {
+fun tuple() () {
     match tuple_missing {
         (left, right) => { _ = left; _ = right; }
     }
 }
 
-fn pointer() () {
+fun pointer() () {
     match pointer_missing {
         &value => { _ = value; }
     }
 }
 
-fn null_pattern() () {
+fun null_pattern() () {
     match null_missing {
         null => {}
     }
 }
 
-fn struct_pattern() () {
+fun struct_pattern() () {
     match struct_missing {
         Point { x } => { _ = x; }
     }
 }
 
-fn enum_pattern() () {
+fun enum_pattern() () {
     match enum_missing {
         Color::Red => {}
     }
 }
 
-fn unknown_enum_pattern() () {
+fun unknown_enum_pattern() () {
     match unknown_enum_missing {
         Ghost::Variant => {}
     }
 }
 
-fn unknown_struct_pattern() () {
+fun unknown_struct_pattern() () {
     match unknown_struct_missing {
         GhostStruct { field } => { _ = field; }
     }
 }
 
-fn range_pattern() () {
+fun range_pattern() () {
     match range_missing {
         range_start..3 => {}
     }

@@ -1,7 +1,7 @@
 path: fail/asm_recovery/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 90..97 Primary Source no value named `missing` is visible in this scope
+label: 91..98 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

@@ -1,19 +1,19 @@
 path: fail/operator_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 26..33 Primary Source no value named `missing` is visible in this scope
+label: 27..34 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/operator_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 52..59 Primary Source no value named `missing` is visible in this scope
+label: 53..60 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/operator_recovery_diagnostics/main.nia
 code: E0301
 summary: shift count must be an integer type, got bool
-label: 74..78 Primary Source shift count must be an integer type, got bool
+label: 75..79 Primary Source shift count must be an integer type, got bool
 
 report:
 error[E0201]: unknown value `missing`

@@ -37,9 +37,9 @@ fn driver_invocation_target_overrides_toolchain_default() {
             format!(
                 r#"
 @[if os == "{os}"]
-fn selected() i32 {{ 1 }}
+fun selected() i32 {{ 1 }}
 
-fn main() i32 {{ selected() }}
+fun main() i32 {{ selected() }}
 "#,
                 os = invocation_target.os().name()
             ),
@@ -64,17 +64,17 @@ fn darwin_std_facade_checks_against_the_artifact_target() {
 using std::fs;
 using std::process;
 
-fn inspect(dir: &fs::Dir, path: fs::RelativePathView) fs::OperationError!() {
+fun inspect(dir: &fs::Dir, path: fs::RelativePathView) fs::OperationError!() {
     _ = dir.metadata(path, fs::MetadataOptions::init()).?;
     !()
 }
 
-fn inspectProcess(init: process::Init) () {
+fun inspectProcess(init: process::Init) () {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     _ = command.spawn();
 }
 
-fn main() () {}
+fun main() () {}
 "#,
     );
 
@@ -105,7 +105,7 @@ fn driver_exposes_loader_owned_recursive_source_manifest() {
     let source_dir = root.join("src");
     std::fs::create_dir_all(&source_dir).expect("create manifest source directory");
     common::write(&source_dir.join("main.nia"), "module child;");
-    common::write(&source_dir.join("child.nia"), "fn value() i32 { 1 }");
+    common::write(&source_dir.join("child.nia"), "fun value() i32 { 1 }");
     let entry = crate::SourcePath::with_identity(
         source_dir.join("main.nia").to_string_lossy(),
         "build-package:root:/src/main.nia",
@@ -140,7 +140,7 @@ fn lto_modes_link_and_run_a_freestanding_executable() {
     common::write(
         &root.join("generic.nia"),
         r#"
-pub fn identity[T](value: T) T { value }
+pub fun identity[T](value: T) T { value }
 "#,
     );
     common::write(
@@ -150,21 +150,21 @@ module generic;
 using entry::generic;
 using std::process;
 
-fn helper0() i32 { 0 }
-fn helper1() i32 { 1 }
-fn helper2() i32 { 2 }
-fn helper3() i32 { 3 }
-fn helper4() i32 { 4 }
-fn helper5() i32 { 5 }
-fn helper6() i32 { 6 }
+fun helper0() i32 { 0 }
+fun helper1() i32 { 1 }
+fun helper2() i32 { 2 }
+fun helper3() i32 { 3 }
+fun helper4() i32 { 4 }
+fun helper5() i32 { 5 }
+fun helper6() i32 { 6 }
 
-fn clearAndRead(index: usize) u8 {
+fun clearAndRead(index: usize) u8 {
     let mut bytes: [u8; 256] = [1; 256];
     std::builtin::memset(&mut bytes[..], 0);
     bytes[index]
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     if helper0() + helper1() + helper2() + helper3()
         + helper4() + helper5() + helper6() + generic::identity[i32](1) != 22
         or clearAndRead(init.argc() % 256) != 0
@@ -211,7 +211,7 @@ fn bare_link_preserves_caller_entry_symbol() {
 
     let root = common::temp_dir("bare-link-entry");
     let source = root.join("main.nia");
-    common::write(&source, "fn main() () {}\n");
+    common::write(&source, "fun main() () {}\n");
     let linker = root.join("linker.sh");
     let arguments = root.join("arguments");
     std::fs::write(
@@ -276,9 +276,9 @@ fn lto_prelink_cache_reuses_and_recovers_corrupt_modules() {
         r#"
 using std::process;
 
-fn helper(value: i32) i32 { value + 1 }
+fun helper(value: i32) i32 { value + 1 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if helper(41) != 42 { return process::ExitCode(1)!; }
     !()

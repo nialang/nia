@@ -7,7 +7,7 @@ fn query_loader_uses_package_module_map() {
     write(&root.join("std.nia"), "");
     fs::create_dir_all(root.join("std")).expect("create std dir");
     write(&root.join("std.nia"), "pub module io;");
-    write(&root.join("std/io.nia"), "pub fn value() i32 { 1 }");
+    write(&root.join("std/io.nia"), "pub fun value() i32 { 1 }");
     let mut module_map = ModuleMap::new();
     module_map
         .insert(
@@ -38,7 +38,7 @@ fn query_loader_processes_module_map_root_when_selected_as_value_host() {
         r#"
 using dep;
 
-fn main() i32 {
+fun main() i32 {
     dep::build()
 }
 "#,
@@ -46,7 +46,7 @@ fn main() i32 {
     write(
         &root.join("dep.nia"),
         r#"
-pub fn build() i32 {
+pub fun build() i32 {
     1
 }
 "#,
@@ -79,7 +79,7 @@ fn query_loader_discovers_module_map_root_used_only_by_a_pattern() {
     write(
         &root.join("main.nia"),
         r#"
-fn classify(value: i32) i32 {
+fun classify(value: i32) i32 {
     match value {
         dep::EXPECTED => 1,
         _ => 0,
@@ -110,7 +110,10 @@ fn classify(value: i32) i32 {
 #[test]
 fn query_loader_discovers_module_map_root_in_const_generic_parameter_type() {
     let root = temp_dir("query_loader_discovers_module_map_root_in_const_generic_parameter_type");
-    write(&root.join("main.nia"), "fn inspect[N: dep::Marker]() () {}");
+    write(
+        &root.join("main.nia"),
+        "fun inspect[N: dep::Marker]() () {}",
+    );
     write(&root.join("dep.nia"), "pub struct Marker {}");
     let mut module_map = ModuleMap::new();
     module_map

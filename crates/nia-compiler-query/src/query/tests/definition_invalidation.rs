@@ -5,7 +5,7 @@ use super::*;
 fn direct_module_defs_invalidation_stops_at_snapshot_boundary() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub struct S { value: i32 } fn main() i32 { 0 }",
+        "pub struct S { value: i32 } fun main() i32 { 0 }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

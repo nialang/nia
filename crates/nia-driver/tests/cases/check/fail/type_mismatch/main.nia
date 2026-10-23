@@ -1,1 +1,1 @@
-fn main() i32 { true }
+fun main() i32 { true }

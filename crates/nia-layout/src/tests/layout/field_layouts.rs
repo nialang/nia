@@ -82,7 +82,7 @@ fn ignores_inferred_array_placeholders_during_global_layout_scan() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
-fn main() {
+fun main() {
 let mut xs: [u8; _] = [1, 2];
 }
 "#,

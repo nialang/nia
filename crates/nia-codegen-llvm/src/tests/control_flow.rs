@@ -10,7 +10,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         if self.current >= self.end {
             null
         } else {
@@ -29,7 +29,7 @@ fn emits_short_circuit_logical_operators() {
     std::fs::write(
         &main,
         r#"
-fn main(a: bool, b: bool) i32 {
+fun main(a: bool, b: bool) i32 {
     let mut x = a and b;
     let mut y = a or b;
     if x or y { 1 } else { 0 }
@@ -60,7 +60,7 @@ fn emits_for_break_and_continue() {
         format!(
             "{COUNTER_ITERATOR}\n{}",
             r#"
-fn main() i32 {
+fun main() i32 {
     let mut sum = 0;
     let mut iter = Counter { current: 0, end: 10 };
     for i in iter {
@@ -100,7 +100,7 @@ fn emits_for_over_range_value() {
         r#"
 using std;
 
-fn main() i32 {
+fun main() i32 {
     let mut sum = 0;
     for i in 1usize..4usize {
         sum += i as i32;
@@ -131,7 +131,7 @@ fn emits_for_over_explicit_iterator_value() {
         format!(
             "{COUNTER_ITERATOR}\n{}",
             r#"
-fn main() i32 {
+fun main() i32 {
     let mut iter = Counter { current: 1, end: 4 };
     let mut sum = 0;
     for i in iter {
@@ -175,7 +175,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = Error!i32;
 
-    fn next(&mut self) ?(Error!i32) {
+    fun next(&mut self) ?(Error!i32) {
         if self.current >= self.end {
             null
         } else {
@@ -186,7 +186,7 @@ extend Counter : Iterator {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut iter = Counter { current: 1, end: 4 };
     let mut sum = 0;
     for result in iter {
@@ -245,7 +245,7 @@ pub struct StructIter {
 extend StructIter : Iterator {
     type Item = Payload;
 
-    pub fn next(&mut self) ?Payload {
+    pub fun next(&mut self) ?Payload {
         if self.index >= 1 {
             null
         } else {
@@ -262,7 +262,7 @@ pub struct ArrayIter {
 extend ArrayIter : Iterator {
     type Item = [i32; 2];
 
-    pub fn next(&mut self) ?[i32; 2] {
+    pub fun next(&mut self) ?[i32; 2] {
         if self.index >= 1 {
             null
         } else {
@@ -279,7 +279,7 @@ pub struct OptionalIter {
 extend OptionalIter : Iterator {
     type Item = ?Payload;
 
-    pub fn next(&mut self) ??Payload {
+    pub fun next(&mut self) ??Payload {
         if self.index >= 1 {
             null
         } else {
@@ -296,7 +296,7 @@ pub struct ErrorIter {
 extend ErrorIter : Iterator {
     type Item = Error!Payload;
 
-    pub fn next(&mut self) ?(Error!Payload) {
+    pub fun next(&mut self) ?(Error!Payload) {
         if self.index >= 1 {
             null
         } else {
@@ -313,7 +313,7 @@ pub struct OptionalErrorIter {
 extend OptionalErrorIter : Iterator {
     type Item = ?(Error!Payload);
 
-    pub fn next(&mut self) ??(Error!Payload) {
+    pub fun next(&mut self) ??(Error!Payload) {
         if self.index >= 1 {
             null
         } else {
@@ -330,7 +330,7 @@ pub struct ErrorOptionalIter {
 extend ErrorOptionalIter : Iterator {
     type Item = Error!?Payload;
 
-    pub fn next(&mut self) ?(Error!?Payload) {
+    pub fun next(&mut self) ?(Error!?Payload) {
         if self.index >= 1 {
             null
         } else {
@@ -348,7 +348,7 @@ pub struct SliceIter {
 extend SliceIter : Iterator {
     type Item = &[i32];
 
-    pub fn next(&mut self) ?&[i32] {
+    pub fun next(&mut self) ?&[i32] {
         if self.index >= 1 {
             null
         } else {
@@ -365,7 +365,7 @@ pub struct GenericIter {
 extend GenericIter : Iterator {
     type Item = Box[Payload];
 
-    pub fn next(&mut self) ?Box[Payload] {
+    pub fun next(&mut self) ?Box[Payload] {
         if self.index >= 1 {
             null
         } else {
@@ -383,7 +383,7 @@ extend GenericIter : Iterator {
 module iter;
 using entry::iter;
 
-fn main() i32 {
+fun main() i32 {
     let mut total = 0;
 
     let mut struct_iter = iter::StructIter { index: 0 };
@@ -497,9 +497,9 @@ fn emits_defer_before_return_and_block_exit() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn inner(x: i32) i32 {
+fun inner(x: i32) i32 {
     defer log(10);
     if x == 0 {
         defer log(11);
@@ -511,7 +511,7 @@ fn inner(x: i32) i32 {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     inner(0)
 }
 "#,
@@ -537,10 +537,10 @@ fn emits_defer_registered_after_earlier_return_branch() {
     std::fs::write(
         &main,
         r#"
-extern fn fclose(file: &opaque) i32;
-extern fn fopen(path: & u8, mode: & u8) &opaque;
+extern fun fclose(file: &opaque) i32;
+extern fun fopen(path: & u8, mode: & u8) &opaque;
 
-fn inspect(path: & u8) i32 {
+fun inspect(path: & u8) i32 {
     let mode = b"rb\0";
     let mut file = fopen(path, &mode[0]);
 
@@ -555,7 +555,7 @@ fn inspect(path: & u8) i32 {
     0
 }
 
-fn run(argv: & & u8) i32 {
+fun run(argv: & & u8) i32 {
     inspect(argv[0])
 }
 "#,
@@ -582,9 +582,9 @@ fn emits_deferred_block_cleanup() {
     std::fs::write(
         &main,
         r#"
-fn cleanup() () {}
+fun cleanup() () {}
 
-fn main() i32 {
+fun main() i32 {
     defer {
         cleanup();
     };
@@ -619,7 +619,7 @@ fn emits_deferred_return_as_ordinary_delayed_control_flow() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     defer {
         return 7;
     };
@@ -646,9 +646,9 @@ fn emits_deferred_break_and_continue_to_outer_loop_targets() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn break_from_defer() i32 {
+fun break_from_defer() i32 {
     loop {
         defer {
             log(1);
@@ -659,7 +659,7 @@ fn break_from_defer() i32 {
     10
 }
 
-fn continue_from_defer() i32 {
+fun continue_from_defer() i32 {
     let mut i = 0;
     loop {
         i += 1;
@@ -672,7 +672,7 @@ fn continue_from_defer() i32 {
     i
 }
 
-fn main() i32 {
+fun main() i32 {
     break_from_defer() + continue_from_defer()
 }
 "#,
@@ -701,11 +701,11 @@ fn emits_diverging_loop_for_non_unit_function() {
     std::fs::write(
         &main,
         r#"
-fn spin() i32 {
+fun spin() i32 {
     loop {}
 }
 
-fn main() i32 {
+fun main() i32 {
     spin()
 }
 "#,
@@ -732,7 +732,7 @@ enum Error: i32 {
     _
 }
 
-fn cleanup(fail: bool) Error!() {
+fun cleanup(fail: bool) Error!() {
     if fail {
         Error::Bad!
     } else {
@@ -740,7 +740,7 @@ fn cleanup(fail: bool) Error!() {
     }
 }
 
-fn main(fail: bool) Error!i32 {
+fun main(fail: bool) Error!i32 {
     defer cleanup(fail).?;
     !1
 }
@@ -775,11 +775,11 @@ enum Error: i32 {
     _
 }
 
-fn step(fail: bool) Error![u8; 64] {
+fun step(fail: bool) Error![u8; 64] {
     if fail { Error::Bad! } else { ![0; 64] }
 }
 
-fn run(fail: bool) Error![u8; 64] {
+fun run(fail: bool) Error![u8; 64] {
     _ = step(fail).?;
     ![1; 64]
 }
@@ -810,11 +810,11 @@ fn writes_indirect_optional_failure_directly_into_output_storage_without_defers(
     std::fs::write(
         &main,
         r#"
-fn step(fail: bool) ?[u8; 64] {
+fun step(fail: bool) ?[u8; 64] {
     if fail { null } else { ?[0; 64] }
 }
 
-fn run(fail: bool) ?[u8; 64] {
+fun run(fail: bool) ?[u8; 64] {
     _ = step(fail).?;
     ?[1; 64]
 }
@@ -848,14 +848,14 @@ enum Error: i32 {
     _
 }
 
-fn readOptional(value: ?[u8; 64]) u8 {
+fun readOptional(value: ?[u8; 64]) u8 {
     match value {
         ?payload => payload[0],
         null => 0,
     }
 }
 
-fn readResult(value: Error![u8; 64]) u8 {
+fun readResult(value: Error![u8; 64]) u8 {
     match value {
         !payload => payload[0],
         error! => error as u8,
@@ -897,17 +897,17 @@ enum TargetError: i32 {
 }
 
 extend SourceError : builtin::IntoError[TargetError] {
-    fn intoError(self) TargetError {
+    fun intoError(self) TargetError {
         _ = self;
         TargetError::Converted
     }
 }
 
-fn step(fail: bool) SourceError![u8; 64] {
+fun step(fail: bool) SourceError![u8; 64] {
     if fail { SourceError::Failed! } else { ![0; 64] }
 }
 
-fn run(fail: bool) TargetError![u8; 64] {
+fun run(fail: bool) TargetError![u8; 64] {
     _ = step(fail).?;
     ![1; 64]
 }
@@ -946,13 +946,13 @@ enum Error: i32 {
     _
 }
 
-extern fn cleanup();
+extern fun cleanup();
 
-fn step(fail: bool) Error!() {
+fun step(fail: bool) Error!() {
     if fail { Error::Failed! } else { !() }
 }
 
-fn run(fail: bool) Error!i32 {
+fun run(fail: bool) Error!i32 {
     defer cleanup();
     defer cleanup();
     defer cleanup();
@@ -1004,13 +1004,13 @@ enum Error: i32 {
     _
 }
 
-extern fn cleanup();
+extern fun cleanup();
 
-fn step(fail: bool) Error!() {
+fun step(fail: bool) Error!() {
     if fail { Error::Failed! } else { !() }
 }
 
-fn run(fail: bool) Error!i32 {
+fun run(fail: bool) Error!i32 {
     defer cleanup();
     step(fail).?;
     defer cleanup();
@@ -1057,13 +1057,13 @@ fn instantiates_generic_calls_from_defer_tail_expr() {
     std::fs::write(
         &main,
         r#"
-extern fn log(value: i32);
+extern fun log(value: i32);
 
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     defer {
         log(id[i32](7))
     };
@@ -1107,9 +1107,9 @@ fn emits_defer_lifo_for_normal_nested_block_exit() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn main() i32 {
+fun main() i32 {
     defer log(1);
     defer log(2);
     {
@@ -1146,9 +1146,9 @@ fn emits_defer_before_loop_break_and_continue() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn main() i32 {
+fun main() i32 {
     let mut i = 0;
     loop {
         defer log(20);
@@ -1190,7 +1190,7 @@ enum Color: u8 {
     Blue,
 }
 
-fn main(c: Color) i32 {
+fun main(c: Color) i32 {
     match c {
         Color::Red => return 1,
         Color::Green => {
@@ -1224,7 +1224,7 @@ fn emits_switch_expressions() {
     std::fs::write(
         &main,
         r#"
-fn pick(x: u32) i32 {
+fun pick(x: u32) i32 {
     match x {
         0 => 10,
         1 => 20,
@@ -1232,14 +1232,14 @@ fn pick(x: u32) i32 {
     }
 }
 
-fn early(x: u32) i32 {
+fun early(x: u32) i32 {
     match x {
         0 => return 1,
         _ => 2,
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     pick(1) + early(2)
 }
 "#,

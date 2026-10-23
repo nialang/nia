@@ -1,21 +1,21 @@
 path: fail/qualified_associated_callable_visibility/main.nia
 code: E0201
 summary: method `hidden` is private
-label: 60..78 Primary Source this method is not visible from this module
+label: 61..79 Primary Source this method is not visible from this module
 help: make the method public or use it from an allowed scope
-related: 90..132 the restricted method is declared here
+related: 91..134 the restricted method is declared here
 
 path: fail/qualified_associated_callable_visibility/main.nia
 code: E0201
 summary: method `hidden` is private
-label: 118..136 Primary Source this method is not visible from this module
+label: 120..138 Primary Source this method is not visible from this module
 help: make the method public or use it from an allowed scope
-related: 90..132 the restricted method is declared here
+related: 91..134 the restricted method is declared here
 
 path: fail/qualified_associated_callable_visibility/main.nia
 code: E0301
 summary: unknown associated function `missing`
-label: 175..194 Primary Source unknown associated function `missing`
+label: 178..197 Primary Source unknown associated function `missing`
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 
@@ -29,18 +29,18 @@ help: make the method public or use it from an allowed scope
 related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restricted method is declared here
 
 error[E0201]: method `hidden` is private
-  --> fail/qualified_associated_callable_visibility/main.nia:6:37
+  --> fail/qualified_associated_callable_visibility/main.nia:6:38
   |
-6 |     let hidden: &fn() api::Point = &api::Point::hidden;
-  |                                     ^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+6 |     let hidden: &fun() api::Point = &api::Point::hidden;
+  |                                      ^^^^^^^^^^^^^^^^^^ this method is not visible from this module
 help: make the method public or use it from an allowed scope
 related: fail/qualified_associated_callable_visibility/api.nia:8:5: the restricted method is declared here
 
 error[E0301]: unknown associated function `missing`
-  --> fail/qualified_associated_callable_visibility/main.nia:7:38
+  --> fail/qualified_associated_callable_visibility/main.nia:7:39
   |
-7 |     let missing: &fn() api::Point = &api::Point::missing;
-  |                                      ^^^^^^^^^^^^^^^^^^^
+7 |     let missing: &fun() api::Point = &api::Point::missing;
+  |                                       ^^^^^^^^^^^^^^^^^^^
 note: the target type is `Point`, and no visible associated function named `missing` was found
 help: check the type qualification, import the module that defines `missing`, or use a function available for `Point`
 

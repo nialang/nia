@@ -17,12 +17,12 @@ extend I32Proof : TypeIs[i32] {
     type Is = i32;
 }
 
-fn rewrite[R, RW](value: [RW as TypeIs[R]]::Is) R
+fun rewrite[R, RW](value: [RW as TypeIs[R]]::Is) R
 where RW: TypeIs[R] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -53,16 +53,16 @@ extend I32Ref : RefLike {
     type Ref = & i32;
 }
 
-fn read_open[T](value: [T as RefLike]::Ref) i32
+fun read_open[T](value: [T as RefLike]::Ref) i32
 where T: RefLike {
     value.*
 }
 
-fn read_concrete(value: [I32Ref as RefLike]::Ref) i32 {
+fun read_concrete(value: [I32Ref as RefLike]::Ref) i32 {
     value.*
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value: i32 = 5;
     read_concrete(& value)
 }
@@ -100,12 +100,12 @@ extend I32Lift : TypeIs[i32] {
 
 extend I32Lift : Lift[i32] {}
 
-fn rewrite[R, RW](value: [RW as TypeIs[R]]::Is) R
+fun rewrite[R, RW](value: [RW as TypeIs[R]]::Is) R
 where RW: Lift[R] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -140,12 +140,12 @@ extend Source64 : Source[i64] {
 
 extend Source64 : SizedSource[i64] {}
 
-fn bad[S](value: [S as Source[i32]]::Item) [S as Source[i32]]::Item
+fun bad[S](value: [S as Source[i32]]::Item) [S as Source[i32]]::Item
 where S: SizedSource[i64] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -169,7 +169,7 @@ fn cross_module_associated_type_projection_resolves_impl_definition() {
 pub trait Source {
     type Item;
 
-    fn get(& self) [Self as Source]::Item;
+    fun get(& self) [Self as Source]::Item;
 }
 "#,
     );
@@ -186,17 +186,17 @@ struct Counter {
 extend Counter : traits::Source {
     type Item = i32;
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.value
     }
 }
 
-fn read[T](value: & T) [T as traits::Source]::Item
+fun read[T](value: & T) [T as traits::Source]::Item
 where T: traits::Source {
     value.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     read[Counter](& counter)
 }
@@ -223,13 +223,13 @@ extend Four : Shape {
     const N: usize = 4usize;
 }
 
-fn rewrite[T](value: [i32; [T as Shape]::N]) [i32; 4]
+fun rewrite[T](value: [i32; [T as Shape]::N]) [i32; 4]
 where T: Shape
 {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -264,13 +264,13 @@ extend Four : Base {
 
 extend Four : Sub {}
 
-fn rewrite[T](value: [i32; [T as Base]::N]) [i32; 4]
+fun rewrite[T](value: [i32; [T as Base]::N]) [i32; 4]
 where T: Sub
 {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -305,11 +305,11 @@ extend Store : Slot[4] {
     const Width: usize = 4usize;
 }
 
-fn bad(value: [i32; [Store as Slot[2]]::Width]) [i32; [Store as Slot[4]]::Width] {
+fun bad(value: [i32; [Store as Slot[2]]::Width]) [i32; [Store as Slot[4]]::Width] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -340,7 +340,7 @@ extend Four : Shape {
     const N: usize = 4usize;
 }
 
-const fn width[T]() usize
+const fun width[T]() usize
 where T: Shape
 {
     let value: usize = [T as Shape]::N;
@@ -353,11 +353,11 @@ struct Buffer[T, N: usize] {
     values: [T; N],
 }
 
-fn make[T](value: T) Buffer[T, WIDTH] {
+fun make[T](value: T) Buffer[T, WIDTH] {
     Buffer[T, WIDTH] { values: [value; width[Four]()] }
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = make[i32](3);
     buffer.values[3]
 }
@@ -378,11 +378,11 @@ trait Shape {
     const N: usize;
 }
 
-fn bad[T]() usize {
+fun bad[T]() usize {
     [T as Shape]::N
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -416,13 +416,13 @@ extend I32x4 : Packet {
     const Len: usize = 4usize;
 }
 
-fn rewrite[P](value: [[P as Packet]::Elem; [P as Packet]::Len]) [i32; 4]
+fun rewrite[P](value: [[P as Packet]::Elem; [P as Packet]::Len]) [i32; 4]
 where P: Packet
 {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -457,13 +457,13 @@ extend Store : Base[8] {
 
 extend Store : Sub[8] {}
 
-fn bad[T](value: [i32; [T as Base[4]]::Width]) [i32; 4]
+fun bad[T](value: [i32; [T as Base[4]]::Width]) [i32; 4]
 where T: Sub[8]
 {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -498,11 +498,11 @@ extend Store : Mode[false] {
     const Width: usize = 2usize;
 }
 
-fn bad(value: [i32; [Store as Mode[true]]::Width]) [i32; [Store as Mode[false]]::Width] {
+fun bad(value: [i32; [Store as Mode[true]]::Width]) [i32; [Store as Mode[false]]::Width] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -558,7 +558,7 @@ using entry::api;
 using entry::types;
 using entry::impls;
 
-const fn len[T]() usize
+const fun len[T]() usize
 where T: api::HasLen
 {
     [T as api::HasLen]::Len
@@ -567,7 +567,7 @@ where T: api::HasLen
 const FOUR: usize = len[types::Buf[4]]();
 const SEVEN: usize = len[types::Buf[7]]();
 
-fn main() usize {
+fun main() usize {
     let four: [u8; FOUR] = [1u8, 2u8, 3u8, 4u8];
     let seven: [u8; SEVEN] = [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8];
     four[3] as usize + seven[6] as usize

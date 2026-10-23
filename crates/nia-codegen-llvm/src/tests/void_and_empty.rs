@@ -8,23 +8,23 @@ fn emits_tuple_returns_patterns_and_unit_values() {
     std::fs::write(
         &main,
         r#"
-fn make_pair() (i32, bool) {
+fun make_pair() (i32, bool) {
     (40, true)
 }
 
-fn make_single() (i32,) {
+fun make_single() (i32,) {
     (2,)
 }
 
-fn explicit_unit() () {
+fun explicit_unit() () {
     ()
 }
 
-fn implicit_unit() {
+fun implicit_unit() {
     explicit_unit()
 }
 
-fn classify(pair: (i32, (bool, i32))) i32 {
+fun classify(pair: (i32, (bool, i32))) i32 {
     if pair is (40, (true, value)) {
         value
     } else {
@@ -35,7 +35,7 @@ fn classify(pair: (i32, (bool, i32))) i32 {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     implicit_unit();
     let (left, enabled) = make_pair();
     let (right,) = make_single();
@@ -69,9 +69,9 @@ fn emits_void_values_and_empty_structs() {
         r#"
 struct Empty {}
 
-fn sink(p: &opaque) {}
+fun sink(p: &opaque) {}
 
-fn main() i32 {
+fun main() i32 {
     let mut unit: () = {};
     let mut empty = Empty {};
     let mut value: i32 = 7;
@@ -105,11 +105,11 @@ using entry::defs;
 
 struct LocalEmpty {}
 
-fn take_local(value: LocalEmpty) i32 {
+fun take_local(value: LocalEmpty) i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut local = LocalEmpty {};
     let mut imported = defs::Empty {};
     take_local(local) + defs::take(imported)
@@ -122,7 +122,7 @@ fn main() i32 {
         r#"
 pub struct Empty {}
 
-pub fn take(value: Empty) i32 {
+pub fun take(value: Empty) i32 {
     2
 }
 "#,
@@ -165,15 +165,15 @@ using entry::defs;
 
 struct LocalEmpty {}
 
-fn make_local() LocalEmpty {
+fun make_local() LocalEmpty {
     {}
 }
 
-fn take_local(value: LocalEmpty) i32 {
+fun take_local(value: LocalEmpty) i32 {
     3
 }
 
-fn main() i32 {
+fun main() i32 {
     take_local({}) + defs::take({}) + take_local(make_local()) + defs::take(defs::make())
 }
 "#,
@@ -184,11 +184,11 @@ fn main() i32 {
         r#"
 pub struct Empty {}
 
-pub fn make() Empty {
+pub fun make() Empty {
     {}
 }
 
-pub fn take(value: Empty) i32 {
+pub fun take(value: Empty) i32 {
     5
 }
 "#,
@@ -228,13 +228,13 @@ fn emits_zero_sized_local_assignment_and_return_without_payload_loads() {
         r#"
 struct Empty {}
 
-fn id(value: Empty) Empty {
+fun id(value: Empty) Empty {
     let mut out = Empty {};
     out = value;
     out
 }
 
-fn main() i32 {
+fun main() i32 {
     _ = id({});
     0
 }
@@ -265,11 +265,11 @@ using entry::defs;
 
 struct LocalBox[T] {}
 
-fn take_local(value: LocalBox[i32]) i32 {
+fun take_local(value: LocalBox[i32]) i32 {
     7
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut local = LocalBox[i32] {};
     let mut imported = defs::Box[i32] {};
     take_local(local) + defs::take(imported) + defs::take({})
@@ -282,7 +282,7 @@ fn main() i32 {
         r#"
 pub struct Box[T] {}
 
-pub fn take(value: Box[i32]) i32 {
+pub fun take(value: Box[i32]) i32 {
     11
 }
 "#,
@@ -324,11 +324,11 @@ enum Error: i32 {
     Fail = 1,
 }
 
-fn ok() Error!() {
+fun ok() Error!() {
     !()
 }
 
-fn main() i32 {
+fun main() i32 {
     match ok() {
         !value => {
             _ = value;
@@ -363,16 +363,16 @@ struct Pair {
 }
 
 extend Pair {
-    fn sum(&self) i32 {
+    fun sum(&self) i32 {
         self.left + self.right
     }
 }
 
-fn make() Pair {
+fun make() Pair {
     Pair { left: 20, right: 22 }
 }
 
-fn main() i32 {
+fun main() i32 {
     make().sum()
 }
 "#,
@@ -393,12 +393,12 @@ fn emits_discarded_void_calls() {
     std::fs::write(
         &main,
         r#"
-extern fn printf(fmt: & u8, ...);
+extern fun printf(fmt: & u8, ...);
 
-fn effect() {}
-fn value() i32 { 7 }
+fun effect() {}
+fun value() i32 { 7 }
 
-fn main() i32 {
+fun main() i32 {
     let fmt = b"ok\n\0";
     _ = effect();
     _ = printf(&fmt[0]);
@@ -432,9 +432,9 @@ fn emits_addresses_for_zero_sized_locals() {
         r#"
 struct Empty {}
 
-extern fn observe(value: &Empty);
+extern fun observe(value: &Empty);
 
-fn main() i32 {
+fun main() i32 {
     let mut empty = Empty {};
     observe(&empty);
     0
@@ -463,13 +463,13 @@ fn passes_zero_sized_method_receivers_by_address() {
 struct Empty {}
 
 extend Empty {
-    fn value(&mut self) i32 {
+    fun value(&mut self) i32 {
         _ = self;
         7
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut empty = Empty {};
     empty.value()
 }
@@ -498,16 +498,16 @@ struct Wrap {
     value: (),
 }
 
-extern fn log(value: i32);
+extern fun log(value: i32);
 
-fn effect(value: i32) () {
+fun effect(value: i32) () {
     log(value);
 }
 
-fn take(value: Wrap) () {}
-fn take_array(value: [(); 2]) () {}
+fun take(value: Wrap) () {}
+fun take_array(value: [(); 2]) () {}
 
-fn main() i32 {
+fun main() i32 {
     let mut local = Wrap { value: effect(1) };
     take(Wrap { value: effect(2) });
     take_array([effect(3), effect(4)]);

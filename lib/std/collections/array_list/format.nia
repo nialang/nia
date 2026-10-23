@@ -6,7 +6,7 @@ using list::ArrayList;
 extend[T] ArrayList[T] : fmt::Format
 where T: Sized + fmt::Format
 {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.writeByte(b'[').?;
         let mut first = true;
         for item in self {

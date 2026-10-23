@@ -1,6 +1,6 @@
-fn takes(first: i32, second: i32) () {}
+fun takes(first: i32, second: i32) () {}
 
-fn main() i32 {
+fun main() i32 {
     takes(missing, true);
     0
 }

@@ -8,7 +8,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let facade_file = sources
         .set_source(facade, "pub struct Widget {}")
@@ -112,11 +112,11 @@ fn facade_facts_are_cached_for_reexport_and_provider_loading() {
         r#"
 using dep::facade;
 
-fn first(value: facade::Widget) i32 {
+fun first(value: facade::Widget) i32 {
     value.score()
 }
 
-fn second(value: facade::Widget) i32 {
+fun second(value: facade::Widget) i32 {
     value.score()
 }
 "#,
@@ -143,7 +143,7 @@ pub using types::Widget;
 using self::types;
 
 extend types::Widget {
-    pub fn score(&self) i32 { self.value }
+    pub fun score(&self) i32 { self.value }
 }
 "#,
     );

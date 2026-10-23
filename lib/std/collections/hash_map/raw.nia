@@ -21,7 +21,7 @@ pub struct ProbeGroup {
 }
 
 extend ProbeGroup {
-    pub fn load(ctrl: &[u8], cursor: &ProbeCursor, needle: u8) ProbeGroup {
+    pub fun load(ctrl: &[u8], cursor: &ProbeCursor, needle: u8) ProbeGroup {
         let bytes = pkg::builtin::loadUnaligned[u8x8](&ctrl[cursor.pos]);
 
         let matchMask = pkg::builtin::bitmask(bytes == pkg::builtin::splat[u8x8](needle));
@@ -33,7 +33,7 @@ extend ProbeGroup {
 }
 
 extend ProbeCursor {
-    pub fn init(valueHash: u64, capacity: usize) ProbeCursor {
+    pub fun init(valueHash: u64, capacity: usize) ProbeCursor {
         if capacity < groupWidth or not capacity.isPowerOfTwo() {
             return .{
                 pos: 0,
@@ -46,18 +46,18 @@ extend ProbeCursor {
         .{ pos: (valueHash as usize) & mask, stride: 0, visited: 0, capacity }
     }
 
-    pub fn hasRemaining(&self) bool {
+    pub fun hasRemaining(&self) bool {
         self.visited < self.capacity
     }
 
-    pub fn index(&self, offset: usize) usize {
+    pub fun index(&self, offset: usize) usize {
         if self.capacity == 0 {
             pkg::builtin::trap()
         }
         addMod(self.pos, offset, self.capacity)
     }
 
-    pub fn advanceGroup(&mut self) () {
+    pub fun advanceGroup(&mut self) () {
         if self.capacity == 0 or self.visited >= self.capacity {
             return;
         }
@@ -76,7 +76,7 @@ extend ProbeCursor {
 
 // Probe capacities are powers of two. This computes `(value + offset) %
 // capacity` without forming an overflowing host-width sum before masking.
-fn addMod(value: usize, offset: usize, capacity: usize) usize {
+fun addMod(value: usize, offset: usize, capacity: usize) usize {
     let mask = capacity - 1;
     let left = value & mask;
     let right = offset & mask;
@@ -88,27 +88,27 @@ fn addMod(value: usize, offset: usize, capacity: usize) usize {
     }
 }
 
-pub fn danglingSlice[T]() &mut [T]
+pub fun danglingSlice[T]() &mut [T]
 where T: Sized
 {
     let mut ptr = pkg::builtin::align[T]() as &mut T;
     &mut ptr[0..0]
 }
 
-pub fn danglingLenSlice[T](len: usize) &mut [T]
+pub fun danglingLenSlice[T](len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = pkg::builtin::align[T]() as &mut T;
     &mut ptr[0..len]
 }
 
-pub fn randomSeed() os::Error!u64 {
+pub fun randomSeed() os::Error!u64 {
     let mut bytes: [u8; 8] = [0; 8];
     os::random(&mut bytes[..]).?;
     !readU64(&bytes[..])
 }
 
-pub fn readU64(bytes: &[u8]) u64 {
+pub fun readU64(bytes: &[u8]) u64 {
     (bytes[0] as u64)
         | ((bytes[1] as u64) << 8)
         | ((bytes[2] as u64) << 16)
@@ -119,23 +119,23 @@ pub fn readU64(bytes: &[u8]) u64 {
         | ((bytes[7] as u64) << 56)
 }
 
-pub fn tag(valueHash: u64) u8 {
+pub fun tag(valueHash: u64) u8 {
     ((valueHash >> 57) as u8) & 0x7f
 }
 
-pub fn isFull(control: u8) bool {
+pub fun isFull(control: u8) bool {
     (control & 0x80) == 0
 }
 
-pub fn firstSet(mask: usize) usize {
+pub fun firstSet(mask: usize) usize {
     pkg::builtin::ctz[usize](mask)
 }
 
-pub fn clearLowestSet(mask: usize) usize {
+pub fun clearLowestSet(mask: usize) usize {
     mask & (mask - 1)
 }
 
-pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
+pub fun ctrlAllocationLen(capacity: usize) mem::Error!usize {
     if capacity == 0 {
         return !0;
     }
@@ -149,7 +149,7 @@ pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
     }
 }
 
-pub fn mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) () {
+pub fun mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) () {
     if bucketCount == 0 {
         return;
     }
@@ -158,13 +158,13 @@ pub fn mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) () {
     }
 }
 
-pub fn fillCtrl(ctrl: &mut [u8], value: u8) () {
+pub fun fillCtrl(ctrl: &mut [u8], value: u8) () {
     for index in 0..ctrl.len() {
         ctrl[index] = value;
     }
 }
 
-pub fn usableCapacity(buckets: usize) usize {
+pub fun usableCapacity(buckets: usize) usize {
     if buckets == 0 {
         0
     } else if buckets < 8 {
@@ -174,7 +174,7 @@ pub fn usableCapacity(buckets: usize) usize {
     }
 }
 
-pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
+pub fun capacityToBuckets(capacity: usize) mem::Error!usize {
     if capacity == 0 {
         return !0;
     }
@@ -205,7 +205,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
     nextPowerOfTwo(adjusted)
 }
 
-pub fn nextPowerOfTwo(value: usize) mem::Error!usize {
+pub fun nextPowerOfTwo(value: usize) mem::Error!usize {
     let mut n: usize = 1;
     while n < value {
         n = match n.checkedMul(2) {

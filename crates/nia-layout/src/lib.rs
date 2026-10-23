@@ -1884,7 +1884,7 @@ mod tests {
     fn open_generic_detection_follows_nested_type_store_dependencies() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
-        let (module, symbols) = parse_test_module("fn main() {}");
+        let (module, symbols) = parse_test_module("fun main() {}");
         let defs = collect_module_defs(module_id, &module).expect("collect definitions");
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);

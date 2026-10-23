@@ -106,7 +106,7 @@ fn records_explicit_types_for_const_bindings() {
         r#"
 const width: usize = 4;
 
-fn main() i32 {
+fun main() i32 {
 const local_width: usize = width;
 static xs: [i32; local_width] = [1, 2, 3, 4];
 xs[0]
@@ -270,7 +270,7 @@ struct Packet[N: usize] {
     values: [u32; N],
 }
 
-const fn marker_offset[N: usize]() usize {
+const fun marker_offset[N: usize]() usize {
     std::builtin::offset[Packet[N]]("marker")
 }
 
@@ -297,7 +297,7 @@ const OFF: usize = marker_offset[3]();
 fn substitutes_const_generic_function_return_array_length() {
     let fixture = check_source(
         r#"
-const fn identity[N: usize](value: [u8; N]) [u8; N] {
+const fun identity[N: usize](value: [u8; N]) [u8; N] {
     value
 }
 
@@ -463,7 +463,7 @@ union Slot {
     integer: usize,
 }
 
-const fn roundTrip() usize {
+const fun roundTrip() usize {
     let value: usize = 21;
     let slot = Slot { pointer: &value };
     slot.pointer.*
@@ -504,12 +504,12 @@ union SignedBits {
     signed: i32,
 }
 
-const fn floatBits() u32 {
+const fun floatBits() u32 {
     let bits = Bits { float: 1.0 };
     bits.integer
 }
 
-const fn switchedBits() f32 {
+const fun switchedBits() f32 {
     let mut bits = Bits { float: 0.0 };
     bits.integer = 1065353216;
     bits.float
@@ -705,7 +705,7 @@ union PairBytes[T] {
     bytes: [u8; 8],
 }
 
-const fn encode[T](values: [T; 2]) [u8; 8] {
+const fun encode[T](values: [T; 2]) [u8; 8] {
     let pair = PairBytes[T] { values: values };
     pair.bytes
 }
@@ -813,7 +813,7 @@ union FlagBytes {
     flags: Flags,
 }
 
-const fn encode[T](value: Pair[T]) [u8; 5] {
+const fun encode[T](value: Pair[T]) [u8; 5] {
     let slot = PairBytes[T] { value: value };
     slot.prefix
 }
@@ -967,7 +967,7 @@ union Slot[T] {
     bits: u32,
 }
 
-const fn reinterpret[T](value: T) u32 {
+const fun reinterpret[T](value: T) u32 {
     let slot = Slot[T] { value: value };
     slot.bits
 }
@@ -990,7 +990,7 @@ const BITS: u32 = reinterpret[u32](1065353216);
 fn const_call_instantiation_rejects_missing_value_arguments() {
     let fixture = check_source(
         r#"
-const fn choose[T](first: T, second: T) T {
+const fun choose[T](first: T, second: T) T {
     let _ = second;
     first
 }
@@ -1014,7 +1014,7 @@ const RESULT: i32 = choose(1i32);
 fn const_call_instantiation_rejects_extra_value_arguments() {
     let fixture = check_source(
         r#"
-const fn choose[T](first: T, second: T) T {
+const fun choose[T](first: T, second: T) T {
     let _ = second;
     first
 }
@@ -1038,12 +1038,12 @@ const RESULT: i32 = choose(1i32, 2i32, 3i32);
 fn const_generic_inference_accepts_mutable_pointer_for_readonly_parameter() {
     let fixture = check_source(
         r#"
-const fn read[T](value: &T) usize {
+const fun read[T](value: &T) usize {
     let _unused = value;
     7
 }
 
-const fn run() usize {
+const fun run() usize {
     let mut value: i32 = 3;
     read(&mut value)
 }
@@ -1074,12 +1074,12 @@ struct Marker {}
 
 extend Marker : Right[i32] {}
 
-const fn inspect[T](value: &Left[T]) usize {
+const fun inspect[T](value: &Left[T]) usize {
     let _unused = value;
     7
 }
 
-const fn run() usize {
+const fun run() usize {
     let marker = Marker {};
     let object: &Right[i32] = &marker;
     inspect(object)
@@ -1124,7 +1124,7 @@ extend Store : Slot[bool] {
 
 extend Store : Both {}
 
-const fn inspect[T, U](expected: U, value: &Both[
+const fun inspect[T, U](expected: U, value: &Both[
     [Self as Slot[T]]::Item = U,
     [Self as Slot[i32]]::Item = bool,
 ]) usize {
@@ -1132,7 +1132,7 @@ const fn inspect[T, U](expected: U, value: &Both[
     7
 }
 
-const fn run() usize {
+const fun run() usize {
     let store = Store {};
     let value: &Both[
         [Self as Slot[i32]]::Item = bool,
@@ -1177,7 +1177,7 @@ extend Store : Slot[bool] {
 
 extend Store : Both {}
 
-const fn inspect[T, U](expected: U, value: &Both[
+const fun inspect[T, U](expected: U, value: &Both[
     [Self as Slot[T]]::Item = U,
     [Self as Slot[i32]]::Item = bool,
 ]) usize {
@@ -1185,7 +1185,7 @@ const fn inspect[T, U](expected: U, value: &Both[
     7
 }
 
-const fn run() usize {
+const fun run() usize {
     let store = Store {};
     let value: &Both[
         [Self as Slot[i32]]::Item = bool,
@@ -1211,7 +1211,7 @@ struct Packet[T, N: usize] {
     value: T,
 }
 
-const fn inspect[T](packet: Packet[T, 3]) usize {
+const fun inspect[T](packet: Packet[T, 3]) usize {
     let _unused = packet;
     7
 }
@@ -1237,7 +1237,7 @@ const RESULT: usize = inspect(Packet[i32, 4] { value: 1 });
 fn const_generic_inference_rejects_evidence_below_mismatched_array_length() {
     let fixture = check_source(
         r#"
-const fn inspect[N: usize](value: [[u8; N]; 2]) usize {
+const fun inspect[N: usize](value: [[u8; N]; 2]) usize {
     let _ = value;
     7
 }
@@ -1266,7 +1266,7 @@ struct Packet[T] {
     value: T,
 }
 
-const fn inspect[T](value: [Packet[T]; std::builtin::size[i32]()]) usize {
+const fun inspect[T](value: [Packet[T]; std::builtin::size[i32]()]) usize {
     let _ = value;
     7
 }
@@ -1303,7 +1303,7 @@ struct Packet[T] {
     value: T,
 }
 
-const fn inspect[T, U](
+const fun inspect[T, U](
     value: [Packet[U]; std::builtin::size[Box[T]]()],
     marker: T,
 ) usize {
@@ -1343,7 +1343,7 @@ struct Packet[T] {
     value: T,
 }
 
-const fn inspect[T, U](
+const fun inspect[T, U](
     value: [Packet[U]; std::builtin::size[Box[Box[T]]]()],
     marker: T,
 ) usize {
@@ -1372,7 +1372,7 @@ const RESULT: usize = inspect(VALUE, 1i32);
 fn const_generic_inference_through_layout_builtin_and_marker() {
     let fixture = check_source(
         r#"
-const fn inspect[T](value: [u8; std::builtin::size[T]()], marker: T) usize {
+const fun inspect[T](value: [u8; std::builtin::size[T]()], marker: T) usize {
     _ = (value, marker);
     7
 }
@@ -1395,7 +1395,7 @@ const RESULT: usize = inspect([1u8, 2u8, 3u8, 4u8], 1i32);
 fn const_generic_inference_through_layout_builtin_operand() {
     let fixture = check_source(
         r#"
-const fn inspect[T](value: [u8; std::builtin::size[T]()]) usize {
+const fun inspect[T](value: [u8; std::builtin::size[T]()]) usize {
     let _unused = value;
     7
 }
@@ -1420,7 +1420,7 @@ union Bits {
     float: f32,
 }
 
-const fn makeBits() Bits {
+const fun makeBits() Bits {
     Bits { float: 1.0 }
 }
 
@@ -1448,11 +1448,11 @@ union Bits {
     float: f32,
 }
 
-const fn readBits(bits: Bits) u32 {
+const fun readBits(bits: Bits) u32 {
     bits.integer
 }
 
-const fn replaceBits() u32 {
+const fun replaceBits() u32 {
     let mut bits = Bits { integer: 0 };
     bits = Bits { float: 1.0 };
     bits.integer
@@ -1520,10 +1520,10 @@ fn vector_union_fields_follow_artifact_endianness() {
         let fixture = check_source_for_target(
             r#"
 @[builtin("splat")]
-const fn splat[V](value: u16) V;
+const fun splat[V](value: u16) V;
 
 @[builtin("insert")]
-const fn insert[V](vector: V, index: usize, value: u16) V;
+const fun insert[V](vector: V, index: usize, value: u16) V;
 
 union VectorBytes {
     vector: u16x2,
@@ -1573,10 +1573,10 @@ fn usize_vector_union_fields_follow_artifact_pointer_width() {
         let source = format!(
             r#"
 @[builtin("splat")]
-const fn splat[V](value: usize) V;
+const fun splat[V](value: usize) V;
 
 @[builtin("insert")]
-const fn insert[V](vector: V, index: usize, value: usize) V;
+const fun insert[V](vector: V, index: usize, value: usize) V;
 
 union VectorBytes {{
     vector: usizex2,
@@ -1611,10 +1611,10 @@ fn float_vector_union_fields_preserve_lane_bits() {
     let fixture = check_source(
         r#"
 @[builtin("splat")]
-const fn splat[V](value: f32) V;
+const fun splat[V](value: f32) V;
 
 @[builtin("insert")]
-const fn insert[V](vector: V, index: usize, value: f32) V;
+const fun insert[V](vector: V, index: usize, value: f32) V;
 
 union VectorWords {
     vector: f32x2,
@@ -1662,7 +1662,7 @@ extend Store : Slot[bool] {
 
 extend Store : Both[i32, bool] {}
 
-const fn inspect[A, B, N: usize, M: usize](value: &Both[A, B,
+const fun inspect[A, B, N: usize, M: usize](value: &Both[A, B,
     [Self as Slot[A]]::Item = [u8; N],
     [Self as Slot[B]]::Item = [u8; M],
 ]) [u8; N] {
@@ -1670,7 +1670,7 @@ const fn inspect[A, B, N: usize, M: usize](value: &Both[A, B,
     [7, 7]
 }
 
-const fn run() [u8; 2] {
+const fun run() [u8; 2] {
     let store = Store {};
     let value: &Both[i32, bool,
         [Self as Slot[bool]]::Item = [u8; 4],
@@ -1700,7 +1700,7 @@ const RESULT: [u8; 2] = run();
 fn const_execution_infers_array_length_nested_in_tuple() {
     let fixture = check_source(
         r#"
-const fn inspect[N: usize](value: ([u8; N], bool)) usize {
+const fun inspect[N: usize](value: ([u8; N], bool)) usize {
     let _ = value;
     7
 }
@@ -1733,12 +1733,12 @@ extend Store : Slot {
     type Item = [u8; 4];
 }
 
-const fn inspect[N: usize](value: &Slot[Item = [u8; N]]) usize {
+const fun inspect[N: usize](value: &Slot[Item = [u8; N]]) usize {
     let _ = value;
     7
 }
 
-const fn run() usize {
+const fun run() usize {
     let store = Store {};
     let value: &Slot[Item = [u8; 4]] = &store;
     inspect(value)
@@ -1782,7 +1782,7 @@ extend Store : Slot {
     type Item = Pair[[u8; 4], Other[bool]];
 }
 
-const fn inspect[T, N: usize, M: usize](
+const fun inspect[T, N: usize, M: usize](
     value: &Slot[Item = Pair[[u8; N], Box[[u8; M]]]],
     marker: T,
 ) [u8; N] {
@@ -1790,7 +1790,7 @@ const fn inspect[T, N: usize, M: usize](
     [0u8, 0u8, 0u8, 0u8]
 }
 
-const fn run() [u8; 4] {
+const fun run() [u8; 4] {
     let store = Store {};
     let value: &Slot[Item = Pair[[u8; 4], Other[bool]]] = &store;
     inspect(value, 1i32)
@@ -1828,7 +1828,7 @@ struct Box[T] {
     value: T,
 }
 
-const fn inspect[T](value: Pair[T, Other[bool]], marker: T) usize {
+const fun inspect[T](value: Pair[T, Other[bool]], marker: T) usize {
     let _ = (value, marker);
     7
 }
@@ -1869,7 +1869,7 @@ struct Box[T] {
     value: T,
 }
 
-const fn make[T]() Pair[T, Other[bool]] {
+const fun make[T]() Pair[T, Other[bool]] {
     Pair[T, Other[bool]] {
         first: 1i32,
         second: Other[bool] { value: true },
@@ -1908,7 +1908,7 @@ struct Box[T] {
     value: T,
 }
 
-const fn inspect[T](value: Pair[T, Other[bool]], marker: T) usize {
+const fun inspect[T](value: Pair[T, Other[bool]], marker: T) usize {
     let _ = (value, marker);
     7
 }
@@ -1949,7 +1949,7 @@ struct Box[T] {
     value: T,
 }
 
-const fn make[T]() Pair[T, Other[bool]] {
+const fun make[T]() Pair[T, Other[bool]] {
     Pair[T, Other[bool]] {
         first: 1i32,
         second: Other[bool] { value: true },

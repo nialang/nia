@@ -8,7 +8,7 @@ using std::process;
 
 // `header` and `dynamic` locate this image for static-pie self-relocation,
 // which must precede every other statement.
-extern fn niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
+extern fun niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
     relocate(header, dynamic);
     let argc = stack.*;
     let wordSize = std::builtin::size[usize]();
@@ -48,6 +48,6 @@ extern fn niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
     loop {}
 }
 
-fn startupAddress(stack: &usize, offset: usize) ?usize {
+fun startupAddress(stack: &usize, offset: usize) ?usize {
     (stack as usize).checkedAdd(offset)
 }

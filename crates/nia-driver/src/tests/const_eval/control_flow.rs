@@ -7,7 +7,7 @@ fn const_function_loop_statements_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     loop {
         break;
     }
@@ -17,7 +17,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -34,7 +34,7 @@ fn const_function_while_statements_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(flag: bool) usize {
+const fun width(flag: bool) usize {
     while false {
         return 1;
     }
@@ -46,7 +46,7 @@ const fn width(flag: bool) usize {
 
 const n: usize = width(true);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -63,7 +63,7 @@ fn const_function_if_statement_rejects_non_bool_condition() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     if 1usize {
         return 1usize;
     }
@@ -91,7 +91,7 @@ fn const_function_while_statement_rejects_non_bool_condition() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     while 1usize {
         return 1usize;
     }
@@ -119,7 +119,7 @@ fn const_statement_type_check_allows_loop_control_flow() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(flag: bool) usize {
+const fun width(flag: bool) usize {
     if flag {
         return 4usize;
     }
@@ -141,7 +141,7 @@ const fn width(flag: bool) usize {
 
 const n: usize = width(false);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -158,7 +158,7 @@ fn const_function_mutable_locals_drive_loop_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut i: usize = 0;
     while true {
         if i == 6 {
@@ -171,7 +171,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -188,7 +188,7 @@ fn const_function_integer_comparisons_drive_control_flow() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(limit: usize) usize {
+const fun width(limit: usize) usize {
     let mut i: usize = 0;
     let mut total: usize = 0;
     while i < limit {
@@ -208,7 +208,7 @@ const fn width(limit: usize) usize {
 
 const n: usize = width(6);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -225,7 +225,7 @@ fn const_function_supports_plain_local_assignment() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut i: usize = 2;
     i = 5;
     i *= 2;
@@ -234,7 +234,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -259,7 +259,7 @@ const n: usize = {
     value
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }

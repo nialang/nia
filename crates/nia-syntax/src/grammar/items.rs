@@ -66,12 +66,12 @@ fn item(p: &mut Parser<'_>) -> Option<Parsed> {
                 struct_decl(p, true)?;
             } else if p.at(TokenKind::Union) {
                 union_decl(p, true)?;
-            } else if p.at(TokenKind::Fn) {
+            } else if p.at(TokenKind::Fun) {
                 function_decl(p, true, false)?;
             } else if p.at(TokenKind::Static) {
                 binding_decl(p, true, true)?;
             } else {
-                p.error_here("expected `struct`, `union`, `fn`, or `static` after `extern`");
+                p.error_here("expected `struct`, `union`, `fun`, or `static` after `extern`");
                 return None;
             }
         } else if p.at(TokenKind::Struct) {
@@ -86,7 +86,7 @@ fn item(p: &mut Parser<'_>) -> Option<Parsed> {
             enum_decl(p)?;
         } else if p.at(TokenKind::Type) {
             type_alias_decl(p, attributes.builtin)?;
-        } else if p.at(TokenKind::Fn) || p.at_const_fn() {
+        } else if p.at(TokenKind::Fun) || p.at_const_fn() {
             let is_const = p.at_const_fn();
             function_decl(p, false, is_const)?;
         } else if p.at(TokenKind::Const) || p.at(TokenKind::Static) {
@@ -418,7 +418,7 @@ fn field_list(p: &mut Parser<'_>, open_message: &str, close_message: &str) -> Op
             && !p.at(TokenKind::Eof)
             && !p.at_top_level_item_boundary_except_fn()
         {
-            if p.at(TokenKind::Fn) {
+            if p.at(TokenKind::Fun) {
                 let checkpoint = p.checkpoint();
                 let errors = p.errors_len();
                 p.error_here("methods must be declared in an `extend Type { ... }` block");
@@ -579,7 +579,7 @@ fn trait_member(p: &mut Parser<'_>) {
                 p.error_here("attributes on trait associated types are not supported");
             }
             assoc_type_decl(p, MemberOwner::Trait);
-        } else if p.at(TokenKind::Fn) || p.at_const_fn() {
+        } else if p.at(TokenKind::Fun) || p.at_const_fn() {
             let is_const = p.at_const_fn();
             function_decl(p, false, is_const);
         } else if p.at(TokenKind::Const) {
@@ -614,7 +614,7 @@ fn extend_member(p: &mut Parser<'_>, builtin: bool) -> Option<Parsed> {
                 p.error_here("trait associated type definitions cannot be marked `pub`");
             }
             assoc_type_decl(p, MemberOwner::Extend);
-        } else if p.at(TokenKind::Fn) || p.at_const_fn() {
+        } else if p.at(TokenKind::Fun) || p.at_const_fn() {
             let is_const = p.at_const_fn();
             function_decl(p, false, is_const);
         } else if p.at(TokenKind::Const) {
@@ -885,7 +885,7 @@ pub(crate) fn function_decl(p: &mut Parser<'_>, is_extern: bool, is_const: bool)
                 p.error_here("extern function cannot be `const`");
             }
         }
-        p.expect(TokenKind::Fn, "expected `fn`")?;
+        p.expect(TokenKind::Fun, "expected `fun`")?;
         p.expect_name("expected function name")?;
         types::generic_params(p);
         param_list(p)?;

@@ -157,23 +157,23 @@ pub(super) fn pipeline(source: &str) -> TestBodyCheck {
 
 const LEN_PROVIDER_SOURCE: &str = r#"
 trait Len {
-    const fn len(&self) usize;
+    const fun len(&self) usize;
 }
 
 extend[T, N: usize] [T; N] : Len {
-    const fn len(&self) usize {
+    const fun len(&self) usize {
         N
     }
 }
 
 extend[T] [T] : Len {
-    const fn len(&self) usize {
+    const fun len(&self) usize {
         sliceLen(&self)
     }
 }
 
 @[builtin("sliceLen")]
-const fn sliceLen[T](value: &[T]) usize;
+const fun sliceLen[T](value: &[T]) usize;
 "#;
 
 pub(super) fn source_with_len_provider(source: &str) -> String {

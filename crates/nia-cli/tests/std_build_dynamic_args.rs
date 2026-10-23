@@ -14,14 +14,14 @@ fn build_accepts_more_than_legacy_import_and_argv_limits() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
 "#,
     )
     .expect("write executable source");
-    std::fs::write(root.join("provider.nia"), "pub fn value() i32 { 1 }")
+    std::fs::write(root.join("provider.nia"), "pub fun value() i32 { 1 }")
         .expect("write import provider");
 
     let mut build_source = String::from(
@@ -30,7 +30,7 @@ using std::build;
 using std::fs;
 using std::string;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let imports = [
 "#,
     );

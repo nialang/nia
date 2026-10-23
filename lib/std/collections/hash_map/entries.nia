@@ -37,27 +37,27 @@ where K: Sized, V: Sized
 extend[K, V] HashMapEntry[K, V]
 where K: Sized, V: Sized
 {
-    pub fn key(&self) &K {
+    pub fun key(&self) &K {
         &self.key
     }
 
-    pub fn value(&self) &V {
+    pub fun value(&self) &V {
         &self.value
     }
 
-    pub fn keyMut(&mut self) &mut K {
+    pub fun keyMut(&mut self) &mut K {
         &mut self.key
     }
 
-    pub fn valueMut(&mut self) &mut V {
+    pub fun valueMut(&mut self) &mut V {
         &mut self.value
     }
 
-    pub fn intoKey(self) K {
+    pub fun intoKey(self) K {
         self.key
     }
 
-    pub fn intoValue(self) V {
+    pub fun intoValue(self) V {
         self.value
     }
 }
@@ -65,11 +65,11 @@ where K: Sized, V: Sized
 extend[K, V] HashMapEntryRef[K, V]
 where K: Sized, V: Sized
 {
-    pub fn key(&self) &K {
+    pub fun key(&self) &K {
         self.key
     }
 
-    pub fn value(&self) &V {
+    pub fun value(&self) &V {
         self.value
     }
 }
@@ -77,15 +77,15 @@ where K: Sized, V: Sized
 extend[K, V] HashMapEntryMut[K, V]
 where K: Sized, V: Sized
 {
-    pub fn key(&self) &K {
+    pub fun key(&self) &K {
         self.key
     }
 
-    pub fn value(&self) &V {
+    pub fun value(&self) &V {
         self.value
     }
 
-    pub fn valueMut(&mut self) &mut V {
+    pub fun valueMut(&mut self) &mut V {
         self.value
     }
 }
@@ -93,15 +93,15 @@ where K: Sized, V: Sized
 extend[K, V] HashMapGetOrInsertResult[K, V]
 where K: Sized, V: Sized
 {
-    pub fn key(&self) &K {
+    pub fun key(&self) &K {
         self.key
     }
 
-    pub fn value(&mut self) &mut V {
+    pub fun value(&mut self) &mut V {
         self.value
     }
 
-    pub fn intoRejected(self) ?HashMapEntry[K, V] {
+    pub fun intoRejected(self) ?HashMapEntry[K, V] {
         self.rejected
     }
 }
@@ -109,27 +109,27 @@ where K: Sized, V: Sized
 extend[K, V] HashMapReplacement[K, V]
 where K: Sized, V: Sized
 {
-    pub fn rejectedKey(&self) &K {
+    pub fun rejectedKey(&self) &K {
         &self.rejectedKey
     }
 
-    pub fn replacedValue(&self) &V {
+    pub fun replacedValue(&self) &V {
         &self.replacedValue
     }
 
-    pub fn rejectedKeyMut(&mut self) &mut K {
+    pub fun rejectedKeyMut(&mut self) &mut K {
         &mut self.rejectedKey
     }
 
-    pub fn replacedValueMut(&mut self) &mut V {
+    pub fun replacedValueMut(&mut self) &mut V {
         &mut self.replacedValue
     }
 
-    pub fn intoRejectedKey(self) K {
+    pub fun intoRejectedKey(self) K {
         self.rejectedKey
     }
 
-    pub fn intoReplacedValue(self) V {
+    pub fun intoReplacedValue(self) V {
         self.replacedValue
     }
 }

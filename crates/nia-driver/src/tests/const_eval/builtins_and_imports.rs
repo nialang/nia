@@ -7,7 +7,7 @@ fn conditional_attribute_prunes_unselected_function_body_statement() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     @[if false]
     _ = missing_name;
     1
@@ -26,9 +26,9 @@ fn conditional_attribute_accepts_target_fields() {
         &root.join("main.nia"),
         r#"
 @[if pointerWidth == 64 or pointerWidth == 32]
-fn selected() i32 { 1 }
+fun selected() i32 { 1 }
 
-fn main() i32 { selected() }
+fun main() i32 { selected() }
 "#,
     );
 
@@ -48,7 +48,7 @@ const builtin = Config { target: Target { pointer_width: 64usize } };
 const bits: usize = builtin.target.pointer_width;
 const word_bytes: usize = bits / 8;
 
-fn main() i32 {
+fun main() i32 {
     let mut bytes: [u8; word_bytes] = [0; word_bytes];
     bytes.len() as i32
 }
@@ -65,7 +65,7 @@ fn removed_builtin_struct_is_rejected() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let builtin = @builtin();
     _ = builtin;
     0
@@ -105,7 +105,7 @@ const value_offset: usize = offset[Pair]("value");
 const payload = embed("assets/payload.bin");
 const payload_len: usize = payload.len();
 
-fn main() usize {
+fun main() usize {
     word_size + word_align + value_offset + payload_len
 }
 "#,
@@ -131,7 +131,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    fn next(&mut self) ?usize {
+    fun next(&mut self) ?usize {
         if self.next_value >= self.end {
             null
         } else {
@@ -142,7 +142,7 @@ extend Counter : Iterator {
     }
 }
 
-fn count[I](iter: I) usize
+fun count[I](iter: I) usize
 where I: Iterator {
     let mut values = iter;
     let mut total = 0usize;
@@ -161,7 +161,7 @@ where I: Iterator {
     total
 }
 
-fn main() usize {
+fun main() usize {
     count(Counter { next_value: 0usize, end: 3usize })
 }
 "#,
@@ -179,7 +179,7 @@ fn local_type_alias_can_use_builtin_trait_names_without_ambient_conflict() {
         r#"
 type Ptr[T] = &T;
 
-fn read(value: Ptr[u8]) u8 {
+fun read(value: Ptr[u8]) u8 {
     value.*
 }
 "#,
@@ -198,7 +198,7 @@ fn const_function_rejects_nominal_array_field_assignment_type_mismatch() {
 struct Target { os: [char; 5], pointer_width: usize }
 struct Config { target: Target }
 
-const fn width() usize {
+const fun width() usize {
     let mut config = Config { target: Target { os: "linux", pointer_width: 64usize } };
     config.target.os = true;
     config.target.pointer_width
@@ -227,7 +227,7 @@ fn const_function_rejects_nominal_bool_field_assignment_type_mismatch() {
         r#"
 struct Config { enabled: bool }
 
-const fn width() usize {
+const fun width() usize {
     let mut config = Config { enabled: true };
     config.enabled = 1usize;
     1usize
@@ -254,7 +254,7 @@ fn old_target_predicate_builtins_are_rejected() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     if @target_os("linux") {
         1
     } else {
@@ -284,7 +284,7 @@ fn imported_const_values_drive_array_lengths() {
 module config;
 using entry::config;
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; config::width] = [1, 2, 3, 4];
     values[config::width - 1]
 }
@@ -315,7 +315,7 @@ struct Pair {
 const pair_size: usize = std::builtin::size[Pair]();
 const pair_align: usize = std::builtin::align[Pair]();
 
-fn main() i32 {
+fun main() i32 {
     let mut bytes: [u8; pair_size] = [0; pair_size];
     bytes.len() as i32 + pair_align as i32
 }
@@ -336,7 +336,7 @@ fn embed_reads_bytes_relative_to_source_file() {
         r#"
 const payload = std::builtin::embed("assets/payload.bin");
 
-const fn score(bytes: [u8; 3]) usize {
+const fun score(bytes: [u8; 3]) usize {
     if bytes[0] == b'n' and bytes[1] == b'i' and bytes[2] == b'a' {
         bytes.len()
     } else {
@@ -346,7 +346,7 @@ const fn score(bytes: [u8; 3]) usize {
 
 const n: usize = score(payload);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [u8; n] = [0; n];
     values.len() as i32
 }
@@ -365,7 +365,7 @@ fn embed_reports_missing_file() {
         r#"
 const payload = std::builtin::embed("missing.bin");
 
-fn main() i32 {
+fun main() i32 {
     payload.len() as i32
 }
 "#,
@@ -389,7 +389,7 @@ fn embed_is_rejected_in_runtime_body() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let payload = std::builtin::embed("payload.bin");
     payload.len() as i32
 }
@@ -426,7 +426,7 @@ const invalidWidth: usize = match surrogate {
     null => 2,
 };
 
-fn main() i32 {
+fun main() i32 {
     let values: [u8; width + invalidWidth] = [0; width + invalidWidth];
     values.len() as i32
 }

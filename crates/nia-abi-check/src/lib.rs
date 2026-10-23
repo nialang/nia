@@ -609,7 +609,7 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use a function item directly"),
                 "function items are compile-time-only values and have no C ABI representation",
-                "take an explicit `&fn(...)` pointer before crossing the foreign boundary",
+                "take an explicit `&fun(...)` pointer before crossing the foreign boundary",
             )),
             Some(TyKind::Opaque) => self.diagnostics.push(extern_type_diagnostic(
                 span,
@@ -667,7 +667,7 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use nia callable view directly"),
                 "a Nia callable view includes closure/environment metadata beyond a C function pointer",
-                "use a thin `&fn(...)` pointer without captures, or pass an explicit context pointer",
+                "use a thin `&fun(...)` pointer without captures, or pass an explicit context pointer",
             )),
             Some(TyKind::CallablePointee { .. }) => {
                 self.diagnostics.push(extern_type_diagnostic(
@@ -688,7 +688,7 @@ impl AbiChecker<'_> {
                         span,
                         format!("{context_desc} must use a C function pointer"),
                         "a Nia function pointer uses the internal calling convention and cannot cross a C ABI boundary",
-                        "write the type as `&extern fn(...)` and take the address of an `extern fn`",
+                        "write the type as `&extern fun(...)` and take the address of an `extern fun`",
                     ));
                 }
                 if *is_variadic {
@@ -696,7 +696,7 @@ impl AbiChecker<'_> {
                         span,
                         format!("{context_desc} cannot use variadic function pointer"),
                         "variadic function-pointer values do not carry a stable C prototype in Nia's type system",
-                        "declare the variadic function directly as `extern fn` instead of passing it as a value",
+                        "declare the variadic function directly as `extern fun` instead of passing it as a value",
                     ));
                 }
                 for param in params {
@@ -1007,17 +1007,17 @@ struct Empty {}
 extern struct BadExtern { flag: bool }
 extern struct ExternEmpty {}
 
-extern fn bad(flag: bool, ch: char, nothing: (), color: Color, xs: [u8; 2], pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &fn(i32, ...) never, ...);
-extern fn bad_never_return() never;
-extern fn bad_variadic_definition(fmt: &u8, ...) {
+extern fun bad(flag: bool, ch: char, nothing: (), color: Color, xs: [u8; 2], pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &fun(i32, ...) never, ...);
+extern fun bad_never_return() never;
+extern fun bad_variadic_definition(fmt: &u8, ...) {
 }
 extern static bad_global: bool;
 union Bits { i: i32 }
-extern fn bad_union(bits: Bits);
-extern fn bad_callable_view(callback: &Fn(i32) i32);
-extern fn bad_callable_pointee(callback: Fn(i32) i32);
-extern fn bad_nia_fn_pointer(callback: &fn(i32) i32);
-extern fn bad_tuple(pair: (i32, i32));
+extern fun bad_union(bits: Bits);
+extern fun bad_callable_view(callback: &Fun(i32) i32);
+extern fun bad_callable_pointee(callback: Fun(i32) i32);
+extern fun bad_nia_fn_pointer(callback: &fun(i32) i32);
+extern fun bad_tuple(pair: (i32, i32));
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1107,7 +1107,7 @@ extern struct Header {
     reserved: [u64; 4],
 }
 
-extern fn consume(header: Header);
+extern fun consume(header: Header);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1144,7 +1144,7 @@ extern struct Wide {
     value: u128,
 }
 
-extern fn consume(value: i128, wide: Wide) i128;
+extern fun consume(value: i128, wide: Wide) i128;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1230,7 +1230,7 @@ extern struct Header[N: usize] {
 
     #[test]
     fn checks_fields_of_imported_extern_structs() {
-        let (module, errors) = parse_module("extern fn consume(value: Imported);");
+        let (module, errors) = parse_module("extern fun consume(value: Imported);");
         assert!(errors.is_empty(), "{errors:?}");
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
@@ -1365,10 +1365,10 @@ type HeaderAlias = Header;
 type Unit = ();
 
 extern struct Header { value: i32 }
-extern fn bad_flag(flag: Flag);
-extern fn bad_generic(flag: Identity[bool]);
-extern fn consume(header: HeaderAlias);
-extern fn effect() Unit;
+extern fun bad_flag(flag: Flag);
+extern fun bad_generic(flag: Identity[bool]);
+extern fun consume(header: HeaderAlias);
+extern fun effect() Unit;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1469,9 +1469,9 @@ extern struct Header { values: Repeat[bool, 4] }
     fn allows_unit_returns_and_rejects_tuple_values_at_c_boundaries() {
         let (module, errors) = parse_module(
             r#"
-extern fn effect();
-extern fn bad_param(value: (i32, bool));
-extern fn bad_return() (i32, bool);
+extern fun effect();
+extern fun bad_param(value: (i32, bool));
+extern fun bad_return() (i32, bool);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

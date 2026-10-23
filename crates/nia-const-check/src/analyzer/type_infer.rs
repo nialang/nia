@@ -939,7 +939,7 @@ impl Analyzer<'_> {
                     target_error,
                     "automatic `IntoError` conversion during const evaluation requires a unique concrete trait witness",
                     "no unique visible const conversion was found for this propagated error",
-                    "provide one `const fn intoError` implementation for the source and target error types, or handle the error before constant evaluation",
+                    "provide one `const fun intoError` implementation for the source and target error types, or handle the error before constant evaluation",
                 );
                 return;
             }
@@ -970,9 +970,9 @@ impl Analyzer<'_> {
                 span,
                 source_error,
                 target_error,
-                "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fn`",
+                "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fun`",
                 "the matching conversion exists, but its `intoError` implementation is runtime-only",
-                "declare `intoError` as `const fn`, or avoid propagating this error during constant evaluation",
+                "declare `intoError` as `const fun`, or avoid propagating this error during constant evaluation",
             );
             return;
         }

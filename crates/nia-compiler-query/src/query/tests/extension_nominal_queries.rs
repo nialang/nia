@@ -10,7 +10,7 @@ fn visible_extensions_use_signature_type_normalization_and_nominal_provider_quer
 module facade;
 using entry::facade;
 
-pub fn main(value: facade::Used) i32 {
+pub fun main(value: facade::Used) i32 {
     value.len()
 }
 "#,
@@ -36,7 +36,7 @@ pub using self::types::Used;
 using entry::facade::types::Used;
 
 extend Used {
-    pub fn len(&self) i32 {
+    pub fun len(&self) i32 {
         1
     }
 }

@@ -7,13 +7,13 @@ fn generic_const_function_explicit_type_args_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id[usize](4usize);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -30,13 +30,13 @@ fn generic_const_function_infers_type_arg_from_suffixed_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id(4usize);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -53,13 +53,13 @@ fn generic_const_function_infers_type_arg_from_integer_binary_expr() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id(4usize + 3usize);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -76,11 +76,11 @@ fn generic_const_function_infers_type_arg_from_bool_binary_expr() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn choose(value: bool) usize {
+const fun choose(value: bool) usize {
     if value {
         5usize
     } else {
@@ -90,7 +90,7 @@ const fn choose(value: bool) usize {
 
 const n: usize = choose(id((4usize + 3usize) == 7usize));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -107,11 +107,11 @@ fn generic_const_function_infers_type_arg_from_bool_literal_and_not() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn choose(value: bool) usize {
+const fun choose(value: bool) usize {
     if value {
         6usize
     } else {
@@ -123,7 +123,7 @@ const a: bool = id(true);
 const b: bool = id(not false);
 const n: usize = choose(a and b);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -140,11 +140,11 @@ fn generic_const_function_infers_type_arg_from_integer_negation() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn magnitude(value: i32) usize {
+const fun magnitude(value: i32) usize {
     if value == -4i32 {
         4usize
     } else {
@@ -154,7 +154,7 @@ const fn magnitude(value: i32) usize {
 
 const n: usize = magnitude(id(-4i32));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -171,7 +171,7 @@ fn generic_const_function_infers_type_arg_from_if_expression() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -181,7 +181,7 @@ const n: usize = id(if true {
     1usize
 });
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -198,11 +198,11 @@ fn generic_const_function_infers_type_arg_from_contextual_if_expression() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: ?T) ?T {
+const fun id[T](value: ?T) ?T {
     value
 }
 
-const fn unwrap(value: ?usize) usize {
+const fun unwrap(value: ?usize) usize {
     match value {
         ?payload => {
             payload
@@ -219,7 +219,7 @@ const n: usize = unwrap(id(if true {
     null
 }));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -236,7 +236,7 @@ fn generic_const_function_infers_type_arg_from_if_block_tail_local() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -248,7 +248,7 @@ const n: usize = id(if true {
     value
 });
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -265,7 +265,7 @@ fn generic_const_function_infers_type_arg_from_match_expression() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -275,7 +275,7 @@ const n: usize = id(match 2usize {
     _ => 1usize,
 });
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -292,7 +292,7 @@ fn generic_const_function_rejects_mismatched_match_pattern() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -320,7 +320,7 @@ fn generic_const_function_rejects_non_integer_match_range_pattern() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -348,7 +348,7 @@ fn generic_const_function_infers_type_arg_from_if_pattern_optional_payload() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -362,7 +362,7 @@ const n: usize = match value {
     },
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -379,7 +379,7 @@ fn generic_const_function_infers_type_arg_from_if_pattern_error_payloads() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -393,7 +393,7 @@ const n: usize = match value {
     },
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -410,13 +410,13 @@ fn generic_const_function_infers_type_arg_from_array_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn second[T](values: [T; 2]) T {
+const fun second[T](values: [T; 2]) T {
     values[1]
 }
 
 const n: usize = second([4usize, 8usize]);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -433,13 +433,13 @@ fn generic_const_function_infers_type_arg_from_array_repeat_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn first[T](values: [T; 2]) T {
+const fun first[T](values: [T; 2]) T {
     values[0]
 }
 
 const n: usize = first([8usize; 2]);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -456,7 +456,7 @@ fn generic_const_function_rejects_non_integer_array_repeat_count() {
     write(
         &root.join("main.nia"),
         r#"
-const fn first[T](values: T) usize {
+const fun first[T](values: T) usize {
     values.len()
 }
 
@@ -481,7 +481,7 @@ fn generic_const_function_infers_type_arg_from_contextual_array_literal() {
     write(
         &root.join("main.nia"),
         r#"
-const fn first_some[T](values: [?T; 2]) T {
+const fun first_some[T](values: [?T; 2]) T {
     match values[0] {
         ?payload => {
             payload
@@ -497,7 +497,7 @@ const fn first_some[T](values: [?T; 2]) T {
 
 const n: usize = first_some([null, ?8usize]);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -519,13 +519,13 @@ struct Pair[T] {
     right: T,
 }
 
-const fn right[T](pair: Pair[T]) T {
+const fun right[T](pair: Pair[T]) T {
     pair.right
 }
 
 const n: usize = right(Pair[usize] { left: 4usize, right: 8usize });
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -547,7 +547,7 @@ struct Slot[T] {
     fallback: ?T,
 }
 
-const fn pick[T](slot: Slot[T]) T {
+const fun pick[T](slot: Slot[T]) T {
     match slot.primary {
         ?payload => {
             payload
@@ -563,7 +563,7 @@ const fn pick[T](slot: Slot[T]) T {
 
 const n: usize = pick(Slot[usize] { primary: null, fallback: ?8usize });
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -585,14 +585,14 @@ struct Point {
     y: usize,
 }
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const point: Point = Point{x: 4, y: 8};
 const n: usize = id(point.y);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -623,13 +623,13 @@ pub const point: Point = Point{x: 4, y: 8};
 module config;
 using entry::config;
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id(config::point.x);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -651,17 +651,17 @@ struct Pair[T] {
     right: T,
 }
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn right_id[T](pair: Pair[T]) T {
+const fun right_id[T](pair: Pair[T]) T {
     id(pair.right)
 }
 
 const n: usize = right_id(Pair[usize] { left: 4usize, right: 8usize });
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -678,14 +678,14 @@ fn generic_const_function_infers_type_arg_from_typed_const_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const width: usize = 4;
 const n: usize = id(width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -702,14 +702,14 @@ fn generic_const_function_infers_type_arg_from_inferred_const_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const width = 4usize;
 const n: usize = id(width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -726,11 +726,11 @@ fn generic_const_function_infers_type_arg_from_local_inferred_const_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     const width = 4usize;
     const n: usize = id(width);
     let mut values: [i32; n] = [0; n];
@@ -749,11 +749,11 @@ fn function_body_const_call_infers_generic_from_local_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     const width = 4usize;
     const n: usize = id(width);
     let mut values: [i32; n] = [0; n];
@@ -772,14 +772,14 @@ fn function_body_const_call_infers_generic_from_nominal_field() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 struct Target { word_bits: usize }
 struct Config { target: Target }
 
-fn main() i32 {
+fun main() i32 {
     const config = Config { target: Target { word_bits: 64usize } };
     const n: usize = id(config.target.word_bits) / 8usize;
     let mut values: [i32; n] = [0; n];
@@ -798,7 +798,7 @@ fn function_body_imported_const_call_infers_generic_from_local_value() {
     write(
         &root.join("helpers.nia"),
         r#"
-pub const fn id[T](value: T) T {
+pub const fun id[T](value: T) T {
     value
 }
 "#,
@@ -809,7 +809,7 @@ pub const fn id[T](value: T) T {
 module helpers;
 using entry::helpers;
 
-fn main() i32 {
+fun main() i32 {
     const width = 4usize;
     const n: usize = helpers::id(width);
     let mut values: [i32; n] = [0; n];
@@ -828,13 +828,13 @@ fn imported_const_function_body_infers_generic_from_nominal_local() {
     write(
         &root.join("helpers.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 struct Config { bits: usize }
 
-pub const fn word_bytes() usize {
+pub const fun word_bytes() usize {
     const configs = [Config { bits: 32usize }, Config { bits: 64usize }];
     id(configs[1].bits) / 8usize
 }
@@ -846,7 +846,7 @@ pub const fn word_bytes() usize {
 module helpers;
 using entry::helpers;
 
-fn main() i32 {
+fun main() i32 {
     const n: usize = helpers::word_bytes();
     let mut values: [i32; n] = [0; n];
     values.len() as i32
@@ -873,13 +873,13 @@ pub const width = 4usize;
 module config;
 using entry::config;
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id(config::width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }

@@ -8,17 +8,17 @@ struct NameContext {
 }
 
 extend NameContext {
-    fn init(source: &[u8]) NameContext {
+    fun init(source: &[u8]) NameContext {
         .{ source }
     }
 }
 
 extend NameContext : collections::HashMapContext[model::Span] {
-    fn hash(&self, seed: u64, key: &model::Span) u64 {
+    fun hash(&self, seed: u64, key: &model::Span) u64 {
         hash::wyhash(seed, key.bytes(self.source))
     }
 
-    fn eql(&self, left: &model::Span, right: &model::Span) bool {
+    fun eql(&self, left: &model::Span, right: &model::Span) bool {
         left.bytes(self.source).equals(right.bytes(self.source))
     }
 }
@@ -28,11 +28,11 @@ pub struct NameIndex {
 }
 
 extend NameIndex {
-    pub fn init(source: &[u8]) NameIndex {
+    pub fun init(source: &[u8]) NameIndex {
         .{ values: .initContextSeed(NameContext::init(source), 0) }
     }
 
-    pub fn insert(
+    pub fun insert(
         &mut self,
         allocator: &mut mem::Allocator,
         name: model::Span,
@@ -45,7 +45,7 @@ extend NameIndex {
         }
     }
 
-    pub fn get(&self, name: model::Span) ?model::TaskId {
+    pub fun get(&self, name: model::Span) ?model::TaskId {
         if self.values.get(&name) is ?id {
             ?id.*
         } else {

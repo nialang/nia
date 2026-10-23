@@ -32,7 +32,7 @@ fn lexical_imports_restore_outer_names_and_preserve_variant_and_failure_identity
     let api = graph.root_module_for_name(entry, name("api")).unwrap();
     let source = r#"
 pub module api;
-fn inspect() () {
+fun inspect() () {
     using entry::api::{value as chosen, Color as Palette};
     using Palette::Red as Selected;
     _ = Selected;
@@ -42,14 +42,14 @@ fn inspect() () {
     }
     _ = chosen;
 }
-fn sibling() () { _ = chosen; }
+fun sibling() () { _ = chosen; }
 "#;
     let (module, errors) = nia_parser::parse_module(source);
     assert!(errors.is_empty());
     let items = nia_item_tree::ModuleItemTree::from_module(&module).all_items_active();
     let all_defs = [
         defs(entry, source),
-        defs(api, "pub fn value() i32 { 1 } pub enum Color { Red }"),
+        defs(api, "pub fun value() i32 { 1 } pub enum Color { Red }"),
     ];
     let (surfaces, scopes, diagnostics) = compute_public_surfaces(&all_defs, &graph);
     assert!(diagnostics.is_empty());
@@ -118,8 +118,8 @@ pub module right;
 using { left::*, right::* };
 "#,
     );
-    let left = defs(left_id, "pub fn value() i32 { 1 }");
-    let right = defs(right_id, "pub fn value() i32 { 2 }");
+    let left = defs(left_id, "pub fun value() i32 { 1 }");
+    let right = defs(right_id, "pub fun value() i32 { 2 }");
 
     let (_, _, diagnostics) = compute_public_surfaces(&[main, left, right], &graph);
 
@@ -221,7 +221,7 @@ impl UsingGroupFixture {
             .root_module_for_name(entry_id, name("api"))
             .expect("api child");
         let main = defs(entry_id, main_source);
-        let api = defs(api_id, "pub fn present() i32 { 1 }");
+        let api = defs(api_id, "pub fun present() i32 { 1 }");
         let (_, mut scopes, diagnostics) = compute_public_surfaces(&[main, api], &graph);
         Self {
             scope: scopes.remove(&entry_id).expect("entry scope"),
@@ -302,7 +302,7 @@ fn hidden_child_module_reports_visibility_with_its_declaration() {
     let source = "pub module api;\nusing api::hidden;\nusing api::hidden::value;\n";
     let main = defs(entry_id, source);
     let api = defs(api_id, "module hidden;");
-    let hidden = defs(hidden_id, "pub fn value() i32 { 1 }");
+    let hidden = defs(hidden_id, "pub fun value() i32 { 1 }");
 
     let (_, mut scopes, diagnostics) = compute_public_surfaces(&[main, api, hidden], &graph);
     let scope = scopes.remove(&entry_id).expect("entry scope");

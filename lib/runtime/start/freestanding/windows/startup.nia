@@ -10,15 +10,15 @@ const startupPointerCapacity: usize = startupCapacity / 2 + 1;
 const startupByteCapacity: usize = startupCapacity * 3;
 const memCommitReserve: u32 = 0x3000;
 const pageReadWrite: u32 = 0x04;
-extern fn GetCommandLineW() &u16;
-extern fn GetEnvironmentStringsW() &u16;
-extern fn FreeEnvironmentStringsW(environment: &u16) i32;
-extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protect: u32) usize;
+extern fun GetCommandLineW() &u16;
+extern fun GetEnvironmentStringsW() &u16;
+extern fun FreeEnvironmentStringsW(environment: &u16) i32;
+extern fun VirtualAlloc(address: usize, size: usize, allocationType: u32, protect: u32) usize;
 
 static mut startupArgumentBytes: [u8; startupByteCapacity] = [0; startupByteCapacity];
 static mut startupWideArgument: [u16; startupCapacity] = [0; startupCapacity];
 
-extern fn niaWindowsStart() () {
+extern fun niaWindowsStart() () {
     let mut argumentPointers: [&u8; startupPointerCapacity] = [0usize as &u8; startupPointerCapacity];
     let argc = parseArguments(
         GetCommandLineW(),
@@ -43,7 +43,7 @@ extern fn niaWindowsStart() () {
 
 // The environment block has no fixed size limit, so its UTF-8 copy is sized
 // from the block. The copy lives for the whole process, like `process::Init`.
-fn copyEnvironment(environment: &u16) &&u8 {
+fun copyEnvironment(environment: &u16) &&u8 {
     let shape = measureEnvironment(environment);
     if shape.entries == 0 {
         return 0usize as &&u8;

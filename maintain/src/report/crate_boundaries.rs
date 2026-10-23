@@ -11,7 +11,7 @@ use crate::MaintainResult;
 
 static PUBLIC_ITEM: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^pub\s+(?:async\s+|unsafe\s+|const\s+|extern\s+)*(?:struct|enum|union|trait|type|const|static|fn|mod|use)\b",
+        r"^pub\s+(?:async\s+|unsafe\s+|const\s+|extern\s+)*(?:struct|enum|union|trait|type|const|static|fun|mod|use)\b",
     )
     .expect("valid public item regex")
 });

@@ -6,9 +6,9 @@ fn lowered_closure_entries_remain_owned_by_the_source_body_query() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-pub fn main(base: i32) i32 {
+pub fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &callback;
+    let view: &Fun(i32) i32 = &callback;
     callback(1) + view(2)
 }
 "#,
@@ -147,13 +147,13 @@ pub fn main(base: i32) i32 {
 #[test]
 fn incremental_closure_entry_identity_matches_clean_recomputation() {
     let source_v1 = r#"
-pub fn main(base: i32) i32 {
+pub fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     callback(1)
 }
 "#;
     let source_v2 = r#"
-pub fn main(base: i32) i32 {
+pub fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value + 1 };
     callback(1)
 }
@@ -237,9 +237,9 @@ fn no_capture_function_pointer_retains_its_owned_closure_entry_identity() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-pub fn main() i32 {
+pub fun main() i32 {
     let callback = \value: i32 -> { value + 1 };
-    let pointer: &fn(i32) i32 = &callback;
+    let pointer: &fun(i32) i32 = &callback;
     pointer(2)
 }
 "#,
@@ -288,12 +288,12 @@ fn generic_function_instances_materialize_distinct_concrete_closure_entries() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn apply[T](value: T) T {
+fun apply[T](value: T) T {
     let callback = \[value] -> { value };
     callback()
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
     apply[i32](7)
 }
 "#,
@@ -363,12 +363,12 @@ fn generic_extension_method_instances_substitute_owner_and_method_parameters() {
         "main.nia",
         r#"
 extend[Value] ?Value {
-    fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
+    fun map[Mapped](self, mapper: &Fun(Value) Mapped) ?Mapped {
         if self is ?value { ?mapper(value) } else { null }
     }
 }
 
-pub fn main(base: i32) i32 {
+pub fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     let value: ?i32 = ?1;
     match value.map[i32](&callback) {
@@ -410,9 +410,9 @@ fn closure_entry_bodies_participate_in_backend_reachability() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn helper(value: i32) i32 { value + 1 }
+fun helper(value: i32) i32 { value + 1 }
 
-pub fn main() i32 {
+pub fun main() i32 {
     let callback = \value: i32 -> { helper(value) };
     callback(1)
 }
@@ -450,11 +450,11 @@ struct Recursive {
 next: Recursive,
 }
 
-fn unused(value: Recursive) i32 {
+fun unused(value: Recursive) i32 {
 1
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 0
 }
 "#,
@@ -512,7 +512,7 @@ module bounds;
 using entry::ext;
 using entry::bounds;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let value = ext::Box[bounds::Token]::init(bounds::Token {});
 value.get()
 }
@@ -535,11 +535,11 @@ value: T,
 extend[T] Box[T]
 where T: bounds::Marker
 {
-pub fn init(value: T) Box[T] {
+pub fun init(value: T) Box[T] {
     Self { value }
 }
 
-pub fn get(self) i32 {
+pub fun get(self) i32 {
     1
 }
 }
@@ -577,7 +577,7 @@ fn executable_backend_lowering_includes_shallow_primitive_extension_owners() {
 module unicode;
 using entry::unicode;
 
-pub fn main() i32 {
+pub fun main() i32 {
 'a'.encoded_len()
 }
 "#,
@@ -589,7 +589,7 @@ pub fn main() i32 {
         "unicode.nia",
         r#"
 extend char {
-pub fn encoded_len(self) i32 {
+pub fun encoded_len(self) i32 {
     _ = self;
     1
 }
@@ -603,7 +603,7 @@ pub fn encoded_len(self) i32 {
         "unused.nia",
         r#"
 extend i32 {
-pub fn unreachable(self) i32 {
+pub fun unreachable(self) i32 {
     missing_symbol
 }
 }
@@ -692,7 +692,7 @@ fn executable_backend_signatures_include_checked_shallow_provider_impls() {
 module provider;
 using entry::provider;
 
-pub fn main() i32 {
+pub fun main() i32 {
 'a'.activate()
 }
 "#,
@@ -704,11 +704,11 @@ pub fn main() i32 {
         "provider.nia",
         r#"
 pub trait Value {
-fn value(self) i32;
+fun value(self) i32;
 }
 
 extend char : Value {
-fn value(self) i32 {
+fun value(self) i32 {
 _ = self;
 1
 }
@@ -717,7 +717,7 @@ _ = self;
 extend[T] T
 where T: Value
 {
-pub fn activate(self) i32 {
+pub fun activate(self) i32 {
 self.value()
 }
 }
@@ -751,7 +751,7 @@ module module2;
 using entry::module1;
 using entry::module2;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut page = module2::Page::init();
 let allocator: &mut module1::Allocator = &mut page;
 allocator.remap()
@@ -765,15 +765,15 @@ allocator.remap()
         "module1.nia",
         r#"
 pub trait Allocator {
-fn alloc(&mut self) i32;
+fun alloc(&mut self) i32;
 
-fn remap(&mut self) i32 {
+fun remap(&mut self) i32 {
     _ = self;
     helper()
 }
 }
 
-fn helper() i32 {
+fun helper() i32 {
 7
 }
 "#,
@@ -789,13 +789,13 @@ using module1::Allocator;
 pub struct Page {}
 
 extend Page {
-pub fn init() Page {
+pub fun init() Page {
     {}
 }
 }
 
 extend Page : Allocator {
-fn alloc(&mut self) i32 {
+fun alloc(&mut self) i32 {
     _ = self;
     7
 }
@@ -937,7 +937,7 @@ fn executable_backend_lowering_closes_vtables_from_generic_function_instances() 
 module dispatch;
 using entry::dispatch;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut page = dispatch::Page::init();
 dispatch::call[dispatch::Page](&mut page)
 }
@@ -950,9 +950,9 @@ dispatch::call[dispatch::Page](&mut page)
         "dispatch.nia",
         r#"
 pub trait Allocator {
-fn alloc(&mut self) i32;
+fun alloc(&mut self) i32;
 
-fn remap(&mut self) i32 {
+fun remap(&mut self) i32 {
     self.alloc()
 }
 }
@@ -960,19 +960,19 @@ fn remap(&mut self) i32 {
 pub struct Page {}
 
 extend Page {
-pub fn init() Page {
+pub fun init() Page {
     {}
 }
 }
 
 extend Page : Allocator {
-fn alloc(&mut self) i32 {
+fun alloc(&mut self) i32 {
     _ = self;
     7
 }
 }
 
-pub fn call[T](value: &mut T) i32
+pub fun call[T](value: &mut T) i32
 where T: Allocator
 {
 let allocator: &mut Allocator = value;
@@ -1093,7 +1093,7 @@ module right;
 using entry::left;
 using entry::right;
 
-pub fn main() i32 {
+pub fun main() i32 {
 left::read() + right::read()
 }
 "#,
@@ -1105,13 +1105,13 @@ left::read() + right::read()
         "common.nia",
         r#"
 pub trait Value {
-fn read(& self) i32;
+fun read(& self) i32;
 }
 
 pub struct Cell {}
 
 extend Cell : Value {
-fn read(& self) i32 {
+fun read(& self) i32 {
     _ = self;
     7
 }
@@ -1125,7 +1125,7 @@ fn read(& self) i32 {
         r#"
 using entry::common;
 
-pub fn read() i32 {
+pub fun read() i32 {
 let cell = common::Cell {};
 let value: &common::Value = &cell;
 value.read()
@@ -1139,7 +1139,7 @@ value.read()
         r#"
 using entry::common;
 
-pub fn read() i32 {
+pub fun read() i32 {
 let cell = common::Cell {};
 let value: &common::Value = &cell;
 value.read()
@@ -1171,7 +1171,7 @@ fn executable_backend_lowering_closes_cross_module_generic_local_static_instance
 module slots;
 using entry::slots;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut left = slots::slot[i32]();
 let mut right = slots::slot[u64]();
 _ = left;
@@ -1186,7 +1186,7 @@ _ = right;
         "slots",
         "slots.nia",
         r#"
-pub fn slot[T]() &mut T {
+pub fun slot[T]() &mut T {
 static mut item: T;
 &mut item
 }

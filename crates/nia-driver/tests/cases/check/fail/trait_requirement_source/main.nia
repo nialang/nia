@@ -3,12 +3,12 @@ module api;
 struct Local {}
 
 extend Local : api::Child {
-    fn child(&self) bool {
+    fun child(&self) bool {
         true
     }
 }
 
-fn main() bool {
+fun main() bool {
     let value = Local {};
     value.child()
 }

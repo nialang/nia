@@ -30,12 +30,12 @@ union UnusedPayload {
 }
 
 extend Point {
-    fn make(x: i32, y: i32) Point {
+    fun make(x: i32, y: i32) Point {
         Self { x, y }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Point::make(1, 2);
     p.x
 }
@@ -477,7 +477,7 @@ fn const_bindings_do_not_lower_to_storage() {
     let source = r#"
 const answer: i32 = 40 + 2;
 
-fn main() i32 {
+fun main() i32 {
     const local: i32 = answer;
     local
 }
@@ -509,7 +509,7 @@ fn lowers_large_array_repeat_count_from_const_binding() {
     let source = r#"
 const N: usize = 1048576;
 
-fn main() i32 {
+fun main() i32 {
     let mut buffer: [u8; N] = [0u8; N];
     0
 }
@@ -555,7 +555,7 @@ fn main() i32 {
 #[test]
 fn lowers_function_body_to_function_ir() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     defer {
     };
     let mut value = 1;
@@ -597,7 +597,7 @@ fn main() i32 {
 #[test]
 fn lowers_loop_break_and_continue_to_function_ir_branches() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     loop {
         continue;
         break;
@@ -638,11 +638,11 @@ fn main() i32 {
 #[test]
 fn instantiates_generic_function_instances_in_function_ir() {
     let source = r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     id[i32](42)
 }
 "#;
@@ -674,11 +674,11 @@ fn main() i32 {
 #[test]
 fn instantiates_const_generic_function_array_lengths_in_function_ir() {
     let source = r#"
-fn take[T, N: usize](items: [T; N]) usize {
+fun take[T, N: usize](items: [T; N]) usize {
     N
 }
 
-fn main() usize {
+fun main() usize {
     take([1u8, 2u8, 3u8, 4u8]) + take([1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8])
 }
 "#;
@@ -730,11 +730,11 @@ fn main() usize {
 #[test]
 fn instantiates_interleaved_type_and_const_function_generics_by_kind() {
     let source = r#"
-fn choose[T, N: usize, U](left: T, right: U) U {
+fun choose[T, N: usize, U](left: T, right: U) U {
     right
 }
 
-fn main() i64 {
+fun main() i64 {
     choose[i32, 3, i64](1, 9i64)
 }
 "#;
@@ -767,15 +767,15 @@ fn main() i64 {
 #[test]
 fn instantiates_nested_const_generic_callee_identity() {
     let source = r#"
-fn inner[N: usize]() usize {
+fun inner[N: usize]() usize {
     N
 }
 
-fn outer[N: usize]() usize {
+fun outer[N: usize]() usize {
     inner[N]()
 }
 
-fn main() usize {
+fun main() usize {
     outer[3]()
 }
 "#;
@@ -818,15 +818,15 @@ struct Buffer[T, N: usize] {
     data: [T; N],
 }
 
-fn make4() Buffer[u8, 4] {
+fun make4() Buffer[u8, 4] {
     Buffer[u8, 4] { data: [1u8, 2u8, 3u8, 4u8] }
 }
 
-fn make8() Buffer[u8, 8] {
+fun make8() Buffer[u8, 8] {
     Buffer[u8, 8] { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
 }
 
-fn main() usize {
+fun main() usize {
     let a = make4();
     let b = make8();
     a.data[0] as usize + b.data[0] as usize
@@ -888,7 +888,7 @@ struct Wrapper {
     data: [u8; std::builtin::size[Inner[i32]]()],
 }
 
-fn main(value: Wrapper) usize {
+fun main(value: Wrapper) usize {
     value.data[0] as usize
 }
 "#;
@@ -921,12 +921,12 @@ fn main(value: Wrapper) usize {
 #[test]
 fn instantiates_generic_local_static_storage_per_function_instance() {
     let source = r#"
-fn slot[T]() &mut T {
+fun slot[T]() &mut T {
     static mut item: T;
     &mut item
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut left = slot[i32]();
     let mut right = slot[u64]();
     _ = left;
@@ -971,12 +971,12 @@ fn main() i32 {
 #[test]
 fn instantiates_interleaved_generic_local_static_types_by_kind() {
     let source = r#"
-fn slot[T, N: usize, U]() &mut [U; N] {
+fun slot[T, N: usize, U]() &mut [U; N] {
     static mut item: [U; N];
     &mut item
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value = slot[i32, 3, i64]();
     _ = value;
     0
@@ -1011,7 +1011,7 @@ fn main() i32 {
 #[test]
 fn nested_local_static_shadowing_keeps_distinct_definition_ids() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     static mut value: i32 = 1;
     if true {
         static mut value: i32 = 2;
@@ -1041,15 +1041,15 @@ fn main() i32 {
 #[test]
 fn instantiates_nested_generic_function_instance_args_in_canonical_store() {
     let source = r#"
-fn inner[T](value: T) T {
+fun inner[T](value: T) T {
     value
 }
 
-fn outer[T](value: &T) &T {
+fun outer[T](value: &T) &T {
     inner[&T](value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value = 1;
     let mut ptr = &value;
     _ = outer[i32](ptr);
@@ -1103,44 +1103,44 @@ struct Init {
 }
 
 extend Init {
-    fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
+    fun init(argc: usize, argv: &&u8, envp: &&u8) Init {
         Self { argc, argv, envp }
     }
 
-    pub fn argc(&self) usize {
+    pub fun argc(&self) usize {
         self.argc
     }
 
-    pub fn args(&self) Args {
+    pub fun args(&self) Args {
         Args { len: self.argc, ptr: self.argv }
     }
 
-    pub fn env(&self) Env {
+    pub fun env(&self) Env {
         Env { ptr: self.envp }
     }
 
-    pub fn argv(&self) &&u8 {
+    pub fun argv(&self) &&u8 {
         self.argv
     }
 
-    pub fn envp(&self) &&u8 {
+    pub fun envp(&self) &&u8 {
         self.envp
     }
 }
 
 extend Args {
-    fn init(len: usize, ptr: &&u8) Args {
+    fun init(len: usize, ptr: &&u8) Args {
         Self { len, ptr }
     }
 }
 
 extend Env {
-    fn init(ptr: &&u8) Env {
+    fun init(ptr: &&u8) Env {
         Self { ptr }
     }
 }
 
-fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
+fun main(argc: usize, argv: &&u8, envp: &&u8) usize {
     let mut init = Init { argc: argc, argv: argv, envp: envp };
     _ = init;
     argc

@@ -1,35 +1,35 @@
 path: fail/type_parameter_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after type parameter; found `bool`
-label: 29..33 Primary Source expected `,` or `)` after type parameter; found `bool`
+label: 31..35 Primary Source expected `,` or `)` after type parameter; found `bool`
 
 path: fail/type_parameter_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after type parameter; found `bool`
-label: 53..57 Primary Source expected `,` or `)` after type parameter; found `bool`
+label: 56..60 Primary Source expected `,` or `)` after type parameter; found `bool`
 
 path: fail/type_parameter_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after type parameter; found `bool`
-label: 72..76 Primary Source expected `,` or `)` after type parameter; found `bool`
+label: 75..79 Primary Source expected `,` or `)` after type parameter; found `bool`
 
 report:
 error[E0101]: expected `,` or `)` after type parameter; found `bool`
-  --> fail/type_parameter_delimiter_recovery/main.nia:1:30
+  --> fail/type_parameter_delimiter_recovery/main.nia:1:32
   |
-1 | fn retained(pointer: &fn(i32 bool), callable: Fn(i32 bool), tuple: (i32 bool)) () {}
-  |                              ^^^^
+1 | fun retained(pointer: &fun(i32 bool), callable: Fun(i32 bool), tuple: (i32 bool)) () {}
+  |                                ^^^^
 
 error[E0101]: expected `,` or `)` after type parameter; found `bool`
-  --> fail/type_parameter_delimiter_recovery/main.nia:1:54
+  --> fail/type_parameter_delimiter_recovery/main.nia:1:57
   |
-1 | fn retained(pointer: &fn(i32 bool), callable: Fn(i32 bool), tuple: (i32 bool)) () {}
-  |                                                      ^^^^
+1 | fun retained(pointer: &fun(i32 bool), callable: Fun(i32 bool), tuple: (i32 bool)) () {}
+  |                                                         ^^^^
 
 error[E0101]: expected `,` or `)` after type parameter; found `bool`
-  --> fail/type_parameter_delimiter_recovery/main.nia:1:73
+  --> fail/type_parameter_delimiter_recovery/main.nia:1:76
   |
-1 | fn retained(pointer: &fn(i32 bool), callable: Fn(i32 bool), tuple: (i32 bool)) () {}
-  |                                                                         ^^^^
+1 | fun retained(pointer: &fun(i32 bool), callable: Fun(i32 bool), tuple: (i32 bool)) () {}
+  |                                                                            ^^^^
 
 summary: 3 errors, 0 warnings

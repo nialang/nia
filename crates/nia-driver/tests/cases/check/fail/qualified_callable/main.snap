@@ -1,21 +1,21 @@
 path: fail/qualified_callable/main.nia
 code: E0301
 summary: generic function pointer requires explicit type arguments
-label: 62..75 Primary Source generic function pointer requires explicit type arguments
+label: 64..77 Primary Source generic function pointer requires explicit type arguments
 
 path: fail/qualified_callable/main.nia
 code: E0201
 summary: unknown value `comput`
-label: 175..181 Primary Source unknown value `comput`
+label: 178..184 Primary Source unknown value `comput`
 help: check the module path, spelling, and whether the value is public
 help: did you mean `compute`?
 
 report:
 error[E0301]: generic function pointer requires explicit type arguments
-  --> fail/qualified_callable/main.nia:4:34
+  --> fail/qualified_callable/main.nia:4:35
   |
-4 |     let missing: &fn(i32) i32 = &api::identity;
-  |                                  ^^^^^^^^^^^^^
+4 |     let missing: &fun(i32) i32 = &api::identity;
+  |                                   ^^^^^^^^^^^^^
 
 error[E0201]: unknown value `comput`
   --> fail/qualified_callable/main.nia:8:10
@@ -25,7 +25,7 @@ error[E0201]: unknown value `comput`
 help: check the module path, spelling, and whether the value is public
 help: did you mean `compute`?
 suggestion (maybe-incorrect): replace the unknown member with this spelling
-  edit: fail/qualified_callable/main.nia:8:10 replace 175..181 with "compute"
+  edit: fail/qualified_callable/main.nia:8:10 replace 178..184 with "compute"
 
 summary: 2 errors, 0 warnings
 note: not shown: 1 caused by the errors above

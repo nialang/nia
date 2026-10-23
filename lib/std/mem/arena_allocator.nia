@@ -28,11 +28,11 @@ pub struct ArenaAllocator {
 }
 
 extend ArenaAllocator {
-    pub fn init(child: &mut Allocator) ArenaAllocator {
+    pub fun init(child: &mut Allocator) ArenaAllocator {
         .{ child, usedList: null, freeList: null }
     }
 
-    pub fn deinit(&mut self) Error!() {
+    pub fun deinit(&mut self) Error!() {
         let used = self.usedList;
         let free = self.freeList;
         self.usedList = null;
@@ -40,12 +40,12 @@ extend ArenaAllocator {
         self.freeDetachedLists(used, free)
     }
 
-    pub fn reset(&mut self) Error!() {
+    pub fun reset(&mut self) Error!() {
         self.moveUsedToFreeList();
         !()
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         let used = self.listCapacity(self.usedList);
         let free = self.listCapacity(self.freeList);
         match used.checkedAdd(free) {
@@ -58,13 +58,13 @@ extend ArenaAllocator {
         }
     }
 
-    pub fn used(&self) usize {
+    pub fun used(&self) usize {
         self.listUsed(self.usedList)
     }
 }
 
 extend ArenaAllocator : Allocator {
-    pub fn alloc(&mut self, layout: Layout) Error!Block {
+    pub fun alloc(&mut self, layout: Layout) Error!Block {
         if layout.isEmpty() {
             return !.empty(layout);
         }
@@ -107,7 +107,7 @@ extend ArenaAllocator : Allocator {
         }
     }
 
-    pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
+    pub fun resize(&mut self, block: Block, newLayout: Layout) bool {
         if block.align() != newLayout.align() {
             return false;
         }
@@ -149,7 +149,7 @@ extend ArenaAllocator : Allocator {
         true
     }
 
-    pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+    pub fun remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
@@ -159,7 +159,7 @@ extend ArenaAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) Error!() {
+    pub fun free(&mut self, block: Block) Error!() {
         if block.isEmpty() {
             return !();
         }
@@ -182,7 +182,7 @@ extend ArenaAllocator : Allocator {
 }
 
 extend ArenaAllocator {
-    fn allocateChunk(&mut self, layout: Layout, prevCapacity: usize) Error!&mut ArenaChunk {
+    fun allocateChunk(&mut self, layout: Layout, prevCapacity: usize) Error!&mut ArenaChunk {
         let payloadCapacity = chunkCapacityFor(layout, prevCapacity).?;
         let totalSize = match pkg::builtin::size[ArenaChunk]().checkedAdd(payloadCapacity) {
             ?value => {
@@ -200,14 +200,14 @@ extend ArenaAllocator {
         !chunk
     }
 
-    fn allocFromOptionalChunk(&mut self, maybeChunk: ?&mut ArenaChunk, layout: Layout) ?Block {
+    fun allocFromOptionalChunk(&mut self, maybeChunk: ?&mut ArenaChunk, layout: Layout) ?Block {
         if maybeChunk is ?chunk {
             return allocFromChunk(chunk, layout);
         }
         null
     }
 
-    fn popFreeChunk(&mut self, layout: Layout) ?&mut ArenaChunk {
+    fun popFreeChunk(&mut self, layout: Layout) ?&mut ArenaChunk {
         let mut best: ?&mut ArenaChunk = null;
         let mut bestPrev: ?&mut ArenaChunk = null;
         let mut bestWaste = usize::MAX;
@@ -264,7 +264,7 @@ extend ArenaAllocator {
         }
     }
 
-    fn growFreeChunk(&mut self, chunk: &mut ArenaChunk, layout: Layout) bool {
+    fun growFreeChunk(&mut self, chunk: &mut ArenaChunk, layout: Layout) bool {
         let end = match chunkFitEnd(chunk, layout) {
             ?value => {
                 value
@@ -301,7 +301,7 @@ extend ArenaAllocator {
         }
     }
 
-    fn ownsBlock(&self, block: Block) bool {
+    fun ownsBlock(&self, block: Block) bool {
         if block.isEmpty() {
             return true;
         }
@@ -311,7 +311,7 @@ extend ArenaAllocator {
         self.listOwnsBlock(self.freeList, block)
     }
 
-    fn listOwnsBlock(&self, first: ?&mut ArenaChunk, block: Block) bool {
+    fun listOwnsBlock(&self, first: ?&mut ArenaChunk, block: Block) bool {
         let mut current = first;
         loop {
             if current is mut ?chunk {
@@ -325,7 +325,7 @@ extend ArenaAllocator {
         }
     }
 
-    fn moveUsedToFreeList(&mut self) () {
+    fun moveUsedToFreeList(&mut self) () {
         let mut current = self.usedList;
         self.usedList = null;
         loop {
@@ -341,14 +341,14 @@ extend ArenaAllocator {
         }
     }
 
-    fn freeDetachedLists(&mut self, first: ?&mut ArenaChunk, second: ?&mut ArenaChunk) Error!() {
+    fun freeDetachedLists(&mut self, first: ?&mut ArenaChunk, second: ?&mut ArenaChunk) Error!() {
         let mut cleanup: error::CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.freeChunkList(first));
         cleanup.attempt(self.freeChunkList(second));
         cleanup.finish()
     }
 
-    fn freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!() {
+    fun freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!() {
         let mut current = first;
         let mut cleanup: error::CleanupAccumulator[Error] = .init();
         loop {
@@ -369,7 +369,7 @@ extend ArenaAllocator {
         }
     }
 
-    fn listCapacity(&self, first: ?&mut ArenaChunk) usize {
+    fun listCapacity(&self, first: ?&mut ArenaChunk) usize {
         let mut total: usize = 0;
         let mut current = first;
         loop {
@@ -385,7 +385,7 @@ extend ArenaAllocator {
         }
     }
 
-    fn listUsed(&self, first: ?&mut ArenaChunk) usize {
+    fun listUsed(&self, first: ?&mut ArenaChunk) usize {
         let mut total: usize = 0;
         let mut current = first;
         loop {
@@ -402,7 +402,7 @@ extend ArenaAllocator {
     }
 }
 
-fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
+fun allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
     let payloadBase = match chunkPayloadBase(chunk) {
         ?value => value,
         null => return null,
@@ -440,7 +440,7 @@ fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
     }
 }
 
-fn chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
+fun chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
     let payloadBase = match chunkPayloadBase(chunk) {
         ?value => value,
         null => return null,
@@ -457,7 +457,7 @@ fn chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
     offset.checkedAdd(layout.size())
 }
 
-fn isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
+fun isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
     let payloadBase = match chunkPayloadBase(chunk) {
         ?value => value,
         null => return false,
@@ -481,7 +481,7 @@ fn isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
     blockEnd == cursor
 }
 
-fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
+fun chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
     if block.isEmpty() {
         return true;
     }
@@ -512,11 +512,11 @@ fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
     end <= limit
 }
 
-fn chunkPayloadBase(chunk: &mut ArenaChunk) ?usize {
+fun chunkPayloadBase(chunk: &mut ArenaChunk) ?usize {
     (chunk.block.ptr() as usize).checkedAdd(pkg::builtin::size[ArenaChunk]())
 }
 
-fn chunkPayloadCapacity(chunk: &mut ArenaChunk) usize {
+fun chunkPayloadCapacity(chunk: &mut ArenaChunk) usize {
     if chunk.block.size() <= pkg::builtin::size[ArenaChunk]() {
         0
     } else {
@@ -524,7 +524,7 @@ fn chunkPayloadCapacity(chunk: &mut ArenaChunk) usize {
     }
 }
 
-fn chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
+fun chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
     let minWithPadding = match layout.size().checkedAdd(layout.align()) {
         ?value => {
             value

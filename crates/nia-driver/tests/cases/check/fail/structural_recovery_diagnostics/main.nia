@@ -1,4 +1,4 @@
-fn main() () {
+fun main() () {
     (missing_tuple, 1);
     [missing_array];
     defer &missing_deferred;

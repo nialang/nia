@@ -12,7 +12,7 @@ fn failed_bracket_base_preserves_type_readings_and_independent_value_errors() {
         ("&missing[need(true)]", 1),
     ] {
         let source =
-            format!("fn need(value: i32) i32 {{ value }}\nfn main() {{ _ = {expression}; }}");
+            format!("fun need(value: i32) i32 {{ value }}\nfun main() {{ _ = {expression}; }}");
         let checked = pipeline(&source);
         assert_eq!(
             checked.diagnostics.len(),
@@ -44,14 +44,14 @@ fn failed_callable_selection_keeps_independent_argument_errors() {
     let prelude = r#"
 struct Pair[A, B] { a: A, b: B }
 extend[T] Pair[T, i32] {
-    fn rank(self, value: i32) i32 { value }
-    fn make(value: i32) i32 { value }
+    fun rank(self, value: i32) i32 { value }
+    fun make(value: i32) i32 { value }
 }
 extend[U] Pair[i32, U] {
-    fn rank(self, value: i32) i32 { value }
-    fn make(value: i32) i32 { value }
+    fun rank(self, value: i32) i32 { value }
+    fun make(value: i32) i32 { value }
 }
-fn need(value: i32) i32 { value }
+fun need(value: i32) i32 { value }
 "#;
     for (call, root) in [
         (
@@ -80,7 +80,7 @@ fn need(value: i32) i32 { value }
         ),
         ("true.missing(need(true))", "unknown method `missing`"),
     ] {
-        let source = format!("{prelude}\nfn main(pair: Pair[i32, i32]) {{ {call}; }}");
+        let source = format!("{prelude}\nfun main(pair: Pair[i32, i32]) {{ {call}; }}");
         let checked = pipeline(&source);
         let summaries = checked
             .diagnostics
@@ -116,7 +116,7 @@ fn need(value: i32) i32 { value }
 fn callable_field_fallback_checks_arguments_once() {
     for (argument, errors) in [("1", 0), ("true", 1)] {
         let source = format!(
-            "struct Callable {{ invoke: &fn(i32) i32 }}\nfn need(value: i32) i32 {{ value }}\nfn main(value: Callable) i32 {{ value.invoke(need({argument})) }}"
+            "struct Callable {{ invoke: &fun(i32) i32 }}\nfun need(value: i32) i32 {{ value }}\nfun main(value: Callable) i32 {{ value.invoke(need({argument})) }}"
         );
         let checked = pipeline(&source);
         assert_eq!(
@@ -137,27 +137,27 @@ fn callable_field_fallback_checks_arguments_once() {
 #[test]
 fn failed_trait_callable_selection_keeps_independent_argument_errors() {
     let prelude = r#"
-trait Left { fn rank(&self, value: i32) i32; }
-trait Right { fn rank(&self, value: i32) i32; }
+trait Left { fun rank(&self, value: i32) i32; }
+trait Right { fun rank(&self, value: i32) i32; }
 trait Both: Left + Right {}
-trait FactoryLeft { fn make(value: i32) i32; }
-trait FactoryRight { fn make(value: i32) i32; }
+trait FactoryLeft { fun make(value: i32) i32; }
+trait FactoryRight { fun make(value: i32) i32; }
 trait Factories: FactoryLeft + FactoryRight {}
-fn need(value: i32) i32 { value }
+fun need(value: i32) i32 { value }
 "#;
     for (signature, call, root) in [
         (
-            "fn main[T](value: T) where T: Both",
+            "fun main[T](value: T) where T: Both",
             "value.rank(need(true))",
             "ambiguous trait method `rank`",
         ),
         (
-            "fn main[T](value: T) where T: Factories",
+            "fun main[T](value: T) where T: Factories",
             "[T]::make(need(true))",
             "ambiguous trait associated function `make`",
         ),
         (
-            "fn main(value: &Both)",
+            "fun main(value: &Both)",
             "value.rank(need(true))",
             "ambiguous dynamic trait method `rank`",
         ),
@@ -204,7 +204,7 @@ fn need(value: i32) i32 { value }
         assert_eq!(ambiguity.related.len(), 2, "{ambiguity:?}");
         for (related, identity) in ambiguity.related.iter().zip(traits) {
             assert!(related.message.contains(identity), "{related:?}");
-            assert!(source[related.span.start..related.span.end].contains("fn "));
+            assert!(source[related.span.start..related.span.end].contains("fun "));
         }
         assert!(
             ambiguity
@@ -219,9 +219,9 @@ fn need(value: i32) i32 { value }
 fn associated_candidate_signatures_keep_all_ordinary_parameters() {
     let source = r#"
 struct Pair[A, B] { a: A, b: B }
-extend[T] Pair[T, i32] { fn make(value: i32, flag: bool) i32 { value } }
-extend[U] Pair[i32, U] { fn make(value: i32, flag: bool) i32 { value } }
-fn main() i32 { Pair[i32, i32]::make(1, true) }
+extend[T] Pair[T, i32] { fun make(value: i32, flag: bool) i32 { value } }
+extend[U] Pair[i32, U] { fun make(value: i32, flag: bool) i32 { value } }
+fun main() i32 { Pair[i32, i32]::make(1, true) }
 "#;
     let checked = pipeline(source);
     let diagnostic = checked
@@ -243,7 +243,7 @@ fn main() i32 { Pair[i32, i32]::make(1, true) }
     for related in diagnostic.related.iter() {
         assert!(
             source[related.span.start..related.span.end]
-                .contains("fn make(value: i32, flag: bool)")
+                .contains("fun make(value: i32, flag: bool)")
         );
     }
     assert!(!diagnostic.notes.iter().any(|note| note.contains("omitted")));
@@ -252,9 +252,13 @@ fn main() i32 { Pair[i32, i32]::make(1, true) }
 #[test]
 fn trait_candidate_reports_sort_before_applying_the_display_limit() {
     for (signature, call, receiver) in [
-        ("fn main[T](value: T) where T: All", "value.rank()", "&self"),
-        ("fn main(value: &All)", "value.rank()", "&self"),
-        ("fn main[T](value: T) where T: All", "[T]::rank()", ""),
+        (
+            "fun main[T](value: T) where T: All",
+            "value.rank()",
+            "&self",
+        ),
+        ("fun main(value: &All)", "value.rank()", "&self"),
+        ("fun main[T](value: T) where T: All", "[T]::rank()", ""),
     ] {
         let mut notes = Vec::new();
         for reverse in [false, true] {
@@ -265,7 +269,7 @@ fn trait_candidate_reports_sort_before_applying_the_display_limit() {
             };
             let traits = order
                 .iter()
-                .map(|index| format!("trait Candidate{index} {{ fn rank({receiver}) i32; }}\n"))
+                .map(|index| format!("trait Candidate{index} {{ fun rank({receiver}) i32; }}\n"))
                 .collect::<String>();
             let bounds = order
                 .iter()
@@ -299,11 +303,11 @@ fn trait_candidate_reports_sort_before_applying_the_display_limit() {
 fn narrowing_trait_bounds_resolves_reported_ambiguities() {
     let checked = pipeline(
         r#"
-trait Left { fn rank(&self) i32; }
-trait Factory { fn make(value: i32) i32; }
-fn bounded[T](value: T) i32 where T: Left { value.rank() }
-fn dynamic(value: &Left) i32 { value.rank() }
-fn associated[T](value: T) i32 where T: Factory { _ = value; [T]::make(1) }
+trait Left { fun rank(&self) i32; }
+trait Factory { fun make(value: i32) i32; }
+fun bounded[T](value: T) i32 where T: Left { value.rank() }
+fun dynamic(value: &Left) i32 { value.rank() }
+fun associated[T](value: T) i32 where T: Factory { _ = value; [T]::make(1) }
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -313,9 +317,9 @@ fn associated[T](value: T) i32 where T: Factory { _ = value; [T]::make(1) }
 fn trait_candidate_identities_distinguish_const_arguments() {
     let checked = pipeline(
         r#"
-trait SizedRank[N: usize] { fn rank(&self) i32; }
+trait SizedRank[N: usize] { fun rank(&self) i32; }
 trait Both: SizedRank[1] + SizedRank[2] {}
-fn main[T](value: T) i32 where T: Both { value.rank() }
+fun main[T](value: T) i32 where T: Both { value.rank() }
 "#,
     );
     assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
@@ -337,30 +341,30 @@ fn selects_most_specific_extension_method_target() {
     let checked = pipeline(
         r#"
 extend[T] T {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         1
     }
 }
 
 extend i32 {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         2
     }
 }
 
 extend[T] &T {
-    fn ptr_rank(self) i32 {
+    fun ptr_rank(self) i32 {
         3
     }
 }
 
 extend &i32 {
-    fn ptr_rank(self) i32 {
+    fun ptr_rank(self) i32 {
         4
     }
 }
 
-fn main(value: &i32) i32 {
+fun main(value: &i32) i32 {
     1.rank() + value.ptr_rank()
 }
 "#,
@@ -373,18 +377,18 @@ fn selects_fixed_array_length_over_const_generic_extension() {
     let checked = pipeline(
         r#"
 extend[T, N: usize] [T; N] {
-    fn rank(&self) i32 {
+    fun rank(&self) i32 {
         1
     }
 }
 
 extend[T] [T; 2] {
-    fn rank(&self) i32 {
+    fun rank(&self) i32 {
         2
     }
 }
 
-fn main(values: &[i32; 2]) i32 {
+fun main(values: &[i32; 2]) i32 {
     values.rank()
 }
 "#,
@@ -397,10 +401,10 @@ fn infers_extension_type_from_array_layout_builtin_operand() {
     let checked = pipeline(
         r#"
 extend[T] [u8; std::builtin::size[T]()] where T: Sized {
-    fn marker(&self) usize { 1usize }
+    fun marker(&self) usize { 1usize }
 }
 
-fn main(value: &[u8; std::builtin::size[i32]()]) usize {
+fun main(value: &[u8; std::builtin::size[i32]()]) usize {
     value.marker()
 }
 "#,
@@ -413,14 +417,14 @@ fn selects_concrete_array_layout_operand_over_generic_extension() {
     let checked = pipeline(
         r#"
 extend[T] [u8; std::builtin::size[T]()] where T: Sized {
-    fn rank(&self) i32 { 1 }
+    fun rank(&self) i32 { 1 }
 }
 
 extend [u8; std::builtin::size[i32]()] {
-    fn rank(&self) i32 { 2 }
+    fun rank(&self) i32 { 2 }
 }
 
-fn main(value: &[u8; std::builtin::size[i32]()]) i32 {
+fun main(value: &[u8; std::builtin::size[i32]()]) i32 {
     value.rank()
 }
 "#,
@@ -438,18 +442,18 @@ struct Pair[A, B] {
 }
 
 extend[A, B] Pair[A, B] {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         1
     }
 }
 
 extend[T] Pair[T, T] {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         2
     }
 }
 
-fn main(value: Pair[i32, i32]) i32 {
+fun main(value: Pair[i32, i32]) i32 {
     value.rank()
 }
 "#,
@@ -464,18 +468,18 @@ fn method_overload_selection_uses_argument_types() {
 struct Box {}
 
 extend Box {
-    fn pick[T](self, value: T) T {
+    fun pick[T](self, value: T) T {
         value
     }
 }
 
 extend Box {
-    fn pick(self, value: i32) i32 {
+    fun pick(self, value: i32) i32 {
         value
     }
 }
 
-fn main(box: Box) bool {
+fun main(box: Box) bool {
     box.pick(true)
 }
 "#,
@@ -490,12 +494,12 @@ fn infers_let_bound_closure_from_method_callable_parameter() {
 struct Box { value: i32 }
 
 extend Box {
-    fn apply(self, callback: &Fn(i32) i32) i32 {
+    fun apply(self, callback: &Fun(i32) i32) i32 {
         callback(self.value)
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let increment = \value -> value + 1;
     Box { value: 1 }.apply(&increment)
 }
@@ -511,12 +515,12 @@ fn infers_let_bound_closure_from_generic_method_callable_parameter() {
 struct Box {}
 
 extend Box {
-    fn apply[T](self, callback: &Fn(T) T, value: T) T {
+    fun apply[T](self, callback: &Fun(T) T, value: T) T {
         callback(value)
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let identity = \value -> value;
     Box {}.apply(&identity, 2)
 }
@@ -533,16 +537,16 @@ struct Collection {}
 struct Cursor {}
 
 extend Collection {
-    fn iter(self) Cursor { Cursor {} }
+    fun iter(self) Cursor { Cursor {} }
 }
 
 extend Cursor {
-    fn apply[T](self, callback: &Fn(T) T, value: T) T {
+    fun apply[T](self, callback: &Fun(T) T, value: T) T {
         callback(value)
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let increment = \value -> value + 1;
     Collection {}.iter().apply(&increment, 2)
 }
@@ -568,7 +572,7 @@ trait Pair : Left + Right {}
 struct Box {}
 
 extend Box {
-    fn pick[T, U](
+    fun pick[T, U](
         self,
         other: &Pair[[Self as Left]::Item = T, [Self as Right]::Item = U],
     ) i32 {
@@ -576,7 +580,7 @@ extend Box {
     }
 }
 
-fn main(box: Box, value: &Pair[
+fun main(box: Box, value: &Pair[
     [Self as Left]::Item = i32,
     [Self as Right]::Item = bool,
 ]) i32 {
@@ -594,12 +598,12 @@ fn method_closure_inference_preserves_mutable_callable_borrow() {
 struct Box {}
 
 extend Box {
-    fn apply[T](self, callback: &mut Fn(T) T, value: T) T {
+    fun apply[T](self, callback: &mut Fun(T) T, value: T) T {
         callback(value)
     }
 }
 
-fn main(box: Box) bool {
+fun main(box: Box) bool {
     box.apply(&\value: i32 -> { value }, true)
 }
 "#,
@@ -620,18 +624,18 @@ fn invalid_method_overload_call_reports_no_match() {
 struct Box {}
 
 extend Box {
-    fn pick(self, value: i32) i32 {
+    fun pick(self, value: i32) i32 {
         value
     }
 }
 
 extend Box {
-    fn pick(self, value: usize) usize {
+    fun pick(self, value: usize) usize {
         value
     }
 }
 
-fn main(box: Box) bool {
+fun main(box: Box) bool {
     box.pick(true)
 }
 "#,
@@ -693,18 +697,18 @@ fn self_parameter_specializes_generic_method_parameter() {
 struct Box {}
 
 extend Box {
-    fn merge[T](self, other: T) bool {
+    fun merge[T](self, other: T) bool {
         true
     }
 }
 
 extend Box {
-    fn merge(self, other: Self) i32 {
+    fun merge(self, other: Self) i32 {
         1
     }
 }
 
-fn main(box: Box, other: Box) i32 {
+fun main(box: Box, other: Box) i32 {
     let result = box.merge(other);
     result
 }
@@ -718,28 +722,28 @@ fn trait_method_selection_uses_argument_types() {
     let checked = pipeline(
         r#"
 trait PickBool {
-    fn pick(self, value: bool) bool;
+    fun pick(self, value: bool) bool;
 }
 
 trait PickInt {
-    fn pick(self, value: i32) bool;
+    fun pick(self, value: i32) bool;
 }
 
 struct Box {}
 
 extend Box : PickBool {
-    fn pick(self, value: bool) bool {
+    fun pick(self, value: bool) bool {
         value
     }
 }
 
 extend Box : PickInt {
-    fn pick(self, value: i32) bool {
+    fun pick(self, value: i32) bool {
         value != 0
     }
 }
 
-fn main(box: Box) bool {
+fun main(box: Box) bool {
     box.pick(true)
 }
 "#,
@@ -753,7 +757,7 @@ fn attributes_provider_demand_to_calling_function() {
         r#"
 struct Value {}
 
-fn main(value: Value) i32 {
+fun main(value: Value) i32 {
     value.missing()
 }
 "#,
@@ -774,7 +778,7 @@ fn error_receivers_do_not_emit_provider_demands() {
     for receiver in ["missing", "&missing", "(missing, 0)", "[missing]"] {
         for method in ["absent", "absent[i32]"] {
             let checked = pipeline_without_visible_extensions(&format!(
-                "fn need(value: i32) i32 {{ value }}\nfn main() () {{ ({receiver}).{method}(need(true)); }}"
+                "fun need(value: i32) i32 {{ value }}\nfun main() () {{ ({receiver}).{method}(need(true)); }}"
             ));
             assert_eq!(
                 checked.diagnostics.len(),
@@ -824,12 +828,12 @@ struct Buffer {
 }
 
 extend Buffer {
-    fn as_slice(&self) &[i32] {
+    fun as_slice(&self) &[i32] {
         self.data
     }
 }
 
-fn main(buffer: Buffer) i32 {
+fun main(buffer: Buffer) i32 {
     buffer.as_slice()[0]
 }
 "#,
@@ -846,11 +850,11 @@ struct Counter {
 }
 
 extend Counter {
-    fn bump(&mut self) () {
+    fun bump(&mut self) () {
         self.value += 1;
     }
 
-    fn outer(&mut self) () {
+    fun outer(&mut self) () {
         self.bump();
     }
 }
@@ -906,12 +910,12 @@ struct Counter {
 }
 
 extend Counter {
-    fn bump(&mut self) () {
+    fun bump(&mut self) () {
         self.value += 1;
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 0 };
     let pointer = &mut counter;
     pointer.bump();
@@ -929,12 +933,12 @@ fn mutable_slice_can_call_readonly_pointee_extension_method() {
 extend[T] [T]
 where T: Sized
 {
-    fn inspect(&self) bool {
+    fun inspect(&self) bool {
         true
     }
 }
 
-fn main(values: &mut [i32]) bool {
+fun main(values: &mut [i32]) bool {
     values.inspect()
 }
 "#,
@@ -947,25 +951,25 @@ fn pointer_arrays_can_call_slice_extension_methods() {
     let checked = pipeline_with_len_provider(
         r#"
 trait SliceMetric {
-    fn metric(&self) i32;
+    fun metric(&self) i32;
 }
 
 extend[T] [T]
 where T: Sized
 {
-    fn itemCount(&self) usize {
+    fun itemCount(&self) usize {
         self.len()
     }
 
-    fn replaceFirst(&mut self, value: T) () {
+    fun replaceFirst(&mut self, value: T) () {
         self[0] = value;
     }
 
-    fn choose[U](&self, value: U) U {
+    fun choose[U](&self, value: U) U {
         value
     }
 
-    fn storageKind(&self) i32 {
+    fun storageKind(&self) i32 {
         1
     }
 }
@@ -973,7 +977,7 @@ where T: Sized
 extend[T] [T] : SliceMetric
 where T: Sized
 {
-    fn metric(&self) i32 {
+    fun metric(&self) i32 {
         self.len() as i32
     }
 }
@@ -981,12 +985,12 @@ where T: Sized
 extend[T] [T; 2]
 where T: Sized
 {
-    fn storageKind(&self) i32 {
+    fun storageKind(&self) i32 {
         2
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let literalCount = (&"nia").itemCount();
     let choices: [i32; 2] = [1, 2];
     let selected = (&choices).choose[i32](7);
@@ -1017,20 +1021,20 @@ struct CStr {
 }
 
 extend CStr {
-    fn from_ptr(ptr: &u8) CStr {
+    fun from_ptr(ptr: &u8) CStr {
         Self { ptr }
     }
 
-    fn from_bytes(bytes: &[u8]) ?CStr {
+    fun from_bytes(bytes: &[u8]) ?CStr {
         ?CStr::from_ptr(bytes.ptr())
     }
 
-    fn raw_ptr(&self) &u8 {
+    fun raw_ptr(&self) &u8 {
         self.ptr
     }
 }
 
-fn main(bytes: &[u8]) ?&u8 {
+fun main(bytes: &[u8]) ?&u8 {
     ?CStr::from_bytes(bytes).?.raw_ptr()
 }
 "#,
@@ -1048,18 +1052,18 @@ struct Pair[A, B] {
 }
 
 extend[T] Pair[T, i32] {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         1
     }
 }
 
 extend[U] Pair[i32, U] {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         2
     }
 }
 
-fn main(pair: Pair[i32, i32]) i32 {
+fun main(pair: Pair[i32, i32]) i32 {
     pair.rank()
 }
 "#,
@@ -1122,7 +1126,7 @@ struct Cell {
     value: i32,
 }
 
-fn main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell, write_cell: &mut Cell) i32 {
+fun main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell, write_cell: &mut Cell) i32 {
     let local_let = 1;
     let mut local_mut = 1;
     local_mut = 2;
@@ -1182,16 +1186,16 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(& self) T {
+    fun get(& self) T {
         self.value
     }
 
-    fn set(&mut self, value: T) {
+    fun set(&mut self, value: T) {
         self.value = value;
     }
 }
 
-fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
+fun main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
     let mut box = Box[i32] { value: 1 };
     let mut x: i32 = box.get();
     let mut y: i32 = ro.get();
@@ -1242,7 +1246,7 @@ fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
 fn builtin_trait_method_failures_explain_the_missing_obligation() {
     let checked = pipeline(
         r#"
-fn main(flag: bool) bool {
+fun main(flag: bool) bool {
     flag.add(flag)
 }
 "#,
@@ -1274,11 +1278,11 @@ struct Init {
 }
 
 extend Init {
-    pub fn argc(&self) usize {
+    pub fun argc(&self) usize {
         self.argc
     }
 
-    pub fn argv(&self) &&u8 {
+    pub fun argv(&self) &&u8 {
         self.argv
     }
 }
@@ -1307,12 +1311,12 @@ struct Box[T] {
 type Alias[T] = Box[T];
 
 extend[T] Box[T] {
-    fn init(value: T) Box[T] {
+    fun init(value: T) Box[T] {
         Self { value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let box = Alias[i32]::init(42);
     box.value
 }
@@ -1382,12 +1386,12 @@ struct Point {
 }
 
 extend Point {
-    fn inspect(& self) i32 { self.x }
-    fn init(&self) {}
-    fn deinit(&self) {}
+    fun inspect(& self) i32 { self.x }
+    fun init(&self) {}
+    fun deinit(&self) {}
 }
 
-fn main() {
+fun main() {
     let mut p: Point;
     p.init();
     defer p.deinit();
@@ -1413,10 +1417,10 @@ struct Point {
 }
 
 extend Point {
-    fn init(&mut self) {}
+    fun init(&mut self) {}
 }
 
-fn main() {
+fun main() {
     let origin: Point;
     origin.init();
     let n: i32;
@@ -1457,16 +1461,16 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn replace[U](& self, value: U) U {
+    fun replace[U](& self, value: U) U {
         value
     }
 
-    fn get(& self) T {
+    fun get(& self) T {
         self.value
     }
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut box = Box[i32] { value: 1 };
     let mut x: i32 = box.replace[i32](2);
     let mut y: bool = box.replace[bool](flag);
@@ -1547,12 +1551,12 @@ fn preserves_const_generic_method_arguments_in_resolved_calls() {
 struct Counter {}
 
 extend Counter {
-    fn value[N: usize](& self) usize {
+    fun value[N: usize](& self) usize {
         N
     }
 }
 
-fn main() usize {
+fun main() usize {
     let counter = Counter {};
     counter.value[3]()
 }
@@ -1583,12 +1587,12 @@ fn infers_const_generic_method_arguments_from_array_values() {
 struct Buffer {}
 
 extend Buffer {
-    fn take[N: usize](&self, value: [i32; N]) usize {
+    fun take[N: usize](&self, value: [i32; N]) usize {
         N
     }
 }
 
-fn main() usize {
+fun main() usize {
     let buffer = Buffer {};
     buffer.take([1, 2, 3])
 }
@@ -1604,14 +1608,14 @@ fn method_const_inference_shapes_later_callable_arguments() {
 struct Runner {}
 
 extend Runner {
-    fn apply[N: usize, Output, Mapper](self, value: [i32; N], callback: Mapper) Output
-    where Mapper: Fn([i32; N]) Output
+    fun apply[N: usize, Output, Mapper](self, value: [i32; N], callback: Mapper) Output
+    where Mapper: Fun([i32; N]) Output
     {
         callback(value)
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     Runner {}.apply([1, 2, 3], \value -> value[0])
 }
 "#,
@@ -1628,16 +1632,16 @@ struct Buffer[N: usize] {
 }
 
 extend[N: usize] Buffer[N] {
-    fn rank(& self) i32 {
+    fun rank(& self) i32 {
         self.value
     }
 }
 
-fn apply(buffer: & Buffer[3], callback: &fn(& Buffer[3]) i32) i32 {
+fun apply(buffer: & Buffer[3], callback: &fun(& Buffer[3]) i32) i32 {
     callback(buffer)
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = Buffer[3] { value: 42 };
     apply(& buffer, & Buffer[3]::rank)
 }
@@ -1657,21 +1661,21 @@ struct Box[T] {
 struct EmptyBox[T] {}
 
 extend[T] Box[T] {
-    fn replace[U](& self, value: U) U {
+    fun replace[U](& self, value: U) U {
         value
     }
 
-    fn make[U](value: U) U {
+    fun make[U](value: U) U {
         value
     }
 
 }
 
 extend[T] EmptyBox[T] {
-    fn empty() EmptyBox[T] {}
+    fun empty() EmptyBox[T] {}
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut box = Box[i32] { value: 1 };
     let mut a: usize = box.replace(1);
     let mut b: usize = Box[i32]::make(1);
@@ -1693,13 +1697,13 @@ trait Writer {}
 trait Hash[H]
 where H: Writer
 {
-    fn hash(&self, writer: &mut H) ();
+    fun hash(&self, writer: &mut H) ();
 }
 
 struct H {}
 
 extend H {
-    fn init() H {
+    fun init() H {
         {}
     }
 }
@@ -1709,13 +1713,13 @@ extend H : Writer {}
 extend[H] u32 : Hash[H]
 where H: Writer
 {
-    fn hash(&self, writer: &mut H) () {
+    fun hash(&self, writer: &mut H) () {
         _ = self;
         _ = writer;
     }
 }
 
-fn main() () {
+fun main() () {
     let mut hasher = H::init();
     (7u32).hash(&mut hasher);
 }
@@ -1740,7 +1744,7 @@ fn main() () {
 fn checks_function_pointer_calls() {
     let checked = pipeline(
         r#"
-fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) (), flag: bool) i64 {
+fun main(cb: &fun(i32, bool) i64, variadic: &fun(i32, ...) (), flag: bool) i64 {
     let mut x: i64 = cb(1, flag);
     _ = cb(flag, flag);
     _ = cb(1);
@@ -1782,23 +1786,23 @@ struct Point {
 }
 
 extend Point {
-    fn new(x: i32) Point {
+    fun new(x: i32) Point {
         Self { x }
     }
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.x
     }
 
-    fn set(&self, value: i32) {
+    fun set(&self, value: i32) {
         self.x = value;
     }
 }
 
-fn main() i32 {
-    let make: &fn(i32) Point = & Point::new;
-    let get: &fn(& Point) i32 = & Point::get;
-    let set: &fn(&Point, i32) () = & Point::set;
+fun main() i32 {
+    let make: &fun(i32) Point = & Point::new;
+    let get: &fun(& Point) i32 = & Point::get;
+    let set: &fun(&Point, i32) () = & Point::set;
     let mut p = make(1);
     set(&p, 2);
     get(& p)
@@ -1817,18 +1821,18 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 
-    fn replace[U](& self, value: U) U {
+    fun replace[U](& self, value: U) U {
         value
     }
 }
 
-fn main(flag: bool) i32 {
-    let make: &fn(i32) Box[i32] = & Box[i32]::make;
-    let replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace[bool];
+fun main(flag: bool) i32 {
+    let make: &fun(i32) Box[i32] = & Box[i32]::make;
+    let replace: &fun(& Box[i32], bool) bool = & Box[i32]::replace[bool];
     let mut b = make(1);
     if replace(& b, flag) { b.value } else { 0 }
 }
@@ -1847,15 +1851,15 @@ struct Pair[A, B] {
 }
 
 extend[T] Pair[T, i32] {
-    fn rank() i32 { 1 }
+    fun rank() i32 { 1 }
 }
 
 extend[U] Pair[i32, U] {
-    fn rank() i32 { 2 }
+    fun rank() i32 { 2 }
 }
 
-fn main() () {
-    let rank: &fn() i32 = &Pair[i32, i32]::rank;
+fun main() () {
+    let rank: &fun() i32 = &Pair[i32, i32]::rank;
     _ = rank;
 }
 "#,
@@ -1880,24 +1884,24 @@ fn checks_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"
 extend[T] &T {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 
-    fn zero() usize {
+    fun zero() usize {
         0usize
     }
 }
 
 extend[T] [T; 3] {
-    fn first(self) T {
+    fun first(self) T {
         self[0]
     }
 }
 
-fn main(ptr: &u8, triple: [i32; 3]) i32 {
-    let is_null: &fn(&u8) bool = & [&u8]::is_null;
-    let zero: &fn() usize = & [&u8]::zero;
+fun main(ptr: &u8, triple: [i32; 3]) i32 {
+    let is_null: &fun(&u8) bool = & [&u8]::is_null;
+    let zero: &fun() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
     [[i32; 3]]::first(triple) + zero() as i32
@@ -1912,13 +1916,13 @@ fn checks_deep_pointer_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"
 extend &&&&&& &&i32 {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &&&&&& &&i32) bool {
-    let is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
+fun main(ptr: &&&&&& &&i32) bool {
+    let is_null: &fun(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
     is_null(ptr) and [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
@@ -1935,18 +1939,18 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 
-    fn replace[U](& self, value: U) U {
+    fun replace[U](& self, value: U) U {
         value
     }
 }
 
-fn main() {
-    let make: &fn(i32) Box[i32] = & Box::make;
-    let bad_replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace;
+fun main() {
+    let make: &fun(i32) Box[i32] = & Box::make;
+    let bad_replace: &fun(& Box[i32], bool) bool = & Box[i32]::replace;
 }
 "#,
     );
@@ -1975,16 +1979,16 @@ struct Point {
 }
 
 extend Point {
-    fn new(x: i32) Point {
+    fun new(x: i32) Point {
         Self { x }
     }
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.x
     }
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut p = Point::new(1);
     let mut value: i32 = Point::get(&p);
     _ = Point::new(flag);
@@ -2031,7 +2035,7 @@ fn explains_unknown_associated_function_target_and_visibility() {
         r#"
 struct Point {}
 
-fn main() () {
+fun main() () {
     Point::missing()
 }
 "#,
@@ -2058,16 +2062,16 @@ struct Point {
 }
 
 extend Point {
-    fn helper() i32 {
+    fun helper() i32 {
         1
     }
 
-    fn value(&self) i32 {
+    fun value(&self) i32 {
         helper()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let point = Point { x: 0 };
     point.value()
 }
@@ -2085,16 +2089,16 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn wrap(value: T) Box[T] {
+    fun wrap(value: T) Box[T] {
         Self { value }
     }
 
-    fn copy(&self) Box[T] {
+    fun copy(&self) Box[T] {
         wrap(self.value)
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let boxed = Box[i32] { value: 7 };
     boxed.copy().value
 }
@@ -2109,21 +2113,21 @@ fn module_function_takes_precedence_over_extension_helper_in_method_body() {
         r#"
 struct S {}
 
-fn helper() i32 {
+fun helper() i32 {
     10
 }
 
 extend S {
-    fn helper() i32 {
+    fun helper() i32 {
         1
     }
 
-    fn method(&self) i32 {
+    fun method(&self) i32 {
         helper()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let value = S {};
     value.method()
 }
@@ -2138,22 +2142,22 @@ fn local_callable_takes_precedence_over_extension_helper_in_method_body() {
         r#"
 struct S {}
 
-fn chosen() i32 {
+fun chosen() i32 {
     10
 }
 
 extend S {
-    fn helper() i32 {
+    fun helper() i32 {
         1
     }
 
-    fn method(&self) i32 {
+    fun method(&self) i32 {
         let helper = &chosen;
         helper()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let value = S {};
     value.method()
 }
@@ -2171,16 +2175,16 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 
-    fn empty() Box[T] {
+    fun empty() Box[T] {
         Self { value: 0 }
     }
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut a: Box[i32] = Box[i32]::make(1);
     _ = Box[i32]::make(flag);
     _ = Box[i32, bool]::make(1);
@@ -2217,12 +2221,12 @@ struct Box[T, N: usize] {
 }
 
 extend[T, N: usize] Box[T, N] {
-    fn make(value: T) Box[T, N] {
+    fun make(value: T) Box[T, N] {
         Self { value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let value: Box[i32, 3] = Box::make(42);
     value.value
 }
@@ -2240,12 +2244,12 @@ struct box[T] {
 }
 
 extend[T] box[T] {
-    fn make(value: T) box[T] {
+    fun make(value: T) box[T] {
         Self { value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut a: box[i32] = box[i32]::make(1);
     a.value
 }
@@ -2258,7 +2262,7 @@ fn main() i32 {
 fn receiver_method_calls_take_precedence_over_function_pointer_fields() {
     let checked = pipeline(
         r#"
-type RunFn = &fn() i32;
+type RunFn = &fun() i32;
 
 struct MethodBox {
     run: RunFn,
@@ -2268,18 +2272,18 @@ struct FieldBox {
     run: RunFn,
 }
 
-fn field_run() i32 {
+fun field_run() i32 {
     1
 }
 
 extend MethodBox {
-    fn run(self) i32 {
+    fun run(self) i32 {
         _ = self;
         2
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let method_box = MethodBox { run: &field_run };
     let field_box = FieldBox { run: &field_run };
     method_box.run() + field_box.run()
@@ -2318,16 +2322,16 @@ struct Foo {
 }
 
 extend Foo {
-    fn init() Foo {
+    fun init() Foo {
         Foo { value: 1 }
     }
 
-    fn withFoo(self) Foo {
+    fun withFoo(self) Foo {
         self
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let foo: Foo = .init().withFoo();
     foo.value
 }
@@ -2349,16 +2353,16 @@ struct Product {
 }
 
 extend Builder {
-    fn init() Builder {
+    fun init() Builder {
         Builder { value: 2 }
     }
 
-    fn finish(self) Product {
+    fun finish(self) Product {
         Product { value: self.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let product: Product = .init().finish();
     product.value
 }
@@ -2376,22 +2380,22 @@ struct Collected[T] {}
 struct Product[T] {}
 
 extend Source {
-    fn init() Source {}
+    fun init() Source {}
 
-    fn collect[T](self) Collected[T] {
+    fun collect[T](self) Collected[T] {
         _ = self;
         {}
     }
 }
 
 extend[T] Collected[T] {
-    fn finish(self) Product[T] {
+    fun finish(self) Product[T] {
         _ = self;
         {}
     }
 }
 
-fn main() () {
+fun main() () {
     let product: Product[i32] = .init().collect().finish();
     _ = product;
 }
@@ -2409,16 +2413,16 @@ struct Right {}
 struct Product {}
 
 extend Left {
-    fn init() Left {}
-    fn finish(self) Product {}
+    fun init() Left {}
+    fun finish(self) Product {}
 }
 
 extend Right {
-    fn init() Right {}
-    fn finish(self) Product {}
+    fun init() Right {}
+    fun finish(self) Product {}
 }
 
-fn main() () {
+fun main() () {
     let product: Product = .init().finish();
     _ = product;
 }
@@ -2458,16 +2462,16 @@ struct Product[T] {
 }
 
 extend[T] Builder[T] {
-    fn init(value: T) Builder[T] {
+    fun init(value: T) Builder[T] {
         Builder[T] { value }
     }
 
-    fn finish(self) Product[T] {
+    fun finish(self) Product[T] {
         Product[T] { value: self.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let product: Product[i32] = .init(4).finish();
     product.value
 }
@@ -2484,11 +2488,11 @@ struct Builder[N: usize] {}
 struct Product[N: usize] {}
 
 extend[N: usize] Builder[N] {
-    fn init() Builder[N] {}
-    fn finish(self) Product[N] {}
+    fun init() Builder[N] {}
+    fun finish(self) Product[N] {}
 }
 
-fn main() () {
+fun main() () {
     let product: Product[3] = .init().finish();
     _ = product;
 }
@@ -2506,21 +2510,21 @@ struct Middle[T] { value: T }
 struct Product[T] { value: T }
 
 extend Source {
-    fn init() Source {}
+    fun init() Source {}
 
-    fn collect[T](self, value: T) Middle[T] {
+    fun collect[T](self, value: T) Middle[T] {
         _ = self;
         Middle[T] { value }
     }
 }
 
 extend[T] Middle[T] {
-    fn finish(self) Product[T] {
+    fun finish(self) Product[T] {
         Product[T] { value: self.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let product: Product[i32] = .init().collect[i32](5).finish();
     product.value
 }
@@ -2539,19 +2543,19 @@ struct Second {}
 struct Product {}
 
 extend Start {
-    fn init() Start {}
-    fn first(self) First {}
+    fun init() Start {}
+    fun first(self) First {}
 }
 
 extend First {
-    fn second(self) Second {}
+    fun second(self) Second {}
 }
 
 extend Second {
-    fn finish(self) Product {}
+    fun finish(self) Product {}
 }
 
-fn main() () {
+fun main() () {
     let product: Product = .init().first().second().finish();
     _ = product;
 }
@@ -2569,16 +2573,16 @@ struct Right {}
 struct Product {}
 
 extend Left {
-    fn init() Left {}
-    fn finish(self, value: i32) Product { _ = value; {} }
+    fun init() Left {}
+    fun finish(self, value: i32) Product { _ = value; {} }
 }
 
 extend Right {
-    fn init() Right {}
-    fn finish(self, value: bool) Product { _ = value; {} }
+    fun init() Right {}
+    fun finish(self, value: bool) Product { _ = value; {} }
 }
 
-fn main() () {
+fun main() () {
     let product: Product = .init().finish(true);
     _ = product;
 }
@@ -2595,11 +2599,11 @@ struct Builder {}
 struct Product {}
 
 extend Builder {
-    fn init() Builder {}
-    fn finish(self) Product {}
+    fun init() Builder {}
+    fun finish(self) Product {}
 }
 
-fn main() () {
+fun main() () {
     let product = .init().finish();
     _ = product;
 }
@@ -2616,7 +2620,7 @@ fn infers_contextual_receiver_for_trait_method() {
     let checked = pipeline(
         r#"
 trait Finish {
-    fn finish(self) Product {
+    fun finish(self) Product {
         _ = self;
         {}
     }
@@ -2626,12 +2630,12 @@ struct Builder {}
 struct Product {}
 
 extend Builder {
-    fn init() Builder {}
+    fun init() Builder {}
 }
 
 extend Builder : Finish {}
 
-fn main() () {
+fun main() () {
     let product: Product = .init().finish();
     _ = product;
 }
@@ -2649,15 +2653,15 @@ struct Right {}
 struct Product {}
 
 extend Left {
-    fn init() Left {}
-    fn finish(self) Product {}
+    fun init() Left {}
+    fun finish(self) Product {}
 }
 
 extend Right {
-    fn finish(self) Product {}
+    fun finish(self) Product {}
 }
 
-fn main() () {
+fun main() () {
     let builder: Left = .init();
     let product: Product = builder.finish();
     _ = product;
@@ -2672,25 +2676,25 @@ fn infers_generic_trait_impl_contextual_receiver() {
     let checked = pipeline(
         r#"
 trait Finish[T] {
-    fn finish(self) Product[T];
+    fun finish(self) Product[T];
 }
 
 struct Builder[T] { value: T }
 struct Product[T] { value: T }
 
 extend[T] Builder[T] {
-    fn init(value: T) Builder[T] {
+    fun init(value: T) Builder[T] {
         Builder[T] { value }
     }
 }
 
 extend[T] Builder[T] : Finish[T] {
-    fn finish(self) Product[T] {
+    fun finish(self) Product[T] {
         Product[T] { value: self.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let product: Product[i32] = .init(6).finish();
     product.value
 }
@@ -2704,7 +2708,7 @@ fn propagates_context_through_explicit_trait_method_generics() {
     let checked = pipeline(
         r#"
 trait Finish {
-    fn finish[T](self, value: T) Product[T] {
+    fun finish[T](self, value: T) Product[T] {
         _ = self;
         Product[T] { value }
     }
@@ -2714,12 +2718,12 @@ struct Builder {}
 struct Product[T] { value: T }
 
 extend Builder {
-    fn init() Builder {}
+    fun init() Builder {}
 }
 
 extend Builder : Finish {}
 
-fn main() i32 {
+fun main() i32 {
     let product: Product[i32] = .init().finish[i32](7);
     product.value
 }
@@ -2736,22 +2740,22 @@ struct Builder {}
 struct Product {}
 
 extend Builder {
-    fn init() Builder {}
+    fun init() Builder {}
 
-    fn finish[T](self, value: T) Product {
+    fun finish[T](self, value: T) Product {
         _ = value;
         {}
     }
 }
 
 extend Builder {
-    fn finish(self, value: bool) Product {
+    fun finish(self, value: bool) Product {
         _ = value;
         {}
     }
 }
 
-fn main() () {
+fun main() () {
     let product: Product = .init().finish(true);
     _ = product;
 }
@@ -2770,15 +2774,15 @@ struct Product {}
 static mut product: Product = {};
 
 extend Builder {
-    fn init() Builder {}
+    fun init() Builder {}
 
-    fn finish(self) &mut Product {
+    fun finish(self) &mut Product {
         _ = self;
         &mut product
     }
 }
 
-fn main() () {
+fun main() () {
     let value: &Product = .init().finish();
     _ = value;
 }

@@ -1,7 +1,7 @@
-fn answer() i32 {
+fun answer() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer()
 }

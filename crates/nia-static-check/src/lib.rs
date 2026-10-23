@@ -1002,7 +1002,7 @@ mod tests {
     fn rejects_block_call_and_bare_global_initializers() {
         let checked = check(
             r#"
-fn make() i32 { 1 }
+fun make() i32 { 1 }
 
 static mut base: i32 = 1;
 static mut bad_block = { 1 };
@@ -1049,10 +1049,10 @@ static mut q: &i32 = &pair.x;
 static mut r: &i32 = &xs[1];
 
 struct Vtable {
-    print: &fn(&i32)
+    print: &fun(&i32)
 }
 
-fn print_i32(value: &i32) {}
+fun print_i32(value: &i32) {}
 static vtable: Vtable = Vtable { print: & print_i32 };
 "#,
         );
@@ -1110,7 +1110,7 @@ static mut enabledCopy: bool = enabled;
 static mut letterCopy: char = letter;
 static mut byteCopy: u8 = byte;
 
-fn nested() i32 {
+fun nested() i32 {
     const local: f64 = -2.25f64;
     static mut copy: f64 = local;
     copy as i32
@@ -1125,7 +1125,7 @@ fn nested() i32 {
     fn accepts_local_integer_const_in_static_initializer() {
         let checked = check(
             r#"
-fn make() i32 {
+fun make() i32 {
     const base = 20;
     static mut value: i32 = base + 2;
     value
@@ -1179,9 +1179,9 @@ static mut directCopy: (i32, i32) = (3, 4);
     fn checks_static_nested_in_expression_blocks() {
         let checked = check(
             r#"
-fn make() i32 { 1 }
+fun make() i32 { 1 }
 
-fn main() i32 {
+fun main() i32 {
     if true {
         static bad: i32 = make();
         bad

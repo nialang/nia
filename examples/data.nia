@@ -5,7 +5,7 @@ using process::{Init, ExitCode};
 const width: usize = 4;
 static stable_bytes_storage = b"nia";
 
-fn byteSum(bytes: &[u8]) usize {
+fun byteSum(bytes: &[u8]) usize {
     let mut total: usize = 0;
     for &byte in bytes {
         total += byte as usize;
@@ -13,15 +13,15 @@ fn byteSum(bytes: &[u8]) usize {
     total
 }
 
-fn writeFirst(values: &mut [i32], value: i32) () {
+fun writeFirst(values: &mut [i32], value: i32) () {
     values[0] = value;
 }
 
-fn copyBytes(output: &mut [u8], source: &[u8]) usize {
+fun copyBytes(output: &mut [u8], source: &[u8]) usize {
     output.copyFrom(source)
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
 
     let values: [i32; width] = [1, 2, 3, 4];

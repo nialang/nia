@@ -34,7 +34,7 @@ fn speculative_type_snapshots_keep_nested_const_alternates() {
         "Wrap[Buffer[COUNT]]",
         "(Buffer[COUNT], &Wrap[Buffer[OTHER]])",
     ] {
-        let source = format!("fn inspect() () {{ consume[{argument}](); }}");
+        let source = format!("fun inspect() () {{ consume[{argument}](); }}");
         let parsed = parse(&source, None).expect("grammar");
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
         for name in ["COUNT", "OTHER"] {
@@ -51,7 +51,7 @@ fn speculative_type_snapshots_keep_nested_const_alternates() {
 
 #[test]
 fn complete_grammar_retains_nested_productions_and_semantic_alternates() {
-    let source = "type Stored = Box[N];\nfn f[T](x: T) T { let y = call[T](x); match y { ?v => v, null => x, } }";
+    let source = "type Stored = Box[N];\nfun f[T](x: T) T { let y = call[T](x); match y { ?v => v, null => x, } }";
     let parsed = parse(source, None).expect("valid grammar tree");
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let mut actual = Vec::new();
@@ -92,12 +92,12 @@ fn complete_grammar_retains_nested_productions_and_semantic_alternates() {
 fn recovery_regions_are_lossless_and_preserve_later_declarations() {
     for source in [
         "module module retained;",
-        "fn broken(value) {}\nmodule retained;",
-        "fn broken[T(value: T) T;\nmodule retained;",
+        "fun broken(value) {}\nmodule retained;",
+        "fun broken[T(value: T) T;\nmodule retained;",
         "struct Broken { value: , next: i32 }\nmodule retained;",
-        "fn broken() { call(, value); later(); }\nmodule retained;",
-        "fn broken() { let = value; later(); }\nmodule retained;",
-        "@[if ] fn broken() {}\nmodule retained;",
+        "fun broken() { call(, value); later(); }\nmodule retained;",
+        "fun broken() { let = value; later(); }\nmodule retained;",
+        "@[if ] fun broken() {}\nmodule retained;",
     ] {
         let parsed = parse(source, None).expect("recovered grammar tree");
         assert!(!parsed.errors.is_empty(), "{source}");

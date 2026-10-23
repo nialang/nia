@@ -10,11 +10,11 @@ fn unavailable_import_module_keeps_the_loader_root() {
         let root = temp_dir("unavailable_import_cause");
         let entry = root.join("main.nia");
         let consumer = root.join("consumer.nia");
-        write(&entry, "module absent; module consumer; fn main() () {}\n");
+        write(&entry, "module absent; module consumer; fun main() () {}\n");
         let source = r#"
 using entry::absent::{Missing as Alias, missing as invoke};
-fn need(value: i32) i32 { value }
-fn inspect() () {
+fun need(value: i32) i32 { value }
+fun inspect() () {
     let value: Alias = .{};
     _ = value;
     _ = invoke();
@@ -28,8 +28,8 @@ fn inspect() () {
                     "",
                 )
                 .replace(
-                    "fn inspect() () {",
-                    "fn inspect() () { using entry::absent::{Missing as Alias, missing as invoke};",
+                    "fun inspect() () {",
+                    "fun inspect() () { using entry::absent::{Missing as Alias, missing as invoke};",
                 )
         } else {
             source.to_owned()
@@ -98,18 +98,21 @@ fn private_import_and_reexport_causes_identify_the_emitted_root() {
         let entry = root.join("main.nia");
         let api = root.join("api.nia");
         let consumer = root.join("consumer.nia");
-        write(&entry, "pub module api; module consumer; fn main() () {}\n");
-        write(&api, "struct Hidden {} fn hidden() i32 { 1 }\n");
+        write(
+            &entry,
+            "pub module api; module consumer; fun main() () {}\n",
+        );
+        write(&api, "struct Hidden {} fun hidden() i32 { 1 }\n");
         let directive = "using entry::api::{Hidden as Alias, hidden as invoke};";
         let body = "let value: Alias = .{}; _ = value; _ = invoke(); _ = invoke(); _ = need(true);";
         let source = match kind {
-            "block" => format!("fn consume() () {{ {directive} {body} }}"),
-            "public" => format!("pub {directive}\nfn consume() () {{ {body} }}"),
-            _ => format!("{directive}\nfn consume() () {{ {body} }}"),
+            "block" => format!("fun consume() () {{ {directive} {body} }}"),
+            "public" => format!("pub {directive}\nfun consume() () {{ {body} }}"),
+            _ => format!("{directive}\nfun consume() () {{ {body} }}"),
         };
         write(
             &consumer,
-            &format!("{source}\nfn need(value: i32) i32 {{ value }}\n"),
+            &format!("{source}\nfun need(value: i32) i32 {{ value }}\n"),
         );
         let checked = checked_program_from_output(
             test_driver()
@@ -158,14 +161,14 @@ fn aliased_group_import_causes_survive_edits_and_cache() {
     let root = temp_dir("aliased_group_import_causes");
     let entry = root.join("main.nia");
     let consumer = root.join("consumer.nia");
-    write(&entry, "module api; module consumer; fn main() () {}\n");
+    write(&entry, "module api; module consumer; fun main() () {}\n");
     write(
         &root.join("api.nia"),
-        "pub struct Present {} pub fn present() i32 { 1 }\n",
+        "pub struct Present {} pub fun present() i32 { 1 }\n",
     );
     let failing = r#"using entry::api::{Missing as Alias, missing as invoke};
-fn need(value: i32) i32 { value }
-fn consume(value: Alias) Alias {
+fun need(value: i32) i32 { value }
+fun consume(value: Alias) Alias {
     _ = invoke();
     _ = invoke();
     _ = need(true);

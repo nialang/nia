@@ -1,7 +1,7 @@
 path: fail/closure_parameter_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `->` after closure parameter; found `second`
-label: 47..53 Primary Source expected `,` or `->` after closure parameter; found `second`
+label: 48..54 Primary Source expected `,` or `->` after closure parameter; found `second`
 
 report:
 error[E0101]: expected `,` or `->` after closure parameter; found `second`

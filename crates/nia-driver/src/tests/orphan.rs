@@ -10,7 +10,7 @@ fn trait_impl_in_a_third_package_is_rejected() {
         r#"
 using extra::impls;
 
-fn main() i32 {
+fun main() i32 {
     impls::marker();
     0
 }
@@ -26,7 +26,7 @@ fn main() i32 {
     std::fs::create_dir_all(root.join("traits")).expect("create trait package directory");
     write(
         &root.join("traits/show.nia"),
-        "pub trait Show { fn show(&self) i32; }",
+        "pub trait Show { fun show(&self) i32; }",
     );
     write(&root.join("extra.nia"), "pub module impls;");
     std::fs::create_dir_all(root.join("extra")).expect("create third package directory");
@@ -37,10 +37,10 @@ using dep::types;
 using traits::show;
 
 extend types::Widget : show::Show {
-    fn show(&self) i32 { self.value }
+    fun show(&self) i32 { self.value }
 }
 
-pub fn marker() () {}
+pub fun marker() () {}
 "#,
     );
 
@@ -86,7 +86,7 @@ fn structural_trait_impl_must_be_declared_in_the_trait_package() {
 using traits::show;
 using extra::impls;
 
-fn main(value: &[i32]) i32 {
+fun main(value: &[i32]) i32 {
     value.show()
 }
 
@@ -96,7 +96,7 @@ fn main(value: &[i32]) i32 {
     std::fs::create_dir_all(root.join("traits")).expect("create trait package directory");
     write(
         &root.join("traits/show.nia"),
-        "pub trait Show { fn show(&self) i32; }",
+        "pub trait Show { fun show(&self) i32; }",
     );
     write(&root.join("extra.nia"), "pub module impls;");
     std::fs::create_dir_all(root.join("extra")).expect("create third package directory");
@@ -106,7 +106,7 @@ fn main(value: &[i32]) i32 {
 using traits::show;
 
 extend &[i32] : show::Show {
-    fn show(&self) i32 { 0 }
+    fun show(&self) i32 { 0 }
 }
 
 "#,
@@ -151,7 +151,7 @@ struct Value {}
 extend Value : Marker {}
 extend Value : Marker {}
 
-fn main() () {}
+fun main() () {}
 "#,
     );
     let checked = check_program(root.join("main.nia").to_string_lossy());
@@ -177,7 +177,7 @@ trait Marker[T] {}
 struct Value {}
 extend[T] Value : Marker[T] {}
 extend[U] Value : Marker[U] {}
-fn main() () {}
+fun main() () {}
 "#,
     );
     let checked = check_program(root.join("main.nia").to_string_lossy());
@@ -200,16 +200,16 @@ fn conditional_trait_impls_with_the_same_pattern_are_selected_by_obligations() {
         r#"
 trait Left {}
 trait Right {}
-trait Marker { fn marker(&self) i32; }
+trait Marker { fun marker(&self) i32; }
 struct Value {}
 extend Value : Left {}
 extend[T] T : Marker where T: Left {
-    fn marker(&self) i32 { 1 }
+    fun marker(&self) i32 { 1 }
 }
 extend[T] T : Marker where T: Right {
-    fn marker(&self) i32 { 2 }
+    fun marker(&self) i32 { 2 }
 }
-fn main() i32 { Value {}.marker() }
+fun main() i32 { Value {}.marker() }
 "#,
     );
     let checked = check_program(root.join("main.nia").to_string_lossy());
@@ -232,7 +232,7 @@ struct Value {}
 extend[T] Value : Marker[T] {}
 extend Value : Marker[i32] {}
 
-fn main() () {}
+fun main() () {}
 "#,
     );
     let checked = check_program(root.join("main.nia").to_string_lossy());

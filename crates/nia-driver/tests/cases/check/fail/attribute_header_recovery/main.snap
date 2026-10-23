@@ -6,14 +6,14 @@ help: use an identifier in this position
 
 path: fail/attribute_header_recovery/main.nia
 code: E0101
-summary: expected attribute path segment; found `fn`
-label: 66..68 Primary Source expected attribute path segment; found `fn`
+summary: expected attribute path segment; found `fun`
+label: 68..71 Primary Source expected attribute path segment; found `fun`
 help: use an identifier in this position
 
 path: fail/attribute_header_recovery/main.nia
 code: E0101
 summary: expected attribute path segment; found `let`
-label: 120..123 Primary Source expected attribute path segment; found `let`
+label: 124..127 Primary Source expected attribute path segment; found `let`
 help: use an identifier in this position
 
 report:
@@ -24,11 +24,11 @@ error[E0101]: expected attribute path segment; found `]`
   |          ^
 help: use an identifier in this position
 
-error[E0101]: expected attribute path segment; found `fn`
+error[E0101]: expected attribute path segment; found `fun`
   --> fail/attribute_header_recovery/main.nia:7:1
   |
-7 | fn final() () {}
-  | ^^
+7 | fun final() () {}
+  | ^^^
 help: use an identifier in this position
 
 error[E0101]: expected attribute path segment; found `let`

@@ -241,7 +241,7 @@ The script defines one public function:
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let root = b.addModule(
         build::ModuleOptions::init(&"planner", fs::PathView::init(&"src/main.nia")),
     ).?;
@@ -393,7 +393,7 @@ an aggregate default:
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let mathlib = b.addDependency(&"mathlib").?;
     let imports = [
         build::ModuleImport::init(&"greeting", fs::PathView::init(&"src/greeting.nia")),
@@ -440,7 +440,7 @@ pub const prefix: [char; 6] = "hello ";
 
 ```nia
 // vendor/mathlib/lib.nia
-pub fn square(value: i32) i32 {
+pub fun square(value: i32) i32 {
     value * value
 }
 ```
@@ -454,7 +454,7 @@ using greeting;
 using mathlib;
 using version;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let name = match init.args().get(1) {
         ?argument => argument,
         null => return process::ExitCode(2)!,
@@ -521,7 +521,7 @@ directory and reruns only when `input.txt` changes. It needs a POSIX `sh` and
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let package = b.rootPackage();
     let arguments = [
         build::CommandArgument::literal(&"-c"),
@@ -573,7 +573,7 @@ it, `std::test` provides assertions that return `test::Error!()` and a runner:
 | `test::Case::init(name, &function)` | one named case; the function returns `test::Error!()` |
 | `test::Runner::init(&cases)` | runs a borrowed case table; `.withFailFast()` skips cases after a failure |
 | `runner.run()` | runs the cases and returns a `RunSummary` |
-| `runner.runWith(&mut reporter)` | also passes each `CaseResult` to a `&mut Fn(test::CaseResult) ()` closure |
+| `runner.runWith(&mut reporter)` | also passes each `CaseResult` to a `&mut Fun(test::CaseResult) ()` closure |
 
 A failed assertion records the source location of the failing call, which
 `CaseResult::error()` returns. `RunSummary` exposes `total()`, `passed()`,
@@ -584,19 +584,19 @@ using std::io;
 using std::process;
 using std::test;
 
-fn addsNumbers() test::Error!() {
+fun addsNumbers() test::Error!() {
     test::expectEqual(2 + 2, 4).?;
     !()
 }
 
-fn findsText() test::Error!() {
+fun findsText() test::Error!() {
     let text = "hello";
     test::expect(text.len() == 5).?;
     test::expectNotEqual(text[0], 'j').?;
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases = [
         test::Case::init(&"adds numbers", &addsNumbers),
@@ -642,7 +642,7 @@ discarded, and they cannot write build outputs.
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let release = match b.probeEnv(&"APP_RELEASE").? {
         ?value => value.len() != 0,
         null => false,

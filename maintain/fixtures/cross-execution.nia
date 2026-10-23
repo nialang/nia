@@ -2,11 +2,11 @@
 using std::io;
 using std::process;
 
-fn one() i32 { 1 }
-fn two() i32 { 2 }
-static handlers: [&fn() i32; 2] = [&one, &two];
+fun one() i32 { 1 }
+fun two() i32 { 2 }
+static handlers: [&fun() i32; 2] = [&one, &two];
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut total: i32 = 0;
     for &handler in &handlers[..] {

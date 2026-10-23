@@ -5,7 +5,7 @@ pub enum Ordering: i32 {
 }
 
 // Return the greater value, preserving `left` when the values compare equal.
-pub fn max[T](left: T, right: T) T
+pub fun max[T](left: T, right: T) T
 where T: Sized + Ord[T]
 {
     if right > left {

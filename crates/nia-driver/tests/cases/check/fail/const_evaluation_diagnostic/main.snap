@@ -1,10 +1,10 @@
 path: fail/const_evaluation_diagnostic/main.nia
 code: E0401
-summary: const expression can only call `const fn`
-label: 79..94 Primary Source const expression can only call `const fn`
+summary: const expression can only call `const fun`
+label: 80..95 Primary Source const expression can only call `const fun`
 
 report:
-error[E0401]: const expression can only call `const fn`
+error[E0401]: const expression can only call `const fun`
   --> fail/const_evaluation_diagnostic/main.nia:5:25
   |
 5 | const arrayLen: usize = runtimeWidth(5);

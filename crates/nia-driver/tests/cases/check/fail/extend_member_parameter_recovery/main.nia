@@ -1,8 +1,8 @@
 struct Value {}
 
 extend Value {
-    fn bad(first: i32 second: bool) Value { Value {} }
-    fn good(value: i32) Value { Value {} }
+    fun bad(first: i32 second: bool) Value { Value {} }
+    fun good(value: i32) Value { Value {} }
 }
 
-fn later() () {}
+fun later() () {}

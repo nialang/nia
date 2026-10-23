@@ -22,7 +22,7 @@ pub struct Block {
 }
 
 extend Layout {
-    pub fn init(size: usize, align: usize) Error!Layout {
+    pub fun init(size: usize, align: usize) Error!Layout {
         if align == 0 {
             .InvalidAlignment!
         } else if not align.isPowerOfTwo() {
@@ -32,13 +32,13 @@ extend Layout {
         }
     }
 
-    pub fn of[T]() Error!Layout
+    pub fun of[T]() Error!Layout
     where T: Sized
     {
         Layout::init(pkg::builtin::size[T](), pkg::builtin::align[T]())
     }
 
-    pub fn array[T](count: usize) Error!Layout
+    pub fun array[T](count: usize) Error!Layout
     where T: Sized
     {
         let elemLen = pkg::builtin::size[T]();
@@ -53,25 +53,25 @@ extend Layout {
         Layout::init(size, pkg::builtin::align[T]())
     }
 
-    pub fn size(&self) usize {
+    pub fun size(&self) usize {
         self.size
     }
 
-    pub fn align(&self) usize {
+    pub fun align(&self) usize {
         self.align
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.size == 0
     }
 }
 
 extend Block {
-    pub fn init(ptr: &mut u8, layout: Layout) Block {
+    pub fun init(ptr: &mut u8, layout: Layout) Block {
         .{ ptr, layout, releasePtr: ptr, releaseSize: layout.size() }
     }
 
-    pub(pkg) fn initWithRelease(
+    pub(pkg) fun initWithRelease(
         ptr: &mut u8,
         layout: Layout,
         releasePtr: &mut u8,
@@ -80,47 +80,47 @@ extend Block {
         .{ ptr, layout, releasePtr, releaseSize }
     }
 
-    pub(pkg) fn withLayout(&self, layout: Layout) Block {
+    pub(pkg) fun withLayout(&self, layout: Layout) Block {
         Block::initWithRelease(self.ptr, layout, self.releasePtr, self.releaseSize)
     }
 
-    pub fn empty(layout: Layout) Block {
+    pub fun empty(layout: Layout) Block {
         Block::init(layout.align() as &mut u8, layout)
     }
 
-    pub fn ptr(&self) &mut u8 {
+    pub fun ptr(&self) &mut u8 {
         self.ptr
     }
 
-    pub(pkg) fn releasePtr(&self) &mut u8 {
+    pub(pkg) fun releasePtr(&self) &mut u8 {
         self.releasePtr
     }
 
-    pub(pkg) fn releaseSize(&self) usize {
+    pub(pkg) fun releaseSize(&self) usize {
         self.releaseSize
     }
 
-    pub fn layout(&self) Layout {
+    pub fun layout(&self) Layout {
         self.layout
     }
 
-    pub fn size(&self) usize {
+    pub fun size(&self) usize {
         self.layout.size()
     }
 
-    pub fn align(&self) usize {
+    pub fun align(&self) usize {
         self.layout.align()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.layout.isEmpty()
     }
 
-    pub fn bytes(&self) &mut [u8] {
+    pub fun bytes(&self) &mut [u8] {
         &mut self.ptr[0..self.size()]
     }
 
-    pub fn asSlice[T](&self) &mut [T]
+    pub fun asSlice[T](&self) &mut [T]
     where T: Sized
     {
         let mut ptr = self.ptr as &mut T;

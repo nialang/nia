@@ -85,16 +85,16 @@ and it does not allocate or discover files.
 using std::process;
 using std::test;
 
-fn addsNumbers() test::Error!() {
+fun addsNumbers() test::Error!() {
     test::expectEqual(2 + 2, 4).?;
     !()
 }
 
-fn comparesText() test::Error!() {
+fun comparesText() test::Error!() {
     test::expect("nia".len() == 3)
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
         .init(&"adds numbers", &addsNumbers),

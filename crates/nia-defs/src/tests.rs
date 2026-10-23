@@ -19,7 +19,7 @@ using entry::math;
 struct Point { x: i32, y: i32 }
 enum Color { Red, Green }
 type Byte = u8;
-fn Point() i32 { 0 }
+fun Point() i32 { 0 }
 static mut counter = 0;
 "#,
     );
@@ -52,7 +52,7 @@ fn public_surface_facts_rebase_without_revision_or_module_handles() {
 pub using entry::dep::{Thing, Choice::*};
 pub struct Local[T] { value: T }
 pub enum Choice { First, Second }
-pub fn make() () {}
+pub fun make() () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -99,8 +99,8 @@ fn reports_duplicates_per_namespace() {
         r#"
 struct Thing { a: i32, a: i32 }
 struct Thing {}
-fn f() {}
-fn f() {}
+fun f() {}
+fun f() {}
 enum E { A, A }
 "#,
     );
@@ -145,13 +145,13 @@ fn reports_duplicate_generic_parameters() {
         r#"
 struct Box[T, T] { value: T }
 type Alias[T, T] = T;
-fn id[T, T](x: T) T { x }
+fun id[T, T](x: T) T { x }
 struct Methods[T] {
 value: T,
 }
 
 extend[T, T] Methods[T] {
-fn get[U, U](self) T { self.value }
+fun get[U, U](self) T { self.value }
 }
 "#,
     );
@@ -218,26 +218,26 @@ fn definition_ids_are_stable_across_unrelated_insertions() {
 pub struct Point { x: i32, y: i32 }
 pub enum Color { Red, Green }
 trait Show {
-fn show(self) i32;
+fun show(self) i32;
 }
 extend Point {
-fn len(self) i32 { 0 }
+fun len(self) i32 { 0 }
 }
-pub fn main() i32 { 0 }
+pub fun main() i32 { 0 }
 "#,
     );
     let after = collect_ok(
         r#"
-fn helper() i32 { 1 }
+fun helper() i32 { 1 }
 pub struct Point { x: i32, y: i32 }
 pub enum Color { Red, Green }
 trait Show {
-fn show(self) i32;
+fun show(self) i32;
 }
 extend Point {
-fn len(self) i32 { 0 }
+fun len(self) i32 { 0 }
 }
-pub fn main() i32 { 0 }
+pub fun main() i32 { 0 }
 "#,
     );
 
@@ -268,7 +268,7 @@ fn extension_definition_ids_ignore_type_formatting() {
         r#"
 struct Box[T] { value: T }
 extend[T] &Box[T] {
-fn get(self) T { self.value }
+fun get(self) T { self.value }
 }
 "#,
     );
@@ -276,7 +276,7 @@ fn get(self) T { self.value }
         r#"
 struct Box[T] { value: T }
 extend[T] & Box[ T ] {
-fn get(self) T { self.value }
+fun get(self) T { self.value }
 }
 "#,
     );
@@ -303,7 +303,7 @@ fn collect_ok(source: &str) -> DefCollection {
 
 #[test]
 fn stable_top_level_definition_id_matches_source_collection() {
-    let defs = collect_ok("pub fn answer() i32 { 0 }\npub struct Point {}\n");
+    let defs = collect_ok("pub fun answer() i32 { 0 }\npub struct Point {}\n");
     let answer = top_value_id(&defs, "answer");
     let point = top_type_id(&defs, "Point");
     assert_eq!(
@@ -320,7 +320,7 @@ fn stable_top_level_definition_id_matches_source_collection() {
 
 #[test]
 fn duplicate_definition_identity_is_a_structured_internal_error() {
-    let mut collection = collect_ok("fn answer() i32 { 0 }\n");
+    let mut collection = collect_ok("fun answer() i32 { 0 }\n");
     let entry = collection.defs.defs[0].clone();
 
     let error = collection

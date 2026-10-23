@@ -9,7 +9,7 @@ struct ParsedSpec {
     dynamicPrecision: bool,
 }
 
-fn parsePresentation(ch: char) ?core::FormatPresentation {
+fun parsePresentation(ch: char) ?core::FormatPresentation {
     if ch == 'x' {
         ?.LowerHex
     } else if ch == 'X' {
@@ -25,7 +25,7 @@ fn parsePresentation(ch: char) ?core::FormatPresentation {
     }
 }
 
-fn parseAlignment(ch: char) ?core::FormatAlignment {
+fun parseAlignment(ch: char) ?core::FormatAlignment {
     if ch == '<' {
         ?.Left
     } else if ch == '>' {
@@ -37,7 +37,7 @@ fn parseAlignment(ch: char) ?core::FormatAlignment {
     }
 }
 
-fn digitValue(ch: char) ?usize {
+fun digitValue(ch: char) ?usize {
     if ch >= '0' and ch <= '9' {
         ?((ch as u32 - '0' as u32) as usize)
     } else {
@@ -45,7 +45,7 @@ fn digitValue(ch: char) ?usize {
     }
 }
 
-fn appendDecimalDigit(value: usize, digit: usize) core::Error!usize {
+fun appendDecimalDigit(value: usize, digit: usize) core::Error!usize {
     let scaled = match value.checkedMul(10) {
         ?scaled => scaled,
         null => return .InvalidTemplate!,
@@ -56,7 +56,7 @@ fn appendDecimalDigit(value: usize, digit: usize) core::Error!usize {
     }
 }
 
-fn parseSpecEnd(
+fun parseSpecEnd(
     template: &[char],
     index: usize,
     presentation: core::FormatPresentation,
@@ -80,7 +80,7 @@ fn parseSpecEnd(
     }
 }
 
-fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
+fun parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
     let mut index = start;
     let mut fill = ' ';
     let mut alignment = core::FormatAlignment::None;
@@ -181,7 +181,7 @@ fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
     )
 }
 
-fn nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize {
+fun nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize {
     if argIndex.* >= args.len() {
         return .MissingArgument!;
     }
@@ -194,7 +194,7 @@ fn nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize 
     !value
 }
 
-fn resolveDynamicSpec(
+fun resolveDynamicSpec(
     parsed: ParsedSpec,
     args: &[&core::Format],
     argIndex: &mut usize,
@@ -218,7 +218,7 @@ fn resolveDynamicSpec(
     )
 }
 
-fn printTemplate[W](
+fun printTemplate[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
@@ -276,7 +276,7 @@ where W: io::Writer
     !()
 }
 
-pub fn printChecked[W](
+pub fun printChecked[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
@@ -289,7 +289,7 @@ where W: io::Writer
 extend[W] W
 where W: io::Writer
 {
-    pub fn print(
+    pub fun print(
         &mut self,
         template: &[char],
         args: &[&core::Format],

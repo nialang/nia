@@ -83,10 +83,10 @@ using std::fs;
 using std::process;
 using std::slice;
 
-extern fn GetCurrentProcess() usize;
-extern fn GetProcessHandleCount(process: usize, count: &mut u32) i32;
+extern fun GetCurrentProcess() usize;
+extern fun GetProcessHandleCount(process: usize, count: &mut u32) i32;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut pathBuffer: [u8; 4096] = [0; 4096];
     let path = fs::getCwd(&mut pathBuffer[..]).?;
@@ -188,15 +188,15 @@ fn windows_spawn_limits_inheritance_and_releases_failed_attempts() {
         "child",
         &r#"
 using std::process;
-extern fn GetStdHandle(which: i32) usize;
-extern fn ReadFile(handle: usize, buffer: &mut u8, size: u32, read: &mut u32, overlapped: usize) i32;
-extern fn WriteFile(handle: usize, buffer: &u8, size: u32, written: &mut u32, overlapped: usize) i32;
-extern fn OpenEventW(access: u32, inherit: i32, name: &u16) usize;
-extern fn SetEvent(handle: usize) i32;
-extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
-extern fn GetLastError() u32;
+extern fun GetStdHandle(which: i32) usize;
+extern fun ReadFile(handle: usize, buffer: &mut u8, size: u32, read: &mut u32, overlapped: usize) i32;
+extern fun WriteFile(handle: usize, buffer: &u8, size: u32, written: &mut u32, overlapped: usize) i32;
+extern fun OpenEventW(access: u32, inherit: i32, name: &u16) usize;
+extern fun SetEvent(handle: usize) i32;
+extern fun WaitForSingleObject(handle: usize, milliseconds: u32) u32;
+extern fun GetLastError() u32;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let input = GetStdHandle(-10);
     let mut bytes: [u8; 8] = [0; 8];
@@ -240,12 +240,12 @@ using std::process;
 using std::io;
 using std::slice;
 extern struct Security { length: u32, descriptor: usize, inherit: i32 }
-extern fn CreateEventW(security: &mut Security, manual: i32, initial: i32, name: &u16) usize;
-extern fn CloseHandle(handle: usize) i32;
-extern fn GetCurrentProcess() usize;
-extern fn GetProcessHandleCount(process: usize, count: &mut u32) i32;
+extern fun CreateEventW(security: &mut Security, manual: i32, initial: i32, name: &u16) usize;
+extern fun CloseHandle(handle: usize) i32;
+extern fun GetCurrentProcess() usize;
+extern fun GetProcessHandleCount(process: usize, count: &mut u32) i32;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut security: Security = .{ length: std::builtin::size[Security]() as u32, descriptor: 0, inherit: 1 };
     // Manual reset and unsignaled, so the child can observe identity.
     let name: [u16; $NAME_LEN] = $NAME;
@@ -352,7 +352,7 @@ fn windows_metadata_preserves_pre_unix_epoch_timestamps() {
         r#"
 using std::fs;
 using std::process;
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut dir = fs::Dir::cwd().?;
     defer dir.close().?;
@@ -393,7 +393,7 @@ using std::fs;
 using std::process;
 using std::slice;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut dir = fs::Dir::cwd().?;
     defer dir.close().?;
@@ -463,7 +463,7 @@ fn windows_directory_capabilities_reject_junction_escape() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut dir = fs::Dir::cwd().?;
     defer dir.close().?;
@@ -520,7 +520,7 @@ fn windows_directory_mutations_reject_junction_escape() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cwd = fs::Dir::cwd().?;
     defer cwd.close().?;
@@ -628,7 +628,7 @@ fn windows_startup_and_spawn_accept_environments_beyond_fixed_buffers() {
     let root = temp_dir("windows_large_environment");
     let value = "\u{4e2d}".repeat(30000);
     let check = r#"
-fn hasLargeEntry(init: process::Init) bool {
+fun hasLargeEntry(init: process::Init) bool {
     let prefix = b"NIA_TEST_ENV_LARGE_3=";
     let mut iter = init.env().iter();
     loop {
@@ -649,7 +649,7 @@ fn hasLargeEntry(init: process::Init) bool {
 using std::process;
 using std::slice;
 {check}
-pub fn main(init: process::Init) process::ExitCode!() {{
+pub fun main(init: process::Init) process::ExitCode!() {{
     if not hasLargeEntry(init) {{ return process::ExitCode(1)!; }}
     !()
 }}
@@ -665,7 +665,7 @@ using std;
 using std::process;
 using std::slice;
 {check}
-pub fn main(init: process::Init) process::ExitCode!() {{
+pub fun main(init: process::Init) process::ExitCode!() {{
     if not hasLargeEntry(init) {{ return process::ExitCode(2)!; }}
     let command = process::Command::init(std::PathView::init(&"$CHILD"), init.env());
     let mut attempt = command.spawn();
@@ -696,7 +696,7 @@ fn windows_spawn_resolves_programs_like_posix_execution() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(7)!
 }
@@ -711,7 +711,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -728,7 +728,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 using std;
 using std::process;
 
-fn status(command: process::Command) i32 {
+fun status(command: process::Command) i32 {
     let mut attempt = command.spawn();
     let mut child = match attempt.finish() {
         !value => value,
@@ -740,7 +740,7 @@ fn status(command: process::Command) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let env = init.env();
     // A relative path names a file under the working directory, with either
     // separator.
@@ -814,7 +814,7 @@ fn windows_links_without_an_sdk_and_imports_only_documented_libraries() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if std::HashMap[i32, i32]::tryInit() is !first {
         _ = first;

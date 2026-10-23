@@ -1,2 +1,2 @@
 using {kept, ,
-fn later() () {}
+fun later() () {}

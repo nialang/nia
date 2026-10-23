@@ -99,11 +99,11 @@ fn loads_entry_and_imported_modules_once() {
     let root = temp_dir("loads_entry_and_imported_modules_once");
     write(
         &root.join("main.nia"),
-        r#"module math; using entry::math; fn main() i32 { 0 }"#,
+        r#"module math; using entry::math; fun main() i32 { 0 }"#,
     );
     write(
         &root.join("math.nia"),
-        r#"fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = load_program(
@@ -149,7 +149,7 @@ fn reports_missing_imported_modules() {
     write(
         &root.join("main.nia"),
         r#"module missing;
-using entry::missing; fn main() {}"#,
+using entry::missing; fun main() {}"#,
     );
 
     let program = load_program(
@@ -189,7 +189,7 @@ fn package_root_names_current_mapped_package() {
         r#"
 using dep::api;
 
-fn main() i32 {
+fun main() i32 {
     api::answer()
 }
 "#,
@@ -201,12 +201,12 @@ fn main() i32 {
         r#"
 using pkg::helper;
 
-pub fn answer() i32 {
+pub fun answer() i32 {
     helper::answer()
 }
 "#,
     );
-    write(&root.join("dep/helper.nia"), "pub fn answer() i32 { 42 }");
+    write(&root.join("dep/helper.nia"), "pub fun answer() i32 { 42 }");
     let mut module_map = ModuleMap::new();
     module_map
         .insert("dep", SourcePath::new(dep_root.to_string_lossy()))
@@ -228,21 +228,21 @@ fn entry_inside_mapped_package_still_names_entry_module() {
         r#"
 using dep::api;
 
-pub fn main_value() i32 { 31 }
+pub fun main_value() i32 { 31 }
 
-fn main() i32 {
+fun main() i32 {
     api::answer()
 }
 "#,
     );
-    write(&dep_root, "pub module api; pub fn main_value() i32 { 7 }");
+    write(&dep_root, "pub module api; pub fun main_value() i32 { 7 }");
     fs::create_dir_all(root.join("dep")).expect("create dep dir");
     write(
         &root.join("dep/api.nia"),
         r#"
 using entry;
 
-pub fn answer() i32 {
+pub fun answer() i32 {
     entry::main_value()
 }
 "#,
@@ -265,9 +265,9 @@ fn checks_each_loaded_module() {
     write(
         &root.join("main.nia"),
         r#"module math;
-using entry::math; fn main() i32 { 0 }"#,
+using entry::math; fun main() i32 { 0 }"#,
     );
-    write(&root.join("math.nia"), r#"fn bad() i32 { true }"#);
+    write(&root.join("math.nia"), r#"fun bad() i32 { true }"#);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_eq!(modules_under(&program.modules, &root), 2);
@@ -288,7 +288,7 @@ fn std_io_file_writer_does_not_require_process_capability_plumbing() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     match stdout.writeAll(&b"nia\n") {
@@ -320,7 +320,7 @@ fn std_io_buffered_file_writer_flushes_explicitly() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 64] = [0; 64];
     let mut raw_buffer: [u8; 0] = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
@@ -362,7 +362,7 @@ fn std_fs_file_requires_an_explicit_writer_adapter() {
 using std::fs;
 using std::process;
 
-fn reject_file_writer(file: fs::File) process::ExitCode!() {
+fun reject_file_writer(file: fs::File) process::ExitCode!() {
     match file.writeAll(&b"nia\n") {
         !ok => {
             _ = ok;
@@ -374,7 +374,7 @@ fn reject_file_writer(file: fs::File) process::ExitCode!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -404,7 +404,7 @@ fn std_process_child_pipes_enforce_read_and_write_roles() {
 using std::io;
 using std::process;
 
-fn reject(stdout: process::ChildStdout, stdin: process::ChildStdin, bytes: &mut [u8]) () {
+fun reject(stdout: process::ChildStdout, stdin: process::ChildStdin, bytes: &mut [u8]) () {
     _ = stdout.write(bytes);
     _ = stdin.read(bytes);
 }
@@ -440,7 +440,7 @@ fn std_io_file_reader_does_not_require_process_capability_plumbing() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 64] = [0; 64];
     let mut reader = io::FileReader::stdin(&mut buffer[..]);
     let mut bytes: [u8; 1] = [0];
@@ -472,7 +472,7 @@ fn std_io_file_writer_does_not_require_a_runtime_backend_object() {
         r#"
 using std::io;
 
-fn main(buffer: &mut [u8]) () {
+fun main(buffer: &mut [u8]) () {
     let writer = io::FileWriter::stdout(buffer);
     _ = writer;
 }
@@ -490,7 +490,7 @@ fn using_cycles_do_not_load_or_cycle_modules() {
         &root.join("main.nia"),
         r#"module b;
 module a;
-using entry::a; fn main() {}"#,
+using entry::a; fun main() {}"#,
     );
     write(&root.join("a.nia"), r#"using entry::b;"#);
     write(&root.join("b.nia"), r#"using entry::a;"#);
@@ -511,31 +511,31 @@ fn self_referential_reexports_report_unresolved_names() {
     for (index, (main, a, b)) in [
         (
             "pub using x;
-fn main() {}",
+fun main() {}",
             "",
             "",
         ),
         (
             "using entry::impl; pub using impl;
-fn main() {}",
+fun main() {}",
             "",
             "",
         ),
         (
             "using entry::impl as q; pub using q;
-fn main() {}",
+fun main() {}",
             "",
             "",
         ),
         (
-            "fn x() {} pub using x;
-fn main() {}",
+            "fun x() {} pub using x;
+fun main() {}",
             "",
             "",
         ),
         (
             "pub using x::*;
-fn main() {}",
+fun main() {}",
             "",
             "",
         ),
@@ -543,7 +543,7 @@ fn main() {}",
             "module a;
 module b;
 using entry::a::m::z;
-fn main() {}",
+fun main() {}",
             "using entry::b::m;
 pub using m;",
             "using entry::a::m;
@@ -578,7 +578,7 @@ fn builtin_module_exposes_target_const_values() {
         r#"
 using std::builtin::target;
 
-fn main() usize {
+fun main() usize {
     if target::pointerWidth == 64usize or target::pointerWidth == 32usize {
         target::os.len()
     } else {
@@ -607,11 +607,11 @@ fn child_module_can_call_public_entry_items_through_entry_namespace() {
 module runtime;
 using entry::runtime;
 
-pub fn app_main() i32 {
+pub fun app_main() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     runtime::call_app_main()
 }
 "#,
@@ -621,7 +621,7 @@ fn main() i32 {
         r#"
 using entry;
 
-pub fn call_app_main() i32 {
+pub fun call_app_main() i32 {
     entry::app_main()
 }
 "#,
@@ -639,7 +639,7 @@ fn freestanding_start_can_call_public_entry_main() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -663,11 +663,11 @@ fn resolves_imported_extension_method_function_pointers() {
 module math;
 using entry::math;
 
-fn call(p: & math::Point, f: &fn(& math::Point) i32) i32 {
+fun call(p: & math::Point, f: &fun(& math::Point) i32) i32 {
     f(p)
 }
 
-fn main(p: math::Point) i32 {
+fun main(p: math::Point) i32 {
     call(& p, & math::Point::len2)
 }
 "#,
@@ -681,7 +681,7 @@ pub struct Point {
 }
 
 extend Point {
-    pub fn len2(& self) i32 {
+    pub fun len2(& self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -706,7 +706,7 @@ module app;
 using entry::core;
 using entry::app;
 
-fn main(p: core::Point) i32 {
+fun main(p: core::Point) i32 {
     app::score(p)
 }
 "#,
@@ -721,7 +721,7 @@ pub struct Point {
     y: i32,
 }
 
-pub fn base() i32 {
+pub fun base() i32 {
     10
 }
 "#,
@@ -733,7 +733,7 @@ using entry::core;
 using entry::math;
 using entry::ops;
 
-pub fn score(p: core::Point) i32 {
+pub fun score(p: core::Point) i32 {
     p.len2() + math::via_helpers() + ops::from_cycle()
 }
 "#,
@@ -743,7 +743,7 @@ pub fn score(p: core::Point) i32 {
         r#"
 using entry::helpers;
 
-pub fn via_helpers() i32 {
+pub fun via_helpers() i32 {
     helpers::call_core()
 }
 "#,
@@ -754,7 +754,7 @@ pub fn via_helpers() i32 {
 using entry::core;
 using entry::ops;
 
-pub fn call_core() i32 {
+pub fun call_core() i32 {
     core::base() + ops::from_cycle()
 }
 "#,
@@ -766,12 +766,12 @@ using entry::core;
 using entry::helpers;
 
 extend core::Point {
-    pub fn len2(& self) i32 {
+    pub fun len2(& self) i32 {
         helpers::call_core()
     }
 }
 
-pub fn from_cycle() i32 {
+pub fun from_cycle() i32 {
     core::base()
 }
 "#,
@@ -790,12 +790,12 @@ fn deduplicates_imported_paths() {
 module math;
 using entry::math as math_a;
 using entry::math as math_b;
-fn main() {}
+fun main() {}
 "#,
     );
     write(
         &root.join("math.nia"),
-        r#"fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = load_program(
@@ -815,7 +815,7 @@ fn resolves_qualified_imported_type_paths() {
         r#"
 module math;
 using entry::math;
-fn origin(p: math::Point) math::Point { p }
+fun origin(p: math::Point) math::Point { p }
 "#,
     );
     write(&root.join("math.nia"), r#"pub struct Point { x: i32 }"#);
@@ -839,14 +839,14 @@ fn resolves_qualified_imported_function_calls() {
         r#"
 module math;
 using entry::math;
-fn main() i32 {
+fun main() i32 {
     math::add(40, 2)
 }
 "#,
     );
     write(
         &root.join("math.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -870,12 +870,12 @@ module math;
 using entry::math;
 
 extend math::Point {
-    fn len2(& self) i32 {
+    fun len2(& self) i32 {
         4
     }
 }
 
-fn main(p: math::Point) i32 {
+fun main(p: math::Point) i32 {
     p.len2()
 }
 "#,
@@ -900,7 +900,7 @@ module point_ext;
 using entry::math;
 using entry::point_ext;
 
-fn main(p: math::Point) i32 {
+fun main(p: math::Point) i32 {
     p.len2()
 }
 "#,
@@ -915,7 +915,7 @@ fn main(p: math::Point) i32 {
 using entry::math;
 
 extend math::Point {
-    pub fn len2(& self) i32 {
+    pub fun len2(& self) i32 {
         4
     }
 }
@@ -939,7 +939,7 @@ using entry::math;
 using entry::first;
 using entry::second;
 
-fn main(p: math::Point) i32 {
+fun main(p: math::Point) i32 {
     p.first() + p.second()
 }
 "#,
@@ -951,7 +951,7 @@ fn main(p: math::Point) i32 {
 using entry::math;
 
 extend math::Point {
-    pub fn first(& self) i32 { 1 }
+    pub fun first(& self) i32 { 1 }
 }
 "#,
     );
@@ -961,7 +961,7 @@ extend math::Point {
 using entry::math;
 
 extend math::Point {
-    pub fn second(& self) i32 { 2 }
+    pub fun second(& self) i32 { 2 }
 }
 "#,
     );
@@ -979,7 +979,7 @@ fn imports_public_extension_associated_const_values() {
 module math;
 using entry::math;
 
-fn main() usize {
+fun main() usize {
     math::Marker::LIMIT
 }
 "#,
@@ -1009,7 +1009,7 @@ fn imports_public_extension_associated_const_values_with_builtin_initializer() {
 module math;
 using entry::math;
 
-fn main() usize {
+fun main() usize {
     math::Marker::LIMIT
 }
 "#,
@@ -1044,7 +1044,7 @@ fn std_math_usize_max_remains_available_with_array_list_imported() {
 using std::collections;
 using std::math;
 
-fn main() usize {
+fun main() usize {
     usize::MAX
 }
 "#,
@@ -1064,7 +1064,7 @@ fn equivalent_public_std_imports_select_the_same_compiler_work() {
         r#"
 using std::collections;
 
-fn consume(values: collections::ArrayList[i32]) usize {
+fun consume(values: collections::ArrayList[i32]) usize {
     values.len()
 }
 "#,
@@ -1074,7 +1074,7 @@ fn consume(values: collections::ArrayList[i32]) usize {
         r#"
 using std::collections::ArrayList;
 
-fn consume(values: ArrayList[i32]) usize {
+fun consume(values: ArrayList[i32]) usize {
     values.len()
 }
 "#,
@@ -1132,7 +1132,7 @@ using std::mem;
 using std::process;
 using std::unicode;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut allocationStorage: [u8; 512] = [0; 512];
     let mut fixed = mem::FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
@@ -1198,7 +1198,7 @@ using std::mem::{Allocator, FixedBufferAllocator};
 using std::process::{Command, ExitCode, Init, StdIo};
 using std::unicode::Utf8View;
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     let mut allocationStorage: [u8; 512] = [0; 512];
     let mut fixed = FixedBufferAllocator::init(&mut allocationStorage[..]);
     let allocator: &mut Allocator = &mut fixed;
@@ -1315,7 +1315,7 @@ fn std_math_usize_max_can_be_compared() {
         r#"
 using std::math;
 
-fn main() bool {
+fun main() bool {
     1usize != usize::MAX
 }
 "#,
@@ -1333,7 +1333,7 @@ fn std_option_map_accepts_a_stack_backed_callback() {
         r#"
 using std::option;
 
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     let value: ?i32 = ?1;
     match value.map[i32, _](callback) {
@@ -1357,7 +1357,7 @@ fn std_facade_range_iterates_half_open_usize_ranges() {
 using std;
 using std::*;
 
-fn main() usize {
+fun main() usize {
     let mut total = 0usize;
     for i in 0usize..4usize {
         total += i;
@@ -1380,7 +1380,7 @@ fn std_facade_for_in_iterates_range_literals() {
 using std;
 using std::*;
 
-fn main() usize {
+fun main() usize {
     let mut total = 0usize;
     let mut naked_count = 0usize;
     for i in 0..10 {
@@ -1419,7 +1419,7 @@ fn std_facade_iterator_adaptors_work_on_range_literals() {
 using std;
 using std::*;
 
-fn main() usize {
+fun main() usize {
     let mut total = 0usize;
     for i in (0usize..10usize).iter().take(3usize) {
         total += i;
@@ -1445,7 +1445,7 @@ fn std_facade_range_iterates_half_open_i64_ranges_with_expected_bound_type() {
 using std;
 using std::*;
 
-fn main() i64 {
+fun main() i64 {
     let mut total = 0i64;
     for i in 1i64..4i64 {
         total += i;
@@ -1468,7 +1468,7 @@ fn std_facade_range_iterates_inclusive_i32_ranges() {
 using std;
 using std::*;
 
-fn main() i32 {
+fun main() i32 {
     let mut total = 0i32;
     for i in 2i32..=4i32 {
         total += i;
@@ -1491,7 +1491,7 @@ fn std_facade_range_iterates_inclusive_and_from_usize_ranges() {
 using std;
 using std::*;
 
-fn main() usize {
+fun main() usize {
     let mut total = 0usize;
     for i in 2usize..=4usize {
         total += i;
@@ -1522,7 +1522,7 @@ fn std_facade_exposes_iter_range_types_under_iter_namespace() {
 using std;
 using std::*;
 
-fn main() usize {
+fun main() usize {
     let mut iter: std::iter::Range[usize] = (1usize..3usize).iter();
     let mut total = 0usize;
     for i in iter {
@@ -1545,7 +1545,7 @@ fn std_facade_does_not_reexport_range_module_namespace() {
         r#"
 using std;
 
-fn main() () {
+fun main() () {
     let mut iter: std::range::Range[usize] = (1usize..3usize).iter();
     _ = iter;
 }
@@ -1571,7 +1571,7 @@ fn std_facade_exposes_array_list_type_directly() {
         r#"
 using std;
 
-fn main() usize {
+fun main() usize {
     let mut list = std::ArrayList[i32]::init();
     list.len()
 }
@@ -1590,7 +1590,7 @@ fn std_facade_type_can_be_imported_directly() {
         r#"
 using std::CStringView;
 
-fn main() () {
+fun main() () {
     match CStringView::fromBytes(&b"nia\0") {
         !text => {
             _ = text;
@@ -1611,7 +1611,7 @@ fn std_facade_type_can_be_named_by_package_root_path() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() () {
+fun main() () {
     match std::CStringView::fromBytes(&b"nia\0") {
         !text => {
             _ = text;
@@ -1634,7 +1634,7 @@ fn imported_type_alias_can_be_used_as_associated_call_prefix() {
         r#"
 using std::collections::ArrayList;
 
-fn main() usize {
+fun main() usize {
     let mut list = ArrayList[i32]::init();
     list.len()
 }
@@ -1653,7 +1653,7 @@ fn std_facade_does_not_reexport_standard_library_module_namespaces() {
         r#"
 using std;
 
-fn main() usize {
+fun main() usize {
     let writer = io::DiscardingWriter::init();
     writer.len()
 }
@@ -1679,7 +1679,7 @@ fn std_facade_does_not_reexport_array_list_module_namespace() {
         r#"
 using std;
 
-fn main() usize {
+fun main() usize {
     let mut list = std::array_list::ArrayList[i32]::init();
     list.len()
 }
@@ -1712,17 +1712,17 @@ using std;
 struct Key {}
 
 extend Key : std::HashMapContext[i32] {
-    fn hash(&self, key: &i32) u64 {
+    fun hash(&self, key: &i32) u64 {
         _ = key;
         0u64
     }
 
-    fn equal(&self, left: &i32, right: &i32) bool {
+    fun equal(&self, left: &i32, right: &i32) bool {
         left.* == right.*
     }
 }
 
-fn main() () {}
+fun main() () {}
 "#,
     );
 
@@ -1745,7 +1745,7 @@ fn std_os_does_not_expose_platform_implementation_modules() {
         r#"
 using std::os::linux::stat;
 
-fn main() () {}
+fun main() () {}
 "#,
     );
 
@@ -1774,7 +1774,7 @@ fn std_facades_do_not_expose_package_private_implementation_modules() {
     for path in private_paths {
         source.push_str(&format!("using {path};\n"));
     }
-    source.push_str("\nfn main() () {}\n");
+    source.push_str("\nfun main() () {}\n");
     write(&root.join("main.nia"), &source);
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -1804,7 +1804,7 @@ fn std_hash_facade_exposes_builtin_hash_impls() {
         r#"
 using std::hash;
 
-fn main() u64 {
+fun main() u64 {
     let mut hasher = hash::Wyhash::init(1u64);
     42usize.hash(&mut hasher);
     true.hash(&mut hasher);
@@ -1828,7 +1828,7 @@ using std::collections;
 using std::hash;
 using std::mem;
 
-fn main() mem::Error!usize {
+fun main() mem::Error!usize {
     let mut buffer: [u8; 4096] = [0; 4096];
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
     let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::initSeed(1u64);
@@ -1850,8 +1850,8 @@ fn package_owned_trait_impl_in_private_modules_satisfies_external_obligations() 
         &root.join("main.nia"),
         r#"
 using dep::{Widget, Show};
-fn need[T](value: T) i32 where T: Show[Output = i32] { value.show() }
-fn main(value: Widget) i32 { need(value) }
+fun need[T](value: T) i32 where T: Show[Output = i32] { value.show() }
+fun main(value: Widget) i32 { need(value) }
 "#,
     );
     write(
@@ -1865,7 +1865,7 @@ fn main(value: Widget) i32 { need(value) }
 pub struct Widget { value: i32 }
 pub trait Show {
     type Output;
-    fn show(&self) [Self as Show]::Output;
+    fun show(&self) [Self as Show]::Output;
 }
 "#,
     );
@@ -1878,7 +1878,7 @@ type ShowAlias = api::Show;
 type StoredOutput = i32;
 extend Alias : ShowAlias {
     type Output = StoredOutput;
-    fn show(&self) i32 { self.value }
+    fun show(&self) i32 { self.value }
 }
 "#,
     );
@@ -1901,8 +1901,8 @@ fn package_owned_trait_providers_resolve_qualified_and_imported_aliases() {
         &root.join("main.nia"),
         r#"
 using dep::api::{Widget, Show};
-fn need[T](value: T) i32 where T: Show { value.show() }
-fn main(value: Widget) i32 { need(value) }
+fun need[T](value: T) i32 where T: Show { value.show() }
+fun main(value: Widget) i32 { need(value) }
 "#,
     );
     write(&root.join("dep.nia"), "pub module api; module providers;");
@@ -1910,14 +1910,14 @@ fn main(value: Widget) i32 { need(value) }
         &root.join("dep/api.nia"),
         r#"
 pub struct Widget { value: i32 }
-pub trait Show { fn show(&self) i32; }
+pub trait Show { fun show(&self) i32; }
 pub type Alias = Widget;
 pub type TraitAlias = Show;
 "#,
     );
     for provider in [
-        "using pkg::api; extend api::Widget : api::Show { fn show(&self) i32 { self.value } }",
-        "using pkg::api::{Alias as Renamed, TraitAlias as RenamedTrait}; extend Renamed : RenamedTrait { fn show(&self) i32 { self.value } }",
+        "using pkg::api; extend api::Widget : api::Show { fun show(&self) i32 { self.value } }",
+        "using pkg::api::{Alias as Renamed, TraitAlias as RenamedTrait}; extend Renamed : RenamedTrait { fun show(&self) i32 { self.value } }",
     ] {
         write(&root.join("dep/providers.nia"), provider);
         let mut module_map = nia_imports::ModuleMap::new();
@@ -1939,8 +1939,8 @@ fn qualified_nominal_members_do_not_import_structural_extensions() {
         &root.join("dep.nia"),
         r#"
 pub struct Widget { value: i32 }
-extend Widget { pub fn own(&self) i32 { self.value } }
-extend &Widget { pub fn hidden(self) i32 { self.value } }
+extend Widget { pub fun own(&self) i32 { self.value } }
+extend &Widget { pub fun hidden(self) i32 { self.value } }
 "#,
     );
     for (import, call, should_succeed) in [
@@ -1950,7 +1950,7 @@ extend &Widget { pub fn hidden(self) i32 { self.value } }
     ] {
         write(
             &root.join("main.nia"),
-            &format!("{import} fn main(value: dep::Widget) i32 {{ {call} }}"),
+            &format!("{import} fun main(value: dep::Widget) i32 {{ {call} }}"),
         );
         let mut module_map = nia_imports::ModuleMap::new();
         module_map
@@ -1985,7 +1985,7 @@ module types;
 module extensions;
 using entry::types;
 using entry::extensions;
-fn main(value: types::Widget) usize { value.len() }
+fun main(value: types::Widget) usize { value.len() }
 "#,
     );
     write(
@@ -1994,7 +1994,7 @@ fn main(value: types::Widget) usize { value.len() }
     );
     write(
         &root.join("extensions.nia"),
-        "using entry::types; extend types::Widget { pub fn len(&self) usize { self.value } }",
+        "using entry::types; extend types::Widget { pub fun len(&self) usize { self.value } }",
     );
     let program = check_program(root.join("main.nia").to_string_lossy());
     assert_no_error_diagnostics(&program.diagnostics);
@@ -2013,13 +2013,13 @@ module impls;
 using entry::api;
 using entry::types;
 
-fn need[T](value: T) i32
+fun need[T](value: T) i32
 where T: api::Show
 {
     value.show()
 }
 
-fn main(value: types::Box) i32 {
+fun main(value: types::Box) i32 {
     need[types::Box](value)
 }
 "#,
@@ -2028,7 +2028,7 @@ fn main(value: types::Box) i32 {
         &root.join("api.nia"),
         r#"
 pub trait Show {
-    fn show(&self) i32;
+    fun show(&self) i32;
 }
 "#,
     );
@@ -2040,7 +2040,7 @@ using entry::api;
 using entry::types;
 
 extend types::Box : api::Show {
-    fn show(&self) i32 {
+    fun show(&self) i32 {
         self.value
     }
 }
@@ -2065,13 +2065,13 @@ using entry::api;
 using entry::types;
 using entry::impls;
 
-fn need[T](value: T) i32
+fun need[T](value: T) i32
 where T: api::Show
 {
     value.show()
 }
 
-fn main(value: types::Box) i32 {
+fun main(value: types::Box) i32 {
     need[types::Box](value)
 }
 "#,
@@ -2080,7 +2080,7 @@ fn main(value: types::Box) i32 {
         &root.join("api.nia"),
         r#"
 pub trait Show {
-    fn show(&self) i32;
+    fun show(&self) i32;
 }
 "#,
     );
@@ -2092,7 +2092,7 @@ using entry::api;
 using entry::types;
 
 extend types::Box : api::Show {
-    pub fn show(&self) i32 {
+    pub fun show(&self) i32 {
         self.value
     }
 }
@@ -2113,7 +2113,7 @@ using std;
 using std::collections;
 using std::mem;
 
-fn main() mem::Error!usize {
+fun main() mem::Error!usize {
     let mut buffer: [u8; 4096] = [0; 4096];
     let mut allocator = mem::FixedBufferAllocator::init(&mut buffer[..]);
     let mut map = collections::HashMapWithContext[i32, i32, collections::DefaultHashMapContext]::initSeed(1u64);
@@ -2137,7 +2137,7 @@ fn std_package_private_implementation_module_is_not_resolved_from_root_package()
         r#"
 using std::io::traits;
 
-fn main() () {}
+fun main() () {}
 "#,
     );
 
@@ -2162,7 +2162,7 @@ fn runtime_start_injected_for_executables_is_not_public_api() {
 using std::process;
 using runtime::start;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -2193,7 +2193,7 @@ module range;
 module facade;
 using entry::facade;
 
-fn main() usize {
+fun main() usize {
     let mut iter: facade::range::Range[usize] = facade::range(1usize..4usize);
     let mut total = 0usize;
     for i in iter {
@@ -2216,7 +2216,7 @@ pub using range::range;
         &root.join("range.nia"),
         r#"
 pub trait Step {
-    fn next(self) ?Self;
+    fun next(self) ?Self;
 }
 
 pub struct Range[T] {
@@ -2225,7 +2225,7 @@ pub struct Range[T] {
 }
 
 extend[T] Range[T] {
-    pub fn init(current: T, end: T) Range[T] {
+    pub fun init(current: T, end: T) Range[T] {
         Self { current, end }
     }
 }
@@ -2235,7 +2235,7 @@ where T: Step + Ord[T]
 {
     type Item = T;
 
-    pub fn next(&mut self) ?T {
+    pub fun next(&mut self) ?T {
         if self.current >= self.end {
             null
         } else {
@@ -2253,14 +2253,14 @@ where T: Step + Ord[T]
     }
 }
 
-pub fn range[T](bounds: T..T) Range[T]
+pub fun range[T](bounds: T..T) Range[T]
 where T: Step + Ord[T]
 {
     Range[T]::init(bounds.start(), bounds.end())
 }
 
 extend usize : Step {
-    pub fn next(self) ?usize {
+    pub fun next(self) ?usize {
         ?(self + 1usize)
     }
 }
@@ -2277,7 +2277,7 @@ fn primitive_integer_limits_are_builtin_associated_values() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() bool {
+fun main() bool {
     usize::MIN == 0usize
         and usize::MAX > 0usize
         and isize::MIN < 0isize
@@ -2299,7 +2299,7 @@ fn lowercase_primitive_integer_limits_are_not_builtin_associated_values() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() usize {
+fun main() usize {
     usize::max
 }
 "#,
@@ -2322,7 +2322,7 @@ fn u128_max_is_a_builtin_associated_value() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() u128 {
+fun main() u128 {
     u128::MAX
 }
 "#,
@@ -2344,7 +2344,7 @@ module facade;
 using entry::math;
 using entry::facade;
 
-fn main(p: math::Point) i32 {
+fun main(p: math::Point) i32 {
     p.len2()
 }
 "#,
@@ -2360,7 +2360,7 @@ fn main(p: math::Point) i32 {
 using entry::math;
 
 extend math::Point {
-    pub fn len2(& self) i32 {
+    pub fun len2(& self) i32 {
         4
     }
 }
@@ -2382,7 +2382,7 @@ module impls;
 module types;
 using entry::facade;
 
-fn main(p: facade::Point) i32 {
+fun main(p: facade::Point) i32 {
     p.len2()
 }
 "#,
@@ -2401,7 +2401,7 @@ fn main(p: facade::Point) i32 {
 using entry::types;
 
 extend types::Point {
-    pub fn len2(& self) i32 {
+    pub fun len2(& self) i32 {
         4
     }
 }
@@ -2425,12 +2425,12 @@ module impls;
 module types;
 using entry::facade;
 
-fn consume(used: facade::Used) i32 {
+fun consume(used: facade::Used) i32 {
     _ = used;
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     consume(facade::Used {})
 }
 "#,
@@ -2454,7 +2454,7 @@ pub struct Unused {}
 using entry::types;
 
 extend types::Unused {
-    pub fn expensive_or_invalid(&self) i32 {
+    pub fun expensive_or_invalid(&self) i32 {
         missing_symbol
     }
 }
@@ -2489,7 +2489,7 @@ module impls;
 module types;
 using entry::facade;
 
-fn main() usize {
+fun main() usize {
     let mut bag = facade::Bag[i32]::init();
     let contextual: facade::Bag[i32] = .init();
     bag.len() + contextual.len()
@@ -2513,11 +2513,11 @@ pub type Bag[T] = RawBag[T];
 using entry::types;
 
 extend[T] types::RawBag[T] {
-    pub fn init() types::RawBag[T] {
+    pub fun init() types::RawBag[T] {
         types::RawBag[T] { len: 0usize }
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 }
@@ -2537,9 +2537,9 @@ fn imports_generic_structural_extension_methods() {
 module ptr;
 using entry::ptr;
 
-extern fn read_readonly() &u8;
+extern fun read_readonly() &u8;
 
-fn main(mut_ptr: &mut u8) i32 {
+fun main(mut_ptr: &mut u8) i32 {
     let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
@@ -2555,13 +2555,13 @@ fn main(mut_ptr: &mut u8) i32 {
         &root.join("ptr.nia"),
         r#"
 extend[T] &mut T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
@@ -2581,8 +2581,8 @@ fn imported_enum_extension_method_function_pointer_uses_nominal_prefix() {
 module errors;
 using entry::errors;
 
-fn main() i32 {
-    let code: &fn(errors::Error) i32 = &errors::Error::code;
+fun main() i32 {
+    let code: &fun(errors::Error) i32 = &errors::Error::code;
     code(errors::Error::Invalid)
 }
 "#,
@@ -2596,7 +2596,7 @@ pub enum Error: i32 {
 }
 
 extend Error {
-    pub fn code(self) i32 {
+    pub fun code(self) i32 {
         self as i32
     }
 }
@@ -2616,7 +2616,7 @@ fn imported_extension_method_where_clause_constrains_candidates() {
 module containers;
 using entry::containers;
 
-fn main(boxed: containers::Box[bool]) i32 {
+fun main(boxed: containers::Box[bool]) i32 {
     boxed.tag()
 }
 "#,
@@ -2634,7 +2634,7 @@ pub struct Box[T] {
 
 extend[T] Box[T]
 where T: Marker {
-    pub fn tag(& self) i32 {
+    pub fun tag(& self) i32 {
         _ = self;
         1
     }
@@ -2664,13 +2664,13 @@ module impls;
 using entry::containers;
 using entry::impls;
 
-fn need[T](value: T) i32
+fun need[T](value: T) i32
 where T: containers::Marker
 {
     value.mark()
 }
 
-fn main(value: i32) i32 {
+fun main(value: i32) i32 {
     need[i32](value)
 }
 "#,
@@ -2679,7 +2679,7 @@ fn main(value: i32) i32 {
         &root.join("containers.nia"),
         r#"
 pub trait Marker {
-    fn mark(self) i32;
+    fun mark(self) i32;
 }
 "#,
     );
@@ -2689,7 +2689,7 @@ pub trait Marker {
 using entry::containers;
 
 extend i32 : containers::Marker {
-    fn mark(self) i32 {
+    fun mark(self) i32 {
         self
     }
 }
@@ -2710,9 +2710,9 @@ module ptr;
 module share;
 using entry::share;
 
-extern fn read_readonly() &u8;
+extern fun read_readonly() &u8;
 
-fn main(mut_ptr: &mut u8) i32 {
+fun main(mut_ptr: &mut u8) i32 {
     let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
@@ -2729,13 +2729,13 @@ fn main(mut_ptr: &mut u8) i32 {
         &root.join("ptr.nia"),
         r#"
 extend[T] &mut T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
@@ -2756,9 +2756,9 @@ module ptr;
 module share;
 using entry::share;
 
-extern fn read_readonly() &u8;
+extern fun read_readonly() &u8;
 
-fn main(mut_ptr: &mut u8) i32 {
+fun main(mut_ptr: &mut u8) i32 {
     let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
@@ -2775,13 +2775,13 @@ fn main(mut_ptr: &mut u8) i32 {
         &root.join("ptr.nia"),
         r#"
 extend[T] &mut T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
@@ -2817,7 +2817,7 @@ fn imports_generic_structural_extension_methods_with_alias_targets() {
 module ptr;
 using entry::ptr;
 
-fn main(ptr: &u8) i32 {
+fun main(ptr: &u8) i32 {
     if ptr.alias_null() {
         return 1;
     }
@@ -2831,7 +2831,7 @@ fn main(ptr: &u8) i32 {
 type RawPtr[T] = &T;
 
 extend[T] RawPtr[T] {
-    pub fn alias_null(self) bool {
+    pub fun alias_null(self) bool {
         self as usize == 0
     }
 }
@@ -2854,7 +2854,7 @@ module facade;
 using entry::math;
 using entry::facade;
 
-fn main(p: math::Point) i32 {
+fun main(p: math::Point) i32 {
     p.len2()
 }
 "#,
@@ -2870,7 +2870,7 @@ fn main(p: math::Point) i32 {
 using entry::math;
 
 extend math::Point {
-    fn len2(& self) i32 {
+    fun len2(& self) i32 {
         4
     }
 }
@@ -2900,14 +2900,14 @@ fn rejects_private_cross_module_items() {
     let source = r#"
 module math;
 using entry::math;
-fn take(p: math::Point) i32 {
+fun take(p: math::Point) i32 {
     math::add(1, 2)
 }
 "#;
     write(&root.join("main.nia"), source);
     let math_source = r#"
 struct Point { x: i32 }
-fn add(a: i32, b: i32) i32 { a + b }
+fun add(a: i32, b: i32) i32 { a + b }
 "#;
     write(&root.join("math.nia"), math_source);
 
@@ -2951,7 +2951,7 @@ fn add(a: i32, b: i32) i32 { a + b }
     assert!(
         private_value.diagnostic.related.iter().any(|related| {
             related.message.contains("private value is declared")
-                && related.span.start == math_source.find("fn add").unwrap()
+                && related.span.start == math_source.find("fun add").unwrap()
         }),
         "missing private value declaration evidence: {:?}",
         private_value.diagnostic
@@ -2964,7 +2964,7 @@ fn reports_imported_value_used_as_type() {
     let source = r#"module values;
 using entry::values::answer;
 
-fn main(value: answer) () {
+fun main(value: answer) () {
     _ = value;
 }
 "#;
@@ -3020,7 +3020,7 @@ fn reports_local_value_used_as_type() {
     let root = temp_dir("reports_local_value_used_as_type");
     let source = r#"const answer: i32 = 42;
 
-fn main(value: answer) () {
+fun main(value: answer) () {
     _ = value;
 }
 "#;
@@ -3058,7 +3058,7 @@ fn reports_imported_type_used_as_value() {
     let source = r#"module types;
 using entry::types::Point;
 
-fn main() () {
+fun main() () {
     Point;
 }
 "#;
@@ -3109,7 +3109,7 @@ fn self_import_loads_child_module_by_stem_path() {
 module hash_map;
 using entry::hash_map;
 
-fn main() i32 {
+fun main() i32 {
     hash_map::score()
 }
 "#,
@@ -3120,7 +3120,7 @@ fn main() i32 {
 module probe;
 using self::probe;
 
-pub fn score() i32 {
+pub fun score() i32 {
     probe::value()
 }
 "#,
@@ -3129,7 +3129,7 @@ pub fn score() i32 {
     write(
         &root.join("hash_map/probe.nia"),
         r#"
-pub(super) fn value() i32 {
+pub(super) fun value() i32 {
     7
 }
 "#,
@@ -3148,7 +3148,7 @@ fn super_import_loads_sibling_under_parent_module_stem() {
 module hash_map;
 using entry::hash_map;
 
-fn main() i32 {
+fun main() i32 {
     hash_map::score()
 }
 "#,
@@ -3160,7 +3160,7 @@ module probe;
 module iter;
 using self::iter;
 
-pub fn score() i32 {
+pub fun score() i32 {
     iter::score()
 }
 "#,
@@ -3171,7 +3171,7 @@ pub fn score() i32 {
         r#"
 using super::probe;
 
-pub(super) fn score() i32 {
+pub(super) fun score() i32 {
     probe::value()
 }
 "#,
@@ -3179,7 +3179,7 @@ pub(super) fn score() i32 {
     write(
         &root.join("hash_map/probe.nia"),
         r#"
-pub(super) fn value() i32 {
+pub(super) fun value() i32 {
     11
 }
 "#,
@@ -3198,7 +3198,7 @@ fn pub_super_items_are_hidden_outside_parent_subtree() {
 module hash_map;
 using entry::hash_map::probe;
 
-fn main() i32 {
+fun main() i32 {
     probe::value()
 }
 "#,
@@ -3208,7 +3208,7 @@ fn main() i32 {
     write(
         &root.join("hash_map/probe.nia"),
         r#"
-pub(super) fn value() i32 {
+pub(super) fun value() i32 {
     13
 }
 "#,
@@ -3234,7 +3234,7 @@ fn using_can_import_pub_super_items_visible_from_parent_subtree() {
 module command;
 using entry::command;
 
-fn main() i32 {
+fun main() i32 {
     command::score()
 }
 "#,
@@ -3246,7 +3246,7 @@ module types;
 pub module cli;
 using self::cli;
 
-pub fn score() i32 {
+pub fun score() i32 {
     cli::score()
 }
 "#,
@@ -3259,11 +3259,11 @@ pub(super) struct ElfHeader {
     value: i32,
 }
 
-pub(super) fn make_header() ElfHeader {
+pub(super) fun make_header() ElfHeader {
     ElfHeader { value: 42 }
 }
 
-pub(super) fn header_score(header: ElfHeader) i32 {
+pub(super) fun header_score(header: ElfHeader) i32 {
     header.value
 }
 "#,
@@ -3273,7 +3273,7 @@ pub(super) fn header_score(header: ElfHeader) i32 {
         r#"
 using super::types::{ElfHeader, make_header, header_score};
 
-pub(super) fn score() i32 {
+pub(super) fun score() i32 {
     let header: ElfHeader = make_header();
     header_score(header)
 }
@@ -3293,7 +3293,7 @@ fn using_can_import_pub_package_items_inside_package() {
         r#"
 using dep::api;
 
-fn main() i32 {
+fun main() i32 {
     api::inside()
 }
 "#,
@@ -3307,11 +3307,11 @@ pub(pkg) struct Token {
     value: i32,
 }
 
-pub(pkg) fn make_token() Token {
+pub(pkg) fun make_token() Token {
     Token { value: 31 }
 }
 
-pub(pkg) fn token_value(token: Token) i32 {
+pub(pkg) fun token_value(token: Token) i32 {
     token.value
 }
 "#,
@@ -3321,7 +3321,7 @@ pub(pkg) fn token_value(token: Token) i32 {
         r#"
 using pkg::types::{Token, make_token, token_value};
 
-pub fn inside() i32 {
+pub fun inside() i32 {
     let token: Token = make_token();
     token_value(token)
 }
@@ -3348,10 +3348,10 @@ module command;
 module output;
 using entry::command::cli;
 
-fn main() () {}
+fun main() () {}
 "#,
     );
-    write(&root.join("output.nia"), "pub fn write() () {}");
+    write(&root.join("output.nia"), "pub fun write() () {}");
     write(&root.join("command.nia"), "pub module cli;");
     std::fs::create_dir_all(root.join("command")).expect("create command dir");
     write(
@@ -3359,7 +3359,7 @@ fn main() () {}
         r#"
 using super::super::output;
 
-pub fn run() () {}
+pub fun run() () {}
 "#,
     );
 
@@ -3383,7 +3383,7 @@ fn failed_explicit_using_suppresses_dependent_name_cascades() {
 module api;
 using entry::api::{MissingType, missing_value};
 
-fn main() () {
+fun main() () {
     let value: MissingType = missing_value();
     _ = value;
 }
@@ -3431,7 +3431,7 @@ fn failed_using_call_reports_call_and_import_evidence() {
     let root = temp_dir("failed_using_call_reports_call_and_import_evidence");
     let source = r#"using entry::api::missing_value;
 
-fn main() i32 {
+fun main() i32 {
     missing_value()
 }
 "#;
@@ -3499,7 +3499,7 @@ fn failed_using_assignment_reports_import_evidence() {
     let root = temp_dir("failed_using_assignment_reports_import_evidence");
     let source = r#"using entry::api::missing_value;
 
-fn main() () {
+fun main() () {
     missing_value = 1;
 }
 "#;
@@ -3528,7 +3528,7 @@ fn pub_package_extension_methods_are_visible_only_inside_package() {
         r#"
 using dep::api;
 
-fn main() i32 {
+fun main() i32 {
     api::inside()
 }
 "#,
@@ -3543,11 +3543,11 @@ pub struct Value {
 }
 
 extend Value {
-    pub fn init(data: i32) Value {
+    pub fun init(data: i32) Value {
         Self { data }
     }
 
-    pub(pkg) fn package_score(&self) i32 {
+    pub(pkg) fun package_score(&self) i32 {
         self.data + 1
     }
 }
@@ -3558,7 +3558,7 @@ extend Value {
         r#"
 using pkg::model;
 
-pub fn inside() i32 {
+pub fun inside() i32 {
     model::Value::init(41).package_score()
 }
 "#,
@@ -3578,7 +3578,7 @@ pub fn inside() i32 {
         r#"
 using dep::model;
 
-fn main() i32 {
+fun main() i32 {
     model::Value::init(41).package_score()
 }
 "#,
@@ -3622,7 +3622,7 @@ fn pub_package_trait_witnesses_are_visible_inside_package() {
         r#"
 using dep::api;
 
-fn main() i32 {
+fun main() i32 {
     api::inside()
 }
 "#,
@@ -3635,11 +3635,11 @@ fn main() i32 {
 pub struct Value { data: i32 }
 
 pub(pkg) trait PackageTag {
-    fn tag(&self) i32;
+    fun tag(&self) i32;
 }
 
 extend Value : PackageTag {
-    fn tag(&self) i32 { self.data + 1 }
+    fun tag(&self) i32 { self.data + 1 }
 }
 "#,
     );
@@ -3648,7 +3648,7 @@ extend Value : PackageTag {
         r#"
 using pkg::model;
 
-pub fn inside() i32 {
+pub fun inside() i32 {
     let value = model::Value { data: 41 };
     value.tag()
 }
@@ -3669,7 +3669,7 @@ pub fn inside() i32 {
         r#"
 using dep::model;
 
-fn main() i32 {
+fun main() i32 {
     let value = model::Value { data: 41 };
     value.tag()
 }
@@ -3705,7 +3705,7 @@ fn pub_package_extension_associated_values_are_visible_only_inside_package() {
         r#"
 using dep::api;
 
-fn main() usize {
+fun main() usize {
     api::inside()
 }
 "#,
@@ -3727,7 +3727,7 @@ extend Marker {
         r#"
 using pkg::model;
 
-pub fn inside() usize {
+pub fun inside() usize {
     model::Marker::LIMIT
 }
 "#,
@@ -3747,7 +3747,7 @@ pub fn inside() usize {
         r#"
 using dep::model;
 
-fn main() usize {
+fun main() usize {
     model::Marker::LIMIT
 }
 "#,
@@ -3779,11 +3779,11 @@ fn omitted_const_associated_calls_use_external_struct_result_types() {
 module model;
 using pkg::model;
 
-const fn make() model::Value {
+const fun make() model::Value {
     .init(42)
 }
 
-fn main() i32 {
+fun main() i32 {
     make().0
 }
 "#,
@@ -3794,7 +3794,7 @@ fn main() i32 {
 pub struct Value(i32)
 
 extend Value {
-    pub(pkg) const fn init(value: i32) Value {
+    pub(pkg) const fun init(value: i32) Value {
         Value(value)
     }
 }
@@ -3808,7 +3808,7 @@ extend Value {
 #[test]
 fn missing_child_module_reports_the_declaration_once() {
     let root = temp_dir("missing_child_module_reports_the_declaration_once");
-    let source = "module child;\nusing child::helper;\n\nfn main() i32 {\n    helper()\n}\n";
+    let source = "module child;\nusing child::helper;\n\nfun main() i32 {\n    helper()\n}\n";
     write(&root.join("main.nia"), source);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -3849,8 +3849,8 @@ fn missing_child_module_reports_the_declaration_once() {
 
 #[test]
 fn creating_a_missing_child_module_matches_a_clean_check() {
-    let main = "module child;\nusing child::helper;\n\nfn main() i32 {\n    helper()\n}\n";
-    let child = "pub fn helper() i32 { 1 }\n";
+    let main = "module child;\nusing child::helper;\n\nfun main() i32 {\n    helper()\n}\n";
+    let child = "pub fun helper() i32 { 1 }\n";
     let driver = test_driver();
     driver.set_source("main.nia", main).expect("main source");
     let missing = driver.analyze_all_modules(crate::CheckRequest::new("main.nia"));

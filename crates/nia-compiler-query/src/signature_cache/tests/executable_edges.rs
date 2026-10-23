@@ -6,8 +6,8 @@ fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() 
     let cache = PersistentSignatureCache::new(root.clone());
     let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
     let dependency = StableModuleKey::from_source_identity(SourceIdentity::new("src/dep.nia"));
-    let source = crate::source_content_fingerprint("fn main() i32 { dep() }");
-    let dependency_source = crate::source_content_fingerprint("fn dep() i32 { 1 }");
+    let source = crate::source_content_fingerprint("fun main() i32 { dep() }");
+    let dependency_source = crate::source_content_fingerprint("fun dep() i32 { 1 }");
     let program_sources = crate::frontend_program_source_fingerprint([
         (&module, source, 24),
         (&dependency, dependency_source, 18),

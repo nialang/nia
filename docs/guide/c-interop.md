@@ -50,19 +50,19 @@ int32_t call_back_into_nia(int32_t x) { return nia_square(x); }
 
 ## Declaring And Calling A C Function
 
-A bodyless `extern fn` declares a C function. Its symbol is the source name;
+A bodyless `extern fun` declares a C function. Its symbol is the source name;
 use `@[linkName("...")]` when the Nia name should differ. An omitted return
 type means `()` (C `void`).
 
 ```nia
-extern fn byte_length(s: &u8) usize;
+extern fun byte_length(s: &u8) usize;
 
 @[linkName("byte_length")]
-extern fn cStringLength(s: &u8) usize;
+extern fun cStringLength(s: &u8) usize;
 ```
 
 Calls look like any other call. Visibility comes first and `extern` second:
-`pub extern fn`, never `extern pub fn`.
+`pub extern fun`, never `extern pub fun`.
 
 ## C Strings
 
@@ -90,8 +90,8 @@ extern struct Point {
     y: i32,
 }
 
-extern fn point_scale(p: Point, factor: i32) Point;
-extern fn point_translate(p: &mut Point, dx: i32, dy: i32);
+extern fun point_scale(p: Point, factor: i32) Point;
+extern fun point_translate(p: &mut Point, dx: i32, dy: i32);
 ```
 
 ```nia
@@ -111,7 +111,7 @@ value; its fields may be reordered.
 Pass `&mut` to a local:
 
 ```nia
-extern fn divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
+extern fun divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
 
 let mut quotient: i32 = 0;
 let mut remainder: i32 = 0;
@@ -127,7 +127,7 @@ cannot cross it. Declare the pointer type and compare against a null pointer
 written as `0usize as &T`:
 
 ```nia
-extern fn lookup(id: i32) &u8;
+extern fun lookup(id: i32) &u8;
 
 let name = lookup(1);
 if name != 0usize as &u8 {
@@ -143,7 +143,7 @@ A Nia slice is a pointer and a length, but it is not a C type. Pass the two
 parts separately:
 
 ```nia
-extern fn sum_bytes(data: &u8, len: usize) u32;
+extern fun sum_bytes(data: &u8, len: usize) u32;
 
 let bytes: [u8; 3] = [1, 2, 3];
 let view: &[u8] = &bytes[..];
@@ -156,17 +156,17 @@ check that the range is valid.
 
 ## Callbacks
 
-A C function pointer type is `&extern fn(...)`. Only an `extern fn` produces
-one, so write the callback as an `extern fn` definition. Closures and ordinary
-`&fn(...)` pointers use the Nia convention and cannot be passed to C.
+A C function pointer type is `&extern fun(...)`. Only an `extern fun` produces
+one, so write the callback as an `extern fun` definition. Closures and ordinary
+`&fun(...)` pointers use the Nia convention and cannot be passed to C.
 
 Pass state through C's `void *` as `&mut opaque` (or `&opaque` for
 `const void *`). Erasure and recovery are explicit casts:
 
 ```nia
-extern fn for_each(values: &i32, len: usize, visit: &extern fn(i32, &mut opaque), context: &mut opaque);
+extern fun for_each(values: &i32, len: usize, visit: &extern fun(i32, &mut opaque), context: &mut opaque);
 
-extern fn add_to_total(value: i32, context: &mut opaque) {
+extern fun add_to_total(value: i32, context: &mut opaque) {
     let total = context as &mut i64;
     total.* += value as i64;
 }
@@ -178,12 +178,12 @@ for_each(&values[0], 3, &add_to_total, &mut total as &mut opaque);
 
 ## Variadic Functions
 
-A bodyless `extern fn` may end with `...` after at least one fixed parameter.
+A bodyless `extern fun` may end with `...` after at least one fixed parameter.
 Extra arguments receive C's default promotions: integers narrower than 32 bits
 widen to 32 bits and `f32` widens to `f64`.
 
 ```nia
-extern fn sum_ints(count: i32, ...) i64;
+extern fun sum_ints(count: i32, ...) i64;
 
 let six = sum_ints(3, 1, 2, 3);
 ```
@@ -240,7 +240,7 @@ standard library and runtime call. Any other Win32 function is an ordinary
 native dependency: declare it and link its import library explicitly.
 
 ```nia
-extern fn GetCurrentProcessId() u32;
+extern fun GetCurrentProcessId() u32;
 ```
 
 ```text
@@ -252,7 +252,7 @@ Without the import library the link fails with
 
 ## Exporting Nia Functions To C
 
-An `extern fn` with a body is a C-callable definition. Its symbol is the source
+An `extern fun` with a body is a C-callable definition. Its symbol is the source
 name, or `@[exportName("...")]`:
 
 ```nia
@@ -261,16 +261,16 @@ extern struct Pair {
     b: i32,
 }
 
-fn clamp(value: i32, low: i32, high: i32) i32 {
+fun clamp(value: i32, low: i32, high: i32) i32 {
     if value < low { low } else if value > high { high } else { value }
 }
 
-pub extern fn pair_sum(p: Pair) i32 {
+pub extern fun pair_sum(p: Pair) i32 {
     p.a + p.b
 }
 
 @[exportName("nia_clamp")]
-pub extern fn clampExport(value: i32, low: i32, high: i32) i32 {
+pub extern fun clampExport(value: i32, low: i32, high: i32) i32 {
     clamp(value, low, high)
 }
 ```
@@ -293,7 +293,7 @@ int32_t nia_clamp(int32_t value, int32_t low, int32_t high);
 process entry. Only `extern` definitions are visible outside the linked image;
 ordinary Nia functions such as `clamp` stay internal.
 
-In a Nia executable, every top-level `pub extern fn` definition of the entry
+In a Nia executable, every top-level `pub extern fun` definition of the entry
 package is exported and kept even when Nia never calls it, so linked C code can
 call back into the program (`nia_square` in the complete example). The name
 `_start` is reserved for the toolchain's process entry.
@@ -322,7 +322,7 @@ call back into the program (`nia_square` in the complete example). The name
 | `volatile T *` | `^T` / `^mut T` |
 | `const void *` / `void *` | `&opaque` / `&mut opaque` |
 | `const char *` string | `&u8` |
-| `R (*)(A)` | `&extern fn(A) R` |
+| `R (*)(A)` | `&extern fun(A) R` |
 | `struct S` | `extern struct S` |
 | `union U *` | `&mut U`, with `U` declared as `extern union U` |
 | `enum E` | its integer type, usually `i32` |
@@ -347,7 +347,7 @@ offending declaration, whether or not anything calls it:
 | `extern parameter cannot use array by value` | pass `&array[0]` |
 | `extern parameter cannot use tuple by value` | use an `extern struct` |
 | ``extern parameter cannot use `()` `` | remove the parameter; `()` is only valid as a return type |
-| `extern parameter must use a C function pointer` | write the type as `&extern fn(...)` and pass an `extern fn` |
+| `extern parameter must use a C function pointer` | write the type as `&extern fun(...)` and pass an `extern fun` |
 | `extern parameter cannot use empty struct by value` | add a field, or pass a pointer |
 | ``extern parameter cannot use a 128-bit integer on `x86-unknown-linux` `` | split the value into two 64-bit integers |
 | `extern parameter cannot use union by value` | pass a pointer to an `extern union` |
@@ -357,13 +357,13 @@ offending declaration, whether or not anything calls it:
 | `` `@[exportName]` requires an extern function definition `` | use `linkName` on a declaration |
 | `` `@[linkName]` is only valid on an external function declaration `` | use `exportName` on a definition |
 | ``external export `_start` is reserved for the compiler-provided runtime`` | choose another name |
-| ``expected `struct`, `union`, `fn`, or `static` after `extern` `` | write `pub extern fn`, not `extern pub fn` |
+| ``expected `struct`, `union`, `fun`, or `static` after `extern` `` | write `pub extern fun`, not `extern pub fun` |
 
 Type mismatches at call sites are ordinary type errors:
 
 | Message | Fix |
 | --- | --- |
-| `expected &extern fn(i32, &mut opaque), got &fn(i32, &mut opaque)` | define the callback as `extern fn` |
+| `expected &extern fun(i32, &mut opaque), got &fun(i32, &mut opaque)` | define the callback as `extern fun` |
 | `expected &u8, got &[u8; 6]` | add `.ptr()` to the array reference |
 | `expected &mut opaque, got &mut i64` | cast: `&mut value as &mut opaque` |
 
@@ -380,27 +380,27 @@ extern struct Point {
     y: i32,
 }
 
-extern fn point_scale(p: Point, factor: i32) Point;
-extern fn point_translate(p: &mut Point, dx: i32, dy: i32);
-extern fn divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
-extern fn byte_length(s: &u8) usize;
-extern fn sum_bytes(data: &u8, len: usize) u32;
-extern fn for_each(values: &i32, len: usize, visit: &extern fn(i32, &mut opaque), context: &mut opaque);
-extern fn lookup(id: i32) &u8;
-extern fn sum_ints(count: i32, ...) i64;
+extern fun point_scale(p: Point, factor: i32) Point;
+extern fun point_translate(p: &mut Point, dx: i32, dy: i32);
+extern fun divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
+extern fun byte_length(s: &u8) usize;
+extern fun sum_bytes(data: &u8, len: usize) u32;
+extern fun for_each(values: &i32, len: usize, visit: &extern fun(i32, &mut opaque), context: &mut opaque);
+extern fun lookup(id: i32) &u8;
+extern fun sum_ints(count: i32, ...) i64;
 extern static mut counter: i32;
-extern fn call_back_into_nia(x: i32) i32;
+extern fun call_back_into_nia(x: i32) i32;
 
-extern fn add_to_total(value: i32, context: &mut opaque) {
+extern fun add_to_total(value: i32, context: &mut opaque) {
     let total = context as &mut i64;
     total.* += value as i64;
 }
 
-pub extern fn nia_square(x: i32) i32 {
+pub extern fun nia_square(x: i32) i32 {
     x * x
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
     let scaled = point_scale(Point { x: 1, y: 2 }, 3);
     if scaled.x != 3 or scaled.y != 6 { return ExitCode(1)!; }

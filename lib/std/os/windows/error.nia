@@ -32,7 +32,7 @@ using pkg::os::windows::types::{
     Errno,
 };
 
-pub(pkg) fn errno(code: u32) Errno {
+pub(pkg) fun errno(code: u32) Errno {
     if code == errorFileNotFound or code == errorPathNotFound { return .NoEntry; }
     if code == errorNotEnoughMemory or code == errorOutofmemory { return .NoMemory; }
     match code {
@@ -63,4 +63,4 @@ pub(pkg) fn errno(code: u32) Errno {
     }
 }
 
-pub(pkg) fn lastError() Errno { errno(GetLastError()) }
+pub(pkg) fun lastError() Errno { errno(GetLastError()) }

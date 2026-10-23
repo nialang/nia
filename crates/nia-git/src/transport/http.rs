@@ -1405,7 +1405,7 @@ mod tests {
             git(&["init", "-q"]);
             git(&["config", "user.email", "nia-test@example.invalid"]);
             git(&["config", "user.name", "Nia Test"]);
-            std::fs::write(repository.join("lib.nia"), "pub fn main() {}\n").unwrap();
+            std::fs::write(repository.join("lib.nia"), "pub fun main() {}\n").unwrap();
             git(&["add", "lib.nia"]);
             git(&["commit", "-qm", "fixture"]);
             let revision = git(&["rev-parse", "HEAD"]).trim().to_string();

@@ -15,95 +15,95 @@ extern struct NA { p: Pt, z: f32 }
 extern struct BQ { a: u8, b: i64 }
 extern struct W3 { a: i64, b: i64, c: i64 }
 
-extern fn c_s3(v: S3, k: i32) S3;
-extern fn c_s6(v: S6, k: i32) S6;
-extern fn c_f3(v: F3, k: i32) F3;
-extern fn c_d2(v: D2, k: i32) D2;
-extern fn c_d5(v: D5, k: i32) D5;
-extern fn c_fd(v: FD, k: i32) FD;
-extern fn c_iff(v: IFF, k: i32) IFF;
-extern fn c_na(v: NA, k: i32) NA;
-extern fn c_bq(v: BQ, k: i32) BQ;
-extern fn c_w3(v: W3, k: i32) W3;
-extern fn c_p2(v: P2) P2;
-extern fn c_ext(a: i8, b: u8, c: i16, d: u16) i32;
-extern fn c_ret_i8() i8;
-extern fn c_ret_u16() u16;
-extern fn c_many(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2, f: i64) i64;
-extern fn c_sse(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, v: D2, w: FD, h: f64) f64;
-extern fn c_sret_after(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2) W3;
-extern fn c_var(n: i32, ...) f64;
-extern fn c_calls_nia() i32;
+extern fun c_s3(v: S3, k: i32) S3;
+extern fun c_s6(v: S6, k: i32) S6;
+extern fun c_f3(v: F3, k: i32) F3;
+extern fun c_d2(v: D2, k: i32) D2;
+extern fun c_d5(v: D5, k: i32) D5;
+extern fun c_fd(v: FD, k: i32) FD;
+extern fun c_iff(v: IFF, k: i32) IFF;
+extern fun c_na(v: NA, k: i32) NA;
+extern fun c_bq(v: BQ, k: i32) BQ;
+extern fun c_w3(v: W3, k: i32) W3;
+extern fun c_p2(v: P2) P2;
+extern fun c_ext(a: i8, b: u8, c: i16, d: u16) i32;
+extern fun c_ret_i8() i8;
+extern fun c_ret_u16() u16;
+extern fun c_many(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2, f: i64) i64;
+extern fun c_sse(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, v: D2, w: FD, h: f64) f64;
+extern fun c_sret_after(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2) W3;
+extern fun c_var(n: i32, ...) f64;
+extern fun c_calls_nia() i32;
 
-pub extern fn nia_s3(v: S3, k: i32) S3 {
+pub extern fun nia_s3(v: S3, k: i32) S3 {
     let d = k as u8;
     S3 { a: v.a + d, b: v.b + d, c: v.c + d }
 }
 
-pub extern fn nia_s6(v: S6, k: i32) S6 {
+pub extern fun nia_s6(v: S6, k: i32) S6 {
     let d = k as u16;
     S6 { a: v.a + d, b: v.b + d, c: v.c + d }
 }
 
-pub extern fn nia_f3(v: F3, k: i32) F3 {
+pub extern fun nia_f3(v: F3, k: i32) F3 {
     let d = k as f32;
     F3 { a: v.a + d, b: v.b + d, c: v.c + d }
 }
 
-pub extern fn nia_d2(v: D2, k: i32) D2 {
+pub extern fun nia_d2(v: D2, k: i32) D2 {
     let d = k as f64;
     D2 { a: v.a + d, b: v.b + d }
 }
 
-pub extern fn nia_d5(v: D5, k: i32) D5 {
+pub extern fun nia_d5(v: D5, k: i32) D5 {
     let d = k as f64;
     D5 { a: v.a + d, b: v.b + d, c: v.c + d, d: v.d + d, e: v.e + d }
 }
 
-pub extern fn nia_fd(v: FD, k: i32) FD {
+pub extern fun nia_fd(v: FD, k: i32) FD {
     FD { a: v.a + k as f32, b: v.b + k as f64 }
 }
 
-pub extern fn nia_iff(v: IFF, k: i32) IFF {
+pub extern fun nia_iff(v: IFF, k: i32) IFF {
     IFF { c: v.c + k, a: v.a + k as f32, b: v.b + k as f32 }
 }
 
-pub extern fn nia_na(v: NA, k: i32) NA {
+pub extern fun nia_na(v: NA, k: i32) NA {
     let d = k as f32;
     NA { p: Pt { x: v.p.x + d, y: v.p.y + d }, z: v.z + d }
 }
 
-pub extern fn nia_bq(v: BQ, k: i32) BQ {
+pub extern fun nia_bq(v: BQ, k: i32) BQ {
     BQ { a: v.a + k as u8, b: v.b + k as i64 }
 }
 
-pub extern fn nia_w3(v: W3, k: i32) W3 {
+pub extern fun nia_w3(v: W3, k: i32) W3 {
     let d = k as i64;
     W3 { a: v.a + d, b: v.b + d, c: v.c + d }
 }
 
-pub extern fn nia_ext(a: i8, b: u8, c: i16, d: u16) i32 {
+pub extern fun nia_ext(a: i8, b: u8, c: i16, d: u16) i32 {
     a as i32 + b as i32 + c as i32 + d as i32
 }
 
-pub extern fn nia_ret_i8() i8 {
+pub extern fun nia_ret_i8() i8 {
     -7
 }
 
-fn distance(p: P2) i64 {
+fun distance(p: P2) i64 {
     (p.b as usize - p.a as usize) as i64
 }
 
-pub extern fn nia_many(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2, f: i64) i64 {
+pub extern fun nia_many(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2, f: i64) i64 {
     a + b + c + d + e + f + distance(p)
 }
 
-pub extern fn nia_sret_after(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2) W3 {
+pub extern fun nia_sret_after(a: i64, b: i64, c: i64, d: i64, e: i64, p: P2) W3 {
     W3 { a: a + b, b: c + d, c: e + distance(p) }
 }
 
 // Returns 0, or the number of the first check that failed.
-fn nia_calls_c() i32 {
+fun nia_calls_c() i32 {
     let bytes: [u8; 4] = [0; 4];
     let p = P2 { a: &bytes[0], b: &bytes[3] };
     let s3 = c_s3(S3 { a: 1, b: 2, c: 3 }, 10);
@@ -150,7 +150,7 @@ fn nia_calls_c() i32 {
     0
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
     let nia_failure = nia_calls_c();
     if nia_failure != 0 {

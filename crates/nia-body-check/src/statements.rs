@@ -226,7 +226,7 @@ impl<'a> BodyChecker<'a> {
             codes::CONST,
             span,
             format!(
-                "`{}::{}` trait witness used by const for-in must be declared `const fn`",
+                "`{}::{}` trait witness used by const for-in must be declared `const fun`",
                 method.trait_id().name(),
                 method.name()
             ),

@@ -59,7 +59,7 @@ fn command_fixture(root: &Path, policy: &str, explicit_environment: bool) {
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {{
+pub fun build(b: &mut build::Build) build::Error!() {{
     let arguments = [
         {prefix}
         build::CommandArgument::packageInput(b.rootPackage(), fs::PathView::init(&"{script_name}")),

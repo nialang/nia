@@ -11,7 +11,7 @@ module facade;
 module defs;
 using entry::facade;
 
-fn main() i32 {
+fun main() i32 {
     facade::answer
 }
 "#,
@@ -91,7 +91,7 @@ static mut byte: u8 = localByte;
 static mut double: f64 = values::importedFloat;
 static mut disabled: bool = values::importedBool;
 
-fn nested() i32 {
+fun nested() i32 {
     const local: f32 = 3.5f32;
     static mut value: f32 = local;
     value as i32
@@ -169,7 +169,7 @@ static mut directPacket: Packet[2] = Packet[2] { bytes: [11u8, 12u8] };
 static mut importedCopy: [f32; 2] = values::imported;
 static mut importedConfigCopy: values::ImportedConfig = values::importedConfig;
 
-fn nested() i32 {
+fun nested() i32 {
     const local: [i32; 2] = [6, 7];
     static mut copy: [i32; 2] = local;
     copy[0] + copy[1]
@@ -267,7 +267,7 @@ fn const_values_drive_array_lengths() {
         r#"
 pub const width: usize = 2 + 2;
 
-fn main() i32 {
+fun main() i32 {
     const local_width: usize = width;
     let mut values: [i32; local_width] = [1, 2, 3, 4];
     values[3]
@@ -285,14 +285,14 @@ fn const_functions_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(base: usize) usize {
+const fun width(base: usize) usize {
     let extra: usize = 2;
     return base + extra;
 }
 
 const n: usize = width(2);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -324,7 +324,7 @@ fn const_function_if_expression_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(use_wide: bool) usize {
+const fun width(use_wide: bool) usize {
     if use_wide {
         let word: usize = 8;
         word
@@ -337,7 +337,7 @@ const fn width(use_wide: bool) usize {
 const bits: usize = 64usize;
 const n: usize = width(bits == 64);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -354,7 +354,7 @@ fn const_function_if_branch_return_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn word_bytes(bits: usize) usize {
+const fun word_bytes(bits: usize) usize {
     if bits == 64 {
         return 8;
     } else {
@@ -365,7 +365,7 @@ const fn word_bytes(bits: usize) usize {
 const bits: usize = 64usize;
 const n: usize = word_bytes(bits);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -382,7 +382,7 @@ fn const_function_return_expression_propagates_nested_return() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(use_wide: bool) usize {
+const fun width(use_wide: bool) usize {
     return if use_wide {
         return 8;
     } else {
@@ -392,7 +392,7 @@ const fn width(use_wide: bool) usize {
 
 const n: usize = width(true);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -409,7 +409,7 @@ fn const_function_match_expression_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn word_bytes(bits: usize) usize {
+const fun word_bytes(bits: usize) usize {
     match bits {
         16 => 2,
         32 => 4,
@@ -421,7 +421,7 @@ const fn word_bytes(bits: usize) usize {
 const bits: usize = 64usize;
 const n: usize = word_bytes(bits);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -438,7 +438,7 @@ fn const_tuple_patterns_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn select(value: (usize, (bool, usize))) usize {
+const fun select(value: (usize, (bool, usize))) usize {
     match value {
         (0, (false, _)) => 1,
         (left, (true, right)) => left + right,
@@ -448,7 +448,7 @@ const fn select(value: (usize, (bool, usize))) usize {
 
 const n: usize = select((3usize, (true, 5usize)));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -465,7 +465,7 @@ fn const_function_match_ranges_and_return_arms_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn bucket(value: usize) usize {
+const fun bucket(value: usize) usize {
     match value {
         0..4 => return 4,
         4..8 => 8,
@@ -475,7 +475,7 @@ const fn bucket(value: usize) usize {
 
 const n: usize = bucket(6);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -492,7 +492,7 @@ fn const_function_if_pattern_optional_payload_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn unwrap(value: ?usize) usize {
+const fun unwrap(value: ?usize) usize {
     match value {
         ?payload => {
             payload
@@ -506,7 +506,7 @@ const fn unwrap(value: ?usize) usize {
 const some: ?usize = ?8usize;
 const n: usize = unwrap(some);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -523,7 +523,7 @@ fn const_function_if_pattern_error_payload_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-const fn unwrap(value: usize!usize) usize {
+const fun unwrap(value: usize!usize) usize {
     match value {
         !payload => {
             payload
@@ -537,7 +537,7 @@ const fn unwrap(value: usize!usize) usize {
 const ok: usize!usize = !8;
 const n: usize = unwrap(ok);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -554,11 +554,11 @@ fn function_body_if_uses_const_function_condition() {
     write(
         &root.join("main.nia"),
         r#"
-const fn is_native_word(bits: usize) bool {
+const fun is_native_word(bits: usize) bool {
     bits == 64usize
 }
 
-fn main() i32 {
+fun main() i32 {
     const native: bool = is_native_word(64usize);
     if native {
         1
@@ -584,7 +584,7 @@ using entry::config;
 
 const width: usize = config::width(2);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
@@ -593,7 +593,7 @@ fn main() i32 {
     write(
         &root.join("config.nia"),
         r#"
-pub const fn width(base: usize) usize {
+pub const fun width(base: usize) usize {
     base + 2
 }
 "#,
@@ -609,13 +609,13 @@ fn const_function_is_available_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(value: usize) usize {
+const fun width(value: usize) usize {
     value * 2
 }
 
 const arrayLen: usize = width(5);
 
-fn main(input: usize) i32 {
+fun main(input: usize) i32 {
     let values: [u8; arrayLen] = [0; arrayLen];
     width(input) as i32 + values.len() as i32
 }
@@ -637,14 +637,14 @@ struct Width {
 }
 
 extend Width {
-    const fn doubled(self) usize {
+    const fun doubled(self) usize {
         self.value * 2
     }
 }
 
 const compileTimeWidth: usize = Width{value: 5}.doubled();
 
-fn main(input: usize) i32 {
+fun main(input: usize) i32 {
     let values: [u8; compileTimeWidth] = [0; compileTimeWidth];
     Width{value: input}.doubled() as i32 + values.len() as i32
 }
@@ -666,14 +666,14 @@ struct Width {
 }
 
 extend Width {
-    const fn fromValue(value: usize) Width {
+    const fun fromValue(value: usize) Width {
         Self { value }
     }
 }
 
 const compileTimeWidth: usize = Width::fromValue(5).value;
 
-fn main(input: usize) i32 {
+fun main(input: usize) i32 {
     let values: [u8; compileTimeWidth] = [0; compileTimeWidth];
     Width::fromValue(input).value as i32 + values.len() as i32
 }
@@ -695,11 +695,11 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    const fn value(self) T {
+    const fun value(self) T {
         self.value
     }
 
-    const fn fromValue(value: T) Box[T] {
+    const fun fromValue(value: T) Box[T] {
         Self { value }
     }
 }
@@ -708,7 +708,7 @@ const receiverValue: usize = Box[usize]{value: 4}.value();
 const associatedValue: usize = Box[usize]::fromValue(6).value();
 const arrayLen: usize = receiverValue + associatedValue;
 
-fn main(input: usize) i32 {
+fun main(input: usize) i32 {
     let values: [u8; arrayLen] = [0; arrayLen];
     Box[usize]::fromValue(input).value() as i32 + values.len() as i32
 }
@@ -730,7 +730,7 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    const fn convert[U](self, value: U) U {
+    const fun convert[U](self, value: U) U {
         let _ = self;
         value
     }
@@ -738,7 +738,7 @@ extend[T] Box[T] {
 
 const result: bool = Box[i32] { value: 1 }.convert[bool](true);
 
-fn main() i32 {
+fun main() i32 {
     if result { 0 } else { 1 }
 }
 "#,
@@ -754,14 +754,14 @@ fn const_calls_infer_underscore_generic_slots() {
     write(
         &root.join("main.nia"),
         r#"
-const fn choose[T, U](first: T, second: U) U {
+const fun choose[T, U](first: T, second: U) U {
     let _ = first;
     second
 }
 
 const result: bool = choose[i32, _](1, true);
 
-const fn count[T, N: usize](values: [T; N]) usize {
+const fun count[T, N: usize](values: [T; N]) usize {
     let _ = values;
     N
 }
@@ -785,7 +785,7 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    const fn convert[T](self, value: T) T {
+    const fun convert[T](self, value: T) T {
         let _ = self;
         value
     }
@@ -815,7 +815,7 @@ fn trait_method_generics_cannot_shadow_trait_generics() {
         &root.join("main.nia"),
         r#"
 trait Carrier[T] {
-    fn convert[T](self, value: T) T;
+    fun convert[T](self, value: T) T;
 }
 "#,
     );
@@ -844,7 +844,7 @@ using entry::widths;
 
 const arrayLen: usize = widths::double(2) + widths::Width::fromValue(3).doubled();
 
-fn main(input: usize) i32 {
+fun main(input: usize) i32 {
     let values: [u8; arrayLen] = [0; arrayLen];
     widths::double(input) as i32
         + widths::Width::fromValue(input).doubled() as i32
@@ -859,16 +859,16 @@ pub struct Width {
     value: usize,
 }
 
-pub const fn double(value: usize) usize {
+pub const fun double(value: usize) usize {
     value * 2
 }
 
 extend Width {
-    pub const fn fromValue(value: usize) Width {
+    pub const fun fromValue(value: usize) Width {
         Self { value }
     }
 
-    pub const fn doubled(self) usize {
+    pub const fun doubled(self) usize {
         self.value * 2
     }
 }
@@ -885,7 +885,7 @@ fn const_expression_rejects_runtime_only_function() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeWidth(value: usize) usize {
+fun runtimeWidth(value: usize) usize {
     value * 2
 }
 
@@ -898,7 +898,7 @@ const arrayLen: usize = runtimeWidth(5);
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -918,7 +918,7 @@ struct Point {
 const p: Point = Point{x: 2, y: 3};
 const width: usize = p.x + p.y;
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
@@ -940,7 +940,7 @@ struct Point {
     y: usize,
 }
 
-fn main() i32 {
+fun main() i32 {
     const p: Point = Point{x: 4, y: 2};
     const width: usize = p.x + p.y;
     let mut values: [i32; width] = [0; width];
@@ -962,7 +962,7 @@ fn const_array_values_drive_index_access() {
 const widths: [usize; 3] = [2, 4, 8];
 const width: usize = widths[1];
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
@@ -981,7 +981,7 @@ fn function_local_nominal_const_array_index_drives_field_access() {
         r#"
 struct Config { width: usize }
 
-fn main() i32 {
+fun main() i32 {
     const configs = [Config { width: 2usize }, Config { width: 4usize }];
     const width: usize = configs[1].width;
     let mut values: [i32; width] = [0; width];
@@ -1007,7 +1007,7 @@ struct Config {
 const config: Config = Config{widths: [2, 4, 8]};
 const width: usize = config.widths[2];
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
@@ -1024,14 +1024,14 @@ fn const_functions_accept_array_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn pick(widths: [usize; 3], index: usize) usize {
+const fun pick(widths: [usize; 3], index: usize) usize {
     widths[index]
 }
 
 const widths: [usize; 3] = [2, 4, 8];
 const width: usize = pick(widths, 2);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
@@ -1048,7 +1048,7 @@ fn const_array_slices_are_ordinary_const_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn pair_sum(values: [usize; 2]) usize {
+const fun pair_sum(values: [usize; 2]) usize {
     values[0] + values[1]
 }
 
@@ -1059,7 +1059,7 @@ const suffix: [usize; 2] = values[2..];
 const direct: usize = pair_sum(values[1..=2]);
 const n: usize = pair_sum(middle) + pair_sum(prefix) + pair_sum(suffix) + direct;
 
-fn main() i32 {
+fun main() i32 {
     let mut array: [i32; n] = [0; n];
     array.len() as i32
 }
@@ -1076,7 +1076,7 @@ fn const_function_try_propagates_optional_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn add_one(value: ?usize) ?usize {
+const fun add_one(value: ?usize) ?usize {
     let unwrapped: usize = value.?;
     if unwrapped == 7 {
         ?(unwrapped + 1)
@@ -1104,7 +1104,7 @@ const fallback: usize = match none {
     },
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width + fallback] = [0; width + fallback];
     values.len() as i32
 }
@@ -1121,7 +1121,7 @@ fn const_function_try_propagates_error_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn add_one(value: usize!usize) usize!usize {
+const fun add_one(value: usize!usize) usize!usize {
     !(value.? + 1)
 }
 
@@ -1144,7 +1144,7 @@ const fallback: usize = match err {
     },
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width + fallback] = [0; width + fallback];
     values.len() as i32
 }
@@ -1173,7 +1173,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : std::builtin::IntoError[TargetError] {
-    const fn intoError(self) TargetError {
+    const fun intoError(self) TargetError {
         match self {
             SourceError::Failed => TargetError::Converted,
             _ => TargetError::Unknown,
@@ -1181,7 +1181,7 @@ extend SourceError : std::builtin::IntoError[TargetError] {
     }
 }
 
-const fn propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize) {
+const fun propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize) {
     !(value.?)
 }
 
@@ -1199,7 +1199,7 @@ const failureWidth: usize = match failure {
     },
 };
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; successWidth + failureWidth] = [0; successWidth + failureWidth];
     values.len() as i32
 }
@@ -1226,12 +1226,12 @@ enum TargetError: i32 {
 }
 
 extend[T] SourceError[T] : std::builtin::IntoError[TargetError] {
-    const fn intoError(self) TargetError {
+    const fun intoError(self) TargetError {
         TargetError::Converted
     }
 }
 
-const fn propagate(value: SourceError[i32]!usize) TargetError!usize {
+const fun propagate(value: SourceError[i32]!usize) TargetError!usize {
     !(value.?)
 }
 
@@ -1242,7 +1242,7 @@ const width: usize = match failure {
     cause! => 0,
 };
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; width] = [0; width];
     values.len() as i32
 }

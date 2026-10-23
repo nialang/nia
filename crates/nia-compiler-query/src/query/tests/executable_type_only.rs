@@ -10,7 +10,7 @@ fn executable_type_only_modules_keep_signature_const_enum_values() {
 module types;
 using entry::types;
 
-pub fn main(value: types::Mode) i32 {
+pub fun main(value: types::Mode) i32 {
 0
 }
 "#,
@@ -26,7 +26,7 @@ A = 1,
 B = 1 + 2,
 }
 
-pub fn unused_bad() i32 {
+pub fun unused_bad() i32 {
 missing_symbol
 }
 "#,
@@ -87,7 +87,7 @@ fn executable_type_only_modules_keep_signature_const_array_lengths() {
 module types;
 using entry::types;
 
-pub fn main(value: types::Packet) i32 {
+pub fun main(value: types::Packet) i32 {
 0
 }
 "#,
@@ -104,7 +104,7 @@ pub struct Packet {
 data: [u8; N],
 }
 
-pub fn unused_bad() i32 {
+pub fun unused_bad() i32 {
 missing_symbol
 }
 "#,
@@ -158,7 +158,7 @@ fn executable_body_and_type_only_layouts_use_artifact_pointer_width() {
 module types;
 using entry::types;
 
-pub fn main(value: types::Word) usize {
+pub fun main(value: types::Word) usize {
 value.value
 }
 "#,

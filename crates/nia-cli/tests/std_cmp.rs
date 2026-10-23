@@ -16,7 +16,7 @@ fn emit_exe_std_cmp_max_is_generic() {
 using std::cmp;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if cmp::max(3i32, 7i32) != 7i32 {
         return process::ExitCode(1)!;

@@ -1,23 +1,23 @@
-fn malformed(value: i32 {
+fun malformed(value: i32 {
     _ = value;
 }
 
-fn first() i32 {
+fun first() i32 {
     let value = 1
     value
 }
 
-fn second() i32 {
+fun second() i32 {
     1 +
 }
 
-fn missing_type(value:) () {}
+fun missing_type(value:) () {}
 
-fn missing_binding() () {
+fun missing_binding() () {
     let = 1;
 }
 
-fn missing_delimiter(value: i32 {
+fun missing_delimiter(value: i32 {
     _ = value;
 }
 
@@ -34,8 +34,8 @@ enum RecoveredPayload {
     Done,
 }
 
-fn () {}
+fun () {}
 
-fn lexical_error() () {
+fun lexical_error() () {
     let value = 1 $;
 }

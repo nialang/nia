@@ -11,7 +11,7 @@ using types::{Error, ExitCode, SpawnError, SystemError};
 using io::DebugPrintError;
 
 extend test::Error : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_) => ExitCode(1),
         }
@@ -19,7 +19,7 @@ extend test::Error : builtin::IntoError[ExitCode] {
 }
 
 extend DebugPrintError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .Format(cause) => cause.intoError(),
             .Flush(cause) => cause.intoError(),
@@ -28,7 +28,7 @@ extend DebugPrintError : builtin::IntoError[ExitCode] {
 }
 
 extend cstring::CStringBuildError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .ContainsNul => ExitCode(22),
             .Allocation(cause) => cause.intoError(),
@@ -37,13 +37,13 @@ extend cstring::CStringBuildError : builtin::IntoError[ExitCode] {
 }
 
 extend fs::Error : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         ExitCode(self as i32)
     }
 }
 
 extend fs::PathError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .ContainsNul, .Absolute, .ParentTraversal, .MissingTerminator => ExitCode(22),
             .TooLong => ExitCode(36),
@@ -53,7 +53,7 @@ extend fs::PathError : builtin::IntoError[ExitCode] {
 }
 
 extend fs::OperationError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .Path { operation: _, cause } => cause.intoError(),
             .System { operation: _, cause } => cause.intoError(),
@@ -62,19 +62,19 @@ extend fs::OperationError : builtin::IntoError[ExitCode] {
 }
 
 extend io::SystemError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         ExitCode(self as i32)
     }
 }
 
 extend SystemError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         ExitCode(self as i32)
     }
 }
 
 extend io::Error : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .EndOfStream => ExitCode(5),
             .ShortWrite => ExitCode(5),
@@ -85,7 +85,7 @@ extend io::Error : builtin::IntoError[ExitCode] {
 }
 
 extend Error : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .Allocation(cause) => cause.intoError(),
             .Path(cause) => cause.intoError(),
@@ -102,7 +102,7 @@ extend Error : builtin::IntoError[ExitCode] {
 }
 
 extend SpawnError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .Setup(cause) => cause.intoError(),
             .Stdio(cause) => cause.intoError(),
@@ -114,7 +114,7 @@ extend SpawnError : builtin::IntoError[ExitCode] {
 }
 
 extend fmt::Error : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .Write => ExitCode(5),
             .InvalidTemplate => ExitCode(22),
@@ -126,7 +126,7 @@ extend fmt::Error : builtin::IntoError[ExitCode] {
 }
 
 extend io::BufferError : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .NoSpace => ExitCode(2),
             .ShortWrite => ExitCode(5),
@@ -137,7 +137,7 @@ extend io::BufferError : builtin::IntoError[ExitCode] {
 }
 
 extend mem::Error : builtin::IntoError[ExitCode] {
-    const fn intoError(self) ExitCode {
+    const fun intoError(self) ExitCode {
         match self {
             .Invalid => ExitCode(22),
             .InvalidAlignment => ExitCode(22),

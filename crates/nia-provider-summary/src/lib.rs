@@ -661,7 +661,7 @@ mod tests {
 struct Widget {}
 
 extend Widget {
-    pub fn score(&self) i32 { 1 }
+    pub fun score(&self) i32 { 1 }
     pub const Kind: i32 = 0;
 }
 "#,
@@ -679,12 +679,12 @@ extend Widget {
         let summary = summary_for(
             r#"
 trait Hash {
-    fn hash(&self) u64;
+    fun hash(&self) u64;
 }
 struct Widget {}
 
 extend Widget : Hash {
-    pub fn hash(&self) u64 { 1u64 }
+    pub fun hash(&self) u64 { 1u64 }
 }
 "#,
         );
@@ -711,13 +711,13 @@ extend Widget : Hash {
         let summary = summary_for(
             r#"
 trait IntoError[Target] {
-    fn intoError(self) Target;
+    fun intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
-    pub fn cast_error(self) Target!T {
+    pub fun cast_error(self) Target!T {
         match self {
             !ok => {
                 !ok
@@ -841,7 +841,7 @@ struct Used {}
 struct Unused {}
 
 extend Used {
-    pub fn len(&self) i32 { 1 }
+    pub fun len(&self) i32 { 1 }
 }
 "#,
         );
@@ -862,7 +862,7 @@ module types;
 using types::{Used};
 
 extend Used {
-    pub fn init() Used {
+    pub fun init() Used {
         Used {}
     }
 }
@@ -881,7 +881,7 @@ module fs;
 using fs;
 
 extend fs::File {
-    pub fn writer(&self) () {}
+    pub fun writer(&self) () {}
 }
 "#,
         );
@@ -906,7 +906,7 @@ struct Used {}
 type Alias = Used;
 
 extend Alias {
-    pub fn len(&self) i32 { 1 }
+    pub fun len(&self) i32 { 1 }
 }
 "#,
         );
@@ -927,15 +927,15 @@ extend Alias {
         let summary = summary_for(
             r#"
 extend[T] [T] {
-    fn size(&self) usize { 0usize }
+    fun size(&self) usize { 0usize }
 }
 
 extend[T] &T {
-    fn ptr(self) bool { true }
+    fun ptr(self) bool { true }
 }
 
 extend () {
-    fn unit(self) i32 { 1 }
+    fun unit(self) i32 { 1 }
 }
 "#,
         );
@@ -954,7 +954,7 @@ extend () {
         let summary = summary_for(
             r#"
 extend[T] T {
-    fn rank(self) i32 { 1 }
+    fun rank(self) i32 { 1 }
 }
 "#,
         );
@@ -973,12 +973,12 @@ extend[T] T {
         let summary = summary_for(
             r#"
 trait Hash {
-    fn hash(&self) u64;
+    fun hash(&self) u64;
 }
 struct Widget {}
 
 extend Widget : Hash {
-    pub fn hash(&self) u64 { 1u64 }
+    pub fun hash(&self) u64 { 1u64 }
 }
 "#,
         );
@@ -1005,7 +1005,7 @@ using error;
 struct SpawnError {}
 
 extend SpawnError : error::IntoError {
-    fn intoError(self) () {}
+    fun intoError(self) () {}
 }
 "#,
         );

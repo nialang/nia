@@ -3,7 +3,7 @@ using std::process;
 using process::{Init, ExitCode};
 
 trait Measured {
-    fn measure(&self) i32;
+    fun measure(&self) i32;
 }
 
 struct Count {
@@ -11,7 +11,7 @@ struct Count {
 }
 
 extend Count : Measured {
-    fn measure(&self) i32 {
+    fun measure(&self) i32 {
         self.value
     }
 }
@@ -19,24 +19,24 @@ extend Count : Measured {
 extend Count : Add[Count] {
     type Output = Count;
 
-    fn add(self, rhs: Count) Count {
+    fun add(self, rhs: Count) Count {
         Self { value: self.value + rhs.value }
     }
 }
 
-fn combine[T](left: T, right: T) T
+fun combine[T](left: T, right: T) T
 where T: Add[T, Output = T]
 {
     left + right
 }
 
-fn measure[T](value: &T) i32
+fun measure[T](value: &T) i32
 where T: Measured
 {
     value.measure()
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
 
     let total = combine(Count { value: 20 }, Count { value: 22 });

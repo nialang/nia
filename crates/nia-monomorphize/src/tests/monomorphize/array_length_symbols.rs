@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
-    let (module, errors) = parse_module("fn take[T](value: T) T { value }");
+    let (module, errors) = parse_module("fun take[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
@@ -74,7 +74,7 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
 
 #[test]
 fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
-    let (module, errors) = parse_module("fn take[T](value: T) T { value }");
+    let (module, errors) = parse_module("fun take[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
@@ -115,8 +115,8 @@ fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
 fn repeated_unresolved_array_length_symbol_reuses_cached_diagnostic() {
     let (module, errors) = parse_module(
         r#"
-fn take[T](value: T) T { value }
-fn wrap[T](value: T) T { value }
+fun take[T](value: T) T { value }
+fun wrap[T](value: T) T { value }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");

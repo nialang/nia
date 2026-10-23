@@ -29,7 +29,7 @@ struct FaultAllocator {
 }
 
 extend FaultAllocator {
-    fn init() FaultAllocator {
+    fun init() FaultAllocator {
         Self {
             backing: mem::PageAllocator::init(),
             allocationAttempts: 0usize,
@@ -39,26 +39,26 @@ extend FaultAllocator {
         }
     }
 
-    fn failAfter(&mut self, successfulAllocations: usize) () {
+    fun failAfter(&mut self, successfulAllocations: usize) () {
         self.failAt = self.allocationAttempts + successfulAllocations + 1usize;
     }
 
-    fn disableFailure(&mut self) () {
+    fun disableFailure(&mut self) () {
         self.failAt = 0usize;
     }
 
-    fn failNextRetainedFree(&mut self) () {
+    fun failNextRetainedFree(&mut self) () {
         self.failNextRetainedFrees(1usize);
     }
 
-    fn failNextRetainedFrees(&mut self, count: usize) () {
+    fun failNextRetainedFrees(&mut self, count: usize) () {
         self.retainedFreeFailures = count;
     }
 
 }
 
 extend FaultAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if not layout.isEmpty() {
             self.allocationAttempts += 1usize;
             if self.failAt == self.allocationAttempts {
@@ -72,7 +72,7 @@ extend FaultAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if not block.isEmpty() and self.retainedFreeFailures != 0usize {
             self.retainedFreeFailures -= 1usize;
             return mem::Error::Invalid!;
@@ -88,11 +88,11 @@ extend FaultAllocator : mem::Allocator {
     }
 }
 
-fn testTarget(text: &[char]) build::TargetView {
+fun testTarget(text: &[char]) build::TargetView {
     build::TargetView::init(text, text, 64u32)
 }
 
-fn isBuildDirRetainOom(error: build::Error) bool {
+fun isBuildDirRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -103,7 +103,7 @@ fn isBuildDirRetainOom(error: build::Error) bool {
     }
 }
 
-fn isTargetRetainOom(error: build::Error) bool {
+fun isTargetRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -114,7 +114,7 @@ fn isTargetRetainOom(error: build::Error) bool {
     }
 }
 
-fn isPackageRootReleaseInvalid(error: build::Error) bool {
+fun isPackageRootReleaseInvalid(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Release,
@@ -125,7 +125,7 @@ fn isPackageRootReleaseInvalid(error: build::Error) bool {
     }
 }
 
-fn isImportRetainOom(error: build::Error) bool {
+fun isImportRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -136,7 +136,7 @@ fn isImportRetainOom(error: build::Error) bool {
     }
 }
 
-fn isPackageRetainOom(error: build::Error) bool {
+fun isPackageRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -147,7 +147,7 @@ fn isPackageRetainOom(error: build::Error) bool {
     }
 }
 
-fn isExecutableRetainOom(error: build::Error) bool {
+fun isExecutableRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -158,7 +158,7 @@ fn isExecutableRetainOom(error: build::Error) bool {
     }
 }
 
-fn isObjectRetainOom(error: build::Error) bool {
+fun isObjectRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -169,7 +169,7 @@ fn isObjectRetainOom(error: build::Error) bool {
     }
 }
 
-fn isStaticArchiveRetainOom(error: build::Error) bool {
+fun isStaticArchiveRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -180,7 +180,7 @@ fn isStaticArchiveRetainOom(error: build::Error) bool {
     }
 }
 
-fn isGeneratedFileRetainOom(error: build::Error) bool {
+fun isGeneratedFileRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -191,7 +191,7 @@ fn isGeneratedFileRetainOom(error: build::Error) bool {
     }
 }
 
-fn isRunRetainOom(error: build::Error) bool {
+fun isRunRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -202,7 +202,7 @@ fn isRunRetainOom(error: build::Error) bool {
     }
 }
 
-fn isExternalCommandRetainOom(error: build::Error) bool {
+fun isExternalCommandRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -213,7 +213,7 @@ fn isExternalCommandRetainOom(error: build::Error) bool {
     }
 }
 
-fn isDependencyRetainOom(error: build::Error) bool {
+fun isDependencyRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -224,7 +224,7 @@ fn isDependencyRetainOom(error: build::Error) bool {
     }
 }
 
-fn isPlanValidationOom(error: build::Error) bool {
+fun isPlanValidationOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
@@ -235,7 +235,7 @@ fn isPlanValidationOom(error: build::Error) bool {
     }
 }
 
-fn isStepCycle(error: build::Error, step: usize, dependency: usize) bool {
+fun isStepCycle(error: build::Error, step: usize, dependency: usize) bool {
     match error {
         build::Error::StepCycle {
             step: actualStep,
@@ -246,7 +246,7 @@ fn isStepCycle(error: build::Error, step: usize, dependency: usize) bool {
     }
 }
 
-fn isPlanEncodingOom(error: build::Error) bool {
+fun isPlanEncodingOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Encode,
@@ -257,7 +257,7 @@ fn isPlanEncodingOom(error: build::Error) bool {
     }
 }
 
-fn isStepReleaseInvalid(error: build::Error) bool {
+fun isStepReleaseInvalid(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Release,
@@ -268,7 +268,7 @@ fn isStepReleaseInvalid(error: build::Error) bool {
     }
 }
 
-fn isModuleImportReleaseInvalid(error: build::Error) bool {
+fun isModuleImportReleaseInvalid(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Release,
@@ -279,7 +279,7 @@ fn isModuleImportReleaseInvalid(error: build::Error) bool {
     }
 }
 
-fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!() {
+fun reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!() {
     let mut buffer: [u8; 512] = [0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
     stderr.print(&"unexpected build error: {}\n", &[&error]).?;
@@ -287,7 +287,7 @@ fn reportUnexpected(init: process::Init, error: build::Error) process::ExitCode!
     !()
 }
 
-fn checkInitRollback(init: process::Init) process::ExitCode!() {
+fun checkInitRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
     let pathText: [char; 64] = ['p'; 64];
@@ -329,7 +329,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
 // Allocations 0-4 retain the five paths, 5 reserves the target table, and each
 // target then retains its name and byte order. Every failure point must report
 // the target collection and release everything retained before it.
-fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!() {
+fun checkTargetInitRollback(init: process::Init, successfulAllocations: usize) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(successfulAllocations);
     let pathText: [char; 64] = ['p'; 64];
@@ -370,7 +370,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     !()
 }
 
-fn checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
+fun checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
     allocator.failNextRetainedFree();
@@ -424,7 +424,7 @@ fn checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
     !()
 }
 
-fn checkRecordRollback(init: process::Init) process::ExitCode!() {
+fun checkRecordRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
@@ -692,7 +692,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     !()
 }
 
-fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
+fun checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
@@ -737,7 +737,7 @@ fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
     !()
 }
 
-fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
+fun checkPendingInstallStep(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
@@ -793,7 +793,7 @@ fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
     !()
 }
 
-fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
+fun checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
@@ -841,7 +841,7 @@ fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
     !()
 }
 
-fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
+fun checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
@@ -919,7 +919,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     !()
 }
 
-fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!() {
+fun checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
@@ -1017,7 +1017,7 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
     !()
 }
 
-fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() {
+fun checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
     let target = testTarget(&"");
@@ -1078,7 +1078,7 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
     // Allocation 5 reserves the target table; 6-7 retain the host target and
     // 8-9 the artifact target.

@@ -1,4 +1,4 @@
-fn invalid() () {
+fun invalid() () {
     std::builtin::asm(missing_config);
     std::builtin::asm(.{
         inputs: missing_inputs,

@@ -10,7 +10,7 @@ fn broad_and_narrow_std_imports_select_the_same_module_work() {
         r#"
 using std::collections;
 
-fn consume(values: collections::ArrayList[i32]) usize {
+fun consume(values: collections::ArrayList[i32]) usize {
     values.len()
 }
 "#,
@@ -20,7 +20,7 @@ fn consume(values: collections::ArrayList[i32]) usize {
         r#"
 using std::collections::ArrayList;
 
-fn consume(values: ArrayList[i32]) usize {
+fun consume(values: ArrayList[i32]) usize {
     values.len()
 }
 "#,
@@ -45,11 +45,11 @@ fn namespace_and_explicit_mem_imports_select_builtin_layout_equally() {
     let narrow_path = root.join("narrow.nia");
     write(
         &broad_path,
-        "using std::mem;\nfn main() usize { mem::Layout::of[usize]().?.size() }\n",
+        "using std::mem;\nfun main() usize { mem::Layout::of[usize]().?.size() }\n",
     );
     write(
         &narrow_path,
-        "using std::mem::Layout;\nfn main() usize { Layout::of[usize]().?.size() }\n",
+        "using std::mem::Layout;\nfun main() usize { Layout::of[usize]().?.size() }\n",
     );
 
     let broad = load_program(broad_path.to_string_lossy().into_owned());
@@ -76,7 +76,7 @@ using std::io;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -160,7 +160,7 @@ fn query_loader_counts_package_facade_scope_as_import_usage() {
         r#"
 using std;
 
-fn main() i32 {
+fun main() i32 {
     let mut sum = 0;
     for i in 1usize..4usize {
         sum += i as i32;
@@ -199,7 +199,7 @@ fn query_loader_does_not_warn_for_used_narrow_explicit_import() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }

@@ -6,8 +6,8 @@ help: use an identifier in this position
 
 path: fail/using_group_unterminated_recovery/main.nia
 code: E0101
-summary: expected `}` after using group; found `fn`
-label: 15..17 Primary Source expected `}` after using group; found `fn`
+summary: expected `}` after using group; found `fun`
+label: 15..18 Primary Source expected `}` after using group; found `fun`
 help: check that the surrounding delimiters are balanced
 
 report:
@@ -18,11 +18,11 @@ error[E0101]: expected name in `using`
   |              ^
 help: use an identifier in this position
 
-error[E0101]: expected `}` after using group; found `fn`
+error[E0101]: expected `}` after using group; found `fun`
   --> fail/using_group_unterminated_recovery/main.nia:2:1
   |
-2 | fn later() () {}
-  | ^^
+2 | fun later() () {}
+  | ^^^
 help: check that the surrounding delimiters are balanced
 
 summary: 2 errors, 0 warnings

@@ -21,7 +21,7 @@ fn provider_fact_snapshot(
 
 #[test]
 fn semantic_provider_activation_preserves_resolved_caller_facts() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let revision = new_revision();
     let mut program = fixture.program();
@@ -32,7 +32,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
         entry_id,
         "provider",
         "main/provider.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     let provider_change = crate::ProviderDemand {
         source_path: SourcePath::new("main.nia"),
@@ -91,7 +91,7 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
 fn method_provider_change_removes_only_affected_function_diagnostics() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct Value {} fn helper() i32 { 1 } fn main(value: Value) i32 { value.missing() }",
+        "struct Value {} fun helper() i32 { 1 } fun main(value: Value) i32 { value.missing() }",
     );
     let entry_id = fixture.entry_id();
     let revision = new_revision();
@@ -132,7 +132,7 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
         entry_id,
         "provider",
         "main/provider.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
     let provider_change_count = provider_changes.len();
@@ -205,14 +205,14 @@ fn randomized_incremental_checks_match_clean_recomputation() {
     }
 
     let sources = [
-        "fn main() i32 { 0 }",
-        "fn main() i32 { 1 }",
-        "fn helper() i32 { 2 } fn main() i32 { helper() }",
-        "struct Value { field: i32 } fn main() i32 { let value = Value { field: 3 }; value.field }",
-        "fn main() i32 { true }",
-        "fn main() i32 { let value: i32 = 4; value }",
-        "const answer: i32 = 5; fn main() i32 { answer }",
-        "fn main() i32 { missing() }",
+        "fun main() i32 { 0 }",
+        "fun main() i32 { 1 }",
+        "fun helper() i32 { 2 } fun main() i32 { helper() }",
+        "struct Value { field: i32 } fun main() i32 { let value = Value { field: 3 }; value.field }",
+        "fun main() i32 { true }",
+        "fun main() i32 { let value: i32 = 4; value }",
+        "const answer: i32 = 5; fun main() i32 { answer }",
+        "fun main() i32 { missing() }",
     ];
     let mut fixture = LoadedProgramFixture::new("main.nia", sources[0]);
     let module_id = fixture.entry_id();
@@ -238,7 +238,7 @@ fn randomized_incremental_checks_match_clean_recomputation() {
 
 #[test]
 fn source_identity_change_invalidates_loaded_module_list() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let module_id = fixture.entry_id();
     let database = fixture.database();
     let _ = database.check_program();

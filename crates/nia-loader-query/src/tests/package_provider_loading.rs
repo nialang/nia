@@ -4,14 +4,14 @@ use super::*;
 fn query_loader_scopes_structural_methods_through_trait_reexports() {
     let root = temp_dir("query_loader_scopes_structural_methods_through_trait_reexports");
     let main = root.join("main.nia");
-    write(&main, "module parse; using entry::parse; fn main() () {}");
+    write(&main, "module parse; using entry::parse; fun main() () {}");
     fs::create_dir_all(root.join("parse")).expect("create facade directory");
     write(
         &root.join("parse/implementation.nia"),
         r#"
-pub trait From[Input] { fn from(input: Input) Self; }
+pub trait From[Input] { fun from(input: Input) Self; }
 extend[Unit] [Unit] where Unit: Sized {
-    pub fn parse[T](&self) T where T: From[&[Unit]] { [T]::from(self) }
+    pub fun parse[T](&self) T where T: From[&[Unit]] { [T]::from(self) }
 }
 "#,
     );
@@ -51,7 +51,7 @@ fn query_loader_loads_trait_provider_declared_in_package_root() {
     let pkg_root = root.join("dep.nia");
     write(
         &main_path,
-        "using dep::types; fn main(value: types::Widget) () { _ = value; }",
+        "using dep::types; fun main(value: types::Widget) () { _ = value; }",
     );
     fs::create_dir_all(root.join("dep")).expect("create dependency package");
     write(
@@ -64,7 +64,7 @@ fn query_loader_loads_trait_provider_declared_in_package_root() {
 pub module types;
 using pkg::types;
 extend types::Widget : Len {
-    const fn len(&self) usize { self.value }
+    const fun len(&self) usize { self.value }
 }
 "#,
     );
@@ -89,7 +89,7 @@ fn query_loader_processes_imports_owned_by_trait_provider() {
     let root = temp_dir("query_loader_processes_imports_owned_by_trait_provider");
     let main_path = root.join("main.nia");
     let pkg_root = root.join("dep.nia");
-    write(&main_path, "fn main() () {}");
+    write(&main_path, "fun main() () {}");
     fs::create_dir_all(root.join("dep")).expect("create dependency package");
     write(
         &root.join("dep/types.nia"),
@@ -101,7 +101,7 @@ fn query_loader_processes_imports_owned_by_trait_provider() {
 using pkg::types;
 
 extend types::Widget : Len {
-    fn len(&self) usize { self.value }
+    fun len(&self) usize { self.value }
 }
 "#,
     );
@@ -151,7 +151,7 @@ fn query_loader_loads_builtin_trait_provider_from_a_non_std_package() {
         r#"
 using dep::types;
 
-fn main(value: types::Widget) usize {
+fun main(value: types::Widget) usize {
     value.len()
 }
 
@@ -170,7 +170,7 @@ fn main(value: types::Widget) usize {
 using pkg::types;
 
 extend types::Widget : Len {
-    fn len(&self) usize { self.value }
+    fun len(&self) usize { self.value }
 }
 "#,
     );
@@ -203,7 +203,7 @@ fn query_loader_does_not_search_a_third_package_for_trait_implementations() {
 using dep::types;
 using extra::facade;
 
-fn main(value: types::Widget) usize {
+fun main(value: types::Widget) usize {
     _ = value;
     0usize
 }
@@ -224,7 +224,7 @@ fn main(value: types::Widget) usize {
 using dep::types;
 
 extend types::Widget : Len {
-    fn len(&self) usize { self.value }
+    fun len(&self) usize { self.value }
 }
 "#,
     );
@@ -270,7 +270,7 @@ using std::fs;
 using std::mem;
 using std::process;
 
-fn main(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
+fun main(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
 let path = fs::PathView::init(&"");
 let text: &[char] = &"";
 let target = build::TargetView::init(text, text, text, text, text, text, 64u32);
@@ -299,7 +299,7 @@ fn query_loader_loads_package_private_provider_for_custom_reexported_type() {
     let main_source = r#"
 using dep::facade;
 
-fn main(value: facade::Widget) i32 {
+fun main(value: facade::Widget) i32 {
 value.score()
 }
 "#;
@@ -326,7 +326,7 @@ pub using types::Widget;
 using self::types;
 
 extend types::Widget {
-pub fn score(&self) i32 {
+pub fun score(&self) i32 {
     self.value
 }
 }

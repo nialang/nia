@@ -19,7 +19,7 @@ fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
     write(&resources.join("runtime/start.nia"), "");
     write(
         &resources.join("std/unicode.nia"),
-        "extend char { pub fn encoded_len(self) i32 { _ = self; 1 } }",
+        "extend char { pub fun encoded_len(self) i32 { _ = self; 1 } }",
     );
     Arc::new(
         nia_toolchain::ToolchainLayout::resolve(nia_toolchain::ToolchainLayoutRequest::explicit(
@@ -102,7 +102,7 @@ fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
     let root = temp_dir("provider_demand_plan_remaps_relocated_runtime");
     let cache_root = root.join("cache");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() i32 { 0 }");
+    write(&main_path, "fun main() i32 { 0 }");
     let first_toolchain = provider_plan_toolchain(&root.join("first"));
     let second_toolchain = provider_plan_toolchain(&root.join("second"));
     let request = |toolchain: Arc<nia_toolchain::ToolchainLayout>| {
@@ -170,7 +170,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
     let root = temp_dir("persistent_provider_demand_plan_restores_full_snapshot");
     let cache_root = root.join("cache");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() i32 { 0 }");
+    write(&main_path, "fun main() i32 { 0 }");
     let entry = SourcePath::new(main_path.to_string_lossy());
     let request = || {
         test_request(main_path.to_string_lossy().into_owned())
@@ -279,7 +279,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
         Some("CachedTrait")
     );
 
-    write(&main_path, "fn main() i32 { 1 }");
+    write(&main_path, "fun main() i32 { 1 }");
     let invalidated = LoaderDatabase::new_for_test(request());
     assert!(
         nia_compiler_query::LoaderFactProvider::provider_facts(&invalidated)
@@ -298,7 +298,7 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
     let root = temp_dir("provider_demand_plan_verification_replaces_wrong_artifact");
     let cache_root = root.join("cache");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() i32 { 0 }");
+    write(&main_path, "fun main() i32 { 0 }");
     let entry = SourcePath::new(main_path.to_string_lossy());
     let request = |verify| {
         test_request(main_path.to_string_lossy().into_owned())
@@ -368,7 +368,7 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
     let root = temp_dir("corrupt_provider_demand_plan_is_retired");
     let cache_root = root.join("cache");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() i32 { 0 }");
+    write(&main_path, "fun main() i32 { 0 }");
     let request = || {
         test_request(main_path.to_string_lossy().into_owned())
             .with_frontend_cache_dir(Some(cache_root.clone()))

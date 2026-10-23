@@ -15,12 +15,12 @@ struct Number {
 extend Number : Add[Number] {
     type Output = Number;
 
-    fn add(self, rhs: Number) Number {
+    fun add(self, rhs: Number) Number {
         Self { value: self.value + rhs.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Number { value: 1 };
     let mut two = Number { value: 2 };
     let mut three = one + two;
@@ -57,16 +57,16 @@ struct Box[T] {
 extend[T] Box[T] : Add[Box[T]] {
     type Output = Box[T];
 
-    fn add(self, rhs: Box[T]) Box[T] {
+    fun add(self, rhs: Box[T]) Box[T] {
         rhs
     }
 }
 
-fn combine[T](lhs: Box[T], rhs: Box[T]) Box[T] where Box[T]: Add[Box[T], Output = Box[T]] {
+fun combine[T](lhs: Box[T], rhs: Box[T]) Box[T] where Box[T]: Add[Box[T], Output = Box[T]] {
     lhs + rhs
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Box[i32] { value: 1 };
     let mut two = Box[i32] { value: 2 };
     let mut three = combine[i32](one, two);
@@ -99,34 +99,34 @@ struct Number {
 }
 
 extend Number : Eq[Number] {
-    fn eq(& self, other: & Number) bool {
+    fun eq(& self, other: & Number) bool {
         self.value == other.value
     }
 
-    fn ne(& self, other: & Number) bool {
+    fun ne(& self, other: & Number) bool {
         self.value != other.value
     }
 }
 
 extend Number : Ord[Number] {
-    fn lt(& self, other: & Number) bool {
+    fun lt(& self, other: & Number) bool {
         self.value < other.value
     }
 
-    fn le(& self, other: & Number) bool {
+    fun le(& self, other: & Number) bool {
         self.value <= other.value
     }
 
-    fn gt(& self, other: & Number) bool {
+    fun gt(& self, other: & Number) bool {
         self.value > other.value
     }
 
-    fn ge(& self, other: & Number) bool {
+    fun ge(& self, other: & Number) bool {
         self.value >= other.value
     }
 }
 
-fn main() bool {
+fun main() bool {
     let mut one = Number { value: 1 };
     let mut two = Number { value: 2 };
     one != two and one < two
@@ -161,7 +161,7 @@ struct Number {
 extend Number : Neg {
     type Output = Number;
 
-    fn neg(self) Number {
+    fun neg(self) Number {
         Self { value: -self.value }
     }
 }
@@ -169,12 +169,12 @@ extend Number : Neg {
 extend Number : BitNot {
     type Output = Number;
 
-    fn bitNot(self) Number {
+    fun bitNot(self) Number {
         Self { value: ~self.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Number { value: 1 };
     let mut neg = -one;
     let mut bits = ~neg;

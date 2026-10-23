@@ -12,7 +12,7 @@ use nia_ty::TyKind;
 fn evaluates_lowered_match_with_string_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() usize {
+fun main() usize {
     match "linux" {
         "linux" => 8,
         "windows" => 4,
@@ -35,7 +35,7 @@ fn main() usize {
 fn evaluates_lowered_match_with_destructured_payloads() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() usize {
+fun main() usize {
     match ?5! {
         ?!value => value,
         ?error! => error,
@@ -58,7 +58,7 @@ fn main() usize {
 fn evaluates_lowered_array_literals_and_indexes() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() usize {
+fun main() usize {
     [2, 4, 8][1]
 }
 "#,
@@ -77,7 +77,7 @@ fn main() usize {
 fn evaluates_lowered_array_repeat_literals() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() bool {
+fun main() bool {
     [7; 3] == [7, 7, 7]
 }
 "#,
@@ -96,7 +96,7 @@ fn main() bool {
 fn early_const_for_in_reports_witness_dispatch_boundary() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-const fn iterate() usize {
+const fun iterate() usize {
     for item in [1, 2] {
         item;
     }

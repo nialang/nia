@@ -4,7 +4,7 @@ use super::*;
 fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
     let root = temp_dir("provider_demand_update_keeps_unmatched_and_known_demands_graph_stable");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() () {}");
+    write(&main_path, "fun main() () {}");
     let database =
         LoaderDatabase::new_for_test(test_request(main_path.to_string_lossy().into_owned()));
     let demand = ProviderDemand {
@@ -109,7 +109,7 @@ fn body_provider_demand_uses_canonical_source_identity() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        "using std::process; fn main(value: process::Init) () { _ = value; }",
+        "using std::process; fun main(value: process::Init) () { _ = value; }",
     );
     let database = LoaderDatabase::new_for_test(
         LoadRequest::new(main_path.to_string_lossy())
@@ -164,7 +164,7 @@ fn query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge
         r#"
 using dep::facade;
 
-fn main(value: facade::Widget) i32 {
+fun main(value: facade::Widget) i32 {
 _ = value;
 0
 }
@@ -191,7 +191,7 @@ pub using types::Widget;
 using self::types;
 
 extend types::Widget {
-pub fn score(&self) i32 {
+pub fun score(&self) i32 {
     self.value
 }
 }

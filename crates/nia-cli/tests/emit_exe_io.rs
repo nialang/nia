@@ -18,7 +18,7 @@ fn emit_exe_can_write_stdout_through_std_io() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     match stdout.writeAll(&b"nia\n") {
@@ -79,7 +79,7 @@ using std::io;
 using std::fmt;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 128] = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     match stdout.print(&"A¢€😀, {}\n", &[&'λ']) {
@@ -127,7 +127,7 @@ using std::io;
 using std::fmt;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
@@ -201,7 +201,7 @@ using std::mem;
 using std::process;
 using std::slice;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut raw: [u8; 256] = [0; 256];
     let mut stdout = io::FileWriter::stdout(&mut raw);
 
@@ -283,7 +283,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut raw: [u8; 256] = [0; 256];
     let mut stdout = io::FileWriter::stdout(&mut raw);
     let value: i32 = 7;
@@ -371,7 +371,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut raw: [u8; 128] = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut raw);
     let bytes: &[u8] = &b"nia";
@@ -422,7 +422,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-fn eq_bytes(left: &[u8], right: &[u8]) bool {
+fun eq_bytes(left: &[u8], right: &[u8]) bool {
     if left.len() != right.len() {
         return false;
     }
@@ -436,7 +436,7 @@ fn eq_bytes(left: &[u8], right: &[u8]) bool {
     true
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut value = 1234i32;
     let ptr = &value;
@@ -527,7 +527,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-fn expect_error(result: fmt::Error!(), expected: fmt::Error) bool {
+fun expect_error(result: fmt::Error!(), expected: fmt::Error) bool {
     match result {
         !ok => { _ = ok;
                 false },
@@ -540,13 +540,13 @@ struct CountingFormatWriter {
 }
 
 extend CountingFormatWriter : fmt::FormatWriter {
-    fn writeFmtBytes(&mut self, bytes: &[u8]) fmt::Error!() {
+    fun writeFmtBytes(&mut self, bytes: &[u8]) fmt::Error!() {
         self.len += bytes.len();
         !()
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 32] = [0; 32];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
@@ -758,7 +758,7 @@ using std::fmt;
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     match io::debugPrint(&"{", &[]) {
         !ok => {
@@ -851,7 +851,7 @@ struct Level {
 extend Level : parse::From[&[char]] {
     type Error = LevelError;
 
-    fn from(input: &[char]) LevelError!Level {
+    fun from(input: &[char]) LevelError!Level {
         if input.equals(&"high") {
             !Level { code: 1 }
         } else {
@@ -860,7 +860,7 @@ extend Level : parse::From[&[char]] {
     }
 }
 
-fn expect_i32(result: parse::Error!i32, expected: i32) bool {
+fun expect_i32(result: parse::Error!i32, expected: i32) bool {
     match result {
         !value => { value == expected },
         error! => { _ = error;
@@ -868,7 +868,7 @@ fn expect_i32(result: parse::Error!i32, expected: i32) bool {
     }
 }
 
-fn expect_error_i32(result: parse::Error!i32, expected: parse::Error) bool {
+fun expect_error_i32(result: parse::Error!i32, expected: parse::Error) bool {
     match result {
         !value => { _ = value;
                 false },
@@ -876,7 +876,7 @@ fn expect_error_i32(result: parse::Error!i32, expected: parse::Error) bool {
     }
 }
 
-fn expect_error_u8(result: parse::Error!u8, expected: parse::Error) bool {
+fun expect_error_u8(result: parse::Error!u8, expected: parse::Error) bool {
     match result {
         !value => { _ = value;
                 false },
@@ -884,7 +884,7 @@ fn expect_error_u8(result: parse::Error!u8, expected: parse::Error) bool {
     }
 }
 
-fn expect_u8(result: parse::Error!u8, expected: u8) bool {
+fun expect_u8(result: parse::Error!u8, expected: u8) bool {
     match result {
         !value => { value == expected },
         error! => { _ = error;
@@ -892,7 +892,7 @@ fn expect_u8(result: parse::Error!u8, expected: u8) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     if not expect_i32((&"-2147483648").parse[i32](), i32::MIN) {
@@ -1070,7 +1070,7 @@ fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut discard = io::DiscardingWriter::init();
     match discard.writeAll(&b"abcdef") {
@@ -1140,7 +1140,7 @@ fn emit_exe_can_use_std_io_buffered_writer() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 16] = [0; 16];
     let mut backing = io::FixedBufferWriter::init(&mut storage[..]);
@@ -1231,15 +1231,15 @@ struct PartialWriter {
 }
 
 extend PartialWriter {
-    fn init(buffer: &mut [u8]) PartialWriter {
+    fun init(buffer: &mut [u8]) PartialWriter {
         Self { inner: io::FixedBufferWriter::init(buffer) }
     }
 
-    fn len(&self) usize {
+    fun len(&self) usize {
         self.inner.len()
     }
 
-    fn written(&self) &[u8] {
+    fun written(&self) &[u8] {
         self.inner.written()
     }
 }
@@ -1247,11 +1247,11 @@ extend PartialWriter {
 extend PartialWriter : io::Writer {
     type Error = io::BufferError;
 
-    fn shortWrite(&self) Error {
+    fun shortWrite(&self) Error {
         io::BufferError::ShortWrite
     }
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         let mut count = bytes.len();
         if count > 2usize {
             count = 2usize;
@@ -1260,7 +1260,7 @@ extend PartialWriter : io::Writer {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 16] = [0; 16];
     let mut backing = PartialWriter::init(&mut storage[..]);
@@ -1367,11 +1367,11 @@ struct RetryWriter {
 }
 
 extend RetryWriter {
-    fn init(buffer: &mut [u8]) RetryWriter {
+    fun init(buffer: &mut [u8]) RetryWriter {
         Self { inner: io::FixedBufferWriter::init(buffer), attempt: 0 }
     }
 
-    fn written(&self) &[u8] {
+    fun written(&self) &[u8] {
         self.inner.written()
     }
 }
@@ -1379,11 +1379,11 @@ extend RetryWriter {
 extend RetryWriter : io::Writer {
     type Error = RetryError;
 
-    fn shortWrite(&self) Error {
+    fun shortWrite(&self) Error {
         RetryError::ShortWrite
     }
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         if self.attempt == 1usize {
             self.attempt += 1usize;
             return RetryError::Injected!;
@@ -1407,18 +1407,18 @@ struct ZeroWriter {
 extend ZeroWriter : io::Writer {
     type Error = RetryError;
 
-    fn shortWrite(&self) Error {
+    fun shortWrite(&self) Error {
         RetryError::ShortWrite
     }
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         _ = bytes;
         self.attempts += 1usize;
         !0usize
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 16] = [0; 16];
     let mut backing = RetryWriter::init(&mut storage[..]);
@@ -1499,7 +1499,7 @@ fn emit_exe_can_use_std_io_buffered_reader() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut source = io::FixedBufferReader::init(&b"abcdefghij");
     let mut buffer_storage: [u8; 4] = [0; 4];
@@ -1601,7 +1601,7 @@ struct PartialReader {
 }
 
 extend PartialReader {
-    fn init(bytes: &[u8]) PartialReader {
+    fun init(bytes: &[u8]) PartialReader {
         Self { inner: io::FixedBufferReader::init(bytes) }
     }
 }
@@ -1609,11 +1609,11 @@ extend PartialReader {
 extend PartialReader : io::Reader {
     type Error = io::BufferError;
 
-    fn endOfStream(&self) Error {
+    fun endOfStream(&self) Error {
         io::BufferError::EndOfStream
     }
 
-    fn read(&mut self, bytes: &mut [u8]) Error!usize {
+    fun read(&mut self, bytes: &mut [u8]) Error!usize {
         let mut count = bytes.len();
         if count > 2usize {
             count = 2usize;
@@ -1622,7 +1622,7 @@ extend PartialReader : io::Reader {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut source = PartialReader::init(&b"abcdef");
     let mut bytes: [u8; 6] = [0; 6];
@@ -1695,15 +1695,15 @@ struct BadReader {
 extend BadReader : io::Reader {
     type Error = TransferError;
 
-    fn endOfStream(&self) Error {
+    fun endOfStream(&self) Error {
         TransferError::End
     }
 
-    fn invalidRead(&self) Error {
+    fun invalidRead(&self) Error {
         TransferError::InvalidRead
     }
 
-    fn read(&mut self, bytes: &mut [u8]) Error!usize {
+    fun read(&mut self, bytes: &mut [u8]) Error!usize {
         !(bytes.len() + 1usize)
     }
 }
@@ -1715,20 +1715,20 @@ struct BadWriter {
 extend BadWriter : io::Writer {
     type Error = TransferError;
 
-    fn shortWrite(&self) Error {
+    fun shortWrite(&self) Error {
         TransferError::Short
     }
 
-    fn invalidWrite(&self) Error {
+    fun invalidWrite(&self) Error {
         TransferError::InvalidWrite
     }
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         !(bytes.len() + 1usize)
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut reader = BadReader { marker: false };

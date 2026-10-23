@@ -5,7 +5,7 @@ fn persistent_public_surface_facts_skip_item_tree_and_recover_from_corruption() 
     let root = temp_dir("persistent_public_surface_facts_skip_item_tree");
     let main = SourcePath::new("main.nia");
     let source = r#"
-pub fn before() i32 { 1 }
+pub fun before() i32 { 1 }
 pub struct Widget { value: i32 }
 pub enum Choice { First, Second }
 pub using self::Choice::{First as Selected, Second};
@@ -202,7 +202,7 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let file = sources
-        .set_source(main.clone(), "pub fn value() () {} pub fn value() () {}")
+        .set_source(main.clone(), "pub fun value() () {} pub fun value() () {}")
         .expect("store source");
     let identity = public_surface_facts_cache_identity(&file);
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -222,7 +222,7 @@ fn public_surface_facts_with_diagnostics_are_not_persisted() {
     assert!(!cache.public_surface_facts_path(identity.key).is_file());
 
     let malformed_file = sources
-        .set_source(main.clone(), "pub fn broken(")
+        .set_source(main.clone(), "pub fun broken(")
         .expect("store malformed source");
     let malformed_identity = public_surface_facts_cache_identity(&malformed_file);
     let malformed =

@@ -151,11 +151,11 @@ fn nia_module(index: usize, edited: bool, children: &[usize]) -> String {
     write!(
         source,
         "const INDEX: i64 = {index}i64;\n\
-         const fn derive(seed: i64) i64 {{ seed * 3i64 + 7i64 }}\n\
+         const fun derive(seed: i64) i64 {{ seed * 3i64 + 7i64 }}\n\
          const DERIVED: i64 = derive(INDEX);\n\n\
          struct Marker {{\n    value: i64,\n}}\n\n\
-         fn identity[T](value: T) T {{ value }}\n\n\
-         pub fn value() i64 {{\n\
+         fun identity[T](value: T) T {{ value }}\n\n\
+         pub fun value() i64 {{\n\
              let marker = identity(Marker {{ value: DERIVED + INDEX }});\n\
              marker.value{adjustment}"
     )
@@ -179,11 +179,11 @@ fn rust_module(index: usize, edited: bool, children: &[usize]) -> String {
     write!(
         source,
         "const INDEX: i64 = {index};\n\
-         const fn derive(seed: i64) -> i64 {{ seed * 3 + 7 }}\n\
+         const fun derive(seed: i64) -> i64 {{ seed * 3 + 7 }}\n\
          const DERIVED: i64 = derive(INDEX);\n\n\
          struct Marker {{\n    value: i64,\n}}\n\n\
-         fn identity<T>(value: T) -> T {{ value }}\n\n\
-         pub fn value() -> i64 {{\n\
+         fun identity<T>(value: T) -> T {{ value }}\n\n\
+         pub fun value() -> i64 {{\n\
              identity(Marker {{ value: DERIVED + INDEX }}).value{adjustment}"
     )
     .expect("writing to String");
@@ -212,11 +212,11 @@ fn zig_module(index: usize, edited: bool, children: &[usize]) -> String {
     write!(
         source,
         "const index: i64 = {index};\n\
-         fn derive(comptime seed: i64) i64 {{ return seed * 3 + 7; }}\n\
+         fun derive(comptime seed: i64) i64 {{ return seed * 3 + 7; }}\n\
          const derived: i64 = derive(index);\n\n\
          const Marker = struct {{\n    value: i64,\n}};\n\n\
-         fn identity(input: anytype) @TypeOf(input) {{ return input; }}\n\n\
-         pub fn value() i64 {{\n\
+         fun identity(input: anytype) @TypeOf(input) {{ return input; }}\n\n\
+         pub fun value() i64 {{\n\
              return identity(Marker{{ .value = derived + index }}).value{adjustment}"
     )
     .expect("writing to String");
@@ -238,7 +238,7 @@ fn nia_root(graph: &ModuleGraph, accepts_leaf_edit: bool) -> String {
     }
     source.push_str(
         "using std::io;\nusing std::process;\nusing process::{Init, ExitCode};\n\n\
-         pub fn main(init: Init) ExitCode!() {\n\
+         pub fun main(init: Init) ExitCode!() {\n\
              _ = init;\n\
              let mut total: i64 = 0i64;\n",
     );
@@ -277,7 +277,7 @@ fn rust_root(graph: &ModuleGraph, accepts_leaf_edit: bool) -> String {
     for index in &graph.roots {
         writeln!(source, "mod {};", module_name(*index)).expect("writing to String");
     }
-    source.push_str("\nfn main() {\n    let mut total: i64 = 0;\n");
+    source.push_str("\nfun main() {\n    let mut total: i64 = 0;\n");
     for index in &graph.roots {
         writeln!(source, "    total += {}::value();", module_name(*index))
             .expect("writing to String");
@@ -393,7 +393,7 @@ pub(super) fn generate_build_project(
             "build.nia",
             "using std::build;\n\
              using std::fs;\n\n\
-             pub fn build(b: &mut build::Build) build::Error!() {\n\
+             pub fun build(b: &mut build::Build) build::Error!() {\n\
                  let rootModule = b.addModule(\n\
                      build::ModuleOptions::init(&\"synthetic\", fs::PathView::init(&\"src/main.nia\")),\n\
                  ).?;\n\

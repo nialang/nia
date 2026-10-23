@@ -15,7 +15,7 @@ enum Event {
     Resize { width: i32, height: i32 },
 }
 
-fn score(event: Event) i32 {
+fun score(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(value) => value,
@@ -24,7 +24,7 @@ fn score(event: Event) i32 {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     score(Event::Data(2))
         + score(Event::Move(3, 4))
         + score(Event::Resize { height: 5, width: 6 })
@@ -65,7 +65,7 @@ struct Mixed {
 
 static mixed: Mixed = Mixed { a: 1, b: 2, c: 3 };
 
-fn main() i32 {
+fun main() i32 {
     let mut local = Mixed { a: 4, b: 5, c: 6 };
     mixed.a as i32 + mixed.c as i32 + local.a as i32 + local.c as i32 + local.b as i32
 }
@@ -111,15 +111,15 @@ struct Pair {
     b: i32,
 }
 
-fn id(pair: Pair) Pair {
+fun id(pair: Pair) Pair {
     pair
 }
 
-fn sum(pair: Pair) i32 {
+fun sum(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut pair = Pair { a: 10, b: 20 };
     let mut copied = id(pair);
     sum(copied)
@@ -166,15 +166,15 @@ struct Pair {
     b: i32,
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [i32; 2]) i32 {
+fun sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
-fn main() i32 {
+fun main() i32 {
     sum_pair(Pair { a: 10, b: 20 }) + sum_array([30, 40])
 }
 "#,
@@ -213,15 +213,15 @@ struct Pair {
     b: i32,
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [i32; 2]) i32 {
+fun sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut pair = Pair { a: 10, b: 20 };
     pair = Pair { a: 30, b: 40 };
     let mut values: [i32; 2] = [50, 60];
@@ -256,19 +256,19 @@ struct Pair {
     second: i32,
 }
 
-fn byte_array(value: u8) [u8; 4096] {
+fun byte_array(value: u8) [u8; 4096] {
     [value; 4096]
 }
 
-fn int_array(value: i64) [i64; 256] {
+fun int_array(value: i64) [i64; 256] {
     [value; 256]
 }
 
-fn pair_array(value: i32) [Pair; 64] {
+fun pair_array(value: i32) [Pair; 64] {
     [Pair { first: value, second: value + 1 }; 64]
 }
 
-fn store_array(value: i32) i32 {
+fun store_array(value: i32) i32 {
     let mut pairs: [Pair; 64] = [Pair { first: value, second: value + 1 }; 64];
     pairs[63].second
 }
@@ -320,23 +320,23 @@ struct Pair {
     b: i32,
 }
 
-fn make_pair(a: i32, b: i32) Pair {
+fun make_pair(a: i32, b: i32) Pair {
     Pair { a, b }
 }
 
-fn make_array(a: i32, b: i32) [i32; 2] {
+fun make_array(a: i32, b: i32) [i32; 2] {
     [a, b]
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [i32; 2]) i32 {
+fun sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut pair: Pair = make_pair(10, 20);
     pair = make_pair(30, 40);
     let mut values: [i32; 2] = make_array(50, 60);
@@ -375,23 +375,23 @@ struct Pair {
     b: i32,
 }
 
-fn make_pair() Pair {
+fun make_pair() Pair {
     Pair { a: 10, b: 20 }
 }
 
-fn make_array() [i32; 2] {
+fun make_array() [i32; 2] {
     [30, 40]
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn sum_array(values: [i32; 2]) i32 {
+fun sum_array(values: [i32; 2]) i32 {
     values[0] + values[1]
 }
 
-fn main() i32 {
+fun main() i32 {
     sum_pair(make_pair()) + sum_array(make_array())
 }
 "#,
@@ -430,7 +430,7 @@ fn optimized_large_array_repeat_return_stays_compact() {
     std::fs::write(
         &main,
         r#"
-pub fn make(value: u8) [u8; 4096] {
+pub fun make(value: u8) [u8; 4096] {
     [value; 4096]
 }
 "#,
@@ -468,27 +468,27 @@ fn aggregate_literal_return_preserves_initializer_and_defer_order() {
     std::fs::write(
         &main,
         r#"
-extern fn log(value: i32) i32;
+extern fun log(value: i32) i32;
 
 struct Pair {
     a: i32,
     b: i32,
 }
 
-fn cleanup(value: i32) () {
+fun cleanup(value: i32) () {
     _ = log(value);
 }
 
-fn make_pair() Pair {
+fun make_pair() Pair {
     defer cleanup(2);
     Pair { a: log(1), b: 3 }
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn main() i32 {
+fun main() i32 {
     sum_pair(make_pair())
 }
 "#,
@@ -527,19 +527,19 @@ struct Pair {
     b: i32,
 }
 
-fn make_pair(a: i32, b: i32) Pair {
+fun make_pair(a: i32, b: i32) Pair {
     Pair { a, b }
 }
 
-fn forward_pair() Pair {
+fun forward_pair() Pair {
     make_pair(10, 20)
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn main() i32 {
+fun main() i32 {
     sum_pair(forward_pair())
 }
 "#,
@@ -572,31 +572,31 @@ fn aggregate_call_return_with_defer_keeps_return_store_after_defer() {
     std::fs::write(
         &main,
         r#"
-extern fn log(value: i32) i32;
+extern fun log(value: i32) i32;
 
 struct Pair {
     a: i32,
     b: i32,
 }
 
-fn cleanup(value: i32) () {
+fun cleanup(value: i32) () {
     _ = log(value);
 }
 
-fn make_pair(a: i32, b: i32) Pair {
+fun make_pair(a: i32, b: i32) Pair {
     Pair { a, b }
 }
 
-fn forward_pair() Pair {
+fun forward_pair() Pair {
     defer cleanup(1);
     make_pair(10, 20)
 }
 
-fn sum_pair(pair: Pair) i32 {
+fun sum_pair(pair: Pair) i32 {
     pair.a + pair.b
 }
 
-fn main() i32 {
+fun main() i32 {
     sum_pair(forward_pair())
 }
 "#,
@@ -639,7 +639,7 @@ enum Color: u8 {
     Blue = 3,
 }
 
-fn main(ptr: & i32) i32 {
+fun main(ptr: & i32) i32 {
     let mut x = -1;
     let mut y = not false;
     let mut n = 1;
@@ -674,7 +674,7 @@ fn emits_local_string_char_and_byte_char_literals() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut text = "A\0";
     let mut bytes = b"A\0";
     let mut nul_bytes = b"A\0";
@@ -710,7 +710,7 @@ fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
         r#"
 static bytes: [u8; 4] = b"aaaa";
 
-fn main() i32 {
+fun main() i32 {
     bytes[0] as i32
 }
 "#,
@@ -757,7 +757,7 @@ fn emits_inferred_global_string_family_arrays() {
 static bytes = b"nia";
 static text = "ok";
 
-fn main() i32 {
+fun main() i32 {
     bytes[0] as i32
 }
 "#,
@@ -790,7 +790,7 @@ fn emits_adjacent_string_literal_concatenation() {
     std::fs::write(
         &main,
         r#"
-extern fn printf(fmt: & u8, ...);
+extern fun printf(fmt: & u8, ...);
 
 static fmt: [u8; 104] = (
     b""
@@ -801,7 +801,7 @@ static fmt: [u8; 104] = (
     b"             Flags Align\n\0"
     );
 
-fn main() i32 {
+fun main() i32 {
     let mut text = "中" "" "a" "" "b" "" "c" "";
     let mut bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
     let inline_fmt = (

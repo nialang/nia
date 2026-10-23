@@ -9,7 +9,7 @@ enum Kind {
     File,
 }
 
-fn main(kind: Kind) i32 {
+fun main(kind: Kind) i32 {
     if kind is .Directory {
         1
     } else {
@@ -30,7 +30,7 @@ enum Kind {
     File,
 }
 
-fn main(kind: Kind) i32 {
+fun main(kind: Kind) i32 {
     if kind == .Directory {
         1
     } else {

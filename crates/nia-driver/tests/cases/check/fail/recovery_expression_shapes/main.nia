@@ -1,4 +1,4 @@
-fn invalid() () {
+fun invalid() () {
     _ = missing.field;
     _ = missing[0usize];
     _ = missing.*;

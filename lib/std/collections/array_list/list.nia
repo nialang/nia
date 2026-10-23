@@ -27,7 +27,7 @@ where T: Sized
 extend[T] ArrayList[T]
 where T: Sized
 {
-    pub fn init() ArrayList[T] {
+    pub fun init() ArrayList[T] {
         .{
             items: raw::danglingSlice[T](0),
             capacity: 0,
@@ -37,13 +37,13 @@ where T: Sized
         }
     }
 
-    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
+    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
         let mut list: ArrayList[T] = .init();
         list.ensureTotalCapacityPrecise(allocator, capacity).?;
         !list
     }
 
-    pub fn fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
+    pub fun fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
         let len = allocation.len();
         let block = allocation.intoBlock();
         let items = raw::blockItems[T](block, len);
@@ -56,7 +56,7 @@ where T: Sized
         }
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.freeItems(allocator));
         cleanup.attempt(self.freeReplacementItems(allocator));
@@ -70,64 +70,64 @@ where T: Sized
         !()
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.items.len()
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         self.capacity
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 
-    pub fn asSlice(&self) &[T] {
+    pub fun asSlice(&self) &[T] {
         &self.items[0..self.len()]
     }
 
-    pub fn asMutSlice(&mut self) &mut [T] {
+    pub fun asMutSlice(&mut self) &mut [T] {
         &mut self.items[0..self.len()]
     }
 
-    pub fn iter(&self) slice::SliceIter[T] {
+    pub fun iter(&self) slice::SliceIter[T] {
         self.asSlice().iter()
     }
 
-    pub fn iterMut(&mut self) slice::SliceIterMut[T] {
+    pub fun iterMut(&mut self) slice::SliceIterMut[T] {
         self.asMutSlice().iterMut()
     }
 
-    pub fn get(&self, index: usize) ?&T {
+    pub fun get(&self, index: usize) ?&T {
         self.asSlice().get(index)
     }
 
-    pub fn getMut(&mut self, index: usize) ?&mut T {
+    pub fun getMut(&mut self, index: usize) ?&mut T {
         self.asMutSlice().getMut(index)
     }
 
-    pub fn first(&self) ?&T {
+    pub fun first(&self) ?&T {
         self.get(0)
     }
 
-    pub fn firstMut(&mut self) ?&mut T {
+    pub fun firstMut(&mut self) ?&mut T {
         self.getMut(0)
     }
 
-    pub fn last(&self) ?&T {
+    pub fun last(&self) ?&T {
         self.asSlice().last()
     }
 
-    pub fn lastMut(&mut self) ?&mut T {
+    pub fun lastMut(&mut self) ?&mut T {
         self.asMutSlice().lastMut()
     }
 
-    pub fn clear(&mut self) () {
+    pub fun clear(&mut self) () {
         let mut ptr = self.items.ptrMut();
         self.items = &mut ptr[0..0];
     }
 
-    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
+    pub fun intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         self.freePendingItems(allocator).?;
         let len = self.len();
         let layout = mem::Layout::array[T](len).?;
@@ -167,7 +167,7 @@ where T: Sized
         !.fromBlock(newBlock, len)
     }
 
-    pub fn toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
+    pub fun toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         let len = self.len();
         if len == 0 or pkg::builtin::size[T]() == 0 {
             return !.fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
@@ -180,19 +180,19 @@ where T: Sized
         !.fromBlock(block, len)
     }
 
-    pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
+    pub fun clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
         let mut cloned = ArrayList[T]::initCapacity(allocator, self.capacity()).?;
         cloned.appendSliceAssumeCapacity(self.asSlice());
         !cloned
     }
 
-    pub fn push(&mut self, allocator: &mut mem::Allocator, value: T) mem::Error!() {
+    pub fun push(&mut self, allocator: &mut mem::Allocator, value: T) mem::Error!() {
         let slot = self.addOneUninitialized(allocator).?;
         slot.* = value;
         !()
     }
 
-    pub fn pop(&mut self) ?T {
+    pub fun pop(&mut self) ?T {
         let len = self.len();
         if len == 0 {
             null
@@ -205,7 +205,7 @@ where T: Sized
         }
     }
 
-    pub fn swapRemove(&mut self, index: usize) ?T {
+    pub fun swapRemove(&mut self, index: usize) ?T {
         let len = self.len();
         if index >= len {
             null
@@ -221,7 +221,7 @@ where T: Sized
         }
     }
 
-    pub fn orderedRemove(&mut self, index: usize) ?T {
+    pub fun orderedRemove(&mut self, index: usize) ?T {
         let len = self.len();
         if index >= len {
             null
@@ -237,14 +237,14 @@ where T: Sized
         }
     }
 
-    pub fn truncate(&mut self, newLen: usize) () {
+    pub fun truncate(&mut self, newLen: usize) () {
         if newLen < self.len() {
             let mut ptr = self.items.ptrMut();
             self.items = &mut ptr[0..newLen];
         }
     }
 
-    pub fn removeRange(&mut self, start: usize, count: usize) mem::Error!() {
+    pub fun removeRange(&mut self, start: usize, count: usize) mem::Error!() {
         let len = self.len();
         if start > len {
             return .Invalid!;
@@ -272,13 +272,13 @@ where T: Sized
         !()
     }
 
-    pub fn insert(&mut self, allocator: &mut mem::Allocator, index: usize, value: T) mem::Error!() {
+    pub fun insert(&mut self, allocator: &mut mem::Allocator, index: usize, value: T) mem::Error!() {
         let mut slots = self.addManyAtUninitialized(allocator, index, 1).?;
         slots[0] = value;
         !()
     }
 
-    pub fn insertSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
+    pub fun insertSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
         self.freePendingItems(allocator).?;
         if index > self.len() {
             return .Invalid!;
@@ -295,7 +295,7 @@ where T: Sized
         self.insertStableSlice(allocator, index, values)
     }
 
-    pub fn replaceRange(
+    pub fun replaceRange(
         &mut self,
         allocator: &mut mem::Allocator,
         start: usize,
@@ -330,13 +330,13 @@ where T: Sized
         self.replaceRangeStable(allocator, start, count, values)
     }
 
-    fn insertStableSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
+    fun insertStableSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
         let mut slots = self.addManyAtUninitialized(allocator, index, values.len()).?;
         _ = slots.copyFrom(values);
         !()
     }
 
-    fn replaceRangeStable(
+    fun replaceRangeStable(
         &mut self,
         allocator: &mut mem::Allocator,
         start: usize,
@@ -388,11 +388,11 @@ where T: Sized
         !()
     }
 
-    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         self.ensureUnusedCapacity(allocator, additional)
     }
 
-    pub fn reserveExact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+    pub fun reserveExact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
         let needed = match len.checkedAdd(additional) {
             ?value => {
@@ -405,7 +405,7 @@ where T: Sized
         self.ensureTotalCapacityPrecise(allocator, needed)
     }
 
-    fn ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+    fun ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
         let needed = match len.checkedAdd(additional) {
             ?value => {
@@ -418,7 +418,7 @@ where T: Sized
         self.ensureTotalCapacity(allocator, needed)
     }
 
-    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
+    pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
         self.freePendingItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();
@@ -427,7 +427,7 @@ where T: Sized
         self.ensureTotalCapacityPrecise(allocator, betterCapacity)
     }
 
-    fn ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
+    fun ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
         self.freePendingItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();
@@ -436,7 +436,7 @@ where T: Sized
         !()
     }
 
-    pub fn appendSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
+    pub fun appendSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
         self.freePendingItems(allocator).?;
         if self.slicePointsIntoAllocation(items) {
             let copyLayout = mem::Layout::array[T](items.len()).?;
@@ -450,33 +450,33 @@ where T: Sized
         self.appendStableSlice(allocator, items)
     }
 
-    fn appendStableSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
+    fun appendStableSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
         let mut out = self.addManyUninitialized(allocator, items.len()).?;
         _ = out.copyFrom(items);
         !()
     }
 
-    pub fn appendSliceAssumeCapacity(&mut self, items: &[T]) () {
+    pub fun appendSliceAssumeCapacity(&mut self, items: &[T]) () {
         let mut out = self.addManyUninitializedAssumeCapacity(items.len());
         _ = out.copyFrom(items);
     }
 
-    pub fn appendAssumeCapacity(&mut self, value: T) () {
+    pub fun appendAssumeCapacity(&mut self, value: T) () {
         let slot = self.addOneUninitializedAssumeCapacity();
         slot.* = value;
     }
 
-    fn addOneUninitialized(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut T {
+    fun addOneUninitialized(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut T {
         let mut items = self.addManyUninitialized(allocator, 1).?;
         !&mut items[0]
     }
 
-    fn addOneUninitializedAssumeCapacity(&mut self) &mut T {
+    fun addOneUninitializedAssumeCapacity(&mut self) &mut T {
         let mut items = self.addManyUninitializedAssumeCapacity(1);
         &mut items[0]
     }
 
-    fn addManyUninitialized(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
+    fun addManyUninitialized(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
         let oldLen = self.len();
         let newLen = match oldLen.checkedAdd(count) {
             ?value => {
@@ -491,7 +491,7 @@ where T: Sized
         !&mut items[oldLen..newLen]
     }
 
-    fn addManyUninitializedAssumeCapacity(&mut self, count: usize) &mut [T] {
+    fun addManyUninitializedAssumeCapacity(&mut self, count: usize) &mut [T] {
         let oldLen = self.len();
         let newLen = match oldLen.checkedAdd(count) {
             ?value => {
@@ -509,7 +509,7 @@ where T: Sized
         &mut items[oldLen..newLen]
     }
 
-    fn addManyAtUninitialized(&mut self, allocator: &mut mem::Allocator, index: usize, count: usize) mem::Error!&mut [T] {
+    fun addManyAtUninitialized(&mut self, allocator: &mut mem::Allocator, index: usize, count: usize) mem::Error!&mut [T] {
         if index > self.len() {
             return .Invalid!;
         }
@@ -528,7 +528,7 @@ where T: Sized
         !self.addManyAtUninitializedAssumeCapacity(index, count)
     }
 
-    fn addManyAtUninitializedAssumeCapacity(&mut self, index: usize, count: usize) &mut [T] {
+    fun addManyAtUninitializedAssumeCapacity(&mut self, index: usize, count: usize) &mut [T] {
         let len = self.len();
         if index > len {
             pkg::builtin::trap()
@@ -552,18 +552,18 @@ where T: Sized
         &mut items[index..(index + count)]
     }
 
-    fn resizeUninitialized(&mut self, allocator: &mut mem::Allocator, newLen: usize) mem::Error!() {
+    fun resizeUninitialized(&mut self, allocator: &mut mem::Allocator, newLen: usize) mem::Error!() {
         self.ensureTotalCapacity(allocator, newLen).?;
         let mut items = self.allocatedItems();
         self.items = &mut items[0..newLen];
         !()
     }
 
-    pub fn shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.shrinkToCapacity(allocator, self.len())
     }
 
-    pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
+    pub fun shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
         self.freePendingItems(allocator).?;
         let targetCapacity = if minCapacity > self.len() {
             minCapacity
@@ -601,7 +601,7 @@ where T: Sized
         !()
     }
 
-    fn grownCapacity(&self, needed: usize) mem::Error!usize {
+    fun grownCapacity(&self, needed: usize) mem::Error!usize {
         if pkg::builtin::size[T]() == 0 {
             return !usize::MAX;
         }
@@ -629,7 +629,7 @@ where T: Sized
         }
     }
 
-    fn growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+    fun growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         self.freePendingItems(allocator).?;
         if pkg::builtin::size[T]() == 0 {
             self.capacity = usize::MAX;
@@ -650,7 +650,7 @@ where T: Sized
         !()
     }
 
-    fn freeItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun freeItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.storageBlock is ?block {
             allocator.free(block).?;
             self.items = raw::danglingSlice[T](0);
@@ -660,7 +660,7 @@ where T: Sized
         !()
     }
 
-    fn freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.replacementBlock is ?block {
             allocator.free(block).?;
             self.replacementBlock = null;
@@ -668,12 +668,12 @@ where T: Sized
         !()
     }
 
-    fn freePendingItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun freePendingItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.freeReplacementItems(allocator).?;
         self.freeAliasItems(allocator)
     }
 
-    fn freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.aliasBlock is ?block {
             allocator.free(block).?;
             self.aliasBlock = null;
@@ -681,18 +681,18 @@ where T: Sized
         !()
     }
 
-    fn retainReplacementBlock(&mut self, block: mem::Block) () {
+    fun retainReplacementBlock(&mut self, block: mem::Block) () {
         self.replacementBlock = ?block;
     }
 
-    fn retainAliasBlock(&mut self, block: mem::Block) () {
+    fun retainAliasBlock(&mut self, block: mem::Block) () {
         self.aliasBlock = ?block;
     }
 
     // Release the previous storage after a replacement copy. If the old block
     // cannot be released, discard the replacement when possible and retain it
     // for a later retry when that cleanup also fails.
-    fn releaseReplacedBlock(
+    fun releaseReplacedBlock(
         &mut self,
         allocator: &mut mem::Allocator,
         oldBlock: mem::Block,
@@ -711,7 +711,7 @@ where T: Sized
     // Free an alias-stabilizing copy after its operation has completed. The
     // operation error remains primary, while a failed free keeps the block
     // owned by the list so deinit or the next mutating call can retry it.
-    fn finishAliasCopy(
+    fun finishAliasCopy(
         &mut self,
         allocator: &mut mem::Allocator,
         block: mem::Block,
@@ -725,12 +725,12 @@ where T: Sized
         result.cleanupAfter(cleanup)
     }
 
-    fn allocatedItems(&mut self) &mut [T] {
+    fun allocatedItems(&mut self) &mut [T] {
         let mut ptr = self.items.ptrMut() as &mut T;
         &mut ptr[0..self.capacity]
     }
 
-    fn allocatedBlock(&self) mem::Error!mem::Block {
+    fun allocatedBlock(&self) mem::Error!mem::Block {
         if self.storageBlock is ?block {
             return !block;
         }
@@ -740,7 +740,7 @@ where T: Sized
         .Invalid!
     }
 
-    fn setAllocatedBlock(&mut self, block: mem::Block, capacity: usize) () {
+    fun setAllocatedBlock(&mut self, block: mem::Block, capacity: usize) () {
         let len = self.len();
         let mut items = raw::blockItems[T](block, capacity);
         self.items = &mut items[0..len];
@@ -748,7 +748,7 @@ where T: Sized
         self.storageBlock = ?block;
     }
 
-    fn slicePointsIntoAllocation(&self, items: &[T]) bool {
+    fun slicePointsIntoAllocation(&self, items: &[T]) bool {
         if items.len() == 0 or self.capacity == 0 or pkg::builtin::size[T]() == 0 {
             return false;
         }
@@ -790,7 +790,7 @@ where T: Sized
     type Item = &T;
     type Iter = slice::SliceIter[T];
 
-    pub fn iter(&self) slice::SliceIter[T] {
+    pub fun iter(&self) slice::SliceIter[T] {
         self.asSlice().iter()
     }
 }
@@ -801,7 +801,7 @@ where T: Sized
     type Item = &T;
     type Iter = slice::SliceIter[T];
 
-    pub fn iter(&self) slice::SliceIter[T] {
+    pub fun iter(&self) slice::SliceIter[T] {
         self.*.iter()
     }
 }
@@ -812,7 +812,7 @@ where T: Sized
     type Item = &T;
     type Iter = slice::SliceIter[T];
 
-    pub fn iter(&self) slice::SliceIter[T] {
+    pub fun iter(&self) slice::SliceIter[T] {
         self.*.iter()
     }
 }

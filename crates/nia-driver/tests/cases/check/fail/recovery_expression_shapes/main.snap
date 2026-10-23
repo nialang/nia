@@ -1,43 +1,43 @@
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 26..33 Primary Source no value named `missing` is visible in this scope
+label: 27..34 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 49..56 Primary Source no value named `missing` is visible in this scope
+label: 50..57 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 74..81 Primary Source no value named `missing` is visible in this scope
+label: 75..82 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 94..101 Primary Source no value named `missing` is visible in this scope
+label: 95..102 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 111..118 Primary Source no value named `missing` is visible in this scope
+label: 112..119 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 135..142 Primary Source no value named `missing` is visible in this scope
+label: 136..143 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/recovery_expression_shapes/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 154..161 Primary Source no value named `missing` is visible in this scope
+label: 155..162 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

@@ -16,13 +16,13 @@ using types::{Block, Layout};
 pub struct PageAllocator {}
 
 extend PageAllocator {
-    pub fn init() PageAllocator {
+    pub fun init() PageAllocator {
         .{}
     }
 }
 
 extend PageAllocator : Allocator {
-    pub fn alloc(&mut self, layout: Layout) types::Error!Block {
+    pub fun alloc(&mut self, layout: Layout) types::Error!Block {
         _ = self;
         if layout.isEmpty() {
             !.empty(layout)
@@ -37,7 +37,7 @@ extend PageAllocator : Allocator {
         }
     }
 
-    pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
+    pub fun resize(&mut self, block: Block, newLayout: Layout) bool {
         _ = self;
         if block.align() != newLayout.align() {
             return false;
@@ -54,7 +54,7 @@ extend PageAllocator : Allocator {
         false
     }
 
-    pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+    pub fun remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
@@ -64,7 +64,7 @@ extend PageAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) types::Error!() {
+    pub fun free(&mut self, block: Block) types::Error!() {
         _ = self;
         if block.layout().isEmpty() {
             !()
@@ -75,7 +75,7 @@ extend PageAllocator : Allocator {
 }
 
 extend os::Error : builtin::IntoError[types::Error] {
-    const fn intoError(self) types::Error {
+    const fun intoError(self) types::Error {
         match self {
             .Invalid => .Invalid,
             .OutOfMemory => .OutOfMemory,

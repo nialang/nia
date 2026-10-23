@@ -18,7 +18,7 @@ using types::{
     StepHandle,
 };
 
-pub(pkg) fn validateExecutableHandle(
+pub(pkg) fun validateExecutableHandle(
     ownerId: usize,
     count: usize,
     handle: ExecutableHandle,
@@ -32,7 +32,7 @@ pub(pkg) fn validateExecutableHandle(
     !()
 }
 
-pub(pkg) fn validateObjectHandle(
+pub(pkg) fun validateObjectHandle(
     ownerId: usize,
     count: usize,
     handle: ObjectHandle,
@@ -46,7 +46,7 @@ pub(pkg) fn validateObjectHandle(
     !()
 }
 
-pub(pkg) fn validateStaticArchiveHandle(
+pub(pkg) fun validateStaticArchiveHandle(
     ownerId: usize,
     count: usize,
     handle: StaticArchiveHandle,
@@ -60,7 +60,7 @@ pub(pkg) fn validateStaticArchiveHandle(
     !()
 }
 
-pub(pkg) fn validatePackageHandle(
+pub(pkg) fun validatePackageHandle(
     ownerId: usize,
     count: usize,
     handle: PackageHandle,
@@ -74,7 +74,7 @@ pub(pkg) fn validatePackageHandle(
     !()
 }
 
-pub(pkg) fn validateModuleHandle(
+pub(pkg) fun validateModuleHandle(
     ownerId: usize,
     count: usize,
     handle: ModuleHandle,
@@ -88,7 +88,7 @@ pub(pkg) fn validateModuleHandle(
     !()
 }
 
-pub(pkg) fn validateStepHandle(
+pub(pkg) fun validateStepHandle(
     ownerId: usize,
     count: usize,
     handle: StepHandle,
@@ -102,7 +102,7 @@ pub(pkg) fn validateStepHandle(
     !()
 }
 
-pub(pkg) fn validateRunnableTarget(
+pub(pkg) fun validateRunnableTarget(
     targetIndex: usize,
     hostTarget: usize,
     stepIndex: usize,

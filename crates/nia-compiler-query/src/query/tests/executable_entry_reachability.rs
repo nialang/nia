@@ -6,10 +6,10 @@ use super::*;
 fn executable_checked_program_uses_query_backed_extension_method_lookup() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "trait Show { fn show(self) i32; } extend i32 : Show { fn show(self) i32 { self } } pub fn main() i32 { 1.show() }",
+        "trait Show { fun show(self) i32; } extend i32 : Show { fun show(self) i32 { self } } pub fun main() i32 { 1.show() }",
     );
     fixture
-        .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
+        .add_freestanding_runtime("using entry; pub extern fun _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
     loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
@@ -49,10 +49,10 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
 fn freestanding_runtime_source_is_the_only_user_entry_root() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub fn main() i32 { 7 } pub fn mymain() i32 { 11 }",
+        "pub fun main() i32 { 7 } pub fun mymain() i32 { 11 }",
     );
     fixture.add_freestanding_runtime(
-        "using entry; pub extern fn _start() () { _ = entry::mymain(); }",
+        "using entry; pub extern fun _start() () { _ = entry::mymain(); }",
     );
     let entry_id = fixture.entry_id();
     let mut loaded = fixture.program();
@@ -87,14 +87,14 @@ fn freestanding_runtime_source_is_the_only_user_entry_root() {
 
 #[test]
 fn freestanding_runtime_helpers_follow_ordinary_source_reachability() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 7 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 7 }");
     let loaded = fixture.freestanding_program_with_runtime(
         r#"
 using entry;
 
-fn used() i32 { entry::main() }
-fn unused() i32 { 99 }
-pub extern fn _start() () { _ = &used; }
+fun used() i32 { entry::main() }
+fun unused() i32 { 99 }
+pub extern fun _start() () { _ = &used; }
 "#,
     );
     let db = query_db(loaded);
@@ -136,7 +136,7 @@ pub extern fn _start() () { _ = &used; }
 fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extend never { fn nope(self) () {} } pub fn main() i32 { 1 }",
+        "extend never { fun nope(self) () {} } pub fun main() i32 { 1 }",
     );
     let db = query_db(fixture.program());
 
@@ -169,20 +169,20 @@ fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start
 fn entry_check_validates_const_fn_capability_at_declaration() {
     for source in [
         r#"
-fn plain(v: u32) u32 { v }
-const fn viaPlain(v: u32) u32 { plain(v) }
-pub fn main() i32 { 0 }
+fun plain(v: u32) u32 { v }
+const fun viaPlain(v: u32) u32 { plain(v) }
+pub fun main() i32 { 0 }
 "#,
         r#"
-fn plain(v: u32) u32 { v }
-const fn viaPlain(v: u32) u32 { plain(v) }
-pub fn main() i32 { _ = viaPlain(1u32); 0 }
+fun plain(v: u32) u32 { v }
+const fun viaPlain(v: u32) u32 { plain(v) }
+pub fun main() i32 { _ = viaPlain(1u32); 0 }
 "#,
         r#"
-fn plain(v: u32) u32 { v }
-const fn viaPlain(v: u32) u32 { plain(v) }
+fun plain(v: u32) u32 { v }
+const fun viaPlain(v: u32) u32 { plain(v) }
 const W: u32 = viaPlain(1u32);
-pub fn main() i32 { _ = W; 0 }
+pub fun main() i32 { _ = W; 0 }
 "#,
     ] {
         let fixture = LoadedProgramFixture::new("main.nia", source);
@@ -194,7 +194,7 @@ pub fn main() i32 { _ = W; 0 }
                 diagnostic
                     .diagnostic
                     .summary
-                    .contains("const expression can only call `const fn`")
+                    .contains("const expression can only call `const fun`")
             })
             .count();
 
@@ -206,10 +206,10 @@ pub fn main() i32 { _ = W; 0 }
 fn freestanding_entry_checked_program_uses_executable_reachability() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extend never { fn nope(self) () {} } pub fn main() i32 { 1 }",
+        "extend never { fun nope(self) () {} } pub fun main() i32 { 1 }",
     );
     fixture
-        .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
+        .add_freestanding_runtime("using entry; pub extern fun _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
     loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);
@@ -247,7 +247,7 @@ fn executable_reachability_keeps_matched_trait_impl_method_bodies() {
 module parse;
 using entry::parse;
 
-pub fn main() i32 {
+pub fun main() i32 {
 (parse::Input {}).parse[i32]()
 }
 "#,
@@ -261,18 +261,18 @@ pub fn main() i32 {
 pub struct Input {}
 
 pub trait From[Input] {
-fn from(input: Input) Self;
+fun from(input: Input) Self;
 }
 
 extend Input {
-pub fn parse[T](self) T
+pub fun parse[T](self) T
 where T: From[Input] {
 [T]::from(self)
 }
 }
 
 extend i32 : From[Input] {
-fn from(input: Input) i32 {
+fun from(input: Input) i32 {
     _ = input;
     42
 }
@@ -280,7 +280,7 @@ fn from(input: Input) i32 {
 "#,
     );
     fixture
-        .add_freestanding_runtime("using entry; pub extern fn _start() () { _ = entry::main(); }");
+        .add_freestanding_runtime("using entry; pub extern fun _start() () { _ = entry::main(); }");
     let mut loaded = fixture.program();
     loaded.runtime = test_freestanding_runtime();
     let db = query_db(loaded);

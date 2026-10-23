@@ -1,7 +1,7 @@
 using pkg::builtins::windows::x86_64::__chkstk;
 
 @[naked]
-pub extern fn _start() () {
+pub extern fun _start() () {
     std::builtin::asm(.{
         code:
             b"sub rsp, 40\n"

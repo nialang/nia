@@ -1,10 +1,10 @@
 @[builtin("sliceLen")]
-const fn sliceLen[T](value: &[T]) usize;
+const fun sliceLen[T](value: &[T]) usize;
 
-fn invalid() usize {
+fun invalid() usize {
     sliceLen(missing)
 }
 
-fn wrong_shape() usize {
+fun wrong_shape() usize {
     sliceLen(1usize)
 }

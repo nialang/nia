@@ -8,13 +8,13 @@ fn block_imports_failed_namespace_hides_a_declared_module() {
     let entry = root.join("main.nia");
     write(
         &root.join("api.nia"),
-        "pub fn value() i32 { 1 } pub struct Point {}\n",
+        "pub fun value() i32 { 1 } pub struct Point {}\n",
     );
     write(
         &entry,
         r#"
 module api;
-fn inspect() () {
+fun inspect() () {
     using entry::api::missing as api;
     _ = api::value();
     let value: api::Point = .{};
@@ -54,12 +54,12 @@ fn block_imports_reach_types_values_consts_and_codegen() {
 pub struct Point { x: i32 }
 pub enum Color { Red }
 pub const WIDTH: usize = 2;
-pub fn value() i32 { 7 }
+pub fun value() i32 { 7 }
 "#,
     );
     write(
         &root.join("other.nia"),
-        "pub fn value() bool { true } pub struct Point { flag: bool }\n",
+        "pub fun value() bool { true } pub struct Point { flag: bool }\n",
     );
     write(
         &entry,
@@ -68,11 +68,11 @@ module api;
 module other;
 struct Alias { wrong: bool }
 enum Color { Blue }
-fn get() bool { false }
+fun get() bool { false }
 const WIDTH: bool = false;
-const fn width() usize { using entry::api::WIDTH; WIDTH }
-fn array() [i32; width()] { [1, 2] }
-pub fn main() i32 {
+const fun width() usize { using entry::api::WIDTH; WIDTH }
+fun array() [i32; width()] { [1, 2] }
+pub fun main() i32 {
     using entry::api::{Point as Alias, Color, value as get, WIDTH};
     using Color::Red as Shade;
     using entry::api as model;
@@ -120,13 +120,13 @@ pub fn main() i32 {
 fn block_imports_do_not_leak_and_keep_failed_alias_causes() {
     let root = temp_dir("block_import_causes");
     let entry = root.join("main.nia");
-    write(&root.join("api.nia"), "pub fn value() i32 { 7 }\n");
+    write(&root.join("api.nia"), "pub fun value() i32 { 7 }\n");
     write(
         &entry,
         r#"
 module api;
-fn need(value: i32) i32 { value }
-fn inspect() () {
+fun need(value: i32) i32 { value }
+fun inspect() () {
     { using entry::api::value as nested; _ = nested(); }
     { _ = nested(); }
     _ = nested();
@@ -193,13 +193,13 @@ fn block_imports_wildcards_and_duplicates_keep_namespace_boundaries() {
     let entry = root.join("main.nia");
     write(
         &root.join("api.nia"),
-        "pub struct Item {} pub fn value() i32 { 1 } pub enum Color { Red, Blue }\n",
+        "pub struct Item {} pub fun value() i32 { 1 } pub enum Color { Red, Blue }\n",
     );
     write(
         &entry,
         r#"
 module api;
-fn inspect() () {
+fun inspect() () {
     using entry::api::{Item as shared, value as shared};
     let item: shared = .{};
     _ = item;
@@ -235,11 +235,11 @@ fn block_imports_causes_and_scope_edits_match_clean_and_cached_checks() {
     let entry = root.join("main.nia");
     write(
         &root.join("api.nia"),
-        "pub struct Present {} pub fn present() i32 { 1 }\n",
+        "pub struct Present {} pub fun present() i32 { 1 }\n",
     );
     let failing = r#"module api;
-fn need(value: i32) i32 { value }
-fn main() () {
+fun need(value: i32) i32 { value }
+fun main() () {
     using entry::api::{Missing as Alias, missing as invoke};
     let value: Alias = .{};
     _ = value;

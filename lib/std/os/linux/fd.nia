@@ -17,7 +17,7 @@ struct ParsedDirent {
 }
 
 extend FileDescriptor {
-    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
+    pub fun writeSome(&self, bytes: &[u8]) Errno!usize {
         let ptr = bytes.ptr();
         let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
@@ -31,7 +31,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
+    pub fun readSome(&self, bytes: &mut [u8]) Errno!usize {
         let ptr = bytes.ptrMut();
         let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
@@ -45,12 +45,12 @@ extend FileDescriptor {
         }
     }
 
-    pub fn close(&self) Errno!() {
+    pub fun close(&self) Errno!() {
         let ret = syscall::syscall1(syscall::close, self.fd as usize);
         ret.syscallSuccess()
     }
 
-    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
+    pub fun seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
         let ret = syscall::syscall3(
             syscall::lseek,
             self.fd as usize,
@@ -64,31 +64,31 @@ extend FileDescriptor {
         }
     }
 
-    pub fn truncate(&self, len: u64) Errno!() {
+    pub fun truncate(&self, len: u64) Errno!() {
         let ret = syscall::syscall2(syscall::ftruncate, self.fd as usize, len as usize);
         ret.syscallSuccess()
     }
 
-    pub fn setPermissions(&self, permissions: u32) Errno!() {
+    pub fun setPermissions(&self, permissions: u32) Errno!() {
         let ret = syscall::syscall2(syscall::fchmod, self.fd as usize, permissions as usize);
         ret.syscallSuccess()
     }
 
-    pub fn sync(&self) Errno!() {
+    pub fun sync(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fsync, self.fd as usize);
         ret.syscallSuccess()
     }
 
-    pub fn syncData(&self) Errno!() {
+    pub fun syncData(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fdatasync, self.fd as usize);
         ret.syscallSuccess()
     }
 
-    pub fn metadata(&self) Errno!FileMetadata {
+    pub fun metadata(&self) Errno!FileMetadata {
         stat::metadataFd(FileDescriptor::init(self.fd))
     }
 
-    pub fn readDirEntries(&self, buffer: &mut [u8]) Errno!usize {
+    pub fun readDirEntries(&self, buffer: &mut [u8]) Errno!usize {
         if buffer.len() == 0 {
             return .Invalid!;
         }
@@ -110,11 +110,11 @@ extend FileDescriptor {
     }
 }
 
-pub fn cwd() FileDescriptor {
+pub fun cwd() FileDescriptor {
     .init(types::atFdCwd)
 }
 
-pub fn pipeCloseOnExec() Errno!Pipe {
+pub fun pipeCloseOnExec() Errno!Pipe {
     let mut fds: [i32; 2] = [0, 0];
     let ret = syscall::syscall2(
         syscall::pipe2,
@@ -127,7 +127,7 @@ pub fn pipeCloseOnExec() Errno!Pipe {
     !.init(read, write)
 }
 
-pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+pub fun getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0 {
         return .Invalid!;
     }
@@ -151,7 +151,7 @@ pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     }
 }
 
-pub fn openAt(
+pub fun openAt(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -186,7 +186,7 @@ pub fn openAt(
 }
 
 // openat2 resolves every component beneath the directory fd, including symlinks.
-pub fn openAtBeneath(
+pub fun openAtBeneath(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -232,7 +232,7 @@ pub fn openAtBeneath(
     }
 }
 
-pub fn createDirAt(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() {
+pub fun createDirAt(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() {
     let ret = syscall::syscall3(
         syscall::mkdirat,
         dir.raw() as usize,
@@ -242,7 +242,7 @@ pub fn createDirAt(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() {
     ret.syscallSuccess()
 }
 
-pub fn createDirAtBeneath(
+pub fun createDirAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
@@ -263,12 +263,12 @@ pub fn createDirAtBeneath(
     result.cleanupAfter(parentHandle.close())
 }
 
-pub fn deleteFileAt(dir: FileDescriptor, path: &u8) Errno!() {
+pub fun deleteFileAt(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
     ret.syscallSuccess()
 }
 
-pub fn deleteDirAt(dir: FileDescriptor, path: &u8) Errno!() {
+pub fun deleteDirAt(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(
         syscall::unlinkat,
         dir.raw() as usize,
@@ -278,7 +278,7 @@ pub fn deleteDirAt(dir: FileDescriptor, path: &u8) Errno!() {
     ret.syscallSuccess()
 }
 
-pub fn deleteAtBeneath(
+pub fun deleteAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
@@ -303,7 +303,7 @@ pub fn deleteAtBeneath(
     result.cleanupAfter(parentHandle.close())
 }
 
-pub fn renameAt(
+pub fun renameAt(
     oldDir: FileDescriptor,
     oldPath: &u8,
     newDir: FileDescriptor,
@@ -319,7 +319,7 @@ pub fn renameAt(
     ret.syscallSuccess()
 }
 
-pub fn renameAtBeneath(
+pub fun renameAtBeneath(
     oldDir: FileDescriptor,
     oldParent: &u8,
     oldName: &u8,
@@ -368,7 +368,7 @@ pub fn renameAtBeneath(
         .cleanupAfter(newParentHandle.close())
 }
 
-pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
+pub fun dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
     if parseDirent(buffer, offset) is ?parsed {
         let metadata = stat::directoryEntryMetadata(handle, &buffer[parsed.nameStart]).?;
         return !DirectoryEntry::init(
@@ -380,11 +380,11 @@ pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!Di
     .Invalid!
 }
 
-pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
+pub fun dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
     parseDirent(buffer, offset).map[usize, _](\parsed: ParsedDirent -> parsed.recordEnd)
 }
 
-fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
+fun parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     if offset >= buffer.len() {
         return null;
     }
@@ -419,7 +419,7 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     }
 }
 
-fn direntReclen(buffer: &[u8], offset: usize) usize {
+fun direntReclen(buffer: &[u8], offset: usize) usize {
     (buffer[offset + linuxDirent64ReclenOffset] as usize)
         | ((buffer[offset + linuxDirent64ReclenOffset + 1] as usize) << 8)
 }

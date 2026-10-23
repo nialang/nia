@@ -1,19 +1,19 @@
 path: fail/unary_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 24..31 Primary Source no value named `missing` is visible in this scope
+label: 25..32 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/unary_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 42..49 Primary Source no value named `missing` is visible in this scope
+label: 43..50 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/unary_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 60..67 Primary Source no value named `missing` is visible in this scope
+label: 61..68 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

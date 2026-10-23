@@ -3,7 +3,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn write(summary: &analysis::Summary) process::ExitCode!() {
+pub fun write(summary: &analysis::Summary) process::ExitCode!() {
     let mut buffer: [u8; 256] = [0; 256];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     stdout.print(

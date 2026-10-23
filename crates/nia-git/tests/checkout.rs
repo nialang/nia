@@ -91,7 +91,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
         "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n",
     )
     .unwrap();
-    std::fs::write(repository.join("src/nested/lib.nia"), "pub fn main() {}\n").unwrap();
+    std::fs::write(repository.join("src/nested/lib.nia"), "pub fun main() {}\n").unwrap();
     git(&["add", "nia.toml", "src"]);
     git(&["commit", "-qm", "fixture"]);
 
@@ -112,7 +112,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
     );
     assert_eq!(
         std::fs::read_to_string(destination.join("src/nested/lib.nia")).unwrap(),
-        "pub fn main() {}\n"
+        "pub fun main() {}\n"
     );
     assert!(!destination.join(".git").exists());
 
@@ -180,7 +180,7 @@ fn local_repository_checkout_reads_commit_tree_and_blobs() {
     assert_eq!(packed_revision, revision);
     assert_eq!(
         std::fs::read_to_string(packed_destination.join("src/nested/lib.nia")).unwrap(),
-        "pub fn main() {}\n"
+        "pub fun main() {}\n"
     );
     drop(destination_dir);
     drop(packed_directory);
@@ -221,7 +221,7 @@ fn http_smart_protocol_fetches_a_real_pack_without_system_git() {
         "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n",
     )
     .unwrap();
-    std::fs::write(repository.join("src/nested/lib.nia"), "pub fn main() {}\n").unwrap();
+    std::fs::write(repository.join("src/nested/lib.nia"), "pub fun main() {}\n").unwrap();
     git(&["add", "nia.toml", "src"]);
     git(&["commit", "-qm", "fixture"]);
     let revision = String::from_utf8(
@@ -324,7 +324,7 @@ fn http_smart_protocol_fetches_a_real_pack_without_system_git() {
     assert_eq!(fetched_revision, revision);
     assert_eq!(
         std::fs::read_to_string(destination.join("src/nested/lib.nia")).unwrap(),
-        "pub fn main() {}\n"
+        "pub fun main() {}\n"
     );
     assert!(!destination.join(".git").exists());
     server.join().unwrap();
@@ -366,7 +366,7 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
         "[package]\nversion = \"1.0.0\"\nname = \"dep\"\n",
     )
     .unwrap();
-    std::fs::write(repository.join("src/lib.nia"), "pub fn main() {}\n").unwrap();
+    std::fs::write(repository.join("src/lib.nia"), "pub fun main() {}\n").unwrap();
     git(&["add", "nia.toml", "src"]);
     git(&["commit", "-qm", "fixture"]);
     let revision = String::from_utf8(
@@ -480,7 +480,7 @@ fn git_tcp_smart_protocol_fetches_a_real_pack_without_system_git() {
     assert_eq!(fetched_revision, revision);
     assert_eq!(
         std::fs::read_to_string(moved_destination.join("src/lib.nia")).unwrap(),
-        "pub fn main() {}\n"
+        "pub fun main() {}\n"
     );
     assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
     #[cfg(unix)]

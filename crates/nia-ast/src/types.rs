@@ -565,7 +565,7 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
             } else if *is_variadic {
                 "fn_var("
             } else {
-                "fn("
+                "fun("
             });
             write_joined(out, params, write_type_ref_identity);
             out.push('|');

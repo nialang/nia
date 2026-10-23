@@ -1,68 +1,68 @@
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected `)` after parameters; found `{`
-label: 24..25 Primary Source expected `)` after parameters; found `{`
+label: 25..26 Primary Source expected `)` after parameters; found `{`
 help: check that the surrounding delimiters are balanced
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected `;` after binding; found `value`
-label: 77..78 Primary Source expected `;` after binding; found `value`
+label: 79..80 Primary Source expected `;` after binding; found `value`
 help: add the missing `;` to terminate this declaration or statement
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 118..119 Primary Source expected expression
+label: 121..122 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected type; found `)`
-label: 143..144 Primary Source expected type; found `)`
+label: 147..148 Primary Source expected type; found `)`
 help: provide a type name or type expression here
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected binding pattern
-label: 186..187 Primary Source expected binding pattern
+label: 191..192 Primary Source expected binding pattern
 help: use a name, `_`, or a supported destructuring pattern
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected `)` after parameters; found `{`
-label: 226..227 Primary Source expected `)` after parameters; found `{`
+label: 232..233 Primary Source expected `)` after parameters; found `{`
 help: check that the surrounding delimiters are balanced
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected type; found `,`
-label: 284..285 Primary Source expected type; found `,`
+label: 290..291 Primary Source expected type; found `,`
 help: provide a type name or type expression here
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected type; found `,`
-label: 360..361 Primary Source expected type; found `,`
+label: 366..367 Primary Source expected type; found `,`
 help: provide a type name or type expression here
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: expected function name; found `(`
-label: 408..409 Primary Source expected function name; found `(`
+label: 415..416 Primary Source expected function name; found `(`
 help: use an identifier in this position
 
 path: fail/parser_recovery/main.nia
 code: E0101
 summary: lexical error: unexpected byte 0x24
-label: 457..458 Primary Source lexical error: unexpected byte 0x24
+label: 465..466 Primary Source lexical error: unexpected byte 0x24
 
 report:
 error[E0101]: expected `)` after parameters; found `{`
-  --> fail/parser_recovery/main.nia:1:25
+  --> fail/parser_recovery/main.nia:1:26
   |
-1 | fn malformed(value: i32 {
-  |                         ^
+1 | fun malformed(value: i32 {
+  |                          ^
 help: check that the surrounding delimiters are balanced
 
 error[E0101]: expected `;` after binding; found `value`
@@ -80,10 +80,10 @@ error[E0101]: expected expression
 help: provide an expression here, such as a literal, name, or call
 
 error[E0101]: expected type; found `)`
-   --> fail/parser_recovery/main.nia:14:23
+   --> fail/parser_recovery/main.nia:14:24
    |
-14 | fn missing_type(value:) () {}
-   |                       ^
+14 | fun missing_type(value:) () {}
+   |                        ^
 help: provide a type name or type expression here
 
 error[E0101]: expected binding pattern
@@ -94,10 +94,10 @@ error[E0101]: expected binding pattern
 help: use a name, `_`, or a supported destructuring pattern
 
 error[E0101]: expected `)` after parameters; found `{`
-   --> fail/parser_recovery/main.nia:20:33
+   --> fail/parser_recovery/main.nia:20:34
    |
-20 | fn missing_delimiter(value: i32 {
-   |                                 ^
+20 | fun missing_delimiter(value: i32 {
+   |                                  ^
 help: check that the surrounding delimiters are balanced
 
 error[E0101]: expected type; found `,`
@@ -115,10 +115,10 @@ error[E0101]: expected type; found `,`
 help: provide a type name or type expression here
 
 error[E0101]: expected function name; found `(`
-   --> fail/parser_recovery/main.nia:37:4
+   --> fail/parser_recovery/main.nia:37:5
    |
-37 | fn () {}
-   |    ^
+37 | fun () {}
+   |     ^
 help: use an identifier in this position
 
 error[E0101]: lexical error: unexpected byte 0x24

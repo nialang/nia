@@ -990,7 +990,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 }
                 return Err(ConstError {
                     span,
-                    message: "const expression can only call `const fn`".to_string(),
+                    message: "const expression can only call `const fun`".to_string(),
                 });
             }
             ResolvedConstCalleeSelection::Ambiguous => {
@@ -1004,7 +1004,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "const expression can only call `const fun`".to_string(),
             });
         };
         let Some(signature) = signatures
@@ -1015,13 +1015,13 @@ impl ResolvedConstEnv for Analyzer<'_> {
         else {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "const expression can only call `const fun`".to_string(),
             });
         };
         if !signature.is_const {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "const expression can only call `const fun`".to_string(),
             });
         }
         let call_arg_exprs = resolved_callee
@@ -1083,7 +1083,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let Some(function) = self.const_function_body(function_id) else {
             return Err(ConstError {
                 span,
-                message: "selected `const fn` body is unavailable during constant evaluation"
+                message: "selected `const fun` body is unavailable during constant evaluation"
                     .to_string(),
             });
         };

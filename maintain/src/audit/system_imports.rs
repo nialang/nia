@@ -11,7 +11,7 @@ use crate::MaintainResult;
 // optional `linkName` attribute names the imported symbol.
 static IMPORT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?:@\[linkName\("([^"]+)"\)\]\s*)?(?:pub(?:\([a-z]+\))?\s+)?extern fn ([A-Za-z_][A-Za-z0-9_]*)\((?:[^()]|\([^()]*\))*\)[^;{]*;"#,
+        r#"(?:@\[linkName\("([^"]+)"\)\]\s*)?(?:pub(?:\([a-z]+\))?\s+)?extern fun ([A-Za-z_][A-Za-z0-9_]*)\((?:[^()]|\([^()]*\))*\)[^;{]*;"#,
     )
     .expect("valid import regex")
 });
@@ -143,8 +143,8 @@ mod tests {
 
     #[test]
     fn imports_use_their_link_name_and_exports_ignore_comments() {
-        let source = "@[linkName(\"Real\")]\npub(pkg) extern fn alias(\n    value: u32,\n) i32;\n\
-                      extern fn Plain(a: &u16) ();\npub extern fn _start() () {\n}\n";
+        let source = "@[linkName(\"Real\")]\npub(pkg) extern fun alias(\n    value: u32,\n) i32;\n\
+                      extern fun Plain(a: &u16) ();\npub extern fun _start() () {\n}\n";
         let names = IMPORT
             .captures_iter(source)
             .map(|capture| capture.get(1).or(capture.get(2)).unwrap().as_str())

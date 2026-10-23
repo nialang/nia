@@ -13,16 +13,16 @@ struct Cell {
 }
 
 extend Cell {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.value
     }
 
-    fn set(&self, value: i32) {
+    fun set(&self, value: i32) {
         self.value = value;
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut cell = Cell { value: 1 };
     cell.set(42);
     cell.get()
@@ -58,7 +58,7 @@ struct Cell {
 extend Cell : Deref {
     type Target = i32;
 
-    fn deref(& self) & i32 {
+    fun deref(& self) & i32 {
         & self.value
     }
 }
@@ -66,7 +66,7 @@ extend Cell : Deref {
 extend Cell : DerefMut {
     type Target = i32;
 
-    fn derefMut(&mut self) &mut i32 {
+    fun derefMut(&mut self) &mut i32 {
         &mut self.value
     }
 }
@@ -74,7 +74,7 @@ extend Cell : DerefMut {
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(& self, index: usize) & i32 {
+    fun index(& self, index: usize) & i32 {
         & self.value
     }
 }
@@ -82,12 +82,12 @@ extend Cell : Index[usize] {
 extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn indexMut(&mut self, index: usize) &mut i32 {
+    fun indexMut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut cell = Cell { value: 1 };
     let mut first = cell.*;
     cell.* = 3;
@@ -120,7 +120,7 @@ fn emits_trait_object_vtable_and_dynamic_dispatch() {
         &main,
         r#"
 trait Source {
-    fn add(& self, rhs: i32) i32;
+    fun add(& self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -128,16 +128,16 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(& self, rhs: i32) i32 {
+    fun add(& self, rhs: i32) i32 {
         self.value + rhs
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.add(4)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     read(& counter)
 }
@@ -155,8 +155,8 @@ fn main() i32 {
         contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
         "{ir}"
     );
-    assert!(ir.contains("vtable.fn"), "{ir}");
-    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+    assert!(ir.contains("vtable.fun"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -167,11 +167,11 @@ fn emits_const_generic_trait_object_and_supertrait_dispatch() {
         &main,
         r#"
 trait Base[N: usize] {
-    fn value(& self) usize { 8usize }
+    fun value(& self) usize { 8usize }
 }
 
 trait Scaled[N: usize] : Base[N] {
-    fn doubled(& self) usize;
+    fun doubled(& self) usize;
 }
 
 struct Meter {}
@@ -179,14 +179,14 @@ struct Meter {}
 extend[N: usize] Meter : Base[N] {}
 
 extend[N: usize] Meter : Scaled[N] {
-    fn doubled(& self) usize { 16usize }
+    fun doubled(& self) usize { 16usize }
 }
 
-fn read(value: & Scaled[8]) usize {
+fun read(value: & Scaled[8]) usize {
     value.value() + value.doubled()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -211,7 +211,7 @@ fn emits_upcast_to_distinct_const_generic_supertrait_instance() {
         &main,
         r#"
 trait Base[N: usize] {
-    fn value(& self) usize;
+    fun value(& self) usize;
 }
 
 trait Both : Base[4] + Base[8] {}
@@ -219,20 +219,20 @@ trait Both : Base[4] + Base[8] {}
 struct Meter {}
 
 extend Meter : Base[4] {
-    fn value(& self) usize { 4usize }
+    fun value(& self) usize { 4usize }
 }
 
 extend Meter : Base[8] {
-    fn value(& self) usize { 8usize }
+    fun value(& self) usize { 8usize }
 }
 
 extend Meter : Both {}
 
-fn as_eight(value: & Both) & Base[8] {
+fun as_eight(value: & Both) & Base[8] {
     value
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     let both: & Both = & meter;
     as_eight(both).value()
@@ -265,7 +265,7 @@ fn main() usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("traitobj.upcast.metadata.offset"), "{ir}");
-    assert!(ir.contains("vtable.fn"), "{ir}");
+    assert!(ir.contains("vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -276,20 +276,20 @@ fn emits_array_reference_element_trait_object_coercions() {
         &main,
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend i32 : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.*
     }
 }
 
-fn read_all(sources: & [ & Source]) i32 {
+fun read_all(sources: & [ & Source]) i32 {
     sources[0].get()
 }
 
-fn main() i32 {
+fun main() i32 {
     read_all(&[&8])
 }
 "#,
@@ -307,7 +307,7 @@ fn main() i32 {
         contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
         "{ir}"
     );
-    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -318,20 +318,20 @@ fn emits_slice_trait_object_coercions_through_adapter() {
         &main,
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend[T] [T] : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.len() as i32
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; 3] = [1, 2, 3];
     read(&values[..])
 }
@@ -351,7 +351,7 @@ fn main() i32 {
         "{ir}"
     );
     assert!(ir.contains("define internal"), "{ir}");
-    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -362,24 +362,24 @@ fn slice_trait_object_default_method_preserves_receiver_abi() {
         &main,
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 
-    fn get_plus(& self, rhs: i32) i32 {
+    fun get_plus(& self, rhs: i32) i32 {
         self.get() + rhs
     }
 }
 
 extend[T] [T] : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.len() as i32
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get_plus(4)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; 3] = [1, 2, 3];
     read(&values[..])
 }
@@ -398,7 +398,7 @@ fn main() i32 {
         contains_mangled_kind(ir, '@', MangleSymbolKind::Adapter),
         "{ir}"
     );
-    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -409,26 +409,26 @@ fn slice_trait_object_uses_more_specific_impl_method() {
         &main,
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend[T] [T] : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         1
     }
 }
 
 extend [char] : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         2
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let text = "nia";
     read(&text[..])
 }
@@ -459,21 +459,21 @@ fn slice_trait_object_adapter_preserves_value_argument_abi() {
 struct Empty {}
 
 trait Source {
-    fn add(& self, empty: Empty, rhs: i32) i32;
+    fun add(& self, empty: Empty, rhs: i32) i32;
 }
 
 extend[T] [T] : Source {
-    fn add(& self, empty: Empty, rhs: i32) i32 {
+    fun add(& self, empty: Empty, rhs: i32) i32 {
         _ = empty;
         self.len() as i32 + rhs
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.add({}, 4)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; 3] = [1, 2, 3];
     read(&values[..])
 }
@@ -491,7 +491,7 @@ fn main() i32 {
         contains_mangled_kind(ir, '@', MangleSymbolKind::Adapter),
         "{ir}"
     );
-    assert!(ir.contains("call i32 %vtable.fn(ptr %"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fun(ptr %"), "{ir}");
 }
 
 #[test]
@@ -502,7 +502,7 @@ fn size_levels_deduplicate_repeated_trait_object_vtables() {
         &main,
         r#"
 trait Source {
-    fn add(& self, rhs: i32) i32;
+    fun add(& self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -510,26 +510,26 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(& self, rhs: i32) i32 {
+    fun add(& self, rhs: i32) i32 {
         self.value + rhs
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.add(4)
 }
 
-fn left() i32 {
+fun left() i32 {
     let mut counter = Counter { value: 8 };
     read(& counter)
 }
 
-fn right() i32 {
+fun right() i32 {
     let mut counter = Counter { value: 9 };
     read(& counter)
 }
 
-fn main() i32 {
+fun main() i32 {
     left() + right()
 }
 "#,
@@ -574,10 +574,10 @@ fn emits_trait_object_vtable_from_defer_tail_expr() {
     std::fs::write(
         &main,
         r#"
-extern fn log(value: i32);
+extern fun log(value: i32);
 
 trait Source {
-    fn add(& self, rhs: i32) i32;
+    fun add(& self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -585,16 +585,16 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(& self, rhs: i32) i32 {
+    fun add(& self, rhs: i32) i32 {
         self.value + rhs
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.add(4)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     defer {
         log(read(& counter))
@@ -615,8 +615,8 @@ fn main() i32 {
         contains_mangled_kind(ir, '@', MangleSymbolKind::Vtable),
         "{ir}"
     );
-    assert!(ir.contains("vtable.fn"), "{ir}");
-    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+    assert!(ir.contains("vtable.fun"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fun"), "{ir}");
     assert!(ir.contains("call void @log"), "{ir}");
 }
 
@@ -633,7 +633,7 @@ fn rejects_external_symbols_owned_by_trait_object_vtables() {
         format!(
             r#"
 trait Source {{
-    fn add(& self, rhs: i32) i32;
+    fun add(& self, rhs: i32) i32;
 }}
 
 struct Counter {{
@@ -641,16 +641,16 @@ struct Counter {{
 }}
 
 extend Counter : Source {{
-    fn add(& self, rhs: i32) i32 {{
+    fun add(& self, rhs: i32) i32 {{
         self.value + rhs
     }}
 }}
 {extra}
-fn read(source: & Source) i32 {{
+fun read(source: & Source) i32 {{
     source.add(4)
 }}
 
-fn main() i32 {{
+fun main() i32 {{
     let mut counter = Counter {{ value: 8 }};
     read(& counter)
 }}
@@ -713,11 +713,11 @@ fn emits_trait_object_supertrait_upcast_metadata_offset() {
         &main,
         r#"
 trait Parent {
-    fn parent(& self) i32;
+    fun parent(& self) i32;
 }
 
 trait Child : Parent {
-    fn child(& self) i32;
+    fun child(& self) i32;
 }
 
 struct Counter {
@@ -725,22 +725,22 @@ struct Counter {
 }
 
 extend Counter : Parent {
-    fn parent(& self) i32 {
+    fun parent(& self) i32 {
         self.value
     }
 }
 
 extend Counter : Child {
-    fn child(& self) i32 {
+    fun child(& self) i32 {
         self.value + 1
     }
 }
 
-fn as_parent(child: & Child) & Parent {
+fun as_parent(child: & Child) & Parent {
     child
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     let mut child: & Child = & counter;
     as_parent(child).parent()
@@ -755,7 +755,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("traitobj.upcast.metadata.offset"), "{ir}");
-    assert!(ir.contains("vtable.fn"), "{ir}");
+    assert!(ir.contains("vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -768,17 +768,17 @@ fn emits_trait_object_upcast_to_second_supertrait_with_assoc_bindings() {
 trait FatherA {
     type Item;
 
-    fn a(& self) [Self as FatherA]::Item;
+    fun a(& self) [Self as FatherA]::Item;
 }
 
 trait FatherB {
     type Item;
 
-    fn b(& self) [Self as FatherB]::Item;
+    fun b(& self) [Self as FatherB]::Item;
 }
 
 trait Child : FatherA + FatherB {
-    fn child(& self) i32;
+    fun child(& self) i32;
 }
 
 struct Both {
@@ -788,7 +788,7 @@ struct Both {
 extend Both : FatherA {
     type Item = i32;
 
-    fn a(& self) i32 {
+    fun a(& self) i32 {
         self.value
     }
 }
@@ -796,25 +796,25 @@ extend Both : FatherA {
 extend Both : FatherB {
     type Item = usize;
 
-    fn b(& self) usize {
+    fun b(& self) usize {
         2usize
     }
 }
 
 extend Both : Child {
-    fn child(& self) i32 {
+    fun child(& self) i32 {
         self.value
     }
 }
 
-fn as_b(child: & Child[
+fun as_b(child: & Child[
     [Self as FatherA]::Item = i32,
     [Self as FatherB]::Item = usize,
 ]) & FatherB[Item = usize] {
     child
 }
 
-fn main() usize {
+fun main() usize {
     let mut both = Both { value: 8 };
     let mut child: & Child[
         [Self as FatherA]::Item = i32,
@@ -832,7 +832,7 @@ fn main() usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("traitobj.upcast.metadata.offset"), "{ir}");
-    assert!(ir.contains("vtable.fn"), "{ir}");
+    assert!(ir.contains("vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -845,7 +845,7 @@ fn emits_trait_object_upcast_with_declared_supertrait_binding() {
 trait Parent {
     type Item;
 
-    fn parent(& self) [Self as Parent]::Item;
+    fun parent(& self) [Self as Parent]::Item;
 }
 
 trait Child : Parent[Item = i32] {}
@@ -857,18 +857,18 @@ struct Counter {
 extend Counter : Parent {
     type Item = i32;
 
-    fn parent(& self) i32 {
+    fun parent(& self) i32 {
         self.value
     }
 }
 
 extend Counter : Child {}
 
-fn as_parent(child: & Child) & Parent[Item = i32] {
+fun as_parent(child: & Child) & Parent[Item = i32] {
     child
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     let mut child: & Child = & counter;
     as_parent(child).parent()
@@ -883,7 +883,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("%traitobj.upcast.metadata ="), "{ir}");
-    assert!(ir.contains("vtable.fn"), "{ir}");
+    assert!(ir.contains("vtable.fun"), "{ir}");
 }
 
 #[test]
@@ -894,7 +894,7 @@ fn emits_trait_bound_generic_method_calls() {
         &main,
         r#"
 trait Same {
-    fn eq(& self, other: & Self) bool;
+    fun eq(& self, other: & Self) bool;
 }
 
 struct Point {
@@ -902,17 +902,17 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(& self, other: & Point) bool {
+    fun eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
-fn same[T](a: & T, b: & T) bool
+fun same[T](a: & T, b: & T) bool
 where T: Same {
     a.eq(b)
 }
 
-fn main() bool {
+fun main() bool {
     let mut a = Point { x: 1 };
     let mut b = Point { x: 1 };
     same[Point](& a, & b)
@@ -939,11 +939,11 @@ fn emits_supertrait_method_calls_from_subtrait_bounds() {
         &main,
         r#"
 trait Same {
-    fn eq(& self, other: & Self) bool;
+    fun eq(& self, other: & Self) bool;
 }
 
 trait Ranked : Same {
-    fn lt(& self, other: & Self) bool;
+    fun lt(& self, other: & Self) bool;
 }
 
 struct Point {
@@ -951,23 +951,23 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(& self, other: & Point) bool {
+    fun eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
 extend Point : Ranked {
-    fn lt(& self, other: & Point) bool {
+    fun lt(& self, other: & Point) bool {
         self.x < other.x
     }
 }
 
-fn same_ord[T](a: & T, b: & T) bool
+fun same_ord[T](a: & T, b: & T) bool
 where T: Ranked {
     a.eq(b)
 }
 
-fn main() bool {
+fun main() bool {
     let mut a = Point { x: 1 };
     let mut b = Point { x: 1 };
     same_ord[Point](& a, & b)
@@ -996,7 +996,7 @@ fn emits_associated_type_projection_instances() {
 trait Source {
     type Item;
 
-    fn get(& self) [Self as Source]::Item;
+    fun get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -1006,17 +1006,17 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.value
     }
 }
 
-fn read[T](value: & T) [T as Source]::Item
+fun read[T](value: & T) [T as Source]::Item
 where T: Source {
     value.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 42 };
     read[Counter](& counter)
 }
@@ -1045,9 +1045,9 @@ trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fun map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
 
-    fn map_d(& self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
+    fun map_d(& self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
         _ = self.map_c(a, b);
         fallback
     }
@@ -1061,17 +1061,17 @@ extend Pairer : Mapper[i32, i32] {
     type C = i32;
     type D = i32;
 
-    fn map_c(& self, a: i32, b: i32) i32 {
+    fun map_c(& self, a: i32, b: i32) i32 {
         self.seed + a + b
     }
 }
 
-fn mapped[T](value: & T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
+fun mapped[T](value: & T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
 where T: Mapper[i32, i32] {
     value.map_d(1, 2, fallback)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Pairer { seed: 3 };
     mapped[Pairer](& p, 9)
 }
@@ -1099,9 +1099,9 @@ fn emits_mut_receiver_default_trait_method_with_associated_error() {
 trait Writer {
     type Error;
 
-    fn write(&mut self, bytes: &[u8]) Error!usize;
+    fun write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!() {
+    fun write_all(&mut self, bytes: &[u8]) Error!() {
         _ = self.write(bytes).?;
         !()
     }
@@ -1110,7 +1110,7 @@ trait Writer {
 trait FormatWriter {
     type Error;
 
-    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!();
+    fun writeFmtBytes(&mut self, bytes: &[u8]) Error!();
 }
 
 extend[W] W : FormatWriter
@@ -1118,7 +1118,7 @@ where W: Writer
 {
     type Error = [W as Writer]::Error;
 
-    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
+    fun writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
         self.write_all(bytes)
     }
 }
@@ -1135,19 +1135,19 @@ struct Sink {
 extend Sink : Writer {
     type Error = Error;
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         self.count += bytes.len();
         !bytes.len()
     }
 }
 
-fn use_format[W](writer: &mut W, bytes: &[u8]) [W as FormatWriter]::Error!()
+fun use_format[W](writer: &mut W, bytes: &[u8]) [W as FormatWriter]::Error!()
 where W: FormatWriter
 {
     writer.writeFmtBytes(bytes)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut sink = Sink { count: 0 };
     match use_format[Sink](&mut sink, &b"ok") {
         !ok => {
@@ -1217,9 +1217,9 @@ fn concrete_trait_impl_methods_resolve_local_associated_type_names() {
 trait Writer {
     type Error;
 
-    fn short_write(&self) Error;
+    fun short_write(&self) Error;
 
-    fn write(&mut self, bytes: &[u8]) Error!usize;
+    fun write(&mut self, bytes: &[u8]) Error!usize;
 }
 
 enum WriteError: i32 {
@@ -1232,11 +1232,11 @@ struct Sink {}
 extend Sink : Writer {
     type Error = WriteError;
 
-    fn short_write(&self) Error {
+    fun short_write(&self) Error {
         WriteError::Short
     }
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         if bytes.len() == 0 {
             return self.short_write()!;
         }
@@ -1244,7 +1244,7 @@ extend Sink : Writer {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut sink = Sink {};
     match sink.write(&b"ok") {
         !value => {
@@ -1274,9 +1274,9 @@ fn emits_trait_default_method_instances() {
         &main,
         r#"
 trait Same {
-    fn eq(& self, other: & Self) bool;
+    fun eq(& self, other: & Self) bool;
 
-    fn ne(& self, other: & Self) bool {
+    fun ne(& self, other: & Self) bool {
         not self.eq(other)
     }
 }
@@ -1286,17 +1286,17 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(& self, other: & Point) bool {
+    fun eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
-fn different[T](a: & T, b: & T) bool
+fun different[T](a: & T, b: & T) bool
 where T: Same {
     a.ne(b)
 }
 
-fn main() bool {
+fun main() bool {
     let mut a = Point { x: 1 };
     let mut b = Point { x: 2 };
     different[Point](& a, & b)

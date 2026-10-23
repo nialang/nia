@@ -31,7 +31,7 @@ value: T,
 
 type Byte = u8;
 
-fn make(value: i32) Box[i32] {
+fun make(value: i32) Box[i32] {
 let mut tmp: Byte = 1;
 Box[i32] { value }
 }
@@ -66,7 +66,7 @@ Box[i32] { value }
 fn records_const_generic_names_in_array_type_arguments() {
     let resolved = resolve_source(
         r#"
-fn repeat[T, N: usize](value: T) [T; N] {
+fun repeat[T, N: usize](value: T) [T; N] {
     [value; N]
 }
 "#,
@@ -88,7 +88,7 @@ fn repeat[T, N: usize](value: T) [T; N] {
 fn retains_unresolved_type_readings_of_ambiguous_call_arguments() {
     let resolution = resolve_source(
         r#"
-fn invalid() () {
+fun invalid() () {
     _ = std::builtin::splat[MissingVector](1u8);
 }
 "#,
@@ -108,7 +108,7 @@ fn nested_type_candidates_preserve_const_arguments() {
         r#"
 const COUNT: usize = 2;
 struct Buffer[N: usize] { values: [i32; N] }
-fn inspect() () { _ = std::builtin::size[Buffer[COUNT]](); }
+fun inspect() () { _ = std::builtin::size[Buffer[COUNT]](); }
 "#,
     );
     assert!(
@@ -126,7 +126,7 @@ fn resolves_trait_associated_type_shorthand_in_trait_scope() {
 trait Writer {
 type Error;
 
-fn write(& self) Error!();
+fun write(& self) Error!();
 }
 "#,
     );
@@ -150,7 +150,7 @@ fn resolves_trait_impl_associated_type_shorthand_before_builtin_error() {
 trait Reader {
 type Error;
 
-fn end_of_stream(&self) Error;
+fun end_of_stream(&self) Error;
 }
 
 struct Buffer {}
@@ -158,7 +158,7 @@ struct Buffer {}
 extend Buffer : Reader {
 type Error = i32;
 
-fn end_of_stream(&self) Error {
+fun end_of_stream(&self) Error {
     1
 }
 }
@@ -183,7 +183,7 @@ fn local_ptr_type_names_resolve_as_ordinary_definitions() {
         r#"
 type Ptr[T] = &T;
 
-fn id(value: Ptr[u8]) Ptr[u8] {
+fun id(value: Ptr[u8]) Ptr[u8] {
 value
 }
 "#,
@@ -205,7 +205,7 @@ value
 fn reports_unknown_types_without_resolving_values() {
     let resolved = resolve_source(
         r#"
-fn main() Missing {
+fun main() Missing {
 let mut value = MissingValue;
 0
 }
@@ -222,7 +222,7 @@ let mut value = MissingValue;
 #[test]
 fn reports_qualified_namespace_errors_on_the_failing_segment() {
     let source = r#"
-fn main() Missing::Type {
+fun main() Missing::Type {
 0
 }
 "#;
@@ -248,9 +248,9 @@ fn resolves_types_from_active_item_tree_only() {
     let (module, errors) = parse_module_with_symbols(
         r#"
 @[if false]
-fn skipped(value: MissingType) () {}
+fun skipped(value: MissingType) () {}
 @[if true]
-fn selected(value: i32) () {}
+fun selected(value: i32) () {}
 "#,
         symbols.clone(),
     );
@@ -288,7 +288,7 @@ fn declaration_resolution_includes_local_static_types_only() {
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(
         r#"
-fn main() () {
+fun main() () {
     let ignored: Missing = {};
     static retained: i32 = 0;
 }

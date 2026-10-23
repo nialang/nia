@@ -11,7 +11,7 @@ a: u8,
 b: i32,
 }
 
-fn main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair]()]) {}
+fun main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair]()]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -70,7 +70,7 @@ struct Buffer[T, N: usize] {
 data: [T; N],
 }
 
-fn main(buf: Buffer[u8, 4]) {}
+fun main(buf: Buffer[u8, 4]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -124,7 +124,7 @@ struct Packet[N: usize] {
     values: [u32; N],
 }
 
-fn main(packet: Packet[3]) {}
+fun main(packet: Packet[3]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -206,7 +206,7 @@ values: [T; N],
 tail: U,
 }
 
-fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
+fun main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -339,7 +339,7 @@ fn substitutes_interleaved_type_and_const_alias_parameters_in_layouts() {
     let (module, symbols) = parse_test_module(
         r#"
 type Mixed[T, N: usize, U] = ([T; N], U);
-fn main(value: Mixed[u8, 3, u32]) {}
+fun main(value: Mixed[u8, 3, u32]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");

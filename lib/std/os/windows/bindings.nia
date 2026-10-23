@@ -3,7 +3,7 @@
 // `imports/windows/kernel32.def` and `bcryptprimitives.def` list exactly the
 // Win32 functions declared by the toolchain's Windows sources; the linker
 // generates their import libraries, so no platform SDK is needed. Adding or
-// removing an `extern fn` here requires the same change to its description,
+// removing an `extern fun` here requires the same change to its description,
 // and `cargo maintain check` enforces the match.
 pub(pkg) const invalidHandle: usize = (-1) as usize;
 pub(pkg) const stdInputHandle: i32 = -10;
@@ -64,53 +64,53 @@ pub(pkg) const findDataAlternateUnits: usize = 14;
 pub(pkg) const fileAttributeNormal: u32 = 0x80;
 pub(pkg) const fileAttributeReparsePoint: u32 = 0x400;
 
-pub(pkg) extern fn GetLastError() u32;
-pub(pkg) extern fn GetStdHandle(which: i32) usize;
-pub(pkg) extern fn WriteFile(
+pub(pkg) extern fun GetLastError() u32;
+pub(pkg) extern fun GetStdHandle(which: i32) usize;
+pub(pkg) extern fun WriteFile(
     handle: usize,
     buffer: &u8,
     length: u32,
     written: &mut u32,
     overlapped: usize,
 ) i32;
-pub(pkg) extern fn ReadFile(
+pub(pkg) extern fun ReadFile(
     handle: usize,
     buffer: &mut u8,
     length: u32,
     read: &mut u32,
     overlapped: usize,
 ) i32;
-pub(pkg) extern fn CloseHandle(handle: usize) i32;
-pub(pkg) extern fn SetFilePointerEx(handle: usize, distance: i64, result: &mut i64, method: u32) i32;
+pub(pkg) extern fun CloseHandle(handle: usize) i32;
+pub(pkg) extern fun SetFilePointerEx(handle: usize, distance: i64, result: &mut i64, method: u32) i32;
 pub(pkg) const fileEndOfFileInfo: u32 = 6;
 pub(pkg) extern struct FileEndOfFileInfo { endOfFile: i64 }
-pub(pkg) extern fn SetFileInformationByHandle(handle: usize, infoClass: u32, info: usize, size: u32) i32;
+pub(pkg) extern fun SetFileInformationByHandle(handle: usize, infoClass: u32, info: usize, size: u32) i32;
 pub(pkg) const fileAttributeTagInfo: u32 = 9;
 pub(pkg) extern struct FileAttributeTagInfo { attributes: u32, reparseTag: u32 }
-pub(pkg) extern fn GetFileInformationByHandleEx(handle: usize, infoClass: u32, info: &mut FileAttributeTagInfo, size: u32) i32;
+pub(pkg) extern fun GetFileInformationByHandleEx(handle: usize, infoClass: u32, info: &mut FileAttributeTagInfo, size: u32) i32;
 // Symbolic links and junctions set this tag bit; cloud placeholders and other
 // storage reparse points name ordinary files and directories.
 pub(pkg) const reparseTagNameSurrogate: u32 = 0x20000000;
-pub(pkg) extern fn FlushFileBuffers(handle: usize) i32;
-pub(pkg) extern fn GetCurrentDirectoryW(length: u32, buffer: &mut u16) u32;
-pub(pkg) extern fn GetFinalPathNameByHandleW(
+pub(pkg) extern fun FlushFileBuffers(handle: usize) i32;
+pub(pkg) extern fun GetCurrentDirectoryW(length: u32, buffer: &mut u16) u32;
+pub(pkg) extern fun GetFinalPathNameByHandleW(
     handle: usize,
     buffer: &mut u16,
     length: u32,
     flags: u32,
 ) u32;
-pub(pkg) extern fn CompareStringOrdinal(
+pub(pkg) extern fun CompareStringOrdinal(
     first: &u16,
     firstLength: i32,
     second: &u16,
     secondLength: i32,
     ignoreCase: i32,
 ) i32;
-pub(pkg) extern fn VirtualAlloc(address: usize, size: usize, allocationType: u32, protection: u32) usize;
-pub(pkg) extern fn VirtualFree(address: usize, size: usize, freeType: u32) i32;
-pub(pkg) extern fn GetSystemInfo(info: &mut SystemInfo) ();
-pub(pkg) extern fn GetFileInformationByHandle(handle: usize, info: &mut ByHandleFileInformation) i32;
-pub(pkg) extern fn MultiByteToWideChar(
+pub(pkg) extern fun VirtualAlloc(address: usize, size: usize, allocationType: u32, protection: u32) usize;
+pub(pkg) extern fun VirtualFree(address: usize, size: usize, freeType: u32) i32;
+pub(pkg) extern fun GetSystemInfo(info: &mut SystemInfo) ();
+pub(pkg) extern fun GetFileInformationByHandle(handle: usize, info: &mut ByHandleFileInformation) i32;
+pub(pkg) extern fun MultiByteToWideChar(
     codePage: u32,
     flags: u32,
     source: &u8,
@@ -118,7 +118,7 @@ pub(pkg) extern fn MultiByteToWideChar(
     destination: &mut u16,
     capacity: i32,
 ) i32;
-pub(pkg) extern fn WideCharToMultiByte(
+pub(pkg) extern fun WideCharToMultiByte(
     codePage: u32,
     flags: u32,
     source: &u16,
@@ -128,7 +128,7 @@ pub(pkg) extern fn WideCharToMultiByte(
     defaultChar: usize,
     usedDefaultChar: usize,
 ) i32;
-pub(pkg) extern fn CreateFileW(
+pub(pkg) extern fun CreateFileW(
     path: &u16,
     access: u32,
     share: u32,
@@ -137,26 +137,26 @@ pub(pkg) extern fn CreateFileW(
     flags: u32,
     template: usize,
 ) usize;
-pub(pkg) extern fn CreateDirectoryW(path: &u16, security: usize) i32;
-pub(pkg) extern fn DeleteFileW(path: &u16) i32;
-pub(pkg) extern fn RemoveDirectoryW(path: &u16) i32;
-pub(pkg) extern fn MoveFileExW(oldPath: &u16, newPath: &u16, flags: u32) i32;
-pub(pkg) extern fn GetFileAttributesW(path: &u16) u32;
-pub(pkg) extern fn SetFileAttributesW(path: &u16, attributes: u32) i32;
-pub(pkg) extern fn FindFirstFileW(pattern: &u16, data: &mut FindData) usize;
-pub(pkg) extern fn FindNextFileW(search: usize, data: &mut FindData) i32;
-pub(pkg) extern fn FindClose(search: usize) i32;
+pub(pkg) extern fun CreateDirectoryW(path: &u16, security: usize) i32;
+pub(pkg) extern fun DeleteFileW(path: &u16) i32;
+pub(pkg) extern fun RemoveDirectoryW(path: &u16) i32;
+pub(pkg) extern fun MoveFileExW(oldPath: &u16, newPath: &u16, flags: u32) i32;
+pub(pkg) extern fun GetFileAttributesW(path: &u16) u32;
+pub(pkg) extern fun SetFileAttributesW(path: &u16, attributes: u32) i32;
+pub(pkg) extern fun FindFirstFileW(pattern: &u16, data: &mut FindData) usize;
+pub(pkg) extern fun FindNextFileW(search: usize, data: &mut FindData) i32;
+pub(pkg) extern fun FindClose(search: usize) i32;
 // ProcessPrng is the documented process random number generator; it always
 // succeeds and returns TRUE.
-pub(pkg) extern fn ProcessPrng(buffer: &mut u8, length: usize) i32;
-pub(pkg) extern fn ExitProcess(code: u32) ();
-pub(pkg) extern fn WaitForSingleObject(handle: usize, milliseconds: u32) u32;
-pub(pkg) extern fn GetExitCodeProcess(handle: usize, code: &mut u32) i32;
-pub(pkg) extern fn TerminateProcess(handle: usize, code: u32) i32;
-pub(pkg) extern fn CreatePipe(read: &mut usize, write: &mut usize, security: &mut SecurityAttributes, size: u32) i32;
-pub(pkg) extern fn SetHandleInformation(handle: usize, mask: u32, flags: u32) i32;
-pub(pkg) extern fn GetCurrentProcess() usize;
-pub(pkg) extern fn DuplicateHandle(
+pub(pkg) extern fun ProcessPrng(buffer: &mut u8, length: usize) i32;
+pub(pkg) extern fun ExitProcess(code: u32) ();
+pub(pkg) extern fun WaitForSingleObject(handle: usize, milliseconds: u32) u32;
+pub(pkg) extern fun GetExitCodeProcess(handle: usize, code: &mut u32) i32;
+pub(pkg) extern fun TerminateProcess(handle: usize, code: u32) i32;
+pub(pkg) extern fun CreatePipe(read: &mut usize, write: &mut usize, security: &mut SecurityAttributes, size: u32) i32;
+pub(pkg) extern fun SetHandleInformation(handle: usize, mask: u32, flags: u32) i32;
+pub(pkg) extern fun GetCurrentProcess() usize;
+pub(pkg) extern fun DuplicateHandle(
     sourceProcess: usize,
     source: usize,
     targetProcess: usize,
@@ -165,7 +165,7 @@ pub(pkg) extern fn DuplicateHandle(
     inherit: i32,
     options: u32,
 ) i32;
-pub(pkg) extern fn CreateProcessW(
+pub(pkg) extern fun CreateProcessW(
     application: &u16,
     commandLine: &mut u16,
     processSecurity: usize,
@@ -267,6 +267,6 @@ pub(pkg) const errorOperationAborted: u32 = 995;
 pub(pkg) const extendedStartupInfoPresent: u32 = 0x00080000;
 pub(pkg) const procThreadAttributeHandleList: usize = 0x00020002;
 pub(pkg) extern struct StartupInfoEx { base: StartupInfo, attributes: usize }
-pub(pkg) extern fn InitializeProcThreadAttributeList(list: usize, count: u32, flags: u32, size: &mut usize) i32;
-pub(pkg) extern fn UpdateProcThreadAttribute(list: usize, flags: u32, attribute: usize, value: usize, size: usize, previous: usize, returnedSize: usize) i32;
-pub(pkg) extern fn DeleteProcThreadAttributeList(list: usize) ();
+pub(pkg) extern fun InitializeProcThreadAttributeList(list: usize, count: u32, flags: u32, size: &mut usize) i32;
+pub(pkg) extern fun UpdateProcThreadAttribute(list: usize, flags: u32, attribute: usize, value: usize, size: usize, previous: usize, returnedSize: usize) i32;
+pub(pkg) extern fun DeleteProcThreadAttributeList(list: usize) ();

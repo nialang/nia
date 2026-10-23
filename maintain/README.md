@@ -38,7 +38,7 @@ different `--limit` is supplied.
 ## Standard library audits
 
 - `audit system-imports` requires `lib/imports/windows/*.def` to list exactly
-  the Win32 `extern fn` declarations in the Windows sources, because the linker
+  the Win32 `extern fun` declarations in the Windows sources, because the linker
   builds their import libraries from those files.
 - `audit std-build-host` checks the standard-library module closure a build
   runner compiles against `fixtures/std-build-host-dependencies.json`. A new

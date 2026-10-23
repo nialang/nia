@@ -137,7 +137,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
 
 #[test]
 fn stable_type_graph_publication_remaps_session_handles() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fun greet() Unit {}");
     let database = fixture.database();
     let append = database
         .db
@@ -180,7 +180,7 @@ fn stable_type_graph_order_is_independent_of_session_allocation_order() {
         name: "demo".into(),
         version: "1.0.0".parse().unwrap(),
     };
-    let first = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let first = LoadedProgramFixture::new("src/main.nia", "pub fun greet() Unit {}");
     let first_db = first.database();
     let append = first_db
         .db
@@ -197,7 +197,7 @@ fn stable_type_graph_order_is_independent_of_session_allocation_order() {
         .stable_type_graph_for_roots(package.clone(), &[ptr_a, tuple_a])
         .unwrap();
 
-    let second = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let second = LoadedProgramFixture::new("src/main.nia", "pub fun greet() Unit {}");
     let second_db = second.database();
     let append = second_db
         .db
@@ -224,7 +224,7 @@ fn stable_type_graph_order_is_independent_of_session_allocation_order() {
 #[test]
 fn stable_type_graph_publication_encodes_generic_parameter_identity() {
     let fixture =
-        LoadedProgramFixture::new("src/main.nia", "pub fn identity[T](value: T) T { value }");
+        LoadedProgramFixture::new("src/main.nia", "pub fun identity[T](value: T) T { value }");
     let database = fixture.database();
     let append = database
         .db
@@ -293,7 +293,7 @@ fn stable_type_graph_rehydrates_into_current_type_store() {
 
 #[test]
 fn stable_type_graph_publication_carries_trait_objects_and_projections() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fun greet() Unit {}");
     let database = fixture.database();
     let append = database
         .db
@@ -494,7 +494,7 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
 
 #[test]
 fn stable_type_graph_round_trips_closure_owner_instance() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fun greet() Unit {}");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
@@ -563,7 +563,7 @@ fn stable_type_graph_round_trips_closure_owner_instance() {
 
 #[test]
 fn stable_definition_index_remaps_current_session_identities() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fun greet() () {}");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
@@ -642,7 +642,7 @@ fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
 
 #[test]
 fn stable_module_index_uses_explicit_module_package_resolution() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fun main() () {}");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
@@ -737,7 +737,7 @@ fn public_options_flow_through_compiler_query_context() {
             r#"
 static zeroes: [i32; 4] = [0; 4];
 
-fn main() i32 {
+fun main() i32 {
 zeroes[0]
 }
 "#,
@@ -771,7 +771,7 @@ zeroes[0]
 
 #[test]
 fn compiler_database_exposes_query_trace() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
     let checked = database.check_program();
@@ -785,7 +785,7 @@ fn compiler_database_exposes_query_trace() {
 
 #[test]
 fn compiler_update_rejects_untracked_snapshot_provider() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let database =
         crate::query::CompilerDatabase::new_for_test(CompileRequest::new(fixture.program()));
 
@@ -809,7 +809,7 @@ fn compiler_query_providers_can_override_query_execution() {
         parse_ok_module_ids: no_parse_ok_modules,
         ..CompilerQueryProviders::default()
     };
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let checked =
         compiler_database_with_providers(CompileRequest::new(fixture.program()), providers)
             .expect("create compiler database")
@@ -835,7 +835,7 @@ fn missing_loaded_module_id_propagates_query_failure() {
         checked_module_ids: unknown_checked_module,
         ..CompilerQueryProviders::default()
     };
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let database = compiler_database_with_providers(
         CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
         providers,

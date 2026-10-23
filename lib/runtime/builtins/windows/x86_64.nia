@@ -2,7 +2,7 @@
 // RAX contains the requested frame size. The probe walks towards the new
 // stack pointer without changing RSP and preserves Win64 argument registers.
 @[naked]
-pub extern fn __chkstk() () {
+pub extern fun __chkstk() () {
     std::builtin::asm(.{
         code:
             b"push rcx\n"

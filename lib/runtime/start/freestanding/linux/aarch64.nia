@@ -1,5 +1,5 @@
 @[naked]
-pub extern fn _start() () {
+pub extern fun _start() () {
     std::builtin::asm(.{
         code:
             // See the x86_64 startup: `_DYNAMIC` is weak because only a

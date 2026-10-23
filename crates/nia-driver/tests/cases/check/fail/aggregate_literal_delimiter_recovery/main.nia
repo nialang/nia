@@ -3,10 +3,10 @@ struct Point {
     y: bool,
 }
 
-fn main() () {
+fun main() () {
     let array = [true false];
     let point = Point { x: 1i32 y: true };
     later();
 }
 
-fn later() () {}
+fun later() () {}

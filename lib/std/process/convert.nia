@@ -4,12 +4,12 @@ using pkg::process::types;
 
 using types::{ProcessId, SpawnError, SpawnStage, SystemError};
 
-const fn processIdFromOs(pid: os::ProcessId) ProcessId {
+const fun processIdFromOs(pid: os::ProcessId) ProcessId {
     .fromOs(pid)
 }
 
 extend os::Error : builtin::IntoError[SystemError] {
-    const fn intoError(self) SystemError {
+    const fun intoError(self) SystemError {
         match self {
             .PermissionDenied => .PermissionDenied,
             .NotFound => .NotFound,
@@ -39,7 +39,7 @@ extend os::Error : builtin::IntoError[SystemError] {
 }
 
 extend os::SpawnError : builtin::IntoError[SpawnError] {
-    const fn intoError(self) SpawnError {
+    const fun intoError(self) SpawnError {
         match self {
             .Setup(cause) => .Setup(cause.intoError()),
             .Stdio(cause) => .Stdio(cause.intoError()),
@@ -56,7 +56,7 @@ extend os::SpawnError : builtin::IntoError[SpawnError] {
 }
 
 extend os::SpawnStage {
-    const fn asProcessSpawnStage(self) SpawnStage {
+    const fun asProcessSpawnStage(self) SpawnStage {
         match self {
             .Setup => .Setup,
             .Stdio => .Stdio,

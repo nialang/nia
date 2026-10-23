@@ -1,19 +1,19 @@
 path: fail/aggregate_literal_parser_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 75..76 Primary Source expected expression
+label: 76..77 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 path: fail/aggregate_literal_parser_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 79..80 Primary Source expected expression
+label: 80..81 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 path: fail/aggregate_literal_parser_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 115..116 Primary Source expected expression
+label: 116..117 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 report:

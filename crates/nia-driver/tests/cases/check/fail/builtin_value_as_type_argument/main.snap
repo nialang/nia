@@ -1,7 +1,7 @@
 path: fail/builtin_value_as_type_argument/main.nia
 code: E0301
 summary: generic argument resolved as a value; expected a type
-label: 71..75 Primary Source generic argument resolved as a value; expected a type
+label: 72..76 Primary Source generic argument resolved as a value; expected a type
 help: use a type name in this generic argument
 
 report:

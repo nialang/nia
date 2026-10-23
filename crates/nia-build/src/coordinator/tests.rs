@@ -232,7 +232,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
                 key: generate.clone(),
                 kind: ActionKind::GeneratedFile {
                     output: LogicalPath::new(LogicalPathRoot::Build, "generated/root.nia").unwrap(),
-                    contents: b"pub fn generated() () {}\n".to_vec(),
+                    contents: b"pub fun generated() () {}\n".to_vec(),
                 },
             },
         ],
@@ -1506,7 +1506,7 @@ fn mixed_generated_source_emit_plan(
                 kind: ActionKind::GeneratedFile {
                     output: LogicalPath::new(LogicalPathRoot::Build, "generated/helper.nia")
                         .unwrap(),
-                    contents: format!("pub fn value() i32 {{\n    {generated_helper_value}\n}}\n")
+                    contents: format!("pub fun value() i32 {{\n    {generated_helper_value}\n}}\n")
                         .into_bytes(),
                 },
             },
@@ -1574,7 +1574,7 @@ fn cache_outcome<'a>(report: &'a ExecutionReport, name: &str) -> &'a ActionCache
 fn freestanding_source(body: &str) -> String {
     [
         "using std::process;\n",
-        "pub fn main(init: process::Init) process::ExitCode!() {\n",
+        "pub fun main(init: process::Init) process::ExitCode!() {\n",
         "    _ = init;\n",
         "    ",
         body,
@@ -1772,7 +1772,7 @@ fn generated_file_cache_reports_content_and_output_invalidation() {
 #[test]
 fn compiler_check_cache_reports_cold_and_warm_execution() {
     let invocation = test_invocation();
-    write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
+    write_compiler_check_source(&invocation, "fun main() i32 { 0 }");
     let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
 
     let cold = execute_build_plan(&plan, &invocation).unwrap();
@@ -1788,14 +1788,14 @@ fn compiler_check_cache_reports_cold_and_warm_execution() {
 #[test]
 fn compiler_check_cache_reports_source_and_optimization_invalidation() {
     let invocation = test_invocation();
-    write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
+    write_compiler_check_source(&invocation, "fun main() i32 { 0 }");
     execute_build_plan(
         &compiler_check_plan(&invocation, OptimizationMode::O2),
         &invocation,
     )
     .unwrap();
 
-    write_compiler_check_source(&invocation, "fn main() i32 { 1 }");
+    write_compiler_check_source(&invocation, "fun main() i32 { 1 }");
     let changed_source = execute_build_plan(
         &compiler_check_plan(&invocation, OptimizationMode::O2),
         &invocation,
@@ -1824,12 +1824,12 @@ fn compiler_check_cache_reports_source_and_optimization_invalidation() {
 #[test]
 fn compiler_check_cache_reuses_relocated_sources() {
     let first = test_invocation();
-    write_compiler_check_source(&first, "fn main() i32 { 0 }");
+    write_compiler_check_source(&first, "fun main() i32 { 0 }");
     execute_build_plan(&compiler_check_plan(&first, OptimizationMode::O2), &first).unwrap();
 
     let mut relocated = test_invocation();
     relocated.cache_dir = first.cache_dir.clone();
-    write_compiler_check_source(&relocated, "fn main() i32 { 0 }");
+    write_compiler_check_source(&relocated, "fun main() i32 { 0 }");
     let report = execute_build_plan(
         &compiler_check_plan(&relocated, OptimizationMode::O2),
         &relocated,
@@ -1850,7 +1850,7 @@ fn compiler_check_cache_restores_semantic_provider_source_closure() {
         &invocation,
         concat!(
             "using std::process;\n",
-            "pub fn main(init: process::Init) process::ExitCode!() {\n",
+            "pub fun main(init: process::Init) process::ExitCode!() {\n",
             "    _ = init;\n",
             "    !()\n",
             "}\n",
@@ -1872,7 +1872,7 @@ fn compiler_check_cache_restores_semantic_provider_source_closure() {
 #[cfg_attr(windows, ignore = "requires the Linux freestanding runtime")]
 fn compiler_check_cache_does_not_publish_warnings() {
     let invocation = test_invocation();
-    write_compiler_check_source(&invocation, "using std::collections;\nfn main() () {}\n");
+    write_compiler_check_source(&invocation, "using std::collections;\nfun main() () {}\n");
     let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
 
     for report in [
@@ -1889,7 +1889,7 @@ fn compiler_check_cache_does_not_publish_warnings() {
 #[test]
 fn compiler_check_cache_retires_corruption_and_recompiles() {
     let invocation = test_invocation();
-    write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
+    write_compiler_check_source(&invocation, "fun main() i32 { 0 }");
     let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
     execute_build_plan(&plan, &invocation).unwrap();
     let namespace = invocation

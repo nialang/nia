@@ -8,7 +8,7 @@ fn semantic_module_ids_include_semantic_only_modules_and_exclude_shallow_facades
         r#"
 pub module facade;
 
-fn main() i32 {
+fun main() i32 {
 0
 }
 "#,
@@ -22,7 +22,7 @@ fn main() i32 {
         "facade",
         "facade.nia",
         r#"
-pub fn expensive_or_invalid() i32 {
+pub fun expensive_or_invalid() i32 {
 missing_symbol
 }
 "#,
@@ -52,9 +52,10 @@ missing_symbol
 
 #[test]
 fn loader_facts_map_modules_by_source_identity() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
-    let package_id = fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
+    let package_id =
+        fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fun value() i32 { 1 }");
     let db = query_db(fixture.program());
 
     assert_eq!(
@@ -65,9 +66,10 @@ fn loader_facts_map_modules_by_source_identity() {
 
 #[test]
 fn loaded_module_reorder_invalidates_list_without_field_changes() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
-    let package_id = fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
+    let package_id =
+        fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fun value() i32 { 1 }");
     let database = fixture.database();
     let first = database.db.expect_get(LoadedModulesQuery);
     let mut reordered = fixture.program();
@@ -83,7 +85,7 @@ fn loaded_module_reorder_invalidates_list_without_field_changes() {
 
 #[test]
 fn additive_module_growth_preserves_global_executable_epoch() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let database = fixture.database();
     let first = database.db.expect_get(ExecutableFactEpochQuery);
@@ -91,7 +93,7 @@ fn additive_module_growth_preserves_global_executable_epoch() {
         entry_id,
         "provider",
         "main/provider.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
     let latest = database.db.expect_get(ExecutableFactEpochQuery);
@@ -101,8 +103,8 @@ fn additive_module_growth_preserves_global_executable_epoch() {
 
 #[test]
 fn stable_graph_entry_remaps_after_module_graph_owner_replacement() {
-    let old_fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-    let new_fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let old_fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
+    let new_fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let old_entry = old_fixture.entry_id();
     let new_entry = new_fixture.entry_id();
     assert_ne!(old_entry, new_entry);
@@ -142,7 +144,7 @@ fn stable_graph_entry_remaps_after_module_graph_owner_replacement() {
 fn stable_graph_relations_remap_fork_local_module_handles() {
     let base = LoadedProgramFixture::new(
         "main.nia",
-        "pub module child; using self::child; fn main() i32 { 0 }",
+        "pub module child; using self::child; fun main() i32 { 0 }",
     );
     let entry = base.entry_id();
     let mut old_fixture = LoadedProgramFixture {
@@ -157,10 +159,18 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     };
     let child_name = sym("child");
     let package = sym("pkg");
-    let old_child =
-        old_fixture.add_child(entry, "child", "main/child.nia", "pub fn value() i32 { 1 }");
-    let new_child =
-        new_fixture.add_child(entry, "child", "main/child.nia", "pub fn value() i32 { 1 }");
+    let old_child = old_fixture.add_child(
+        entry,
+        "child",
+        "main/child.nia",
+        "pub fun value() i32 { 1 }",
+    );
+    let new_child = new_fixture.add_child(
+        entry,
+        "child",
+        "main/child.nia",
+        "pub fun value() i32 { 1 }",
+    );
     let old_root = old_fixture
         .graph
         .intern_package_root(&package, SourcePath::new("pkg/root.nia"))
@@ -168,7 +178,7 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     old_fixture.modules.push(loaded_module(
         old_root,
         "pkg/root.nia",
-        "pub fn root() i32 { 1 }",
+        "pub fun root() i32 { 1 }",
     ));
     let new_root = new_fixture
         .graph
@@ -177,7 +187,7 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     new_fixture.modules.push(loaded_module(
         new_root,
         "pkg/root.nia",
-        "pub fn root() i32 { 1 }",
+        "pub fun root() i32 { 1 }",
     ));
     assert_ne!(old_child, new_child);
     assert_ne!(old_root, new_root);
@@ -232,7 +242,7 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
 
 #[test]
 fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_new_key() {
-    let source = "pub struct S { value: i32 } fn main() i32 { 0 }";
+    let source = "pub struct S { value: i32 } fun main() i32 { 0 }";
     let old_fixture = LoadedProgramFixture::new("main.nia", source);
     let old_program = old_fixture.program();
 
@@ -267,7 +277,7 @@ fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_
 
 #[test]
 fn tracked_loader_update_refreshes_changed_module_field_inputs() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let module_id = fixture.entry_id();
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
@@ -275,7 +285,7 @@ fn tracked_loader_update_refreshes_changed_module_field_inputs() {
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
     let first_source_version = database.db.expect_get(ModuleSourceVersionQuery(module_id));
 
-    fixture.update_module_source(module_id, "fn main() i32 { true }", SourceRevision(1));
+    fixture.update_module_source(module_id, "fun main() i32 { true }", SourceRevision(1));
     database.update(CompileRequest::new(fixture.program()));
     let latest_source_version = database.db.expect_get(ModuleSourceVersionQuery(module_id));
     assert!(!Arc::ptr_eq(&first_source_version, &latest_source_version));
@@ -298,7 +308,7 @@ fn tracked_loader_update_refreshes_changed_module_field_inputs() {
 
 #[test]
 fn source_handle_replacement_cannot_reuse_old_source_version() {
-    let source = "fn main() i32 { 0 }";
+    let source = "fun main() i32 { 0 }";
     let mut fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -319,7 +329,7 @@ fn source_handle_replacement_cannot_reuse_old_source_version() {
 
 #[test]
 fn timing_mode_update_does_not_invalidate_semantic_queries() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let loaded = fixture.program();
     let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
 

@@ -1,16 +1,16 @@
 path: fail/restricted_qualified_visibility/main.nia
 code: E0201
 summary: value `api::inner::restricted` is restricted to its parent module and descendants
-label: 49..59 Primary Source value `api::inner::restricted` is not visible from this module
+label: 50..60 Primary Source value `api::inner::restricted` is not visible from this module
 help: make the value public or move this use into its permitted scope
-related: 0..40 the restricted value is declared here
+related: 0..41 the restricted value is declared here
 
 path: fail/restricted_qualified_visibility/main.nia
 code: E0201
 summary: type `api::inner::Restricted` is restricted to its parent module and descendants
-label: 94..104 Primary Source type `api::inner::Restricted` is not visible from this module
+label: 96..106 Primary Source type `api::inner::Restricted` is not visible from this module
 help: make the type public or move this use into its permitted scope
-related: 42..73 the restricted type is declared here
+related: 43..74 the restricted type is declared here
 
 report:
 error[E0201]: value `api::inner::restricted` is restricted to its parent module and descendants
@@ -22,10 +22,10 @@ help: make the value public or move this use into its permitted scope
 related: fail/restricted_qualified_visibility/api/inner.nia:1:1: the restricted value is declared here
 
 error[E0201]: type `api::inner::Restricted` is restricted to its parent module and descendants
-  --> fail/restricted_qualified_visibility/main.nia:7:30
+  --> fail/restricted_qualified_visibility/main.nia:7:31
   |
-7 | fn accept(value: api::inner::Restricted) i32 {
-  |                              ^^^^^^^^^^ type `api::inner::Restricted` is not visible from this module
+7 | fun accept(value: api::inner::Restricted) i32 {
+  |                               ^^^^^^^^^^ type `api::inner::Restricted` is not visible from this module
 help: make the type public or move this use into its permitted scope
 related: fail/restricted_qualified_visibility/api/inner.nia:5:1: the restricted type is declared here
 

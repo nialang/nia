@@ -1,14 +1,14 @@
 using std::process;
 
-fn helper0() u8 { 0 }
-fn helper1() u8 { 1 }
-fn helper2() u8 { 2 }
-fn helper3() u8 { 3 }
-fn helper4() u8 { 4 }
-fn helper5() u8 { 5 }
-fn helper6() u8 { 6 }
+fun helper0() u8 { 0 }
+fun helper1() u8 { 1 }
+fun helper2() u8 { 2 }
+fun helper3() u8 { 3 }
+fun helper4() u8 { 4 }
+fun helper5() u8 { 5 }
+fun helper6() u8 { 6 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let total = helper0() + helper1() + helper2() + helper3()
         + helper4() + helper5() + helper6();

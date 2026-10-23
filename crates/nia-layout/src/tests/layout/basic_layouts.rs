@@ -11,7 +11,7 @@ a: u8,
 b: i32,
 }
 
-fn main(p: &Pair, xs: [u16; 3]) {}
+fun main(p: &Pair, xs: [u16; 3]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -75,7 +75,7 @@ fn computes_empty_struct_layout() {
         r#"
 struct Empty {}
 
-fn main(value: Empty) {}
+fun main(value: Empty) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -120,7 +120,7 @@ fn computes_unit_and_ordered_tuple_layouts() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
-fn main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
+fun main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -168,8 +168,8 @@ fn callable_views_are_two_words_and_callable_pointees_are_unsized() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, symbols) = parse_test_module(
         r#"
-type BareCallback = Fn(i32) i32;
-fn invoke(readonly: &Fn(i32) i32, mutable: &mut Fn(i32) i32) {}
+type BareCallback = Fun(i32) i32;
+fun invoke(readonly: &Fun(i32) i32, mutable: &mut Fun(i32) i32) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");

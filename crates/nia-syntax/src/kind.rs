@@ -132,7 +132,7 @@ pub enum SyntaxKind {
     RangeType,
     /// `&fn(...) R` function pointer type.
     FnPointerType,
-    /// `Fn(...) R` callable interface type.
+    /// `Fun(...) R` callable interface type.
     CallableType,
     /// `?T` optional type.
     OptionalType,

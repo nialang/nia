@@ -1,10 +1,10 @@
 module api;
 
-fn main() () {
+fun main() () {
     _ = api::Point::make();
     api::Point::hidden();
-    let hidden: &fn() api::Point = &api::Point::hidden;
-    let missing: &fn() api::Point = &api::Point::missing;
+    let hidden: &fun() api::Point = &api::Point::hidden;
+    let missing: &fun() api::Point = &api::Point::missing;
     _ = hidden;
     _ = missing;
 }

@@ -15,7 +15,7 @@ using pkg::os::windows::mem::{mapPages, unmapPages};
 pub(pkg) struct PreparedStream { child: usize, parent: usize, childOwned: bool }
 
 extend PreparedStream {
-    pub(pkg) fn close(&mut self) () {
+    pub(pkg) fun close(&mut self) () {
         if self.childOwned { closeHandle(self.child); }
         closeHandle(self.parent);
         self.child = invalidHandle;
@@ -23,7 +23,7 @@ extend PreparedStream {
         self.childOwned = false;
     }
 
-    pub(pkg) fn takeParent(&mut self) ?FileDescriptor {
+    pub(pkg) fun takeParent(&mut self) ?FileDescriptor {
         if self.parent == invalidHandle { return null; }
         let handle = self.parent;
         self.parent = invalidHandle;
@@ -31,11 +31,11 @@ extend PreparedStream {
     }
 }
 
-pub(pkg) fn closeHandle(handle: usize) () {
+pub(pkg) fun closeHandle(handle: usize) () {
     if handle != 0 and handle != invalidHandle { _ = CloseHandle(handle); }
 }
 
-pub(pkg) fn prepareStream(mode: StdIo, standard: i32, input: bool) Errno!PreparedStream {
+pub(pkg) fun prepareStream(mode: StdIo, standard: i32, input: bool) Errno!PreparedStream {
     match mode {
         .Pipe => pipeStream(input),
         .Ignore => nullStream(),
@@ -43,7 +43,7 @@ pub(pkg) fn prepareStream(mode: StdIo, standard: i32, input: bool) Errno!Prepare
     }
 }
 
-fn inheritedStream(standard: i32) Errno!PreparedStream {
+fun inheritedStream(standard: i32) Errno!PreparedStream {
     let source = GetStdHandle(standard);
     if source == 0 or source == invalidHandle {
         return !.{ child: source, parent: invalidHandle, childOwned: false };
@@ -56,7 +56,7 @@ fn inheritedStream(standard: i32) Errno!PreparedStream {
     !.{ child: duplicate, parent: invalidHandle, childOwned: true }
 }
 
-fn nullStream() Errno!PreparedStream {
+fun nullStream() Errno!PreparedStream {
     let path: [u16; 4] = [78, 85, 76, 0];
     let handle = CreateFileW(&path[0], nullDeviceAccess, fileShareRead | fileShareWrite, 0, openExisting, 0, 0);
     if handle == invalidHandle { return lastError()!; }
@@ -68,7 +68,7 @@ fn nullStream() Errno!PreparedStream {
     !.{ child: handle, parent: invalidHandle, childOwned: true }
 }
 
-fn pipeStream(input: bool) Errno!PreparedStream {
+fun pipeStream(input: bool) Errno!PreparedStream {
     let mut security: SecurityAttributes = .{
         length: pkg::builtin::size[SecurityAttributes]() as u32, descriptor: 0, inherit: 0,
     };
@@ -95,7 +95,7 @@ fn pipeStream(input: bool) Errno!PreparedStream {
 pub(pkg) struct HandleList { address: usize, size: usize }
 
 extend HandleList {
-    pub(pkg) fn init(handles: &[usize]) Errno!HandleList {
+    pub(pkg) fun init(handles: &[usize]) Errno!HandleList {
         if handles.len() == 0 { return !.{ address: 0, size: 0 }; }
         let mut size: usize = 0;
         let initialized = InitializeProcThreadAttributeList(0, 1, 0, &mut size);
@@ -121,7 +121,7 @@ extend HandleList {
         !.{ address, size: pages.releaseSize() }
     }
 
-    pub(pkg) fn close(&mut self) () {
+    pub(pkg) fun close(&mut self) () {
         if self.address != 0 {
             DeleteProcThreadAttributeList(self.address);
             _ = unmapPages(self.address as &mut u8, self.size);

@@ -1,4 +1,4 @@
-fn main() () {
+fun main() () {
     let value = (, 1,, true);
     let (, retained,, last) = value;
     _ = retained;

@@ -6,7 +6,7 @@ use super::*;
 fn extension_provider_module_facts_refresh_across_source_revisions() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } extend S { pub fn make(value: i32) S { Self { value } } }",
+        "struct S { value: i32 } extend S { pub fun make(value: i32) S { Self { value } } }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -20,7 +20,7 @@ fn extension_provider_module_facts_refresh_across_source_revisions() {
 
     fixture.update_module_source(
         module_id,
-        "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; Self { value: next } } }",
+        "struct S { value: i32 } extend S { pub fun make(value: i32) S { let next = value; Self { value: next } } }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -44,7 +44,7 @@ fn extension_provider_module_facts_refresh_across_source_revisions() {
 fn provider_summary_changes_validate_stable_module_eligibility() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S {} extend S { pub fn first() i32 { 1 } }",
+        "struct S {} extend S { pub fun first() i32 { 1 } }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -56,7 +56,7 @@ fn provider_summary_changes_validate_stable_module_eligibility() {
 
     fixture.update_module_source(
         module_id,
-        "struct S {} extend S { pub fn first() i32 { 1 } pub fn second() i32 { 2 } }",
+        "struct S {} extend S { pub fun first() i32 { 1 } pub fun second() i32 { 2 } }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));

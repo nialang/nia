@@ -31,7 +31,7 @@ const relativeType: usize = 1027;
 // `dynamic` of the dynamic section (`_DYNAMIC`), or 0 for an image without
 // one. A fixed-address executable has no dynamic section; an executable with
 // an interpreter was relocated by it. Both return without writing.
-pub(pkg) fn relocate(header: usize, dynamic: usize) () {
+pub(pkg) fun relocate(header: usize, dynamic: usize) () {
     if dynamic == 0 {
         return;
     }
@@ -165,25 +165,25 @@ pub(pkg) fn relocate(header: usize, dynamic: usize) () {
 
 // Any other relocation type needs symbol resolution, which a static PIE never
 // requires; one would mean the image was linked wrongly.
-fn requireRelative(info: usize, wide: bool) () {
+fun requireRelative(info: usize, wide: bool) () {
     let kind = if wide { info & 0xffffffff } else { info & 0xff };
     if kind != relativeType {
         std::builtin::trap();
     }
 }
 
-fn readWord(address: usize) usize {
+fun readWord(address: usize) usize {
     (address as &usize).*
 }
 
-fn readU16(address: usize) usize {
+fun readU16(address: usize) usize {
     (address as &u16).* as usize
 }
 
-fn writeWord(address: usize, value: usize) () {
+fun writeWord(address: usize, value: usize) () {
     (address as &mut usize).* = value;
 }
 
-fn addBias(address: usize, bias: usize) () {
+fun addBias(address: usize, bias: usize) () {
     writeWord(address, readWord(address) + bias);
 }

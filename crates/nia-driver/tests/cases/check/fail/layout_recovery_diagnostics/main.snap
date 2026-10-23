@@ -1,7 +1,7 @@
 path: fail/layout_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 44..51 Primary Source unknown type `Missing`
+label: 45..52 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 report:

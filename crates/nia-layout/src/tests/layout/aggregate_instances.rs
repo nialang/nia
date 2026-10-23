@@ -10,7 +10,7 @@ struct ArrayBox[T] {
 values: [T; 3],
 }
 
-fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
+fun main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
@@ -85,7 +85,7 @@ byte: u8,
 value: T,
 }
 
-fn main(a: Bits[i32]) {}
+fun main(a: Bits[i32]) {}
 "#,
     );
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");

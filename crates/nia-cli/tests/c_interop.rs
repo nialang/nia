@@ -14,27 +14,27 @@ use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 // to relocate at load time without writing to text.
 const LIBRARY: &str = r#"
 trait Shape {
-    fn area(&self) i32;
+    fun area(&self) i32;
 }
 
 struct Square { side: i32 }
 struct Rect { w: i32, h: i32 }
 
 extend Square : Shape {
-    fn area(&self) i32 { self.side * self.side }
+    fun area(&self) i32 { self.side * self.side }
 }
 
 extend Rect : Shape {
-    fn area(&self) i32 { self.w * self.h }
+    fun area(&self) i32 { self.w * self.h }
 }
 
-fn measure(shape: &Shape) i32 {
+fun measure(shape: &Shape) i32 {
     shape.area()
 }
 
 static mut calls: i32 = 0;
 
-pub extern fn shapes_area(side: i32, w: i32, h: i32) i32 {
+pub extern fun shapes_area(side: i32, w: i32, h: i32) i32 {
     calls += 1;
     let square = Square { side };
     let rect = Rect { w, h };

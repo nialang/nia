@@ -21,7 +21,7 @@ extend[Value, Failure] Failure!Value {
     // Arguments are evaluated before a call, so `cleanup` has already run even
     // when `self` is a failure. This method combines results; resource retry
     // remains with the owner whose cleanup failed.
-    pub fn cleanupAfter(self, cleanup: Failure!()) Failure!Value {
+    pub fun cleanupAfter(self, cleanup: Failure!()) Failure!Value {
         match self {
             !value => {
                 cleanup.?;

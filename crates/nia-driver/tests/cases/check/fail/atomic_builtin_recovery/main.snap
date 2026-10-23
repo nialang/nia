@@ -1,19 +1,19 @@
 path: fail/atomic_builtin_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 77..84 Primary Source unknown type `Missing`
+label: 78..85 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/atomic_builtin_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 135..142 Primary Source unknown type `Missing`
+label: 136..143 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/atomic_builtin_recovery/main.nia
 code: E0304
 summary: invalid atomic RMW operation `99` for builtin `atomicRmw`
-label: 156..163 Primary Source invalid atomic RMW operation `99` for builtin `atomicRmw`
+label: 157..164 Primary Source invalid atomic RMW operation `99` for builtin `atomicRmw`
 
 report:
 error[E0201]: unknown type `Missing`

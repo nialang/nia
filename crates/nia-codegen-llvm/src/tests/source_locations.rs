@@ -10,20 +10,20 @@ fn emits_lexical_and_forwarded_caller_locations() {
         r#"using std::{SourceLocation, callerLocation};
 
 @[trackCaller]
-fn leaf() SourceLocation {
+fun leaf() SourceLocation {
     callerLocation()
 }
 
 @[trackCaller]
-fn middle() SourceLocation {
+fun middle() SourceLocation {
     leaf()
 }
 
-fn lexical() SourceLocation {
+fun lexical() SourceLocation {
     callerLocation()
 }
 
-fn main() u32 {
+fun main() u32 {
     middle().line() + lexical().line()
 }
 "#,
@@ -75,7 +75,7 @@ fn embeds_logical_source_identity_instead_of_physical_path() {
         &main,
         r#"using std::callerLocation;
 
-fn main() u32 {
+fun main() u32 {
     callerLocation().line()
 }
 "#,
@@ -125,22 +125,22 @@ fn trait_methods_inherit_and_dispatch_tracked_caller_abi() {
 
 trait Located {
     @[trackCaller]
-    fn location(&self) SourceLocation;
+    fun location(&self) SourceLocation;
 }
 
 struct Value {}
 
 extend Value : Located {
-    fn location(&self) SourceLocation {
+    fun location(&self) SourceLocation {
         callerLocation()
     }
 }
 
-fn throughObject(value: & Located) SourceLocation {
+fun throughObject(value: & Located) SourceLocation {
     value.location()
 }
 
-fn main() u32 {
+fun main() u32 {
     let value = Value {};
     throughObject(&value).line()
 }
@@ -185,7 +185,7 @@ fn generic_and_extension_calls_preserve_tracked_caller_abi_under_optimization() 
         r#"using std::{SourceLocation, callerLocation};
 
 @[trackCaller]
-fn genericLocation[T](value: T) SourceLocation {
+fun genericLocation[T](value: T) SourceLocation {
     _ = value;
     callerLocation()
 }
@@ -194,12 +194,12 @@ struct Value { inner: i32 }
 
 extend Value {
     @[trackCaller]
-    fn location(&self) SourceLocation {
+    fun location(&self) SourceLocation {
         callerLocation()
     }
 }
 
-fn main() u32 {
+fun main() u32 {
     let value = Value { inner: 1 };
     genericLocation[i32](value.inner).line() + value.location().line()
 }
@@ -249,19 +249,19 @@ fn rejects_trait_implementation_that_adds_tracked_caller_abi() {
         r#"using std::{SourceLocation, callerLocation};
 
 trait Located {
-    fn location(&self) SourceLocation;
+    fun location(&self) SourceLocation;
 }
 
 struct Value {}
 
 extend Value : Located {
     @[trackCaller]
-    fn location(&self) SourceLocation {
+    fun location(&self) SourceLocation {
         callerLocation()
     }
 }
 
-fn main() () {}
+fun main() () {}
 "#,
     )
     .expect("write mismatched tracked trait source");

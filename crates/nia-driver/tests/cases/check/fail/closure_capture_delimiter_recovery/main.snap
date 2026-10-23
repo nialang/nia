@@ -1,7 +1,7 @@
 path: fail/closure_capture_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `]` after closure capture; found `later`
-label: 81..86 Primary Source expected `,` or `]` after closure capture; found `later`
+label: 82..87 Primary Source expected `,` or `]` after closure capture; found `later`
 
 report:
 error[E0101]: expected `,` or `]` after closure capture; found `later`

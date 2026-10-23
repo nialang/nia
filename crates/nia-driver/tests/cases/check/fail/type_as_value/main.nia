@@ -1,2 +1,2 @@
 struct Point { x: i32 }
-fn main() i32 { Point }
+fun main() i32 { Point }

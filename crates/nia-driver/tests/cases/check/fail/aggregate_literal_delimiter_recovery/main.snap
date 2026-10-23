@@ -1,12 +1,12 @@
 path: fail/aggregate_literal_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `]` after array element; found `false`
-label: 80..85 Primary Source expected `,` or `]` after array element; found `false`
+label: 81..86 Primary Source expected `,` or `]` after array element; found `false`
 
 path: fail/aggregate_literal_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `}` after struct field; found `y`
-label: 120..121 Primary Source expected `,` or `}` after struct field; found `y`
+label: 121..122 Primary Source expected `,` or `}` after struct field; found `y`
 
 report:
 error[E0101]: expected `,` or `]` after array element; found `false`

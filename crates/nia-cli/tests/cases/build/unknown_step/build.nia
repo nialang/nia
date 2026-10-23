@@ -1,6 +1,6 @@
 using std::build;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     static checkName = "check";
     _ = b.addAggregateStep(&checkName).?;
     !()

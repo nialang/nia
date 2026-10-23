@@ -6,7 +6,7 @@ fn reports_unresolved_deferred_names() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
 missing
 }
 "#,
@@ -32,7 +32,7 @@ fn closure_body_requires_explicit_outer_local_captures() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     let make = \x: i32, y: i32 -> \z: i32 -> x * y + z;
     let add = make(2, 3);
     add(4)
@@ -70,7 +70,7 @@ fn closure_capture_initializers_resolve_outside_the_body_boundary() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     let make = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
     let add = make(2, 3);
     add(4)
@@ -102,7 +102,7 @@ fn closure_body_cannot_implicitly_capture_a_method_receiver() {
 struct Box { value: i32 }
 
 extend Box {
-    fn run(self) i32 {
+    fun run(self) i32 {
         let callback = \z: i32 -> self.value + z;
         callback(1)
     }
@@ -129,7 +129,7 @@ fn binding_initializer_cannot_reference_binding_being_defined() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     let f = f;
     0
 }
@@ -160,7 +160,7 @@ fn reports_duplicates_in_same_scope() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn main(a: i32, a: i32) i32 {
+fun main(a: i32, a: i32) i32 {
 let mut x = 1;
 let mut x = 2;
 x
@@ -203,7 +203,7 @@ fn reports_duplicate_bindings_within_one_pattern() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
 let (x, x) = (1, 2);
 x
 }
@@ -238,7 +238,7 @@ x: i32,
 }
 
 extend Point {
-fn origin() Point {
+fun origin() Point {
     Self { x: 0 }
 }
 }
@@ -247,7 +247,7 @@ enum Color {
 Red,
 }
 
-fn main() Point {
+fun main() Point {
 let mut c = Color::Red;
 Point::origin()
 }
@@ -274,7 +274,7 @@ fn records_nominal_pattern_constructor_identity() {
         r#"
 struct Point { x: i32 }
 
-fn read(point: Point) i32 {
+fun read(point: Point) i32 {
     let Point { x } = point;
     x
 }

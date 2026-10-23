@@ -6,7 +6,7 @@ fn o2_simplifies_zero_static_initializers() {
     let source = r#"
 static zeroes: [i32; 4] = [0; 4];
 
-fn main() i32 {
+fun main() i32 {
     zeroes[0]
 }
 "#;
@@ -47,7 +47,7 @@ fn o2_simplifies_zero_float_static_initializers() {
     let source = r#"
 static zeroes: [f64; 2] = [0.0f64, 0.0];
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -88,7 +88,7 @@ fn o2_simplifies_empty_repeat_static_initializers() {
     let source = r#"
 static values: [i32; 0] = [1; 0];
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -129,7 +129,7 @@ fn o2_simplifies_repeated_static_array_initializers() {
     let source = r#"
 static values: [i32; 3] = [7, 7, 7];
 
-fn main() i32 {
+fun main() i32 {
     values[0]
 }
 "#;
@@ -176,7 +176,7 @@ fn o2_simplifies_repeated_byte_static_initializers() {
     let source = r#"
 static bytes: [u8; 3] = b"aaa";
 
-fn main() u8 {
+fun main() u8 {
     bytes[0]
 }
 "#;
@@ -209,7 +209,7 @@ fn o2_simplifies_repeated_char_static_initializers() {
     let source = r#"
 static text: [char; 3] = "aaa";
 
-fn main() char {
+fun main() char {
     text[0]
 }
 "#;
@@ -243,7 +243,7 @@ fn size_levels_simplify_static_initializers_for_size() {
 static zeroes: [i32; 4] = [0, 0, 0, 0];
 static values: [i32; 3] = [7, 7, 7];
 
-fn main() i32 {
+fun main() i32 {
     zeroes[0] + values[0]
 }
 "#;
@@ -305,7 +305,7 @@ fn o1_preserves_zero_static_initializers() {
     let source = r#"
 static zeroes: [i32; 4] = [0; 4];
 
-fn main() i32 {
+fun main() i32 {
     zeroes[0]
 }
 "#;
@@ -348,7 +348,7 @@ fn o1_preserves_zero_float_static_initializers() {
     let source = r#"
 static zeroes: [f32; 2] = [0.0f32, 0.0f32];
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -388,7 +388,7 @@ fn o1_preserves_repeated_static_array_initializers() {
     let source = r#"
 static values: [i32; 3] = [7, 7, 7];
 
-fn main() i32 {
+fun main() i32 {
     values[0]
 }
 "#;
@@ -429,7 +429,7 @@ fn o1_preserves_repeated_string_static_initializers() {
 static bytes: [u8; 3] = b"aaa";
 static text: [char; 3] = "aaa";
 
-fn main() u8 {
+fun main() u8 {
     bytes[0]
 }
 "#;
@@ -477,7 +477,7 @@ fn lowers_global_string_literals_as_static_arrays() {
 static bytes = b"ok";
 static text = "hi";
 
-fn main() u8 {
+fun main() u8 {
     bytes[0]
 }
 "#;

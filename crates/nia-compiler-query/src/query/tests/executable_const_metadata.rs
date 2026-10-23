@@ -7,15 +7,15 @@ fn executable_checked_modules_reuse_filtered_const_inputs() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-const fn len() usize {
+const fun len() usize {
 4
 }
 
-fn unused() i32 {
+fun unused() i32 {
 missing_symbol
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut values: [i32; len()] = [0; len()];
 values[0]
 }
@@ -109,15 +109,15 @@ fn runtime_function_reference_roots_only_its_const_target() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-const fn referenced(value: i32) i32 {
+const fun referenced(value: i32) i32 {
 value * 2 + 1
 }
 
-const fn unused(value: i32) i32 {
+const fun unused(value: i32) i32 {
 value - 100
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let callback = & referenced;
 callback(12)
 }
@@ -168,7 +168,7 @@ fn executable_checked_modules_do_not_body_check_modules_for_generic_metadata_onl
 module helper;
 using entry::helper;
 
-pub fn main() i32 {
+pub fun main() i32 {
 helper::id[i32](1)
 }
 "#,
@@ -179,11 +179,11 @@ helper::id[i32](1)
         "helper",
         "helper.nia",
         r#"
-pub fn id[T](value: T) T {
+pub fun id[T](value: T) T {
 value
 }
 
-fn unused_bad() i32 {
+fun unused_bad() i32 {
 missing_symbol
 }
 "#,

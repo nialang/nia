@@ -7,7 +7,7 @@ fn windows_startup_loads_separate_entry_and_native_support_only_when_selected() 
     let main = root.join("main.nia");
     write(
         &main,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+        "using std::process; pub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
     let target = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
     let load = |runtime| {
@@ -50,7 +50,7 @@ fn darwin_startup_selects_main_entry_and_libsystem_runtime_modules() {
     let main = root.join("main.nia");
     write(
         &main,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+        "using std::process; pub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
     let target = TargetConfig::parse("aarch64-apple-macos").unwrap();
     let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &target)
@@ -102,7 +102,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_runtime_start() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+        "using std::process; pub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
     let program = load_program_with_map_and_runtime(
@@ -168,7 +168,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+        "using std::process; pub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
     let program = load_program_with_map_and_runtime(
@@ -207,7 +207,7 @@ fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
     let main_path = root.join("main.nia");
     write(
         &main_path,
-        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+        "using std::process; pub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }",
     );
 
     let target = nia_target::TargetConfig::parse("x86-unknown-linux").unwrap();
@@ -232,7 +232,7 @@ fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
 fn query_loader_rejects_runtime_selected_for_a_different_target() {
     let root = temp_dir("query_loader_rejects_mismatched_runtime_target");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() i32 { 0 }");
+    write(&main_path, "fun main() i32 { 0 }");
     let runtime_target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
     let runtime = RuntimeSpec::freestanding(&test_toolchain_layout(), &runtime_target)
         .expect("host freestanding runtime");

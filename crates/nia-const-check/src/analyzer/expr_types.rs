@@ -497,7 +497,7 @@ impl Analyzer<'_> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::CONST,
                     span,
-                    "const expression can only call `const fn`".to_string(),
+                    "const expression can only call `const fun`".to_string(),
                 ));
                 return None;
             }
@@ -521,7 +521,7 @@ impl Analyzer<'_> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::CONST,
                 span,
-                "const expression can only call `const fn`".to_string(),
+                "const expression can only call `const fun`".to_string(),
             ));
             return None;
         }

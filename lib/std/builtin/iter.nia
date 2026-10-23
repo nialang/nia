@@ -5,12 +5,12 @@ pub trait Iterable {
     type Item;
     type Iter;
 
-    fn iter(&self) [Self as Iterable]::Iter;
+    fun iter(&self) [Self as Iterable]::Iter;
 }
 
 @[builtin("Iterator")]
 pub trait Iterator {
     type Item;
 
-    fn next(&mut self) ?[Self as Iterator]::Item;
+    fun next(&mut self) ?[Self as Iterator]::Item;
 }

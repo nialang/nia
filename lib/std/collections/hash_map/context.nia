@@ -6,7 +6,7 @@ using types::HashMapContext;
 pub struct DefaultHashMapContext {}
 
 extend DefaultHashMapContext {
-    pub fn init() DefaultHashMapContext {
+    pub fun init() DefaultHashMapContext {
         .{}
     }
 }
@@ -14,14 +14,14 @@ extend DefaultHashMapContext {
 extend[K] DefaultHashMapContext : HashMapContext[K]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
 {
-    pub fn hash(&self, seed: u64, key: &K) u64 {
+    pub fun hash(&self, seed: u64, key: &K) u64 {
         _ = self;
         let mut hasher = hash::Wyhash::init(seed);
         key.hash(&mut hasher);
         hasher.finish()
     }
 
-    pub fn eql(&self, left: &K, right: &K) bool {
+    pub fun eql(&self, left: &K, right: &K) bool {
         _ = self;
         left.* == right.*
     }

@@ -10,7 +10,7 @@ struct Box[T] {
 value: T,
 }
 
-fn make(ptr: &u8, cb: &fn(i32) ()) [i32] {
+fun make(ptr: &u8, cb: &fun(i32) ()) [i32] {
 let mut tmp: [i32; _] = [1, 2, 3];
 [Box[i32] { value: 0 }; 4]
 }
@@ -69,7 +69,7 @@ struct Buffer[T, N: usize] {
 data: [T; N],
 }
 
-fn use_buffer(buf: Buffer[u8, 4]) () {}
+fun use_buffer(buf: Buffer[u8, 4]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -126,7 +126,7 @@ fn lowers_interleaved_type_and_const_alias_arguments() {
     let (module, errors) = parse_module(
         r#"
 type Mixed[T, N: usize, U] = ([T; N], U);
-fn consume(value: Mixed[u8, 4, u16]) () {}
+fun consume(value: Mixed[u8, 4, u16]) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -192,7 +192,7 @@ pub struct Packet[T, N: usize, U] {
 
     let (consuming_module, consuming_errors) = parse_module(
         r#"
-fn consume(packet: Packet[u8, 2, u16]) () {}
+fun consume(packet: Packet[u8, 2, u16]) () {}
 "#,
     );
     assert!(consuming_errors.is_empty(), "{consuming_errors:?}");
@@ -256,7 +256,7 @@ fn lowers_trait_associated_type_shorthand_to_projection() {
 trait Writer {
 type Error;
 
-fn write(& self) Error!();
+fun write(& self) Error!();
 }
 
 enum BufferError: i32 {
@@ -269,7 +269,7 @@ struct Sink {}
 extend Sink : Writer {
 type Error = BufferError;
 
-fn write(& self) Error!() {
+fun write(& self) Error!() {
     _ = self;
     !()
 }
@@ -306,7 +306,7 @@ fn lowers_slice_extend_target_to_slice_pointee() {
     let (module, errors) = parse_module(
         r#"
 extend[T] [T] {
-fn len2(& self) usize {
+fun len2(& self) usize {
     self.len()
 }
 }
@@ -340,10 +340,10 @@ fn lowers_callable_interfaces_and_views_with_distinct_identity() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-type Callback = Fn(i32, bool) i32;
-type Reordered = Fn(bool, i32) i32;
-type CallbackRef = &Fn(i32, bool) i32;
-type CallbackMut = &mut Fn(i32, bool) i32;
+type Callback = Fun(i32, bool) i32;
+type Reordered = Fun(bool, i32) i32;
+type CallbackRef = &Fun(i32, bool) i32;
+type CallbackMut = &mut Fun(i32, bool) i32;
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -394,7 +394,7 @@ type CallbackMut = &mut Fn(i32, bool) i32;
 fn rejects_bare_callable_interfaces_in_value_positions() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let (module, errors) = parse_module("fn invoke(callback: Fn(i32) i32) {}");
+    let (module, errors) = parse_module("fun invoke(callback: Fun(i32) i32) {}");
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);

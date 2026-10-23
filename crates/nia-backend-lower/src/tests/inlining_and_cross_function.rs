@@ -4,11 +4,11 @@ use super::*;
 #[test]
 fn o1_inlines_constant_leaf_function_calls() {
     let source = r#"
-fn answer() i32 {
+fun answer() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer()
 }
 "#;
@@ -48,11 +48,11 @@ fn main() i32 {
 #[test]
 fn o0_preserves_constant_leaf_function_calls() {
     let source = r#"
-fn answer() i32 {
+fun answer() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer()
 }
 "#;
@@ -91,11 +91,11 @@ fn main() i32 {
 #[test]
 fn o1_inlines_constant_leaf_function_instance_calls() {
     let source = r#"
-fn one[T]() i32 {
+fun one[T]() i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     one[i32]()
 }
 "#;
@@ -136,11 +136,11 @@ fn main() i32 {
 #[test]
 fn o2_inlines_tiny_pure_leaf_function_calls() {
     let source = r#"
-fn pair() [i32; 2] {
+fun pair() [i32; 2] {
     [1, 2]
 }
 
-fn main() [i32; 2] {
+fun main() [i32; 2] {
     pair()
 }
 "#;
@@ -180,11 +180,11 @@ fn main() [i32; 2] {
 #[test]
 fn o1_preserves_tiny_pure_leaf_function_calls() {
     let source = r#"
-fn pair() [i32; 2] {
+fun pair() [i32; 2] {
     [1, 2]
 }
 
-fn main() [i32; 2] {
+fun main() [i32; 2] {
     pair()
 }
 "#;
@@ -223,11 +223,11 @@ fn main() [i32; 2] {
 #[test]
 fn size_levels_preserve_non_constant_pure_leaf_function_calls() {
     let source = r#"
-fn pair() [i32; 2] {
+fun pair() [i32; 2] {
     [1, 2]
 }
 
-fn main() [i32; 2] {
+fun main() [i32; 2] {
     pair()
 }
 "#;
@@ -273,11 +273,11 @@ fn main() [i32; 2] {
 #[test]
 fn o2_inlines_tiny_pure_leaf_function_calls_with_params() {
     let source = r#"
-fn identity(value: i32) i32 {
+fun identity(value: i32) i32 {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity(7)
 }
 "#;
@@ -317,11 +317,11 @@ fn main() i32 {
 #[test]
 fn size_levels_inline_single_param_forwarding_wrappers() {
     let source = r#"
-fn identity(value: i32) i32 {
+fun identity(value: i32) i32 {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity(7)
 }
 "#;
@@ -368,11 +368,11 @@ fn main() i32 {
 #[test]
 fn size_levels_prune_inlined_private_generic_forwarding_instances() {
     let source = r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity[i32](7)
 }
 "#;
@@ -442,16 +442,16 @@ fn main() i32 {
 #[test]
 fn size_levels_preserve_multi_param_forwarding_wrappers() {
     let source = r#"
-fn first(left: i32, right: i32) i32 {
+fun first(left: i32, right: i32) i32 {
     left
 }
 
-fn effect() i32 {
+fun effect() i32 {
     let mut value = 1;
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     first(7, effect())
 }
 "#;
@@ -497,11 +497,11 @@ fn main() i32 {
 #[test]
 fn o3_inlines_larger_pure_leaf_function_calls_than_o2() {
     let source = r#"
-fn values() [i32; 5] {
+fun values() [i32; 5] {
     [1, 2, 3, 4, 5]
 }
 
-fn main() [i32; 5] {
+fun main() [i32; 5] {
     values()
 }
 "#;
@@ -573,11 +573,11 @@ fn main() [i32; 5] {
 #[test]
 fn o3_inlines_larger_pure_leaf_function_instance_calls_than_o2() {
     let source = r#"
-fn values[T]() [i32; 5] {
+fun values[T]() [i32; 5] {
     [1, 2, 3, 4, 5]
 }
 
-fn main() [i32; 5] {
+fun main() [i32; 5] {
     values[i32]()
 }
 "#;
@@ -651,11 +651,11 @@ fn main() [i32; 5] {
 #[test]
 fn o3_propagates_cross_function_constant_returns() {
     let source = r#"
-fn answer() i32 {
+fun answer() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer()
 }
 "#;
@@ -724,11 +724,11 @@ fn main() i32 {
 #[test]
 fn o3_does_not_cross_propagate_parameterized_leaf_returns() {
     let source = r#"
-fn answer(value: i32) i32 {
+fun answer(value: i32) i32 {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     answer(42)
 }
 "#;
@@ -766,11 +766,11 @@ fn main() i32 {
 #[test]
 fn o3_does_not_cross_propagate_parameterized_instance_returns() {
     let source = r#"
-fn answer[T](value: T) T {
+fun answer[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     answer[i32](42)
 }
 "#;
@@ -808,11 +808,11 @@ fn main() i32 {
 #[test]
 fn o3_propagates_cross_function_constant_instance_returns() {
     let source = r#"
-fn answer[T]() i32 {
+fun answer[T]() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer[i32]()
 }
 "#;
@@ -852,11 +852,11 @@ fn main() i32 {
 #[test]
 fn o3_matches_cross_function_constant_returns_by_const_instance_arguments() {
     let source = r#"
-fn answer[N: usize]() usize {
+fun answer[N: usize]() usize {
     N
 }
 
-fn main() [usize; 2] {
+fun main() [usize; 2] {
     [answer[3](), answer[4]()]
 }
 "#;
@@ -909,12 +909,12 @@ fn main() [usize; 2] {
 #[test]
 fn o3_inlines_pure_leaf_function_calls_through_bindings() {
     let source = r#"
-fn values() [i32; 5] {
+fun values() [i32; 5] {
     let mut items = [1, 2, 3, 4, 5];
     items
 }
 
-fn main() [i32; 5] {
+fun main() [i32; 5] {
     values()
 }
 "#;
@@ -975,7 +975,7 @@ fn main() [i32; 5] {
 fn o3_devirtualizes_direct_trait_object_calls() {
     let source = r#"
 trait Source {
-    fn add(&self, rhs: i32) i32;
+    fun add(&self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -983,12 +983,12 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(&self, rhs: i32) i32 {
+    fun add(&self, rhs: i32) i32 {
         rhs
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -1170,7 +1170,7 @@ fn main() i32 {
 fn o3_preserves_direct_trait_object_calls_to_generic_impl_instances() {
     let source = r#"
 trait Source {
-    fn add(&self, rhs: i32) i32;
+    fun add(&self, rhs: i32) i32;
 }
 
 struct Box[T] {
@@ -1178,12 +1178,12 @@ struct Box[T] {
 }
 
 extend[T] Box[T] : Source {
-    fn add(&self, rhs: i32) i32 {
+    fun add(&self, rhs: i32) i32 {
         rhs
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value = Box[i32] { value: 0 };
     _ = value;
     0
@@ -1347,11 +1347,11 @@ fn main() i32 {
 #[test]
 fn o2_inlines_tiny_pure_leaf_function_instance_calls_with_params() {
     let source = r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity[i32](7)
 }
 "#;
@@ -1392,11 +1392,11 @@ fn main() i32 {
 #[test]
 fn o1_preserves_forwarding_function_instance_calls_with_params() {
     let source = r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity[i32](7)
 }
 "#;
@@ -1436,11 +1436,11 @@ fn main() i32 {
 #[test]
 fn size_aware_specialization_preserves_non_constant_leaf_function_instance_calls() {
     let source = r#"
-fn pair[T]() [i32; 2] {
+fun pair[T]() [i32; 2] {
     [1, 2]
 }
 
-fn main() [i32; 2] {
+fun main() [i32; 2] {
     pair[i32]()
 }
 "#;
@@ -1479,11 +1479,11 @@ fn main() [i32; 2] {
 #[test]
 fn o1_preserves_tiny_pure_leaf_function_calls_with_params() {
     let source = r#"
-fn identity(value: i32) i32 {
+fun identity(value: i32) i32 {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity(7)
 }
 "#;
@@ -1509,16 +1509,16 @@ fn main() i32 {
 #[test]
 fn o2_preserves_leaf_function_calls_with_effectful_args() {
     let source = r#"
-fn identity(value: i32) i32 {
+fun identity(value: i32) i32 {
     value
 }
 
-fn effect() i32 {
+fun effect() i32 {
     let mut value = 1;
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity(effect())
 }
 "#;

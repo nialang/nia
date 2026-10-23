@@ -167,77 +167,77 @@ pub struct CreateDirOptions {
 }
 
 extend Dir {
-    pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
+    pub(pkg) fun borrowHandle(&self) Error!os::FileHandle {
         if self.handle is ?handle {
             return !handle;
         }
         .BadFd!
     }
 
-    pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
+    pub(pkg) fun takeHandle(&mut self) Error!os::FileHandle {
         let handle = self.borrowHandle().?;
         self.handle = null;
         !handle
     }
 
-    pub fn close(&mut self) Error!() {
+    pub fun close(&mut self) Error!() {
         let handle = self.takeHandle().?;
         !(handle.close().?)
     }
 }
 
 extend File {
-    pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
+    pub(pkg) fun borrowHandle(&self) Error!os::FileHandle {
         if self.handle is ?handle {
             return !handle;
         }
         .BadFd!
     }
 
-    pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
+    pub(pkg) fun takeHandle(&mut self) Error!os::FileHandle {
         let handle = self.borrowHandle().?;
         self.handle = null;
         !handle
     }
 
-    pub fn close(&mut self) Error!() {
+    pub fun close(&mut self) Error!() {
         let handle = self.takeHandle().?;
         !(handle.close().?)
     }
 }
 
 extend DirEntry {
-    pub fn init(kind: FileKind, name: &[u8], size: u64) DirEntry {
+    pub fun init(kind: FileKind, name: &[u8], size: u64) DirEntry {
         .{ kind, name, size }
     }
 
-    pub fn kind(&self) FileKind {
+    pub fun kind(&self) FileKind {
         self.kind
     }
 
-    pub fn name(&self) &[u8] {
+    pub fun name(&self) &[u8] {
         self.name
     }
 
-    pub fn size(&self) u64 {
+    pub fun size(&self) u64 {
         self.size
     }
 
-    pub fn isDot(&self) bool {
+    pub fun isDot(&self) bool {
         self.name.len() == 1 and self.name[0] == b'.'
     }
 
-    pub fn isDotDot(&self) bool {
+    pub fun isDotDot(&self) bool {
         self.name.len() == 2 and self.name[0] == b'.' and self.name[1] == b'.'
     }
 }
 
 extend DirIterator {
-    pub fn close(&mut self) Error!() {
+    pub fun close(&mut self) Error!() {
         !(self.reader.close().?)
     }
 
-    pub(pkg) fn init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
+    pub(pkg) fun init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
         .{ dir, reader }
     }
 }
@@ -245,7 +245,7 @@ extend DirIterator {
 extend DirIterator : Iterator {
     type Item = Error!DirEntry;
 
-    pub fn next(&mut self) ?(Error!DirEntry) {
+    pub fun next(&mut self) ?(Error!DirEntry) {
         if self.reader.isDone() {
             return null;
         }
@@ -269,21 +269,21 @@ extend DirIterator : Iterator {
 }
 
 extend Timestamp {
-    pub fn init(seconds: i64, nanos: u32) Timestamp {
+    pub fun init(seconds: i64, nanos: u32) Timestamp {
         .{ seconds, nanos }
     }
 
-    pub fn seconds(&self) i64 {
+    pub fun seconds(&self) i64 {
         self.seconds
     }
 
-    pub fn nanos(&self) u32 {
+    pub fun nanos(&self) u32 {
         self.nanos
     }
 }
 
 extend Metadata {
-    pub fn init(
+    pub fun init(
         kind: FileKind,
         fileId: ?u64,
         linkCount: ?u32,
@@ -297,39 +297,39 @@ extend Metadata {
         .{ kind, fileId, linkCount, size, permissions, preferredBlockSize, accessed, modified, statusChanged }
     }
 
-    pub fn kind(&self) FileKind {
+    pub fun kind(&self) FileKind {
         self.kind
     }
 
-    pub fn fileId(&self) ?u64 {
+    pub fun fileId(&self) ?u64 {
         self.fileId
     }
 
-    pub fn linkCount(&self) ?u32 {
+    pub fun linkCount(&self) ?u32 {
         self.linkCount
     }
 
-    pub fn size(&self) u64 {
+    pub fun size(&self) u64 {
         self.size
     }
 
-    pub fn permissions(&self) u32 {
+    pub fun permissions(&self) u32 {
         self.permissions
     }
 
-    pub fn preferredBlockSize(&self) u32 {
+    pub fun preferredBlockSize(&self) u32 {
         self.preferredBlockSize
     }
 
-    pub fn accessed(&self) ?Timestamp {
+    pub fun accessed(&self) ?Timestamp {
         self.accessed
     }
 
-    pub fn modified(&self) Timestamp {
+    pub fun modified(&self) Timestamp {
         self.modified
     }
 
-    pub fn statusChanged(&self) ?Timestamp {
+    pub fun statusChanged(&self) ?Timestamp {
         self.statusChanged
     }
 }

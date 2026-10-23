@@ -18,7 +18,7 @@ pub enum Error: i32 {
     _,
 }
 
-fn parseDuration(bytes: &[u8]) Error!u32 {
+fun parseDuration(bytes: &[u8]) Error!u32 {
     if bytes.isEmpty() {
         return .InvalidDuration!;
     }
@@ -43,7 +43,7 @@ fn parseDuration(bytes: &[u8]) Error!u32 {
     }
 }
 
-fn appendTask(
+fun appendTask(
     allocator: &mut mem::Allocator,
     source: &[u8],
     tokens: &mut lexer::Lexer,
@@ -81,7 +81,7 @@ fn appendTask(
     .UnexpectedEnd!
 }
 
-fn resolveDependencies(
+fun resolveDependencies(
     allocator: &mut mem::Allocator,
     source: &[u8],
     tasks: &mut collections::ArrayList[model::Task],
@@ -123,7 +123,7 @@ fn resolveDependencies(
     !()
 }
 
-pub fn parsePlan(allocator: &mut mem::Allocator, source: &[u8]) Error!model::Graph {
+pub fun parsePlan(allocator: &mut mem::Allocator, source: &[u8]) Error!model::Graph {
     let mut tasks: collections::ArrayList[model::Task] = .init();
     let mut pending: collections::ArrayList[model::DependencyRef] = .init();
     let mut tokens = lexer::Lexer::init(source);

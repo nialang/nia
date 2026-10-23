@@ -5,7 +5,7 @@ use super::*;
 fn backend_lowering_uses_executable_per_item_ir() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub fn main() i32 { static value: i32 = 1; value }",
+        "pub fun main() i32 { static value: i32 = 1; value }",
     );
     let db = query_db(fixture.program());
 
@@ -89,14 +89,14 @@ fn backend_lowering_uses_executable_per_item_ir() {
 fn codegen_tracks_and_reuses_backend_stage_products() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; pub fn main() i32 { helper::id[i32](1) }",
+        "module helper; using entry::helper; pub fun main() i32 { helper::id[i32](1) }",
     );
     let module_id = fixture.entry_id();
     let helper_id = fixture.add_child(
         module_id,
         "helper",
         "helper.nia",
-        "pub fn id[T](value: T) T { value }",
+        "pub fun id[T](value: T) T { value }",
     );
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
@@ -215,12 +215,12 @@ fn generic_function_pointer_values_materialize_concrete_instances() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-pub fn main() i32 {
-    let pointer: &fn(i32) i32 = &identity[i32];
+pub fun main() i32 {
+    let pointer: &fun(i32) i32 = &identity[i32];
     pointer(7)
 }
 "#,
@@ -276,12 +276,12 @@ fn const_generic_method_instances_retain_method_const_arguments() {
 struct Counter {}
 
 extend Counter {
-    fn value[N: usize](& self) usize {
+    fun value[N: usize](& self) usize {
         N
     }
 }
 
-pub fn main() usize {
+pub fun main() usize {
     let counter = Counter {};
     counter.value[3]()
 }
@@ -360,7 +360,7 @@ index: usize,
 extend[T] PairIter[T] : Iterator {
 type Item = T;
 
-const fn next(&mut self) ?T {
+const fun next(&mut self) ?T {
 match self.index {
 0usize => {
 self.index += 1;
@@ -379,12 +379,12 @@ extend[T] Pair[T] : Iterable {
 type Item = T;
 type Iter = PairIter[T];
 
-const fn iter(&self) PairIter[T] {
+const fun iter(&self) PairIter[T] {
 PairIter[T] { first: self.first, second: self.second, index: 0 }
 }
 }
 
-const fn count[T](values: Pair[T]) usize {
+const fun count[T](values: Pair[T]) usize {
 let mut total: usize = 0;
 for _ in values {
 total += 1;
@@ -394,7 +394,7 @@ total
 
 const compileCount: usize = count(Pair[u8] { first: 1u8, second: 2u8 });
 
-pub fn main() usize {
+pub fun main() usize {
 let values: [u8; compileCount] = [0; compileCount];
 count(Pair[usize] { first: 1, second: 2 })
 + count(Pair[bool] { first: true, second: false })
@@ -462,14 +462,14 @@ count(Pair[usize] { first: 1, second: 2 })
 fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module helper; using entry::helper; pub fn main() i32 { helper::value() }",
+        "module helper; using entry::helper; pub fun main() i32 { helper::value() }",
     );
     let module_id = fixture.entry_id();
     let helper_id = fixture.add_child(
         module_id,
         "helper",
         "helper.nia",
-        "pub fn value() i32 { 0 }",
+        "pub fun value() i32 { 0 }",
     );
     let db = query_db(fixture.program());
 
@@ -553,15 +553,15 @@ fn backend_materializes_frontend_planned_source_functions() {
         r#"
 module child;
 
-fn helper() i32 {
+fun helper() i32 {
 7
 }
 
-fn unused() i32 {
+fun unused() i32 {
 9
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 helper() + child::value()
 }
 "#,
@@ -576,7 +576,7 @@ pub struct Value {
 number: i32,
 }
 
-pub fn value() i32 {
+pub fun value() i32 {
 let value = Value { number: 5 };
 value.number
 }
@@ -673,7 +673,7 @@ value.number
 fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "fn helper() i32 { 1 } pub fn main() i32 { helper() }",
+        "fun helper() i32 { 1 } pub fun main() i32 { helper() }",
     );
     let db = query_db(fixture.program());
 

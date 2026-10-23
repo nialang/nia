@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn checked_module_exposes_semantic_use_table_product() {
-    let source = "fn main() i32 { let mut local: i32 = 1; local }";
+    let source = "fun main() i32 { let mut local: i32 = 1; local }";
     let fixture = LoadedProgramFixture::new("main.nia", source);
     let checked = fixture.database().analyze_program();
 
@@ -38,7 +38,7 @@ fn checked_module_exposes_semantic_use_table_product() {
 #[test]
 fn checked_module_reuses_cached_semantic_product_handles() {
     let fixture =
-        LoadedProgramFixture::new("main.nia", "fn main() i32 { let local: i32 = 1; local }");
+        LoadedProgramFixture::new("main.nia", "fun main() i32 { let local: i32 = 1; local }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -124,7 +124,7 @@ fn checked_module_reuses_cached_semantic_product_handles() {
 
 #[test]
 fn program_products_share_the_input_module_graph_snapshot() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let loaded = fixture.program();
     let input_graph = loaded.graph.clone();
     let db = query_db(loaded);
@@ -140,7 +140,7 @@ fn program_products_share_the_input_module_graph_snapshot() {
 
 #[test]
 fn checked_modules_reuse_cached_definition_handles() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 1 }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 

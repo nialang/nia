@@ -16,11 +16,11 @@ fn emit_exe_std_optional_queries_and_transforms() {
 using std::option;
 using std::process;
 
-fn double(value: ?i32) ?i32 {
+fun double(value: ?i32) ?i32 {
     value.map(\value: i32 -> value * 2)
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let present = double(?21);
     if not present.isPresent() {

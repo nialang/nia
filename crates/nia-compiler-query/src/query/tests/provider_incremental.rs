@@ -20,13 +20,13 @@ fn provider_fact_snapshot(
 
 #[test]
 fn provider_graph_growth_recomputes_query_derived_executable_roots() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let provider_id = fixture.add_shallow_child(
         entry_id,
         "provider",
         "main/provider.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     let loaded = fixture.program();
     let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
@@ -56,7 +56,7 @@ fn provider_graph_growth_recomputes_query_derived_executable_roots() {
 
 #[test]
 fn additive_provider_graph_growth_reuses_existing_executable_facts() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
@@ -78,7 +78,7 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
         entry_id,
         "provider",
         "main/provider.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
     let session = database.db.context().executable_fact_session.lock();
@@ -95,7 +95,7 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
 
 #[test]
 fn additive_module_growth_discards_diagnostic_executable_facts() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { missing() }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { missing() }");
     let entry_id = fixture.entry_id();
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
@@ -138,7 +138,7 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
 
 #[test]
 fn semantic_provider_growth_preserves_reachability_state() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let database = fixture.database();
     let revision = new_revision();
     let retained_function = nia_ids::GlobalDefId {
@@ -178,7 +178,7 @@ fn semantic_provider_growth_preserves_reachability_state() {
 
 #[test]
 fn provider_changes_discard_affected_executable_fact_caches() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let revision = new_revision();
     let mut program = fixture.program();
@@ -208,7 +208,7 @@ fn provider_changes_discard_affected_executable_fact_caches() {
         entry_id,
         "provider",
         "main/provider.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     database.update(CompileRequest::new(fixture.program()));
     database.replace_provider_facts(provider_fact_snapshot(
@@ -274,7 +274,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
         "child",
         nia_ids::Visibility::Public,
         "child.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     let mut private_graph = LoadedProgramFixture::new("main.nia", "module child;");
     let private_entry = private_graph.entry_id();
@@ -283,7 +283,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
         "child",
         nia_ids::Visibility::Private,
         "child.nia",
-        "pub fn value() i32 { 1 }",
+        "pub fun value() i32 { 1 }",
     );
     let program_sources =
         crate::frontend_program_source_fingerprint(public_graph.graph.modules().map(|module| {
@@ -328,7 +328,7 @@ fn check_certificate_input_covers_stable_graph_and_provider_demands() {
 
 #[test]
 fn compiler_inputs_preserve_provider_fact_revision() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let mut program = fixture.program();
     let revision = next_revision(new_revision());
     program.provider_fact_revision = revision;
@@ -342,7 +342,7 @@ fn compiler_inputs_preserve_provider_fact_revision() {
 
 #[test]
 fn executable_products_depend_on_incremental_worklists() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
@@ -394,7 +394,7 @@ fn executable_products_depend_on_incremental_worklists() {
 
 #[test]
 fn executable_products_serialize_the_shared_fact_session() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let program = fixture.freestanding_program();
     let revision = program.provider_fact_revision;
     let db = query_db(program);
@@ -515,7 +515,7 @@ fn provider_demand_fingerprint_includes_type_and_trait_owner_packages() {
 
 #[test]
 fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let database = fixture.database();
     let first_epoch = database.db.expect_get(ExecutableFactEpochQuery);
     let _ = database.db.expect_get(ExecutableCheckedModulesQuery);
@@ -551,7 +551,7 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
 
 #[test]
 fn provider_revision_update_invalidates_executable_products() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
@@ -606,7 +606,7 @@ fn provider_revision_update_invalidates_executable_products() {
 
 #[test]
 fn provider_worklist_accumulates_until_consumed() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
@@ -694,7 +694,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
             trait_type_argument_names: Vec::new(),
         },
     };
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let database = fixture.database();
     let mut session = ExecutableFactSession {
         applied_provider_fact_revision: Some(initial_revision),
@@ -717,19 +717,19 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
 
 #[test]
 fn body_activation_worklist_accumulates_until_consumed() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
     let first_module = fixture.add_shallow_child(
         entry_id,
         "first",
         "main/first.nia",
-        "pub fn first() i32 { 1 }",
+        "pub fun first() i32 { 1 }",
     );
     let second_module = fixture.add_shallow_child(
         entry_id,
         "second",
         "main/second.nia",
-        "pub fn second() i32 { 2 }",
+        "pub fun second() i32 { 2 }",
     );
     assert!(fixture.graph.mark_semantic_selected(first_module));
     assert!(fixture.graph.mark_semantic_selected(second_module));
@@ -781,7 +781,7 @@ fn body_activation_worklist_accumulates_until_consumed() {
 
 #[test]
 fn content_identical_input_replacement_keeps_executable_facts_green() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;

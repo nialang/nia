@@ -15,13 +15,13 @@ extend[T] [T] : Classify
 where T: Sized
 {
     type Result = i32;
-    fn classify(&self) i32 { 11 }
+    fun classify(&self) i32 { 11 }
 }
 "#;
     let specific = r#"
 extend [char] : Classify {
     type Result = bool;
-    fn classify(&self) bool { true }
+    fun classify(&self) bool { true }
 }
 "#;
     for (first, second) in [(general, specific), (specific, general)] {
@@ -32,11 +32,11 @@ extend [char] : Classify {
 using std::process;
 trait Classify {{
     type Result;
-    fn classify(&self) [Self as Classify]::Result;
+    fun classify(&self) [Self as Classify]::Result;
 }}
 {first}
 {second}
-pub fn main(init: process::Init) process::ExitCode!() {{
+pub fun main(init: process::Init) process::ExitCode!() {{
     _ = init;
     let text: &[char] = &"nia";
     let numbers: &[i32] = &[1, 2, 3];
@@ -77,13 +77,13 @@ fn emit_exe_retains_cross_module_generic_trait_witnesses() {
         &helper,
         r#"
 pub trait Step {
-    fn next(self) ?Self;
+    fun next(self) ?Self;
 }
 
 pub trait Iterator {
     type Item;
 
-    fn advance(&mut self) ?[Self as Iterator]::Item;
+    fun advance(&mut self) ?[Self as Iterator]::Item;
 }
 
 pub struct Cursor[T] {
@@ -91,7 +91,7 @@ pub struct Cursor[T] {
 }
 
 extend[T] Cursor[T] {
-    pub fn init(value: T) Cursor[T] {
+    pub fun init(value: T) Cursor[T] {
         Self { value }
     }
 }
@@ -101,7 +101,7 @@ where T: Step + Ord[T]
 {
     type Item = T;
 
-    fn advance(&mut self) ?T {
+    fun advance(&mut self) ?T {
         let value = self.value;
         self.value = match value.next() {
             ?next => next,
@@ -128,19 +128,19 @@ struct Counter {
 }
 
 extend Counter : iter::Step {
-    fn next(self) ?Counter {
+    fun next(self) ?Counter {
         ?Counter { value: self.value + 1 }
     }
 }
 
 extend Counter : Ord[Counter] {
-    fn lt(&self, other: &Counter) bool { self.value < other.value }
-    fn le(&self, other: &Counter) bool { self.value <= other.value }
-    fn gt(&self, other: &Counter) bool { self.value > other.value }
-    fn ge(&self, other: &Counter) bool { self.value >= other.value }
+    fun lt(&self, other: &Counter) bool { self.value < other.value }
+    fun le(&self, other: &Counter) bool { self.value <= other.value }
+    fun gt(&self, other: &Counter) bool { self.value > other.value }
+    fun ge(&self, other: &Counter) bool { self.value >= other.value }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut cursor = iter::Cursor[Counter]::init(Counter { value: 7 });
     match cursor.advance() {

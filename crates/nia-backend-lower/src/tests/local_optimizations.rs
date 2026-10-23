@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn o1_removes_noop_backend_local_stores() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut value = 0;
     value
 }
@@ -67,7 +67,7 @@ fn main() i32 {
 #[test]
 fn o0_preserves_noop_backend_local_stores() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut value = 0;
     value
 }
@@ -118,11 +118,11 @@ fn optimization_report_lists_enabled_pass_inventory_by_scope() {
     let source = r#"
 static zeroes: [i32; 4] = [0; 4];
 
-fn answer() i32 {
+fun answer() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer() + zeroes[0]
 }
 "#;
@@ -217,7 +217,7 @@ fn main() i32 {
 #[test]
 fn o1_removes_pure_backend_expr_ops() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -265,7 +265,7 @@ fn main() i32 {
 #[test]
 fn o0_preserves_pure_backend_expr_ops() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -313,7 +313,7 @@ fn main() i32 {
 #[test]
 fn o2_removes_unused_backend_local_bindings() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut unused = 1;
     0
 }
@@ -352,7 +352,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_unused_backend_local_bindings() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut unused = 1;
     0
 }
@@ -391,7 +391,7 @@ fn main() i32 {
 #[test]
 fn o1_removes_unused_backend_temp_bindings() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -470,7 +470,7 @@ fn o1_removes_pure_zst_local_runtime_ops() {
     let source = r#"
 struct Empty {}
 
-fn main() i32 {
+fun main() i32 {
     let mut local = Empty {};
     local = Empty {};
     0
@@ -528,7 +528,7 @@ fn o0_preserves_pure_zst_local_runtime_ops() {
     let source = r#"
 struct Empty {}
 
-fn main() i32 {
+fun main() i32 {
     let mut local = Empty {};
     local = {};
     0
@@ -579,13 +579,13 @@ struct Wrap {
     value: (),
 }
 
-extern fn log(value: i32);
+extern fun log(value: i32);
 
-fn effect(value: i32) () {
+fun effect(value: i32) () {
     log(value);
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut local = Wrap { value: effect(1) };
     local = Wrap { value: effect(2) };
     0
@@ -649,7 +649,7 @@ fn o0_preserves_zst_local_runtime_ops() {
     let source = r#"
 struct Empty {}
 
-fn main() i32 {
+fun main() i32 {
     let mut local = Empty {};
     local = {};
     0
@@ -695,7 +695,7 @@ fn main() i32 {
 #[test]
 fn o2_propagates_backend_local_copies() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut source = 1;
     let mut copy = source;
     copy
@@ -734,7 +734,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_backend_local_copies() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut source = 1;
     let mut copy = source;
     copy
@@ -774,7 +774,7 @@ fn main() i32 {
 #[test]
 fn o3_propagates_backend_local_constants() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut value = 42;
     value
 }
@@ -823,7 +823,7 @@ fn main() i32 {
 #[test]
 fn o2_preserves_backend_local_constants() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut value = 42;
     value
 }
@@ -870,7 +870,7 @@ fn main() i32 {
 #[test]
 fn o2_folds_constant_backend_switches() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     match 2 {
         1 => 10,
         2 => 20,
@@ -917,7 +917,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_constant_backend_switches() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     match 2 {
         1 => 10,
         2 => 20,
@@ -964,7 +964,7 @@ fn main() i32 {
 #[test]
 fn o2_removes_overwritten_backend_local_stores() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut target = 0;
     target
 }
@@ -1025,7 +1025,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_overwritten_backend_local_stores() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut target = 0;
     target
 }
@@ -1086,7 +1086,7 @@ fn main() i32 {
 #[test]
 fn o2_removes_never_read_backend_local_stores() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut target = 0;
     1
 }
@@ -1136,7 +1136,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_never_read_backend_local_stores() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     let mut target = 0;
     1
 }

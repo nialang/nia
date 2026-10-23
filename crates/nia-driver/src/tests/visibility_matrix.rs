@@ -39,12 +39,12 @@ fn qualified_callable_visibility_matrix() {
             let declarations = format!(
                 r#"
 {visibility} struct Hidden {{}}
-{visibility} fn plain(value: i32) i32 {{ value }}
-{visibility} fn generic[T](value: T) T {{ value }}
+{visibility} fun plain(value: i32) i32 {{ value }}
+{visibility} fun generic[T](value: T) T {{ value }}
 pub struct Point {{}}
 extend Point {{
-    {visibility} fn plain(value: i32) i32 {{ value }}
-    {visibility} fn generic[T](value: T) T {{ value }}
+    {visibility} fun plain(value: i32) i32 {{ value }}
+    {visibility} fun generic[T](value: T) T {{ value }}
 }}
 "#
             );
@@ -61,7 +61,7 @@ extend Point {{
                 ));
             }
             let exercise = format!(
-                "\nfn exercise() {{ {uses}\nlet hidden: {prefix}::Hidden = .{{}}; _ = hidden; }}\n"
+                "\nfun exercise() {{ {uses}\nlet hidden: {prefix}::Hidden = .{{}}; _ = hidden; }}\n"
             );
             let consumer = match scope {
                 "same" => &model,
@@ -114,8 +114,8 @@ extend Point {{
                 );
                 let declared = &declarations[declaration.span.start..declaration.span.end];
                 assert!(
-                    declared.contains("fn plain")
-                        || declared.contains("fn generic")
+                    declared.contains("fun plain")
+                        || declared.contains("fun generic")
                         || declared.contains("struct Hidden"),
                     "{declaration:?}"
                 );

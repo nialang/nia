@@ -16,7 +16,7 @@ fn emit_exe_std_mem_zero_sized_and_empty_slice_edges() {
 using std::mem;
 using std::process;
 
-fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
+fun check_allocator_preserves_empty_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     match allocator.allocSlice[i32](0) {
         mut !allocation => { if allocation.len() != 0 or allocation.asSlice().len() != 0 {
@@ -28,7 +28,7 @@ fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
     !()
 }
 
-fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
+fun check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     match allocator.allocSlice[()](4) {
         mut !allocation => { if allocation.len() != 4 or allocation.asSlice().len() != 4 {
@@ -40,7 +40,7 @@ fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
     !()
 }
 
-fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!() {
+fun check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
     match mem::Layout::array[()](8) {
@@ -63,7 +63,7 @@ fn check_block_as_slice_handles_zero_sized_element_type() process::ExitCode!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     check_allocator_preserves_empty_slice_len().?;
     check_allocator_preserves_zero_sized_slice_len().?;
@@ -102,7 +102,7 @@ fn emit_exe_memory_intrinsic_builtins() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut ints: [i32; 3] = [0, 0, 0];
@@ -177,7 +177,7 @@ fn emit_exe_cross_module_generic_memory_intrinsic_keeps_param_locals() {
     std::fs::write(
         &helper,
         r#"
-pub fn copy_prefix[T](to: &mut [T], from: &[T]) ()
+pub fun copy_prefix[T](to: &mut [T], from: &[T]) ()
 where T: Sized
 {
     std::builtin::memcpy(to, from);
@@ -191,7 +191,7 @@ where T: Sized
 using helper;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut dest: [u8; 2] = [0; 2];
     let source: [u8; 2] = [b'a', b'b'];
@@ -246,7 +246,7 @@ where T: Sized
 extend[T] SliceIter[T]
 where T: Sized
 {
-    pub fn from_raw_parts(ptr: &T, len: usize) SliceIter[T] {
+    pub fun from_raw_parts(ptr: &T, len: usize) SliceIter[T] {
         Self { ptr, len, index: 0 }
     }
 }
@@ -256,7 +256,7 @@ where T: Sized
 {
     type Item = &T;
 
-    fn next(&mut self) ?&T {
+    fun next(&mut self) ?&T {
         if self.index >= self.len {
             null
         } else {
@@ -270,7 +270,7 @@ where T: Sized
 extend[T] [T]
 where T: Sized
 {
-    pub fn iter_custom(&self) SliceIter[T] {
+    pub fun iter_custom(&self) SliceIter[T] {
         SliceIter[T]::from_raw_parts(self.ptr(), self.len())
     }
 }
@@ -283,7 +283,7 @@ where T: Sized
 using helper;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut data: [i32; 3] = [10, 20, 30];
     let mut total = 0;

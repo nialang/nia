@@ -1,8 +1,8 @@
-fn main() () {
+fun main() () {
     return + {
         discarded();
     };
     retained();
 }
 
-fn later() () {}
+fun later() () {}

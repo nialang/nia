@@ -13,7 +13,7 @@ using types::{
     StepKind,
 };
 
-pub(pkg) fn hasDependency(
+pub(pkg) fun hasDependency(
     dependencies: &[StepDependency],
     stepIndex: usize,
     dependencyIndex: usize,
@@ -28,7 +28,7 @@ pub(pkg) fn hasDependency(
     false
 }
 
-pub(pkg) fn findGeneratedSourceProducer(
+pub(pkg) fun findGeneratedSourceProducer(
     ownerId: usize,
     steps: &[Step],
     path: &[char],

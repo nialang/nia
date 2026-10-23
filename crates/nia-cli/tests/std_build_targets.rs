@@ -19,11 +19,11 @@ using std::mem;
 using std::process;
 using std::string;
 
-fn target(name: &[char], endian: &[char], pointerWidth: u32) build::TargetView {
+fun target(name: &[char], endian: &[char], pointerWidth: u32) build::TargetView {
     build::TargetView::init(name, endian, pointerWidth)
 }
 
-fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
+fun initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!build::Build {
     let pathText = "temporary-path";
     let endian = "little";
     // The maintained matrix, as the toolchain supplies it; the host and
@@ -54,7 +54,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
     initialization.finish()
 }
 
-fn rejectsTargetName(result: build::Error!build::TargetView) bool {
+fun rejectsTargetName(result: build::Error!build::TargetView) bool {
     match result {
         !view => {
             _ = view;
@@ -70,11 +70,11 @@ fn rejectsTargetName(result: build::Error!build::TargetView) bool {
     }
 }
 
-fn textIs(actual: &[char], expected: &[char]) bool {
+fun textIs(actual: &[char], expected: &[char]) bool {
     actual.equals(expected)
 }
 
-fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
+fun rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -90,7 +90,7 @@ fn rejectsForeignModule(result: build::Error!build::ExecutableHandle) bool {
     }
 }
 
-fn rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
+fun rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -106,7 +106,7 @@ fn rejectsForeignExecutable(result: build::Error!build::StepHandle) bool {
     }
 }
 
-fn rejectsForeignObject(result: build::Error!build::StepHandle) bool {
+fun rejectsForeignObject(result: build::Error!build::StepHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -122,7 +122,7 @@ fn rejectsForeignObject(result: build::Error!build::StepHandle) bool {
     }
 }
 
-fn rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
+fun rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -138,7 +138,7 @@ fn rejectsForeignStaticArchive(result: build::Error!build::StepHandle) bool {
     }
 }
 
-fn rejectsForeignStaticArchiveTarget(result: build::Error!build::ExecutableHandle) bool {
+fun rejectsForeignStaticArchiveTarget(result: build::Error!build::ExecutableHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -154,7 +154,7 @@ fn rejectsForeignStaticArchiveTarget(result: build::Error!build::ExecutableHandl
     }
 }
 
-fn rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index: usize) bool {
+fun rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index: usize) bool {
     match result {
         !handle => {
             _ = handle;
@@ -170,7 +170,7 @@ fn rejectsInvalidExecutable(result: build::Error!build::ExecutableHandle, index:
     }
 }
 
-fn rejectsForeignStep(result: build::Error!()) bool {
+fun rejectsForeignStep(result: build::Error!()) bool {
     match result {
         !ok => {
             _ = ok;
@@ -186,7 +186,7 @@ fn rejectsForeignStep(result: build::Error!()) bool {
     }
 }
 
-fn rejectsInvalidPackage(result: build::Error!build::PackageHandle, index: usize) bool {
+fun rejectsInvalidPackage(result: build::Error!build::PackageHandle, index: usize) bool {
     match result {
         !handle => {
             _ = handle;
@@ -202,7 +202,7 @@ fn rejectsInvalidPackage(result: build::Error!build::PackageHandle, index: usize
     }
 }
 
-fn rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
+fun rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -218,7 +218,7 @@ fn rejectsForeignPackageInput(result: build::Error!build::StepHandle) bool {
     }
 }
 
-fn rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
+fun rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -234,7 +234,7 @@ fn rejectsForeignPackageModule(result: build::Error!build::ModuleHandle) bool {
     }
 }
 
-fn rejectsInvalidPlanModule(result: build::Error!(), index: usize) bool {
+fun rejectsInvalidPlanModule(result: build::Error!(), index: usize) bool {
     match result {
         !ok => {
             _ = ok;
@@ -250,7 +250,7 @@ fn rejectsInvalidPlanModule(result: build::Error!(), index: usize) bool {
     }
 }
 
-fn rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) bool {
+fun rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) bool {
     match result {
         !handle => {
             _ = handle;
@@ -266,7 +266,7 @@ fn rejectsInvalidModule(result: build::Error!build::ModuleHandle, index: usize) 
     }
 }
 
-fn rejectsInvalidStep(result: build::Error!build::StepHandle, index: usize) bool {
+fun rejectsInvalidStep(result: build::Error!build::StepHandle, index: usize) bool {
     match result {
         !handle => {
             _ = handle;
@@ -282,7 +282,7 @@ fn rejectsInvalidStep(result: build::Error!build::StepHandle, index: usize) bool
     }
 }
 
-fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
+fun rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
     match result {
         !handle => {
             _ = handle;
@@ -298,7 +298,7 @@ fn rejectsDuplicateImport(result: build::Error!build::ModuleHandle) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().?;

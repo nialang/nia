@@ -9,7 +9,7 @@ the complete surface.
 Every executable uses the same entry point:
 
 ```nia
-pub fn main(init: process::Init) process::ExitCode!()
+pub fun main(init: process::Init) process::ExitCode!()
 ```
 
 The examples use `std::io::debugPrint` for compact diagnostic output. `io.nia`

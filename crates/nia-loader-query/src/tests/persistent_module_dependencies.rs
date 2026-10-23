@@ -6,7 +6,7 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     sources
-        .set_source(main.clone(), "fn helper() i32 { 1 } pub module child;")
+        .set_source(main.clone(), "fun helper() i32 { 1 } pub module child;")
         .expect("store source");
     let first_file = sources
         .source_for_path(&main)
@@ -57,7 +57,7 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
     let edited_file = sources
         .set_source(
             main.clone(),
-            "fn helper() i32 { 1000 + 2000 + 3000 } pub module child;",
+            "fun helper() i32 { 1000 + 2000 + 3000 } pub module child;",
         )
         .expect("store edited source");
     let edited_identity = module_dependencies_cache_identity(&edited_file, &main, &module_map);

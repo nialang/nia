@@ -4070,10 +4070,10 @@ mod tests {
         assert!(runner.source.contains("using std::string;"));
         assert!(runner.source.contains("using buildScript;"));
         assert!(runner.source.contains("struct ConfigCursor"));
-        assert!(runner.source.contains("fn readPath("));
-        assert!(runner.source.contains("fn readText("));
-        assert!(runner.source.contains("fn readTarget("));
-        assert!(runner.source.contains("fn readOptimization("));
+        assert!(runner.source.contains("fun readPath("));
+        assert!(runner.source.contains("fun readText("));
+        assert!(runner.source.contains("fun readTarget("));
+        assert!(runner.source.contains("fun readOptimization("));
         assert!(runner.source.contains("runnerConfigChecksum(payload)"));
         assert!(runner.source.contains(&format!(
             "envelope.u32().reportAndExit(init).? != {}u32",
@@ -4090,7 +4090,7 @@ mod tests {
         );
         assert!(runner.source.contains("init.args().len() != 3"));
         assert!(runner.source.contains("equals(&b\"--config\")"));
-        assert!(runner.source.contains("fn reportAndExit("));
+        assert!(runner.source.contains("fun reportAndExit("));
         assert!(runner.source.contains("fs::Path::fromUtf8("));
         assert!(runner.source.contains("string::String::fromUtf8("));
         assert!(
@@ -4392,7 +4392,7 @@ mod tests {
             );
             let entries = [
                 ("nia.toml", manifest.as_bytes()),
-                ("src/lib.nia", b"pub fn value() -> i32 = 1;".as_slice()),
+                ("src/lib.nia", b"pub fun value() -> i32 = 1;".as_slice()),
             ];
             let mut archive = Vec::new();
             archive.extend_from_slice(b"NIAPKG\0\0");
@@ -4808,7 +4808,7 @@ mod tests {
 using std::fs;
 using sshdep;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let value: u8 = sshdep::value;
     let output = b.addGeneratedFileStep(
         &"generated",
@@ -4908,7 +4908,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 std::fs::create_dir_all(consumer.join("src")).expect("create consumer sources");
                 std::fs::write(
                     consumer.join("src/main.nia"),
-                    "using std::process;\nusing sshdep;\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    let value: u8 = sshdep::value;\n    _ = value;\n    !()\n}\n",
+                    "using std::process;\nusing sshdep;\npub fun main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    let value: u8 = sshdep::value;\n    _ = value;\n    !()\n}\n",
                 )
                 .expect("write consumer source");
                 std::fs::write(
@@ -4916,7 +4916,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                     r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let root = b.addModule(build::ModuleOptions::init(&"main", fs::PathView::init(&"src/main.nia"))).?;
     let app = b.addExecutable(build::ExecutableOptions::init(&"app", root)).?;
     let check = b.addCheckExecutableStep(&"check", app).?;

@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn o1_removes_unreachable_backend_function_blocks() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     defer {
     };
     0
@@ -41,7 +41,7 @@ fn main() i32 {
 #[test]
 fn o0_preserves_unreachable_backend_function_blocks() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     defer {
     };
     0
@@ -78,7 +78,7 @@ fn main() i32 {
 #[test]
 fn o1_merges_empty_backend_function_jump_blocks() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -124,7 +124,7 @@ fn main() i32 {
 #[test]
 fn o0_preserves_empty_backend_function_jump_blocks() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -170,7 +170,7 @@ fn main() i32 {
 #[test]
 fn o1_folds_constant_bool_backend_if_branches() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -220,7 +220,7 @@ fn main() i32 {
 #[test]
 fn o1_simplifies_constant_logical_backend_if_conditions() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -295,7 +295,7 @@ fn main() i32 {
 #[test]
 fn o0_preserves_constant_bool_backend_if_branches() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -345,7 +345,7 @@ fn main() i32 {
 #[test]
 fn o1_removes_same_type_backend_casts() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -379,7 +379,7 @@ fn main() i32 {
 #[test]
 fn o0_preserves_same_type_backend_casts() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;

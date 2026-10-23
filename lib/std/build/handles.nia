@@ -20,11 +20,11 @@ using types::{
 };
 
 extend BuildInitAttempt {
-    pub(pkg) fn init(build: Build) BuildInitAttempt {
+    pub(pkg) fun init(build: Build) BuildInitAttempt {
         .{ build, primary: null, active: true }
     }
 
-    pub fn finish(&mut self) Error!Build {
+    pub fun finish(&mut self) Error!Build {
         if not self.active {
             return .Internal(.Initialize)!;
         }
@@ -42,61 +42,61 @@ extend BuildInitAttempt {
 }
 
 extend StepHandle {
-    pub(pkg) fn init(ownerId: usize, index: usize) StepHandle {
+    pub(pkg) fun init(ownerId: usize, index: usize) StepHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fn ownerId(&self) usize { self.ownerId }
-    pub(pkg) fn index(&self) usize { self.index }
+    pub(pkg) fun ownerId(&self) usize { self.ownerId }
+    pub(pkg) fun index(&self) usize { self.index }
 }
 
 extend ExecutableHandle {
-    pub(pkg) fn init(ownerId: usize, index: usize) ExecutableHandle {
+    pub(pkg) fun init(ownerId: usize, index: usize) ExecutableHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fn ownerId(&self) usize { self.ownerId }
-    pub(pkg) fn index(&self) usize { self.index }
+    pub(pkg) fun ownerId(&self) usize { self.ownerId }
+    pub(pkg) fun index(&self) usize { self.index }
 }
 
 extend ObjectHandle {
-    pub(pkg) fn init(ownerId: usize, index: usize) ObjectHandle {
+    pub(pkg) fun init(ownerId: usize, index: usize) ObjectHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fn ownerId(&self) usize { self.ownerId }
-    pub(pkg) fn index(&self) usize { self.index }
+    pub(pkg) fun ownerId(&self) usize { self.ownerId }
+    pub(pkg) fun index(&self) usize { self.index }
 }
 
 extend StaticArchiveHandle {
-    pub(pkg) fn init(ownerId: usize, index: usize) StaticArchiveHandle {
+    pub(pkg) fun init(ownerId: usize, index: usize) StaticArchiveHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fn ownerId(&self) usize { self.ownerId }
-    pub(pkg) fn index(&self) usize { self.index }
+    pub(pkg) fun ownerId(&self) usize { self.ownerId }
+    pub(pkg) fun index(&self) usize { self.index }
 }
 
 extend ModuleHandle {
-    pub(pkg) fn init(ownerId: usize, index: usize) ModuleHandle {
+    pub(pkg) fun init(ownerId: usize, index: usize) ModuleHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fn ownerId(&self) usize { self.ownerId }
-    pub(pkg) fn index(&self) usize { self.index }
+    pub(pkg) fun ownerId(&self) usize { self.ownerId }
+    pub(pkg) fun index(&self) usize { self.index }
 }
 
 extend PackageHandle {
-    pub(pkg) fn init(ownerId: usize, index: usize) PackageHandle {
+    pub(pkg) fun init(ownerId: usize, index: usize) PackageHandle {
         .{ ownerId, index }
     }
 
-    pub(pkg) fn ownerId(&self) usize { self.ownerId }
-    pub(pkg) fn index(&self) usize { self.index }
+    pub(pkg) fun ownerId(&self) usize { self.ownerId }
+    pub(pkg) fun index(&self) usize { self.index }
 }
 
 extend StepDependency {
-    pub fn init(step: StepHandle, dependency: StepHandle) StepDependency {
+    pub fun init(step: StepHandle, dependency: StepHandle) StepDependency {
         .{ step, dependency }
     }
 }

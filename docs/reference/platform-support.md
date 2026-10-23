@@ -58,16 +58,16 @@ using std::builtin::target;
 using std::process;
 
 @[if os == "windows"]
-fn separator() char {
+fun separator() char {
     '\\'
 }
 
 @[if os != "windows"]
-fn separator() char {
+fun separator() char {
     '/'
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if target::pointerWidth != 64 and target::pointerWidth != 32 {
         return process::ExitCode(1)!;
@@ -94,7 +94,7 @@ is present:
 
 - `freestanding`: the toolchain supplies process entry for an operating system.
   Its startup adapts the platform entry ABI, builds `process::Init`, and calls
-  `pub fn main(init: process::Init) process::ExitCode!()`.
+  `pub fun main(init: process::Init) process::ExitCode!()`.
 - `bare`: the toolchain supplies no entry and assumes no operating system. The
   program or its link configuration defines entry, as kernels, firmware, and
   embedded images do.

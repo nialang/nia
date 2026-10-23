@@ -78,7 +78,7 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::BuiltinMethod {
                     method: nia_sema_ir::BuiltinMethod::Iter,
                     ..
-                } => "`Iterable::iter` trait witness used during const evaluation must be declared `const fn`"
+                } => "`Iterable::iter` trait witness used during const evaluation must be declared `const fun`"
                     .to_string(),
                 ResolvedCall::BuiltinMethod { method, .. } => format!(
                     "builtin method `{}` is not available during const evaluation",
@@ -87,12 +87,12 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::BuiltinTraitMethodCall {
                     method: BuiltinTraitMethod::IteratorNext,
                     ..
-                } => "`Iterator::next` trait witness used during const evaluation must be declared `const fn`"
+                } => "`Iterator::next` trait witness used during const evaluation must be declared `const fun`"
                     .to_string(),
                 ResolvedCall::BuiltinTraitMethodCall {
                     method: BuiltinTraitMethod::IntoError,
                     ..
-                } => "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fn`"
+                } => "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fun`"
                     .to_string(),
                 ResolvedCall::BuiltinTraitMethodCall { method, .. } => format!(
                     "builtin method `{}` is not available during const evaluation",
@@ -110,10 +110,10 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::TraitMethod { method_name, .. }
                     if *method_name == nia_symbol::known::INTO_ERROR =>
                 {
-                    "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fn`"
+                    "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fun`"
                         .to_string()
                 }
-                _ => "const expression can only call `const fn`".to_string(),
+                _ => "const expression can only call `const fun`".to_string(),
             };
             self.diagnostics
                 .push(Diagnostic::user_error_at(codes::CONST, span, summary));

@@ -4,7 +4,9 @@ use super::*;
 fn rejected_syntax_publication_does_not_commit_source_text() {
     let sources = SourceDatabase::new();
     let path = SourcePath::new("main.nia");
-    let file = sources.set_source(path.clone(), "fn main() { 0 }").unwrap();
+    let file = sources
+        .set_source(path.clone(), "fun main() { 0 }")
+        .unwrap();
     let loader = LoaderDatabase::new_for_test(test_request(path.as_str()).with_sources(sources));
     let original = loader.db.expect_get(SyntaxModuleQuery(file.version()));
     let next = SourceVersion {
@@ -24,7 +26,11 @@ fn rejected_syntax_publication_does_not_commit_source_text() {
             &SourceTextQuery(other),
         )
         .unwrap();
-    assert!(loader.set_source(path.as_str(), "fn main() { 1 }").is_err());
+    assert!(
+        loader
+            .set_source(path.as_str(), "fun main() { 1 }")
+            .is_err()
+    );
     let retained = loader.sources.source_for_path(&path).unwrap();
     assert_eq!(retained.version(), file.version());
     assert_eq!(retained.text, file.text);
@@ -33,7 +39,9 @@ fn rejected_syntax_publication_does_not_commit_source_text() {
         *original
     );
     loader.db.retire(&SyntaxModuleQuery(next)).unwrap();
-    let updated = loader.set_source(path.as_str(), "fn main() { 1 }").unwrap();
+    let updated = loader
+        .set_source(path.as_str(), "fun main() { 1 }")
+        .unwrap();
     assert_eq!(updated.version(), next);
     assert_eq!(
         *loader.db.expect_get(SyntaxModuleQuery(next)),
@@ -45,7 +53,7 @@ fn rejected_syntax_publication_does_not_commit_source_text() {
 fn loader_edits_reuse_syntax_and_match_clean_lowering_through_recovery() {
     let sources = SourceDatabase::new();
     let path = SourcePath::new("main.nia");
-    let text = "fn main() { before(); if flag { value[index]; } after(); } fn last() {}";
+    let text = "fun main() { before(); if flag { value[index]; } after(); } fun last() {}";
     let mut file = sources.set_source(path.clone(), text).unwrap();
     let loader = LoaderDatabase::new_for_test(test_request(path.as_str()).with_sources(sources));
     let original = loader.db.expect_get(SyntaxModuleQuery(file.version()));
@@ -145,7 +153,7 @@ fn rejected_and_lazy_loader_edits_preserve_revision_ownership() {
     let sources = SourceDatabase::new();
     let path = SourcePath::new("main.nia");
     let file = sources
-        .set_source(path.clone(), "// \u{4e2d}\nfn main() {}")
+        .set_source(path.clone(), "// \u{4e2d}\nfun main() {}")
         .unwrap();
     let loader = LoaderDatabase::new_for_test(test_request(path.as_str()).with_sources(sources));
     let same = loader.set_source(path.as_str(), file.text.clone()).unwrap();
@@ -188,9 +196,9 @@ fn rejected_and_lazy_loader_edits_preserve_revision_ownership() {
         assert_eq!(loader.query_trace().unwrap().queries.len(), count);
     }
     for text in [
-        "// \u{4e2d}\nfn main() {}",
-        "// \u{4e01}\nfn main() {}",
-        "// \u{6587}\nfn main() { }",
+        "// \u{4e2d}\nfun main() {}",
+        "// \u{4e01}\nfun main() {}",
+        "// \u{6587}\nfun main() { }",
     ] {
         let updated = loader.set_source(path.as_str(), text).unwrap();
         assert_eq!(
@@ -204,7 +212,7 @@ fn rejected_and_lazy_loader_edits_preserve_revision_ownership() {
 fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let sources = SourceDatabase::new();
     sources
-        .set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }")
+        .set_source(SourcePath::new("main.nia"), "fun main() i32 { 0 }")
         .expect("store source");
     let loader = LoaderDatabase::new_for_test(test_request("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))
@@ -221,7 +229,7 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     );
 
     let latest_source = loader
-        .set_source("main.nia", "fn main() i32 { 1 }")
+        .set_source("main.nia", "fun main() i32 { 1 }")
         .expect("replace source");
     compiler
         .update(CompileRequest::new(loader.clone()))
@@ -250,7 +258,7 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
     let sources = SourceDatabase::new();
     let path = SourcePath::new("main.nia");
     let first_source = sources
-        .set_source(path.clone(), "fn main() i32 { 1 }")
+        .set_source(path.clone(), "fun main() i32 { 1 }")
         .expect("store first source");
     let db = QueryDb::new(test_loader_context(
         path.clone(),
@@ -266,7 +274,7 @@ fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
     let first_signature = db.expect_get(signature_key);
 
     sources
-        .set_source(path, "fn main() i32 { 2 }")
+        .set_source(path, "fun main() i32 { 2 }")
         .expect("store second source");
     db.invalidate(SourceTextQuery(first_source.id))
         .expect("invalidate source text");

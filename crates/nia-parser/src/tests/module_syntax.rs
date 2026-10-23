@@ -6,7 +6,7 @@ fn parses_top_level_items() {
     let source = r#"
 module math;
 
-pub extern fn printf(fmt: &u8, ...);
+pub extern fun printf(fmt: &u8, ...);
 
 pub enum Color: u8 {
     Black,
@@ -19,7 +19,7 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    fn len2(&self) i32 {
+    fun len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -27,7 +27,7 @@ extend Vec2 {
 static banner = "nia\0";
 extern static mut a: usize;
 type Byte = u8;
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#;
     let (module, errors) = parse_module(source);
     assert_eq!(errors, Vec::<ParseError>::new());
@@ -45,7 +45,7 @@ fn main() i32 { 0 }
 
 #[test]
 fn syntax_tree_is_lossless_and_lowering_is_deterministic() {
-    let source = "fn  main() i32 { // retained by syntax\n  0\n}\n";
+    let source = "fun  main() i32 { // retained by syntax\n  0\n}\n";
     let parse = nia_syntax::parse(source, Some(version(1))).expect("grammar tree");
     let store = NodeStore::new();
     let first = lower_module(&parse, &store, nia_symbol_table::SymbolTable::new());
@@ -60,7 +60,7 @@ fn syntax_tree_is_lossless_and_lowering_is_deterministic() {
 #[test]
 fn incremental_edit_sequence_preserves_clean_ast_diagnostics_and_origins() {
     let source =
-        "module first;\nfn main[T](x: T) T { value[index]; x }\nfn broken(x) {}\nmodule last;\n";
+        "module first;\nfun main[T](x: T) T { value[index]; x }\nfun broken(x) {}\nmodule last;\n";
     let mut current_version = version(1);
     let mut incremental = nia_syntax::parse(source, Some(current_version)).expect("initial parse");
     let store = NodeStore::new();
@@ -107,7 +107,7 @@ fn incremental_edit_sequence_preserves_clean_ast_diagnostics_and_origins() {
 #[test]
 fn parse_errors_carry_red_token_node_keys() {
     let version = version(3);
-    let lowered = lower_with("fn bad(value) {}", Some(version));
+    let lowered = lower_with("fun bad(value) {}", Some(version));
 
     let error = lowered
         .errors
@@ -131,7 +131,7 @@ fn lowering_records_ast_origins_as_red_child_path_ranges() {
         origins,
     } = lower_with(
         r#"
-fn main(a: i32) i32 {
+fun main(a: i32) i32 {
     let mut x = a;
     x
 }
@@ -169,7 +169,7 @@ fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
         module,
         errors,
         origins,
-    } = lower_with("fn main() i32 { 0 }", None);
+    } = lower_with("fun main() i32 { 0 }", None);
 
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Function(function) = &module.items[0].kind else {
@@ -189,7 +189,7 @@ fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
         module: second_module,
         errors: second_errors,
         origins: second_origins,
-    } = lower_with("fn main() i32 { 0 }", None);
+    } = lower_with("fun main() i32 { 0 }", None);
     assert!(second_errors.is_empty(), "{second_errors:?}");
     let ItemKind::Function(second_function) = &second_module.items[0].kind else {
         panic!("expected function");
@@ -203,7 +203,7 @@ fn unversioned_syntax_uses_one_isolated_origin_identity_per_parse() {
 
 #[test]
 fn speculative_readings_publish_only_retained_origins() {
-    let source = "fn main() i32 { value[index]; 0 }";
+    let source = "fun main() i32 { value[index]; 0 }";
     let LoweredModule {
         module,
         errors,
@@ -247,7 +247,7 @@ fn speculative_readings_publish_only_retained_origins() {
 
 #[test]
 fn failed_item_recovery_does_not_publish_partial_ast_origins() {
-    let source = "fn broken(value: Input) Output {";
+    let source = "fun broken(value: Input) Output {";
     let LoweredModule {
         module,
         errors,
@@ -274,7 +274,7 @@ fn failed_item_recovery_does_not_publish_partial_ast_origins() {
 fn reports_parameter_without_explicit_type() {
     let (_, errors) = parse_module(
         r#"
-fn bad(value) {}
+fun bad(value) {}
 "#,
     );
     assert!(

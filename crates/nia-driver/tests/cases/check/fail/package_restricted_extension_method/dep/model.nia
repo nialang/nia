@@ -3,15 +3,15 @@ pub struct Value {
 }
 
 extend Value {
-    pub fn init(data: i32) Value {
+    pub fun init(data: i32) Value {
         Self { data }
     }
 
-    pub(pkg) fn package_make(data: i32) Value {
+    pub(pkg) fun package_make(data: i32) Value {
         Self { data }
     }
 
-    pub(pkg) fn package_score(&self) i32 {
+    pub(pkg) fun package_score(&self) i32 {
         self.data + 1
     }
 }

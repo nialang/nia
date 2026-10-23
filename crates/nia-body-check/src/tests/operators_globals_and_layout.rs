@@ -31,7 +31,7 @@ fn main_tail_integer_literal_tys(checked: &BodyCheck) -> Vec<nia_ids::InternedTy
 fn checks_unary_operator_builtin_traits() {
     let checked = pipeline(
         r#"
-fn main(flag: bool, bits: u32, x: i32) bool {
+fun main(flag: bool, bits: u32, x: i32) bool {
     let mut neg = -x;
     let mut flipped = ~bits;
     let mut logical = not flag;
@@ -48,7 +48,7 @@ fn lowers_const_value_binary_operator_suffix_literal_types() {
         r#"
 const group_width: usize = 8usize;
 
-fn main() usize {
+fun main() usize {
     group_width - 1usize
 }
 "#,
@@ -66,7 +66,7 @@ fn main() usize {
 fn lowers_negative_suffix_literal_cast_source_type() {
     let checked = pipeline(
         r#"
-fn main() usize {
+fun main() usize {
     (-1isize) as usize
 }
 "#,
@@ -84,19 +84,19 @@ fn main() usize {
 fn infers_unsuffixed_left_literal_from_binary_peer() {
     let checked = pipeline(
         r#"
-fn divide(size: usize) usize {
+fun divide(size: usize) usize {
     64 / size
 }
 
-fn compare(size: usize) bool {
+fun compare(size: usize) bool {
     1 < size
 }
 
-fn equal(size: usize) bool {
+fun equal(size: usize) bool {
     1 == size
 }
 
-fn divideFloat(value: f32) f32 {
+fun divideFloat(value: f32) f32 {
     1.0 / value
 }
 "#,
@@ -108,7 +108,7 @@ fn divideFloat(value: f32) f32 {
 fn does_not_infer_numeric_literal_from_non_numeric_binary_peer() {
     let checked = pipeline(
         r#"
-fn main(flag: bool) bool {
+fun main(flag: bool) bool {
     1 == flag
 }
 "#,
@@ -140,7 +140,7 @@ fn main(flag: bool) bool {
 fn explicit_left_numeric_suffix_is_not_overridden_by_binary_peer() {
     let checked = pipeline(
         r#"
-fn main(size: usize) u32 {
+fun main(size: usize) u32 {
     64u32 / size
 }
 "#,
@@ -158,15 +158,15 @@ fn main(size: usize) u32 {
 fn checks_vector_operator_builtin_traits() {
     let checked = pipeline(
         r#"
-fn add(lhs: u8x16, rhs: u8x16) u8x16 {
+fun add(lhs: u8x16, rhs: u8x16) u8x16 {
     lhs + rhs
 }
 
-fn bitwise(lhs: boolx16, rhs: boolx16) boolx16 {
+fun bitwise(lhs: boolx16, rhs: boolx16) boolx16 {
     lhs & rhs
 }
 
-fn compare(lhs: f32x4, rhs: f32x4) boolx4 {
+fun compare(lhs: f32x4, rhs: f32x4) boolx4 {
     lhs < rhs
 }
 "#,
@@ -179,11 +179,11 @@ fn compare(lhs: f32x4, rhs: f32x4) boolx4 {
 fn rejects_boolean_vector_arithmetic() {
     let checked = pipeline(
         r#"
-fn add(lhs: boolx16, rhs: boolx16) boolx16 {
+fun add(lhs: boolx16, rhs: boolx16) boolx16 {
     lhs + rhs
 }
 
-fn negate(value: boolx16) boolx16 {
+fun negate(value: boolx16) boolx16 {
     -value
 }
 "#,
@@ -209,10 +209,10 @@ fn negate(value: boolx16) boolx16 {
 fn checks_vector_shift_operand_shapes() {
     let checked = pipeline(
         r#"
-fn valid(lhs: u8x16, rhs: u8x16) u8x16 { lhs << rhs }
-fn scalarCount(lhs: u8x16, rhs: u8) u8x16 { lhs << rhs }
-fn wrongLanes(lhs: u8x16, rhs: u8x8) u8x16 { lhs >> rhs }
-fn boolLanes(lhs: boolx16, rhs: boolx16) boolx16 { lhs << rhs }
+fun valid(lhs: u8x16, rhs: u8x16) u8x16 { lhs << rhs }
+fun scalarCount(lhs: u8x16, rhs: u8) u8x16 { lhs << rhs }
+fun wrongLanes(lhs: u8x16, rhs: u8x8) u8x16 { lhs >> rhs }
+fun boolLanes(lhs: boolx16, rhs: boolx16) boolx16 { lhs << rhs }
 "#,
     );
 
@@ -232,7 +232,7 @@ fn boolLanes(lhs: boolx16, rhs: boolx16) boolx16 { lhs << rhs }
 fn rejects_unary_operators_without_builtin_trait_impls() {
     let checked = pipeline(
         r#"
-fn main(flag: bool, x: i32) bool {
+fun main(flag: bool, x: i32) bool {
     let mut bad_bits = ~flag;
     let mut bad_not = not x;
     bad_bits or bad_not
@@ -259,13 +259,13 @@ fn main(flag: bool, x: i32) bool {
 fn checks_compound_assignment_operator_trait_and_output() {
     let checked = pipeline(
         r#"
-fn invalidOperand() usize {
+fun invalidOperand() usize {
     let mut value = true;
     value += false;
     0
 }
 
-fn update[T](value: T, rhs: T) T
+fun update[T](value: T, rhs: T) T
 where T: Add[T, Output = T] {
     let mut result = value;
     result += rhs;
@@ -297,7 +297,7 @@ where T: Add[T, Output = T] {
 fn char_supports_builtin_equality_and_ordering() {
     let checked = pipeline(
         r#"
-fn main(a: char, b: char, n: u32) bool {
+fun main(a: char, b: char, n: u32) bool {
     let mut eq = a == b;
     let mut ne = a != b;
     let mut lt = a < b;
@@ -334,12 +334,12 @@ fn main(a: char, b: char, n: u32) bool {
 fn generic_layout_builtins_require_sized_bound() {
     let checked = pipeline(
         r#"
-fn bytes[T]() usize
+fun bytes[T]() usize
 where T: Sized {
     std::builtin::size[T]() + std::builtin::align[T]()
 }
 
-fn main() usize {
+fun main() usize {
     bytes[i32]()
 }
 "#,
@@ -348,11 +348,11 @@ fn main() usize {
 
     let rejected = pipeline(
         r#"
-fn bytes[T]() usize {
+fun bytes[T]() usize {
     std::builtin::size[T]()
 }
 
-fn main() usize {
+fun main() usize {
     bytes[i32]()
 }
 "#,
@@ -382,19 +382,19 @@ enum Closed {
     B,
 }
 
-fn open_cast() Flag {
+fun open_cast() Flag {
     3 as Flag
 }
 
-fn bad_open_cast() Flag {
+fun bad_open_cast() Flag {
     256 as Flag
 }
 
-fn closed_cast() Closed {
+fun closed_cast() Closed {
     3 as Closed
 }
 
-fn missing_open_default(flag: Flag) i32 {
+fun missing_open_default(flag: Flag) i32 {
     match flag {
         Flag::A => return 1,
         Flag::B => return 2,
@@ -402,7 +402,7 @@ fn missing_open_default(flag: Flag) i32 {
     0
 }
 
-fn with_open_default(flag: Flag) i32 {
+fun with_open_default(flag: Flag) i32 {
     match flag {
         Flag::A => return 1,
         Flag::B => return 2,
@@ -413,7 +413,7 @@ fn with_open_default(flag: Flag) i32 {
     0
 }
 
-fn closed_integer_pattern(closed: Closed) i32 {
+fun closed_integer_pattern(closed: Closed) i32 {
     match closed {
         0 => return 0,
         _ => return 1,
@@ -496,7 +496,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
 fn checks_shift_operators() {
     let checked = pipeline(
         r#"
-fn main(flag: bool, wide: u128, count: u32) i32 {
+fun main(flag: bool, wide: u128, count: u32) i32 {
     let mut x = 1 << 3;
     let mut y = x >> 1;
     let mut high = wide >> count;
@@ -528,7 +528,7 @@ fn main(flag: bool, wide: u128, count: u32) i32 {
 fn suppresses_shift_count_shape_for_error_recovery() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     _ = 1 << missing;
 }
 "#,
@@ -563,7 +563,7 @@ static mut flag = true;
 static limit = 10;
 static mut bad: bool = 1;
 
-fn main() i32 {
+fun main() i32 {
     counter = counter + 1;
     limit = 11;
     if flag { counter } else { limit }
@@ -686,7 +686,7 @@ fn checks_mutable_references_to_static_storage() {
 static immutable: i32 = 1;
 static mut mutable: i32 = 2;
 
-fn main() i32 {
+fun main() i32 {
     let read_only: &i32 = &immutable;
     let writable: &mut i32 = &mut mutable;
     let bad: &mut i32 = &mut immutable;

@@ -12,11 +12,11 @@ struct Item {
     state: i32,
 }
 
-fn set(items: &mut [Item], index: usize, state: i32) () {
+fun set(items: &mut [Item], index: usize, state: i32) () {
     items[index].state = state;
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut items: [Item; 2] = [
         Item { state: 1 },
         Item { state: 2 },
@@ -42,11 +42,11 @@ fn emits_direct_function_calls() {
     std::fs::write(
         &main,
         r#"
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
     a + b
 }
 
-fn main() i32 {
+fun main() i32 {
     add(20, 22)
 }
 "#,
@@ -71,10 +71,10 @@ fn emits_variadic_function_pointer_tail_arguments() {
     std::fs::write(
         &main,
         r#"
-extern fn log(first: i32, ...);
+extern fun log(first: i32, ...);
 
-fn main() i32 {
-    let callback: &extern fn(i32, ...) () = &log;
+fun main() i32 {
+    let callback: &extern fun(i32, ...) () = &log;
     callback(1, 2i32, 3i64);
     0
 }
@@ -100,14 +100,14 @@ fn emits_explicit_import_and_export_symbol_names() {
         &main,
         r#"
 @[exportName("nia_test_add")]
-extern fn add(a: i32, b: i32) i32 {
+extern fun add(a: i32, b: i32) i32 {
     a + b
 }
 
 @[linkName("nia_foreign_value")]
-extern fn foreignValue() i32;
+extern fun foreignValue() i32;
 
-fn main() i32 {
+fun main() i32 {
     add(40, 2) + foreignValue()
 }
 "#,
@@ -148,9 +148,9 @@ extern struct NiaString {
     len: usize,
 }
 
-extern fn make_string() NiaString;
+extern fun make_string() NiaString;
 
-fn main() NiaString {
+fun main() NiaString {
     make_string()
 }
 "#,
@@ -181,7 +181,7 @@ fn emits_freestanding_start_entry_as_extern_start_calling_entry_main() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -219,7 +219,7 @@ fn emits_std_file_writer_without_runtime_backend_plumbing() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
     match stdout.writeAll(&b"nia\n") {
@@ -265,7 +265,7 @@ fn emits_std_buffered_file_writer_flush() {
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut buffer: [u8; 64] = [0; 64];
     let mut raw_buffer: [u8; 0] = [];
     let mut raw = io::FileWriter::stdout(&mut raw_buffer[..]);
@@ -334,21 +334,21 @@ enum Error: i32 {
 }
 
 extend Layout {
-    fn init(len: usize, align: usize) Error!Layout {
+    fun init(len: usize, align: usize) Error!Layout {
         !Layout { len, align }
     }
 
-    fn len(&self) usize {
+    fun len(&self) usize {
         self.len
     }
 }
 
 extend Z {
-    fn init() Z {
+    fun init() Z {
         Self {}
     }
 
-    fn alloc(&self, layout: Layout) Error!?Layout {
+    fun alloc(&self, layout: Layout) Error!?Layout {
         if layout.len() == 0 {
             !null
         } else {
@@ -357,7 +357,7 @@ extend Z {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut z = Z::init();
     let mut layout: Layout;
     match Layout::init(7, 1) {
@@ -405,11 +405,11 @@ fn emits_slice_len_ptr_and_indexing() {
     std::fs::write(
         &main,
         r#"
-fn first(xs: & [i32]) i32 {
+fun first(xs: & [i32]) i32 {
     xs[0]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs: [i32; 4] = [1, 2, 3, 4];
     let mut s = & xs[1..=2];
     let mut p = s.ptr();
@@ -440,17 +440,17 @@ fn emits_inherent_range_bound_methods() {
         &main,
         r#"
 extend[T] T..T {
-    fn projectedEnd(&self) T {
+    fun projectedEnd(&self) T {
         self.end()
     }
 }
 
-fn rangeSum(start: usize, end: usize) usize {
+fun rangeSum(start: usize, end: usize) usize {
     let range = start..end;
     range.start() + range.projectedEnd()
 }
 
-fn main() usize {
+fun main() usize {
     rangeSum(20usize, 22usize)
 }
 "#,
@@ -482,15 +482,15 @@ fn emits_ptr_methods_on_slice_parameters() {
     std::fs::write(
         &main,
         r#"
-fn read_ptr(xs: &[u8]) &u8 {
+fun read_ptr(xs: &[u8]) &u8 {
     xs.ptr()
 }
 
-fn write_ptr(xs: &mut [u8]) &mut u8 {
+fun write_ptr(xs: &mut [u8]) &mut u8 {
     xs.ptrMut()
 }
 
-fn main() usize {
+fun main() usize {
     let mut ro: [u8; 2] = [1, 2];
     let mut rw: [u8; 2] = [3, 4];
     let mut read = read_ptr(&ro[..]);
@@ -515,24 +515,24 @@ fn emits_array_to_slice_coercions() {
     std::fs::write(
         &main,
         r#"
-fn first(xs: & [i32]) i32 {
+fun first(xs: & [i32]) i32 {
     xs[0]
 }
 
-fn first_byte(xs: & [u8]) i32 {
+fun first_byte(xs: & [u8]) i32 {
     xs[0] as i32
 }
 
-fn first_char(xs: & [char]) i32 {
+fun first_char(xs: & [char]) i32 {
     if xs[0] == 'r' { 1 } else { 0 }
 }
 
-fn overwrite(xs: &mut [i32]) i32 {
+fun overwrite(xs: &mut [i32]) i32 {
     xs[1] = 9;
     xs[1]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs: [i32; 3] = [1, 2, 3];
     let mut borrow = & xs[..];
     let mut literal: & [i32] = &[4, 5, 6];
@@ -562,7 +562,7 @@ fn emits_zero_length_array_slice_without_indexing_empty_storage() {
     std::fs::write(
         &main,
         r#"
-fn main() usize {
+fun main() usize {
     let mut bytes: [u8; 0] = [];
     let mut slice = &mut bytes[..];
     slice.len()
@@ -588,11 +588,11 @@ fn zero_length_slice_storage_dominates_repeated_defer_expansions() {
     std::fs::write(
         &main,
         r#"
-fn consume(values: &[&i32]) () {
+fun consume(values: &[&i32]) () {
     _ = values;
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     defer consume(&[]);
     if flag {
         return 1;
@@ -624,10 +624,10 @@ fn emits_global_string_pointer_call() {
     std::fs::write(
         &main,
         r#"
-extern fn puts(s: & u8) i32;
+extern fun puts(s: & u8) i32;
 static hello: [u8; 6] = b"hello\0";
 
-fn main() i32 {
+fun main() i32 {
     _ = puts(&hello[0]);
     0
 }
@@ -659,11 +659,11 @@ struct Pair {
     b: i32,
 }
 
-fn read(ptr: & i32) i32 {
+fun read(ptr: & i32) i32 {
     ptr.*
 }
 
-fn main(i: usize) i32 {
+fun main(i: usize) i32 {
     let mut pair = Pair { a: 10, b: 20 };
     let mut xs: [i32; 2] = [30, 40];
     read(& pair.b) + read(& xs[i])
@@ -690,14 +690,14 @@ fn emits_explicit_byte_string_first_element_pointers() {
     std::fs::write(
         &main,
         r#"
-extern fn puts(s: & u8) i32;
+extern fun puts(s: & u8) i32;
 
-fn first(ptr: &mut u8) i32 {
+fun first(ptr: &mut u8) i32 {
     ptr.* = b'J';
     ptr.* as i32
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut mutable: [u8; 8] = b"mutable\0";
     let hello = b"hello\0";
     let world = b"world\0";

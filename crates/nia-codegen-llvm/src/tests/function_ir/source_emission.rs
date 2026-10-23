@@ -7,9 +7,9 @@ fn emits_statement_if_from_function_ir_with_defer_cleanup() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn main() i32 {
+fun main() i32 {
     if true {
         defer log(1);
     }
@@ -37,9 +37,9 @@ fn emits_statement_switch_from_function_ir_with_defer_cleanup() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn main() i32 {
+fun main() i32 {
     match 1 {
         1 => {
             defer log(1);
@@ -73,9 +73,9 @@ fn emits_statement_loop_from_function_ir_with_defer_cleanup() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn main() i32 {
+fun main() i32 {
     loop {
         defer log(1);
         break;
@@ -104,10 +104,10 @@ fn emits_literals_with_expected_context_types() {
     std::fs::write(
         &main,
         r#"
-fn take_byte(x: u8) u8 { x }
-fn take32(x: f32) f32 { x }
+fun take_byte(x: u8) u8 { x }
+fun take32(x: f32) f32 { x }
 
-fn main() i32 {
+fun main() i32 {
     let mut default_int = 10;
     let mut default_float = 1.5;
     let mut typed_byte: u8 = 11;
@@ -146,14 +146,14 @@ fn emits_static_function_pointer_in_struct_initializer() {
         &main,
         r#"
 struct Vtable {
-    print: &fn(&i32)
+    print: &fun(&i32)
 }
 
-fn print_i32(value: &i32) {}
+fun print_i32(value: &i32) {}
 
 static vtable: Vtable = Vtable { print: & print_i32 };
 
-fn main() i32 {
+fun main() i32 {
     let mut x = 1;
     vtable.print(&x);
     0

@@ -886,7 +886,7 @@ fn lower_function_internal(
     if !function.is_const || function.is_extern {
         return Err(ConstLowerError {
             span: function_span,
-            message: "const expression can only call `const fn`".to_string(),
+            message: "const expression can only call `const fun`".to_string(),
         });
     }
     let Some(body) = &function.body else {

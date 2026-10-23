@@ -14,21 +14,21 @@ enum Last: i32 {
 }
 
 extend First : std::builtin::IntoError[Middle] {
-    fn intoError(self) Middle { Middle::Failed }
+    fun intoError(self) Middle { Middle::Failed }
 }
 
 extend Middle : std::builtin::IntoError[Last] {
-    fn intoError(self) Last { Last::Failed }
+    fun intoError(self) Last { Last::Failed }
 }
 
-fn produce() First!i32 {
+fun produce() First!i32 {
     First::Failed!
 }
 
-fn propagate() Last!i32 {
+fun propagate() Last!i32 {
     !(produce().?)
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }

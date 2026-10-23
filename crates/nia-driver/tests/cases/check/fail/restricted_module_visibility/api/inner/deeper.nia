@@ -1,4 +1,4 @@
-pub fn read() i32 {
+pub fun read() i32 {
     1
 }
 

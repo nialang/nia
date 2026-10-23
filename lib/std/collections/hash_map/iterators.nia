@@ -67,31 +67,31 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn iter(&self) HashMapIterWithContext[K, V, C] {
+    pub fun iter(&self) HashMapIterWithContext[K, V, C] {
         .{ map: self, index: 0, remaining: self.len }
     }
 
-    pub fn iterMut(&mut self) HashMapIterMutWithContext[K, V, C] {
+    pub fun iterMut(&mut self) HashMapIterMutWithContext[K, V, C] {
         .{ map: self, index: 0, remaining: self.len }
     }
 
-    pub fn keys(&self) HashMapKeysWithContext[K, V, C] {
+    pub fun keys(&self) HashMapKeysWithContext[K, V, C] {
         .{
             iter: .{ map: self, index: 0, remaining: self.len },
         }
     }
 
-    pub fn values(&self) HashMapValuesWithContext[K, V, C] {
+    pub fun values(&self) HashMapValuesWithContext[K, V, C] {
         .{
             iter: .{ map: self, index: 0, remaining: self.len },
         }
     }
 
-    pub fn valuesMut(&mut self) HashMapValuesMutWithContext[K, V, C] {
+    pub fun valuesMut(&mut self) HashMapValuesMutWithContext[K, V, C] {
         .{ iter: self.iterMut() }
     }
 
-    pub fn drain(&mut self) HashMapDrainWithContext[K, V, C] {
+    pub fun drain(&mut self) HashMapDrainWithContext[K, V, C] {
         .{ map: self, index: 0, remaining: self.len }
     }
 }
@@ -102,7 +102,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = HashMapEntryRef[K, V];
     type Iter = HashMapIterWithContext[K, V, C];
 
-    pub fn iter(&self) HashMapIterWithContext[K, V, C] {
+    pub fun iter(&self) HashMapIterWithContext[K, V, C] {
         .{ map: self, index: 0, remaining: self.len }
     }
 }
@@ -110,11 +110,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapIterWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.remaining
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -124,7 +124,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = HashMapEntryRef[K, V];
 
-    pub fn next(&mut self) ?HashMapEntryRef[K, V] {
+    pub fun next(&mut self) ?HashMapEntryRef[K, V] {
         while self.index < self.map.bucketCount {
             let index = self.index;
             self.index += 1;
@@ -143,11 +143,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapIterMutWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.remaining
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -157,7 +157,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = HashMapEntryMut[K, V];
 
-    pub fn next(&mut self) ?HashMapEntryMut[K, V] {
+    pub fun next(&mut self) ?HashMapEntryMut[K, V] {
         while self.index < self.map.bucketCount {
             let index = self.index;
             self.index += 1;
@@ -176,11 +176,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapKeysWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.iter.len()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.iter.isEmpty()
     }
 }
@@ -190,7 +190,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = &K;
 
-    pub fn next(&mut self) ?&K {
+    pub fun next(&mut self) ?&K {
         self.iter.next().map[&K, _](\entry: HashMapEntryRef[K, V] -> entry.key())
     }
 }
@@ -198,11 +198,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapValuesWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.iter.len()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.iter.isEmpty()
     }
 }
@@ -212,7 +212,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = &V;
 
-    pub fn next(&mut self) ?&V {
+    pub fun next(&mut self) ?&V {
         self.iter.next().map[&V, _](\entry: HashMapEntryRef[K, V] -> entry.value())
     }
 }
@@ -220,11 +220,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapValuesMutWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.iter.len()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.iter.isEmpty()
     }
 }
@@ -234,7 +234,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = &mut V;
 
-    pub fn next(&mut self) ?&mut V {
+    pub fun next(&mut self) ?&mut V {
         self.iter.next().map[&mut V, _](\entry: HashMapEntryMut[K, V] -> entry.valueMut())
     }
 }
@@ -242,11 +242,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 extend[K, V, C] HashMapDrainWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.remaining
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -256,7 +256,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 {
     type Item = HashMapEntry[K, V];
 
-    pub fn next(&mut self) ?HashMapEntry[K, V] {
+    pub fun next(&mut self) ?HashMapEntry[K, V] {
         while self.index < self.map.bucketCount {
             let index = self.index;
             self.index += 1;

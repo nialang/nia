@@ -7,10 +7,13 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let first_file = sources
-        .set_source(facade.clone(), "pub struct Widget {} fn helper() i32 { 1 }")
+        .set_source(
+            facade.clone(),
+            "pub struct Widget {} fun helper() i32 { 1 }",
+        )
         .expect("store facade source");
     let module_map = ModuleMap::default();
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -51,7 +54,7 @@ fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption
     let edited_file = sources
         .set_source(
             facade.clone(),
-            "pub struct Widget {} fn helper() i32 { 20 + 22 }",
+            "pub struct Widget {} fun helper() i32 { 20 + 22 }",
         )
         .expect("store edited facade source");
     let edited_identity = facade_cache_identity(&edited_file, &main, &module_map);
@@ -85,7 +88,7 @@ fn facade_facts_cache_keys_include_effective_module_map() {
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let facade_file = sources
         .set_source(facade.clone(), "pub using dep::Widget;")
@@ -143,7 +146,7 @@ fn facade_facts_verification_replaces_semantically_wrong_valid_entry() {
     let main = SourcePath::new("main.nia");
     let facade = SourcePath::new("facade.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let facade_file = sources
         .set_source(facade.clone(), "pub struct Widget {}")

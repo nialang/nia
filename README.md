@@ -27,12 +27,12 @@ struct Point {
 }
 
 extend Point {
-    fn lengthSquared(&self) i32 {
+    fun lengthSquared(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
 
-fn sum(values: &[i32]) i32 {
+fun sum(values: &[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -40,7 +40,7 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
 
     let point = Point { x: 3, y: 4 };

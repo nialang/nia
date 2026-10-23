@@ -17,7 +17,7 @@ fn emit_exe_std_process_spawns_windows_child() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 3] = [&"/c", &"exit", &"0"];
     let command = process::Command::init(
         std::PathView::init(&"C:\\Windows\\System32\\cmd.exe"),
@@ -63,7 +63,7 @@ fn emit_exe_std_process_windows_spawn_uses_explicit_environment() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 3] = [&"/c", &"echo", &"%NIA_WINDOWS_EXPLICIT%"];
     let environment: [process::EnvEntry; 1] = [
         process::EnvEntry::init(&"NIA_WINDOWS_EXPLICIT", &"only-this-value"),
@@ -130,7 +130,7 @@ fn emit_exe_std_process_windows_pipe_uses_parent_read_end() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 3] = [&"/c", &"echo", &"two words"];
     let command = process::Command::init(
         std::PathView::init(&"C:\\Windows\\System32\\cmd.exe"),
@@ -191,7 +191,7 @@ fn emit_exe_windows_startup_decodes_arguments_and_environment() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     if init.argc() != 3 or init.env().len() == 0 {
         return process::ExitCode(1)!;
     }
@@ -327,7 +327,7 @@ fn emit_exe_std_process_pipes_survive_closed_parent_standard_descriptors() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"printf collision"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -397,7 +397,7 @@ fn emit_exe_std_process_command_spawn_and_wait() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     let mut spawn = command.spawn();
     let mut child = match spawn.finish() {
@@ -469,7 +469,7 @@ fn emit_exe_std_process_command_wait_reports_exit_code() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/false"), init.env());
     let mut spawn = command.spawn();
     let mut child = match spawn.finish() {
@@ -538,7 +538,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let invalidPath = process::Command::init(std::PathView::init(&"bad\0path"), init.env());
     let mut invalidPathSpawn = invalidPath.spawn();
     match invalidPathSpawn.finish() {
@@ -639,7 +639,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut page = mem::PageAllocator::init();
     let allocator: &mut mem::Allocator = &mut page;
     let mut longPath = std::Path::init();
@@ -709,7 +709,7 @@ using std;
 using std::mem;
 using std::process;
 
-fn expectEnvironmentError(
+fun expectEnvironmentError(
     init: process::Init,
     entries: &[process::EnvEntry],
     expectedIndex: usize,
@@ -762,7 +762,7 @@ fn expectEnvironmentError(
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let exactEnvironment: [process::EnvEntry; 1] = [process::EnvEntry::init(&"MODE", &"λ")];
     let exactArguments: [&[char]; 2] = [
         &"-c",
@@ -874,7 +874,7 @@ struct RejectPointerAllocator {
 }
 
 extend RejectPointerAllocator {
-    fn init() RejectPointerAllocator {
+    fun init() RejectPointerAllocator {
         Self {
             backing: mem::PageAllocator::init(),
             activeAllocations: 0usize,
@@ -882,17 +882,17 @@ extend RejectPointerAllocator {
         }
     }
 
-    fn active(&self) usize {
+    fun active(&self) usize {
         self.activeAllocations
     }
 
-    fn rejectedPointers(&self) bool {
+    fun rejectedPointers(&self) bool {
         self.rejectedPointerTable
     }
 }
 
 extend RejectPointerAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if not layout.isEmpty()
             and layout.align() == std::builtin::align[&u8]()
             and not self.rejectedPointerTable
@@ -907,7 +907,7 @@ extend RejectPointerAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         self.backing.free(block).?;
         if not block.isEmpty() {
             if self.activeAllocations == 0usize {
@@ -919,7 +919,7 @@ extend RejectPointerAllocator : mem::Allocator {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 35] = [
         &"-c",
         &"test \"$#\" = 32 || exit 1; for value in \"$@\"; do test \"$value\" = \"payload-λ\" || exit 2; done; test \"$E00$E01$E02$E03$E04$E05$E06$E07$E08$E09$E10$E11$E12$E13$E14$E15\" = \"0123456789abcdef\"",
@@ -1026,7 +1026,7 @@ struct RejectFreeAllocator {
 }
 
 extend RejectFreeAllocator {
-    fn init() RejectFreeAllocator {
+    fun init() RejectFreeAllocator {
         Self {
             backing: mem::PageAllocator::init(),
             rejectedFrees: 0,
@@ -1034,13 +1034,13 @@ extend RejectFreeAllocator {
         }
     }
 
-    fn rejectNext(&mut self, count: usize) () {
+    fun rejectNext(&mut self, count: usize) () {
         self.rejectedFrees = count;
     }
 }
 
 extend RejectFreeAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         let block = self.backing.alloc(layout).?;
         if not block.isEmpty() {
             self.liveBlocks += 1;
@@ -1048,7 +1048,7 @@ extend RejectFreeAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if self.rejectedFrees != 0usize and not block.isEmpty() {
             self.rejectedFrees -= 1;
             return mem::Error::Invalid!;
@@ -1061,7 +1061,7 @@ extend RejectFreeAllocator : mem::Allocator {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 1] = [&"argument"];
     let environment: [process::EnvEntry; 1] = [process::EnvEntry::init(&"NAME", &"value")];
     let failed = process::Command::init(
@@ -1146,14 +1146,14 @@ using std;
 using std::mem;
 using std::process;
 
-fn probe(command: &process::Command, allocator: &mut mem::Allocator) () {
+fun probe(command: &process::Command, allocator: &mut mem::Allocator) () {
     _ = command.run();
     _ = command.runWithAllocator(allocator);
     _ = command.spawn().exit();
     _ = command.spawnWithAllocator(allocator).exit();
 }
 
-fn main() () {}
+fun main() () {}
 "#,
     )
     .expect("write obsolete process spawn shortcut source");
@@ -1184,7 +1184,7 @@ fn emit_exe_std_process_spawn_reap_failure_retains_pid_for_retry() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(
         std::PathView::init(&"/definitely/missing/nia-reap-owner"),
         init.env(),
@@ -1255,7 +1255,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 1] = [&"ignored-output"];
     let command = process::Command::init(std::PathView::init(&"/bin/echo"), init.env())
         .withArguments(&arguments)
@@ -1315,7 +1315,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"echo ignored-error >&2"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -1376,7 +1376,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"cat >/dev/null; echo ignored-output; echo ignored-error >&2"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -1438,7 +1438,7 @@ fn emit_exe_std_process_command_spawn_reports_exec_error() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(
         std::PathView::init(&"/definitely/not/a/nia/process-test-binary"),
         init.env(),
@@ -1491,7 +1491,7 @@ fn emit_exe_std_process_failed_spawn_cleans_pipe_handles() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let badPath = std::PathView::init(&"/definitely/not/a/nia/process-test-binary");
     let mut index = 0;
     while index < 128 {
@@ -1571,7 +1571,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"printf pipe-output"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -1669,7 +1669,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"printf pipe-error >&2"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -1734,7 +1734,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withStdout(process::StdIo::Pipe);
     let mut spawn = command.spawn();
@@ -1827,7 +1827,7 @@ using std;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
         .withStdin(process::StdIo::Pipe)
         .withStdout(process::StdIo::Pipe);
@@ -1925,7 +1925,7 @@ fn emit_exe_std_process_wait_closes_owned_stdin_pipe() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
         .withStdin(process::StdIo::Pipe)
         .withStdout(process::StdIo::Ignore);
@@ -1985,7 +1985,7 @@ fn emit_exe_std_process_wait_is_repeatable() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     let mut spawn = command.spawn();
     let mut child = match spawn.finish() {
@@ -2051,7 +2051,7 @@ fn emit_exe_std_process_try_wait_reports_exit() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
     let mut spawn = command.spawn();
     let mut child = match spawn.finish() {
@@ -2137,7 +2137,7 @@ fn emit_exe_std_process_try_wait_keeps_owned_stdin_pipe_open() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
         .withStdin(process::StdIo::Pipe)
         .withStdout(process::StdIo::Ignore);
@@ -2213,7 +2213,7 @@ fn emit_exe_std_process_kill_terminates_child() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"while true; do sleep 1; done"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -2302,7 +2302,7 @@ fn emit_exe_std_process_kill_with_uses_requested_signal() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"while true; do sleep 1; done"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -2411,7 +2411,7 @@ fn emit_exe_std_process_windows_kill_with_uses_windows_termination_semantics() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-t", &"127.0.0.1"];
     let command = process::Command::init(
         std::PathView::init(&"C:\\Windows\\System32\\ping.exe"),
@@ -2475,7 +2475,7 @@ fn emit_exe_std_process_command_can_set_cwd() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {{
+pub fun main(init: process::Init) process::ExitCode!() {{
     let arguments: [&[char]; 2] = [&"-c", &"test \"$(basename \"$PWD\")\" = child-cwd"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
@@ -2531,7 +2531,7 @@ fn emit_exe_std_process_command_reports_cwd_spawn_stage() {
 using std;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withCwd(std::PathView::init(&"/definitely/not/a/nia/process-test-cwd"));
     let mut spawn = command.spawn();
@@ -2580,12 +2580,12 @@ fn emit_exe_discards_indirect_return_call_in_loop() {
         r#"
 using std::process::{Init, ExitCode};
 
-fn shouldSkip(arg: std::process::Arg) bool {
+fun shouldSkip(arg: std::process::Arg) bool {
     _ = arg;
     false
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     let args = init.args();
     let mut paths = args.skipProgram();
     while true {
@@ -2639,16 +2639,16 @@ using std::process;
 struct S {}
 
 extend S {
-    fn helper() i32 {
+    fun helper() i32 {
         41
     }
 
-    fn method(&self) i32 {
+    fun method(&self) i32 {
         helper() + 1
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let value = S {};
     if value.method() != 42 {
@@ -2696,7 +2696,7 @@ struct FailFreeAllocator {
 }
 
 extend FailFreeAllocator {
-    fn init() FailFreeAllocator {
+    fun init() FailFreeAllocator {
         Self {
             backing: mem::PageAllocator::init(),
             failNextFree: false,
@@ -2704,13 +2704,13 @@ extend FailFreeAllocator {
         }
     }
 
-    fn failNext(&mut self) () {
+    fun failNext(&mut self) () {
         self.failNextFree = true;
     }
 }
 
 extend FailFreeAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         let block = self.backing.alloc(layout).?;
         if not block.isEmpty() {
             self.liveBlocks += 1;
@@ -2718,7 +2718,7 @@ extend FailFreeAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if self.failNextFree and not block.isEmpty() {
             self.failNextFree = false;
             return mem::Error::Invalid!;
@@ -2731,7 +2731,7 @@ extend FailFreeAllocator : mem::Allocator {
     }
 }
 
-fn hasUtf8Error(
+fun hasUtf8Error(
     result: std::TextError!std::String,
     expected: std::unicode::Utf8DecodeError,
 ) bool {
@@ -2748,7 +2748,7 @@ fn hasUtf8Error(
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut pageAllocator;
 
@@ -3235,7 +3235,7 @@ fn emit_exe_links_freestanding_executable() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(7)!
 }
@@ -3272,20 +3272,20 @@ fn emit_exe_runs_slice_trait_object_dynamic_dispatch() {
 using std::process;
 
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend[T] [T] : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.len() as i32
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut values: [i32; 3] = [1, 2, 3];
     process::ExitCode(read(&values[..]))!
@@ -3327,7 +3327,7 @@ pub module right;
 
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     left::write(init).?;
     right::write(init).?;
     !()
@@ -3342,7 +3342,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn write(init: process::Init) process::ExitCode!() {
+pub fun write(init: process::Init) process::ExitCode!() {
     let mut buffer = [0u8; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     defer stdout.flush().?;
@@ -3359,7 +3359,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn write(init: process::Init) process::ExitCode!() {
+pub fun write(init: process::Init) process::ExitCode!() {
     let mut buffer = [0u8; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     defer stdout.flush().?;
@@ -3401,21 +3401,21 @@ using std::process;
 struct Empty {}
 
 trait Source {
-    fn add(& self, empty: Empty, rhs: i32) i32;
+    fun add(& self, empty: Empty, rhs: i32) i32;
 }
 
 extend[T] [T] : Source {
-    fn add(& self, empty: Empty, rhs: i32) i32 {
+    fun add(& self, empty: Empty, rhs: i32) i32 {
         _ = empty;
         self.len() as i32 + rhs
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.add({}, 4)
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut values: [i32; 3] = [1, 2, 3];
     process::ExitCode(read(&values[..]))!
@@ -3452,7 +3452,7 @@ fn emit_exe_links_freestanding_u128_division_builtins() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let argc = init.argc();
     let value = (1u128 << 100u32) + 12345u128;
     let by = argc as u128 + 53u128;
@@ -3511,7 +3511,7 @@ fn emit_exe_links_freestanding_i128_division_builtins() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let argc = init.argc();
     let base = (1i128 << 100u32) + 12345i128;
     let divisor = argc as i128 + 53i128;
@@ -3618,7 +3618,7 @@ using std::fs;
 using std::mem;
 using process::{ExitCode};
 
-fn pick(flag: bool) ExitCode {
+fun pick(flag: bool) ExitCode {
     if flag {
         ExitCode(11)
     } else {
@@ -3626,15 +3626,15 @@ fn pick(flag: bool) ExitCode {
     }
 }
 
-fn pickResult() fs::Error!ExitCode {
+fun pickResult() fs::Error!ExitCode {
     !pick(true)
 }
 
-fn failWithNoSpace() fs::Error!() {
+fun failWithNoSpace() fs::Error!() {
     fs::Error::NoSpace!
 }
 
-pub fn main(init: process::Init) ExitCode!() {
+pub fun main(init: process::Init) ExitCode!() {
     _ = init;
 
     if ExitCode(0).0 != 0 {
@@ -3708,7 +3708,7 @@ using std::fmt;
 using std::io;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut writer = io::DiscardingWriter::init();
     match writer.writeAll(&b"nia") {
@@ -3753,7 +3753,7 @@ fn emit_exe_can_use_std_math_usize_helpers() {
 using std::math;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let max = usize::MAX;
     if 0usize.isPowerOfTwo() {
@@ -3830,13 +3830,13 @@ fn emit_exe_can_use_std_math_checked_integer_helpers() {
 using std::math;
 using std::process;
 
-fn addCheckedSame[T](lhs: T, rhs: T) ?T
+fun addCheckedSame[T](lhs: T, rhs: T) ?T
 where T: math::CheckedAdd[T, Output = T]
 {
     lhs.checkedAdd(rhs)
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     match addCheckedSame[u8](250u8, 5u8) {
@@ -3974,7 +3974,7 @@ using std::io;
 using std::parse;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut args = init.args();
     if args.isEmpty() {
         return process::ExitCode(23)!;
@@ -4107,7 +4107,7 @@ fn emit_exe_exposes_process_env_as_values() {
         r#"
 using std::process;
 
-fn startsWithNeedle(bytes: &[u8]) bool {
+fun startsWithNeedle(bytes: &[u8]) bool {
     let needle: &[u8] = &b"NIA_TEST_ENV=ok";
     if bytes.len() < needle.len() {
         return false;
@@ -4122,7 +4122,7 @@ fn startsWithNeedle(bytes: &[u8]) bool {
     true
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let env = init.env();
     for item in env.iter() {
         if startsWithNeedle(item.bytes()) {
@@ -4178,17 +4178,17 @@ enum AppError: i32 {
     _
 }
 
-fn mapParseError(error: ParseError) AppError {
+fun mapParseError(error: ParseError) AppError {
     _ = error;
     AppError::InvalidInput
 }
 
-fn parse() ParseError!i32 {
+fun parse() ParseError!i32 {
     ParseError::Bad!
 }
 
 extend[T] ParseError!T {
-    fn asAppError(self) AppError!T {
+    fun asAppError(self) AppError!T {
         match self {
             !value => { !value },
             err! => { mapParseError(err)! },
@@ -4196,7 +4196,7 @@ extend[T] ParseError!T {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     match parse().asAppError() {
         !value => { return process::ExitCode(value)!; },
@@ -4235,7 +4235,7 @@ fn emit_exe_local_pointer_binding_patterns_destructure_values() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let pair = (20, 22);
     let mut writable = (10, 11);
@@ -4286,7 +4286,7 @@ using std::process;
 
 static mut calls: i32 = 0;
 
-fn next(flag: bool) ?(i32!i32) {
+fun next(flag: bool) ?(i32!i32) {
     calls += 1;
     if flag {
         let ok: i32!i32 = !7;
@@ -4297,7 +4297,7 @@ fn next(flag: bool) ?(i32!i32) {
     }
 }
 
-fn classify(value: ?(i32!i32)) i32 {
+fun classify(value: ?(i32!i32)) i32 {
     match value {
         ?!ok => {
             ok
@@ -4311,7 +4311,7 @@ fn classify(value: ?(i32!i32)) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut total = 0;
     match next(true) {
@@ -4376,20 +4376,20 @@ struct Counter {
 }
 
 extend Counter {
-    fn init() Counter {
+    fun init() Counter {
         Self { value: 0 }
     }
 
-    fn add(&mut self, amount: i32) () {
+    fun add(&mut self, amount: i32) () {
         self.value += amount;
     }
 
-    fn get(&self) i32 {
+    fun get(&self) i32 {
         self.value
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut counter = Counter::init();
     counter.add(7);
@@ -4430,12 +4430,12 @@ fn emit_exe_generic_local_static_has_per_instance_storage() {
         r#"
 using std::process;
 
-fn slot[T]() &mut T {
+fun slot[T]() &mut T {
     static mut item: T;
     &mut item
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut left = slot[i32]();
     let mut right = slot[u64]();

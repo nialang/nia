@@ -3,9 +3,9 @@ use super::*;
 
 #[test]
 fn parse_error_changes_keep_stable_program_module_membership_green() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "module broken; fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "module broken; fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
-    let broken_id = fixture.add_child(entry_id, "broken", "broken.nia", "fn helper() i32 { 1 }");
+    let broken_id = fixture.add_child(entry_id, "broken", "broken.nia", "fun helper() i32 { 1 }");
     let mut initial = fixture.program();
     initial
         .modules
@@ -59,8 +59,10 @@ fn parse_error_changes_keep_stable_program_module_membership_green() {
 
 #[test]
 fn signature_changes_keep_stable_program_module_membership_green() {
-    let mut fixture =
-        LoadedProgramFixture::new("main.nia", "fn first() i32 { 1 } fn main() i32 { first() }");
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "fun first() i32 { 1 } fun main() i32 { first() }",
+    );
     let module_id = fixture.entry_id();
     let database = fixture.database();
     let first = database.db.expect_get(ProgramSignatureModuleIdsQuery(
@@ -69,7 +71,7 @@ fn signature_changes_keep_stable_program_module_membership_green() {
 
     fixture.update_module_source(
         module_id,
-        "fn first() i32 { 1 } fn second() i32 { 2 } fn main() i32 { first() }",
+        "fun first() i32 { 1 } fun second() i32 { 2 } fun main() i32 { first() }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));

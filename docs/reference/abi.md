@@ -13,7 +13,7 @@ Nia has two ABI domains:
 | Domain | Used by | Layout and calling convention | Symbol names |
 | --- | --- | --- | --- |
 | Nia ABI | ordinary functions, structs, unions, enums, globals | chosen by the compiler; struct fields may be reordered | internal, compiler-generated |
-| C ABI | `extern fn`, `extern struct`, `extern union`, `extern static` | the C ABI of the artifact target | the source name, or `linkName` / `exportName` |
+| C ABI | `extern fun`, `extern struct`, `extern union`, `extern static` | the C ABI of the artifact target | the source name, or `linkName` / `exportName` |
 
 ```nia
 // Nia ABI: fields may be reordered, the symbol name is internal.
@@ -22,12 +22,12 @@ struct Pair {
     b: i64,
 }
 
-fn sum(pair: Pair) i64 {
+fun sum(pair: Pair) i64 {
     pair.b + pair.a as i64
 }
 
 // C ABI: declaration-order layout, C calling convention, symbol `log_message`.
-extern fn log_message(message: &u8);
+extern fun log_message(message: &u8);
 
 extern struct CPoint {
     x: i32,
@@ -128,23 +128,23 @@ the type:
 
 | Type | Produced by | Convention |
 | --- | --- | --- |
-| `&fn(A) R` | `&name` of an ordinary function | Nia |
-| `&extern fn(A) R` | `&name` of an `extern fn` | target C |
+| `&fun(A) R` | `&name` of an ordinary function | Nia |
+| `&extern fun(A) R` | `&name` of an `extern fun` | target C |
 
 A function pointer type consists of its parameter types, return type, variadic
 marker, and convention. Functions marked `@[trackCaller]` cannot be converted to
 function pointers.
 
-Crosses the C boundary: `&extern fn(...)` yes; `&fn(...)` no; variadic function
-pointer types no (declare the variadic function directly with `extern fn`).
+Crosses the C boundary: `&extern fun(...)` yes; `&fun(...)` no; variadic function
+pointer types no (declare the variadic function directly with `extern fun`).
 
 ## Callable Views And Closures
 
 A closure value is an anonymous closure state whose fields are its captured
-values, laid out in capture order. `Fn(A) R` is unsized and has no value
+values, laid out in capture order. `Fun(A) R` is unsized and has no value
 layout.
 
-`&Fn(A) R` and `&mut Fn(A) R` are two-word, non-owning views:
+`&Fun(A) R` and `&mut Fun(A) R` are two-word, non-owning views:
 
 ```text
 callable view = { state pointer, entry pointer }
@@ -152,10 +152,10 @@ callable view = { state pointer, entry pointer }
 
 Both words are pointer-sized, so a view is 16 bytes with 8-byte alignment on a
 64-bit target. A view never allocates, frees, or extends the lifetime of the
-closure state. A pointer to a view, such as `&mut &Fn(i32) i32`, is a thin
+closure state. A pointer to a view, such as `&mut &Fun(i32) i32`, is a thin
 pointer to the 16-byte view.
 
-Crosses the C boundary: no. Pass an `&extern fn(...)` together with an explicit
+Crosses the C boundary: no. Pass an `&extern fun(...)` together with an explicit
 context pointer instead.
 
 ## Arrays
@@ -231,7 +231,7 @@ alignment. The same fields declared as `extern struct CMixed` have offsets 0,
 struct form.
 
 `extern struct` fields must themselves be C-compatible: integers, floats,
-pointers, `&extern fn(...)`, nested `extern struct` values, and fixed-length
+pointers, `&extern fun(...)`, nested `extern struct` values, and fixed-length
 arrays of those.
 
 Crosses the C boundary: `extern struct` yes, by value or by pointer; ordinary
@@ -269,7 +269,7 @@ integer tag followed by payload storage aligned for the largest variant, with
 each variant's fields in declaration order.
 
 Taking the address of a payload variant, such as `&Event::Data`, yields an
-ordinary `&fn(...)` pointer whose parameters are the payload fields.
+ordinary `&fun(...)` pointer whose parameters are the payload fields.
 
 Crosses the C boundary: no. Pass the backing integer and convert explicitly.
 
@@ -285,7 +285,7 @@ Crosses the C boundary: not by value. Pass a pointer.
 
 ## The C ABI Boundary
 
-Every `extern fn` declaration or definition, `extern static`, and
+Every `extern fun` declaration or definition, `extern static`, and
 `extern struct` field is a C ABI boundary. The compiler validates each type at
 the boundary and rejects anything without a C representation:
 
@@ -294,7 +294,7 @@ the boundary and rejects anything without a C representation:
 | integers, `f32`, `f64` | allowed | |
 | `i128`/`u128` on `x86-unknown-linux` | rejected | two 64-bit integers |
 | pointers, volatile pointers, `&opaque` | allowed | |
-| `&extern fn(...)` | allowed | |
+| `&extern fun(...)` | allowed | |
 | `extern struct` by value | allowed | |
 | `()` return | allowed | |
 | `()` parameter, tuples | rejected | `extern struct` or pointer |
@@ -308,12 +308,12 @@ the boundary and rejects anything without a C representation:
 | slice, trait object, callable view | rejected | pointer plus length or context |
 | optional, error union, range | rejected | explicit `extern struct` |
 | SIMD vector by value | rejected | pointer |
-| `&fn(...)` (Nia convention) | rejected | `&extern fn(...)` |
-| variadic function pointer type | rejected | direct `extern fn` declaration |
-| generic `extern fn` | rejected | concrete signatures |
-| variadic `extern fn` with a body | rejected | bodyless declaration |
-| variadic `extern fn` without a fixed parameter | rejected | add a fixed parameter |
-| `extern fn` inside `extend` (method) | rejected | free function |
+| `&fun(...)` (Nia convention) | rejected | `&extern fun(...)` |
+| variadic function pointer type | rejected | direct `extern fun` declaration |
+| generic `extern fun` | rejected | concrete signatures |
+| variadic `extern fun` with a body | rejected | bodyless declaration |
+| variadic `extern fun` without a fixed parameter | rejected | add a fixed parameter |
+| `extern fun` inside `extend` (method) | rejected | free function |
 | `extern static` without a type | rejected | write the type |
 
 ### Calling Conventions
@@ -332,7 +332,7 @@ implements it:
 The convention classifies each argument and the result from its C byte layout.
 Small aggregates travel in registers, larger ones by hidden pointer, and small
 integers receive the sign or zero extension the convention requires. Calls,
-declarations, and `extern fn` definitions use one classification, so both
+declarations, and `extern fun` definitions use one classification, so both
 sides of a boundary agree.
 
 Arguments beyond the fixed parameters of a variadic declaration receive C's
@@ -341,7 +341,7 @@ with the extension of their own signedness, and `f32` widens to `f64`.
 
 ### Executable Exports
 
-An executable's C interface is every top-level `pub extern fn` definition of
+An executable's C interface is every top-level `pub extern fun` definition of
 its entry package. Those definitions are compiled and kept even when no Nia
 code calls them, so linked foreign code can call them by name. Other
 functions, including non-`pub` `extern` definitions, are compiled only when
@@ -368,13 +368,13 @@ function definitions.
 | --- | --- |
 | function, method, global | internal Nia name |
 | generic function or method instance | internal Nia name including the type arguments |
-| bodyless `extern fn`, `extern static` | the source name, or `@[linkName("...")]` |
-| `extern fn` definition | the source name, or `@[exportName("...")]` |
+| bodyless `extern fun`, `extern static` | the source name, or `@[linkName("...")]` |
+| `extern fun` definition | the source name, or `@[exportName("...")]` |
 
 Internal Nia names are deterministic for a given compiler version and contain
 no version, layout, or calling-convention information. Their format is not part
 of the language. There is no attribute that gives an ordinary function a C
-name; write an `extern fn` definition instead.
+name; write an `extern fun` definition instead.
 
 Only `extern` symbols are visible outside the linked image. Every internal
 symbol, including generic instances, closure entries, and vtables, has hidden

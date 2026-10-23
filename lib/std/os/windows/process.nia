@@ -19,7 +19,7 @@ using pkg::os::windows::process::stdio::{prepareStream, closeHandle, HandleList}
 const signalTerm: i32 = 15;
 const signalKill: i32 = 9;
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     let mut commandStorage: [u16; maxPathUnits] = [0; maxPathUnits];
     let mut commandLen: usize = 0;
     let pointerSize = pkg::builtin::size[&u8]();
@@ -127,7 +127,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAtte
     ))
 }
 
-pub fn wait(pid: ProcessId) Errno!WaitStatus {
+pub fun wait(pid: ProcessId) Errno!WaitStatus {
     let handle = pid.handle;
     if handle == 0 or handle == invalidHandle {
         return .Invalid!;
@@ -144,7 +144,7 @@ pub fn wait(pid: ProcessId) Errno!WaitStatus {
     !.init(code as i32)
 }
 
-pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+pub fun tryWait(pid: ProcessId) Errno! ?WaitStatus {
     if pid.handle == 0 or pid.handle == invalidHandle {
         return .Invalid!;
     }
@@ -163,7 +163,7 @@ pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
     !(?.init(code as i32))
 }
 
-pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
+pub fun killWith(pid: ProcessId, signal: i32) Errno!() {
     // Windows has no POSIX signal delivery for an arbitrary child process.
     // Both supported termination requests therefore use TerminateProcess.
     if signal != signalTerm and signal != signalKill {
@@ -182,7 +182,7 @@ pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
     !()
 }
 
-pub fn exit(code: i32) () {
+pub fun exit(code: i32) () {
     ExitProcess(code as u32);
     loop {}
 }

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn recursive_generic_body_reuses_same_concrete_instance() {
-    let (module, errors) = parse_module("fn recurse[T](value: T) T { recurse[T](value) }");
+    let (module, errors) = parse_module("fun recurse[T](value: T) T { recurse[T](value) }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
@@ -44,7 +44,7 @@ fn recursive_generic_body_reuses_same_concrete_instance() {
 
 #[test]
 fn growing_recursive_generic_body_reports_type_depth_limit() {
-    let (module, errors) = parse_module("fn grow[T](value: &T) i32 { grow[&T](&value) }");
+    let (module, errors) = parse_module("fun grow[T](value: &T) i32 { grow[&T](&value) }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
@@ -109,7 +109,7 @@ fn growing_recursive_generic_body_reports_type_depth_limit() {
 
 #[test]
 fn const_argument_type_contributes_to_instance_depth_limit() {
-    let (module, errors) = parse_module("fn use[T, N: usize](value: T) T { value }");
+    let (module, errors) = parse_module("fun use[T, N: usize](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
@@ -161,7 +161,7 @@ fn const_argument_type_contributes_to_instance_depth_limit() {
 
 #[test]
 fn layout_builtin_array_operand_contributes_to_instance_depth_limit() {
-    let (module, errors) = parse_module("fn use[T](value: T) T { value }");
+    let (module, errors) = parse_module("fun use[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");

@@ -7,7 +7,7 @@ fn records_function_global_value_dependencies() {
         r#"
 static mut calls: i32 = 0;
 
-fn main() i32 {
+fun main() i32 {
     calls += 1;
     calls
 }
@@ -28,11 +28,11 @@ fn main() i32 {
 fn function_facts_are_not_duplicated_in_module_staging() {
     let checked = pipeline(
         r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     identity[i32](1)
 }
 "#,
@@ -69,11 +69,11 @@ fn main() i32 {
 fn static_fact_references_retain_generic_function_instances() {
     let checked = pipeline_static_facts(
         r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-static callback: &fn(i32) i32 = &identity[i32];
+static callback: &fun(i32) i32 = &identity[i32];
 "#,
     );
 
@@ -93,11 +93,11 @@ static callback: &fn(i32) i32 = &identity[i32];
 fn static_fact_references_retain_const_generic_function_instances() {
     let checked = pipeline_static_facts(
         r#"
-fn identity[T, N: usize](value: T) T {
+fun identity[T, N: usize](value: T) T {
     value
 }
 
-static callback: &fn(i32) i32 = &identity[i32, 3];
+static callback: &fun(i32) i32 = &identity[i32, 3];
 "#,
     );
 
@@ -127,7 +127,7 @@ fn records_body_facts_by_source_versioned_node_keys() {
     let symbols = SymbolTable::new();
     let lowered = nia_parser::parse_versioned(
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut x = 1;
     x
 }
@@ -297,13 +297,13 @@ struct Pair {
     b: i32,
 }
 
-fn id(value: i32) i32 { value }
-fn call_ptr(f: &fn(i32) i32, value: i32) i32 { f(value) }
-fn take(xs: & [i32]) usize { xs.len() }
-fn text(xs: & [char]) usize { xs.len() }
-fn cstr(value: & u8) usize { 1 }
+fun id(value: i32) i32 { value }
+fun call_ptr(f: &fun(i32) i32, value: i32) i32 { f(value) }
+fun take(xs: & [i32]) usize { xs.len() }
+fun text(xs: & [char]) usize { xs.len() }
+fun cstr(value: & u8) usize { 1 }
 
-fn main() i32 {
+fun main() i32 {
     let mut x = 1;
     let mut y = id(x);
     let mut n = std::builtin::size[Pair]();

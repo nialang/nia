@@ -1,73 +1,73 @@
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `optional_missing`
-label: 70..86 Primary Source no value named `optional_missing` is visible in this scope
+label: 71..87 Primary Source no value named `optional_missing` is visible in this scope
 help: check the spelling, import `optional_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `error_missing`
-label: 159..172 Primary Source no value named `error_missing` is visible in this scope
+label: 161..174 Primary Source no value named `error_missing` is visible in this scope
 help: check the spelling, import `error_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `tuple_missing`
-label: 267..280 Primary Source no value named `tuple_missing` is visible in this scope
+label: 270..283 Primary Source no value named `tuple_missing` is visible in this scope
 help: check the spelling, import `tuple_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `pointer_missing`
-label: 370..385 Primary Source no value named `pointer_missing` is visible in this scope
+label: 374..389 Primary Source no value named `pointer_missing` is visible in this scope
 help: check the spelling, import `pointer_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `null_missing`
-label: 463..475 Primary Source no value named `null_missing` is visible in this scope
+label: 468..480 Primary Source no value named `null_missing` is visible in this scope
 help: check the spelling, import `null_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `struct_missing`
-label: 541..555 Primary Source no value named `struct_missing` is visible in this scope
+label: 547..561 Primary Source no value named `struct_missing` is visible in this scope
 help: check the spelling, import `struct_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `enum_missing`
-label: 634..646 Primary Source no value named `enum_missing` is visible in this scope
+label: 641..653 Primary Source no value named `enum_missing` is visible in this scope
 help: check the spelling, import `enum_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `unknown_enum_missing`
-label: 724..744 Primary Source no value named `unknown_enum_missing` is visible in this scope
+label: 732..752 Primary Source no value named `unknown_enum_missing` is visible in this scope
 help: check the spelling, import `unknown_enum_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown namespace `Ghost`
-label: 755..760 Primary Source unknown namespace `Ghost`
+label: 763..768 Primary Source unknown namespace `Ghost`
 help: check the path spelling and make sure the module or type is in scope
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `unknown_struct_missing`
-label: 828..850 Primary Source no value named `unknown_struct_missing` is visible in this scope
+label: 837..859 Primary Source no value named `unknown_struct_missing` is visible in this scope
 help: check the spelling, import `unknown_struct_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `range_missing`
-label: 944..957 Primary Source no value named `range_missing` is visible in this scope
+label: 954..967 Primary Source no value named `range_missing` is visible in this scope
 help: check the spelling, import `range_missing`, or declare it before this use
 
 path: fail/pattern_recovery/main.nia
 code: E0201
 summary: unknown value `range_start`
-label: 968..979 Primary Source no value named `range_start` is visible in this scope
+label: 978..989 Primary Source no value named `range_start` is visible in this scope
 help: check the spelling, import `range_start`, or declare it before this use
 
 report:

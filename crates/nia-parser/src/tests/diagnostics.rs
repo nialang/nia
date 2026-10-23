@@ -5,7 +5,7 @@ use std::time::Duration;
 
 #[test]
 fn reports_lexer_errors_through_parser() {
-    let (_module, errors) = parse_module(r#"fn main() { let mut x = "\q"; }"#);
+    let (_module, errors) = parse_module(r#"fun main() { let mut x = "\q"; }"#);
     assert!(
         errors
             .iter()
@@ -15,7 +15,7 @@ fn reports_lexer_errors_through_parser() {
 
 #[test]
 fn reports_misplaced_numeric_separators_through_parser() {
-    let (_module, errors) = parse_module("fn main() { let value = 1e_2; }");
+    let (_module, errors) = parse_module("fun main() { let value = 1e_2; }");
     assert!(
         errors
             .iter()
@@ -60,15 +60,15 @@ fn reports_bare_fn_type_with_function_pointer_hint() {
     let (_module, errors) = parse_module(
         r#"
 struct Vtable {
-    print: fn(&u8),
-    write: &fn(&u8),
+    print: fun(&u8),
+    write: &fun(&u8),
 }
 "#,
     );
     assert_eq!(
         errors
             .iter()
-            .filter(|error| error.message.contains("must be written as `&fn(...)`"))
+            .filter(|error| error.message.contains("must be written as `&fun(...)`"))
             .count(),
         1,
         "{errors:?}"
@@ -79,7 +79,7 @@ struct Vtable {
 fn reports_missing_semicolon_between_expression_statements() {
     let (_module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     effect()
     other();
 }
@@ -97,13 +97,13 @@ fn main() {
 fn expression_recovery_keeps_later_statements_and_items() {
     let (module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     ;
     retained();
 }
 
-fn retained() () {}
-fn later() () {}
+fun retained() () {}
+fun later() () {}
 "#,
     );
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -132,14 +132,14 @@ fn later() () {}
 fn failed_control_flow_recovery_keeps_later_statements_and_items() {
     let (module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     if + {
         discarded();
     }
     retained();
 }
 
-fn later() () {}
+fun later() () {}
 "#,
     );
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -168,14 +168,14 @@ fn later() () {}
 fn failed_return_expression_recovery_keeps_later_statements_and_items() {
     let (module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     return + {
         discarded();
     };
     retained();
 }
 
-fn later() () {}
+fun later() () {}
 "#,
     );
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -202,7 +202,7 @@ fn later() () {}
 
 #[test]
 fn reports_expected_token_and_actionable_help() {
-    let (_module, errors) = parse_module("fn main() { let value = 1 }");
+    let (_module, errors) = parse_module("fun main() { let value = 1 }");
     let error = errors
         .iter()
         .find(|error| error.message.contains("expected `;` after binding"))
@@ -222,7 +222,7 @@ fn reports_expected_token_and_actionable_help() {
 #[test]
 fn member_recovery_keeps_later_fields_after_a_missing_type() {
     let (module, errors) =
-        parse_module("struct Recovered { missing: , retained: i32, }\nfn later() {}");
+        parse_module("struct Recovered { missing: , retained: i32, }\nfun later() {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].message.contains("expected type"), "{errors:?}");
     let ItemKind::Struct(item) = &module.items[0].kind else {
@@ -239,7 +239,7 @@ fn member_recovery_keeps_later_fields_after_a_missing_type() {
 #[test]
 fn tuple_payload_recovery_keeps_later_types_and_declarations() {
     let (module, errors) =
-        parse_module("struct Pair(, i32); enum Value { Broken(, bool), Kept } fn later() {}");
+        parse_module("struct Pair(, i32); enum Value { Broken(, bool), Kept } fun later() {}");
     assert_eq!(
         errors
             .iter()
@@ -273,7 +273,7 @@ fn tuple_payload_recovery_keeps_later_types_and_declarations() {
 #[test]
 fn tuple_payload_delimiter_recovery_keeps_later_types() {
     let (module, errors) = parse_module(
-        "struct Pair(i32 bool)\nenum Value { Broken(i32 bool), Kept }\nfn later() () {}",
+        "struct Pair(i32 bool)\nenum Value { Broken(i32 bool), Kept }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -305,7 +305,7 @@ fn tuple_payload_delimiter_recovery_keeps_later_types() {
 
 #[test]
 fn enum_variant_name_recovery_keeps_later_variants_and_declarations() {
-    let (module, errors) = parse_module("enum Recovered { , Kept, Also }\nfn later() () {}");
+    let (module, errors) = parse_module("enum Recovered { , Kept, Also }\nfun later() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0].message.contains("expected enum variant"),
@@ -327,7 +327,8 @@ fn enum_variant_name_recovery_keeps_later_variants_and_declarations() {
 
 #[test]
 fn enum_variant_delimiter_recovery_keeps_later_variants() {
-    let (module, errors) = parse_module("enum Recovered { First Second, Third }\nfn later() () {}");
+    let (module, errors) =
+        parse_module("enum Recovered { First Second, Third }\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -358,7 +359,7 @@ fn enum_variant_delimiter_recovery_keeps_later_variants() {
 #[test]
 fn field_delimiter_recovery_keeps_later_fields_and_items() {
     let (module, errors) = parse_module(
-        "struct Recovered { first: i32 second: bool, third: u8 }\nenum Payload { Item { first: i32 second: bool, third: u8 } }\nfn later() () {}",
+        "struct Recovered { first: i32 second: bool, third: u8 }\nenum Payload { Item { first: i32 second: bool, third: u8 } }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -397,7 +398,8 @@ fn field_delimiter_recovery_keeps_later_fields_and_items() {
 
 #[test]
 fn tuple_type_recovery_keeps_later_elements_and_the_function() {
-    let (module, errors) = parse_module("fn retained(value: (, i32,, bool)) () {}\nfn later() {}");
+    let (module, errors) =
+        parse_module("fun retained(value: (, i32,, bool)) () {}\nfun later() {}");
     assert_eq!(
         errors
             .iter()
@@ -426,7 +428,7 @@ fn tuple_type_recovery_keeps_later_elements_and_the_function() {
 #[test]
 fn tuple_type_recovery_keeps_elements_after_nested_invalid_first_type() {
     let (module, errors) =
-        parse_module("fn retained(value: (@ (bad, value), bool)) () {}\nfn later() () {}");
+        parse_module("fun retained(value: (@ (bad, value), bool)) () {}\nfun later() () {}");
     assert!(!errors.is_empty(), "invalid first type must be diagnosed");
     let ItemKind::Function(retained) = &module.items[0].kind else {
         panic!("expected retained function");
@@ -448,7 +450,7 @@ fn tuple_type_recovery_keeps_elements_after_nested_invalid_first_type() {
 #[test]
 fn tuple_expression_and_pattern_recovery_keeps_later_statements() {
     let (module, errors) = parse_module(
-        "fn main() () { let value = (, 1,, true); let (, retained,, last) = value; retained; }",
+        "fun main() () { let value = (, 1,, true); let (, retained,, last) = value; retained; }",
     );
     assert_eq!(
         errors
@@ -469,7 +471,7 @@ fn tuple_expression_and_pattern_recovery_keeps_later_statements() {
 #[test]
 fn tuple_expression_recovery_ignores_nested_element_delimiters() {
     let (module, errors) = parse_module(
-        "fn main() () { let tuple = (@ (bad, value), true); later(); } fn later() () {}",
+        "fun main() () { let tuple = (@ (bad, value), true); later(); } fun later() () {}",
     );
     assert_eq!(
         errors
@@ -496,7 +498,7 @@ fn tuple_expression_recovery_ignores_nested_element_delimiters() {
 #[test]
 fn tuple_expression_delimiter_recovery_keeps_later_elements_and_statements() {
     let (module, errors) =
-        parse_module("fn main() () { let value = (true false); later(); } fn later() () {}");
+        parse_module("fun main() () { let value = (true false); later(); } fun later() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0]
@@ -525,7 +527,7 @@ fn tuple_expression_delimiter_recovery_keeps_later_elements_and_statements() {
 #[test]
 fn tuple_pattern_recovery_keeps_fields_after_nested_invalid_later_pattern() {
     let (module, errors) = parse_module(
-        "fn main(value: (bool, bool, bool)) () { match value { (true, @ (bad, value), false) => (), _ => (), } }",
+        "fun main(value: (bool, bool, bool)) () { match value { (true, @ (bad, value), false) => (), _ => (), } }",
     );
     assert_eq!(
         errors
@@ -559,7 +561,7 @@ fn tuple_pattern_recovery_keeps_fields_after_nested_invalid_later_pattern() {
 #[test]
 fn irrefutable_tuple_pattern_recovery_keeps_fields_after_nested_invalid_later_pattern() {
     let (module, errors) = parse_module(
-        "fn main(source: (bool, bool, bool)) () { let (first, @ (bad, value), retained) = source; later(); } fn later() () {}",
+        "fun main(source: (bool, bool, bool)) () { let (first, @ (bad, value), retained) = source; later(); } fun later() () {}",
     );
     assert_eq!(
         errors
@@ -586,7 +588,7 @@ fn irrefutable_tuple_pattern_recovery_keeps_fields_after_nested_invalid_later_pa
 #[test]
 fn tuple_type_recovery_keeps_elements_after_nested_invalid_later_type() {
     let (module, errors) =
-        parse_module("fn retained(value: (bool, @ (bad, value), i32)) () {}\nfn later() () {}");
+        parse_module("fun retained(value: (bool, @ (bad, value), i32)) () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -615,7 +617,7 @@ fn tuple_type_recovery_keeps_elements_after_nested_invalid_later_type() {
 #[test]
 fn call_argument_recovery_keeps_arguments_after_nested_invalid_later_argument() {
     let (module, errors) = parse_module(
-        "fn main() () { consume(true, @ (bad, value), 1); later(); } fn consume(first: bool, second: i32, third: i32) () {} fn later() () {}",
+        "fun main() () { consume(true, @ (bad, value), 1); later(); } fun consume(first: bool, second: i32, third: i32) () {} fun later() () {}",
     );
     assert_eq!(
         errors
@@ -641,7 +643,7 @@ fn call_argument_recovery_keeps_arguments_after_nested_invalid_later_argument() 
 #[test]
 fn pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
     let (module, errors) = parse_module(
-        "struct Pair(bool, bool)\nstruct Point { x: bool, y: bool }\nfn main(value: (bool, bool)) () { match value { (true false) => (), Pair(true false) => (), Point { x: true y: false } => (), _ => (), } }",
+        "struct Pair(bool, bool)\nstruct Point { x: bool, y: bool }\nfun main(value: (bool, bool)) () { match value { (true false) => (), Pair(true false) => (), Point { x: true y: false } => (), _ => (), } }",
     );
     assert_eq!(errors.len(), 3, "{errors:?}");
     assert!(
@@ -673,7 +675,7 @@ fn pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
 #[test]
 fn call_argument_recovery_keeps_later_arguments_and_statements() {
     let (module, errors) = parse_module(
-        "fn main() () { consume(, 1,, true); later(); } fn later() () {} fn consume(a: i32, b: bool) () {}",
+        "fun main() () { consume(, 1,, true); later(); } fun later() () {} fun consume(a: i32, b: bool) () {}",
     );
     assert_eq!(
         errors
@@ -697,7 +699,7 @@ fn call_argument_recovery_keeps_later_arguments_and_statements() {
 #[test]
 fn call_argument_delimiter_recovery_keeps_later_arguments_and_statements() {
     let (module, errors) = parse_module(
-        "fn main() () { consume(true false); later(); } fn consume(first: bool, second: bool) () {} fn later() () {}",
+        "fun main() () { consume(true false); later(); } fun consume(first: bool, second: bool) () {} fun later() () {}",
     );
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
@@ -727,7 +729,7 @@ fn call_argument_delimiter_recovery_keeps_later_arguments_and_statements() {
 #[test]
 fn array_and_struct_literal_recovery_keeps_later_members() {
     let (module, errors) = parse_module(
-        "struct Point { x: i32, y: bool }\nfn main() () { let array = [, 1,, true]; let point = Point { x: , y: true }; later(); } fn later() () {}",
+        "struct Point { x: i32, y: bool }\nfun main() () { let array = [, 1,, true]; let point = Point { x: , y: true }; later(); } fun later() () {}",
     );
     assert_eq!(
         errors
@@ -751,7 +753,7 @@ fn array_and_struct_literal_recovery_keeps_later_members() {
 #[test]
 fn array_literal_recovery_ignores_nested_element_delimiters() {
     let (module, errors) = parse_module(
-        "fn main() () { let array = [@ (bad, value), true]; later(); } fn later() () {}",
+        "fun main() () { let array = [@ (bad, value), true]; later(); } fun later() () {}",
     );
     assert_eq!(
         errors
@@ -781,7 +783,7 @@ fn array_literal_recovery_ignores_nested_element_delimiters() {
 #[test]
 fn aggregate_literal_delimiter_recovery_keeps_later_members_and_statements() {
     let (module, errors) = parse_module(
-        "struct Point { x: i32, y: bool }\nfn main() () { let array = [true false]; let point = Point { x: 1i32 y: true }; later(); } fn later() () {}",
+        "struct Point { x: i32, y: bool }\nfun main() () { let array = [true false]; let point = Point { x: 1i32 y: true }; later(); } fun later() () {}",
     );
     assert_eq!(errors.len(), 2, "{errors:?}");
     assert!(
@@ -824,7 +826,7 @@ fn aggregate_literal_delimiter_recovery_keeps_later_members_and_statements() {
 #[test]
 fn aggregate_literal_recovery_ignores_nested_member_delimiters() {
     let (module, errors) = parse_module(
-        "struct Point { x: i32, y: bool }\nfn main() () { let point = Point { x: @ (bad, value), y: true }; later(); } fn later() () {}",
+        "struct Point { x: i32, y: bool }\nfun main() () { let point = Point { x: @ (bad, value), y: true }; later(); } fun later() () {}",
     );
     assert!(
         errors
@@ -851,7 +853,7 @@ fn aggregate_literal_recovery_ignores_nested_member_delimiters() {
 #[test]
 fn callable_type_recovery_keeps_later_parameters_and_the_function() {
     let (module, errors) = parse_module(
-        "fn retained(pointer: &fn(, i32), callable: Fn(, bool)) () {}\nfn later() () {}",
+        "fun retained(pointer: &fun(, i32), callable: Fun(, bool)) () {}\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -874,7 +876,7 @@ fn callable_type_recovery_keeps_later_parameters_and_the_function() {
 #[test]
 fn callable_type_recovery_keeps_parameters_after_nested_invalid_first_type() {
     let (module, errors) = parse_module(
-        "fn retained(pointer: &fn(@ (bad, value), i32), callable: Fn(@ (bad, value), bool)) () {}\nfn later() () {}",
+        "fun retained(pointer: &fun(@ (bad, value), i32), callable: Fun(@ (bad, value), bool)) () {}\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -911,7 +913,7 @@ fn callable_type_recovery_keeps_parameters_after_nested_invalid_first_type() {
 
 #[test]
 fn generic_parameter_recovery_keeps_later_parameters_and_the_function() {
-    let (module, errors) = parse_module("fn retained[, Kept]() () {}\nfn later() () {}");
+    let (module, errors) = parse_module("fun retained[, Kept]() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -934,7 +936,7 @@ fn generic_parameter_recovery_keeps_later_parameters_and_the_function() {
 #[test]
 fn generic_const_parameter_recovery_reports_missing_type_and_keeps_later_parameters() {
     let (module, errors) = parse_module(
-        "fn retained[Missing: , Kept: i32]() () {}\nfn terminal[Missing: ]() () {}\nfn later() () {}",
+        "fun retained[Missing: , Kept: i32]() () {}\nfun terminal[Missing: ]() () {}\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -961,7 +963,8 @@ fn generic_const_parameter_recovery_reports_missing_type_and_keeps_later_paramet
 
 #[test]
 fn where_predicate_recovery_keeps_later_predicates_and_the_function() {
-    let (module, errors) = parse_module("fn retained[T]() () where : T, T: T {}\nfn later() () {}");
+    let (module, errors) =
+        parse_module("fun retained[T]() () where : T, T: T {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -983,7 +986,7 @@ fn where_predicate_recovery_keeps_later_predicates_and_the_function() {
 #[test]
 fn where_predicate_delimiter_recovery_keeps_later_predicates() {
     let (module, errors) =
-        parse_module("fn retained[T]() () where T: Copy U: Clone, V: Send {}\nfn later() () {}");
+        parse_module("fun retained[T]() () where T: Copy U: Clone, V: Send {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1005,7 +1008,7 @@ fn where_predicate_delimiter_recovery_keeps_later_predicates() {
 #[test]
 fn associated_type_argument_recovery_keeps_later_arguments_and_the_function() {
     let (module, errors) =
-        parse_module("fn retained(value: Wrapper[Item = , i32]) () {}\nfn later() () {}");
+        parse_module("fun retained(value: Wrapper[Item = , i32]) () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1034,7 +1037,7 @@ fn associated_type_argument_recovery_keeps_later_arguments_and_the_function() {
 
 #[test]
 fn generic_parameter_delimiter_recovery_keeps_the_function() {
-    let (module, errors) = parse_module("fn retained[T U]() () {}\nfn later() () {}");
+    let (module, errors) = parse_module("fun retained[T U]() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1062,7 +1065,7 @@ fn generic_parameter_delimiter_recovery_keeps_the_function() {
 #[test]
 fn generic_parameter_delimiter_recovery_keeps_later_parameters() {
     let (module, errors) =
-        parse_module("fn retained[T U, N: i32 M: bool]() () {}\nfn later() () {}");
+        parse_module("fun retained[T U, N: i32 M: bool]() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1090,7 +1093,7 @@ fn generic_parameter_delimiter_recovery_keeps_later_parameters() {
 
 #[test]
 fn using_group_recovery_keeps_later_members_and_items() {
-    let (module, errors) = parse_module("using {kept, , later as alias};\nfn after() () {}");
+    let (module, errors) = parse_module("using {kept, , later as alias};\nfun after() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1114,7 +1117,7 @@ fn using_group_recovery_keeps_later_members_and_items() {
 
 #[test]
 fn unterminated_using_group_recovers_at_the_next_item() {
-    let (module, errors) = parse_module("using {kept, ,\nfn later() () {}");
+    let (module, errors) = parse_module("using {kept, ,\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1137,7 +1140,7 @@ fn unterminated_using_group_recovers_at_the_next_item() {
 
 #[test]
 fn using_group_delimiter_recovery_keeps_later_members_and_items() {
-    let (module, errors) = parse_module("using {kept later};\nfn after() () {}");
+    let (module, errors) = parse_module("using {kept later};\nfun after() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0]
@@ -1160,7 +1163,7 @@ fn using_group_delimiter_recovery_keeps_later_members_and_items() {
 
 #[test]
 fn using_group_recovery_ignores_nested_member_delimiters() {
-    let (module, errors) = parse_module("using {(bad, value), kept};\nfn after() () {}");
+    let (module, errors) = parse_module("using {(bad, value), kept};\nfun after() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1184,7 +1187,8 @@ fn using_group_recovery_ignores_nested_member_delimiters() {
 
 #[test]
 fn attribute_argument_recovery_keeps_later_arguments_and_item() {
-    let (module, errors) = parse_module("@[custom(, true)]\nfn retained() () {}\nfn later() () {}");
+    let (module, errors) =
+        parse_module("@[custom(, true)]\nfun retained() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1211,7 +1215,7 @@ fn attribute_argument_recovery_keeps_later_arguments_and_item() {
 #[test]
 fn attribute_argument_delimiter_recovery_keeps_later_arguments_and_item() {
     let (module, errors) =
-        parse_module("@[custom(true false)]\nfn retained() () {}\nfn later() () {}");
+        parse_module("@[custom(true false)]\nfun retained() () {}\nfun later() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0]
@@ -1236,7 +1240,7 @@ fn attribute_argument_delimiter_recovery_keeps_later_arguments_and_item() {
 #[test]
 fn attribute_argument_recovery_ignores_nested_argument_delimiters() {
     let (module, errors) =
-        parse_module("@[custom(@ [bad, value], true)]\nfn retained() () {}\nfn later() () {}");
+        parse_module("@[custom(@ [bad, value], true)]\nfun retained() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1258,7 +1262,7 @@ fn attribute_argument_recovery_ignores_nested_argument_delimiters() {
 
 #[test]
 fn malformed_attribute_header_recovers_before_the_attributed_item() {
-    let (module, errors) = parse_module("@[broken.]\nfn retained() () {}\nfn later() () {}");
+    let (module, errors) = parse_module("@[broken.]\nfun retained() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1280,7 +1284,7 @@ fn malformed_attribute_header_recovers_before_the_attributed_item() {
 
 #[test]
 fn unterminated_attribute_header_recovers_at_the_next_item() {
-    let (module, errors) = parse_module("@[broken.\nfn retained() () {}\nfn later() () {}");
+    let (module, errors) = parse_module("@[broken.\nfun retained() () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1303,7 +1307,7 @@ fn unterminated_attribute_header_recovers_at_the_next_item() {
 #[test]
 fn unterminated_statement_attribute_recovers_at_the_next_statement() {
     let (module, errors) =
-        parse_module("fn main() () { @[broken.\n let kept = 1; return; }\nfn later() () {}");
+        parse_module("fun main() () { @[broken.\n let kept = 1; return; }\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1327,7 +1331,7 @@ fn unterminated_statement_attribute_recovers_at_the_next_statement() {
 #[test]
 fn closure_capture_recovery_keeps_later_captures_and_items() {
     let (module, errors) = parse_module(
-        "fn retained() () { let closure = \\[kept, , later] value -> kept; }\nfn after() () {}",
+        "fun retained() () { let closure = \\[kept, , later] value -> kept; }\nfun after() () {}",
     );
     assert_eq!(
         errors
@@ -1357,7 +1361,7 @@ fn closure_capture_recovery_keeps_later_captures_and_items() {
 #[test]
 fn closure_capture_delimiter_recovery_keeps_later_captures() {
     let (module, errors) =
-        parse_module("fn retained() () { let closure = \\[kept later] value -> kept; }");
+        parse_module("fun retained() () { let closure = \\[kept later] value -> kept; }");
     assert_eq!(
         errors
             .iter()
@@ -1384,7 +1388,7 @@ fn closure_capture_delimiter_recovery_keeps_later_captures() {
 #[test]
 fn bracket_argument_recovery_keeps_later_arguments_and_items() {
     let (module, errors) = parse_module(
-        "struct Wrapper[T, U] {}\nfn retained(value: Wrapper[i32, , bool]) () {}\nfn later() () {}",
+        "struct Wrapper[T, U] {}\nfun retained(value: Wrapper[i32, , bool]) () {}\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1410,8 +1414,9 @@ fn bracket_argument_recovery_keeps_later_arguments_and_items() {
 
 #[test]
 fn bracket_argument_delimiter_recovery_keeps_later_arguments_and_items() {
-    let (module, errors) =
-        parse_module("fn main() () { let value = target[true false]; later(); } fn later() () {}");
+    let (module, errors) = parse_module(
+        "fun main() () { let value = target[true false]; later(); } fun later() () {}",
+    );
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0]
@@ -1440,7 +1445,7 @@ fn bracket_argument_delimiter_recovery_keeps_later_arguments_and_items() {
 #[test]
 fn bracket_argument_recovery_ignores_nested_argument_delimiters() {
     let (module, errors) = parse_module(
-        "fn main() () { let value = target[@ (bad, value), true]; later(); } fn later() () {}",
+        "fun main() () { let value = target[@ (bad, value), true]; later(); } fun later() () {}",
     );
     assert_eq!(
         errors
@@ -1468,7 +1473,7 @@ fn bracket_argument_recovery_ignores_nested_argument_delimiters() {
 #[test]
 fn match_pattern_recovery_keeps_later_patterns_and_statements() {
     let (module, errors) = parse_module(
-        "fn main(value: bool) () { match value { , true => (), false => (), } later(); }\nfn later() () {}",
+        "fun main(value: bool) () { match value { , true => (), false => (), } later(); }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1492,7 +1497,7 @@ fn match_pattern_recovery_keeps_later_patterns_and_statements() {
 #[test]
 fn match_pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
     let (module, errors) =
-        parse_module("fn main(value: bool) () { match value { true false => (), _ => (), } }");
+        parse_module("fun main(value: bool) () { match value { true false => (), _ => (), } }");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0]
@@ -1516,7 +1521,7 @@ fn match_pattern_delimiter_recovery_keeps_later_patterns_and_arms() {
 #[test]
 fn match_arm_body_recovery_keeps_later_arms_and_statements() {
     let (module, errors) = parse_module(
-        "fn main(value: bool) () { match value { true => , false => (), } later(); }\nfn later() () {}",
+        "fun main(value: bool) () { match value { true => , false => (), } later(); }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1540,7 +1545,7 @@ fn match_arm_body_recovery_keeps_later_arms_and_statements() {
 #[test]
 fn match_tuple_pattern_recovery_keeps_later_fields() {
     let (module, errors) = parse_module(
-        "fn main(value: (bool, bool)) () { match value { (true, , false) => (), _ => (), } }",
+        "fun main(value: (bool, bool)) () { match value { (true, , false) => (), _ => (), } }",
     );
     assert_eq!(
         errors
@@ -1574,7 +1579,7 @@ fn match_tuple_pattern_recovery_keeps_later_fields() {
 #[test]
 fn nominal_tuple_pattern_recovery_keeps_later_fields() {
     let (module, errors) = parse_module(
-        "fn main(value: bool) () { match value { Pair(true, , false) => (), _ => (), } }",
+        "fun main(value: bool) () { match value { Pair(true, , false) => (), _ => (), } }",
     );
     assert_eq!(
         errors
@@ -1612,7 +1617,7 @@ fn nominal_tuple_pattern_recovery_keeps_later_fields() {
 #[test]
 fn nominal_named_pattern_recovery_keeps_later_fields() {
     let (module, errors) = parse_module(
-        "fn main(value: bool) () { match value { Point { x: , y: true } => (), _ => (), } }",
+        "fun main(value: bool) () { match value { Point { x: , y: true } => (), _ => (), } }",
     );
     assert_eq!(
         errors
@@ -1651,7 +1656,7 @@ fn nominal_named_pattern_recovery_keeps_later_fields() {
 #[test]
 fn tuple_pattern_recovery_keeps_fields_after_nested_invalid_first_pattern() {
     let (module, errors) = parse_module(
-        "fn main(value: (bool, bool)) () { match value { (@ (bad, value), true) => (), _ => (), } later(); } fn later() () {}",
+        "fun main(value: (bool, bool)) () { match value { (@ (bad, value), true) => (), _ => (), } later(); } fun later() () {}",
     );
     assert!(
         !errors.is_empty(),
@@ -1683,7 +1688,7 @@ fn tuple_pattern_recovery_keeps_fields_after_nested_invalid_first_pattern() {
 #[test]
 fn irrefutable_tuple_pattern_recovery_keeps_fields_after_nested_invalid_first_pattern() {
     let (module, errors) = parse_module(
-        "fn main(source: (bool, bool)) () { let (@ (bad, value), retained) = source; later(); } fn later() () {}",
+        "fun main(source: (bool, bool)) () { let (@ (bad, value), retained) = source; later(); } fun later() () {}",
     );
     assert!(
         !errors.is_empty(),
@@ -1707,7 +1712,7 @@ fn irrefutable_tuple_pattern_recovery_keeps_fields_after_nested_invalid_first_pa
 #[test]
 fn type_argument_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
-        parse_module("fn retained(value: Wrapper[i32 bool]) () {}\nfn later() () {}");
+        parse_module("fun retained(value: Wrapper[i32 bool]) () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1738,7 +1743,7 @@ fn type_argument_delimiter_recovery_keeps_the_function() {
 #[test]
 fn type_argument_recovery_keeps_later_arguments_after_nested_tokens() {
     let (module, errors) = parse_module(
-        "struct Wrapper[T, U] {}\nfn retained(value: Wrapper[@ (bad, value), bool]) () {}\nfn later() () {}",
+        "struct Wrapper[T, U] {}\nfun retained(value: Wrapper[@ (bad, value), bool]) () {}\nfun later() () {}",
     );
     assert!(!errors.is_empty(), "{errors:?}");
     let ItemKind::Function(retained) = &module.items[1].kind else {
@@ -1760,7 +1765,8 @@ fn type_argument_recovery_keeps_later_arguments_after_nested_tokens() {
 
 #[test]
 fn unterminated_type_arguments_recover_at_the_outer_parameter_boundary() {
-    let (module, errors) = parse_module("fn retained(value: Wrapper[i32) () {}\nfn later() () {}");
+    let (module, errors) =
+        parse_module("fun retained(value: Wrapper[i32) () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1782,7 +1788,7 @@ fn unterminated_type_arguments_recover_at_the_outer_parameter_boundary() {
 #[test]
 fn unterminated_struct_body_recovers_at_the_next_item() {
     let (module, errors) = parse_module(
-        "struct Recovered { kept: i32,\nunion AlsoRecovered { value: i32,\nenum YetRecovered { Kept,\nfn later() () {}",
+        "struct Recovered { kept: i32,\nunion AlsoRecovered { value: i32,\nenum YetRecovered { Kept,\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1819,7 +1825,7 @@ fn unterminated_struct_body_recovers_at_the_next_item() {
 #[test]
 fn function_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) =
-        parse_module("fn retained(first: i32 second: bool) () {}\nfn later() () {}");
+        parse_module("fun retained(first: i32 second: bool) () {}\nfun later() () {}");
     assert_eq!(
         errors
             .iter()
@@ -1844,7 +1850,7 @@ fn function_parameter_delimiter_recovery_keeps_the_function() {
 #[test]
 fn trait_member_parameter_recovery_keeps_later_members_and_items() {
     let (module, errors) = parse_module(
-        "trait Retained { fn bad(first: i32 second: bool) (); fn good(value: i32) (); }\nfn later() () {}",
+        "trait Retained { fun bad(first: i32 second: bool) (); fun good(value: i32) (); }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1875,7 +1881,7 @@ fn trait_member_parameter_recovery_keeps_later_members_and_items() {
 #[test]
 fn extend_member_parameter_recovery_keeps_later_members_and_items() {
     let (module, errors) = parse_module(
-        "struct Value {}\nextend Value { fn bad(first: i32 second: bool) Value { Value {} } fn good(value: i32) Value { Value {} } }\nfn later() () {}",
+        "struct Value {}\nextend Value { fun bad(first: i32 second: bool) Value { Value {} } fun good(value: i32) Value { Value {} } }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1906,7 +1912,7 @@ fn extend_member_parameter_recovery_keeps_later_members_and_items() {
 #[test]
 fn closure_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) = parse_module(
-        "fn retained() () { let value = \\first: i32 second: bool -> second; }\nfn later() () {}",
+        "fun retained() () { let value = \\first: i32 second: bool -> second; }\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -1939,8 +1945,8 @@ fn closure_parameter_delimiter_recovery_keeps_the_function() {
 #[test]
 fn closure_parameter_name_recovery_keeps_later_parameters() {
     let (module, errors) = parse_module(
-        r#"fn retained() () { let value = \, second: bool -> second; }
-fn later() () {}"#,
+        r#"fun retained() () { let value = \, second: bool -> second; }
+fun later() () {}"#,
     );
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
@@ -1972,7 +1978,7 @@ fn later() () {}"#,
 #[test]
 fn type_parameter_delimiter_recovery_keeps_the_function() {
     let (module, errors) = parse_module(
-        "fn retained(pointer: &fn(i32 bool), callable: Fn(i32 bool), tuple: (i32 bool)) () {}\nfn later() () {}",
+        "fun retained(pointer: &fun(i32 bool), callable: Fun(i32 bool), tuple: (i32 bool)) () {}\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -2000,7 +2006,7 @@ fn supertrait_delimiter_recovery_keeps_later_traits() {
         "trait Base {}
          trait Other {}
          trait Derived: Base Other {}
-         fn later() () {}",
+         fun later() () {}",
     );
     assert_eq!(
         errors
@@ -2027,7 +2033,7 @@ fn supertrait_delimiter_recovery_keeps_later_traits() {
 #[test]
 fn supertrait_recovery_keeps_traits_after_missing_separator_entries() {
     let (module, errors) = parse_module(
-        "trait Base {}\ntrait Other {}\ntrait Derived: Base, Other {}\ntrait Leading: , Base {}\nfn later() () {}",
+        "trait Base {}\ntrait Other {}\ntrait Derived: Base, Other {}\ntrait Leading: , Base {}\nfun later() () {}",
     );
     assert_eq!(
         errors
@@ -2061,7 +2067,7 @@ fn supertrait_recovery_keeps_traits_after_missing_separator_entries() {
 
 #[test]
 fn item_recovery_ignores_nested_statement_delimiters() {
-    let (module, errors) = parse_module("extern @ (bad; value);\nfn later() () {}");
+    let (module, errors) = parse_module("extern @ (bad; value);\nfun later() () {}");
     assert_eq!(errors.len(), 1, "{errors:?}");
     let ItemKind::Function(later) = &module.items[0].kind else {
         panic!("expected later function");
@@ -2083,26 +2089,26 @@ fn classifies_parse_errors_by_grammar_rule_not_message_text() {
             ParseErrorKind::ExpectedName,
         ),
         (
-            "fn f(x: ) {}",
+            "fun f(x: ) {}",
             "expected type",
             ParseErrorKind::ExpectedType,
         ),
         (
-            "fn f() { let = 1; }",
+            "fun f() { let = 1; }",
             "expected binding pattern",
             ParseErrorKind::ExpectedBindingPattern,
         ),
         (
-            "fn f() i32 { 1 + }",
+            "fun f() i32 { 1 + }",
             "expected expression",
             ParseErrorKind::ExpectedExpression,
         ),
         (
-            "fn f() { g(1; }",
+            "fun f() { g(1; }",
             "expected `)`",
             ParseErrorKind::MissingClosingDelimiter,
         ),
-        ("fn f() { 1 $ }", "lexical error", ParseErrorKind::Lexical),
+        ("fun f() { 1 $ }", "lexical error", ParseErrorKind::Lexical),
     ];
     for (source, message, kind) in cases {
         let (_module, errors) = parse_module(source);
@@ -2131,7 +2137,7 @@ fn grammar_errors_without_a_rule_hint_carry_no_help() {
 fn rejects_prefix_deref_syntax() {
     let (_module, errors) = parse_module(
         r#"
-fn main(ptr: &i32) i32 {
+fun main(ptr: &i32) i32 {
     *ptr
 }
 "#,
@@ -2143,7 +2149,7 @@ fn main(ptr: &i32) i32 {
 fn rejects_removed_multi_arm_if_pattern_syntax() {
     let (_module, errors) = parse_module(
         r#"
-fn main(value: ?i32) () {
+fun main(value: ?i32) () {
     if ?item = value {
         _ = item;
     } or null {}
@@ -2162,7 +2168,7 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
         "const",
         "extern",
         "pub",
-        "fn",
+        "fun",
         "struct",
         "union",
         "trait",
@@ -2213,7 +2219,7 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
     ];
     const PREFIXES: &[&str] = &[
         "",
-        "fn anchor() i32 { ",
+        "fun anchor() i32 { ",
         "struct S { ",
         "extend S { ",
         "trait T { ",
@@ -2221,9 +2227,9 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
     ];
     const SUFFIXES: &[&str] = &[
         "",
-        " fn main() i32 { 0 }",
-        " } fn main() i32 { 0 }",
-        "; fn main() i32 { 0 }",
+        " fun main() i32 { 0 }",
+        " } fun main() i32 { 0 }",
+        "; fun main() i32 { 0 }",
     ];
 
     let mut seed = 0x9E37_79B9u32;
@@ -2258,9 +2264,9 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
 #[test]
 fn associated_member_recovery_keeps_later_members_and_items() {
     let (module, errors) = parse_module(
-        "trait Retained { type Missing fn good(value: i32) (); const ALSO: bool; }\n\
-         extend Retained { type Missing fn good(value: i32) Retained { Retained {} } const ALSO: bool; }\n\
-         fn later() () {}",
+        "trait Retained { type Missing fun good(value: i32) (); const ALSO: bool; }\n\
+         extend Retained { type Missing fun good(value: i32) Retained { Retained {} } const ALSO: bool; }\n\
+         fun later() () {}",
     );
     assert!(
         !errors.is_empty(),

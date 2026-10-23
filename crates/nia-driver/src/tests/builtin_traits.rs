@@ -7,22 +7,22 @@ fn builtin_operator_traits_allow_constrained_generic_arithmetic() {
     write(
         &root.join("main.nia"),
         r#"
-fn add_same[T](a: T, b: T) T
+fun add_same[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     a + b
 }
 
-fn add_method[T](a: T, b: T) T
+fun add_method[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     a.add(b)
 }
 
-fn add_associated[T](a: T, b: T) T
+fun add_associated[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     [T]::add(a, b)
 }
 
-fn main() i32 {
+fun main() i32 {
     add_same[i32](1, 2) + add_method[i32](3, 4) + add_associated[i32](5, 6)
 }
 "#,
@@ -38,11 +38,11 @@ fn builtin_operator_traits_reject_unconstrained_generic_arithmetic() {
     write(
         &root.join("main.nia"),
         r#"
-fn add_bad[T](a: T, b: T) T {
+fun add_bad[T](a: T, b: T) T {
     a + b
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -63,11 +63,11 @@ fn builtin_operator_projection_can_name_primitive_output() {
     write(
         &root.join("main.nia"),
         r#"
-fn add_i32(a: i32, b: i32) [i32 as Add[i32]]::Output {
+fun add_i32(a: i32, b: i32) [i32 as Add[i32]]::Output {
     a + b
 }
 
-fn main() i32 {
+fun main() i32 {
     add_i32(1, 2)
 }
 "#,
@@ -90,12 +90,12 @@ struct Number {
 extend Number : Add[Number] {
     type Output = Number;
 
-    fn add(self, rhs: Number) Number {
+    fun add(self, rhs: Number) Number {
         Self { value: self.value + rhs.value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Number { value: 1 };
     let mut two = Number { value: 2 };
     let mut three = one + two;
@@ -121,12 +121,12 @@ struct Number {
 }
 
 extend Number {
-    fn add(self, rhs: Number) Number {
+    fun add(self, rhs: Number) Number {
         Self { value: self.value + rhs.value + 10 }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Number { value: 1 };
     let mut two = Number { value: 2 };
     one.add(two).value
@@ -148,7 +148,7 @@ struct Number {
     value: i32,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Number { value: 1 };
     let mut two = Number { value: 2 };
     let mut three = one + two;
@@ -174,17 +174,17 @@ fn builtin_comparison_traits_allow_constrained_generic_comparison() {
     write(
         &root.join("main.nia"),
         r#"
-fn same[T](a: T, b: T) bool
+fun same[T](a: T, b: T) bool
 where T: Eq[T] {
     a == b
 }
 
-fn ordered[T](a: T, b: T) bool
+fun ordered[T](a: T, b: T) bool
 where T: Ord[T] {
     a <= b
 }
 
-fn main() bool {
+fun main() bool {
     same[i32](1, 1) and ordered[i32](1, 2)
 }
 "#,
@@ -200,11 +200,11 @@ fn builtin_comparison_traits_reject_unconstrained_generic_comparison() {
     write(
         &root.join("main.nia"),
         r#"
-fn same_bad[T](a: T, b: T) bool {
+fun same_bad[T](a: T, b: T) bool {
     a == b
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -225,17 +225,17 @@ fn builtin_unary_traits_allow_constrained_generic_unary_ops() {
     write(
         &root.join("main.nia"),
         r#"
-fn neg[T](value: T) [T as Neg]::Output
+fun neg[T](value: T) [T as Neg]::Output
 where T: Neg {
     -value
 }
 
-fn invert[T](value: T) [T as BitNot]::Output
+fun invert[T](value: T) [T as BitNot]::Output
 where T: BitNot {
     ~value
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut a: i32 = neg[i32](1);
     let mut b: i32 = invert[i32](0);
     a + b
@@ -258,17 +258,17 @@ struct Flag {
 }
 
 extend Flag : Not {
-    fn logicalNot(self) bool {
+    fun logicalNot(self) bool {
         not self.value
     }
 }
 
-fn flip[T](value: T) bool
+fun flip[T](value: T) bool
 where T: Not {
     not value
 }
 
-fn main() bool {
+fun main() bool {
     flip(Flag { value: false })
 }
 "#,
@@ -284,12 +284,12 @@ fn builtin_sized_trait_allows_generic_layout_builtins() {
     write(
         &root.join("main.nia"),
         r#"
-fn bytes[T]() usize
+fun bytes[T]() usize
 where T: Sized {
     std::builtin::size[T]() + std::builtin::align[T]()
 }
 
-fn main() usize {
+fun main() usize {
     bytes[i32]()
 }
 "#,
@@ -305,11 +305,11 @@ fn builtin_sized_trait_rejects_unconstrained_generic_layout_builtins() {
     write(
         &root.join("main.nia"),
         r#"
-fn bytes[T]() usize {
+fun bytes[T]() usize {
     std::builtin::size[T]()
 }
 
-fn main() usize {
+fun main() usize {
     bytes[i32]()
 }
 "#,
@@ -339,13 +339,13 @@ struct ArrayList[T] {
 
 extend[T] ArrayList[T]
 where T: Sized {
-    fn elem_size(& self) usize {
+    fun elem_size(& self) usize {
         _ = self;
         std::builtin::size[T]()
     }
 }
 
-fn main(list: &ArrayList[i32]) usize {
+fun main(list: &ArrayList[i32]) usize {
     list.elem_size()
 }
 "#,
@@ -368,14 +368,14 @@ struct ArrayList[T] {
 }
 
 extend[T] ArrayList[T] {
-    fn other_size[U](& self) usize
+    fun other_size[U](& self) usize
     where U: Sized {
         _ = self;
         std::builtin::size[U]()
     }
 }
 
-fn main(list: &ArrayList[i32]) usize {
+fun main(list: &ArrayList[i32]) usize {
     list.other_size[u8]()
 }
 "#,
@@ -400,13 +400,13 @@ where T: Sized {
 }
 
 extend[T] ArrayList[T] {
-    fn elem_size(& self) usize {
+    fun elem_size(& self) usize {
         _ = self;
         std::builtin::size[T]()
     }
 }
 
-fn main(list: &ArrayList[i32]) usize {
+fun main(list: &ArrayList[i32]) usize {
     list.elem_size()
 }
 "#,
@@ -422,42 +422,42 @@ fn builtin_place_traits_allow_constrained_generic_deref_index_and_slice() {
     write(
         &root.join("main.nia"),
         r##"
-fn read_ptr[P](ptr: P) [P as Deref]::Target
+fun read_ptr[P](ptr: P) [P as Deref]::Target
 where P: Deref {
     ptr.*
 }
 
-fn write_ptr[P](ptr: P, value: [P as DerefMut]::Target) ()
+fun write_ptr[P](ptr: P, value: [P as DerefMut]::Target) ()
 where P: DerefMut {
     ptr.* = value;
 }
 
-fn read_index[C](items: C, index: usize) [C as Index[usize]]::Output
+fun read_index[C](items: C, index: usize) [C as Index[usize]]::Output
 where C: Index[usize] {
     items[index]
 }
 
-fn write_index[C](items: C, index: usize, value: [C as IndexMut[usize]]::Output) ()
+fun write_index[C](items: C, index: usize, value: [C as IndexMut[usize]]::Output) ()
 where C: IndexMut[usize] {
     items[index] = value;
 }
 
-fn write_index_i32[C](items: C, index: i32, value: [C as IndexMut[i32]]::Output) ()
+fun write_index_i32[C](items: C, index: i32, value: [C as IndexMut[i32]]::Output) ()
 where C: IndexMut[i32] {
     items[index] = value;
 }
 
-fn slice[S](items: S) [S as Slice[..]]::Output
+fun slice[S](items: S) [S as Slice[..]]::Output
 where S: Slice[..] {
     & items[..]
 }
 
-fn sliceMut[S](items: S) [S as SliceMut[..]]::Output
+fun sliceMut[S](items: S) [S as SliceMut[..]]::Output
 where S: SliceMut[..] {
     &mut items[..]
 }
 
-fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
+fun main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
     let mut x = read_ptr[&mut i32](ptr);
     write_ptr[&mut i32](ptr, x);
     let mut y = read_index[& [i32]](ro, 0);
@@ -480,7 +480,7 @@ fn len_and_inherent_pointer_methods_model_arrays_and_slices() {
     write(
         &root.join("main.nia"),
         r##"
-fn main(slice: & [usize], sliceMut: &mut [usize]) usize {
+fun main(slice: & [usize], sliceMut: &mut [usize]) usize {
     let mut array: [i32; 4] = [1, 2, 3, 4];
     let mut literal_ptr = (&b"nia\0").ptr();
     let mut read_ptr = slice.ptr();
@@ -505,7 +505,7 @@ fn inherent_pointer_methods_do_not_apply_to_array_values() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut array: [i32; 4] = [1, 2, 3, 4];
     array.ptr().*
 }
@@ -531,16 +531,16 @@ fn ordinary_slice_extensions_take_priority_over_pointer_fallbacks() {
         &root.join("main.nia"),
         r#"
 extend[T] [T] {
-    fn ptr(&self) usize {
+    fun ptr(&self) usize {
         41usize
     }
 
-    fn ptrMut(&mut self) usize {
+    fun ptrMut(&mut self) usize {
         42usize
     }
 }
 
-fn main(read: &[usize], write: &mut [usize]) usize {
+fun main(read: &[usize], write: &mut [usize]) usize {
     read.ptr() + write.ptrMut()
 }
 "#,
@@ -556,7 +556,7 @@ fn readonly_slices_cannot_call_mutable_pointer_projection() {
     write(
         &root.join("main.nia"),
         r#"
-fn main(values: &[usize]) usize {
+fun main(values: &[usize]) usize {
     values.ptrMut().*
 }
 "#,
@@ -579,19 +579,19 @@ fn builtin_place_traits_reject_unconstrained_generic_operations() {
     write(
         &root.join("main.nia"),
         r##"
-fn bad_deref[T](value: T) () {
+fun bad_deref[T](value: T) () {
     _ = value.*;
 }
 
-fn bad_index[T](value: T) () {
+fun bad_index[T](value: T) () {
     _ = value[0];
 }
 
-fn bad_slice[T](value: T) () {
+fun bad_slice[T](value: T) () {
     _ = & value[..];
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "##,
     );
 
@@ -631,7 +631,7 @@ struct Cell {
 extend Cell : Deref {
     type Target = i32;
 
-    fn deref(& self) & i32 {
+    fun deref(& self) & i32 {
         & self.value
     }
 }
@@ -639,7 +639,7 @@ extend Cell : Deref {
 extend Cell : DerefMut {
     type Target = i32;
 
-    fn derefMut(&mut self) &mut i32 {
+    fun derefMut(&mut self) &mut i32 {
         &mut self.value
     }
 }
@@ -647,7 +647,7 @@ extend Cell : DerefMut {
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(& self, index: usize) & i32 {
+    fun index(& self, index: usize) & i32 {
         & self.value
     }
 }
@@ -655,32 +655,32 @@ extend Cell : Index[usize] {
 extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn indexMut(&mut self, index: usize) &mut i32 {
+    fun indexMut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
 
-fn read_deref[P](value: P) [P as Deref]::Target
+fun read_deref[P](value: P) [P as Deref]::Target
 where P: Deref {
     value.*
 }
 
-fn write_deref[P](value: P, next: [P as DerefMut]::Target) ()
+fun write_deref[P](value: P, next: [P as DerefMut]::Target) ()
 where P: DerefMut {
     value.* = next;
 }
 
-fn read_index[C](value: C) [C as Index[usize]]::Output
+fun read_index[C](value: C) [C as Index[usize]]::Output
 where C: Index[usize] {
     value[0]
 }
 
-fn write_index[C](value: C, next: [C as IndexMut[usize]]::Output) ()
+fun write_index[C](value: C, next: [C as IndexMut[usize]]::Output) ()
 where C: IndexMut[usize] {
     value[0] = next;
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut cell = Cell { value: 1 };
     let mut first = read_deref[Cell](cell);
     write_deref[Cell](cell, 3);
@@ -708,7 +708,7 @@ struct Cell {
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(& self, index: usize) & i32 {
+    fun index(& self, index: usize) & i32 {
         & self.value
     }
 }
@@ -716,16 +716,16 @@ extend Cell : Index[usize] {
 extend Cell : Index[i32] {
     type Output = i32;
 
-    fn index(& self, index: i32) & i32 {
+    fun index(& self, index: i32) & i32 {
         & self.value
     }
 }
 
-fn read_index(value: Cell) i32 {
+fun read_index(value: Cell) i32 {
     value[0]
 }
 
-fn main() i32 {
+fun main() i32 {
     read_index(Cell { value: 1 })
 }
 "##,
@@ -755,7 +755,7 @@ struct Cell {
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(& self, index: usize) & i32 {
+    fun index(& self, index: usize) & i32 {
         & self.value
     }
 }
@@ -763,12 +763,12 @@ extend Cell : Index[usize] {
 extend Cell : Index[i32] {
     type Output = i32;
 
-    fn index(& self, index: i32) & i32 {
+    fun index(& self, index: i32) & i32 {
         & self.value
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let cell = Cell { value: 1 };
     cell[0]
 }
@@ -819,7 +819,7 @@ struct Cell {
 extend Cell : DerefMut {
     type Target = i32;
 
-    fn derefMut(&mut self) &mut i32 {
+    fun derefMut(&mut self) &mut i32 {
         &mut self.value
     }
 }
@@ -827,12 +827,12 @@ extend Cell : DerefMut {
 extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn indexMut(&mut self, index: usize) &mut i32 {
+    fun indexMut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -871,17 +871,17 @@ static mut backing: [i32; 3] = [1, 2, 3];
 extend Cell : Slice[..] {
     type Output = & [i32];
 
-    fn slice(& self, range: ..) & [i32] {
+    fun slice(& self, range: ..) & [i32] {
         & backing[..]
     }
 }
 
-fn take[T](value: T) [T as Slice[..]]::Output
+fun take[T](value: T) [T as Slice[..]]::Output
 where T: Slice[..] {
     & value[..]
 }
 
-fn main(cell: Cell) i32 {
+fun main(cell: Cell) i32 {
     let mut part = take(cell);
     part.len() as i32
 }
@@ -901,12 +901,12 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
 extend[T] [T; 4] : Slice[..] {
     type Output = & [T];
 
-    fn slice(& self, range: ..) & [T] {
+    fun slice(& self, range: ..) & [T] {
         self.slice(range)
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -955,12 +955,12 @@ fn ordinary_len_trait_constrains_array_and_slice_length() {
     write(
         &root.join("main.nia"),
         r#"
-fn len_of[T](value: T) usize
+fun len_of[T](value: T) usize
 where T: Len {
     value.len()
 }
 
-fn main(slice: & [usize]) usize {
+fun main(slice: & [usize]) usize {
     let mut array = [1usize, 2usize, 3usize, 4usize];
     len_of(array) + slice.len()
 }
@@ -977,7 +977,7 @@ fn imported_generic_len_bound_uses_the_demand_loaded_source_trait() {
     write(
         &root.join("api.nia"),
         r#"
-pub fn lenOf[T](value: T) usize
+pub fun lenOf[T](value: T) usize
 where T: Len {
     value.len()
 }
@@ -989,7 +989,7 @@ where T: Len {
 module api;
 using entry::api;
 
-fn main(slice: &[u8]) usize {
+fun main(slice: &[u8]) usize {
     let array = [1u8, 2u8, 3u8];
     api::lenOf(array) + slice.len()
 }
@@ -1008,7 +1008,7 @@ fn unicode_char_api_models_checked_scalar_conversion() {
         r#"
 using std::unicode;
 
-fn main() i32 {
+fun main() i32 {
     let a = match unicode::fromScalarValue(65) {
         ?ch => {
             ch
@@ -1060,7 +1060,7 @@ const mask: boolx4 = std::builtin::insert(
 );
 const bits: usize = std::builtin::bitmask(mask);
 
-fn main() bool {
+fun main() bool {
     lane == 9
         and bits == 2
         and std::builtin::extract(changed, 0) == 3
@@ -1084,7 +1084,7 @@ const invalid: u8 = std::builtin::extract(
     4,
 );
 
-fn main() u8 { invalid }
+fun main() u8 { invalid }
 "#,
     );
 
@@ -1105,7 +1105,7 @@ fn char_conversion_builtin_requires_u32() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() ?char {
+fun main() ?char {
     std::builtin::charFromU32(65usize)
 }
 "#,
@@ -1131,7 +1131,7 @@ fn builtin_slice_ranges_infer_usize_bounds() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut items: [i32; 4] = [1, 2, 3, 4];
     let mut part = & items[0..2];
     part.len() as i32
@@ -1149,7 +1149,7 @@ fn builtin_slice_ranges_require_usize_bounds() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut items: [i32; 4] = [1, 2, 3, 4];
     let mut end: i32 = 2;
     let mut part = & items[0..end];
@@ -1175,7 +1175,7 @@ fn range_expressions_are_runtime_values() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut range: usize..usize = 0..2;
     0
 }
@@ -1192,7 +1192,7 @@ fn range_start_and_end_methods_expose_present_bounds() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() usize {
+fun main() usize {
     let exclusive = 2usize..5usize;
     let inclusive = 3usize..=7usize;
     let from = 3usize..;
@@ -1215,7 +1215,7 @@ fn range_bounds_only_expose_present_start_or_end() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() usize {
+fun main() usize {
     let from = 1usize..;
     let to = ..2usize;
     _ = from.end();
@@ -1253,12 +1253,12 @@ fn ordinary_extension_takes_priority_over_builtin_range_method() {
         &root.join("main.nia"),
         r#"
 extend[T] T..T {
-    fn start(&self, replacement: T) T {
+    fun start(&self, replacement: T) T {
         replacement
     }
 }
 
-fn main() usize {
+fun main() usize {
     (1usize..2usize).start(9usize)
 }
 "#,
@@ -1280,17 +1280,17 @@ struct Window {
 }
 
 extend Window : Len {
-    const fn len(& self) usize {
+    const fun len(& self) usize {
         self.hi - self.lo
     }
 }
 
-fn len_of[T](value: T) usize
+fun len_of[T](value: T) usize
 where T: Len {
     value.len()
 }
 
-fn main() usize {
+fun main() usize {
     let window = Window { lo: 3usize, hi: 9usize };
     len_of(window)
 }
@@ -1310,12 +1310,12 @@ fn ordinary_len_trait_validates_method_signatures() {
 struct BadLen {}
 
 extend BadLen : Len {
-    const fn len(self) i32 {
+    const fun len(self) i32 {
         1
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1369,7 +1369,7 @@ struct Number {
 
 extend Number : Sized {}
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1396,7 +1396,7 @@ struct Number {
 
 extend Number : Unsized {}
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1422,12 +1422,12 @@ struct Counter {}
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) i32 {
+    fun next(&mut self) i32 {
         1
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1455,12 +1455,12 @@ struct Counter {}
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&self) ?i32 {
+    fun next(&self) ?i32 {
         null
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 

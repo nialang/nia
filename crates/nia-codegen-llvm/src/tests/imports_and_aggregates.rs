@@ -13,11 +13,11 @@ module types;
 using entry::build;
 using entry::types;
 
-fn inc(value: i32) i32 {
+fun inc(value: i32) i32 {
     value + 1
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut build = build::Build::init();
     build.step(&"run", &inc);
     let step = types::Step::init(&"run", &inc);
@@ -29,7 +29,7 @@ fn main() i32 {
     std::fs::write(
         root.join("types.nia"),
         r#"
-pub type StepFn = &fn(i32) i32;
+pub type StepFn = &fun(i32) i32;
 
 pub struct Step {
     name: &[char],
@@ -37,7 +37,7 @@ pub struct Step {
 }
 
 extend Step {
-    pub fn init(name: &[char], run: StepFn) Step {
+    pub fun init(name: &[char], run: StepFn) Step {
         Self { name, run }
     }
 }
@@ -54,22 +54,22 @@ pub struct Build {
 }
 
 extend Build {
-    pub fn init() Build {
+    pub fun init() Build {
         Self {
             registered: types::Step::init(&"noop", &noop),
         }
     }
 
-    pub fn step(&mut self, name: &[char], run: types::StepFn) () {
+    pub fun step(&mut self, name: &[char], run: types::StepFn) () {
         self.registered = types::Step::init(name, run);
     }
 
-    pub fn run(&self, value: i32) i32 {
+    pub fun run(&self, value: i32) i32 {
         (self.registered.run)(value)
     }
 }
 
-fn noop(value: i32) i32 {
+fun noop(value: i32) i32 {
     value
 }
 "#,
@@ -100,7 +100,7 @@ fn emits_imported_open_enum_as_error_union_payload() {
 module errors;
 using entry::errors;
 
-fn maybe(flag: bool) errors::Error!i32 {
+fun maybe(flag: bool) errors::Error!i32 {
     if flag {
         !40
     } else {
@@ -108,12 +108,12 @@ fn maybe(flag: bool) errors::Error!i32 {
     }
 }
 
-fn add_two(flag: bool) errors::Error!i32 {
+fun add_two(flag: bool) errors::Error!i32 {
     let mut value = maybe(flag).?;
     !(value + 2)
 }
 
-fn main() i32 {
+fun main() i32 {
     match add_two(true) {
         !value => {
             value
@@ -159,13 +159,13 @@ struct HoldsItem {
     item: Item,
 }
 
-fn make() HoldsItem {
+fun make() HoldsItem {
     HoldsItem {
         item: Item::zero(),
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut held = make();
     held.item.value
 }
@@ -180,7 +180,7 @@ pub struct Item {
 }
 
 extend Item {
-    pub fn zero() Item {
+    pub fun zero() Item {
         Self { value: 0 }
     }
 }
@@ -229,7 +229,7 @@ struct T {
     xs: [S; 256],
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut t = T { xs: [S { x: 0 }; 256] };
     t.xs[255].x
 }
@@ -239,7 +239,7 @@ fn main() i32 {
     std::fs::write(
         root.join("empty.nia"),
         r#"
-pub fn value() i32 {
+pub fun value() i32 {
     0
 }
 "#,
@@ -269,7 +269,7 @@ fn emits_imported_struct_array_field_expression_edges() {
 module defs;
 using entry::defs;
 
-fn main() i32 {
+fun main() i32 {
     let mut bag = defs::make_bag();
     let mut i: usize = 2;
     bag.items[i] = defs::make_item(5);
@@ -290,11 +290,11 @@ pub struct Bag {
     items: [Item; 4],
 }
 
-pub fn make_item(value: i32) Item {
+pub fun make_item(value: i32) Item {
     Item { value }
 }
 
-pub fn make_bag() Bag {
+pub fun make_bag() Bag {
     Bag { items: [make_item(1); 4] }
 }
 "#,
@@ -325,8 +325,8 @@ fn emits_imported_aggregate_function_pointer_call_abi() {
 module defs;
 using entry::defs;
 
-fn main() i32 {
-    let callback: &fn(defs::Pair) defs::Pair = & defs::id_pair;
+fun main() i32 {
+    let callback: &fun(defs::Pair) defs::Pair = & defs::id_pair;
     let mut pair = callback(defs::make_pair(2, 5));
     pair.a + pair.b
 }
@@ -341,11 +341,11 @@ pub struct Pair {
     b: i32,
 }
 
-pub fn make_pair(a: i32, b: i32) Pair {
+pub fun make_pair(a: i32, b: i32) Pair {
     Pair { a, b }
 }
 
-pub fn id_pair(pair: Pair) Pair {
+pub fun id_pair(pair: Pair) Pair {
     pair
 }
 "#,
@@ -378,7 +378,7 @@ using entry::module_enum_defs;
 
 using module_enum_defs::Mode;
 
-fn main() i32 {
+fun main() i32 {
     let mut box = module_enum_defs::make_box();
     match box.mode {
         module_enum_defs::Mode::A => Mode::A as u8 as i32,
@@ -402,7 +402,7 @@ pub struct Box {
     mode: Mode,
 }
 
-pub fn make_box() Box {
+pub fun make_box() Box {
     Box { mode: Mode::A }
 }
 "#,
@@ -432,7 +432,7 @@ fn emits_enum_switch_with_only_returning_arms() {
 module module_enum_defs;
 using entry::module_enum_defs;
 
-fn main() i32 {
+fun main() i32 {
     let mut box = module_enum_defs::make_box();
     match box.mode {
         module_enum_defs::Mode::A => return 1,
@@ -456,7 +456,7 @@ pub struct Box {
     mode: Mode,
 }
 
-pub fn make_box() Box {
+pub fun make_box() Box {
     Box { mode: Mode::A }
 }
 "#,
@@ -491,11 +491,11 @@ enum Mode: u8 {
     B,
 }
 
-fn mode() Mode {
+fun mode() Mode {
     Mode::A
 }
 
-fn main() i32 {
+fun main() i32 {
     match mode() {
         Mode::A => return 10,
         Mode::B => return 20,
@@ -526,7 +526,7 @@ fn emits_imported_enum_variant_widening_cast() {
 module defs;
 using entry::defs;
 
-fn main() i32 {
+fun main() i32 {
     defs::Mode::B as i32
 }
 "#,
@@ -568,7 +568,7 @@ using entry::module_assoc_defs;
 
 using module_assoc_defs::Box;
 
-fn main() i32 {
+fun main() i32 {
     let mut box = Box::make(42);
     box.value
 }
@@ -583,7 +583,7 @@ pub struct Box {
 }
 
 extend Box {
-    pub fn make(value: i32) Box {
+    pub fun make(value: i32) Box {
         Self { value }
     }
 }
@@ -623,7 +623,7 @@ struct S {
     x: i32,
 }
 
-fn main() i32 {
+fun main() i32 {
     std::builtin::size[S]() as i32
 }
 "#,
@@ -632,7 +632,7 @@ fn main() i32 {
     std::fs::write(
         root.join("empty.nia"),
         r#"
-pub fn value() i32 {
+pub fun value() i32 {
     0
 }
 "#,
@@ -664,7 +664,7 @@ extern struct Pair {
     b: u32,
 }
 
-fn main() usize {
+fun main() usize {
     std::builtin::offset[Pair]("b")
 }
 "#,
@@ -698,7 +698,7 @@ fn emits_imported_array_length_size_builtin() {
 module defs;
 using entry::defs;
 
-fn main() i32 {
+fun main() i32 {
     let mut b = defs::make_box();
     b.bytes.len() as i32
 }
@@ -717,7 +717,7 @@ pub struct Box {
     bytes: [u8; std::builtin::size[Header]()],
 }
 
-pub fn make_box() Box {
+pub fun make_box() Box {
     Box { bytes: [0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8] }
 }
 "#,

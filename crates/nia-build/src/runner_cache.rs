@@ -604,13 +604,13 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);
         let std_root = invocation.toolchain.resource_root().join("std/pkg.nia");
-        fs::write(&std_root, b"pub fn first() () {}").unwrap();
+        fs::write(&std_root, b"pub fun first() () {}").unwrap();
         let runner = BuildRunnerSource {
             path: "runner.nia".into(),
             source: "using std;".into(),
         };
         let first = cache_key(&invocation, &runner).unwrap();
-        fs::write(&std_root, b"pub fn second() () {}").unwrap();
+        fs::write(&std_root, b"pub fun second() () {}").unwrap();
         let second = cache_key(&invocation, &runner).unwrap();
         assert_ne!(first, second);
     }

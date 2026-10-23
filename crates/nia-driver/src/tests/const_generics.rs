@@ -10,15 +10,15 @@ fn const_generic_supertrait_projection_substitutes_array_lengths() {
 trait ArraySource[N: usize] {
     type Item;
 
-    fn values(& self) [[Self as ArraySource[N]]::Item; N];
+    fun values(& self) [[Self as ArraySource[N]]::Item; N];
 }
 
 trait ArraySummary[N: usize] : ArraySource[N] {
-    fn len(& self) usize {
+    fun len(& self) usize {
         N
     }
 
-    fn first_or(& self, fallback: [Self as ArraySource[N]]::Item) [Self as ArraySource[N]]::Item {
+    fun first_or(& self, fallback: [Self as ArraySource[N]]::Item) [Self as ArraySource[N]]::Item {
         if self.len() == 0usize {
             fallback
         } else {
@@ -34,19 +34,19 @@ struct Buffer[T, N: usize] {
 extend[T, N: usize] Buffer[T, N] : ArraySource[N] {
     type Item = T;
 
-    fn values(& self) [T; N] {
+    fun values(& self) [T; N] {
         self.values
     }
 }
 
 extend[T, N: usize] Buffer[T, N] : ArraySummary[N] {}
 
-fn read[S, N: usize](source: & S, fallback: [S as ArraySource[N]]::Item) [S as ArraySource[N]]::Item
+fun read[S, N: usize](source: & S, fallback: [S as ArraySource[N]]::Item) [S as ArraySource[N]]::Item
 where S: ArraySummary[N] {
     source.first_or(fallback)
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = Buffer[i32, 3] { values: [7, 8, 9] };
     read[Buffer[i32, 3], 3](& buffer, 99)
 }
@@ -64,11 +64,11 @@ fn const_generic_default_trait_method_codegen_keeps_owner_assumption() {
         &root.join("main.nia"),
         r#"
 trait Source[N: usize] {
-    fn value(& self) usize;
+    fun value(& self) usize;
 }
 
 trait Summary[N: usize] : Source[N] {
-    fn total(& self) usize {
+    fun total(& self) usize {
         self.value() + N
     }
 }
@@ -78,14 +78,14 @@ struct Meter[N: usize] {
 }
 
 extend[N: usize] Meter[N] : Source[N] {
-    fn value(& self) usize {
+    fun value(& self) usize {
         self.value
     }
 }
 
 extend[N: usize] Meter[N] : Summary[N] {}
 
-fn main() usize {
+fun main() usize {
     let meter = Meter[8] { value: 34usize };
     meter.total()
 }
@@ -125,12 +125,12 @@ trait ArraySource[N: usize] {
 }
 
 trait ArraySummary[N: usize] : ArraySource[N] {
-    fn first_or(& self, fallback: [Self as ArraySource[N]]::Item) [Self as ArraySource[N]]::Item {
+    fun first_or(& self, fallback: [Self as ArraySource[N]]::Item) [Self as ArraySource[N]]::Item {
         fallback
     }
 }
 
-fn read[S, N: usize](source: & S) [S as ArraySource[N]]::Item
+fun read[S, N: usize](source: & S) [S as ArraySource[N]]::Item
 where S: ArraySummary[N] {
     source.first_or(99)
 }
@@ -157,7 +157,7 @@ fn const_generic_assoc_projection_rejects_mismatched_lengths() {
 trait ArraySource[N: usize] {
     type Item;
 
-    fn values(& self) [[Self as ArraySource[N]]::Item; N];
+    fun values(& self) [[Self as ArraySource[N]]::Item; N];
 }
 
 struct Buffer[T, N: usize] {
@@ -167,19 +167,19 @@ struct Buffer[T, N: usize] {
 extend[T, N: usize] Buffer[T, N] : ArraySource[N] {
     type Item = i32;
 
-    fn values(& self) [i32; N] {
+    fun values(& self) [i32; N] {
         self.values
     }
 }
 
-fn wrong[S, N: usize](source: & S) [[S as ArraySource[N]]::Item; N]
+fun wrong[S, N: usize](source: & S) [[S as ArraySource[N]]::Item; N]
 where S: ArraySource[N] {
     let values: [[S as ArraySource[N]]::Item; N] = source.values();
     let bad: [[S as ArraySource[N]]::Item; 4] = values;
     bad
 }
 
-fn main(buffer: Buffer[i32, 3]) [i32; 3] {
+fun main(buffer: Buffer[i32, 3]) [i32; 3] {
     wrong[Buffer[i32, 3], 3](& buffer)
 }
 "#,
@@ -203,21 +203,21 @@ fn const_generic_impl_target_pattern_infers_array_lengths() {
         &root.join("main.nia"),
         r#"
 trait HasLen {
-    fn width(& self) usize;
+    fun width(& self) usize;
 }
 
 extend[T, N: usize] [T; N] : HasLen {
-    fn width(& self) usize {
+    fun width(& self) usize {
         N
     }
 }
 
-fn read_len[A](value: & A) usize
+fun read_len[A](value: & A) usize
 where A: HasLen {
     value.width()
 }
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 3] = [1, 2, 3];
     read_len(& values) as i32
 }
@@ -239,23 +239,23 @@ fn codegen_materializes_const_generic_trait_method_impl_arguments() {
         &root.join("main.nia"),
         r#"
 trait Make[N: usize] {
-    fn make(& self) [u8; N];
+    fun make(& self) [u8; N];
 }
 
 struct Box {}
 
 extend[N: usize] Box : Make[N] {
-    fn make(& self) [u8; N] {
+    fun make(& self) [u8; N] {
         [0u8; N]
     }
 }
 
-fn build[N: usize](value: & Box) [u8; N]
+fun build[N: usize](value: & Box) [u8; N]
 where Box: Make[N] {
     value.make()
 }
 
-fn main(value: & Box) [u8; 3] {
+fun main(value: & Box) [u8; 3] {
     build[3](value)
 }
 "#,
@@ -280,11 +280,11 @@ fn codegen_preserves_interleaved_function_generic_order() {
     write(
         &root.join("main.nia"),
         r#"
-fn choose[T, N: usize, U](left: T, right: U) U {
+fun choose[T, N: usize, U](left: T, right: U) U {
     right
 }
 
-fn main() i64 {
+fun main() i64 {
     choose[i32, 3, i64](1, 9i64)
 }
 "#,
@@ -317,7 +317,7 @@ fn const_generic_const_fn_result_can_drive_nominal_arg_and_extend_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn plus_one(value: usize) usize {
+const fun plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -328,14 +328,14 @@ struct Buffer[T, N: usize] {
 extend[T, N: usize] Buffer[T, N] {
     pub const WIDTH: usize = N;
 
-    pub fn len(& self) usize {
+    pub fun len(& self) usize {
         Buffer[T, N]::WIDTH
     }
 }
 
 const WIDTH: usize = plus_one(3usize);
 
-fn main() i32 {
+fun main() i32 {
     let buffer = Buffer[i32, WIDTH] { values: [1, 2, 3, 4] };
     buffer.len() as i32
 }
@@ -352,7 +352,7 @@ fn const_generic_extend_const_can_call_const_fn_per_instance() {
     write(
         &root.join("main.nia"),
         r#"
-const fn double(value: usize) usize {
+const fun double(value: usize) usize {
     value * 2usize
 }
 
@@ -364,7 +364,7 @@ extend[T, N: usize] Buffer[T, N] {
     pub const DOUBLE_WIDTH: usize = double(N);
 }
 
-fn main() usize {
+fun main() usize {
     Buffer[i32, 2]::DOUBLE_WIDTH + Buffer[i32, 5]::DOUBLE_WIDTH
 }
 "#,
@@ -388,7 +388,7 @@ extend[T, N: usize] Buffer[T, N] {
     pub const WIDTH: usize = N;
 }
 
-fn main() usize {
+fun main() usize {
     Buffer[i32, 2]::WIDTH + Buffer[i32, 5]::WIDTH
 }
 "#,
@@ -404,7 +404,7 @@ fn const_generic_fake_refs_do_not_runtime_materialize_const_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width[N: usize]() usize {
+const fun width[N: usize]() usize {
     let value: usize = N;
     value
 }
@@ -413,11 +413,11 @@ struct Buffer[T, N: usize] {
     values: [T; N],
 }
 
-fn make[T, N: usize](value: T) Buffer[T, N] {
+fun make[T, N: usize](value: T) Buffer[T, N] {
     Buffer[T, N] { values: [value; width[N]()] }
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = make[i32, 4](3);
     buffer.values[3]
 }
@@ -448,12 +448,12 @@ extend Source4 : Source[4] {
 
 extend Source4 : SizedSource[4] {}
 
-fn bad[S](value: [S as Source[3]]::Item) [S as Source[3]]::Item
+fun bad[S](value: [S as Source[3]]::Item) [S as Source[3]]::Item
 where S: SizedSource[4] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -478,12 +478,12 @@ trait HasLength[N: usize] {}
 
 extend[T, N: usize] [T; N] : HasLength[N] {}
 
-fn require_len[A, N: usize](value: & A)
+fun require_len[A, N: usize](value: & A)
 where A: HasLength[N] {
     _ = value;
 }
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 3] = [1, 2, 3];
     require_len[_, 4](& values);
     0
@@ -509,8 +509,8 @@ fn const_generic_multi_param_impl_pattern_keeps_substitutions_independent() {
         &root.join("main.nia"),
         r#"
 trait MatrixShape {
-    fn rows(& self) usize;
-    fn cols(& self) usize;
+    fun rows(& self) usize;
+    fun cols(& self) usize;
 }
 
 struct Matrix[T, R: usize, C: usize] {
@@ -518,21 +518,21 @@ struct Matrix[T, R: usize, C: usize] {
 }
 
 extend[T, R: usize, C: usize] Matrix[T, R, C] : MatrixShape {
-    fn rows(& self) usize {
+    fun rows(& self) usize {
         R
     }
 
-    fn cols(& self) usize {
+    fun cols(& self) usize {
         C
     }
 }
 
-fn shape[M](matrix: & M) usize
+fun shape[M](matrix: & M) usize
 where M: MatrixShape {
     matrix.rows() * 10usize + matrix.cols()
 }
 
-fn main() usize {
+fun main() usize {
     let matrix = Matrix[i32, 2, 3] { values: [[1, 2, 3], [4, 5, 6]] };
     shape(& matrix)
 }
@@ -549,12 +549,12 @@ fn const_generic_const_arg_expression_normalizes_for_trait_matching() {
     write(
         &root.join("main.nia"),
         r#"
-const fn plus_one(value: usize) usize {
+const fun plus_one(value: usize) usize {
     value + 1usize
 }
 
 trait Width[N: usize] {
-    fn width(& self) usize {
+    fun width(& self) usize {
         N
     }
 }
@@ -567,12 +567,12 @@ extend[N: usize] Buffer[N] : Width[N] {}
 
 const THREE: usize = plus_one(2usize);
 
-fn read[T](value: & T) usize
+fun read[T](value: & T) usize
 where T: Width[THREE] {
     value.width()
 }
 
-fn main() usize {
+fun main() usize {
     let buffer = Buffer[3] { values: [1, 2, 3] };
     read(& buffer)
 }
@@ -603,15 +603,15 @@ extend Store : Slot[4] {
     type Item = usize;
 }
 
-fn pick2(value: [Store as Slot[2]]::Item) i32 {
+fun pick2(value: [Store as Slot[2]]::Item) i32 {
     value
 }
 
-fn pick4(value: [Store as Slot[4]]::Item) usize {
+fun pick4(value: [Store as Slot[4]]::Item) usize {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     pick2(7) + pick4(8usize) as i32
 }
 "#,
@@ -641,11 +641,11 @@ extend Store : Slot[4] {
     type Item = usize;
 }
 
-fn bad(value: [Store as Slot[2]]::Item) [Store as Slot[4]]::Item {
+fun bad(value: [Store as Slot[2]]::Item) [Store as Slot[4]]::Item {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -666,7 +666,7 @@ fn const_generic_type_position_accepts_const_expression_args() {
     write(
         &root.join("main.nia"),
         r#"
-const fn plus_one(value: usize) usize {
+const fun plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -674,7 +674,7 @@ struct Buffer[N: usize] {
     values: [i32; N],
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = Buffer[plus_one(2usize)] { values: [1, 2, 3] };
     buffer.values[2]
 }
@@ -691,15 +691,15 @@ fn const_generic_call_position_accepts_const_expression_args() {
     write(
         &root.join("main.nia"),
         r#"
-const fn plus_one(value: usize) usize {
+const fun plus_one(value: usize) usize {
     value + 1usize
 }
 
-fn width[N: usize]() usize {
+fun width[N: usize]() usize {
     N
 }
 
-fn main() usize {
+fun main() usize {
     width[plus_one(2usize)]()
 }
 "#,
@@ -715,15 +715,15 @@ fn nested_const_generic_calls_preserve_the_caller_instance() {
     write(
         &root.join("main.nia"),
         r#"
-fn inner[N: usize]() usize {
+fun inner[N: usize]() usize {
     N
 }
 
-fn outer[N: usize]() usize {
+fun outer[N: usize]() usize {
     inner[N]()
 }
 
-fn main() usize {
+fun main() usize {
     outer[3]()
 }
 "#,
@@ -741,7 +741,7 @@ fn const_generic_type_position_accepts_imported_const_expression_args() {
         r#"
 pub const WIDTH: usize = 3usize;
 
-pub const fn plus_one(value: usize) usize {
+pub const fun plus_one(value: usize) usize {
     value + 1usize
 }
 "#,
@@ -756,7 +756,7 @@ struct Buffer[N: usize] {
     values: [i32; N],
 }
 
-fn main() i32 {
+fun main() i32 {
     let left = Buffer[config::WIDTH] { values: [1, 2, 3] };
     let right = Buffer[config::plus_one(2usize)] { values: [4, 5, 6] };
     left.values[2] + right.values[2]
@@ -774,11 +774,11 @@ fn const_generic_call_position_rejects_non_usize_arg() {
     write(
         &root.join("main.nia"),
         r#"
-fn width[N: usize]() usize {
+fun width[N: usize]() usize {
     N
 }
 
-fn main() usize {
+fun main() usize {
     width[true]()
 }
 "#,
@@ -801,11 +801,11 @@ fn const_generic_call_position_rejects_out_of_range_usize_arg() {
     write(
         &root.join("main.nia"),
         r#"
-fn width[N: usize]() usize {
+fun width[N: usize]() usize {
     N
 }
 
-fn main() usize {
+fun main() usize {
     width[-1]()
 }
 "#,
@@ -829,34 +829,34 @@ fn const_generic_trait_impls_accept_bool_args_without_colliding() {
         &root.join("main.nia"),
         r#"
 trait Flagged[FLAG: bool] {
-    fn value(& self) usize;
+    fun value(& self) usize;
 }
 
 struct Token {}
 
 extend Token : Flagged[true] {
-    fn value(& self) usize {
+    fun value(& self) usize {
         1usize
     }
 }
 
 extend Token : Flagged[false] {
-    fn value(& self) usize {
+    fun value(& self) usize {
         2usize
     }
 }
 
-fn read_true[T](value: & T) usize
+fun read_true[T](value: & T) usize
 where T: Flagged[true] {
     value.value()
 }
 
-fn read_false[T](value: & T) usize
+fun read_false[T](value: & T) usize
 where T: Flagged[false] {
     value.value()
 }
 
-fn main() usize {
+fun main() usize {
     let token = Token {};
     read_true(& token) * 10usize + read_false(& token)
 }
@@ -879,12 +879,12 @@ struct Token {}
 
 extend Token : Flagged[true] {}
 
-fn require_false[T](value: & T)
+fun require_false[T](value: & T)
 where T: Flagged[false] {
     _ = value;
 }
 
-fn main() i32 {
+fun main() i32 {
     let token = Token {};
     require_false(& token);
     0
@@ -923,11 +923,11 @@ extend Store : Slot[false] {
     type Item = usize;
 }
 
-fn bad(value: [Store as Slot[true]]::Item) [Store as Slot[false]]::Item {
+fun bad(value: [Store as Slot[true]]::Item) [Store as Slot[false]]::Item {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -948,30 +948,30 @@ fn const_generic_bool_expression_normalizes_for_trait_matching() {
     write(
         &root.join("main.nia"),
         r#"
-const fn yes() bool {
+const fun yes() bool {
     true
 }
 
 trait Flagged[FLAG: bool] {
-    fn value(& self) usize;
+    fun value(& self) usize;
 }
 
 struct Token {}
 
 extend Token : Flagged[true] {
-    fn value(& self) usize {
+    fun value(& self) usize {
         7usize
     }
 }
 
 const ENABLED: bool = yes();
 
-fn read[T](value: & T) usize
+fun read[T](value: & T) usize
 where T: Flagged[ENABLED] {
     value.value()
 }
 
-fn main() usize {
+fun main() usize {
     let token = Token {};
     read(& token)
 }
@@ -988,30 +988,30 @@ fn const_generic_char_expression_normalizes_for_trait_matching() {
     write(
         &root.join("main.nia"),
         r#"
-const fn marker() char {
+const fun marker() char {
     'N'
 }
 
 trait Tagged[TAG: char] {
-    fn value(& self) usize;
+    fun value(& self) usize;
 }
 
 struct Token {}
 
 extend Token : Tagged['N'] {
-    fn value(& self) usize {
+    fun value(& self) usize {
         9usize
     }
 }
 
 const TAG: char = marker();
 
-fn read[T](value: & T) usize
+fun read[T](value: & T) usize
 where T: Tagged[TAG] {
     value.value()
 }
 
-fn main() usize {
+fun main() usize {
     let token = Token {};
     read(& token)
 }
@@ -1028,7 +1028,7 @@ fn const_generic_expression_normalizes_for_extension_method_specificity() {
     write(
         &root.join("main.nia"),
         r#"
-const fn plus_one(value: usize) usize {
+const fun plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -1037,18 +1037,18 @@ struct Buffer[N: usize] {
 }
 
 extend[N: usize] Buffer[N] {
-    fn rank(& self) i32 {
+    fun rank(& self) i32 {
         1
     }
 }
 
 extend Buffer[plus_one(2usize)] {
-    fn rank(& self) i32 {
+    fun rank(& self) i32 {
         2
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = Buffer[3] { values: [1, 2, 3] };
     buffer.rank()
 }
@@ -1065,7 +1065,7 @@ fn const_generic_expression_normalizes_for_projection_equivalence() {
     write(
         &root.join("main.nia"),
         r#"
-const fn plus_one(value: usize) usize {
+const fun plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -1081,12 +1081,12 @@ extend Store : Slot[3] {
 
 const WIDTH: usize = plus_one(2usize);
 
-fn read[S](value: [S as Slot[3]]::Item) [S as Slot[WIDTH]]::Item
+fun read[S](value: [S as Slot[3]]::Item) [S as Slot[WIDTH]]::Item
 where S: Slot[3] {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     read[Store](7)
 }
 "#,
@@ -1116,11 +1116,11 @@ extend[N: usize] Buffer[N] : Select[N] {
     type Item = i64;
 }
 
-fn selected(value: [Buffer[3] as Select[3]]::Item) i64 {
+fun selected(value: [Buffer[3] as Select[3]]::Item) i64 {
     value
 }
 
-fn main() i64 {
+fun main() i64 {
     selected(7i64)
 }
 "#,
@@ -1136,15 +1136,15 @@ fn const_generic_u8_expression_rejects_out_of_range_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn too_large() usize {
+const fun too_large() usize {
     256usize
 }
 
-fn value[N: u8]() u8 {
+fun value[N: u8]() u8 {
     N
 }
 
-fn main() u8 {
+fun main() u8 {
     value[too_large()]()
 }
 "#,
@@ -1176,12 +1176,12 @@ struct Pair[A, B] {
 
 extend[T, U, N: usize] Pair[[T; N], [U; N]] : SameLen[N] {}
 
-fn require_same_len[P, N: usize](pair: & P)
+fun require_same_len[P, N: usize](pair: & P)
 where P: SameLen[N] {
     _ = pair;
 }
 
-fn main() i32 {
+fun main() i32 {
     let pair = Pair[[i32; 2], [i32; 3]] { left: [1, 2], right: [3, 4, 5] };
     require_same_len(& pair);
     0
@@ -1211,11 +1211,11 @@ struct Buffer[N: usize] {
     values: [i32; N],
 }
 
-pub fn take(value: Buffer[MISSING]) () {
+pub fun take(value: Buffer[MISSING]) () {
     _ = value;
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1258,19 +1258,19 @@ pub struct Packet[N: usize] {
 module types;
 using entry::types;
 
-const fn packet_size[N: usize]() usize
+const fun packet_size[N: usize]() usize
 where types::Packet[N]: Sized {
     std::builtin::size[types::Packet[N]]()
 }
 
-const fn marker_offset[N: usize]() usize {
+const fun marker_offset[N: usize]() usize {
     std::builtin::offset[types::Packet[N]]("marker")
 }
 
 const SIZE: usize = packet_size[3]();
 const OFFSET: usize = marker_offset[3]();
 
-fn main() usize {
+fun main() usize {
     SIZE + OFFSET
 }
 "#,
@@ -1287,24 +1287,24 @@ fn trait_method_prefers_concrete_const_argument_impl() {
         &root.join("main.nia"),
         r#"
 trait Rank[N: usize] {
-    fn rank(&self) i32;
+    fun rank(&self) i32;
 }
 
 struct Box {}
 
 extend[N: usize] Box : Rank[N] {
-    fn rank(&self) i32 {
+    fun rank(&self) i32 {
         1
     }
 }
 
 extend Box : Rank[3] {
-    fn rank(&self) i32 {
+    fun rank(&self) i32 {
         3
     }
 }
 
-fn main(box: &Box) i32 {
+fun main(box: &Box) i32 {
     box.rank()
 }
 "#,
@@ -1321,24 +1321,24 @@ fn expected_return_selects_trait_method_const_instance() {
         &root.join("main.nia"),
         r#"
 trait Make[N: usize] {
-    fn make(&self) [u8; N];
+    fun make(&self) [u8; N];
 }
 
 struct Box {}
 
 extend Box : Make[2] {
-    fn make(&self) [u8; 2] {
+    fun make(&self) [u8; 2] {
         [1u8, 2u8]
     }
 }
 
 extend Box : Make[3] {
-    fn make(&self) [u8; 3] {
+    fun make(&self) [u8; 3] {
         [1u8, 2u8, 3u8]
     }
 }
 
-fn main(box: &Box) [u8; 3] {
+fun main(box: &Box) [u8; 3] {
     box.make()
 }
 "#,
@@ -1366,11 +1366,11 @@ extend[N: usize] Box[N] : Storage {
     type Bytes = [u8; N];
 }
 
-fn third(bytes: [Box[3] as Storage]::Bytes) u8 {
+fun third(bytes: [Box[3] as Storage]::Bytes) u8 {
     bytes[2]
 }
 
-fn main() i32 {
+fun main() i32 {
     third([1u8, 2u8, 3u8]) as i32
 }
 "#,

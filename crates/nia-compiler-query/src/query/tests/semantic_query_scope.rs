@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn const_uses_precise_program_context_queries() {
     let fixture =
-        LoadedProgramFixture::new("main.nia", "const VALUE = 1; pub fn main() i32 { VALUE }");
+        LoadedProgramFixture::new("main.nia", "const VALUE = 1; pub fun main() i32 { VALUE }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -53,7 +53,7 @@ fn const_uses_precise_program_context_queries() {
 
 #[test]
 fn monomorphization_avoids_removed_program_trait_signature_product() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 1 }");
     let db = query_db(fixture.program());
 
     let _ = db.expect_get(MonomorphizationQuery);
@@ -68,7 +68,7 @@ fn monomorphization_avoids_removed_program_trait_signature_product() {
 
 #[test]
 fn executable_reachability_uses_lazy_signature_resolvers() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 1 }");
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
@@ -97,13 +97,13 @@ fn executable_reachability_uses_lazy_signature_resolvers() {
 #[test]
 fn body_check_without_method_lookup_does_not_build_global_extension_method_index() {
     let mut fixture =
-        LoadedProgramFixture::new("main.nia", "module providers; pub fn main() i32 { 1 }");
+        LoadedProgramFixture::new("main.nia", "module providers; pub fun main() i32 { 1 }");
     let module_id = fixture.entry_id();
     fixture.add_child(
         module_id,
         "providers",
         "providers.nia",
-        "struct S {} extend S { pub fn make() S { {} } }",
+        "struct S {} extend S { pub fun make() S { {} } }",
     );
     let db = query_db(fixture.program());
 
@@ -126,14 +126,14 @@ fn body_check_without_method_lookup_does_not_build_global_extension_method_index
 fn body_check_method_lookup_uses_extension_method_identity_query() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module module1; using entry::module1; using module1::S; pub fn main(s: S) i32 { _ = s.make(); 1 }",
+        "module module1; using entry::module1; using module1::S; pub fun main(s: S) i32 { _ = s.make(); 1 }",
     );
     let module_id = fixture.entry_id();
     fixture.add_child(
         module_id,
         "module1",
         "module1.nia",
-        "pub struct S {} extend S { pub fn make(self) S { self } }",
+        "pub struct S {} extend S { pub fun make(self) S { self } }",
     );
     let db = query_db(fixture.program());
 
@@ -162,7 +162,7 @@ fn body_check_method_lookup_uses_extension_method_identity_query() {
 fn const_module_uses_full_active_item_tree_query() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "const fn value() usize { 1 } const VALUE = value();",
+        "const fun value() usize { 1 } const VALUE = value();",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -178,7 +178,7 @@ fn const_module_uses_full_active_item_tree_query() {
 
 #[test]
 fn semantic_use_table_query_combines_value_local_and_type_resolution() {
-    let source = "static VALUE: i32 = 1; pub fn main() i32 { let mut local: i32 = VALUE; local }";
+    let source = "static VALUE: i32 = 1; pub fun main() i32 { let mut local: i32 = VALUE; local }";
     let fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -221,7 +221,7 @@ fn semantic_use_table_query_combines_value_local_and_type_resolution() {
 
 #[test]
 fn resolution_queries_share_compiler_session_node_owner() {
-    let source = "static VALUE: i32 = 1; pub fn main() i32 { let local: i32 = VALUE; local }";
+    let source = "static VALUE: i32 = 1; pub fun main() i32 { let local: i32 = VALUE; local }";
     let fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

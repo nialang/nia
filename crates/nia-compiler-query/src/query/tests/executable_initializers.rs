@@ -8,7 +8,7 @@ fn executable_checked_modules_include_reachable_global_initializers() {
         r#"
 static used: i32 = 1;
 
-pub fn main() i32 {
+pub fun main() i32 {
 used
 }
 "#,
@@ -43,12 +43,12 @@ fn executable_checked_modules_include_reachable_local_static_initializers() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn option_arg() &u8 {
+fun option_arg() &u8 {
 static text = b"-O2\0";
 &text[0]
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 _ = option_arg();
 0
 }
@@ -89,7 +89,7 @@ O2 = 2,
 }
 
 extend Mode {
-fn argv(self) &u8 {
+fun argv(self) &u8 {
     static o2 = b"-O2\0";
     match self {
         Mode::O2 => &o2[0],
@@ -98,7 +98,7 @@ fn argv(self) &u8 {
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 _ = Mode::O2.argv();
 0
 }
@@ -136,7 +136,7 @@ fn executable_checked_modules_include_cross_module_extension_method_local_static
         r#"
 using helper::Mode;
 
-pub fn main() i32 {
+pub fun main() i32 {
 _ = Mode::O2.argv();
 0
 }
@@ -153,7 +153,7 @@ O2 = 2,
 }
 
 extend Mode {
-pub fn argv(self) &u8 {
+pub fun argv(self) &u8 {
     static o2 = b"-O2\0";
     match self {
         Mode::O2 => &o2[0],
@@ -220,10 +220,10 @@ fn executable_checked_modules_do_not_flow_check_unreachable_functions() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn unused() i32 {
+fun unused() i32 {
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 0
 }
 "#,
@@ -252,7 +252,7 @@ fn executable_checked_modules_do_not_body_check_unreachable_loaded_modules() {
         r#"
 pub module unused;
 
-pub fn main() i32 {
+pub fun main() i32 {
 0
 }
 "#,
@@ -263,7 +263,7 @@ pub fn main() i32 {
         "unused",
         "unused.nia",
         r#"
-pub fn expensive_or_invalid() i32 {
+pub fun expensive_or_invalid() i32 {
 missing_symbol
 }
 "#,

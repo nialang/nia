@@ -1,19 +1,19 @@
 @[builtin("sliceLen")]
-const fn sliceLen[T](value: &[T]) usize;
+const fun sliceLen[T](value: &[T]) usize;
 
-fn builtins() () {
+fun builtins() () {
     _ = std::builtin::extract(&missing_vector, 0usize);
     _ = std::builtin::bitmask([missing_mask]);
     _ = std::builtin::loadUnaligned[i32](&missing_pointer);
     _ = sliceLen(&missing_slice);
 }
 
-fn places() () {
+fun places() () {
     _ = (&missing_index)[0usize];
     _ = (&missing_deref).*;
 }
 
-fn patterns() () {
+fun patterns() () {
     match (missing_tuple, 1i32) {
         (left, right) => { _ = left; _ = right; }
     }

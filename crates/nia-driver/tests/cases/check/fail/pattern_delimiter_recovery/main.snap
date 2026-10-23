@@ -1,17 +1,17 @@
 path: fail/pattern_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after tuple pattern; found `false`
-label: 134..139 Primary Source expected `,` or `)` after tuple pattern; found `false`
+label: 135..140 Primary Source expected `,` or `)` after tuple pattern; found `false`
 
 path: fail/pattern_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after tuple pattern; found `false`
-label: 166..171 Primary Source expected `,` or `)` after tuple pattern; found `false`
+label: 167..172 Primary Source expected `,` or `)` after tuple pattern; found `false`
 
 path: fail/pattern_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `}` after nominal pattern field; found `y`
-label: 204..205 Primary Source expected `,` or `}` after nominal pattern field; found `y`
+label: 205..206 Primary Source expected `,` or `}` after nominal pattern field; found `y`
 
 report:
 error[E0101]: expected `,` or `)` after tuple pattern; found `false`

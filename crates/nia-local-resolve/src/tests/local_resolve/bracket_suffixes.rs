@@ -14,7 +14,7 @@ struct T {
 xs: [S; 4],
 }
 
-fn main() i32 {
+fun main() i32 {
 let mut t = T { xs: [S { x: 0 }; 4] };
 for i in 0u16..4u16 {
     t.xs[i as usize] = S { x: i as i32 };
@@ -57,7 +57,7 @@ struct T {
 xs: [S; 4],
 }
 
-fn main() i32 {
+fun main() i32 {
 let mut t = T { xs: [S { x: 0 }; 4] };
 let mut i32: usize = 2;
 t.xs[i32].x

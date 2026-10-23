@@ -272,7 +272,7 @@ pub(crate) fn is_item_keyword(kind: &TokenKind) -> bool {
             | TokenKind::Extend
             | TokenKind::Enum
             | TokenKind::Type
-            | TokenKind::Fn
+            | TokenKind::Fun
             | TokenKind::Const
             | TokenKind::Static
             | TokenKind::Pub

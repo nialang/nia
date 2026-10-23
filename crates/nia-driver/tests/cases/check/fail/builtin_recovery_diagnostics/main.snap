@@ -1,31 +1,31 @@
 path: fail/builtin_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 51..58 Primary Source no value named `missing` is visible in this scope
+label: 52..59 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/builtin_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 99..106 Primary Source no value named `missing` is visible in this scope
+label: 100..107 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 path: fail/builtin_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown type `MissingVector`
-label: 137..150 Primary Source unknown type `MissingVector`
+label: 138..151 Primary Source unknown type `MissingVector`
 help: check the type name, module path, and whether the type is public
 
 path: fail/builtin_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown type `MissingInteger`
-label: 184..198 Primary Source unknown type `MissingInteger`
+label: 185..199 Primary Source unknown type `MissingInteger`
 help: check the type name, module path, and whether the type is public
 
 path: fail/builtin_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 237..244 Primary Source no value named `missing` is visible in this scope
+label: 238..245 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

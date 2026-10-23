@@ -16,7 +16,7 @@ fn test_command_lists_filters_and_reports_registered_suites() {
         r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let passModule = b.addModule(build::ModuleOptions::init(
         &"pass-module",
         fs::PathView::init(&"tests/pass.nia"),
@@ -42,21 +42,21 @@ pub fn build(b: &mut build::Build) build::Error!() {
         r#"using std::process;
 using std::test;
 
-fn passingCase() test::Error!() {
+fun passingCase() test::Error!() {
     test::expectEqual(2, 2).?;
     !()
 }
 
-fn failingCase() test::Error!() {
+fun failingCase() test::Error!() {
     test::fail()
 }
 
-fn recordCaseResult(result: test::CaseResult) () {
+fun recordCaseResult(result: test::CaseResult) () {
     _ = result;
     ()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
         .init(&"passing", &passingCase),
@@ -91,7 +91,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         caseRuns.* += 1;
         test::expect(true)
     };
-    let stackCase: &Fn() test::Error!() = &stackCaseState;
+    let stackCase: &Fun() test::Error!() = &stackCaseState;
     let stackCases: [test::Case; 1] = [.init(&"stack-backed", stackCase)];
     let stackSummary = test::Runner::init(&stackCases[..]).run();
     if stackSummary.total() != 1 or stackSummary.passed() != 1 or caseRuns != 1 {
@@ -135,7 +135,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         r#"using std::process;
 using std::io;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut buffer: [u8; 0] = [];
     let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
@@ -152,7 +152,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         workspace.join("tests/fail_second.nia"),
         r#"using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(8)!
 }
@@ -255,7 +255,7 @@ fn executable_and_test_modules_can_share_one_package_import_set() {
         r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let foo = b.addPackage(build::PackageOptions::init(
         &"foo", fs::PathView::init(&"packages/foo"),
     )).?;
@@ -278,13 +278,13 @@ pub fn build(b: &mut build::Build) build::Error!() {
     .expect("write build script");
     fs::write(
         workspace.join("packages/foo/main.nia"),
-        "pub fn value() i32 { 7 }\n",
+        "pub fun value() i32 { 7 }\n",
     )
     .expect("write foo package source");
     let source = r#"using foo;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if foo::value() != 7 {
         return process::ExitCode(1)!;
@@ -342,7 +342,7 @@ fn successful_suites_are_reused_independently_and_failures_are_never_cached() {
         r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let alpha = b.addModule(build::ModuleOptions::init(
         &"alpha-module", fs::PathView::init(&"tests/alpha.nia"),
     )).?;
@@ -361,7 +361,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
             r#"using std::process;
 using std::io;
 
-pub fn main(init: process::Init) process::ExitCode!() {{
+pub fun main(init: process::Init) process::ExitCode!() {{
     _ = init;
     let mut buffer: [u8; 0] = [];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
@@ -440,7 +440,7 @@ fn test_only_source_edits_do_not_invalidate_ordinary_build_artifacts() {
         r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let appModule = b.addModule(build::ModuleOptions::init(
         &"app", fs::PathView::init(&"src/main.nia"),
     )).?;
@@ -456,7 +456,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
         workspace.join("src/main.nia"),
         r#"using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(0)!
 }

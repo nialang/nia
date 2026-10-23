@@ -9,7 +9,7 @@ fn query_loader_keeps_local_modules_from_activating_same_named_package() {
         r#"
 module std;
 
-fn main(value: std::fmt::Value) () {
+fun main(value: std::fmt::Value) () {
 _ = value;
 }
 "#,
@@ -36,7 +36,7 @@ fn query_loader_resolves_root_children_relative_to_entry_file() {
     let root = temp_dir("query_loader_resolves_root_children_relative_to_entry_file");
     let main_path = root.join("main.nia");
     write(&main_path, "module defs;");
-    write(&root.join("defs.nia"), "pub fn value() i32 { 1 }");
+    write(&root.join("defs.nia"), "pub fun value() i32 { 1 }");
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
@@ -64,7 +64,7 @@ fn query_loader_accepts_in_memory_sources() {
         .set_source(SourcePath::new("main.nia"), "module defs;")
         .expect("store main source");
     sources
-        .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
+        .set_source(SourcePath::new("defs.nia"), "pub fun value() i32 { 1 }")
         .expect("store defs source");
 
     let program = load_program_from_sources("main.nia", ModuleMap::default(), sources);

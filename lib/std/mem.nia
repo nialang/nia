@@ -35,7 +35,7 @@ pub using page_allocator::PageAllocator;
 // range across callable transfer, including non-empty Blocks for zero-sized
 // values; successful deinit and transfer clear that state, so cleanup is
 // single-shot.
-pub fn allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
+pub fun allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
 where T: Sized
 {
     allocation::allocValue[T](allocator, value)

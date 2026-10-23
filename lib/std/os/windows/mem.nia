@@ -18,7 +18,7 @@ using pkg::os::windows::error::{
 
 pub struct MappedPages { ptr: &mut u8, releasePtr: &mut u8, releaseSize: usize }
 
-pub fn pageSize() usize {
+pub fun pageSize() usize {
     let mut info: SystemInfo = .{
         processorArchitecture: 0,
         reserved: 0,
@@ -36,12 +36,12 @@ pub fn pageSize() usize {
     if info.pageSize == 0 { 4096 } else { info.pageSize as usize }
 }
 
-pub fn pageAlignedLen(len: usize) Errno!usize {
+pub fun pageAlignedLen(len: usize) Errno!usize {
     if len == 0 { return !0; }
     match len.alignForward(pageSize()) { ?value => !value, null => .OutOfRange!, }
 }
 
-pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
     let aligned = pageAlignedLen(len).?;
     let extra = if align > pageSize() { align - pageSize() } else { 0 };
@@ -52,13 +52,13 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     !.{ ptr: result as &mut u8, releasePtr: base as &mut u8, releaseSize: mapLen }
 }
 
-pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+pub fun unmapPages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 or VirtualFree(ptr as usize, 0, memRelease) == 0 { return lastError()!; }
     !()
 }
 
 extend MappedPages {
-    pub fn ptr(&self) &mut u8 { self.ptr }
-    pub fn releasePtr(&self) &mut u8 { self.releasePtr }
-    pub fn releaseSize(&self) usize { self.releaseSize }
+    pub fun ptr(&self) &mut u8 { self.ptr }
+    pub fun releasePtr(&self) &mut u8 { self.releasePtr }
+    pub fun releaseSize(&self) usize { self.releaseSize }
 }

@@ -2126,9 +2126,9 @@ impl<'a> BodyChecker<'a> {
                     format!(" {}", self.ty_name(*return_type))
                 };
                 let prefix = if matches!(abi, nia_ty::FunctionPointerAbi::C) {
-                    "&extern fn"
+                    "&extern fun"
                 } else {
-                    "&fn"
+                    "&fun"
                 };
                 format!("{prefix}({}){return_part}", params.join(", "))
             }
@@ -2147,7 +2147,7 @@ impl<'a> BodyChecker<'a> {
                     format!(" {}", self.ty_name(*return_type))
                 };
                 let mut_part = if *is_readonly { "" } else { "mut " };
-                format!("&{mut_part}Fn({}){return_part}", params.join(", "))
+                format!("&{mut_part}Fun({}){return_part}", params.join(", "))
             }
             Some(TyKind::CallablePointee {
                 params,
@@ -2162,7 +2162,7 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     format!(" {}", self.ty_name(*return_type))
                 };
-                format!("Fn({}){return_part}", params.join(", "))
+                format!("Fun({}){return_part}", params.join(", "))
             }
             Some(TyKind::Nominal { def_id, args, .. }) => self.nominal_ty_name(*def_id, args),
             Some(TyKind::BuiltinTrait { trait_id, args }) => {

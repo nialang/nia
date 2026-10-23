@@ -5,7 +5,7 @@ use super::common::*;
 fn place_operations_do_not_reject_structural_error_recovery_types() {
     let checked = pipeline(
         r#"
-fn invalid() () {
+fun invalid() () {
     _ = (&missing_index)[0usize];
     _ = (&missing_deref).*;
 }
@@ -38,7 +38,7 @@ fn invalid() () {
 fn constrained_index_uses_the_trait_index_type() {
     let checked = pipeline(
         r#"
-fn inspect[T](value: T) usize
+fun inspect[T](value: T) usize
 where T: Index[bool, Output = usize] {
     value[true]
 }
@@ -57,7 +57,7 @@ struct Pair {
     b: i32,
 }
 
-fn main() usize {
+fun main() usize {
     let mut size = std::builtin::size[Pair]();
     let mut align = std::builtin::align[Pair]();
     size + align
@@ -84,7 +84,7 @@ fn main() usize {
 fn layout_builtins_do_not_reject_error_recovery_types() {
     let checked = pipeline(
         r#"
-fn main() usize {
+fun main() usize {
     std::builtin::size[Missing]()
 }
 "#,
@@ -111,7 +111,7 @@ fn main() usize {
 #[test]
 fn required_builtin_types_report_each_nested_unresolved_leaf() {
     for ty in ["&Missing", "(Missing, i32)", "?Missing", "(Missing, Other)"] {
-        let source = format!("fn inspect() () {{ _ = std::builtin::size[{ty}](); }}");
+        let source = format!("fun inspect() () {{ _ = std::builtin::size[{ty}](); }}");
         let checked = pipeline(&source);
         let expected = if ty.contains("Other") { 2 } else { 1 };
         assert_eq!(
@@ -132,7 +132,7 @@ fn required_builtin_types_report_each_nested_unresolved_leaf() {
     let checked = pipeline(
         r#"
 struct Buffer[N: usize] { values: [i32; N] }
-fn inspect[COUNT: usize]() () where Buffer[COUNT]: Sized { _ = std::builtin::size[Buffer[COUNT]](); }
+fun inspect[COUNT: usize]() () where Buffer[COUNT]: Sized { _ = std::builtin::size[Buffer[COUNT]](); }
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -152,7 +152,7 @@ union Bits {
     f: f32,
 }
 
-fn main() usize {
+fun main() usize {
     let mut b = std::builtin::offset[Pair]("b");
     let mut f = std::builtin::offset[Bits]("f");
     b + f
@@ -203,7 +203,7 @@ struct Packet[N: usize] {
     values: [u32; N],
 }
 
-fn main() usize
+fun main() usize
 where Packet[3]: Sized {
     std::builtin::size[Packet[3]]()
         + std::builtin::align[Packet[3]]()
@@ -230,15 +230,15 @@ struct Pair {
     a: u8,
 }
 
-fn missing() usize {
+fun missing() usize {
     std::builtin::offset[Pair]("b")
 }
 
-fn non_aggregate() usize {
+fun non_aggregate() usize {
     std::builtin::offset[u32]("x")
 }
 
-fn non_string() usize {
+fun non_string() usize {
     std::builtin::offset[Pair](0)
 }
 "#,
@@ -277,11 +277,11 @@ struct Pair {
     b: i32,
 }
 
-fn take_size(xs: [u8; std::builtin::size[Pair]()]) u8 {
+fun take_size(xs: [u8; std::builtin::size[Pair]()]) u8 {
     xs[0]
 }
 
-fn main() u8 {
+fun main() u8 {
     let mut exact: [u8; std::builtin::size[Pair]()] = [b'\0'; 8];
     let mut aligned: [u8; std::builtin::align[Pair]()] = [b'\0'; 4];
     _ = take_size(exact);
@@ -304,11 +304,11 @@ fn materializes_runtime_uses_of_const_string_values() {
 const default_value = b"default\0";
 const text_value = "nia";
 
-fn take_bytes(xs: &[u8]) usize {
+fun take_bytes(xs: &[u8]) usize {
     xs.len()
 }
 
-fn main() usize {
+fun main() usize {
     let mut selected: &u8 = &default_value[0];
     let mut bytes: &[u8] = &default_value;
     let mut chars: &[char] = &text_value;
@@ -325,7 +325,7 @@ fn materializes_frozen_const_array_pointers_as_runtime_slices() {
         r#"
 const values: &[usize] = &[5, 9, 13];
 
-fn main() usize {
+fun main() usize {
     values.len() + values[1]
 }
 "#,
@@ -439,11 +439,11 @@ fn materializes_const_byte_string_call_arguments() {
         r#"
 const default_value = b"default\0";
 
-fn take_bytes(xs: &[u8]) usize {
+fun take_bytes(xs: &[u8]) usize {
     xs.len()
 }
 
-fn main() usize {
+fun main() usize {
     take_bytes(&default_value)
 }
 "#,
@@ -455,16 +455,16 @@ fn main() usize {
 fn checks_slices_len_ptr_and_indexing() {
     let checked = pipeline_with_len_provider(
         r#"
-fn read(xs: & [i32]) i32 {
+fun read(xs: & [i32]) i32 {
     xs[0]
 }
 
-fn write(xs: &mut [i32]) i32 {
+fun write(xs: &mut [i32]) i32 {
     xs[0] = 10;
     xs[0]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs: [i32; 4] = [1, 2, 3, 4];
     let mut s = & xs[..];
     let mut t = & xs[1..=2];
@@ -481,7 +481,7 @@ fn main() i32 {
 #[test]
 fn preserves_full_range_span_for_slice_trait_calls() {
     let source = r#"
-fn take[S](items: S) [S as Slice[..]]::Output
+fun take[S](items: S) [S as Slice[..]]::Output
 where S: Slice[..] {
     & items[..]
 }
@@ -520,7 +520,7 @@ where S: Slice[..] {
 fn checks_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     let mut dst: [u8; 4] = [0, 0, 0, 0];
     let src: [u8; 4] = [1, 2, 3, 4];
     std::builtin::memcpy(&mut dst[..], &src[..]);
@@ -559,11 +559,11 @@ fn main() () {
 fn rejects_invalid_memory_intrinsic_builtins() {
     let checked = pipeline(
         r#"
-fn readonly(xs: & [u8]) () {
+fun readonly(xs: & [u8]) () {
     std::builtin::memcpy(xs, xs);
 }
 
-fn memset_non_byte() () {
+fun memset_non_byte() () {
     let mut xs: [i32; 2] = [1, 2];
     std::builtin::memset(&mut xs[..], 0);
 }
@@ -593,7 +593,7 @@ fn offset_preserves_unresolved_field_name_root() {
         r#"
 struct Point { x: i32 }
 
-fn main() () {
+fun main() () {
     _ = std::builtin::offset[Point](missing);
 }
 "#,
@@ -623,7 +623,7 @@ fn main() () {
 fn rejects_bare_range_index_and_readonly_slice_assignment() {
     let checked = pipeline(
         r#"
-fn main(xs: & [i32]) i32 {
+fun main(xs: & [i32]) i32 {
     let mut y = xs[..];
     xs[0] = 1;
     0
@@ -653,7 +653,7 @@ fn main(xs: & [i32]) i32 {
 fn checks_array_literal_element_types() {
     let checked = pipeline(
         r#"
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut xs: [i32; 2] = [1, flag];
     let mut ys: [i32; 3] = [flag; 3];
     0
@@ -674,11 +674,11 @@ fn main(flag: bool) i32 {
 fn checks_array_literal_lengths_and_inferred_lengths() {
     let checked = pipeline(
         r#"
-fn take_pair(xs: [i32; 2]) i32 {
+fun take_pair(xs: [i32; 2]) i32 {
     xs[0]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut inferred: [i32; 2] = [1, 2];
     let mut repeated: [i32; 3] = [1; 3];
     let mut too_many: [i32; 2] = [1, 2, 3];
@@ -715,15 +715,15 @@ fn infers_unannotated_array_literal_bindings() {
         r#"
 static mut global_xs = [1, 2, 3];
 
-fn take_triplet(xs: [i32; 3]) i32 {
+fun take_triplet(xs: [i32; 3]) i32 {
     xs[2]
 }
 
-fn take_i64_triplet(xs: [i64; 3]) i64 {
+fun take_i64_triplet(xs: [i64; 3]) i64 {
     xs[2]
 }
 
-fn take_matrix(xs: [[i32; 2]; 2]) i32 {
+fun take_matrix(xs: [[i32; 2]; 2]) i32 {
     xs[1][0]
 }
 
@@ -731,11 +731,11 @@ struct Box[T] {
     value: T,
 }
 
-fn take_box_matrix(xs: [[Box[i32]; 2]; 2]) i32 {
+fun take_box_matrix(xs: [[Box[i32]; 2]; 2]) i32 {
     xs[1][0].value
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs = [1, 2, 3];
     let mut repeated = [1; 3];
     let mut anchored = [1, xs[0], 3];
@@ -788,11 +788,11 @@ fn main() i32 {
 fn checks_pointer_to_nested_fixed_array_parameters() {
     let checked = pipeline(
         r#"
-fn touch(xs: &mut ([[i32; 2]; 2])) () {
+fun touch(xs: &mut ([[i32; 2]; 2])) () {
     _ = xs;
 }
 
-fn main() () {
+fun main() () {
     let mut matrix: [[i32; 2]; 2] = [[1, 2], [3, 4]];
     touch(&mut matrix);
 }
@@ -816,7 +816,7 @@ where T: Sized
 extend[T] SliceIterMut[T]
 where T: Sized
 {
-    fn from_raw_parts(ptr: &mut T, len: usize) SliceIterMut[T] {
+    fun from_raw_parts(ptr: &mut T, len: usize) SliceIterMut[T] {
         Self { ptr, len, index: 0 }
     }
 }
@@ -826,7 +826,7 @@ where T: Sized
 {
     type Item = &mut T;
 
-    fn next(&mut self) ?&mut T {
+    fun next(&mut self) ?&mut T {
         if self.index >= self.len {
             null
         } else {
@@ -840,12 +840,12 @@ where T: Sized
 extend[T] [T]
 where T: Sized
 {
-    fn iter_mut(&mut self) SliceIterMut[T] {
+    fun iter_mut(&mut self) SliceIterMut[T] {
         SliceIterMut[T]::from_raw_parts(self.ptrMut(), self.len())
     }
 }
 
-fn main() () {
+fun main() () {
     let mut values: [i32; 3] = [1, 2, 3];
     let mut slice = &mut values[..];
     for value in slice.iter_mut() {
@@ -861,7 +861,7 @@ fn main() () {
 fn reports_invalid_array_repeat_count() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut bad: [i32; 2] = [1; 1 / 0];
     0
 }
@@ -881,7 +881,7 @@ fn checks_large_array_repeat_count_from_const_binding() {
         r#"
 const N: usize = 1048576;
 
-fn main() i32 {
+fun main() i32 {
     let mut buffer: [u8; N] = [0u8; N];
     0
 }
@@ -905,7 +905,7 @@ fn main() i32 {
 fn checks_text_and_byte_string_literal_types() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut text: [char; 3] = "中a\n";
     let mut adjacent_text: [char; 9] = "中" "" "a\n" "" "b" "c" "" "done";
     let mut inferred_text: [char; _] = "hi";
@@ -960,11 +960,11 @@ fn main() i32 {
 fn checks_index_and_address_of_array_elements() {
     let checked = pipeline(
         r#"
-extern fn puts(ptr: &u8) i32;
+extern fun puts(ptr: &u8) i32;
 
 static hello = b"hello\0";
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut xs: [u8; 2] = [1, 2];
     let mut p: &u8 = &xs[0];
     let mut c: &u8 = &hello[0];
@@ -1000,20 +1000,20 @@ fn main(flag: bool) i32 {
 fn checks_literal_and_pointer_array_to_slice_coercions_and_rvalue_reference_targets() {
     let checked = pipeline(
         r#"
-fn take(xs: & [i32]) i32 {
+fun take(xs: & [i32]) i32 {
     xs.len() as i32
 }
 
-fn mutate(xs: &mut [i32]) i32 {
+fun mutate(xs: &mut [i32]) i32 {
     xs[0] = 9;
     xs[0]
 }
 
-fn bytes(xs: & [u8]) i32 {
+fun bytes(xs: & [u8]) i32 {
     xs.len() as i32
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut ro: & [char] = &"abc";
     let mut rb: & [u8] = &b"abc";
     let mut rc: & [u8] = &b"hi\0";
@@ -1037,7 +1037,7 @@ fn main() i32 {
     0
 }
 
-fn make() i32 {
+fun make() i32 {
     42
 }
 "#,
@@ -1092,11 +1092,11 @@ fn make() i32 {
 fn rejects_general_array_value_to_slice_coercions() {
     let checked = pipeline(
         r#"
-fn take(xs: &[i32]) i32 {
+fun take(xs: &[i32]) i32 {
     xs.len() as i32
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut arr: [i32; 2] = [1, 2];
     let mut from_place: &[i32] = arr;
     let mut from_literal: &[i32] = [3, 4];
@@ -1133,15 +1133,15 @@ fn main() i32 {
 fn rejects_string_array_values_without_an_explicit_address() {
     let checked = pipeline(
         r#"
-fn take_text(text: &[char]) usize {
+fun take_text(text: &[char]) usize {
     text.len()
 }
 
-fn take_bytes(bytes: &[u8]) usize {
+fun take_bytes(bytes: &[u8]) usize {
     bytes.len()
 }
 
-fn main() usize {
+fun main() usize {
     let text = "nia";
     let bytes = b"nia";
     take_text("nia") + take_text(text) + take_bytes(b"nia") + take_bytes(bytes)
@@ -1175,23 +1175,23 @@ fn main() usize {
 fn coerces_mutable_references_and_slices_to_readonly_expected_types() {
     let checked = pipeline(
         r#"
-fn read_ptr(x: &i32) i32 {
+fun read_ptr(x: &i32) i32 {
     x.*
 }
 
-fn read_slice(xs: &[i32]) i32 {
+fun read_slice(xs: &[i32]) i32 {
     xs[0]
 }
 
-fn generic_ptr[T](x: &T) T {
+fun generic_ptr[T](x: &T) T {
     x.*
 }
 
-fn generic_slice[T](xs: &[T]) T {
+fun generic_slice[T](xs: &[T]) T {
     xs[0]
 }
 
-fn main(mut_ptr: &mut i32, mut_slice: &mut [i32]) i32 {
+fun main(mut_ptr: &mut i32, mut_slice: &mut [i32]) i32 {
     let mut ro_ptr: &i32 = mut_ptr;
     let mut ro_slice: &[i32] = mut_slice;
     read_ptr(mut_ptr)
@@ -1210,15 +1210,15 @@ fn main(mut_ptr: &mut i32, mut_slice: &mut [i32]) i32 {
 fn rejects_readonly_references_and_slices_for_mutable_expected_types() {
     let checked = pipeline(
         r#"
-fn write_ptr(x: &mut i32) () {
+fun write_ptr(x: &mut i32) () {
     x.* = 1;
 }
 
-fn write_slice(xs: &mut [i32]) () {
+fun write_slice(xs: &mut [i32]) () {
     xs[0] = 1;
 }
 
-fn main(ro_ptr: &i32, ro_slice: &[i32]) () {
+fun main(ro_ptr: &i32, ro_slice: &[i32]) () {
     write_ptr(ro_ptr);
     write_slice(ro_slice);
 }
@@ -1245,11 +1245,11 @@ fn main(ro_ptr: &i32, ro_slice: &[i32]) () {
 fn indexes_mutable_pointer_values_as_indirect_places() {
     let checked = pipeline(
         r#"
-fn slice(xs: &mut [i32]) &mut [i32] {
+fun slice(xs: &mut [i32]) &mut [i32] {
     xs
 }
 
-fn main(xs: &mut [i32]) i32 {
+fun main(xs: &mut [i32]) i32 {
     slice(xs)[0usize] = 41;
     slice(xs)[0usize] += 1;
     slice(xs)[0usize]
@@ -1263,15 +1263,15 @@ fn main(xs: &mut [i32]) i32 {
 fn slices_mutable_pointer_values_as_indirect_places() {
     let checked = pipeline(
         r#"
-fn slice(xs: &mut [i32]) &mut [i32] {
+fun slice(xs: &mut [i32]) &mut [i32] {
     xs
 }
 
-fn write(xs: &mut [i32]) () {
+fun write(xs: &mut [i32]) () {
     xs[0] = 1;
 }
 
-fn main(xs: &mut [i32], ptr: &mut i32) () {
+fun main(xs: &mut [i32], ptr: &mut i32) () {
     let view = xs;
     write(&mut view[1..3]);
     write(&mut slice(view)[0..1]);
@@ -1290,7 +1290,7 @@ fn rejects_mutable_slices_through_readonly_pointer_values() {
         ("let raw = ptr; _ = &mut raw[0..1];", "&i32"),
     ] {
         let checked = pipeline(&format!(
-            "fn main(xs: &[i32], ptr: &i32) () {{\n    {body}\n}}\n"
+            "fun main(xs: &[i32], ptr: &i32) () {{\n    {body}\n}}\n"
         ));
         // The pointee type rejects the slice; the `let` binding is irrelevant.
         let expected = format!("{pointer}: SliceMut");
@@ -1316,7 +1316,7 @@ fn rejects_mutable_slices_through_readonly_pointer_values() {
 #[test]
 fn mutable_slices_of_array_values_still_require_a_writable_binding() {
     let checked =
-        pipeline("fn main() () {\n    let xs: [i32; 4] = [0; 4];\n    _ = &mut xs[0..1];\n}\n");
+        pipeline("fun main() () {\n    let xs: [i32; 4] = [0; 4];\n    _ = &mut xs[0..1];\n}\n");
     assert!(
         checked
             .diagnostics
@@ -1331,7 +1331,7 @@ fn mutable_slices_of_array_values_still_require_a_writable_binding() {
 fn rejects_array_pointer_to_element_pointer_coercions() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     let mut bytes: [u8; 4] = [1, 2, 3, 0];
     let mut byte_ptr: &u8 = b"hello";
     let mut array_ptr: &u8 = bytes;

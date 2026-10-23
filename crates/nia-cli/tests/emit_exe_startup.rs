@@ -16,7 +16,7 @@ module native;
 using entry::native;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(native::readValue())!
 }
@@ -27,8 +27,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         root.join("native.nia"),
         r#"
 @[linkName("nia_test_external_value")]
-pub extern fn readValue() i32;
-pub extern fn nia_test_unused_import() i32;
+pub extern fun readValue() i32;
+pub extern fun nia_test_unused_import() i32;
 "#,
     )
     .expect("write external declarations");
@@ -58,7 +58,7 @@ fn emit_exe_reports_private_entry_main_called_by_freestanding_start() {
         r#"
 using std::process;
 
-fn main(init: process::Init) process::ExitCode!() {
+fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(7)!
 }
@@ -190,7 +190,7 @@ pub type AsmInputs;
 pub type AsmOutputs;
 
 @[builtin("asm")]
-pub fn asm(config: AsmConfig) ();
+pub fun asm(config: AsmConfig) ();
 "#,
     )
     .expect("write custom std builtin");
@@ -256,7 +256,7 @@ pub(pkg) module x86;
 using entry;
 
 @[if arch == "x86_64"]
-fn syscallExit(code: i32) () {
+fun syscallExit(code: i32) () {
     std::builtin::asm(.{
         code: b"syscall",
         inputs: .{
@@ -269,7 +269,7 @@ fn syscallExit(code: i32) () {
 }
 
 @[if arch == "x86"]
-fn syscallExit(code: i32) () {
+fun syscallExit(code: i32) () {
     std::builtin::asm(.{
         code: b"int 0x80",
         inputs: .{
@@ -281,7 +281,7 @@ fn syscallExit(code: i32) () {
     });
 }
 
-extern fn niaStartStack() () {
+extern fun niaStartStack() () {
     syscallExit(entry::mymain());
     loop {}
 }
@@ -292,7 +292,7 @@ extern fn niaStartStack() () {
         &std_start_linux_x86_64,
         r#"
 @[naked]
-pub extern fn _start() () {
+pub extern fun _start() () {
     std::builtin::asm(.{
         code:
             b"call niaStartStack\n"
@@ -309,7 +309,7 @@ pub extern fn _start() () {
         &std_start_linux_x86,
         r#"
 @[naked]
-pub extern fn _start() () {
+pub extern fun _start() () {
     std::builtin::asm(.{
         code:
             b"call niaStartStack\n"
@@ -324,31 +324,31 @@ pub extern fn _start() () {
     .expect("write custom i686 std start");
     std::fs::write(
         &std_start_windows_x86_64,
-        "using pkg::builtins::windows::x86_64::__chkstk;\n\n@[naked]\npub extern fn _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall niaWindowsStart\\nud2\", clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n",
+        "using pkg::builtins::windows::x86_64::__chkstk;\n\n@[naked]\npub extern fun _start() () {\n    std::builtin::asm(.{ code: b\"sub rsp, 40\\ncall niaWindowsStart\\nud2\", clobbers: [b\"memory\"], options: [b\"volatile\"] });\n    loop {}\n}\n",
     )
     .expect("write custom Windows std start");
     // The runtime roots Windows startup in `startup.nia` by definition name.
     std::fs::write(
         std_start_windows_x86_64.with_file_name("startup.nia"),
-        "using entry;\n\nextern fn ExitProcess(code: u32) ();\n\nextern fn niaWindowsStart() () { ExitProcess(11u32); loop {} }\n",
+        "using entry;\n\nextern fun ExitProcess(code: u32) ();\n\nextern fun niaWindowsStart() () { ExitProcess(11u32); loop {} }\n",
     )
     .expect("write custom Windows startup");
     std::fs::write(
         std_start_macos_arch.with_file_name("startup.nia"),
-        "using entry;\n\nextern fn exit(code: i32) ();\n\npub(pkg) extern fn niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(entry::mymain()); loop {} }\n",
+        "using entry;\n\nextern fun exit(code: i32) ();\n\npub(pkg) extern fun niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () { _ = argc; _ = argv; _ = envp; exit(entry::mymain()); loop {} }\n",
     )
     .expect("write custom Darwin startup");
     for arch in ["x86_64", "aarch64"] {
         std::fs::write(
             std_start_macos_arch.with_file_name(format!("{arch}.nia")),
-            "using pkg::start::freestanding::macos::startup::niaDarwinStart;\npub extern fn main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
+            "using pkg::start::freestanding::macos::startup::niaDarwinStart;\npub extern fun main(argc: i32, argv: &&u8, envp: &&u8) i32 { niaDarwinStart(argc, argv, envp); loop {} }\n",
         )
         .expect("write custom Darwin start");
     }
     std::fs::write(
         &main,
         r#"
-pub fn mymain() i32 {
+pub fun mymain() i32 {
     11
 }
 "#,
@@ -402,7 +402,7 @@ fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(9)!
 }
@@ -464,7 +464,7 @@ fn emit_exe_creates_missing_relative_output_directories() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(7)!
 }
@@ -500,7 +500,7 @@ fn emit_exe_can_emit_optimization_report_to_stderr() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     process::ExitCode(5)!
 }
@@ -550,7 +550,7 @@ fn linux_startup_passes_arguments_at_every_optimization_level() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     if init.args().len() != 3 {
         return process::ExitCode(1)!;
     }

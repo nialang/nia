@@ -39,11 +39,11 @@ where T: Sized
 }
 
 pub trait Allocator {
-    fn alloc(&mut self, layout: Layout) Error!Block;
+    fun alloc(&mut self, layout: Layout) Error!Block;
 
-    fn free(&mut self, block: Block) Error!();
+    fun free(&mut self, block: Block) Error!();
 
-    fn resize(&mut self, block: Block, newLayout: Layout) bool {
+    fun resize(&mut self, block: Block, newLayout: Layout) bool {
         _ = self;
         if block.align() != newLayout.align() {
             return false;
@@ -51,7 +51,7 @@ pub trait Allocator {
         block.size() == newLayout.size()
     }
 
-    fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+    fun remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
             // Resizing changes the logical view while the allocator's release
             // range remains stable for the caller's eventual free.
@@ -65,7 +65,7 @@ pub trait Allocator {
 
     // A rollback error carries the replacement block when both fallible frees
     // fail. The caller still owns the original block passed by value.
-    fn realloc(&mut self, block: Block, newLayout: Layout) ReallocError!Block {
+    fun realloc(&mut self, block: Block, newLayout: Layout) ReallocError!Block {
         if self.remap(block, newLayout) is ?newBlock {
             return !newBlock;
         }
@@ -85,14 +85,14 @@ pub trait Allocator {
         !newBlock
     }
 
-    fn allocBytes(&mut self, len: usize, align: usize) Error!Block {
+    fun allocBytes(&mut self, len: usize, align: usize) Error!Block {
         let layout = Layout::init(len, align).?;
         self.alloc(layout)
     }
 }
 
 extend Allocator {
-    pub fn allocSlice[T](&mut self, len: usize) Error!SliceAllocation[T]
+    pub fun allocSlice[T](&mut self, len: usize) Error!SliceAllocation[T]
     where T: Sized
     {
         let layout = Layout::array[T](len).?;
@@ -104,29 +104,29 @@ extend Allocator {
 extend[T] SliceAllocation[T]
 where T: Sized
 {
-    pub(pkg) fn fromBlock(block: Block, len: usize) SliceAllocation[T] {
+    pub(pkg) fun fromBlock(block: Block, len: usize) SliceAllocation[T] {
         .{ block, len }
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 
-    pub(pkg) fn intoBlock(self) Block {
+    pub(pkg) fun intoBlock(self) Block {
         self.block
     }
 
-    pub fn asSlice(&self) &[T] {
+    pub fun asSlice(&self) &[T] {
         let ptr = self.block.ptr() as &mut T;
         &ptr[0..self.len]
     }
 
-    pub fn asMutSlice(&mut self) &mut [T] {
+    pub fun asMutSlice(&mut self) &mut [T] {
         let mut ptr = self.block.ptr() as &mut T;
         &mut ptr[0..self.len]
     }
 
-    pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
+    pub fun deinit(&mut self, allocator: &mut Allocator) Error!() {
         let block = self.block;
         allocator.free(block).?;
         self.block = Block::empty(Layout::array[T](0).?);
@@ -135,7 +135,7 @@ where T: Sized
     }
 }
 
-fn danglingSlice[T](len: usize) &mut [T]
+fun danglingSlice[T](len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = pkg::builtin::align[T]() as &mut T;
@@ -143,7 +143,7 @@ where T: Sized
 }
 
 extend Block {
-    fn copyPrefixTo(&self, to: Block) () {
+    fun copyPrefixTo(&self, to: Block) () {
         let mut count = self.size();
         if count > to.size() {
             count = to.size();

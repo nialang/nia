@@ -10,7 +10,7 @@ struct Pair {
     right: bool,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut bad = Pair { left: true, left: 1, extra: 1 };
     let mut inferred = Pair { left: 1, right: false };
     0
@@ -75,7 +75,7 @@ struct Pair[T] {
     right: bool,
 }
 
-fn main(pair: Pair[i32], ptr: & Pair[i32]) i32 {
+fun main(pair: Pair[i32], ptr: & Pair[i32]) i32 {
     let mut x: i32 = pair.left;
     let mut y: bool = ptr.right;
     _ = pair.missing;
@@ -136,12 +136,12 @@ struct Point {
 }
 
 extend Point {
-    fn sum(&self) i32 {
+    fun sum(&self) i32 {
         self.x + self.y
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Point { x: 1, y: 2 };
     let mut p_ptr = &(Point { x: 3, y: 4 });
     let mut literal_ptr = &10i32;
@@ -150,7 +150,7 @@ fn main() i32 {
     p.sum() + Point { x: 5, y: 6 }.sum() + p_ptr.x + literal_ptr.* + call_ptr.* + slice[0]
 }
 
-fn make() i32 {
+fun make() i32 {
     7
 }
 "#,
@@ -162,12 +162,12 @@ fn make() i32 {
 fn rejects_implicit_discard_of_non_void_expression_statements() {
     let checked = pipeline(
         r#"
-fn value() i32 { 1 }
-fn effect() {}
-extern fn abort() never;
-extern fn printf(fmt: & u8, ...);
+fun value() i32 { 1 }
+fun effect() {}
+extern fun abort() never;
+extern fun printf(fmt: & u8, ...);
 
-fn main() i32 {
+fun main() i32 {
     value();
     _ = value();
     _ = effect();
@@ -193,7 +193,7 @@ fn main() i32 {
 fn suppresses_discard_diagnostic_after_unresolved_expression_statement() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     missing_expression;
     1;
 }
@@ -218,7 +218,7 @@ fn main() () {
 fn suppresses_statement_shape_checks_for_structural_error_types() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     (missing_tuple, 1);
     [missing_array];
     defer &missing_deferred;
@@ -277,12 +277,12 @@ struct Counter {
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         null
     }
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut i = 0;
     while flag {
         _ = i;
@@ -331,7 +331,7 @@ fn main(flag: bool) i32 {
 fn rejects_for_in_non_iterable_ranges_without_visible_impls() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     for n in 0..3 {
         _ = n;
     }
@@ -358,7 +358,7 @@ fn main() i32 {
 fn suppresses_for_in_shape_checks_after_unresolved_iterable() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     for &item in missing_iterable {
         _ = item;
     }
@@ -403,7 +403,7 @@ fn main() () {
 fn suppresses_defer_shape_check_after_unresolved_expression() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     defer missing_deferred;
     missing_later;
 }
@@ -450,7 +450,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         if self.current >= self.end {
             null
         } else {
@@ -461,7 +461,7 @@ extend Counter : Iterator {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut iter = Counter { current: 0, end: 3 };
     let mut total = 0;
     for n in iter {
@@ -486,12 +486,12 @@ struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    fn next(&mut self) ?usize {
+    fun next(&mut self) ?usize {
         null
     }
 }
 
-fn main(len: usize) usize {
+fun main(len: usize) usize {
     let mut total = 0usize;
     let mut iter = Counter { current: 0usize, end: len };
     for n in iter {
@@ -516,7 +516,7 @@ struct Once {
 extend Once : Iterator {
     type Item = &i32;
 
-    fn next(&mut self) ?&i32 {
+    fun next(&mut self) ?&i32 {
         if self.done {
             null
         } else {
@@ -526,7 +526,7 @@ extend Once : Iterator {
     }
 }
 
-fn main(value: &i32) i32 {
+fun main(value: &i32) i32 {
     let mut iter = Once { value: value, done: false };
     let mut total = 0;
     for &n in iter {
@@ -552,7 +552,7 @@ where T: Sized
 {
     type Item = &T;
 
-    fn next(&mut self) ?&T {
+    fun next(&mut self) ?&T {
         null
     }
 }
@@ -563,7 +563,7 @@ where T: Sized
     type Item = &T;
     type Iter = ReadIter[T];
 
-    fn iter(&self) ReadIter[T] {
+    fun iter(&self) ReadIter[T] {
         {}
     }
 }
@@ -574,12 +574,12 @@ where T: Sized
     type Item = &T;
     type Iter = ReadIter[T];
 
-    fn iter(&self) ReadIter[T] {
+    fun iter(&self) ReadIter[T] {
         {}
     }
 }
 
-fn sum(values: &[i32]) i32 {
+fun sum(values: &[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -587,7 +587,7 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-fn sumMutView(values: &mut [i32]) i32 {
+fun sumMutView(values: &mut [i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -603,7 +603,7 @@ fn sumMutView(values: &mut [i32]) i32 {
 fn accepts_local_pointer_binding_patterns() {
     let checked = pipeline(
         r#"
-fn main(ptr: &i32, mut_ptr: &mut i32) i32 {
+fun main(ptr: &i32, mut_ptr: &mut i32) i32 {
     let &x = ptr;
     let mut &mut y: &mut i32 = mut_ptr;
     x + y
@@ -617,7 +617,7 @@ fn main(ptr: &i32, mut_ptr: &mut i32) i32 {
 fn pointer_binding_annotations_describe_the_pattern_input() {
     let checked = pipeline(
         r#"
-fn main(pair: &(i32, bool), writable: &mut (i32, i32)) i32 {
+fun main(pair: &(i32, bool), writable: &mut (i32, i32)) i32 {
     let &(value, enabled): &(i32, bool) = pair;
     let mut &mut (left, right): &mut (i32, i32) = writable;
     let (extra, active): (i32, bool) = (1, true);
@@ -633,7 +633,7 @@ fn main(pair: &(i32, bool), writable: &mut (i32, i32)) i32 {
 fn rejects_pointer_binding_annotation_for_the_destructured_value() {
     let checked = pipeline(
         r#"
-fn main(ptr: &i32) i32 {
+fun main(ptr: &i32) i32 {
     let &value: i32 = ptr;
     value
 }
@@ -655,12 +655,12 @@ struct Counter {}
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         null
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut iter = Counter {};
     for &n in iter {
         _ = n;
@@ -683,10 +683,10 @@ fn main() i32 {
 fn checks_defer_expression_type_edges() {
     let checked = pipeline(
         r#"
-fn value() i32 { 1 }
-fn cleanup() {}
+fun value() i32 { 1 }
+fun cleanup() {}
 
-fn main(flag: bool) {
+fun main(flag: bool) {
     defer cleanup();
     defer _ = value();
     defer if flag {
@@ -733,14 +733,14 @@ fn checks_function_pointer_fields_as_void_calls() {
     let checked = pipeline(
         r#"
 struct Vtable {
-    print: &fn(&i32)
+    print: &fun(&i32)
 }
 
-fn print_i32(value: &i32) {}
+fun print_i32(value: &i32) {}
 
 static vtable: Vtable = Vtable { print: & print_i32 };
 
-fn main() i32 {
+fun main() i32 {
     let mut x = 1;
     vtable.print(&x);
     0

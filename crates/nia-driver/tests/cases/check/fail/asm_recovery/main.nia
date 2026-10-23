@@ -1,4 +1,4 @@
-fn invalid() () {
+fun invalid() () {
     std::builtin::asm(.{
         code: b"nop",
         inputs: .{ rax: (missing, 1i64) },

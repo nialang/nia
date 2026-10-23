@@ -5,7 +5,7 @@ using pkg::os;
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
 
 extend os::Error : builtin::IntoError[Error] {
-    const fn intoError(self) Error {
+    const fun intoError(self) Error {
         match self {
             .PermissionDenied => .PermissionDenied,
             .NotFound => .NotFound,
@@ -36,13 +36,13 @@ extend os::Error : builtin::IntoError[Error] {
 }
 
 extend[T] Error!T {
-    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+    pub(pkg) fun withOperation(self, operation: Operation) OperationError!T {
         self.mapError(&\[operation] cause: Error -> .System { operation, cause })
     }
 }
 
 extend[T] os::Error!T {
-    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+    pub(pkg) fun withOperation(self, operation: Operation) OperationError!T {
         self.mapError(&\[operation] cause: os::Error -> .System {
             operation,
             cause: cause.intoError(),
@@ -51,13 +51,13 @@ extend[T] os::Error!T {
 }
 
 extend[T] PathError!T {
-    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+    pub(pkg) fun withOperation(self, operation: Operation) OperationError!T {
         self.mapError(&\[operation] cause: PathError -> .Path { operation, cause })
     }
 }
 
 extend os::FileKind {
-    pub(pkg) fn asFsFileKind(self) FileKind {
+    pub(pkg) fun asFsFileKind(self) FileKind {
         match self {
             .BlockDevice => .BlockDevice,
             .CharacterDevice => .CharacterDevice,
@@ -72,13 +72,13 @@ extend os::FileKind {
 }
 
 extend os::Timestamp {
-    pub(pkg) fn asFsTimestamp(&self) Timestamp {
+    pub(pkg) fun asFsTimestamp(&self) Timestamp {
         .init(self.seconds(), self.nanos())
     }
 }
 
 extend os::FileMetadata {
-    pub(pkg) fn asFsMetadata(&self) Metadata {
+    pub(pkg) fun asFsMetadata(&self) Metadata {
         let accessed = self.accessed().map[Timestamp, _](
             \value: os::Timestamp -> value.asFsTimestamp(),
         );
@@ -100,7 +100,7 @@ extend os::FileMetadata {
 }
 
 extend os::DirectoryEntry {
-    pub(pkg) fn asFsDirEntry(&self) DirEntry {
+    pub(pkg) fun asFsDirEntry(&self) DirEntry {
         .init(self.kind().asFsFileKind(), self.name(), self.size())
     }
 }

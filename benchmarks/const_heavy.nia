@@ -1,4 +1,4 @@
-const fn width(seed: usize) usize {
+const fun width(seed: usize) usize {
     let mut value = seed;
     let mut index: usize = 0;
     while index < 32usize {
@@ -25,7 +25,7 @@ const n13: usize = width(13usize);
 const n14: usize = width(14usize);
 const n15: usize = width(15usize);
 
-fn main() usize {
+fun main() usize {
     let a00: [u8; n00] = [0u8; n00];
     let a01: [u8; n01] = [0u8; n01];
     let a02: [u8; n02] = [0u8; n02];

@@ -1,7 +1,7 @@
 path: fail/offset_recovery/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 79..86 Primary Source no value named `missing` is visible in this scope
+label: 80..87 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

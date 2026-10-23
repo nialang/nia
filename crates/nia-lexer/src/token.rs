@@ -73,8 +73,8 @@ pub enum TokenKind {
     Extend,
     /// `false` keyword.
     False,
-    /// `fn` keyword.
-    Fn,
+    /// `fun` keyword.
+    Fun,
     /// `for` keyword.
     For,
     /// `if` keyword.

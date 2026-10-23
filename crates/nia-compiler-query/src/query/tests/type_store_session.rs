@@ -3,7 +3,7 @@ use super::*;
 
 #[test]
 fn revision_only_update_refreshes_all_revision_bearing_products() {
-    let source = "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }";
+    let source = "pub struct S { value: i32 } fun main() i32 { let value: i32 = 0; value }";
     let mut fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
@@ -117,7 +117,7 @@ fn type_store_preserves_published_slots_across_database_updates() {
 fn type_normalization_appends_to_the_session_type_store() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "type ByteRef = &u8; pub fn read(value: ByteRef) u8 { 0 }",
+        "type ByteRef = &u8; pub fun read(value: ByteRef) u8 { 0 }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -148,7 +148,7 @@ fn const_phases_publish_synthesized_types_to_canonical_store() {
 const values = 0usize..3usize;
 const width: usize = values.end();
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
     let module_id = fixture.entry_id();
@@ -184,7 +184,7 @@ fn body_check_publishes_synthesized_types_to_canonical_store() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn main() i32 {
+fun main() i32 {
 let values = [1i32, 2i32, 3i32];
 values[0]
 }
@@ -214,7 +214,7 @@ fn signature_and_full_normalization_share_ids_in_either_query_order() {
     fn assert_order(signature_first: bool) {
         let fixture = LoadedProgramFixture::new(
             "main.nia",
-            "type Ref[T] = &T; pub fn read(value: Ref[u16]) u16 { 0 }",
+            "type Ref[T] = &T; pub fun read(value: Ref[u16]) u16 { 0 }",
         );
         let module_id = fixture.entry_id();
         let database = fixture.database();

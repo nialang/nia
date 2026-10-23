@@ -42,7 +42,7 @@ fn public_surface_snapshots_are_query_derived_facts() {
 
 #[test]
 fn item_tree_queries_reuse_single_layer_product_handles() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 1 }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 

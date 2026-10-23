@@ -4,7 +4,7 @@ const highSurrogateEnd: u16 = 0xdbff;
 const lowSurrogateStart: u16 = 0xdc00;
 const lowSurrogateEnd: u16 = 0xdfff;
 
-pub(pkg) fn parseArguments(
+pub(pkg) fun parseArguments(
     command: &u16,
     wide: &mut [u16],
     bytes: &mut [u8],
@@ -78,7 +78,7 @@ pub(pkg) fn parseArguments(
 // bytes hold every entry and its NUL.
 pub(pkg) struct EnvironmentShape { units: usize, entries: usize }
 
-pub(pkg) fn measureEnvironment(environment: &u16) EnvironmentShape {
+pub(pkg) fun measureEnvironment(environment: &u16) EnvironmentShape {
     let mut units: usize = 0;
     let mut entries: usize = 0;
     loop {
@@ -90,7 +90,7 @@ pub(pkg) fn measureEnvironment(environment: &u16) EnvironmentShape {
     .{ units, entries }
 }
 
-pub(pkg) fn parseEnvironment(environment: &u16, bytes: &mut [u8], pointers: &mut [&u8]) usize {
+pub(pkg) fun parseEnvironment(environment: &u16, bytes: &mut [u8], pointers: &mut [&u8]) usize {
     let mut input: usize = 0;
     let mut output: usize = 0;
     let mut count: usize = 0;
@@ -109,7 +109,7 @@ pub(pkg) fn parseEnvironment(environment: &u16, bytes: &mut [u8], pointers: &mut
     count
 }
 
-fn encodeWideToUtf8(wide: &[u16], length: usize, bytes: &mut [u8], output: usize) usize {
+fun encodeWideToUtf8(wide: &[u16], length: usize, bytes: &mut [u8], output: usize) usize {
     let mut input: usize = 0;
     let mut cursor = output;
     while input < length {
@@ -155,30 +155,30 @@ fn encodeWideToUtf8(wide: &[u16], length: usize, bytes: &mut [u8], output: usize
     cursor
 }
 
-fn wideStringLength(text: &u16) usize {
+fun wideStringLength(text: &u16) usize {
     let mut length: usize = 0;
     while text[length] != 0 { length += 1; }
     length
 }
 
-fn isCommandWhitespace(unit: u16) bool {
+fun isCommandWhitespace(unit: u16) bool {
     unit == 32 or unit == 9
 }
 
-fn skipCommandWhitespace(command: &u16, input: &mut usize, length: usize) () {
+fun skipCommandWhitespace(command: &u16, input: &mut usize, length: usize) () {
     while input.* < length and isCommandWhitespace(command[input.*]) {
         input.* += 1;
     }
 }
 
-fn appendWideUnit(wide: &mut [u16], length: &mut usize, unit: u16) () {
+fun appendWideUnit(wide: &mut [u16], length: &mut usize, unit: u16) () {
     if length.* < wide.len() {
         wide[length.*] = unit;
         length.* += 1;
     }
 }
 
-fn appendWideRun(wide: &mut [u16], length: &mut usize, unit: u16, count: usize) () {
+fun appendWideRun(wide: &mut [u16], length: &mut usize, unit: u16, count: usize) () {
     let mut index: usize = 0;
     while index < count {
         appendWideUnit(wide, length, unit);

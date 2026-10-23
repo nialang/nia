@@ -8,10 +8,10 @@ fn executable_reachability_indexes_trait_impl_for_pointer_pointee_receiver() {
         "main.nia",
         r#"
 trait Writer {
-fn write(&mut self) i32;
+fun write(&mut self) i32;
 }
 
-fn forward[W](writer: &mut W) i32
+fun forward[W](writer: &mut W) i32
 where W: Writer
 {
 writer.write()
@@ -20,12 +20,12 @@ writer.write()
 struct Sink {}
 
 extend Sink : Writer {
-fn write(&mut self) i32 {
+fun write(&mut self) i32 {
 7
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut sink = Sink {};
 forward[Sink](&mut sink)
 }
@@ -79,12 +79,12 @@ value: i32,
 }
 
 extend Source : error::IntoError[Target] {
-fn intoError(self) Target {
+fun intoError(self) Target {
     Target { value: self.value }
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
 match value.cast_error() {
     !ok => {
@@ -104,13 +104,13 @@ match value.cast_error() {
         "error.nia",
         r#"
 pub trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
-pub fn cast_error(self) Target!T {
+pub fun cast_error(self) Target!T {
     match self {
         !ok => {
             !ok
@@ -169,7 +169,7 @@ module impls;
 using entry::error;
 using entry::impls;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
 match value.cast_error() {
     !ok => {
@@ -189,13 +189,13 @@ match value.cast_error() {
         "error.nia",
         r#"
 pub trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
-pub fn cast_error(self) Target!T {
+pub fun cast_error(self) Target!T {
     match self {
         !ok => {
             !ok
@@ -224,7 +224,7 @@ value: i32,
 }
 
 extend Source : error::IntoError[Target] {
-fn intoError(self) Target {
+fun intoError(self) Target {
     Target { value: self.value }
 }
 }
@@ -268,7 +268,7 @@ module impls;
 using entry::error;
 using entry::impls;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let value: impls::Source!i32 = impls::Source { value: 1 }!;
 match value.as_target_error() {
     !ok => {
@@ -288,13 +288,13 @@ match value.as_target_error() {
         "error.nia",
         r#"
 pub trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
-pub fn cast_error(self) Target!T {
+pub fun cast_error(self) Target!T {
     match self {
         !ok => {
             !ok
@@ -323,13 +323,13 @@ value: i32,
 }
 
 extend Source : error::IntoError[Target] {
-fn intoError(self) Target {
+fun intoError(self) Target {
     Target { value: self.value }
 }
 }
 
 extend[T] Source!T {
-pub fn as_target_error(self) Target!T {
+pub fun as_target_error(self) Target!T {
     self.cast_error()
 }
 }
@@ -369,11 +369,11 @@ fn executable_reachability_substitutes_const_generic_impl_where_predicates() {
         "main.nia",
         r#"
 trait Marker {
-    fn mark(& self) i32;
+    fun mark(& self) i32;
 }
 
 trait Summary {
-    fn summarize(& self) i32;
+    fun summarize(& self) i32;
 }
 
 struct Buffer[T, N: usize] {
@@ -381,7 +381,7 @@ struct Buffer[T, N: usize] {
 }
 
 extend Buffer[i32, 3] : Marker {
-    fn mark(& self) i32 {
+    fun mark(& self) i32 {
         self.values[0]
     }
 }
@@ -389,13 +389,13 @@ extend Buffer[i32, 3] : Marker {
 extend[T, N: usize] Buffer[T, N] : Summary
 where Buffer[T, N]: Marker
 {
-    fn summarize(& self) i32 {
+    fun summarize(& self) i32 {
         _ = self;
         0
     }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
     let buffer = Buffer[i32, 3] { values: [1, 2, 3] };
     buffer.summarize()
 }

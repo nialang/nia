@@ -107,7 +107,7 @@ fn generic_param(p: &mut Parser<'_>) -> Option<Parsed> {
 pub(crate) fn type_until(p: &mut Parser<'_>, stops: &[TokenKind]) -> Option<Parsed> {
     let checkpoint = p.checkpoint();
     let errors = p.errors_len();
-    let bare_fn_type = p.at(TokenKind::Fn);
+    let bare_fn_type = p.at(TokenKind::Fun);
     if let Some(ty) = type_(p)
         && p.at_any(stops)
     {
@@ -122,7 +122,10 @@ pub(crate) fn type_until(p: &mut Parser<'_>, stops: &[TokenKind]) -> Option<Pars
     p.node(|p| {
         let span = collect_until(p, stops)?;
         if bare_fn_type {
-            p.error_at(span, "function pointer types must be written as `&fn(...)`");
+            p.error_at(
+                span,
+                "function pointer types must be written as `&fun(...)`",
+            );
         } else {
             p.error_at(span, "invalid type syntax");
         }
@@ -299,8 +302,8 @@ fn type_atom(p: &mut Parser<'_>, mode: TypeMode) -> Option<Parsed> {
         if p.eat(TokenKind::Underscore).is_some() {
             return done(p, SyntaxKind::InferType);
         }
-        if p.at(TokenKind::Fn) {
-            p.error_here("function pointer types must be written as `&fn(...)`");
+        if p.at(TokenKind::Fun) {
+            p.error_here("function pointer types must be written as `&fun(...)`");
             return None;
         }
         if p.eat(TokenKind::SelfType).is_some() {
@@ -337,7 +340,7 @@ fn type_atom(p: &mut Parser<'_>, mode: TypeMode) -> Option<Parsed> {
 fn type_after_amp(p: &mut Parser<'_>, mode: TypeMode) -> Option<SyntaxKind> {
     let is_readonly = p.eat(TokenKind::Mut).is_none();
     let is_extern = p.eat(TokenKind::Extern).is_some();
-    if p.at(TokenKind::Fn) {
+    if p.at(TokenKind::Fun) {
         if !is_readonly {
             p.error_here("function pointer types must use a read-only `&` pointer");
         }
@@ -363,7 +366,7 @@ fn type_after_amp(p: &mut Parser<'_>, mode: TypeMode) -> Option<SyntaxKind> {
         return Some(SyntaxKind::FnPointerType);
     }
     if is_extern {
-        p.error_here("`extern` is only valid in `&extern fn(...)` types");
+        p.error_here("`extern` is only valid in `&extern fun(...)` types");
         return None;
     }
     let checkpoint = p.checkpoint();
@@ -454,7 +457,7 @@ fn projection_after_open(p: &mut Parser<'_>) -> bool {
 }
 
 fn at_callable_type(p: &Parser<'_>) -> bool {
-    p.at(TokenKind::Ident) && p.text() == "Fn" && matches!(p.nth_kind(1), Some(TokenKind::LParen))
+    p.at(TokenKind::Ident) && p.text() == "Fun" && matches!(p.nth_kind(1), Some(TokenKind::LParen))
 }
 
 fn callable_type(p: &mut Parser<'_>, mode: TypeMode) -> Option<()> {
@@ -806,7 +809,7 @@ const WHERE_STOPS: [TokenKind; 11] = [
     TokenKind::Union,
     TokenKind::Enum,
     TokenKind::Trait,
-    TokenKind::Fn,
+    TokenKind::Fun,
     TokenKind::Extern,
     TokenKind::Pub,
     TokenKind::Using,

@@ -28,7 +28,7 @@ where V: Sized
     releaseSize: usize,
 }
 
-pub fn allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
+pub fun allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
 where T: Sized
 {
     let layout = Layout::of[T]().?;
@@ -48,15 +48,15 @@ where T: Sized
 extend[T] Allocated[T]
 where T: Sized
 {
-    pub fn value(self) &T {
+    pub fun value(self) &T {
         self.valuePtr
     }
 
-    pub fn valueMut(self) &mut T {
+    pub fun valueMut(self) &mut T {
         self.valuePtr
     }
 
-    pub fn intoCallable[V](
+    pub fun intoCallable[V](
         &mut self,
         callback: V,
     ) CallableAllocation[V]
@@ -74,7 +74,7 @@ where T: Sized
         .{ callback, allocationPtr, blockSize, blockAlign, releasePtr, releaseSize }
     }
 
-    pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
+    pub fun deinit(&mut self, allocator: &mut Allocator) Error!() {
         let address = self.valuePtr as usize;
         let allocationPtr = address as &mut u8;
         let layout = Layout::init(self.blockSize, self.blockAlign).?;
@@ -95,11 +95,11 @@ where T: Sized
 extend[V] CallableAllocation[V]
 where V: Sized
 {
-    pub fn callback(&self) V {
+    pub fun callback(&self) V {
         self.callback
     }
 
-    pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
+    pub fun deinit(&mut self, allocator: &mut Allocator) Error!() {
         let address = self.allocationPtr as usize;
         let allocationPtr = address as &mut u8;
         let layout = Layout::init(self.blockSize, self.blockAlign).?;

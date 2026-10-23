@@ -1,7 +1,7 @@
 path: fail/generic_argument_recovery/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 58..65 Primary Source no value named `missing` is visible in this scope
+label: 60..67 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

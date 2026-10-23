@@ -1080,7 +1080,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         let function_pointer = self
             .builder
-            .build_load(ptr_ty, entry_ptr, "vtable.fn")
+            .build_load(ptr_ty, entry_ptr, "vtable.fun")
             .map_err(|_| self.error(call.expr.span, "failed to load vtable function"))?
             .into_pointer_value()?;
         let function_type = self.module.dynamic_trait_method_type(

@@ -55,7 +55,7 @@ struct StoragePlan {
     valuesOffset: usize,
 }
 
-fn storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
+fun storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
 where K: Sized, V: Sized
 {
     let ctrlLen = raw::ctrlAllocationLen(capacity).?;
@@ -97,7 +97,7 @@ where K: Sized, V: Sized
 
 // Offsets are produced by `storagePlan` and stay within the one allocated
 // block. The block alignment is the maximum alignment of every typed view.
-fn storageItems[T](block: mem::Block, offset: usize, len: usize) &mut [T]
+fun storageItems[T](block: mem::Block, offset: usize, len: usize) &mut [T]
 where T: Sized
 {
     let mut ptr = ((block.ptr() as usize) + offset) as &mut T;
@@ -107,23 +107,23 @@ where T: Sized
 extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 {
-    pub fn init() HashMapWithContext[K, V, DefaultHashMapContext] {
+    pub fun init() HashMapWithContext[K, V, DefaultHashMapContext] {
         if HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() is !map {
             return map;
         }
         pkg::builtin::trap()
     }
 
-    pub fn tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
+    pub fun tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
         let seed = raw::randomSeed().?;
         !HashMapWithContext[K, V, DefaultHashMapContext]::initSeed(seed)
     }
 
-    pub fn initSeed(seed: u64) HashMapWithContext[K, V, DefaultHashMapContext] {
+    pub fun initSeed(seed: u64) HashMapWithContext[K, V, DefaultHashMapContext] {
         HashMapWithContext[K, V, DefaultHashMapContext]::initContextSeed(DefaultHashMapContext::init(), seed)
     }
 
-    pub fn initSeedCapacity(
+    pub fun initSeedCapacity(
         allocator: &mut mem::Allocator,
         seed: u64,
         capacity: usize,
@@ -140,19 +140,19 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
-    pub fn initContext(context: C) HashMapWithContext[K, V, C] {
+    pub fun initContext(context: C) HashMapWithContext[K, V, C] {
         if HashMapWithContext[K, V, C]::tryInitContext(context) is !map {
             return map;
         }
         pkg::builtin::trap()
     }
 
-    pub fn tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
+    pub fun tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
         let seed = raw::randomSeed().?;
         !HashMapWithContext[K, V, C]::initContextSeed(context, seed)
     }
 
-    pub fn initContextSeed(context: C, seed: u64) HashMapWithContext[K, V, C] {
+    pub fun initContextSeed(context: C, seed: u64) HashMapWithContext[K, V, C] {
         .{
             ctrl: raw::danglingSlice[u8](),
             keys: raw::danglingSlice[K](),
@@ -167,7 +167,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn initContextSeedCapacity(
+    pub fun initContextSeedCapacity(
         allocator: &mut mem::Allocator,
         context: C,
         seed: u64,
@@ -178,7 +178,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !map
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.freeAllocations(allocator));
         cleanup.attempt(self.freeRetiredAllocations(allocator));
@@ -194,30 +194,30 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !()
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         raw::usableCapacity(self.bucketCount)
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len == 0
     }
 
-    pub fn clear(&mut self) () {
+    pub fun clear(&mut self) () {
         raw::fillCtrl(&mut self.ctrl[0..self.bucketCount], raw::ctrlEmpty);
         raw::mirrorCtrlTail(self.ctrl, self.bucketCount);
         self.len = 0;
         self.growthLeft = self.capacity();
     }
 
-    pub fn shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.shrinkToCapacity(allocator, self.len())
     }
 
-    pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
+    pub fun shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
         let targetCapacity = cmp::max(self.len(), minCapacity);
         if targetCapacity >= self.capacity() {
             return !();
@@ -231,7 +231,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.rehashToBuckets(allocator, target)
     }
 
-    pub fn compact(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun compact(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.bucketCapacity() == 0 {
             return !();
         }
@@ -242,11 +242,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.rehashToBuckets(allocator, self.bucketCapacity())
     }
 
-    pub fn containsKey(&self, key: &K) bool {
+    pub fun containsKey(&self, key: &K) bool {
         self.findIndex(key, self.hashKey(key)).isPresent()
     }
 
-    pub fn get(&self, key: &K) ?&V {
+    pub fun get(&self, key: &K) ?&V {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             ?&self.values[index]
         } else {
@@ -254,7 +254,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getMut(&mut self, key: &K) ?&mut V {
+    pub fun getMut(&mut self, key: &K) ?&mut V {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             ?&mut self.values[index]
         } else {
@@ -262,7 +262,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getEntry(&self, key: &K) ?HashMapEntryRef[K, V] {
+    pub fun getEntry(&self, key: &K) ?HashMapEntryRef[K, V] {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             ?.{
                 key: &self.keys[index],
@@ -273,7 +273,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getEntryMut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
+    pub fun getEntryMut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             return ?.{
                 key: &self.keys[index],
@@ -283,14 +283,14 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    pub fn getKey(&self, key: &K) ?&K {
+    pub fun getKey(&self, key: &K) ?&K {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             return ?&self.keys[index];
         }
         null
     }
 
-    pub fn containsKeyBy[Q](&self, query: Q) bool
+    pub fun containsKeyBy[Q](&self, query: Q) bool
         where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?_ {
@@ -300,7 +300,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getBy[Q](&self, query: Q) ?&V
+    pub fun getBy[Q](&self, query: Q) ?&V
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
@@ -310,7 +310,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getMutBy[Q](&mut self, query: Q) ?&mut V
+    pub fun getMutBy[Q](&mut self, query: Q) ?&mut V
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
@@ -320,7 +320,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getEntryBy[Q](&self, query: Q) ?HashMapEntryRef[K, V]
+    pub fun getEntryBy[Q](&self, query: Q) ?HashMapEntryRef[K, V]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
@@ -330,7 +330,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getEntryMutBy[Q](&mut self, query: Q) ?HashMapEntryMut[K, V]
+    pub fun getEntryMutBy[Q](&mut self, query: Q) ?HashMapEntryMut[K, V]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
@@ -340,7 +340,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getKeyBy[Q](&self, query: Q) ?&K
+    pub fun getKeyBy[Q](&self, query: Q) ?&K
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
@@ -350,7 +350,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!HashMapWithContext[K, V, C] {
+    pub fun clone(&self, allocator: &mut mem::Allocator) mem::Error!HashMapWithContext[K, V, C] {
         let mut cloned = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
         if self.bucketCapacity() == 0 {
             return !cloned;
@@ -366,7 +366,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !cloned
     }
 
-    pub fn insert(
+    pub fun insert(
         &mut self,
         allocator: &mut mem::Allocator,
         key: K,
@@ -386,7 +386,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !null
     }
 
-    pub fn insertIfAbsent(
+    pub fun insertIfAbsent(
         &mut self,
         allocator: &mut mem::Allocator,
         key: K,
@@ -401,7 +401,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !null
     }
 
-    pub fn insertAssumeCapacity(&mut self, key: K, value: V) ?HashMapReplacement[K, V] {
+    pub fun insertAssumeCapacity(&mut self, key: K, value: V) ?HashMapReplacement[K, V] {
         let valueHash = self.hashKey(&key);
         if self.findIndex(&key, valueHash) is ?index {
             let old = self.values[index];
@@ -416,7 +416,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    pub fn insertIfAbsentAssumeCapacity(
+    pub fun insertIfAbsentAssumeCapacity(
         &mut self,
         key: K,
         value: V,
@@ -430,7 +430,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    pub fn getOrInsert(
+    pub fun getOrInsert(
         &mut self,
         allocator: &mut mem::Allocator,
         key: K,
@@ -453,7 +453,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn getOrInsertAssumeCapacity(
+    pub fun getOrInsertAssumeCapacity(
         &mut self,
         key: K,
         value: V,
@@ -475,18 +475,18 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    fn insertNew(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!() {
+    fun insertNew(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!() {
         _ = self.insertNewIndex(allocator, key, value).?;
         !()
     }
 
-    fn insertNewIndex(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!usize {
+    fun insertNewIndex(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!usize {
         let slot = self.insertNewUninitializedIndex(allocator, key).?;
         self.values[slot] = value;
         !slot
     }
 
-    fn insertNewUninitializedIndex(&mut self, allocator: &mut mem::Allocator, key: K) mem::Error!usize {
+    fun insertNewUninitializedIndex(&mut self, allocator: &mut mem::Allocator, key: K) mem::Error!usize {
         self.ensureUnusedCapacity(allocator, 1).?;
         let hashAfterGrow = self.hashKey(&key);
         let slot = self.findInsertIndex(hashAfterGrow);
@@ -499,18 +499,18 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !slot
     }
 
-    fn insertNewAssumeCapacity(&mut self, key: K, value: V) () {
+    fun insertNewAssumeCapacity(&mut self, key: K, value: V) () {
         let slot = self.insertNewIndexAssumeCapacity(key, value);
         _ = slot;
     }
 
-    fn insertNewIndexAssumeCapacity(&mut self, key: K, value: V) usize {
+    fun insertNewIndexAssumeCapacity(&mut self, key: K, value: V) usize {
         let slot = self.insertNewUninitializedIndexAssumeCapacity(key);
         self.values[slot] = value;
         slot
     }
 
-    fn insertNewUninitializedIndexAssumeCapacity(&mut self, key: K) usize {
+    fun insertNewUninitializedIndexAssumeCapacity(&mut self, key: K) usize {
         if self.len >= self.capacity() {
             pkg::builtin::trap()
         }
@@ -528,7 +528,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         slot
     }
 
-    pub fn remove(&mut self, key: &K) ?V {
+    pub fun remove(&mut self, key: &K) ?V {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             let value = self.values[index];
             self.setCtrl(index, raw::ctrlDeleted);
@@ -539,7 +539,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn removeEntry(&mut self, key: &K) ?HashMapEntry[K, V] {
+    pub fun removeEntry(&mut self, key: &K) ?HashMapEntry[K, V] {
         if self.findIndex(key, self.hashKey(key)) is ?index {
             let foundKey = self.keys[index];
             let value = self.values[index];
@@ -551,7 +551,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn removeEntryBy[Q](&mut self, query: Q) ?HashMapEntry[K, V]
+    pub fun removeEntryBy[Q](&mut self, query: Q) ?HashMapEntry[K, V]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
@@ -565,11 +565,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         }
     }
 
-    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         self.ensureUnusedCapacity(allocator, additional)
     }
 
-    fn ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+    fun ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         if additional <= self.growthLeft {
             return !();
         }
@@ -589,7 +589,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !()
     }
 
-    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+    pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         if capacity <= self.capacity() {
             return !();
         }
@@ -597,19 +597,19 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !()
     }
 
-    fn bucketCapacity(&self) usize {
+    fun bucketCapacity(&self) usize {
         self.bucketCount
     }
 
-    fn hashKey(&self, key: &K) u64 {
+    fun hashKey(&self, key: &K) u64 {
         self.context.hash(self.seed, key)
     }
 
-    fn findIndex(&self, key: &K, valueHash: u64) ?usize {
+    fun findIndex(&self, key: &K, valueHash: u64) ?usize {
         self.findQueryIndex[&K](key, valueHash)
     }
 
-    fn findQueryIndex[Q](&self, query: Q, valueHash: u64) ?usize
+    fun findQueryIndex[Q](&self, query: Q, valueHash: u64) ?usize
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.bucketCapacity() == 0 {
@@ -637,7 +637,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    fn findInsertIndex(&self, valueHash: u64) usize {
+    fun findInsertIndex(&self, valueHash: u64) usize {
         let mut cursor = raw::ProbeCursor::init(valueHash, self.bucketCapacity());
 
         while cursor.hasRemaining() {
@@ -652,12 +652,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         pkg::builtin::trap()
     }
 
-    fn growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+    fun growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         let target = raw::capacityToBuckets(capacity).?;
         self.rehashToBuckets(allocator, target)
     }
 
-    fn rehashToBuckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!() {
+    fun rehashToBuckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!() {
         self.freeRetiredAllocations(allocator).?;
         let mut newMap = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
         newMap.allocate(allocator, target).?;
@@ -686,7 +686,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.freeRetiredAllocations(allocator)
     }
 
-    fn insertExisting(&mut self, key: K, value: V) () {
+    fun insertExisting(&mut self, key: K, value: V) () {
         let valueHash = self.hashKey(&key);
         let slot = self.findInsertIndex(valueHash);
         self.setCtrl(slot, raw::tag(valueHash));
@@ -696,14 +696,14 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.growthLeft -= 1;
     }
 
-    pub(pkg) fn setCtrl(&mut self, index: usize, value: u8) () {
+    pub(pkg) fun setCtrl(&mut self, index: usize, value: u8) () {
         self.ctrl[index] = value;
         if index < raw::groupWidth - 1 {
             self.ctrl[self.bucketCount + index] = value;
         }
     }
 
-    fn allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+    fun allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         let plan = storagePlan[K, V](capacity).?;
         let storage = allocator.alloc(plan.layout).?;
         self.ctrl = storageItems[u8](storage, 0, plan.ctrlLen);
@@ -727,7 +727,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     // A failed release leaves the one combined ctrl/key/value owner attached
     // so a caller can retry deinit without losing or double-freeing storage.
-    fn freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.storageBlock is ?block {
             allocator.free(block).?;
             self.storageBlock = null;
@@ -738,7 +738,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !()
     }
 
-    fn freeRetiredAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun freeRetiredAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.retiredStorageBlock is ?block {
             allocator.free(block).?;
             self.retiredStorageBlock = null;
@@ -748,7 +748,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 }
 
 extend os::Error : builtin::IntoError[HashMapInitError] {
-    const fn intoError(self) HashMapInitError {
+    const fun intoError(self) HashMapInitError {
         match self {
             .PermissionDenied => .PermissionDenied,
             .Io => .Io,

@@ -178,7 +178,7 @@ fn toolchain_module_diagnostics_render_their_retained_source_lines() {
     let main = root.join("main.nia");
     fs::write(
         &main,
-        "using std::process;\npub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }\n",
+        "using std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }\n",
     )
     .expect("write entry");
 

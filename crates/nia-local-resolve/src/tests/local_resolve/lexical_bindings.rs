@@ -8,7 +8,7 @@ fn resolves_params_and_local_bindings() {
         r#"
 static mut global = 1;
 
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
 let mut sum = a + b + global;
 sum
 }
@@ -40,7 +40,7 @@ fn lexical_locals_shadow_module_values() {
     let source = r#"
 static mut value = 1;
 
-fn id(value: i32) i32 {
+fun id(value: i32) i32 {
 value
 }
 "#;
@@ -63,7 +63,7 @@ fn sequential_locals_shadow_previous_binding() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let source = r#"
-fn main() i32 {
+fun main() i32 {
 let value = 1;
 let value = value + 1;
 value
@@ -94,7 +94,7 @@ struct S {
 start: i32,
 }
 
-fn value(input: ?S) ?i32 {
+fun value(input: ?S) ?i32 {
 match input {
     ?range => {
         ?range.start

@@ -5991,7 +5991,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
+        fs::write(repository.join("src/lib.nia"), "pub fun dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
         let repository_url = format!(
@@ -7487,7 +7487,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 (
                     0u8,
                     "src/lib.nia",
-                    b"pub fn value() -> i32 = 1;\n".as_slice(),
+                    b"pub fun value() -> i32 = 1;\n".as_slice(),
                 ),
             ];
             let mut bytes = Vec::new();
@@ -7575,7 +7575,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .join(&source_fingerprint[7..]);
         fs::write(
             cached_package.join("src/lib.nia"),
-            "pub fn value() -> i32 = 2;\n",
+            "pub fun value() -> i32 = 2;\n",
         )
         .unwrap();
         assert!(
@@ -7642,7 +7642,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             };
             let entries = [
                 (0u8, "nia.toml", manifest.as_bytes()),
-                (0u8, "src/lib.nia", b"pub fn value() -> i32 = 1;".as_slice()),
+                (
+                    0u8,
+                    "src/lib.nia",
+                    b"pub fun value() -> i32 = 1;".as_slice(),
+                ),
             ];
             let mut bytes = Vec::new();
             bytes.extend_from_slice(b"NIAPKG\0\0");
@@ -7955,7 +7959,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n"),
         )
         .unwrap();
-        std::fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
+        std::fs::write(repository.join("src/lib.nia"), "pub fun dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
         format!(
@@ -8016,8 +8020,8 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         PackageGraph::resolve(&consumer, false).unwrap();
         let first_rev = locked_rev(&consumer, "first");
         let second_rev = locked_rev(&consumer, "second");
-        commit_upstream_change(&upstream.join("first"), "pub fn changed() {}\n");
-        commit_upstream_change(&upstream.join("second"), "pub fn changed() {}\n");
+        commit_upstream_change(&upstream.join("first"), "pub fun changed() {}\n");
+        commit_upstream_change(&upstream.join("second"), "pub fun changed() {}\n");
 
         // An ordinary resolve keeps the locked commits.
         PackageGraph::resolve(&consumer, false).unwrap();
@@ -8455,7 +8459,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             );
             let entries = [
                 ("nia.toml", manifest.as_bytes()),
-                ("src/lib.nia", b"pub fn value() -> i32 = 1;".as_slice()),
+                ("src/lib.nia", b"pub fun value() -> i32 = 1;".as_slice()),
             ];
             let mut archive = Vec::new();
             archive.extend_from_slice(b"NIAPKG\0\0");
@@ -8733,7 +8737,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        std::fs::write(repository.join("src/lib.nia"), "pub fn dependency() {}\n").unwrap();
+        std::fs::write(repository.join("src/lib.nia"), "pub fun dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
         let repository_url = format!(
@@ -8885,7 +8889,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         .unwrap();
         fs::write(
             dependency.join("src/lib.nia"),
-            "pub fn value() -> i32 = 1;\n",
+            "pub fun value() -> i32 = 1;\n",
         )
         .unwrap();
 
@@ -8918,7 +8922,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .unwrap();
         fs::write(
             dependency.join("src/lib.nia"),
-            "pub fn value() -> i32 = 2;\n",
+            "pub fun value() -> i32 = 2;\n",
         )
         .unwrap();
         assert!(

@@ -81,7 +81,7 @@ fn recovery_families_keep_independent_expression_errors() {
 
 fn check_recovery_pair(body: &str, failures: &mut Vec<String>) {
     let source = format!(
-        "fn need(value: i32) i32 {{ value }}\nfn same[T](a: T, b: T) T {{ _ = b; a }}\ntrait Marker {{}}\nfn require[T](value: T, fixed: i32) () where T: Marker {{ _ = value; _ = fixed; }}\nstruct Point {{ value: i32 }}\nenum Color {{ Red }}\nfn inspect() () {{ {body} }}\n"
+        "fun need(value: i32) i32 {{ value }}\nfun same[T](a: T, b: T) T {{ _ = b; a }}\ntrait Marker {{}}\nfun require[T](value: T, fixed: i32) () where T: Marker {{ _ = value; _ = fixed; }}\nstruct Point {{ value: i32 }}\nenum Color {{ Red }}\nfun inspect() () {{ {body} }}\n"
     );
     let driver = test_driver();
     driver
@@ -123,21 +123,21 @@ fn check_recovery_pair(body: &str, failures: &mut Vec<String>) {
 fn recovery_owner_boundaries_keep_independent_body_errors() {
     let mut failures = Vec::new();
     for declaration in [
-        "fn inspect(value: Missing) () { _ = value; _ = need(true); }",
-        "fn inspect(value: &Missing) () { _ = value; _ = need(true); }",
-        "fn inspect() Missing { _ = need(true); 0 }",
-        "fn inspect() &Missing { _ = need(true); &0 }",
-        "fn inspect() i32 { _ = need(true); return missing; }",
-        "fn inspect() &i32 { _ = need(true); return &missing; }",
-        "fn inspect() () { let closure = \\ value: Missing -> { _ = value; need(true) }; _ = closure; }",
-        "fn inspect() () { let closure = \\ value: &Missing -> { _ = value; need(true) }; _ = closure; }",
-        "fn inspect() i32!i32 { _ = need(true); !missing }",
-        "fn inspect() i32!&i32 { _ = need(true); !(&missing) }",
-        "fn inspect() i32!i32 { _ = need(true); missing! }",
-        "fn inspect() (&i32)!i32 { _ = need(true); (&missing)! }",
-        "fn inspect() i32!i32 { _ = need(true); let value: i32!i32 = !missing; _ = value.?; !0 }",
+        "fun inspect(value: Missing) () { _ = value; _ = need(true); }",
+        "fun inspect(value: &Missing) () { _ = value; _ = need(true); }",
+        "fun inspect() Missing { _ = need(true); 0 }",
+        "fun inspect() &Missing { _ = need(true); &0 }",
+        "fun inspect() i32 { _ = need(true); return missing; }",
+        "fun inspect() &i32 { _ = need(true); return &missing; }",
+        "fun inspect() () { let closure = \\ value: Missing -> { _ = value; need(true) }; _ = closure; }",
+        "fun inspect() () { let closure = \\ value: &Missing -> { _ = value; need(true) }; _ = closure; }",
+        "fun inspect() i32!i32 { _ = need(true); !missing }",
+        "fun inspect() i32!&i32 { _ = need(true); !(&missing) }",
+        "fun inspect() i32!i32 { _ = need(true); missing! }",
+        "fun inspect() (&i32)!i32 { _ = need(true); (&missing)! }",
+        "fun inspect() i32!i32 { _ = need(true); let value: i32!i32 = !missing; _ = value.?; !0 }",
     ] {
-        let source = format!("const fn need(value: i32) i32 {{ value }}\n{declaration}\n");
+        let source = format!("const fun need(value: i32) i32 {{ value }}\n{declaration}\n");
         let driver = test_driver();
         driver
             .set_source("main.nia", source.clone())
@@ -175,43 +175,43 @@ fn unresolved_and_non_trait_bounds_report_one_root_without_internal_errors() {
     let mut failures = Vec::new();
     for (declaration, root) in [
         (
-            "fn inspect[T](value: &T) () where T: Mapper[C = i32] { _ = value; _ = need(true); }",
+            "fun inspect[T](value: &T) () where T: Mapper[C = i32] { _ = value; _ = need(true); }",
             "unknown type `Mapper`",
         ),
         (
-            "fn inspect[T](value: &T) () where T: Mapper[i32, bool, C = i32, D = &bool] { _ = value; _ = need(true); }",
+            "fun inspect[T](value: &T) () where T: Mapper[i32, bool, C = i32, D = &bool] { _ = value; _ = need(true); }",
             "unknown type `Mapper`",
         ),
         (
-            "struct Holder[T] { value: T } extend[T] Holder[T] where T: Mapper[C = i32] { fn inspect(&self) () { _ = need(true); } }",
+            "struct Holder[T] { value: T } extend[T] Holder[T] where T: Mapper[C = i32] { fun inspect(&self) () { _ = need(true); } }",
             "unknown type `Mapper`",
         ),
         (
-            "trait Tr: Mapper[C = i32] {} fn inspect() () { _ = need(true); }",
+            "trait Tr: Mapper[C = i32] {} fun inspect() () { _ = need(true); }",
             "unknown type `Mapper`",
         ),
         (
-            "fn inspect[T, U](value: &T) () where T: U[C = i32] { _ = value; _ = need(true); }",
+            "fun inspect[T, U](value: &T) () where T: U[C = i32] { _ = value; _ = need(true); }",
             "trait bound must name a trait, not a generic parameter",
         ),
         (
-            "fn inspect[T](value: &T) () where T: i32[C = i32] { _ = value; _ = need(true); }",
+            "fun inspect[T](value: &T) () where T: i32[C = i32] { _ = value; _ = need(true); }",
             "trait bound must name a trait, not a primitive type",
         ),
         (
-            "struct S { x: i32 } fn inspect[T](value: &T) () where T: S { _ = value; _ = need(true); }",
+            "struct S { x: i32 } fun inspect[T](value: &T) () where T: S { _ = value; _ = need(true); }",
             "trait bound must name a trait, not a struct, union, or enum",
         ),
         (
-            "fn inspect(value: i32[u8]) () { _ = value; _ = need(true); }",
+            "fun inspect(value: i32[u8]) () { _ = value; _ = need(true); }",
             "primitive types do not take generic arguments",
         ),
         (
-            "fn inspect[T](value: T[u8]) () { _ = value; _ = need(true); }",
+            "fun inspect[T](value: T[u8]) () { _ = value; _ = need(true); }",
             "generic parameters do not take generic arguments",
         ),
     ] {
-        let source = format!("const fn need(value: i32) i32 {{ value }}\n{declaration}\n");
+        let source = format!("const fun need(value: i32) i32 {{ value }}\n{declaration}\n");
         let driver = test_driver();
         driver
             .set_source("main.nia", source.clone())
@@ -250,7 +250,7 @@ fn global_recovery_keeps_independent_initializer_errors() {
             "VALUE: (i32, i32) = (missing, need(true));",
         ] {
             let source =
-                format!("const fn need(value: i32) i32 {{ value }}\n{kind} {declaration}\n");
+                format!("const fun need(value: i32) i32 {{ value }}\n{kind} {declaration}\n");
             let driver = test_driver();
             driver
                 .set_source("main.nia", source.clone())
@@ -298,7 +298,7 @@ fn global_recovery_keeps_independent_initializer_errors() {
 fn const_and_static_call_errors_keep_precise_argument_root() {
     for kind in ["const", "static"] {
         let source = format!(
-            "const fn need(value: i32) i32 {{ value }}\n{kind} VALUE: Missing = need(true);\n"
+            "const fun need(value: i32) i32 {{ value }}\n{kind} VALUE: Missing = need(true);\n"
         );
         let driver = test_driver();
         driver
@@ -341,7 +341,7 @@ fn static_call_restriction_is_independent_of_argument_types() {
     driver
         .set_source(
             "main.nia",
-            "const fn need(value: i32) i32 { value }\nstatic VALUE: i32 = need(1);\n",
+            "const fun need(value: i32) i32 { value }\nstatic VALUE: i32 = need(1);\n",
         )
         .expect("source");
     let checked =
@@ -374,7 +374,7 @@ fn const_static_precedence_survives_edits_and_cache() {
         ("static VALUE: i32 = need(1);", 1),
         ("const VALUE: Missing = need(true);", 2),
     ] {
-        let source = format!("const fn need(value: i32) i32 {{ value }}\n{declaration}\n");
+        let source = format!("const fun need(value: i32) i32 {{ value }}\n{declaration}\n");
         write(&entry, &source);
         incremental
             .set_source(entry_path.clone(), source.clone())
@@ -417,7 +417,7 @@ fn const_static_precedence_survives_edits_and_cache() {
 fn specialized_const_roots_survive_report_precedence() {
     for (source, summary) in [
         (
-            "trait Marker {}\nconst fn constrained[T]() usize where T: Marker { 7usize }\nconst WIDTH: usize = constrained[i32]();\n",
+            "trait Marker {}\nconst fun constrained[T]() usize where T: Marker { 7usize }\nconst WIDTH: usize = constrained[i32]();\n",
             "trait bound not satisfied for const function call",
         ),
         (
@@ -466,7 +466,7 @@ fn aggregate_recovery_keeps_independent_initializer_errors() {
         "let value: Missing = .{ value: .{ nested: need(true) } }; _ = value;",
     ] {
         let source = format!(
-            "fn need(value: i32) i32 {{ value }}\nstruct Box[T] {{ value: T }}\nfn inspect() () {{ {body} }}\n"
+            "fun need(value: i32) i32 {{ value }}\nstruct Box[T] {{ value: T }}\nfun inspect() () {{ {body} }}\n"
         );
         let driver = test_driver();
         driver
@@ -515,9 +515,9 @@ fn known_method_on_recovered_nominal_receiver_keeps_fixed_argument_error() {
             r#"
 struct Box[T] {{ value: T }}
 extend[T] Box[T] {{
-    fn rank(self, value: i32) i32 {{ value }}
+    fun rank(self, value: i32) i32 {{ value }}
 }}
-fn inspect(value: {receiver}) () {{
+fun inspect(value: {receiver}) () {{
     _ = value.rank(true);
 }}
 "#
@@ -601,7 +601,8 @@ fn recovery_builtins_keep_independent_configuration_errors() {
             "unknown `asm` option",
         ),
     ] {
-        let source = format!("fn need(value: i32) i32 {{ value }}\nfn inspect() () {{ {body} }}\n");
+        let source =
+            format!("fun need(value: i32) i32 {{ value }}\nfun inspect() () {{ {body} }}\n");
         let driver = test_driver();
         driver.set_source("main.nia", source).expect("source");
         let checked =
@@ -632,11 +633,11 @@ fn nested_required_type_diagnostics_preserve_leaf_spans() {
         "[Missing; 2]",
         "i32!Missing",
         "Missing!i32",
-        "&fn(Missing) i32",
-        "&fn(i32) Missing",
+        "&fun(Missing) i32",
+        "&fun(i32) Missing",
         "(Missing, Other)",
     ] {
-        let source = format!("fn inspect() () {{ _ = std::builtin::size[{ty}](); }}");
+        let source = format!("fun inspect() () {{ _ = std::builtin::size[{ty}](); }}");
         let driver = test_driver();
         driver
             .set_source("main.nia", source.clone())
@@ -680,7 +681,7 @@ fn nested_const_type_arguments_survive_edits_and_cache() {
         "Buffer[COUNT]",
     ] {
         let source = format!(
-            "const COUNT: usize = 2;\nstruct Buffer[N: usize] {{ values: [i32; N] }}\nstruct Wrap[T] {{ value: T }}\nfn inspect() () {{ _ = std::builtin::size[{ty}](); }}\n"
+            "const COUNT: usize = 2;\nstruct Buffer[N: usize] {{ values: [i32; N] }}\nstruct Wrap[T] {{ value: T }}\nfun inspect() () {{ _ = std::builtin::size[{ty}](); }}\n"
         );
         write(&entry, &source);
         incremental

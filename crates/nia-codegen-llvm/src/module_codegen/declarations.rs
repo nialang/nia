@@ -358,7 +358,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         }
         let call = builder
-            .build_call(target, &call_args, "closure.fn.call")
+            .build_call(target, &call_args, "closure.fun.call")
             .map_err(|_| self.error(span, "failed to build closure adapter call"))?;
         match self.classify_function_return(*return_type) {
             AbiReturn::Direct(_) => {
@@ -464,7 +464,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             span,
         )?;
         let call = builder
-            .build_indirect_call(function_ty, state, &call_args, "callable.fn.call")
+            .build_indirect_call(function_ty, state, &call_args, "callable.fun.call")
             .map_err(|_| self.error(span, "failed to build callable function adapter call"))?;
         match self.classify_function_return(*return_type) {
             AbiReturn::Direct(_) => {

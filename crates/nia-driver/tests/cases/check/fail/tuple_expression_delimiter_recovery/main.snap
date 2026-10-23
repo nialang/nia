@@ -1,7 +1,7 @@
 path: fail/tuple_expression_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after tuple element; found `false`
-label: 37..42 Primary Source expected `,` or `)` after tuple element; found `false`
+label: 38..43 Primary Source expected `,` or `)` after tuple element; found `false`
 
 report:
 error[E0101]: expected `,` or `)` after tuple element; found `false`
