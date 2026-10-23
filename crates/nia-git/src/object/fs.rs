@@ -57,12 +57,22 @@ pub(crate) fn open_subdirectory(parent: &Dir, name: &OsStr) -> io::Result<Dir> {
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE);
     }
-    let file = parent.open_with(name, &options)?.into_std();
+    let not_a_directory =
+        || invalid_packet("Git repository path component must be a real directory");
+    let file = match parent.open_with(name, &options) {
+        Ok(file) => file.into_std(),
+        // With O_NOFOLLOW | O_DIRECTORY, a symlink fails with ENOTDIR (Linux)
+        // or ELOOP (BSDs) before any metadata can be checked; both mean the
+        // component is not a real directory.
+        #[cfg(unix)]
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOTDIR | libc::ELOOP)) => {
+            return Err(not_a_directory());
+        }
+        Err(error) => return Err(error),
+    };
     let metadata = file.metadata()?;
     if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_dir() {
-        return Err(invalid_packet(
-            "Git repository path component must be a real directory",
-        ));
+        return Err(not_a_directory());
     }
     Ok(Dir::from_std_file(file))
 }

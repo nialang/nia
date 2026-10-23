@@ -592,11 +592,15 @@ mod windows_identity_permission_tests {
         let key = root.join("id_ed25519");
         std::fs::write(&key, "key").unwrap();
 
-        // A temp-directory file inherits grants for other principals.
+        // Inherited temp-directory grants vary by machine (a CI runner's
+        // account is an administrator, so they can all be trusted), so
+        // grant an untrusted principal explicitly: Users (S-1-5-32-545).
+        icacls(&key, &["/grant", "*S-1-5-32-545:R"]);
         assert!(verify_ssh_identity_permissions(&key).is_err());
 
         // Only the current user: accepted.
         restrict_to_current_user(&key);
+        icacls(&key, &["/remove:g", "*S-1-5-32-545"]);
         verify_ssh_identity_permissions(&key).unwrap();
 
         // Everyone (S-1-1-0) may read: rejected, naming the principal.
