@@ -95,6 +95,307 @@ fn userauth_reads_skip_bounded_banners() {
             .kind(),
         io::ErrorKind::InvalidData
     );
+
+    // Interleaving IGNOREs between banners shares one budget instead of
+    // resetting it for each banner.
+    let mut ignore = vec![2];
+    encode_ssh_string(b"", &mut ignore).unwrap();
+    let mut sender = direction();
+    let mut interleaved = Vec::new();
+    for _ in 0..=MAX_SSH_CONTROL_MESSAGES / 2 {
+        write_encrypted_ssh_packet(&mut interleaved, &mut sender, &ignore).unwrap();
+        write_encrypted_ssh_packet(&mut interleaved, &mut sender, &banner).unwrap();
+    }
+    write_encrypted_ssh_packet(&mut interleaved, &mut sender, &[52]).unwrap();
+    let mut receiver = direction();
+    assert_eq!(
+        read_userauth_response(&mut interleaved.as_slice(), &mut receiver)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+}
+
+/// A server side scripted by a closure that sees each client request and
+/// returns the reply packets, run over an in-memory transport.
+struct ScriptedServer<F> {
+    client: SshAes128CtrDirection,
+    server: SshAes128CtrDirection,
+    written: Vec<u8>,
+    pending: Vec<u8>,
+    reply: F,
+    requests: Vec<Vec<u8>>,
+}
+
+impl<F: FnMut(&[u8]) -> Vec<Vec<u8>>> Read for ScriptedServer<F> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if self.pending.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "scripted server has nothing to send",
+            ));
+        }
+        let length = output.len().min(self.pending.len());
+        output[..length].copy_from_slice(&self.pending[..length]);
+        self.pending.drain(..length);
+        Ok(length)
+    }
+}
+
+impl<F: FnMut(&[u8]) -> Vec<Vec<u8>>> Write for ScriptedServer<F> {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        self.written.extend_from_slice(input);
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // Every client packet is written and flushed whole, so decrypt it
+        // and queue the scripted replies.
+        while !self.written.is_empty() {
+            let mut cursor = io::Cursor::new(std::mem::take(&mut self.written));
+            let request = self.client.read_packet(&mut cursor)?.payload;
+            let position = cursor.position() as usize;
+            self.written = cursor.into_inner().split_off(position);
+            for reply in (self.reply)(&request) {
+                write_encrypted_ssh_packet(&mut self.pending, &mut self.server, &reply)?;
+            }
+            self.requests.push(request);
+        }
+        Ok(())
+    }
+}
+
+/// Runs user authentication against `reply`, after the service exchange,
+/// and returns the result with every request after the service request.
+fn authenticate_against(
+    identities: &mut [Box<dyn SshSigner>],
+    notes: &[String],
+    mut reply: impl FnMut(&[u8]) -> Vec<Vec<u8>>,
+) -> (io::Result<()>, Vec<Vec<u8>>) {
+    let direction = |seed| SshAes128CtrDirection::new(&[seed; 16], &[2; 16], &[3; 32], 0).unwrap();
+    let mut server = ScriptedServer {
+        client: direction(1),
+        server: direction(4),
+        written: Vec::new(),
+        pending: Vec::new(),
+        reply: move |request: &[u8]| {
+            if request[0] == 5 {
+                let mut accept = vec![6];
+                encode_ssh_string(b"ssh-userauth", &mut accept).unwrap();
+                return vec![accept];
+            }
+            reply(request)
+        },
+        requests: Vec::new(),
+    };
+    let mut keys = SshTransportKeys {
+        outbound: direction(1),
+        inbound: direction(4),
+        session_id: [5; 32],
+    };
+    let result = authenticate_publickey(&mut server, &mut keys, "git", identities, notes);
+    server.requests.remove(0);
+    (result, server.requests)
+}
+
+fn auth_failure(methods: &str, partial: bool) -> Vec<u8> {
+    let mut failure = vec![51];
+    encode_ssh_string(methods.as_bytes(), &mut failure).unwrap();
+    failure.push(u8::from(partial));
+    failure
+}
+
+fn pk_ok_for(request: &[u8]) -> Vec<u8> {
+    let mut reader = SshReader::new(&request[1..]);
+    for _ in 0..3 {
+        reader.string().unwrap();
+    }
+    reader.boolean().unwrap();
+    let mut ok = vec![60];
+    encode_ssh_string(reader.string().unwrap(), &mut ok).unwrap();
+    encode_ssh_string(reader.string().unwrap(), &mut ok).unwrap();
+    ok
+}
+
+fn is_signed(request: &[u8]) -> bool {
+    let mut reader = SshReader::new(&request[1..]);
+    for _ in 0..3 {
+        reader.string().unwrap();
+    }
+    reader.boolean().unwrap()
+}
+
+struct FailingSigner(Vec<u8>);
+
+impl SshSigner for FailingSigner {
+    fn public_key_blob(&self) -> &[u8] {
+        &self.0
+    }
+
+    fn signature_algorithm(&self) -> &[u8] {
+        b"ssh-ed25519"
+    }
+
+    fn sign_message(&mut self, _: &[u8]) -> io::Result<Vec<u8>> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "SSH agent refused the public-key signing request",
+        ))
+    }
+}
+
+#[test]
+fn ssh_auth_moves_to_the_next_identity_when_signing_fails() {
+    let mut identities: Vec<Box<dyn SshSigner>> = vec![
+        Box::new(FailingSigner(fixture::ed25519_public_key_blob(&[1; 32]))),
+        agent_key(2),
+    ];
+    let (result, requests) = authenticate_against(&mut identities, &[], |request| {
+        if is_signed(request) {
+            vec![vec![52]]
+        } else {
+            vec![pk_ok_for(request)]
+        }
+    });
+    result.unwrap();
+    // Query 1, query 2, signed 2: the failed key never sent a request.
+    assert_eq!(
+        requests
+            .iter()
+            .map(|request| is_signed(request))
+            .collect::<Vec<_>>(),
+        [false, false, true]
+    );
+}
+
+#[test]
+fn ssh_auth_rejects_pk_ok_for_a_different_key_or_algorithm() {
+    for tamper in [
+        |ok: &mut Vec<u8>| *ok.last_mut().unwrap() ^= 1,
+        |ok: &mut Vec<u8>| ok[5] = b'x',
+    ] {
+        let mut identities = vec![agent_key(1)];
+        let (result, requests) = authenticate_against(&mut identities, &[], |request| {
+            let mut ok = pk_ok_for(request);
+            tamper(&mut ok);
+            vec![ok]
+        });
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error.to_string().contains("different public key"),
+            "{error}"
+        );
+        assert!(requests.iter().all(|request| !is_signed(request)));
+    }
+}
+
+#[test]
+fn ssh_auth_disconnect_keeps_the_reason_and_the_keys_tried() {
+    let mut identities = vec![agent_key(1), agent_key(2), agent_key(3)];
+    let notes = ["the identity file was not offered: example".to_string()];
+    let mut queries = 0;
+    let (result, requests) = authenticate_against(&mut identities, &notes, |_| {
+        queries += 1;
+        if queries < 2 {
+            return vec![auth_failure("publickey", false)];
+        }
+        let mut disconnect = vec![1];
+        disconnect.extend_from_slice(&2u32.to_be_bytes());
+        encode_ssh_string(b"Too many authentication failures", &mut disconnect).unwrap();
+        encode_ssh_string(b"", &mut disconnect).unwrap();
+        vec![disconnect]
+    });
+    let error = result.unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+    let message = error.to_string();
+    assert!(
+        message.contains("Too many authentication failures"),
+        "{message}"
+    );
+    let first = ssh_key_fingerprint(&fixture::ed25519_public_key_blob(&[1; 32]));
+    let second = ssh_key_fingerprint(&fixture::ed25519_public_key_blob(&[2; 32]));
+    assert!(
+        message.contains(&format!("{first} (rejected)")),
+        "{message}"
+    );
+    assert!(
+        message.contains(&format!("{second} (interrupted)")),
+        "{message}"
+    );
+    assert!(
+        message.contains("identity file was not offered"),
+        "{message}"
+    );
+    assert_eq!(requests.len(), 2);
+}
+
+#[test]
+fn ssh_auth_stops_on_partial_success_and_when_publickey_is_withdrawn() {
+    let mut identities = vec![agent_key(1), agent_key(2)];
+    let (result, requests) = authenticate_against(&mut identities, &[], |request| {
+        if is_signed(request) {
+            vec![auth_failure("keyboard-interactive", true)]
+        } else {
+            vec![pk_ok_for(request)]
+        }
+    });
+    let message = result.unwrap_err().to_string();
+    assert!(
+        message.contains("requires further authentication"),
+        "{message}"
+    );
+    assert!(message.contains("(accepted)"), "{message}");
+    assert_eq!(requests.len(), 2, "the second key must not be offered");
+
+    let mut identities = vec![agent_key(1), agent_key(2)];
+    let (result, requests) = authenticate_against(&mut identities, &[], |_| {
+        vec![auth_failure("password", false)]
+    });
+    let message = result.unwrap_err().to_string();
+    assert!(
+        message.contains("no longer accepts public-key"),
+        "{message}"
+    );
+    assert_eq!(requests.len(), 1);
+}
+
+#[test]
+fn unusable_agent_falls_back_to_the_identity_file() {
+    fixture::with_checkout_fixture(
+        |_| {},
+        |root, source, config, _, _| {
+            let destination = root.join("checkout");
+            std::fs::create_dir(&destination).unwrap();
+            let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
+            let agent = Err(io::Error::new(io::ErrorKind::TimedOut, "agent timed out"));
+            checkout_ssh_with_config(source, "HEAD", &destination_dir, config, agent).unwrap();
+        },
+    );
+
+    // Without an identity file, the error says why the agent was not used.
+    let directory = nia_test_support::test_dir("git-ssh-no-identity");
+    let agent = Err(io::Error::new(io::ErrorKind::TimedOut, "agent timed out"));
+    let error = match ssh_identity_candidates(agent, &directory) {
+        Ok(_) => panic!("no identity is available"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("agent timed out"), "{error}");
+}
+
+#[test]
+fn invalid_urls_fail_before_the_agent_is_contacted() {
+    let destination = nia_test_support::test_dir("git-ssh-invalid-agent");
+    let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
+    let error = checkout_ssh_with_config_into(
+        "ssh://example.test:0/repository.git",
+        "HEAD",
+        &destination_dir,
+        &destination,
+        || panic!("the agent must not be contacted for an invalid URL"),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 }
 
 #[test]
@@ -107,7 +408,7 @@ fn ssh_checkout_does_not_publish_a_pack_when_remote_process_fails() {
             std::fs::create_dir(&destination).unwrap();
             let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
             let error =
-                checkout_ssh_with_config(source, "HEAD", &destination_dir, config, Vec::new())
+                checkout_ssh_with_config(source, "HEAD", &destination_dir, config, Ok(Vec::new()))
                     .unwrap_err();
             assert!(error.to_string().contains("status 17"), "{error}");
             assert!(std::fs::read_dir(destination).unwrap().next().is_none());
@@ -143,7 +444,7 @@ fn checkout_offering(
                 "HEAD",
                 &destination_dir,
                 config,
-                agent,
+                Ok(agent),
             ));
         },
     );

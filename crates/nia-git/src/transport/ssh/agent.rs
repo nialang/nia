@@ -17,10 +17,15 @@ const MAX_AGENT_IDENTITIES: u32 = 1024;
 const AGENT_IO_TIMEOUT: Duration = Duration::from_secs(30);
 impl<T: Read + Write> SshAgentStream for T {}
 
+/// The agent connection shared by its identities. `None` after an I/O or
+/// framing error: a reply could still be in flight, and reading it as the
+/// answer to the next request would pair a signature with the wrong key.
+type SharedAgentStream = Rc<RefCell<Option<Box<dyn SshAgentStream>>>>;
+
 /// One agent key. Identities from the same agent share its connection, so
 /// authentication can offer them one at a time in the agent's order.
 pub(super) struct SshAgentIdentity {
-    stream: Rc<RefCell<Box<dyn SshAgentStream>>>,
+    stream: SharedAgentStream,
     public_key: Vec<u8>,
     signature_algorithm: Vec<u8>,
     signature_flags: u32,
@@ -34,7 +39,7 @@ pub(super) fn agent_identities() -> io::Result<Vec<SshAgentIdentity>> {
     };
     let response = agent_request(&mut *stream, &[11])?;
     let public_keys = parse_agent_identities(&response)?;
-    let stream = Rc::new(RefCell::new(stream));
+    let stream = Rc::new(RefCell::new(Some(stream)));
     public_keys
         .into_iter()
         .map(|public_key| {
@@ -55,7 +60,21 @@ impl SshAgentIdentity {
         encode_ssh_string(&self.public_key, &mut request)?;
         encode_ssh_string(message, &mut request)?;
         request.extend_from_slice(&self.signature_flags.to_be_bytes());
-        let response = agent_request(&mut **self.stream.borrow_mut(), &request)?;
+        let mut connection = self.stream.borrow_mut();
+        let Some(stream) = connection.as_mut() else {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "SSH agent connection failed during an earlier request",
+            ));
+        };
+        let response = match agent_request(&mut **stream, &request) {
+            Ok(response) => response,
+            Err(error) => {
+                *connection = None;
+                return Err(error);
+            }
+        };
+        drop(connection);
         if response.first() != Some(&14) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -384,6 +403,37 @@ mod agent_tests {
     }
 
     #[test]
+    fn agent_io_error_disables_the_shared_connection() {
+        let mut public_key = Vec::new();
+        encode_ssh_string(b"ssh-ed25519", &mut public_key).unwrap();
+        encode_ssh_string(&[8; 32], &mut public_key).unwrap();
+        // A truncated reply: the length promises more bytes than arrive.
+        let stream: Box<dyn SshAgentStream> = Box::new(TestStream {
+            incoming: Cursor::new(vec![0, 0, 0, 9, 14]),
+            outgoing: Arc::new(Mutex::new(Vec::new())),
+        });
+        let shared = Rc::new(RefCell::new(Some(stream)));
+        let identity = |shared: &SharedAgentStream| SshAgentIdentity {
+            stream: Rc::clone(shared),
+            public_key: public_key.clone(),
+            signature_algorithm: b"ssh-ed25519".to_vec(),
+            signature_flags: 0,
+        };
+        let (mut first, mut second) = (identity(&shared), identity(&shared));
+        assert_eq!(
+            first.sign(b"one").unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        // The second identity must not read whatever the agent sends next
+        // as the answer to its own request.
+        assert!(shared.borrow().is_none());
+        assert_eq!(
+            second.sign(b"two").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
+
+    #[test]
     fn agent_sign_request_uses_selected_key_and_parses_signature() {
         let mut public_key = Vec::new();
         encode_ssh_string(b"ssh-ed25519", &mut public_key).unwrap();
@@ -404,7 +454,7 @@ mod agent_tests {
         let (_, signature_algorithm, signature_flags) =
             agent_signing_algorithm(&public_key).unwrap();
         let mut agent = SshAgentIdentity {
-            stream: Rc::new(RefCell::new(Box::new(stream))),
+            stream: Rc::new(RefCell::new(Some(Box::new(stream)))),
             public_key: public_key.clone(),
             signature_algorithm,
             signature_flags,

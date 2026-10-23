@@ -81,8 +81,8 @@ their corpora are in [`fuzz/`](fuzz/).
   handshake bounds ignored and debug messages, discards one guessed server
   key-exchange packet when `first_kex_packet_follows` is wrong, and rejects
   noncanonical booleans, a nonzero KEXINIT reserved field, and trailing bytes in
-  authentication success. Authentication banners are validated and discarded,
-  not displayed.
+  authentication success. Authentication banners are checked for framing and
+  discarded, not displayed.
 - **SSH channel.** The channel validates recipients, flow-control windows,
   packet sizes, EOF and close ordering, and exit requests, both in normal reads
   and while waiting for send-window space. EOF closes only the remote data
@@ -102,11 +102,17 @@ their corpora are in [`fuzz/`](fuzz/).
   offered in the agent's order, then `id_ed25519` unless the agent holds the
   same key, at most five in all, one below OpenSSH's default `MaxAuthTries`.
   Each key is first offered without a signature, and only a key the server
-  answers with `PK_OK` is signed, so rejected keys never reach the agent's
-  signing path. When every key is rejected, the error lists their SHA-256
-  fingerprints. Agent sockets
+  answers with `PK_OK` for that exact key and algorithm is signed, so rejected
+  keys never reach the agent's signing path. A key that fails to sign is
+  skipped for the next one. Authentication stops early when the server
+  disconnects, reports partial success (other methods are not supported), or
+  stops listing `publickey`. Every authentication error lists the SHA-256
+  fingerprint and outcome of each key offered, the server's disconnect
+  reason, and why the agent or identity file was skipped. An agent that
+  cannot be listed is skipped in favor of the identity file. Agent sockets
   and named pipes have a 30-second I/O timeout; a timed-out Windows pipe
-  operation is cancelled and waited for before its buffers are released.
+  operation is cancelled and waited for before its buffers are released, and
+  an agent I/O error closes the connection for the remaining keys.
 
 Malformed data and limit violations return `InvalidData`; filesystem and
 transport errors keep their original error kinds.
@@ -133,8 +139,7 @@ readers share one bounded-read helper.
 | SSH channel incoming payloads, including stderr and control messages | 128 MiB per session |
 | SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
 | SSH plaintext key exchange | 1,024 messages / 1 MiB |
-| SSH encrypted IGNORE/DEBUG before a service, auth, or exec response | 1,024 messages / 1 MiB per wait |
-| SSH authentication banners before each auth response | 1,024 messages / 1 MiB |
+| SSH encrypted IGNORE/DEBUG (and banners, during authentication) before a service, auth, or exec response | 1,024 messages / 1 MiB per wait, combined |
 | Credential helper output / run time | 64 KiB / 30 s |
 | Checkout directory depth / entries | 64 / 1,000,000 |
 | Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |

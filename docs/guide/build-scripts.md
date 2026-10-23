@@ -125,10 +125,14 @@ running SSH agent (`SSH_AUTH_SOCK` on Unix-like systems or the OpenSSH agent
 named pipe on Windows) in the order the agent lists them, as `ssh-add -l`
 shows, followed by an unencrypted `~/.ssh/id_ed25519`. Like OpenSSH, it asks
 the server whether it accepts each key before signing, and it offers at most
-five keys per connection to stay under the server's default attempt limit.
-When the server rejects them all, the error lists each key's fingerprint as
-`ssh-keygen -l` prints it. Other key types and encrypted key files are not read
-directly; load a supported key into the agent instead.
+five keys per connection to stay under the server's default attempt limit. A
+key the agent declines to sign, for example a declined `ssh-add -c`
+confirmation, is skipped for the next one. When authentication fails, the
+error lists each offered key's fingerprint as `ssh-keygen -l` prints it and
+what happened to it. Only public-key authentication is supported, so a server
+that also requires a password or other method fails after accepting the key.
+Other key types and encrypted key files are not read directly; load a supported
+key into the agent instead.
 
 Git fetches request a shallow history with depth 1, which includes the selected
 commit and the files needed to check it out without downloading its ancestors.
