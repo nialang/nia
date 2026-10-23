@@ -3578,6 +3578,43 @@ mod tests {
 
     static SSH_ENVIRONMENT_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Points the SSH client's home lookup at a fixture directory and hides
+    /// any agent, restoring both on drop, including when the test panics.
+    /// The client reads `HOME` on Unix and `USERPROFILE` on Windows.
+    struct SshHomeEnvironment {
+        previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    }
+
+    impl SshHomeEnvironment {
+        fn redirect(home: &Path) -> Self {
+            let absent_agent = home.join("absent-agent");
+            let mut previous = Vec::new();
+            for (name, value) in [
+                ("HOME", home),
+                ("USERPROFILE", home),
+                ("SSH_AUTH_SOCK", absent_agent.as_path()),
+            ] {
+                previous.push((name, env::var_os(name)));
+                // SAFETY: SSH_ENVIRONMENT_LOCK serializes the tests that
+                // change these variables.
+                unsafe { env::set_var(name, value) };
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for SshHomeEnvironment {
+        fn drop(&mut self) {
+            for (name, value) in self.previous.drain(..) {
+                // SAFETY: see `redirect`.
+                match value {
+                    Some(value) => unsafe { env::set_var(name, value) },
+                    None => unsafe { env::remove_var(name) },
+                }
+            }
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn package_checkout_paths_drop_windows_extended_prefixes() {
@@ -4441,7 +4478,13 @@ mod tests {
 
     #[test]
     fn build_runner_module_map_exposes_declared_build_dependency_libraries() {
-        let root = temp_root("build_runner_build_dependencies");
+        // Package metadata reports canonical roots, which expand 8.3 short
+        // names such as a CI runner's `RUNNER~1` temp directory.
+        let root = normalize_host_path(
+            temp_root("build_runner_build_dependencies")
+                .canonicalize()
+                .expect("canonicalize temp root"),
+        );
         let dependency = root.join("vendor/json");
         std::fs::create_dir_all(&dependency).expect("create build dependency");
         std::fs::write(
@@ -4648,7 +4691,12 @@ mod tests {
 
     #[test]
     fn package_roots_distinguish_manifest_and_local_sources() {
-        let root = temp_root("package_roots_manifest_and_local_sources");
+        // See `build_runner_module_map_exposes_declared_build_dependency_libraries`.
+        let root = normalize_host_path(
+            temp_root("package_roots_manifest_and_local_sources")
+                .canonicalize()
+                .expect("canonicalize temp root"),
+        );
         for path in ["root-bar", "foo", "foo/bar"] {
             std::fs::create_dir_all(root.join(path)).expect("create package root");
         }
@@ -4697,7 +4745,9 @@ mod tests {
 
     #[test]
     fn workspace_ssh_build_dependency_fetches_locks_and_runs_build_script() {
-        let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
+        let _environment = SSH_ENVIRONMENT_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let toolchain = test_toolchain_layout();
         nia_git::with_test_ssh_checkout_fixture_mutating_repository(
             |repository| {
@@ -4745,12 +4795,7 @@ mod tests {
                 .expect("copy SSH identity");
                 nia_git::restrict_test_identity_permissions(&ssh_directory.join("id_ed25519"));
 
-                let previous_userprofile = std::env::var_os("USERPROFILE");
-                unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
-                let restore_environment = || match previous_userprofile {
-                    Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
-                    None => unsafe { std::env::remove_var("USERPROFILE") },
-                };
+                let ssh_environment = SshHomeEnvironment::redirect(&ssh_home);
 
                 std::fs::write(
                 consumer.join("nia.toml"),
@@ -4778,7 +4823,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 )
                 .expect("write consumer build script");
                 let result = run_build(BuildRequest::new(toolchain).with_root(&*workspace));
-                restore_environment();
+                drop(ssh_environment);
                 result.expect("build with SSH dependency");
                 assert!(consumer.join(".nia-build/generated.txt").is_file());
                 assert!(!consumer.join("nia.lock").exists());
@@ -4808,7 +4853,9 @@ pub fn build(b: &mut build::Build) build::Error!() {
 
     #[test]
     fn ssh_runtime_dependency_and_transitive_imports_are_manifest_driven() {
-        let _environment = SSH_ENVIRONMENT_LOCK.lock().unwrap();
+        let _environment = SSH_ENVIRONMENT_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let toolchain = test_toolchain_layout();
         nia_git::with_test_ssh_checkout_fixture_mutating_repository(
             |repository| {
@@ -4849,12 +4896,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 .expect("copy SSH identity");
                 nia_git::restrict_test_identity_permissions(&ssh_directory.join("id_ed25519"));
 
-                let previous_userprofile = std::env::var_os("USERPROFILE");
-                unsafe { std::env::set_var("USERPROFILE", &ssh_home) };
-                let restore_environment = || match previous_userprofile {
-                    Some(value) => unsafe { std::env::set_var("USERPROFILE", value) },
-                    None => unsafe { std::env::remove_var("USERPROFILE") },
-                };
+                let ssh_environment = SshHomeEnvironment::redirect(&ssh_home);
 
                 std::fs::write(
                     consumer.join("nia.toml"),
@@ -4886,7 +4928,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
                 .expect("write build script");
 
                 let result = run_build(BuildRequest::new(toolchain).with_root(&consumer));
-                restore_environment();
+                drop(ssh_environment);
                 result.expect("build with SSH runtime dependency");
                 let lock = nia_package_metadata::PackageLock::read(&consumer.join("nia.lock"))
                     .expect("read generated lockfile");
