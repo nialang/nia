@@ -4,8 +4,9 @@
 implements the smart protocol itself, without libgit2 or a system Git, over
 local repositories, `git://`, HTTP(S), and SSH, and checks out one commit into
 a caller-opened directory. The one exception is HTTPS credentials, which come
-from `git credential fill` when a `git` executable is on `PATH`; without it,
-HTTPS requests are sent without credentials. Package resolution, caching, and `nia.lock` belong to
+from `git credential` when a `git` executable is on `PATH`; without it, a
+repository that answers `401` fails. Package resolution, caching, and
+`nia.lock` belong to
 [`nia-package-metadata`](../nia-package-metadata/); the user-facing source,
 credential, and proxy contract is in
 [Build scripts](../../docs/guide/build-scripts.md#dependency-sources).
@@ -62,8 +63,12 @@ their corpora are in [`fuzz/`](fuzz/).
   and bytes after the final chunk are rejected. Chunk extensions are ignored
   after checking for control characters. Redirects and interim responses are
   not followed; any non-2xx status fails.
-- **Credentials.** HTTPS credentials come from `git credential fill` with
-  `GIT_TERMINAL_PROMPT=0`. The helper runs with a 30-second deadline and a
+- **Credentials.** The first HTTPS request is anonymous. Only a `401` asks
+  `git credential fill` (with `GIT_TERMINAL_PROMPT=0`) for credentials, and the
+  request is retried once with them. Credentials that then succeed are reported
+  with `git credential approve`; credentials that still receive `401` are
+  reported with `git credential reject`. 403 and 404 are not treated as an
+  authentication challenge. The helper runs with a 30-second deadline and a
   64 KiB output limit, and timeout cleanup kills its Unix process group or
   Windows process tree. Credentials are held in zeroized memory, sent only over
   TLS (directly or inside an HTTPS proxy `CONNECT` tunnel), and never written to
@@ -146,9 +151,6 @@ so the limits bound accounting rather than exact process memory.
   operating-system facilities outside Nia's control. Only the first agent
   identity of the preferred key type is offered; other agent keys and the
   identity file are not tried after the server rejects it.
-- The credential helper is asked before the first HTTPS request, not after a
-  `401`, so a helper that prompts interactively may prompt for public
-  repositories too.
 - HTTP redirects, proxy authentication, and interim responses are not
   supported.
 
