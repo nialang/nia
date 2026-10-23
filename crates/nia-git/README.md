@@ -1,9 +1,11 @@
 # nia-git
 
-`nia-git` is the native Git client that fetches package dependencies. It needs
-no system Git or libgit2: it speaks the smart protocol over local repositories,
-`git://`, HTTP(S), and SSH, and checks out one commit into a caller-opened
-directory. Package resolution, caching, and `nia.lock` belong to
+`nia-git` is the native Git client that fetches package dependencies. It
+implements the smart protocol itself, without libgit2 or a system Git, over
+local repositories, `git://`, HTTP(S), and SSH, and checks out one commit into
+a caller-opened directory. The one exception is HTTPS credentials, which come
+from `git credential fill` when a `git` executable is on `PATH`; without it,
+HTTPS requests are sent without credentials. Package resolution, caching, and `nia.lock` belong to
 [`nia-package-metadata`](../nia-package-metadata/); the user-facing source,
 credential, and proxy contract is in
 [Build scripts](../../docs/guide/build-scripts.md#dependency-sources).
@@ -37,11 +39,11 @@ their corpora are in [`fuzz/`](fuzz/).
   destination directory handle; replacing the destination pathname after it is
   opened does not redirect output. Output traversal, exclusive file creation,
   and metadata cleanup are relative to `cap-std` directory handles. The
-  destination must be missing or empty with real directory ancestors, and the
-  caller discards partial output on failure. Trees are walked with an explicit
+  destination directory must be empty; opening it safely (no linked ancestors)
+  and discarding partial output on failure belong to the caller. Trees are walked with an explicit
   stack, and each path is created exclusively. Tree entries cannot name Git
-  metadata, traverse directories, or use Windows device names and alternate
-  data streams. Remote pack objects are decoded from the validated response
+  metadata, traverse directories, or use Windows device names (including with
+  trailing spaces or dots before an extension) and alternate data streams. Remote pack objects are decoded from the validated response
   bytes, without a temporary `.git` tree.
 - **Local repositories.** Source paths are made absolute lexically and opened
   component by component without following links. Refs, loose objects, and
@@ -84,10 +86,15 @@ their corpora are in [`fuzz/`](fuzz/).
   not. Unknown requests that want a reply receive `CHANNEL_FAILURE`, and
   incoming stderr and ignored control messages count toward the session
   traffic budget.
+- **SSH host matching.** A bare `known_hosts` pattern trusts port 22 only; a
+  server on another port must be listed as `[host]:port`, as in OpenSSH.
 - **SSH identities.** Private identity files must not be readable by other
-  principals: on Unix, no group or other permission bits; on Windows, the owner
-  and every read grant must be the current user, SYSTEM, or Administrators.
-  Agent sockets and named pipes have a 30-second I/O timeout.
+  principals: on Unix, the file must be owned by the current user, opened
+  without following links, and have no group or other permission bits; on
+  Windows, the owner and every read grant must be the current user, SYSTEM, or
+  Administrators, and allow entries of other types are rejected. Agent sockets
+  and named pipes have a 30-second I/O timeout; a timed-out Windows pipe
+  operation is cancelled and waited for before its buffers are released.
 
 Malformed data and limit violations return `InvalidData`; filesystem and
 transport errors keep their original error kinds.
@@ -99,7 +106,7 @@ readers share one bounded-read helper.
 
 | Input | Limit |
 | --- | --- |
-| HTTP, Git TCP, or SSH response | 128 MiB |
+| HTTP, Git TCP, or SSH response | 128 MiB (registry fetches choose their own bound, at most 256 MiB) |
 | HTTP response headers / each chunk header / trailer section | 64 KiB each |
 | Local pack or compressed loose object | 128 MiB |
 | Decoded object or delta result | 64 MiB per object |
@@ -136,7 +143,12 @@ so the limits bound accounting rather than exact process memory.
   messages and algorithms fail closed. Interoperability is tested against a
   local protocol fixture, not a third-party server.
 - Agent and credential-helper behavior depends on local processes and
-  operating-system facilities outside Nia's control.
+  operating-system facilities outside Nia's control. Only the first agent
+  identity of the preferred key type is offered; other agent keys and the
+  identity file are not tried after the server rejects it.
+- The credential helper is asked before the first HTTPS request, not after a
+  `401`, so a helper that prompts interactively may prompt for public
+  repositories too.
 - HTTP redirects, proxy authentication, and interim responses are not
   supported.
 
