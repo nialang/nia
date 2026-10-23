@@ -561,6 +561,43 @@ pub fn main(init: process::Init) process::ExitCode!() {
         !ok => { _ = ok; return process::ExitCode(6)!; },
         error! => { _ = error; },
     }
+    // Windows also parses `\`, a drive prefix, and `name:stream` inside the
+    // final component, which is joined after the parent containment check.
+    let backslashCreate = fs::RelativePathView::fromText(&"escape\x5cnew-dir").?;
+    match cwd.createDir(backslashCreate, fs::CreateDirOptions::init()) {
+        !ok => { _ = ok; return process::ExitCode(7)!; },
+        error! => { _ = error; },
+    }
+    let backslashDelete = fs::RelativePathView::fromText(&"escape\x5csentinel.txt").?;
+    match cwd.deleteFile(backslashDelete) {
+        !ok => { _ = ok; return process::ExitCode(8)!; },
+        error! => { _ = error; },
+    }
+    let backslashDeleteDir = fs::RelativePathView::fromText(&"escape\x5csentinel-dir").?;
+    match cwd.deleteDir(backslashDeleteDir) {
+        !ok => { _ = ok; return process::ExitCode(9)!; },
+        error! => { _ = error; },
+    }
+    let backslashDestination = fs::RelativePathView::fromText(&"escape\x5crenamed.txt").?;
+    match cwd.rename(localSource, backslashDestination) {
+        !ok => { _ = ok; return process::ExitCode(10)!; },
+        error! => { _ = error; },
+    }
+    let backslashSource = fs::RelativePathView::fromText(&"escape\x5csentinel.txt").?;
+    match cwd.rename(backslashSource, localDestination) {
+        !ok => { _ = ok; return process::ExitCode(11)!; },
+        error! => { _ = error; },
+    }
+    let stream = fs::RelativePathView::fromText(&"rename-source.txt:stream").?;
+    match cwd.deleteFile(stream) {
+        !ok => { _ = ok; return process::ExitCode(12)!; },
+        error! => { _ = error; },
+    }
+    let driveRelative = fs::RelativePathView::fromText(&"C:stolen-dir").?;
+    match cwd.createDir(driveRelative, fs::CreateDirOptions::init()) {
+        !ok => { _ = ok; return process::ExitCode(13)!; },
+        error! => { _ = error; },
+    }
     !()
 }
 "#,
