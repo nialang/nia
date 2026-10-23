@@ -811,11 +811,11 @@ fn run_http_credential_fill_with_timeout(
 /// The `git credential` description of an HTTPS repository, ending with the
 /// blank line that terminates the request.
 fn credential_request(url: &HttpGitUrl) -> String {
-    let mut input = format!("protocol=https\nhost={}", url.host);
-    if url.port != 443 {
-        input.push_str(&format!(":{}", url.port));
-    }
-    input.push('\n');
+    // An IPv6 host keeps its brackets, so a port stays unambiguous.
+    let mut input = format!(
+        "protocol=https\nhost={}\n",
+        format_authority(&url.host, url.port, 443)
+    );
     if url.path != "/" {
         input.push_str("path=");
         input.push_str(url.path.trim_start_matches('/'));
@@ -1245,6 +1245,27 @@ mod tests {
         assert!(parse_git_credentials(b"username=nia\n").is_none());
         assert!(parse_git_credentials(b"username=nia\npassword=one\npassword=two\n").is_none());
         assert!(parse_git_credentials(b"username=nia:other\npassword=secret\n").is_none());
+    }
+
+    #[test]
+    fn git_credential_requests_name_the_repository_unambiguously() {
+        let request = |source: &str| credential_request(&parse_http_git_url(source).unwrap());
+        assert_eq!(
+            request("https://example.test/org/repo.git"),
+            "protocol=https\nhost=example.test\npath=org/repo.git\n\n"
+        );
+        assert_eq!(
+            request("https://example.test:8443/repo.git"),
+            "protocol=https\nhost=example.test:8443\npath=repo.git\n\n"
+        );
+        assert_eq!(
+            request("https://[2001:db8::1]:8443/repo.git"),
+            "protocol=https\nhost=[2001:db8::1]:8443\npath=repo.git\n\n"
+        );
+        assert_eq!(
+            request("https://[2001:db8::1]/repo.git"),
+            "protocol=https\nhost=[2001:db8::1]\npath=repo.git\n\n"
+        );
     }
 
     #[test]
