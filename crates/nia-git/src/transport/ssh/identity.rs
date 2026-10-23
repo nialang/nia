@@ -318,18 +318,30 @@ pub(super) fn load_ssh_identity(ssh_directory: &Path) -> io::Result<SshEd25519Id
     SshEd25519Identity::parse_openssh(&identity_bytes)
 }
 
+/// Rejects a private key that another user owns or that group or others can
+/// access, as OpenSSH does. The checks run on the opened file, so a symlink or
+/// a replaced path cannot point them at a different file than the one read.
 #[cfg(unix)]
 fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(path)?.permissions().mode();
-    if mode & 0o077 != 0 {
-        return Err(io::Error::new(
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    let insecure = |detail: &str| {
+        io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!(
-                "SSH identity at {} is accessible by group or others",
-                path.display()
-            ),
-        ));
+            format!("SSH identity at {} {detail}", path.display()),
+        )
+    };
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    if metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(insecure("is not owned by the current user"));
+    }
+    if metadata.mode() & 0o077 != 0 {
+        return Err(insecure("is accessible by group or others"));
     }
     Ok(())
 }
@@ -354,7 +366,11 @@ fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
         TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid,
     };
     use windows_sys::Win32::Storage::FileSystem::FILE_READ_DATA;
-    use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
+    use windows_sys::Win32::System::SystemServices::{
+        ACCESS_ALLOWED_ACE_TYPE, ACCESS_ALLOWED_CALLBACK_ACE_TYPE,
+        ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE, ACCESS_ALLOWED_COMPOUND_ACE_TYPE,
+        ACCESS_ALLOWED_OBJECT_ACE_TYPE,
+    };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     /// Frees memory the security APIs allocate with `LocalAlloc`.
@@ -490,7 +506,22 @@ fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
         }
         // SAFETY: every ACE starts with an `ACE_HEADER`.
         let header = unsafe { &*ace.cast::<ACE_HEADER>() };
-        if u32::from(header.AceType) != ACCESS_ALLOWED_ACE_TYPE {
+        let ace_type = u32::from(header.AceType);
+        // Callback, object, and compound allow ACEs can grant read access
+        // too, but their layouts differ; reject them rather than skip them.
+        // Deny, audit, and label entries never grant access.
+        if matches!(
+            ace_type,
+            ACCESS_ALLOWED_CALLBACK_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE
+                | ACCESS_ALLOWED_COMPOUND_ACE_TYPE
+                | ACCESS_ALLOWED_OBJECT_ACE_TYPE
+        ) {
+            return Err(insecure(format!(
+                "has an access control entry of unsupported type {ace_type}"
+            )));
+        }
+        if ace_type != ACCESS_ALLOWED_ACE_TYPE {
             continue;
         }
         // SAFETY: the header identifies this ACE as an `ACCESS_ALLOWED_ACE`,
@@ -507,6 +538,35 @@ fn verify_ssh_identity_permissions(path: &Path) -> io::Result<()> {
 #[cfg(not(any(unix, windows)))]
 fn verify_ssh_identity_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod unix_identity_permission_tests {
+    use super::verify_ssh_identity_permissions;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn identity_must_be_private_and_not_a_link() {
+        let root =
+            std::env::temp_dir().join(format!("nia-ssh-identity-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let key = root.join("id_ed25519");
+        std::fs::write(&key, "key").unwrap();
+
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let error = verify_ssh_identity_permissions(&key).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+        verify_ssh_identity_permissions(&key).unwrap();
+
+        // A link is not followed, so it cannot point the check at another
+        // file than the one an attacker controls.
+        let link = root.join("linked");
+        std::os::unix::fs::symlink(&key, &link).unwrap();
+        assert!(verify_ssh_identity_permissions(&link).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(all(test, windows))]
