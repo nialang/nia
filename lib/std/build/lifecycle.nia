@@ -40,7 +40,7 @@ extend Build {
     // These values describe the current package invocation and its resolved
     // toolchain. `targets` is the toolchain's maintained target matrix;
     // `hostTarget` and `artifactTarget` index it.
-    pub fn init(
+    pub fun init(
         allocator: &mut mem::Allocator,
         packageRoot: fs::PathView,
         buildDir: fs::PathView,
@@ -133,7 +133,7 @@ extend Build {
         attempt
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         packageRoot: fs::PathView,
         buildDir: fs::PathView,
@@ -161,7 +161,7 @@ extend Build {
 
     // Each record is attached before its names are copied, so a failed copy
     // leaves a residual owner that `deinit` releases.
-    fn initializeTargets(&mut self, targets: &[TargetView]) Error!() {
+    fun initializeTargets(&mut self, targets: &[TargetView]) Error!() {
         if self.hostTarget >= targets.len() {
             return .Invalid { operation: .Validate, subject: .HostTarget }!;
         }
@@ -188,7 +188,7 @@ extend Build {
         !()
     }
 
-    pub fn deinit(&mut self) Error!() {
+    pub fun deinit(&mut self) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
         cleanup.attempt(self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));

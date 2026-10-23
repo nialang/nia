@@ -6,7 +6,7 @@ fn module_dependencies_cache_keys_include_effective_module_map() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let file = sources
-        .set_source(main.clone(), "using dep::Thing; fn main() () {}")
+        .set_source(main.clone(), "using dep::Thing; fun main() () {}")
         .expect("store source");
     let mut mapped = ModuleMap::new();
     mapped
@@ -130,7 +130,7 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
     assert!(!cache.module_dependencies_path(identity.key).is_file());
 
     let malformed_file = sources
-        .set_source(main.clone(), "fn broken(")
+        .set_source(main.clone(), "fun broken(")
         .expect("store malformed source");
     let malformed_identity =
         module_dependencies_cache_identity(&malformed_file, &main, &ModuleMap::new());

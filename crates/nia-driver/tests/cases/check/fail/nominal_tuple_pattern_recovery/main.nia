@@ -2,7 +2,7 @@ enum Color {
     Pair(bool, bool),
 }
 
-fn main(value: Color) () {
+fun main(value: Color) () {
     match value {
         Color::Pair(true, , false) => (),
         _ => (),
@@ -10,4 +10,4 @@ fn main(value: Color) () {
     later();
 }
 
-fn later() () {}
+fun later() () {}

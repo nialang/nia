@@ -1130,7 +1130,7 @@ mod tests {
     fn rejects_break_and_continue_outside_loops() {
         let checked = pipeline(
             r#"
-fn main() {
+fun main() {
     break;
     continue;
 }
@@ -1150,13 +1150,13 @@ fn main() {
     fn reports_missing_returns_and_unreachable_statements() {
         let checked = pipeline(
             r#"
-fn a(flag: bool) i32 {
+fun a(flag: bool) i32 {
     if flag {
         return 1;
     }
 }
 
-fn b() i32 {
+fun b() i32 {
     return 1;
     let mut x = 2;
 }
@@ -1213,17 +1213,17 @@ fn b() i32 {
     fn non_breaking_loop_terminates_enclosing_control_flow() {
         let checked = pipeline(
             r#"
-fn spin() i32 {
+fun spin() i32 {
     loop {}
 }
 
-fn returnsFromLoop() i32 {
+fun returnsFromLoop() i32 {
     loop {
         return 1;
     }
 }
 
-fn unreachableAfterLoop() {
+fun unreachableAfterLoop() {
     loop {
         continue;
     }
@@ -1252,7 +1252,7 @@ fn unreachableAfterLoop() {
     fn reachable_break_allows_loop_to_fall_through() {
         let checked = pipeline(
             r#"
-fn maybeExit(flag: bool) i32 {
+fun maybeExit(flag: bool) i32 {
     loop {
         if flag {
             break;
@@ -1260,7 +1260,7 @@ fn maybeExit(flag: bool) i32 {
     }
 }
 
-fn nestedBreakDoesNotExitOuter() i32 {
+fun nestedBreakDoesNotExitOuter() i32 {
     loop {
         loop {
             break;
@@ -1268,7 +1268,7 @@ fn nestedBreakDoesNotExitOuter() i32 {
     }
 }
 
-fn unreachableBreakDoesNotExitLoop() i32 {
+fun unreachableBreakDoesNotExitLoop() i32 {
     loop {
         continue;
         break;
@@ -1294,7 +1294,7 @@ fn unreachableBreakDoesNotExitLoop() i32 {
     fn deferred_control_flow_obeys_registration_and_lifo_override() {
         let checked = pipeline(
             r#"
-fn deferredBreak() i32 {
+fun deferredBreak() i32 {
     loop {
         defer {
             break;
@@ -1303,7 +1303,7 @@ fn deferredBreak() i32 {
     }
 }
 
-fn deferredReturn() i32 {
+fun deferredReturn() i32 {
     loop {
         defer {
             return 1;
@@ -1312,7 +1312,7 @@ fn deferredReturn() i32 {
     }
 }
 
-fn outerBreakOverridesInnerReturn() i32 {
+fun outerBreakOverridesInnerReturn() i32 {
     loop {
         defer {
             break;
@@ -1324,7 +1324,7 @@ fn outerBreakOverridesInnerReturn() i32 {
     }
 }
 
-fn outerReturnOverridesInnerBreak() i32 {
+fun outerReturnOverridesInnerBreak() i32 {
     loop {
         defer {
             return 1;
@@ -1355,7 +1355,7 @@ fn outerReturnOverridesInnerBreak() i32 {
     fn checks_match_duplicate_default_and_patterns() {
         let checked = pipeline(
             r#"
-fn main(x: i32) {
+fun main(x: i32) {
     match x {
         1 => return,
         1 => return,
@@ -1385,7 +1385,7 @@ fn main(x: i32) {
             r#"
 struct Empty {}
 
-fn make() Empty {
+fun make() Empty {
     {}
 }
 "#,
@@ -1397,7 +1397,7 @@ fn make() Empty {
     fn exhaustive_match_returns_on_all_paths() {
         let checked = pipeline(
             r#"
-fn name(x: u32) &u8 {
+fun name(x: u32) &u8 {
     match x {
         1 => return 0 as &u8,
         _ => return 1 as &u8,
@@ -1418,14 +1418,14 @@ fn name(x: u32) &u8 {
     fn destructuring_match_returns_on_all_paths() {
         let checked = pipeline(
             r#"
-fn optional(value: ?i32) i32 {
+fun optional(value: ?i32) i32 {
     match value {
         ?payload => return payload,
         null => return 0,
     }
 }
 
-fn nested(value: ?(i32!i32)) i32 {
+fun nested(value: ?(i32!i32)) i32 {
     match value {
         ?!payload => return payload,
         ?error! => return error,
@@ -1447,7 +1447,7 @@ fn nested(value: ?(i32!i32)) i32 {
     fn match_tail_expression_satisfies_return_analysis() {
         let checked = pipeline(
             r#"
-fn name(x: u32) &u8 {
+fun name(x: u32) &u8 {
     match x {
         1 => 0 as &u8,
         _ => 1 as &u8,
@@ -1473,7 +1473,7 @@ enum Mode: u8 {
     B,
 }
 
-fn name(mode: Mode) u32 {
+fun name(mode: Mode) u32 {
     match mode {
         Mode::A => 1,
         Mode::B => 2,
@@ -1494,9 +1494,9 @@ fn name(mode: Mode) u32 {
     fn accepts_deferred_blocks_and_return_control_flow() {
         let checked = pipeline(
             r#"
-fn cleanup() {}
+fun cleanup() {}
 
-fn main() {
+fun main() {
     defer {
         cleanup();
     };
@@ -1520,9 +1520,9 @@ fn main() {
     fn accepts_deferred_loop_control_flow_inside_loops() {
         let checked = pipeline(
             r#"
-fn cleanup() {}
+fun cleanup() {}
 
-fn main() {
+fun main() {
     defer {
         if true {
             return;
@@ -1553,9 +1553,9 @@ fn main() {
     fn rejects_deferred_break_and_continue_outside_loop_context() {
         let checked = pipeline(
             r#"
-fn cleanup() {}
+fun cleanup() {}
 
-fn bad_continue(flag: bool) {
+fun bad_continue(flag: bool) {
     defer if flag {
         continue;
     } else {
@@ -1563,7 +1563,7 @@ fn bad_continue(flag: bool) {
     };
 }
 
-fn bad_break() {
+fun bad_break() {
     defer {
         match 1 {
             0 => {
@@ -1593,7 +1593,7 @@ fn bad_break() {
     fn accepts_deferred_break_and_continue_inside_nested_loops() {
         let checked = pipeline(
             r#"
-fn main(flag: bool) {
+fun main(flag: bool) {
     loop {
         defer if flag {
             loop {
@@ -1614,7 +1614,7 @@ fn main(flag: bool) {
     fn accepts_nested_loop_control_flow_outside_defer() {
         let checked = pipeline(
             r#"
-fn main(limit: i32) {
+fun main(limit: i32) {
     for i in 0..limit {
         if i == 1 {
             continue;
@@ -1640,7 +1640,7 @@ fn main(limit: i32) {
     fn reports_unreachable_after_match_arm_control_flow_blocks() {
         let checked = pipeline(
             r#"
-fn main(kind: i32) {
+fun main(kind: i32) {
     match kind {
         0 => return,
         _ => {
@@ -1665,7 +1665,7 @@ fn main(kind: i32) {
     fn checks_return_value_flow_before_terminating() {
         let checked = pipeline(
             r#"
-fn main() i32 {
+fun main() i32 {
     return match 1 {
         1 => 1,
         1 => 2,
@@ -1687,7 +1687,7 @@ fn main() i32 {
     fn closure_control_flow_does_not_inherit_enclosing_loop() {
         let checked = pipeline(
             r#"
-fn main() () {
+fun main() () {
     loop {
         let callback = \value: i32 -> {
             break;
@@ -1715,28 +1715,28 @@ fn main() () {
     fn propagates_termination_from_eager_expression_operands() {
         let checked = pipeline(
             r#"
-fn consume(value: i32) {}
-fn truth(value: i32) bool { true }
+fun consume(value: i32) {}
+fun truth(value: i32) bool { true }
 
-fn call_arg() i32 {
+fun call_arg() i32 {
     consume({ return 1; });
 }
 
-fn unary_operand() i32 {
+fun unary_operand() i32 {
     -{ return 1; };
 }
 
-fn binary_operand() i32 {
+fun binary_operand() i32 {
     1 + { return 1; };
 }
 
-fn condition() i32 {
+fun condition() i32 {
     if truth({ return 1; }) {
         return 2;
     };
 }
 
-fn while_condition() i32 {
+fun while_condition() i32 {
     while truth({ return 1; }) {}
 }
 "#,
@@ -1754,7 +1754,7 @@ fn while_condition() i32 {
     fn short_circuit_rhs_does_not_prove_enclosing_termination() {
         let checked = pipeline(
             r#"
-fn short_circuit(flag: bool) i32 {
+fun short_circuit(flag: bool) i32 {
     flag and { return 1; true };
 }
 "#,
@@ -1772,13 +1772,13 @@ fn short_circuit(flag: bool) i32 {
     fn reachable_filter_uses_stable_function_identity() {
         let checked = pipeline_with_reachable_filter(
             r#"
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     if flag {
         return 1;
     }
 }
 
-fn helper(flag: bool) i32 {
+fun helper(flag: bool) i32 {
     if flag {
         return 2;
     }
@@ -1815,16 +1815,16 @@ fn helper(flag: bool) i32 {
     fn traverses_function_tail_expression_diagnostics_once() {
         let checked = pipeline(
             r#"
-fn consume(value: i32) i32 { value }
+fun consume(value: i32) i32 { value }
 
-fn tail_match() i32 {
+fun tail_match() i32 {
     consume(match 1 {
         1 => 1,
         1 => 2,
     })
 }
 
-fn tail_closure() () {
+fun tail_closure() () {
     \ -> {
         break;
     }

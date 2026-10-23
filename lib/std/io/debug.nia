@@ -9,18 +9,18 @@ pub enum DebugPrintError {
 }
 
 extend fmt::Error : builtin::IntoError[DebugPrintError] {
-    const fn intoError(self) DebugPrintError {
+    const fun intoError(self) DebugPrintError {
         DebugPrintError::Format(self)
     }
 }
 
 extend fs::Error : builtin::IntoError[DebugPrintError] {
-    const fn intoError(self) DebugPrintError {
+    const fun intoError(self) DebugPrintError {
         DebugPrintError::Flush(self)
     }
 }
 
-pub fn debugPrint(template: &[char], args: &[&fmt::Format]) DebugPrintError!() {
+pub fun debugPrint(template: &[char], args: &[&fmt::Format]) DebugPrintError!() {
     let mut buffer: [u8; 512] = [0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer);
 

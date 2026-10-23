@@ -1,25 +1,25 @@
 path: fail/tuple_expression_pattern_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 32..33 Primary Source expected expression
+label: 33..34 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 path: fail/tuple_expression_pattern_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 36..37 Primary Source expected expression
+label: 37..38 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 path: fail/tuple_expression_pattern_recovery/main.nia
 code: E0101
 summary: expected binding pattern
-label: 54..55 Primary Source expected binding pattern
+label: 55..56 Primary Source expected binding pattern
 help: use a name, `_`, or a supported destructuring pattern
 
 path: fail/tuple_expression_pattern_recovery/main.nia
 code: E0101
 summary: expected binding pattern
-label: 65..66 Primary Source expected binding pattern
+label: 66..67 Primary Source expected binding pattern
 help: use a name, `_`, or a supported destructuring pattern
 
 report:

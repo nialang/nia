@@ -1,6 +1,6 @@
 using std::process;
 
-fn pick(flag: bool, a: i32, b: i32) i32 {
+fun pick(flag: bool, a: i32, b: i32) i32 {
     if flag {
         a
     } else {
@@ -8,19 +8,19 @@ fn pick(flag: bool, a: i32, b: i32) i32 {
     }
 }
 
-fn answer() i32 {
+fun answer() i32 {
     40
 }
 
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-fn plus_two(value: i32) i32 {
+fun plus_two(value: i32) i32 {
     value + 2
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut x = answer();
     let mut y = x;

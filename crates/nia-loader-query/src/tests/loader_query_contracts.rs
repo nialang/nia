@@ -29,9 +29,9 @@ fn recursive_source_identities_are_stable_across_physical_relocation() {
     let first_root = temp_dir("recursive_source_identity_first");
     let second_root = temp_dir("recursive_source_identity_second");
     let changed_root = temp_dir("recursive_source_identity_changed");
-    let first = load_manifest(&first_root, "fn value() i32 { 1 }");
-    let second = load_manifest(&second_root, "fn value() i32 { 1 }");
-    let changed = load_manifest(&changed_root, "fn value() i32 { 2 }");
+    let first = load_manifest(&first_root, "fun value() i32 { 1 }");
+    let second = load_manifest(&second_root, "fun value() i32 { 1 }");
+    let changed = load_manifest(&changed_root, "fun value() i32 { 2 }");
 
     assert_eq!(
         first
@@ -134,7 +134,7 @@ fn source_status_tracks_missing_and_present_revisions() {
     let missing = db.expect_get(SourceStatusQuery(source_id));
     assert_eq!(*missing, SourceStatus::Missing);
     let file = sources
-        .set_source(main, "fn main() i32 { 0 }")
+        .set_source(main, "fun main() i32 { 0 }")
         .expect("store source");
     db.invalidate(SourceTextQuery(source_id))
         .expect("invalidate source text");
@@ -166,7 +166,7 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let first_file = sources
-        .set_source(main.clone(), "fn main() i32 { 0 }")
+        .set_source(main.clone(), "fun main() i32 { 0 }")
         .expect("store first source");
     let database = LoaderDatabase::new_for_test(test_request(main.as_str()).with_sources(sources));
     assert_no_error_diagnostics(&database.load_program().expect("initial program load"));
@@ -201,7 +201,7 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let mut latest_version = first_version;
     for revision in 1..=100 {
         let file = database
-            .set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"))
+            .set_source(main.as_str(), format!("fun main() i32 {{ {revision} }}"))
             .expect("replace source");
         latest_version = file.version();
         assert_no_error_diagnostics(&database.load_program().expect("updated program load"));
@@ -262,7 +262,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     sources
-        .set_source(main.clone(), "fn main() i32 { 0 }")
+        .set_source(main.clone(), "fun main() i32 { 0 }")
         .expect("store source");
     let database = LoaderDatabase::new_for_test(test_request(main.as_str()).with_sources(sources));
     let initial_graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
@@ -301,7 +301,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
         );
 
         database
-            .set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"))
+            .set_source(main.as_str(), format!("fun main() i32 {{ {revision} }}"))
             .expect("replace source");
         let graph = database.db.expect_get(crate::graph::ModuleGraphQuery);
         assert_eq!(
@@ -338,7 +338,7 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
 fn compiler_loader_roots_record_cross_database_dependencies() {
     let sources = SourceDatabase::new();
     sources
-        .set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }")
+        .set_source(SourcePath::new("main.nia"), "fun main() i32 { 0 }")
         .expect("store source");
     let loader = LoaderDatabase::new_for_test(test_request("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()))

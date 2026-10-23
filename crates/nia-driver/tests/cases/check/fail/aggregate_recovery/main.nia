@@ -1,23 +1,23 @@
-fn need(value: i32) i32 { value }
+fun need(value: i32) i32 { value }
 
-fn arrayRecovery() () {
+fun arrayRecovery() () {
     let value: Missing = [.{ field: need(true) }];
     _ = value;
 }
 
-fn tupleRecovery() () {
+fun tupleRecovery() () {
     let value: Missing = (.{ field: need(true) }, 0);
     _ = value;
 }
 
 union Storage[T] { value: T }
-fn unionRecovery() () {
+fun unionRecovery() () {
     let value: Storage[Missing] = .{ value: need(true) };
     _ = value;
 }
 
 enum Event { Value(Missing), Named { value: Missing } }
-fn enumRecovery() () {
+fun enumRecovery() () {
     _ = Event::Value(need(true));
     _ = Event::Named { value: need(true) };
 }

@@ -43,7 +43,7 @@ fn module_defs_query_uses_active_item_tree_query() {
 
 #[test]
 fn body_sensitive_resolution_uses_full_active_item_tree_query() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { let value = 1; value }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { let value = 1; value }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -71,13 +71,18 @@ fn value_resolution_does_not_build_visible_extensions_for_plain_paths() {
         r#"
 module helper;
 
-fn main() i32 {
+fun main() i32 {
 helper::value()
 }
 "#,
     );
     let entry_id = fixture.entry_id();
-    fixture.add_child(entry_id, "helper", "helper.nia", "pub fn value() i32 { 1 }");
+    fixture.add_child(
+        entry_id,
+        "helper",
+        "helper.nia",
+        "pub fun value() i32 { 1 }",
+    );
     let db = query_db(fixture.program());
 
     let values = db.expect_get(ValueResolutionQuery(entry_id));
@@ -107,7 +112,7 @@ extend S {
 const WIDTH: usize = 4usize;
 }
 
-fn main() usize {
+fun main() usize {
 S::WIDTH
 }
 "#,
@@ -128,7 +133,7 @@ S::WIDTH
 
 #[test]
 fn flow_check_uses_full_active_item_tree_query() {
-    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { return 1; }");
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { return 1; }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -151,7 +156,7 @@ fn flow_check_uses_full_active_item_tree_query() {
 fn static_check_uses_full_active_item_tree_query() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "static mut global: i32 = 1; fn main() i32 { global }",
+        "static mut global: i32 = 1; fun main() i32 { global }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -193,7 +198,7 @@ fn static_check_uses_full_active_item_tree_query() {
 fn body_check_collects_local_signature_subsets_with_full_type_lowering() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } static mut global: i32 = 1; fn main() i32 { global }",
+        "struct S { value: i32 } static mut global: i32 = 1; fun main() i32 { global }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -253,11 +258,11 @@ struct Item {
 state: i32,
 }
 
-fn set(items: &mut [Item], index: usize, state: i32) () {
+fun set(items: &mut [Item], index: usize, state: i32) () {
 items[index].state = state;
 }
 
-fn main() i32 {
+fun main() i32 {
 let mut items: [Item; 2] = [
     Item { state: 1 },
     Item { state: 2 },

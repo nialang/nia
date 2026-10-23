@@ -17,7 +17,7 @@ using std;
 using std::atomic;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut value = std::Atomic[usize]::init(1usize);
     let old = value.fetchAddMonotonic(2usize);

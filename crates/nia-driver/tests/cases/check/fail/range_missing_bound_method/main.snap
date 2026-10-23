@@ -1,14 +1,14 @@
 path: fail/range_missing_bound_method/main.nia
 code: E0301
 summary: range method `end` is unavailable because this range has no end bound
-label: 74..84 Primary Source range method `end` is unavailable because this range has no end bound
+label: 75..85 Primary Source range method `end` is unavailable because this range has no end bound
 note: the receiver has type `usize..`
 help: use `end()` only on ranges with an end bound
 
 path: fail/range_missing_bound_method/main.nia
 code: E0301
 summary: range method `start` is unavailable because this range has no start bound
-label: 94..104 Primary Source range method `start` is unavailable because this range has no start bound
+label: 95..105 Primary Source range method `start` is unavailable because this range has no start bound
 note: the receiver has type `..usize`
 help: use `start()` only on ranges with a start bound
 

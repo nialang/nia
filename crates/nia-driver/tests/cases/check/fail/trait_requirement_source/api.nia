@@ -1,7 +1,7 @@
 pub trait Base {
-    fn base(&self) bool;
+    fun base(&self) bool;
 }
 
 pub trait Child : Base {
-    fn child(&self) bool;
+    fun child(&self) bool;
 }

@@ -10,7 +10,7 @@ fn duplicate_parameter_diagnostic_keeps_previous_declaration() {
     write(
         &root.join("main.nia"),
         r#"
-fn main(value: i32, value: i32) i32 {
+fun main(value: i32, value: i32) i32 {
     value
 }
 "#,
@@ -52,13 +52,13 @@ fn main(value: i32, value: i32) i32 {
 fn parse_errors_are_published_once_per_module() {
     let cases = [
         (
-            "fn main() i32 { let value = 1 value }\n",
-            "fn helper() i32 { 2 }\n",
+            "fun main() i32 { let value = 1 value }\n",
+            "fun helper() i32 { 2 }\n",
             "main.nia",
         ),
         (
-            "module child;\nfn main() i32 { 0 }\n",
-            "fn helper() i32 { let other = 2 other }\n",
+            "module child;\nfun main() i32 { 0 }\n",
+            "fun helper() i32 { let other = 2 other }\n",
             "child.nia",
         ),
     ];
@@ -87,9 +87,9 @@ fn parse_errors_are_published_once_per_module() {
 
 #[test]
 fn incremental_parse_error_edits_match_clean_diagnostics() {
-    let broken = "fn main() i32 { let value = 1 value }\n";
-    let fixed = "fn main() i32 { let value = 1; value }\n";
-    let other = "fn main() i32 { value + }\n";
+    let broken = "fun main() i32 { let value = 1 value }\n";
+    let fixed = "fun main() i32 { let value = 1; value }\n";
+    let other = "fun main() i32 { value + }\n";
     let driver = test_driver();
     let summaries = |driver: &crate::Driver| {
         let program = driver.analyze_all_modules(CheckRequest::new("main.nia"));
@@ -141,22 +141,22 @@ enum Last: i32 {
 }
 
 extend First : std::builtin::IntoError[Middle] {
-    fn intoError(self) Middle { Middle::Failed }
+    fun intoError(self) Middle { Middle::Failed }
 }
 
 extend Middle : std::builtin::IntoError[Last] {
-    fn intoError(self) Last { Last::Failed }
+    fun intoError(self) Last { Last::Failed }
 }
 
-fn produce() First!i32 {
+fun produce() First!i32 {
     First::Failed!
 }
 
-fn propagate() Last!i32 {
+fun propagate() Last!i32 {
     !(produce().?)
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
@@ -214,7 +214,7 @@ fn codegens_tuple_struct_constructor_projection_and_match() {
         r#"
 struct FooId(u64)
 
-fn main() u64 {
+fun main() u64 {
     let id = FooId(41u64);
     let projected = id.0;
     match id {
@@ -242,13 +242,13 @@ enum B: i32 {
     _
 }
 
-fn to_b(error: A) B {
+fun to_b(error: A) B {
     _ = error;
     B::Other
 }
 
 extend[T] A!T {
-    fn as_b(self) B!T {
+    fun as_b(self) B!T {
         match self {
             !value => {
                 !value
@@ -260,11 +260,11 @@ extend[T] A!T {
     }
 }
 
-fn fail() A!i32 {
+fun fail() A!i32 {
     A::Bad!
 }
 
-fn main() i32 {
+fun main() i32 {
     match fail().as_b() {
         !value => {
             value
@@ -288,7 +288,7 @@ fn checks_bodies_against_normalized_type_aliases() {
         &root.join("main.nia"),
         r#"
 type Byte = u8;
-fn id(x: Byte) u8 {
+fun id(x: Byte) u8 {
     x
 }
 "#,
@@ -305,7 +305,7 @@ fn checks_bodies_against_normalized_generic_type_aliases() {
         &root.join("main.nia"),
         r#"
 type RawPtr[T] = &T;
-fn id(p: RawPtr[u8]) &u8 {
+fun id(p: RawPtr[u8]) &u8 {
     p
 }
 "#,
@@ -323,7 +323,7 @@ fn codegens_interleaved_type_and_const_generic_aliases() {
         r#"
 type Mixed[T, N: usize, U] = ([T; N], U);
 
-fn id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] {
+fun id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] {
     value
 }
 "#,
@@ -348,7 +348,7 @@ where T: Marker {
     value: &T,
 }
 
-fn main(value: &Box[bool]) () {
+fun main(value: &Box[bool]) () {
     _ = value;
 }
 "#,
@@ -383,11 +383,11 @@ enum B: i32 {
 }
 
 trait IntoB {
-    fn into_b(self) B;
+    fun into_b(self) B;
 }
 
 extend A : IntoB {
-    fn into_b(self) B {
+    fun into_b(self) B {
         _ = self;
         B::Other
     }
@@ -396,7 +396,7 @@ extend A : IntoB {
 extend[T, Source] Source!T
 where Source: IntoB
 {
-    fn as_b(self) B!T {
+    fun as_b(self) B!T {
         match self {
             !value => {
                 !value
@@ -408,11 +408,11 @@ where Source: IntoB
     }
 }
 
-fn fail() A!i32 {
+fun fail() A!i32 {
     A::Bad!
 }
 
-fn main() i32 {
+fun main() i32 {
     match fail().as_b() {
         !value => {
             value
@@ -448,11 +448,11 @@ enum B: i32 {
 }
 
 trait Convert[Target] {
-    fn convert(self) Target;
+    fun convert(self) Target;
 }
 
 extend A : Convert[B] {
-    fn convert(self) B {
+    fun convert(self) B {
         _ = self;
         B::Other
     }
@@ -461,7 +461,7 @@ extend A : Convert[B] {
 extend[T, Source, Target] Source!T
 where Source: Convert[Target]
 {
-    fn convert_error(self) Target!T {
+    fun convert_error(self) Target!T {
         match self {
             !value => {
                 !value
@@ -473,15 +473,15 @@ where Source: Convert[Target]
     }
 }
 
-fn fail() A!i32 {
+fun fail() A!i32 {
     A::Bad!
 }
 
-fn wrap() B!i32 {
+fun wrap() B!i32 {
     fail().convert_error()
 }
 
-fn main() i32 {
+fun main() i32 {
     match wrap() {
         !value => {
             value
@@ -507,12 +507,12 @@ fn supports_alias_to_pointer_extension_methods_without_void_cascades() {
 type RawPtr[T] = &T;
 
 extend[T] RawPtr[T] {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: RawPtr[i32]) () {
+fun main(ptr: RawPtr[i32]) () {
     if ptr.is_null() {}
 }
 "#,
@@ -547,36 +547,36 @@ fn supports_structural_extension_methods() {
 type RawPtr[T] = &T;
 
 extend i32 {
-    fn is_zero(self) bool { self == 0 }
+    fun is_zero(self) bool { self == 0 }
 }
 
 extend () {
-    fn unit(self) i32 { 1 }
+    fun unit(self) i32 { 1 }
 }
 
 extend[T] RawPtr[T] {
-    fn is_null(self) bool { self as usize == 0 }
+    fun is_null(self) bool { self as usize == 0 }
 }
 
 extend[T] [T] {
-    fn size(& self) usize { self.len() }
+    fun size(& self) usize { self.len() }
 }
 
 extend[T] &[T] {
-    fn ref_size(& self) usize { self.*.len() }
+    fun ref_size(& self) usize { self.*.len() }
 }
 
 extend[T] [T; 3] {
-    fn first(self) T { self[0] }
+    fun first(self) T { self[0] }
 }
 
-extend &fn(i32) i32 {
-    fn apply(self, value: i32) i32 { self(value) }
+extend &fun(i32) i32 {
+    fun apply(self, value: i32) i32 { self(value) }
 }
 
-fn inc(value: i32) i32 { value + 1 }
+fun inc(value: i32) i32 { value + 1 }
 
-fn main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
+fun main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
     {}.unit() + xs.size() as i32 + xs.ref_size() as i32 + triple.first() + (& inc).apply(1)
@@ -594,21 +594,21 @@ fn type_alias_to_function_pointer_is_callable_and_assignable() {
     write(
         &root.join("main.nia"),
         r#"
-type StepFn = &fn(i32) i32;
+type StepFn = &fun(i32) i32;
 
 struct Step {
     run: StepFn,
 }
 
-fn inc(value: i32) i32 {
+fun inc(value: i32) i32 {
     value + 1
 }
 
-fn call_direct(run: StepFn, value: i32) i32 {
+fun call_direct(run: StepFn, value: i32) i32 {
     run(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let step = Step { run: &inc };
     call_direct(step.run, 1) + (step.run)(1)
 }
@@ -633,7 +633,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         if self.current >= self.end {
             null
         } else {
@@ -644,7 +644,7 @@ extend Counter : Iterator {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut total = 0;
     let mut iter = Counter { current: 0, end: 3 };
     for _ in iter {
@@ -670,12 +670,12 @@ struct Counter {}
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         null
     }
 }
 
-fn main() () {
+fun main() () {
     let mut iter = Counter {};
     for &value in iter {}
 }
@@ -699,7 +699,7 @@ fn rejects_for_binding_type_annotations() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() () {
+fun main() () {
     for value: usize in 0..3 {}
 }
 "#,
@@ -722,11 +722,11 @@ fn rejects_unsized_slice_pointee_as_value_type() {
     write(
         &root.join("main.nia"),
         r#"
-fn take(xs: [i32]) i32 {
+fun take(xs: [i32]) i32 {
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -748,30 +748,30 @@ fn supports_extension_method_specialization() {
         &root.join("main.nia"),
         r#"
 extend[T] T {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         1
     }
 }
 
 extend i32 {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         2
     }
 }
 
 extend[T] &T {
-    fn ptr_rank(self) i32 {
+    fun ptr_rank(self) i32 {
         3
     }
 }
 
 extend &i32 {
-    fn ptr_rank(self) i32 {
+    fun ptr_rank(self) i32 {
         4
     }
 }
 
-fn main(value: &i32) i32 {
+fun main(value: &i32) i32 {
     1.rank() + value.ptr_rank()
 }
 "#,
@@ -788,18 +788,18 @@ fn concrete_slice_extension_is_more_specific_than_generic_slice_extension() {
         &root.join("main.nia"),
         r#"
 extend[T] [T] {
-    fn rank(& self) i32 {
+    fun rank(& self) i32 {
         1
     }
 }
 
 extend [char] {
-    fn rank(& self) i32 {
+    fun rank(& self) i32 {
         2
     }
 }
 
-fn main(text: &[char]) i32 {
+fun main(text: &[char]) i32 {
     text.rank()
 }
 "#,
@@ -816,24 +816,24 @@ fn concrete_trait_impl_is_more_specific_than_generic_slice_trait_impl() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(& self) i32;
+    fun show(& self) i32;
 }
 
 extend[T] [T] : Show
 where T: Sized + Show
 {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         1
     }
 }
 
 extend [char] : Show {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         2
     }
 }
 
-fn main(text: &[char]) i32 {
+fun main(text: &[char]) i32 {
     text.show()
 }
 "#,
@@ -850,7 +850,7 @@ fn concrete_trait_arg_impl_is_more_specific_than_generic_trait_arg_impl() {
         &root.join("main.nia"),
         r#"
 trait Convert[T] {
-    fn convert(& self, value: T) i32;
+    fun convert(& self, value: T) i32;
 }
 
 struct Target {}
@@ -858,19 +858,19 @@ struct Target {}
 extend[T] Target : Convert[T]
 where T: Sized
 {
-    fn convert(& self, value: T) i32 {
+    fun convert(& self, value: T) i32 {
         _ = value;
         1
     }
 }
 
 extend Target : Convert[i32] {
-    fn convert(& self, value: i32) i32 {
+    fun convert(& self, value: i32) i32 {
         value
     }
 }
 
-fn main(target: &Target) i32 {
+fun main(target: &Target) i32 {
     target.convert(2)
 }
 "#,
@@ -887,11 +887,11 @@ fn generic_slice_trait_impl_body_uses_element_trait_bound() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(& self) i32;
+    fun show(& self) i32;
 }
 
 extend i32 : Show {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         self.*
     }
 }
@@ -899,12 +899,12 @@ extend i32 : Show {
 extend[T] [T] : Show
 where T: Sized + Show
 {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         self[0].show()
     }
 }
 
-fn main(values: &[i32]) i32 {
+fun main(values: &[i32]) i32 {
     values.show()
 }
 "#,
@@ -924,7 +924,7 @@ fn generic_nominal_trait_impl_body_uses_element_trait_bound_with_slice_impls() {
 struct Formatter {}
 
 trait Format {
-    fn format(& self, formatter: &mut Formatter) ();
+    fun format(& self, formatter: &mut Formatter) ();
 }
 
 struct List[T] {
@@ -932,14 +932,14 @@ struct List[T] {
 }
 
 extend i32 : Format {
-    fn format(& self, formatter: &mut Formatter) () {
+    fun format(& self, formatter: &mut Formatter) () {
         _ = formatter;
         _ = self;
     }
 }
 
 extend [char] : Format {
-    fn format(& self, formatter: &mut Formatter) () {
+    fun format(& self, formatter: &mut Formatter) () {
         _ = formatter;
         _ = self;
     }
@@ -948,7 +948,7 @@ extend [char] : Format {
 extend[T] [T] : Format
 where T: Sized + Format
 {
-    fn format(& self, formatter: &mut Formatter) () {
+    fun format(& self, formatter: &mut Formatter) () {
         self[0].format(formatter);
     }
 }
@@ -956,12 +956,12 @@ where T: Sized + Format
 extend[T] List[T] : Format
 where T: Sized + Format
 {
-    fn format(& self, formatter: &mut Formatter) () {
+    fun format(& self, formatter: &mut Formatter) () {
         self.value.format(formatter);
     }
 }
 
-fn main(list: List[i32], formatter: &mut Formatter) () {
+fun main(list: List[i32], formatter: &mut Formatter) () {
     list.format(formatter);
 }
 "#,
@@ -983,18 +983,18 @@ struct Pair[A, B] {
 }
 
 extend[T] Pair[T, i32] {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         1
     }
 }
 
 extend[U] Pair[i32, U] {
-    fn rank(self) i32 {
+    fun rank(self) i32 {
         2
     }
 }
 
-fn main(pair: Pair[i32, i32]) i32 {
+fun main(pair: Pair[i32, i32]) i32 {
     pair.rank()
 }
 "#,
@@ -1018,14 +1018,14 @@ fn supports_structural_extension_associated_functions() {
         &root.join("main.nia"),
         r#"
 extend never {
-    fn nope(self) () {}
+    fun nope(self) () {}
 }
 
 extend i32 {
-    fn make() i32 { 0 }
+    fun make() i32 { 0 }
 }
 
-fn main() i32 {
+fun main() i32 {
     [i32]::make()
 }
 "#,
@@ -1086,12 +1086,12 @@ using entry::math;
 struct Point {}
 struct Box[T] { value: T }
 type Pair[T, U] = T;
-fn missing_arg(a: Box) {}
-fn extra_arg(a: Box[i32, bool]) {}
-fn alias_missing_arg(a: Pair[i32]) {}
-fn non_generic_arg(a: Point[i32]) {}
-fn qualified_missing_arg(a: math::RemoteBox) {}
-fn qualified_extra_arg(a: math::RemoteBox[i32, bool]) {}
+fun missing_arg(a: Box) {}
+fun extra_arg(a: Box[i32, bool]) {}
+fun alias_missing_arg(a: Pair[i32]) {}
+fun non_generic_arg(a: Point[i32]) {}
+fun qualified_missing_arg(a: math::RemoteBox) {}
+fun qualified_extra_arg(a: math::RemoteBox[i32, bool]) {}
 "#,
     );
     write(
@@ -1125,7 +1125,7 @@ fn checks_qualified_explicit_generic_function_calls() {
         r#"
 module math;
 using entry::math;
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut x: i32 = math::id[i32](1);
     _ = math::id[i32](flag);
     x
@@ -1135,7 +1135,7 @@ fn main(flag: bool) i32 {
     write(
         &root.join("math.nia"),
         r#"
-pub fn id[T](value: T) T {
+pub fun id[T](value: T) T {
     value
 }
 "#,
@@ -1168,7 +1168,7 @@ fn checks_qualified_inferred_generic_function_calls() {
         r#"
 module math;
 using entry::math;
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut x: i32 = math::id(1);
     _ = math::choose(1, flag);
     x
@@ -1178,11 +1178,11 @@ fn main(flag: bool) i32 {
     write(
         &root.join("math.nia"),
         r#"
-pub fn id[T](value: T) T {
+pub fun id[T](value: T) T {
     value
 }
 
-pub fn choose[T](left: T, right: T) T {
+pub fun choose[T](left: T, right: T) T {
     left
 }
 "#,
@@ -1213,11 +1213,11 @@ fn collects_unique_monomorphized_instances() {
     write(
         &root.join("main.nia"),
         r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut a: i32 = id(1);
     let mut b: i32 = id(2);
     a + b
@@ -1236,7 +1236,7 @@ fn driver_options_flow_into_checked_program_and_backend_lowering() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1315,24 +1315,24 @@ fn driver_output_renders_internal_diagnostics() {
     let rendered = crate::render_driver_error(
         &DriverError::InternalDiagnostic(diagnostic),
         Some("main.nia"),
-        Some("fn main() i32 { 0 }\n"),
+        Some("fun main() i32 { 0 }\n"),
     );
     assert!(rendered.contains("internal compiler error"), "{rendered}");
 }
 
 #[test]
 fn driver_facade_formats_inspection_outputs() {
-    let tokens = crate::tokens_inspection("fn main() i32 { 0 }\n");
-    assert!(tokens.text.contains("Fn"));
-    assert!(tokens.text.contains("0..2"));
+    let tokens = crate::tokens_inspection("fun main() i32 { 0 }\n");
+    assert!(tokens.text.contains("Fun"));
+    assert!(tokens.text.contains("0..3"));
 
-    let ast = crate::ast_inspection("fn main() i32 { 0 }\n");
+    let ast = crate::ast_inspection("fun main() i32 { 0 }\n");
     assert!(ast.parse_errors.is_empty(), "{:?}", ast.parse_errors);
     assert!(ast.text.contains("Function"));
 
-    let invalid = crate::ast_inspection("fn main(");
+    let invalid = crate::ast_inspection("fun main(");
     assert!(!invalid.parse_errors.is_empty());
-    let rendered = crate::render_parse_errors("main.nia", "fn main(", &invalid.parse_errors);
+    let rendered = crate::render_parse_errors("main.nia", "fun main(", &invalid.parse_errors);
     assert!(rendered.starts_with("error[E0101]:"), "{rendered}");
     assert!(rendered.contains("main.nia"), "{rendered}");
 }
@@ -1344,7 +1344,7 @@ fn driver_checks_in_memory_sources() {
         .set_source(
             "main.nia",
             r#"
-fn main() i32 {
+fun main() i32 {
     7
 }
 "#,
@@ -1369,7 +1369,7 @@ fn main() i32 {
 fn driver_invalidates_reused_loader_sources() {
     let driver = test_driver();
     driver
-        .set_source("main.nia", "fn main() i32 { 1 }")
+        .set_source("main.nia", "fun main() i32 { 1 }")
         .expect("set source");
 
     let first =
@@ -1377,7 +1377,7 @@ fn driver_invalidates_reused_loader_sources() {
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
     driver
-        .set_source("main.nia", "fn main() i32 { true }")
+        .set_source("main.nia", "fun main() i32 { true }")
         .expect("replace source");
 
     let second =
@@ -1400,12 +1400,12 @@ enum TargetError: i32 {
 }
 
 extend SourceError : std::builtin::IntoError[TargetError] {
-    const fn intoError(self) TargetError {
+    const fun intoError(self) TargetError {
         TargetError::First
     }
 }
 
-const fn propagate(value: SourceError!i32) TargetError!i32 {
+const fun propagate(value: SourceError!i32) TargetError!i32 {
     !(value.?)
 }
 
@@ -1416,11 +1416,11 @@ const width: usize = match converted {
     _ => 3,
 };
 
-fn requireOne(value: [i32; 1]) () {
+fun requireOne(value: [i32; 1]) () {
     _ = value;
 }
 
-fn main() () {
+fun main() () {
     let values: [i32; width] = [0; width];
     requireOne(values)
 }
@@ -1476,11 +1476,11 @@ enum TargetError: i32 {
     _,
 }
 
-fn source() SourceError!i32 {
+fun source() SourceError!i32 {
     SourceError::Failed!
 }
 
-fn main() TargetError!i32 {
+fun main() TargetError!i32 {
     source().orElse(&\cause: SourceError -> {
         _ = cause;
         !42
@@ -1531,7 +1531,7 @@ fn main() TargetError!i32 {
 fn driver_replaces_compiler_with_loader_query_session() {
     let driver = test_driver();
     driver
-        .set_source("main.nia", "fn main() i32 { 1 }")
+        .set_source("main.nia", "fun main() i32 { 1 }")
         .expect("set source");
     let first =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
@@ -1559,7 +1559,7 @@ fn compiler_session_settles_providers_before_single_executable_finalization() {
             r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -1592,7 +1592,7 @@ fn incremental_executable_body_check_reuses_inferred_global_types() {
             r#"
 static bytes = b"nia";
 
-fn main() u8 {
+fun main() u8 {
     bytes[0]
 }
 "#,
@@ -1611,11 +1611,11 @@ fn lowers_monomorphized_function_instances_with_symbolic_names() {
     write(
         &main_path,
         r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     id(1)
 }
 "#,
@@ -1673,11 +1673,11 @@ fn allows_recursive_generic_instantiations_with_same_type_args() {
     write(
         &root.join("main.nia"),
         r#"
-fn recurse[T](value: T) T {
+fun recurse[T](value: T) T {
     recurse[T](value)
 }
 
-fn main() i32 {
+fun main() i32 {
     recurse(1)
 }
 "#,
@@ -1693,15 +1693,15 @@ fn allows_indirect_recursive_generic_instantiations_with_same_type_args() {
     write(
         &root.join("main.nia"),
         r#"
-fn a[T](value: T) T {
+fun a[T](value: T) T {
     b[T](value)
 }
 
-fn b[T](value: T) T {
+fun b[T](value: T) T {
     a[T](value)
 }
 
-fn main() i32 {
+fun main() i32 {
     a(1)
 }
 "#,
@@ -1717,11 +1717,11 @@ fn reports_polymorphic_recursive_generic_instantiations() {
     write(
         &root.join("main.nia"),
         r#"
-fn grow[T](value: &T) i32 {
+fun grow[T](value: &T) i32 {
     grow[&T](&value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value = 1;
     grow[i32](&value)
 }
@@ -1770,7 +1770,7 @@ struct Pair {
     b: i32,
 }
 
-fn main(p: Pair) {}
+fun main(p: Pair) {}
 "#,
     );
 
@@ -1806,7 +1806,7 @@ fn std_linux_filesystem_struct_layouts_match_kernel_abi() {
         r#"
 using std::fs;
 
-fn main(dir: &fs::Dir, path: fs::RelativePathView) () {
+fun main(dir: &fs::Dir, path: fs::RelativePathView) () {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 "#,
@@ -1871,11 +1871,11 @@ fn std_dir_paths_reject_unvalidated_path_views() {
         r#"
 using std::fs;
 
-fn scalar(dir: &fs::Dir, path: fs::PathView) () {
+fun scalar(dir: &fs::Dir, path: fs::PathView) () {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 
-fn native(dir: &fs::Dir, path: fs::NativePathView) () {
+fun native(dir: &fs::Dir, path: fs::NativePathView) () {
     _ = dir.nativeMetadata(path, fs::MetadataOptions::init());
 }
 "#,
@@ -1899,7 +1899,7 @@ fn checks_cross_module_struct_literals() {
 module geom;
 using entry::geom;
 
-fn main() i32 {
+fun main() i32 {
     let mut p = geom::Point { x: 40, y: 2 };
     p.x + p.y
 }
@@ -1936,9 +1936,9 @@ static mut count: usize = 1;
 const N: usize = 2;
 static mut holders: [P; 2] = [P { arr: [0; 4] }; 2];
 
-fn id[T](value: T) T { value }
+fun id[T](value: T) T { value }
 
-fn main() i32 {
+fun main() i32 {
     let mut local = P { arr: [0; 4] };
     let i = 0usize;
     slots[count] = 1;

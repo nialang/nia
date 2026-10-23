@@ -48,7 +48,7 @@ fn run_steps_get_the_terminal_after_the_build_summary() {
 using std::process;
 using process::{Init, ExitCode};
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
     io::debugPrint(&"program-output\n", &[]).?;
     !()
@@ -61,7 +61,7 @@ pub fn main(init: Init) ExitCode!() {
         r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let app = b.addModule(
         build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia")),
     ).?;
@@ -263,7 +263,7 @@ fn progress_preserves_generated_products_and_warm_cache_decisions() {
     let off_root = nia_test_support::test_dir("progress-products-off");
     let on_root = nia_test_support::test_dir("progress-products-on");
     let script = r#"using std::build;
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let first = b.addGeneratedFileStep(&"first", build::BuildPathView::init(&"first.txt"), &b"first\n"[..]).?;
     let second = b.addGeneratedFileStep(&"second", build::BuildPathView::init(&"second.txt"), &b"second\n"[..]).?;
     let all = b.addAggregateStep(&"all").?;
@@ -479,7 +479,7 @@ fn progress_long_parallel_actions_preserve_products_and_report_resources() {
         ])"#
     };
     std::fs::write(root.join("build.nia"), format!(r#"using std::build;
-pub fn build(b: &mut build::Build) build::Error!() {{
+pub fun build(b: &mut build::Build) build::Error!() {{
     let first = b.addExternalCommandStep(&"first", {command}.withResourceClass(build::ActionResourceClass::Io)).?;
     let second = b.addExternalCommandStep(&"second", {command}.withResourceClass(build::ActionResourceClass::Io)).?;
     let all = b.addGeneratedFileStep(&"all", build::BuildPathView::init(&"result.txt"), &b"result\n"[..]).?;

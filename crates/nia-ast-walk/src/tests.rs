@@ -48,7 +48,7 @@ fn visits_patterns_from_every_pattern_owning_ast_node() {
     let source = r#"
 struct Point { x: i32, y: i32 }
 
-fn inspect(points: [Point; 1], point: Point) i32 {
+fun inspect(points: [Point; 1], point: Point) i32 {
     let Point { x: 101, y: 102..=103 } = point;
     for Point { x: 201, y: 202 } in points {}
     let selected = if point is Point { x: 301, y: 302 } { 1 } else { 0 };
@@ -94,7 +94,7 @@ union Storage[N: kinds::Storage] {}
 trait Inspect[N: kinds::Inspect] {}
 extend[N: kinds::Extension] Record[1] {}
 type Alias[N: kinds::Alias] = Record[1];
-fn run[N: kinds::Function]() () {}
+fun run[N: kinds::Function]() () {}
 "#;
     let module = parse(source);
     let mut collector = StructuralCollector {
@@ -127,7 +127,7 @@ fn run[N: kinds::Function]() () {}
 #[test]
 fn finds_static_bindings_nested_in_expression_blocks_and_closures() {
     let source = r#"
-fn collect() () {
+fun collect() () {
     static root: i32 = 0;
     let root_value = 0;
     let closure = \[root_value] -> { static nested: i32 = 1; };

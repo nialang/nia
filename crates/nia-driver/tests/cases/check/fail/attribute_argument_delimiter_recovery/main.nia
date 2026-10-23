@@ -1,4 +1,4 @@
 @[custom(true false)]
-fn retained() () {}
+fun retained() () {}
 
-fn later() () {}
+fun later() () {}

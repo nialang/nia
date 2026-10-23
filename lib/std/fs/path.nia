@@ -14,22 +14,22 @@ using types::{
 };
 
 extend PathView {
-    pub fn init(text: &[char]) PathView {
+    pub fun init(text: &[char]) PathView {
         .{ text }
     }
 
-    pub fn text(&self) &[char] {
+    pub fun text(&self) &[char] {
         self.text
     }
 
-    pub fn relative(self) PathError!RelativePathView {
+    pub fun relative(self) PathError!RelativePathView {
         RelativePathView::fromPath(self)
     }
 
     // Validates NULs, total UTF-8 length, and terminator capacity before
     // writing. Any encoding error leaves the complete output buffer unchanged
     // rather than publishing a partial native path.
-    pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
+    pub fun encode(&self, storage: &mut [u8]) PathError!NativePathView {
         let byteLen = encodedPathByteLen(self.text()).?;
         if byteLen >= storage.len() {
             return .TooLong!;
@@ -47,7 +47,7 @@ extend PathView {
     }
 }
 
-fn encodedPathByteLen(text: &[char]) PathError!usize {
+fun encodedPathByteLen(text: &[char]) PathError!usize {
     let mut len: usize = 0;
     for &ch in text {
         if ch.codepoint() == 0 {
@@ -62,86 +62,86 @@ fn encodedPathByteLen(text: &[char]) PathError!usize {
 }
 
 extend RelativePathView {
-    fn init(path: PathView) RelativePathView {
+    fun init(path: PathView) RelativePathView {
         .{ path }
     }
 
-    pub fn fromText(text: &[char]) PathError!RelativePathView {
+    pub fun fromText(text: &[char]) PathError!RelativePathView {
         RelativePathView::fromPath(.init(text))
     }
 
-    pub fn fromPath(path: PathView) PathError!RelativePathView {
+    pub fun fromPath(path: PathView) PathError!RelativePathView {
         validateRelativeText(path.text()).?;
         !.init(path)
     }
 
-    pub fn path(&self) PathView {
+    pub fun path(&self) PathView {
         self.path
     }
 
-    pub fn text(&self) &[char] {
+    pub fun text(&self) &[char] {
         self.path.text()
     }
 
-    pub fn encode(&self, storage: &mut [u8]) PathError!RelativeNativePathView {
+    pub fun encode(&self, storage: &mut [u8]) PathError!RelativeNativePathView {
         let native = self.path.encode(storage).?;
         !.init(native)
     }
 }
 
 extend Path {
-    pub fn init() Path {
+    pub fun init() Path {
         .{ text: .init() }
     }
 
-    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!Path {
+    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!Path {
         let text = string::String::initCapacity(allocator, capacity).?;
         !.{ text }
     }
 
-    pub fn fromString(text: string::String) Path {
+    pub fun fromString(text: string::String) Path {
         .{ text }
     }
 
-    pub fn fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!Path {
+    pub fun fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!Path {
         let text = string::String::fromSlice(allocator, path.text()).?;
         !.fromString(text)
     }
 
-    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) string::TextError!Path {
+    pub fun fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) string::TextError!Path {
         let text = string::String::fromUtf8(allocator, bytes).?;
         !.fromString(text)
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.text.deinit(allocator)
     }
 
-    pub fn view(&self) PathView {
+    pub fun view(&self) PathView {
         .init(self.text.text())
     }
 
-    pub fn text(&self) &[char] {
+    pub fun text(&self) &[char] {
         self.text.text()
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.text.len()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.text.isEmpty()
     }
 
-    pub fn clear(&mut self) () {
+    pub fun clear(&mut self) () {
         self.text.clear()
     }
 
-    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!() {
+    pub fun append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!() {
         self.text.append(allocator, text)
     }
 
-    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!() {
+    pub fun push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!() {
         self.text.push(allocator, ch)
     }
 
@@ -149,16 +149,16 @@ extend Path {
     // recorded before growth and the slice is rebuilt after any allocation
     // move; the join commits only after the complete length is reserved and
     // retains no temporary allocation owner.
-    pub fn joinComponent(&mut self, allocator: &mut mem::Allocator, component: &[char]) mem::Error!() {
+    pub fun joinComponent(&mut self, allocator: &mut mem::Allocator, component: &[char]) mem::Error!() {
         appendComponentToString(allocator, component, &mut self.text)
     }
 
-    pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
+    pub fun encode(&self, storage: &mut [u8]) PathError!NativePathView {
         self.view().encode(storage)
     }
 }
 
-fn appendComponentToString(
+fun appendComponentToString(
     allocator: &mut mem::Allocator,
     component: &[char],
     out: &mut string::String,
@@ -200,7 +200,7 @@ fn appendComponentToString(
     }
 }
 
-fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
+fun textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     if text.len() == 0 or out.len() == 0 {
         return !null;
     }
@@ -236,16 +236,16 @@ fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     !?(byteOffset / itemSize)
 }
 
-fn isSeparator(ch: char) bool {
+fun isSeparator(ch: char) bool {
     ch == '/'
 }
 
 extend NativePathView {
-    fn init(ptr: &u8, len: usize) NativePathView {
+    fun init(ptr: &u8, len: usize) NativePathView {
         .{ ptr, len }
     }
 
-    pub fn fromBytes(bytes: &[u8]) PathError!NativePathView {
+    pub fun fromBytes(bytes: &[u8]) PathError!NativePathView {
         if bytes.len() == 0 or bytes[bytes.len() - 1] != 0 {
             return .MissingTerminator!;
         }
@@ -260,60 +260,60 @@ extend NativePathView {
         !.init(bytes.ptr(), len)
     }
 
-    pub fn relative(self) PathError!RelativeNativePathView {
+    pub fun relative(self) PathError!RelativeNativePathView {
         RelativeNativePathView::fromNative(self)
     }
 
-    pub fn ptr(&self) &u8 {
+    pub fun ptr(&self) &u8 {
         self.ptr
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         &self.ptr[0..self.len]
     }
 
-    pub fn nulTerminatedBytes(&self) &[u8] {
+    pub fun nulTerminatedBytes(&self) &[u8] {
         &self.ptr[0..(self.len + 1)]
     }
 }
 
 extend RelativeNativePathView {
-    fn init(path: NativePathView) RelativeNativePathView {
+    fun init(path: NativePathView) RelativeNativePathView {
         .{ path }
     }
 
-    pub fn fromBytes(bytes: &[u8]) PathError!RelativeNativePathView {
+    pub fun fromBytes(bytes: &[u8]) PathError!RelativeNativePathView {
         let native = NativePathView::fromBytes(bytes).?;
         RelativeNativePathView::fromNative(native)
     }
 
-    pub fn fromNative(path: NativePathView) PathError!RelativeNativePathView {
+    pub fun fromNative(path: NativePathView) PathError!RelativeNativePathView {
         validateRelativeBytes(path.bytes()).?;
         !.init(path)
     }
 
-    pub fn native(&self) NativePathView {
+    pub fun native(&self) NativePathView {
         self.path
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         self.path.bytes()
     }
 
-    pub fn nulTerminatedBytes(&self) &[u8] {
+    pub fun nulTerminatedBytes(&self) &[u8] {
         self.path.nulTerminatedBytes()
     }
 
-    pub fn ptr(&self) &u8 {
+    pub fun ptr(&self) &u8 {
         self.path.ptr()
     }
 }
 
-fn validateRelativeText(text: &[char]) PathError!() {
+fun validateRelativeText(text: &[char]) PathError!() {
     if text.len() != 0 and text[0] == '/' {
         return .Absolute!;
     }
@@ -340,7 +340,7 @@ fn validateRelativeText(text: &[char]) PathError!() {
     !()
 }
 
-fn validateRelativeBytes(bytes: &[u8]) PathError!() {
+fun validateRelativeBytes(bytes: &[u8]) PathError!() {
     if bytes.len() != 0 and bytes[0] == b'/' {
         return .Absolute!;
     }

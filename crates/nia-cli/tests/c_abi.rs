@@ -240,10 +240,10 @@ fn invalid_extern_signatures_are_user_errors_in_check_and_emit() {
         r#"
 using std::process;
 
-extern fn takes_bool(flag: bool);
-extern fn takes_wide(value: i128);
+extern fun takes_bool(flag: bool);
+extern fun takes_wide(value: i128);
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }

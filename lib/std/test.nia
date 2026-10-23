@@ -14,7 +14,7 @@ pub enum Error {
 }
 
 extend Error : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
             .AssertionFailed(location) => {
                 location.format(formatter).?;
@@ -43,7 +43,7 @@ pub enum CaseStatus: i32 {
 // so a suite can keep its case table in static storage.
 pub struct Case {
     name: &[char],
-    callback: &Fn() Error!(),
+    callback: &Fun() Error!(),
 }
 
 pub struct CaseResult {
@@ -67,21 +67,21 @@ pub struct Runner {
     failFast: bool,
 }
 
-fn ignoreResult(result: CaseResult) () {
+fun ignoreResult(result: CaseResult) () {
     _ = result;
     ()
 }
 
 extend Case {
-    pub fn init(name: &[char], callback: &Fn() Error!()) Case {
+    pub fun init(name: &[char], callback: &Fun() Error!()) Case {
         .{ name, callback }
     }
 
-    pub fn name(&self) &[char] {
+    pub fun name(&self) &[char] {
         self.name
     }
 
-    pub fn run(&self) CaseResult {
+    pub fun run(&self) CaseResult {
         match (self.callback)() {
             !() => .{ name: self.name, status: .Passed, error: null },
             error! => .{ name: self.name, status: .Failed, error: ?error },
@@ -90,78 +90,78 @@ extend Case {
 }
 
 extend CaseResult {
-    fn skipped(name: &[char]) CaseResult {
+    fun skipped(name: &[char]) CaseResult {
         .{ name: name, status: .Skipped, error: null }
     }
 
-    pub fn name(&self) &[char] {
+    pub fun name(&self) &[char] {
         self.name
     }
 
-    pub fn status(&self) CaseStatus {
+    pub fun status(&self) CaseStatus {
         self.status
     }
 
-    pub fn error(&self) ?Error {
+    pub fun error(&self) ?Error {
         self.error
     }
 
-    pub fn isPassed(&self) bool {
+    pub fun isPassed(&self) bool {
         if self.status is (.Passed) { true } else { false }
     }
 
-    pub fn isFailed(&self) bool {
+    pub fun isFailed(&self) bool {
         if self.status is (.Failed) { true } else { false }
     }
 
-    pub fn isSkipped(&self) bool {
+    pub fun isSkipped(&self) bool {
         if self.status is (.Skipped) { true } else { false }
     }
 }
 
 extend RunSummary {
-    pub fn init() RunSummary {
+    pub fun init() RunSummary {
         .{ total: 0, passed: 0, failed: 0, skipped: 0 }
     }
 
-    pub fn total(&self) usize {
+    pub fun total(&self) usize {
         self.total
     }
 
-    pub fn passed(&self) usize {
+    pub fun passed(&self) usize {
         self.passed
     }
 
-    pub fn failed(&self) usize {
+    pub fun failed(&self) usize {
         self.failed
     }
 
-    pub fn skipped(&self) usize {
+    pub fun skipped(&self) usize {
         self.skipped
     }
 
-    pub fn isSuccessful(&self) bool {
+    pub fun isSuccessful(&self) bool {
         self.failed == 0
     }
 }
 
 extend Runner {
-    pub fn init(cases: &[Case]) Runner {
+    pub fun init(cases: &[Case]) Runner {
         .{ cases, failFast: false }
     }
 
-    pub fn withFailFast(self) Runner {
+    pub fun withFailFast(self) Runner {
         .{ cases: self.cases, failFast: true }
     }
 
-    pub fn run(self) RunSummary {
+    pub fun run(self) RunSummary {
         self.runWith(&ignoreResult)
     }
 
     // Run every selected case and report each result to a caller-owned
     // callback. A mutable callable view lets reporters accumulate output or
     // counters in explicitly borrowed state without requiring allocation.
-    pub fn runWith(self, reporter: &mut Fn(CaseResult) ()) RunSummary {
+    pub fun runWith(self, reporter: &mut Fun(CaseResult) ()) RunSummary {
         let mut summary = RunSummary::init();
         let mut index: usize = 0;
         while index < self.cases.len() {
@@ -188,7 +188,7 @@ extend Runner {
 }
 
 @[trackCaller]
-pub fn expect(condition: bool) Error!() {
+pub fun expect(condition: bool) Error!() {
     if not condition {
         return .AssertionFailed(callerLocation())!;
     }
@@ -196,7 +196,7 @@ pub fn expect(condition: bool) Error!() {
 }
 
 @[trackCaller]
-pub fn expectEqual[T](actual: T, expected: T) Error!()
+pub fun expectEqual[T](actual: T, expected: T) Error!()
 where T: Eq[T]
 {
     if actual != expected {
@@ -206,7 +206,7 @@ where T: Eq[T]
 }
 
 @[trackCaller]
-pub fn expectNotEqual[T](actual: T, expected: T) Error!()
+pub fun expectNotEqual[T](actual: T, expected: T) Error!()
 where T: Eq[T]
 {
     if actual == expected {
@@ -216,6 +216,6 @@ where T: Eq[T]
 }
 
 @[trackCaller]
-pub fn fail() Error!() {
+pub fun fail() Error!() {
     .AssertionFailed(callerLocation())!
 }

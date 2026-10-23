@@ -5,7 +5,7 @@ use super::*;
 fn function_body_update_refreshes_handles_but_keeps_public_snapshots_green() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub struct S { value: i32 } fn main() i32 { 0 }",
+        "pub struct S { value: i32 } fun main() i32 { 0 }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -16,7 +16,7 @@ fn function_body_update_refreshes_handles_but_keeps_public_snapshots_green() {
 
     fixture.update_module_source(
         module_id,
-        "pub struct S { value: i32 } fn main() i32 { 1 }",
+        "pub struct S { value: i32 } fun main() i32 { 1 }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -32,7 +32,7 @@ fn supertrait_associated_binding_edits_match_clean_recomputation() {
     const VALID: &str = r#"
 trait Parent { type Item; }
 trait Child : Parent[Item = i32] {
-    fn value(&self) i32 {
+    fun value(&self) i32 {
         let item: [Self as Parent]::Item = 7;
         item
     }
@@ -40,12 +40,12 @@ trait Child : Parent[Item = i32] {
 struct Value {}
 extend Value : Parent { type Item = i32; }
 extend Value : Child {}
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#;
     const INVALID: &str = r#"
 trait Parent { type Item; }
 trait Child : Parent[Item = bool] {
-    fn value(&self) i32 {
+    fun value(&self) i32 {
         let item: [Self as Parent]::Item = 7;
         item
     }
@@ -53,7 +53,7 @@ trait Child : Parent[Item = bool] {
 struct Value {}
 extend Value : Parent { type Item = i32; }
 extend Value : Child {}
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#;
 
     fn summaries(program: CheckedProgram) -> Vec<String> {
@@ -94,22 +94,22 @@ fn trait_object_upcast_tracks_declared_supertrait_binding_edits() {
     const VALID: &str = r#"
 trait Parent {
     type Item;
-    fn value(&self) [Self as Parent]::Item;
+    fun value(&self) [Self as Parent]::Item;
 }
 trait Child : Parent[Item = i32] {}
-fn upcast(child: &Child) &Parent[Item = i32] { child }
-fn read(child: &Child) i32 { child.value() }
-fn main() i32 { 0 }
+fun upcast(child: &Child) &Parent[Item = i32] { child }
+fun read(child: &Child) i32 { child.value() }
+fun main() i32 { 0 }
 "#;
     const INVALID: &str = r#"
 trait Parent {
     type Item;
-    fn value(&self) [Self as Parent]::Item;
+    fun value(&self) [Self as Parent]::Item;
 }
 trait Child : Parent[Item = bool] {}
-fn upcast(child: &Child) &Parent[Item = i32] { child }
-fn read(child: &Child) i32 { child.value() }
-fn main() i32 { 0 }
+fun upcast(child: &Child) &Parent[Item = i32] { child }
+fun read(child: &Child) i32 { child.value() }
+fun main() i32 { 0 }
 "#;
 
     fn summaries(program: CheckedProgram) -> Vec<String> {
@@ -151,7 +151,7 @@ fn main() i32 { 0 }
 fn function_body_type_update_refreshes_revision_bearing_signature_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
+        "pub struct S { value: i32 } fun main() i32 { let value: i32 = 0; value }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -161,7 +161,7 @@ fn function_body_type_update_refreshes_revision_bearing_signature_queries() {
 
     fixture.update_module_source(
         module_id,
-        "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
+        "pub struct S { value: i32 } fun main() i32 { let value: u8 = 0; value as i32 }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -174,7 +174,7 @@ fn function_body_type_update_refreshes_revision_bearing_signature_queries() {
 fn body_local_type_update_reuses_program_body_signature_indexes() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
+        "pub struct S { value: i32 } fun main() i32 { let value: i32 = 0; value }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -184,7 +184,7 @@ fn body_local_type_update_reuses_program_body_signature_indexes() {
 
     fixture.update_module_source(
         module_id,
-        "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
+        "pub struct S { value: i32 } fun main() i32 { let value: u8 = 0; value as i32 }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -205,7 +205,7 @@ fn body_local_type_update_reuses_program_body_signature_indexes() {
 fn function_signature_update_refreshes_revision_bearing_definition_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub struct S { value: i32 } fn helper() i32 { 1 } fn main() i32 { helper() }",
+        "pub struct S { value: i32 } fun helper() i32 { 1 } fun main() i32 { helper() }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -215,7 +215,7 @@ fn function_signature_update_refreshes_revision_bearing_definition_queries() {
 
     fixture.update_module_source(
         module_id,
-        "pub struct S { value: i32 } fn helper() u8 { 1 } fn main() i32 { helper() as i32 }",
+        "pub struct S { value: i32 } fun helper() u8 { 1 } fun main() i32 { helper() as i32 }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -225,7 +225,7 @@ fn function_signature_update_refreshes_revision_bearing_definition_queries() {
 fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub fn take(value: (i32, bool)) i32 { value.0 } fn main() i32 { 0 }",
+        "pub fun take(value: (i32, bool)) i32 { value.0 } fun main() i32 { 0 }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -236,7 +236,7 @@ fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
 
     fixture.update_module_source(
         module_id,
-        "pub fn take(value: (bool, i32)) i32 { value.1 } fn main() i32 { 0 }",
+        "pub fun take(value: (bool, i32)) i32 { value.1 } fun main() i32 { 0 }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -254,7 +254,7 @@ fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
 
     fixture.update_module_source(
         module_id,
-        "pub fn take(value: (bool, u8)) u8 { value.1 } fn main() i32 { 0 }",
+        "pub fun take(value: (bool, u8)) u8 { value.1 } fun main() i32 { 0 }",
         SourceRevision(2),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -270,9 +270,9 @@ fn tuple_element_order_and_type_updates_invalidate_signature_lowering() {
 #[test]
 fn function_body_type_update_refreshes_signature_program_type_context() {
     let mut fixture =
-        LoadedProgramFixture::new("main.nia", "fn main() i32 { let value: i32 = 0; value }");
+        LoadedProgramFixture::new("main.nia", "fun main() i32 { let value: i32 = 0; value }");
     let entry_id = fixture.entry_id();
-    fixture.add_child(entry_id, "helper", "helper.nia", "fn helper() i32 { 1 }");
+    fixture.add_child(entry_id, "helper", "helper.nia", "fun helper() i32 { 1 }");
     let database = fixture.database();
 
     let first = database.check_program();
@@ -280,7 +280,7 @@ fn function_body_type_update_refreshes_signature_program_type_context() {
 
     fixture.update_module_source(
         entry_id,
-        "fn main() i32 { let value: u8 = 0; value as i32 }",
+        "fun main() i32 { let value: u8 = 0; value as i32 }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -300,7 +300,7 @@ fn function_body_type_update_refreshes_signature_program_type_context() {
 fn source_identity_update_invalidates_module_dependent_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "pub struct S { value: i32 } fn main() i32 { 0 }",
+        "pub struct S { value: i32 } fun main() i32 { 0 }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();

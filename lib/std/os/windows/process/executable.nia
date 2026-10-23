@@ -27,7 +27,7 @@ using pkg::os::windows::path::normalizeSeparators;
 const defaultPathExt: &[u8] = &b".COM;.EXE;.BAT;.CMD";
 
 /// Writes the NUL-terminated application path for `program` into `storage`.
-pub(pkg) fn resolveExecutable(
+pub(pkg) fun resolveExecutable(
     program: &u8,
     envp: &&u8,
     cwd: ?&u8,
@@ -80,7 +80,7 @@ pub(pkg) fn resolveExecutable(
 
 // Tries `directory\name`, then `directory\name` plus each extension. An empty
 // directory is the child's working directory.
-fn findInDirectory(
+fun findInDirectory(
     directory: &[u8],
     name: &[u8],
     extensions: &[u8],
@@ -128,7 +128,7 @@ fn findInDirectory(
     !false
 }
 
-fn findInCurrentDirectory(
+fun findInCurrentDirectory(
     name: &[u8],
     extensions: &[u8],
     storage: &mut [u16],
@@ -160,7 +160,7 @@ fn findInCurrentDirectory(
     !false
 }
 
-fn appendWideBytes(storage: &mut [u16], cursor: &mut usize, bytes: &[u8]) Errno!() {
+fun appendWideBytes(storage: &mut [u16], cursor: &mut usize, bytes: &[u8]) Errno!() {
     if cursor.* >= storage.len() { return .TooLong!; }
     let mut text: [u8; maxPathBytes] = [0; maxPathBytes];
     if bytes.len() >= text.len() { return .TooLong!; }
@@ -175,18 +175,18 @@ fn appendWideBytes(storage: &mut [u16], cursor: &mut usize, bytes: &[u8]) Errno!
     !()
 }
 
-fn isWideFile(storage: &mut [u16]) bool {
+fun isWideFile(storage: &mut [u16]) bool {
     let attributes = GetFileAttributesW(&storage[0]);
     attributes != invalidFileAttributes and (attributes & fileAttributeDirectory) == 0
 }
 
-fn isFile(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!bool {
+fun isFile(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!bool {
     let path = wideCandidate(candidate, length, storage).?;
     let attributes = GetFileAttributesW(path);
     !(attributes != invalidFileAttributes and (attributes & fileAttributeDirectory) == 0)
 }
 
-fn wideCandidate(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!&u16 {
+fun wideCandidate(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!&u16 {
     if length >= candidate.len() {
         return .TooLong!;
     }
@@ -195,7 +195,7 @@ fn wideCandidate(candidate: &[u8], length: usize, storage: &mut [u16]) Errno!&u1
     !path
 }
 
-fn appendDirectory(candidate: &mut [u8], cursor: &mut usize, directory: &u8) Errno!() {
+fun appendDirectory(candidate: &mut [u8], cursor: &mut usize, directory: &u8) Errno!() {
     let length = cStringLen(directory);
     appendBytes(candidate, cursor, &directory[0..length]).?;
     if length != 0 {
@@ -204,7 +204,7 @@ fn appendDirectory(candidate: &mut [u8], cursor: &mut usize, directory: &u8) Err
     !()
 }
 
-fn appendSeparator(candidate: &mut [u8], cursor: &mut usize) Errno!() {
+fun appendSeparator(candidate: &mut [u8], cursor: &mut usize) Errno!() {
     if cursor.* != 0 and isSeparator(candidate[cursor.* - 1]) {
         return !();
     }
@@ -212,7 +212,7 @@ fn appendSeparator(candidate: &mut [u8], cursor: &mut usize) Errno!() {
 }
 
 // Leaves one byte for the terminator that `utf8ToWide` reads.
-fn appendBytes(candidate: &mut [u8], cursor: &mut usize, bytes: &[u8]) Errno!() {
+fun appendBytes(candidate: &mut [u8], cursor: &mut usize, bytes: &[u8]) Errno!() {
     if bytes.len() >= candidate.len() - cursor.* {
         return .TooLong!;
     }
@@ -229,7 +229,7 @@ fn appendBytes(candidate: &mut [u8], cursor: &mut usize, bytes: &[u8]) Errno!() 
     !()
 }
 
-fn environmentValue(envp: &&u8, name: &[u8]) ?&[u8] {
+fun environmentValue(envp: &&u8, name: &[u8]) ?&[u8] {
     if envp == 0usize as &&u8 {
         return null;
     }
@@ -247,7 +247,7 @@ fn environmentValue(envp: &&u8, name: &[u8]) ?&[u8] {
     null
 }
 
-fn asciiEqualIgnoringCase(left: &[u8], right: &[u8]) bool {
+fun asciiEqualIgnoringCase(left: &[u8], right: &[u8]) bool {
     if left.len() != right.len() {
         return false;
     }
@@ -261,11 +261,11 @@ fn asciiEqualIgnoringCase(left: &[u8], right: &[u8]) bool {
     true
 }
 
-fn asciiUpper(byte: u8) u8 {
+fun asciiUpper(byte: u8) u8 {
     if byte >= b'a' and byte <= b'z' { byte - 32 } else { byte }
 }
 
-fn unquote(entry: &[u8]) &[u8] {
+fun unquote(entry: &[u8]) &[u8] {
     if entry.len() >= 2 and entry[0] == b'"' and entry[entry.len() - 1] == b'"' {
         &entry[1..entry.len() - 1]
     } else {
@@ -273,11 +273,11 @@ fn unquote(entry: &[u8]) &[u8] {
     }
 }
 
-fn isSeparator(byte: u8) bool {
+fun isSeparator(byte: u8) bool {
     byte == b'/' or byte == 92
 }
 
-fn hasPathComponent(name: &[u8]) bool {
+fun hasPathComponent(name: &[u8]) bool {
     let mut index: usize = 0;
     while index < name.len() {
         if isSeparator(name[index]) or name[index] == b':' {
@@ -288,11 +288,11 @@ fn hasPathComponent(name: &[u8]) bool {
     false
 }
 
-fn isAbsolute(name: &[u8]) bool {
+fun isAbsolute(name: &[u8]) bool {
     isSeparator(name[0]) or (name.len() > 1 and name[1] == b':')
 }
 
-fn hasExtension(name: &[u8]) bool {
+fun hasExtension(name: &[u8]) bool {
     let mut index: usize = 0;
     while index < name.len() {
         if name[index] == b'.' {

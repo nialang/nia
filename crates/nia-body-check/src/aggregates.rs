@@ -1469,7 +1469,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
         let Some(function_id) = self.resolved_const_function(callee) else {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "const expression can only call `const fun`".to_string(),
             });
         };
         let Some(signature) = self
@@ -1478,7 +1478,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
         else {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "const expression can only call `const fun`".to_string(),
             });
         };
         let instantiation = self.instantiate_resolved_const_function_generics(
@@ -1491,7 +1491,7 @@ impl ResolvedConstEnv for BodyChecker<'_> {
         let Some(function) = self.const_function_body(function_id) else {
             return Err(ConstError {
                 span,
-                message: "const expression can only call `const fn`".to_string(),
+                message: "const expression can only call `const fun`".to_string(),
             });
         };
         let output = nia_const_eval::eval_resolved_const_function_call(

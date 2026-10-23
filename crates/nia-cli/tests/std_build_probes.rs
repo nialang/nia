@@ -88,7 +88,7 @@ fn structured_build_inspection_reports_nodes_tools_observations_and_dry_run() {
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let mut buffer: [u8; 64] = [0; 64];
     _ = b.probeFile(fs::PathView::init(&"src/main.nia"), &mut buffer[..]).?;
     let rootModule = b.addModule(build::ModuleOptions::init(
@@ -204,7 +204,7 @@ fn command_and_tool_probes_reuse_and_invalidate_on_tool_change() {
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {{
+pub fun build(b: &mut build::Build) build::Error!() {{
     let mut buffer: [u8; 4096] = [0; 4096];
     let arguments: [&[char]; {argument_count}] = {command_arguments};
     _ = b.probeCommand(fs::PathView::init(&"{command_path}"), &arguments[..], &mut buffer[..]).?;
@@ -299,7 +299,7 @@ fn git_state_probe_reuses_and_invalidates_when_repository_state_changes() {
         r#"
 using std::build;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let mut buffer: [u8; 4096] = [0; 4096];
     _ = b.probeGitState(&mut buffer[..]).?;
     let step = b.addAggregateStep(&"default").?;
@@ -371,7 +371,7 @@ fn build_environment_probes_distinguish_absent_empty_and_changed_values() {
         r#"
 using std::build;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     _ = b.probeEnv(&"NIA_BUILD_PROBE_ABSENT").?;
     _ = b.probeEnv(&"NIA_BUILD_PROBE_EMPTY").?;
     _ = b.probeEnv(&"NIA_BUILD_PROBE_VALUE").?;
@@ -481,7 +481,7 @@ fn build_directory_probe_records_entry_size_and_invalidates_on_resize() {
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let mut buffer: [u8; 4096] = [0; 4096];
     b.probeDirectory(fs::PathView::init(&"inputs"), &mut buffer[..]).?;
     let step = b.addAggregateStep(&"default").?;
@@ -575,7 +575,7 @@ fn build_file_presence_probe_invalidates_on_create_and_remove() {
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let present = b.probeFilePresence(fs::PathView::init(&"optional/input")).?;
     let name: &[char] = if present { &"present" } else { &"absent" };
     let step = b.addAggregateStep(name).?;
@@ -639,7 +639,7 @@ fn directory_iterator_compiles_for_all_linux_targets() {
 using std::fs;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut directory = fs::Dir::cwd().?;
     defer directory.close().?;

@@ -1,64 +1,64 @@
 path: fail/aggregate_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 74..81 Primary Source unknown type `Missing`
+label: 76..83 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/aggregate_recovery/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 100..104 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 102..106 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 path: fail/aggregate_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 167..174 Primary Source unknown type `Missing`
+label: 170..177 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/aggregate_recovery/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 193..197 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 196..200 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 path: fail/aggregate_recovery/main.nia
 code: E0202
 summary: expected type generic argument
-label: 301..308 Primary Source expected type generic argument
+label: 305..312 Primary Source expected type generic argument
 
 path: fail/aggregate_recovery/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 327..331 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 331..335 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 path: fail/aggregate_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 373..380 Primary Source unknown type `Missing`
+label: 377..384 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/aggregate_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 398..405 Primary Source unknown type `Missing`
+label: 402..409 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/aggregate_recovery/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 459..463 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 464..468 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 
 path: fail/aggregate_recovery/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 502..506 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 507..511 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 

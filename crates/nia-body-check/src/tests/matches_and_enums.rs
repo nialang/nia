@@ -17,12 +17,12 @@ enum Event {
     Resize { width: i32, height: i32 },
 }
 
-fn data(value: i32) Event { Event::Data(value) }
-fn resize(width: i32, height: i32) Event {
+fun data(value: i32) Event { Event::Data(value) }
+fun resize(width: i32, height: i32) Event {
     Event::Resize { height: height, width: width }
 }
 
-fn sum(event: Event) i32 {
+fun sum(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(value) => value,
@@ -58,10 +58,10 @@ enum Event {
     Resize { width: i32, height: i32 },
 }
 
-fn make() {
-    let data: &fn(i32) Event = &Event::Data;
-    let omitted: &fn(i32) Event = &.Data;
-    let resize: &fn(i32, i32) Event = &Event::Resize;
+fun make() {
+    let data: &fun(i32) Event = &Event::Data;
+    let omitted: &fun(i32) Event = &.Data;
+    let resize: &fun(i32, i32) Event = &Event::Resize;
     _ = data(1);
     _ = omitted(2);
     _ = resize(3, 4);
@@ -101,7 +101,7 @@ enum TargetError {
 }
 
 extend[Value, Source, Target] Source!Value {
-    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
         match self {
             !value => !value,
             error! => mapper(error)!,
@@ -109,7 +109,7 @@ extend[Value, Source, Target] Source!Value {
     }
 }
 
-fn convert(value: SourceError!i32) TargetError!i32 {
+fun convert(value: SourceError!i32) TargetError!i32 {
     value.mapError(&TargetError::Converted)
 }
 "#,
@@ -126,9 +126,9 @@ enum Event {
     Data(i32),
 }
 
-fn invalid() {
-    let mutable: &fn(i32) Event = &mut Event::Data;
-    let unit: &fn() Event = &Event::Closed;
+fun invalid() {
+    let mutable: &fun(i32) Event = &mut Event::Data;
+    let unit: &fun() Event = &Event::Closed;
     _ = mutable;
     _ = unit;
 }
@@ -141,7 +141,7 @@ fn invalid() {
         .collect::<Vec<_>>();
     for expected in [
         "enum constructor pointers must be formed with `&`, not `&mut`",
-        "type mismatch in binding initializer: expected &fn() Event, got &Event",
+        "type mismatch in binding initializer: expected &fun() Event, got &Event",
     ] {
         assert!(
             summaries.iter().any(|summary| summary.contains(expected)),
@@ -166,7 +166,7 @@ enum Color {
     Resize { value: i32 },
 }
 
-fn make() Point {
+fun make() Point {
     let point: Point = .{ x: 1, y: 2 };
     let red: Color = .Red;
     let data: Color = .Data(3);
@@ -206,7 +206,7 @@ enum Color {
     Data(i32),
 }
 
-fn score(color: Color) i32 {
+fun score(color: Color) i32 {
     match color {
         .Red => 0,
         .Data(value) => value,
@@ -225,12 +225,12 @@ fn rejects_omitted_constructors_without_usable_expected_types() {
 struct Point { x: i32 }
 enum Color { Red, Data(i32) }
 
-fn missing() {
+fun missing() {
     let value = .Red;
     let point = .{ x: 1 };
 }
 
-fn wrong_type() i32 {
+fun wrong_type() i32 {
     let value: i32 = .Red;
     let point: Point = .Unknown;
     value
@@ -272,7 +272,7 @@ const CLOSED: Event = Event::Closed;
 const DATA: Event = Event::Data(7);
 const RESIZE: Event = Event::Resize { height: 3, width: 5 };
 
-fn score(event: Event) i32 {
+fun score(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(value) => value,
@@ -280,7 +280,7 @@ fn score(event: Event) i32 {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     score(CLOSED) + score(DATA) + score(RESIZE)
 }
 "#,
@@ -299,7 +299,7 @@ enum Event {
     Resize { width: i32, height: i32 },
 }
 
-fn invalid_constructors() {
+fun invalid_constructors() {
     _ = Event::Closed(1);
     _ = Event::Data;
     _ = Event::Data(1, 2);
@@ -307,7 +307,7 @@ fn invalid_constructors() {
     _ = Event::Resize { width: 1, height: 2, depth: 3 };
 }
 
-fn invalid_patterns(event: Event) i32 {
+fun invalid_patterns(event: Event) i32 {
     match event {
         Event::Closed(value) => value,
         Event::Data() => 0,
@@ -360,7 +360,7 @@ enum Envelope {
     Event(Event),
 }
 
-fn complete(event: Event) i32 {
+fun complete(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(?value) => value,
@@ -370,7 +370,7 @@ fn complete(event: Event) i32 {
     }
 }
 
-fn nested_complete(envelope: Envelope) i32 {
+fun nested_complete(envelope: Envelope) i32 {
     match envelope {
         Envelope::Event(Event::Closed) => 0,
         Envelope::Event(Event::Data(?value)) => value,
@@ -380,7 +380,7 @@ fn nested_complete(envelope: Envelope) i32 {
     }
 }
 
-fn missing_null(event: Event) i32 {
+fun missing_null(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(?value) => value,
@@ -389,14 +389,14 @@ fn missing_null(event: Event) i32 {
     }
 }
 
-fn diagonal_is_not_complete(event: PairEvent) i32 {
+fun diagonal_is_not_complete(event: PairEvent) i32 {
     match event {
         PairEvent::Bits(true, true) => 1,
         PairEvent::Bits(false, false) => 0,
     }
 }
 
-fn binding_covers_product(event: PairEvent) i32 {
+fun binding_covers_product(event: PairEvent) i32 {
     match event {
         PairEvent::Bits(left, right) => if left == right { 1 } else { 0 },
     }
@@ -425,9 +425,9 @@ enum Event {
     Data(i32),
 }
 
-fn id[T](value: T) T { value }
+fun id[T](value: T) T { value }
 
-fn main() i32 {
+fun main() i32 {
     let event = id[Event](Event::Data(7));
     match event {
         Event::Closed => 0,
@@ -453,7 +453,7 @@ enum Other {
     One,
 }
 
-fn full(c: Color) i32 {
+fun full(c: Color) i32 {
     match c {
         Color::Red => return 1,
         Color::Green => return 2,
@@ -462,14 +462,14 @@ fn full(c: Color) i32 {
     0
 }
 
-fn missing(c: Color) i32 {
+fun missing(c: Color) i32 {
     match c {
         Color::Red => return 1,
     }
     0
 }
 
-fn with_default(c: Color) i32 {
+fun with_default(c: Color) i32 {
     match c {
         Color::Red => return 1,
         _ => return 0,
@@ -477,7 +477,7 @@ fn with_default(c: Color) i32 {
     0
 }
 
-fn bad(c: Color) i32 {
+fun bad(c: Color) i32 {
     match c {
         Other::One => return 1,
         Color::Missing => return 2,
@@ -516,11 +516,11 @@ struct S {
     start: i32,
 }
 
-fn imported_range() i32 {
+fun imported_range() i32 {
     0
 }
 
-fn value(input: ?S) ?i32 {
+fun value(input: ?S) ?i32 {
     if input is ?range {
         ?range.start
     } else {
@@ -615,28 +615,28 @@ enum Color {
     Green,
 }
 
-fn pick(c: Color) i32 {
+fun pick(c: Color) i32 {
     match c {
         Color::Red => 1,
         Color::Green => 2,
     }
 }
 
-fn with_default(x: u32) i32 {
+fun with_default(x: u32) i32 {
     match x {
         0 => 10,
         _ => 20,
     }
 }
 
-fn with_return_arm(x: u32) i32 {
+fun with_return_arm(x: u32) i32 {
     match x {
         0 => return 1,
         _ => 2,
     }
 }
 
-fn bad(x: u32) i32 {
+fun bad(x: u32) i32 {
     match x {
         0 => 1,
         _ => true,
@@ -668,17 +668,17 @@ fn bad(x: u32) i32 {
 fn checks_match_arm_body_edge_cases() {
     let checked = pipeline(
         r#"
-fn value() i32 { 1 }
-fn cleanup() {}
+fun value() i32 { 1 }
+fun cleanup() {}
 
-fn expr_stmt_arm(x: i32) i32 {
+fun expr_stmt_arm(x: i32) i32 {
     match x {
         0 => cleanup(),
         _ => value(),
     }
 }
 
-fn block_arm_void_tail(x: i32) i32 {
+fun block_arm_void_tail(x: i32) i32 {
     match x {
         0 => {
             cleanup();
@@ -687,7 +687,7 @@ fn block_arm_void_tail(x: i32) i32 {
     }
 }
 
-fn block_arm_never_tail(x: i32) i32 {
+fun block_arm_never_tail(x: i32) i32 {
     match x {
         0 => {
             return 10;
@@ -696,14 +696,14 @@ fn block_arm_never_tail(x: i32) i32 {
     }
 }
 
-fn statement_arm_never(x: i32) i32 {
+fun statement_arm_never(x: i32) i32 {
     match x {
         0 => return 1,
         _ => 2,
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     expr_stmt_arm(0) + block_arm_void_tail(0) + block_arm_never_tail(0) + statement_arm_never(0)
 }
 "#,
@@ -732,7 +732,7 @@ fn main() i32 {
 fn infers_match_pattern_numeric_literals_from_target_type() {
     let checked = pipeline(
         r#"
-fn classify(value: usize) i32 {
+fun classify(value: usize) i32 {
     match value {
         0 => return 0,
         1 + 1 => return 2,
@@ -741,7 +741,7 @@ fn classify(value: usize) i32 {
     4
 }
 
-fn bad(value: u8) i32 {
+fun bad(value: u8) i32 {
     match value {
         256 => return 1,
         _ => return 0,
@@ -773,7 +773,7 @@ fn bad(value: u8) i32 {
 fn checks_match_pattern_lists_and_ranges() {
     let checked = pipeline(
         r#"
-fn classify(value: i32) i32 {
+fun classify(value: i32) i32 {
     match value {
         0, 1 => 10,
         2..5 => 20,
@@ -782,7 +782,7 @@ fn classify(value: i32) i32 {
     }
 }
 
-fn overlap(value: i32) i32 {
+fun overlap(value: i32) i32 {
     match value {
         0..3 => 10,
         2 => 20,
@@ -790,35 +790,35 @@ fn overlap(value: i32) i32 {
     }
 }
 
-fn empty(value: i32) i32 {
+fun empty(value: i32) i32 {
     match value {
         3..3 => 10,
         _ => 20,
     }
 }
 
-fn non_integer(value: bool) i32 {
+fun non_integer(value: bool) i32 {
     match value {
         false..=true => 10,
         _ => 20,
     }
 }
 
-fn non_constant(value: i32, start: i32) i32 {
+fun non_constant(value: i32, start: i32) i32 {
     match value {
         start..3 => 10,
         _ => 20,
     }
 }
 
-fn unresolved_range_bound(value: i32) i32 {
+fun unresolved_range_bound(value: i32) i32 {
     match value {
         missing_start..3 => 10,
         _ => 20,
     }
 }
 
-fn unresolved_start_with_non_constant_end(value: i32, end: i32) i32 {
+fun unresolved_start_with_non_constant_end(value: i32, end: i32) i32 {
     match value {
         missing_start..end => 10,
         _ => 20,
@@ -915,7 +915,7 @@ fn unresolved_start_with_non_constant_end(value: i32, end: i32) i32 {
 fn lowers_integer_match_patterns_from_checked_values() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut x: i32 = 2;
     match x {
         1 => return 10,
@@ -976,7 +976,7 @@ fn main() i32 {
 fn checks_recursive_optional_error_union_patterns_and_if_patterns() {
     let checked = pipeline(
         r#"
-fn unwrap_result(result: i32!i32) i32 {
+fun unwrap_result(result: i32!i32) i32 {
     match result {
         !value => {
             value
@@ -987,7 +987,7 @@ fn unwrap_result(result: i32!i32) i32 {
     }
 }
 
-fn unwrap_nested(value: ?(i32!i32)) i32 {
+fun unwrap_nested(value: ?(i32!i32)) i32 {
     match value {
         ?!ok => {
             ok
@@ -1001,7 +1001,7 @@ fn unwrap_nested(value: ?(i32!i32)) i32 {
     }
 }
 
-fn match_error_literal(value: ?(i32!i32)) i32 {
+fun match_error_literal(value: ?(i32!i32)) i32 {
     match value {
         ?5! => {
             5
@@ -1018,7 +1018,7 @@ fn match_error_literal(value: ?(i32!i32)) i32 {
     }
 }
 
-fn bind_plain(value: i32) i32 {
+fun bind_plain(value: i32) i32 {
     if value is mut current {
         current += 1;
         current
@@ -1033,21 +1033,21 @@ fn bind_plain(value: i32) i32 {
 fn checks_match_destructuring_and_recursive_exhaustiveness() {
     let checked = pipeline(
         r#"
-fn optional(value: ?i32) i32 {
+fun optional(value: ?i32) i32 {
     match value {
         ?payload => payload,
         null => 0,
     }
 }
 
-fn error_union(value: i32!i32) i32 {
+fun error_union(value: i32!i32) i32 {
     match value {
         !payload => payload,
         error! => error,
     }
 }
 
-fn nested(value: ?(i32!i32)) i32 {
+fun nested(value: ?(i32!i32)) i32 {
     match value {
         ?!payload => payload,
         ?error! => error,
@@ -1068,22 +1068,22 @@ struct Box[T] { value: T }
 enum Operation { Read, Write }
 enum Failure { System { operation: Operation, code: i32 } }
 
-fn sum(point: Point) i32 {
+fun sum(point: Point) i32 {
     let Point { y: second, x } = point;
     x + second
 }
 
-fn unbox[T](value: Box[T]) T {
+fun unbox[T](value: Box[T]) T {
     let Box { value } = value;
     value
 }
 
-fn throughPointer(point: &Point) i32 {
+fun throughPointer(point: &Point) i32 {
     let &Point { x, y } = point;
     x + y
 }
 
-fn nested(value: ?Point) i32 {
+fun nested(value: ?Point) i32 {
     if value is ?Point { x, y: _ } {
         x
     } else {
@@ -1091,14 +1091,14 @@ fn nested(value: ?Point) i32 {
     }
 }
 
-fn classify(point: Point) i32 {
+fun classify(point: Point) i32 {
     match point {
         Point { x: 0, y } => y,
         Point { x: _, y: _ } => 9,
     }
 }
 
-fn nestedEnum(value: Failure!i32) i32 {
+fun nestedEnum(value: Failure!i32) i32 {
     match value {
         !ok => { _ = ok; 0 },
         Failure::System { operation: Operation::Read, code: _ }! => 1,
@@ -1106,7 +1106,7 @@ fn nestedEnum(value: Failure!i32) i32 {
     }
 }
 
-const fn constSum(point: Point) i32 {
+const fun constSum(point: Point) i32 {
     let mut Point { y, x } = point;
     x += 1;
     x + y
@@ -1171,17 +1171,17 @@ struct Point { x: bool, y: i32 }
 struct Box[T] { value: T, tag: i32 }
 enum Event { Stop, Resize { wide: bool, height: i32 } }
 
-fn bind(point: Point) bool {
+fun bind(point: Point) bool {
     let Point { x, .. } = point;
     x
 }
 
-fn generic[T](boxed: Box[T]) T {
+fun generic[T](boxed: Box[T]) T {
     let Box { value, .. } = boxed;
     value
 }
 
-fn classify(event: Event) i32 {
+fun classify(event: Event) i32 {
     match event {
         Event::Stop => 0,
         Event::Resize { wide: true, .. } => 1,
@@ -1189,14 +1189,14 @@ fn classify(event: Event) i32 {
     }
 }
 
-fn byte(value: u8) i32 {
+fun byte(value: u8) i32 {
     match value {
         0..=127 => 0,
         128..=255 => 1,
     }
 }
 
-const fn constBind(point: Point) bool {
+const fun constBind(point: Point) bool {
     let Point { x, .. } = point;
     x
 }
@@ -1214,34 +1214,34 @@ const FLAG: bool = constBind(Point { x: true, y: 9 });
         r#"
 struct Flags { left: bool, right: bool }
 
-fn boolean(value: bool) i32 {
+fun boolean(value: bool) i32 {
     match value {
         true => 1,
     }
 }
 
-fn tupleProduct(value: (bool, bool)) i32 {
+fun tupleProduct(value: (bool, bool)) i32 {
     match value {
         (true, _) => 1,
         (_, false) => 2,
     }
 }
 
-fn structProduct(value: Flags) i32 {
+fun structProduct(value: Flags) i32 {
     match value {
         Flags { left: true, .. } => 1,
         Flags { right: false, .. } => 2,
     }
 }
 
-fn unreachable(value: Flags) i32 {
+fun unreachable(value: Flags) i32 {
     match value {
         Flags { .. } => 1,
         Flags { left: true, .. } => 2,
     }
 }
 
-fn integerGap(value: u8) i32 {
+fun integerGap(value: u8) i32 {
     match value {
         0..10 => 0,
         11..=255 => 1,
@@ -1278,7 +1278,7 @@ fn formats_tuple_struct_exhaustiveness_witness_positionally() {
         r#"
 struct Pair(bool, bool)
 
-fn classify(value: Pair) i32 {
+fun classify(value: Pair) i32 {
     match value {
         Pair(true, _) => 1,
     }
@@ -1304,22 +1304,22 @@ fn rejects_invalid_struct_pattern_field_sets_and_constructors() {
 struct Point { x: i32, y: i32 }
 struct Other { x: i32, y: i32 }
 
-fn duplicate(point: Point) i32 {
+fun duplicate(point: Point) i32 {
     let Point { x, x: again, y } = point;
     x + again + y
 }
 
-fn missing(point: Point) i32 {
+fun missing(point: Point) i32 {
     let Point { x } = point;
     x
 }
 
-fn unknown(point: Point) i32 {
+fun unknown(point: Point) i32 {
     let Point { x, y, z } = point;
     x + y + z
 }
 
-fn wrong(point: Point) i32 {
+fun wrong(point: Point) i32 {
     let Other { x, y } = point;
     x + y
 }
@@ -1373,13 +1373,13 @@ fn wrong(point: Point) i32 {
 fn rejects_non_exhaustive_and_ambiguous_match_bindings() {
     let checked = pipeline(
         r#"
-fn missing(value: ?i32) i32 {
+fun missing(value: ?i32) i32 {
     match value {
         ?payload => payload,
     }
 }
 
-fn alternatives(value: ?i32) i32 {
+fun alternatives(value: ?i32) i32 {
     match value {
         ?payload, null => payload,
         _ => 0,
@@ -1411,7 +1411,7 @@ fn alternatives(value: ?i32) i32 {
 fn checks_if_pattern_binding_mutability() {
     let checked = pipeline(
         r#"
-fn mutable(value: ?i32) i32 {
+fun mutable(value: ?i32) i32 {
     match value {
         mut ?current => {
             current += 1;
@@ -1425,7 +1425,7 @@ fn mutable(value: ?i32) i32 {
 
 struct Link { next: ?&mut Link }
 
-fn mutable_pointer(value: ?&mut Link) i32 {
+fun mutable_pointer(value: ?&mut Link) i32 {
     match value {
         mut ?current => {
             _ = current;
@@ -1437,7 +1437,7 @@ fn mutable_pointer(value: ?&mut Link) i32 {
     }
 }
 
-fn immutable(value: ?i32) i32 {
+fun immutable(value: ?i32) i32 {
     match value {
         ?current => {
             current += 1;
@@ -1487,7 +1487,7 @@ enum Color: u8 {
     Green,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut same = Color::Red == Color::Green;
     let mut n: i32 = Color::Red;
     let mut explicit: i32 = Color::Red as i32;
@@ -1526,7 +1526,7 @@ enum Kind {
     File,
 }
 
-fn main(kind: Kind) i32 {
+fun main(kind: Kind) i32 {
     if kind == .Directory {
         if .File != kind { 1 } else { 0 }
     } else {
@@ -1545,7 +1545,7 @@ fn optional_pattern_does_not_reject_error_recovery_targets() {
 struct Point { x: i32 }
 enum Color { Red }
 
-fn invalid() () {
+fun invalid() () {
     if missing is ?value {
         _ = value;
     }
@@ -1624,7 +1624,7 @@ fn invalid() () {
 fn structural_error_recovery_targets_do_not_run_pattern_shape_checks() {
     let checked = pipeline(
         r#"
-fn invalid() () {
+fun invalid() () {
     match (missing_tuple, 1i32) {
         (left, right) => { _ = left; _ = right; }
     }
@@ -1678,7 +1678,7 @@ fn invalid() () {
 fn structural_optional_pattern_does_not_reject_error_recovery_target() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     match (?missing) {
         ?value => { _ = value; },
     }
@@ -1699,7 +1699,7 @@ fn struct_destructuring_does_not_reject_error_recovery_targets() {
         r#"
 struct Point { x: i32 }
 
-fn invalid() () {
+fun invalid() () {
     let Point { x } = missing;
     _ = x;
 }
@@ -1720,7 +1720,7 @@ fn invalid() () {
 fn structural_binding_does_not_reject_error_recovery_value() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     let &value = (missing, 1);
     _ = value;
 }

@@ -6,11 +6,11 @@ pub struct Lexer {
 }
 
 extend Lexer {
-    pub fn init(source: &[u8]) Lexer {
+    pub fun init(source: &[u8]) Lexer {
         .{ source, index: 0 }
     }
 
-    fn skipIgnored(&mut self) () {
+    fun skipIgnored(&mut self) () {
         while self.index < self.source.len() {
             let byte = self.source[self.index];
             if byte == b' ' or byte == b'\t' or byte == b'\r' or byte == b'\n' {
@@ -25,7 +25,7 @@ extend Lexer {
         }
     }
 
-    pub fn next(&mut self) ?model::Span {
+    pub fun next(&mut self) ?model::Span {
         self.skipIgnored();
         if self.index == self.source.len() {
             return null;

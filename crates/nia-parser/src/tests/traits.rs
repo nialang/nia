@@ -6,8 +6,8 @@ fn parses_trait_impl_where_and_self_type() {
     let (module, errors) = parse_module(
         r#"
 trait Show {
-    fn show(&self) i32;
-    fn clone_self(&self) Self {
+    fun show(&self) i32;
+    fun clone_self(&self) Self {
         self.*
     }
 }
@@ -17,7 +17,7 @@ struct Box[T] where T: Show {
 }
 
 extend Box[i32] : Show where i32: Show {
-    fn show(&self) i32 {
+    fun show(&self) i32 {
         self.value
     }
 }
@@ -41,16 +41,16 @@ fn parses_supertraits_with_plus_bounds() {
     let (module, errors) = parse_module(
         r#"
 trait Same {
-    fn eq(&self, other: &Self) bool;
+    fun eq(&self, other: &Self) bool;
 }
 
 trait Show {
-    fn show(&self) i32;
+    fun show(&self) i32;
 }
 
 trait Ranked : Same + Show
 where Self: Same {
-    fn lt(&self, other: &Self) bool;
+    fun lt(&self, other: &Self) bool;
 }
 "#,
     );

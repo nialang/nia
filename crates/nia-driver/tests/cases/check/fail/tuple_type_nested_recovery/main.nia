@@ -1,3 +1,3 @@
-fn retained(value: (@ (bad, value), bool)) () {}
+fun retained(value: (@ (bad, value), bool)) () {}
 
-fn later() () {}
+fun later() () {}

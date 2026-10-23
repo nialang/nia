@@ -10,7 +10,7 @@ fn executable_incremental_body_check_preserves_extension_method_receiver_types()
 module writer;
 using entry::writer;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut sink = writer::Sink::init();
 match sink.write(b"ok") {
     !value => {
@@ -32,9 +32,9 @@ match sink.write(b"ok") {
 pub trait Writer {
 type Error;
 
-fn short_write(&self) Error;
+fun short_write(&self) Error;
 
-fn write(&mut self, bytes: &[u8]) Error!usize;
+fun write(&mut self, bytes: &[u8]) Error!usize;
 }
 
 pub enum WriteError: i32 {
@@ -45,7 +45,7 @@ _,
 pub struct Sink {}
 
 extend Sink {
-pub fn init() Sink {
+pub fun init() Sink {
     {}
 }
 }
@@ -53,11 +53,11 @@ pub fn init() Sink {
 extend Sink : Writer {
 type Error = WriteError;
 
-pub fn short_write(&self) Error {
+pub fun short_write(&self) Error {
     WriteError::Short
 }
 
-pub fn write(&mut self, bytes: &[u8]) Error!usize {
+pub fun write(&mut self, bytes: &[u8]) Error!usize {
     if bytes.len() == 0 {
         return self.short_write()!;
     }
@@ -112,7 +112,7 @@ fn trait_signature_subset_resolves_local_extend_target_types() {
         r#"
 trait Writer {
 type Error;
-fn write(&mut self) Error!();
+fun write(&mut self) Error!();
 }
 
 enum WriteError: i32 {
@@ -125,7 +125,7 @@ struct Sink {}
 extend Sink : Writer {
 type Error = WriteError;
 
-fn write(&mut self) Error!() {
+fun write(&mut self) Error!() {
     !()
 }
 }
@@ -163,7 +163,7 @@ module platform;
 using entry::platform;
 
 trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 enum Error: i32 {
@@ -172,7 +172,7 @@ _,
 }
 
 extend platform::Errno : IntoError[Error] {
-fn intoError(self) Error {
+fun intoError(self) Error {
     Error::Bad
 }
 }
@@ -221,7 +221,7 @@ module platform;
 using entry::platform;
 
 trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 enum Error: i32 {
@@ -230,7 +230,7 @@ _,
 }
 
 extend platform::Errno : IntoError[Error] {
-fn intoError(self) Error {
+fun intoError(self) Error {
     Error::Bad
 }
 }
@@ -290,13 +290,13 @@ module platform;
 using entry::platform;
 
 trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
-fn cast_error(self) Target!T {
+fun cast_error(self) Target!T {
     match self {
         !ok => {
             !ok
@@ -314,16 +314,16 @@ _,
 }
 
 extend platform::Errno : IntoError[Error] {
-fn intoError(self) Error {
+fun intoError(self) Error {
     Error::Bad
 }
 }
 
-fn fail() platform::Errno!i32 {
+fun fail() platform::Errno!i32 {
 platform::Errno::Bad!
 }
 
-pub fn main() Error!i32 {
+pub fun main() Error!i32 {
 fail().cast_error()
 }
 "#,

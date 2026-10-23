@@ -28,7 +28,7 @@ fn every_maintained_target_emits_its_native_object_format() {
     let source = root.join("main.nia");
     std::fs::write(
         &source,
-        "fn add(a: i32, b: i32) i32 { a + b }\npub fn main() () { _ = add(1, 2); }\n",
+        "fun add(a: i32, b: i32) i32 { a + b }\npub fun main() () { _ = add(1, 2); }\n",
     )
     .expect("write source");
     // Machine codes: ELF x86-64 62, i386 3, AArch64 183; Mach-O x86_64 7 and

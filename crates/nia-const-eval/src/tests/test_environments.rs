@@ -18,7 +18,7 @@ fn eval_float_literal_ignores_type_suffix_and_separators() {
 fn evaluates_struct_field_conditions() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() bool {
+fun main() bool {
     config.target.os == "linux" and config.target.pointerWidth == 64
 }
 "#,
@@ -37,7 +37,7 @@ fn main() bool {
 fn evaluates_lowered_const_expr_directly() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() bool {
+fun main() bool {
     config.target.os == "linux"
 }
 "#,
@@ -64,7 +64,7 @@ fn main() bool {
 fn const_block_restores_scope_after_statement_error() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() usize {
+fun main() usize {
     {
         missing;
         1
@@ -91,7 +91,7 @@ fn main() usize {
 fn const_function_restores_frame_and_session_after_parameter_error() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-const fn identity(value: usize) usize {
+const fun identity(value: usize) usize {
     value
 }
 "#,
@@ -126,7 +126,7 @@ const fn identity(value: usize) usize {
 fn old_at_builtin_expr_syntax_is_rejected_by_parser() {
     let (_module, errors) = nia_parser::parse_module(
         r#"
-fn main() bool {
+fun main() bool {
     @unknown
 }
 "#,
@@ -142,7 +142,7 @@ fn main() bool {
 fn evaluates_lowered_if_pattern_with_optional_payload_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() usize {
+fun main() usize {
     match ?8 {
         ?value => {
             value
@@ -168,7 +168,7 @@ fn main() usize {
 fn evaluates_lowered_if_pattern_with_error_union_payload_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"
-fn main() usize {
+fun main() usize {
     match 5! {
         !value => {
             value

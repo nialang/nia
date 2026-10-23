@@ -35,7 +35,7 @@ using types::{
     RelativePathView,
 };
 
-pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
+pub fun getCwd(buffer: &mut [u8]) Error!&[u8] {
     !(os::getCwd(buffer).?)
 }
 
@@ -46,7 +46,7 @@ struct ParentSplit {
     separator: ?usize,
 }
 
-fn lowerNativeBytes(
+fun lowerNativeBytes(
     bytes: &[u8],
     storage: &mut [u8],
     operation: Operation,
@@ -73,7 +73,7 @@ fn lowerNativeBytes(
     RelativeNativePathView::fromBytes(&storage[0..terminatedLen]).withOperation(operation)
 }
 
-fn parentSplit(bytes: &[u8], trimTrailingSeparators: bool) ParentSplit {
+fun parentSplit(bytes: &[u8], trimTrailingSeparators: bool) ParentSplit {
     let mut end = bytes.len();
     while trimTrailingSeparators and end != 0 and bytes[end - 1] == b'/' {
         end -= 1;
@@ -89,11 +89,11 @@ fn parentSplit(bytes: &[u8], trimTrailingSeparators: bool) ParentSplit {
 }
 
 extend Dir {
-    fn fromOwnedDescriptor(handle: os::FileHandle) Dir {
+    fun fromOwnedDescriptor(handle: os::FileHandle) Dir {
         .{ handle: ?handle }
     }
 
-    pub fn cwd() Error!Dir {
+    pub fun cwd() Error!Dir {
         let current = b".\0";
         let handle = os::openAtBeneath(
             os::cwd(),
@@ -109,47 +109,47 @@ extend Dir {
         !.fromOwnedDescriptor(handle)
     }
 
-    pub fn openFile(&self, path: RelativePathView, options: OpenOptions) OperationError!File {
+    pub fun openFile(&self, path: RelativePathView, options: OpenOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.OpenFile).?;
         self.openNativeFile(native, options)
     }
 
-    pub fn openDir(&self, path: RelativePathView, options: OpenDirOptions) OperationError!Dir {
+    pub fun openDir(&self, path: RelativePathView, options: OpenDirOptions) OperationError!Dir {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.OpenDir).?;
         self.openNativeDir(native, options)
     }
 
-    pub fn createFile(&self, path: RelativePathView, options: CreateOptions) OperationError!File {
+    pub fun createFile(&self, path: RelativePathView, options: CreateOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.CreateFile).?;
         self.createNativeFile(native, options)
     }
 
-    pub fn createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!() {
+    pub fun createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!() {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.CreateDir).?;
         self.createNativeDir(native, options)
     }
 
-    pub fn deleteFile(&self, path: RelativePathView) OperationError!() {
+    pub fun deleteFile(&self, path: RelativePathView) OperationError!() {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.DeleteFile).?;
         self.deleteNativeFile(native)
     }
 
-    pub fn deleteDir(&self, path: RelativePathView) OperationError!() {
+    pub fun deleteDir(&self, path: RelativePathView) OperationError!() {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.DeleteDir).?;
         self.deleteNativeDir(native)
     }
 
-    pub fn rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!() {
+    pub fun rename(&self, oldPath: RelativePathView, newPath: RelativePathView) OperationError!() {
         self.renameTo(oldPath, self, newPath)
     }
 
-    pub fn renameTo(
+    pub fun renameTo(
         &self,
         oldPath: RelativePathView,
         newDir: &Dir,
@@ -162,13 +162,13 @@ extend Dir {
         self.renameNativeTo(oldNative, newDir, newNative)
     }
 
-    pub fn metadata(&self, path: RelativePathView, options: MetadataOptions) OperationError!Metadata {
+    pub fun metadata(&self, path: RelativePathView, options: MetadataOptions) OperationError!Metadata {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.Metadata).?;
         self.nativeMetadata(native, options)
     }
 
-    pub fn entries(&mut self, buffer: &mut [u8]) Error!DirIterator {
+    pub fun entries(&mut self, buffer: &mut [u8]) Error!DirIterator {
         if buffer.len() == 0 {
             .Invalid!
         } else {
@@ -177,7 +177,7 @@ extend Dir {
         }
     }
 
-    pub fn openNativeFile(&self, path: RelativeNativePathView, options: OpenOptions) OperationError!File {
+    pub fun openNativeFile(&self, path: RelativeNativePathView, options: OpenOptions) OperationError!File {
         let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(.OpenFile).?,
             path.ptr(),
@@ -192,7 +192,7 @@ extend Dir {
         !.fromOwnedDescriptor(handle)
     }
 
-    pub fn openNativeDir(&self, path: RelativeNativePathView, options: OpenDirOptions) OperationError!Dir {
+    pub fun openNativeDir(&self, path: RelativeNativePathView, options: OpenDirOptions) OperationError!Dir {
         let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(.OpenDir).?,
             path.ptr(),
@@ -207,7 +207,7 @@ extend Dir {
         !.fromOwnedDescriptor(handle)
     }
 
-    pub fn createNativeFile(&self, path: RelativeNativePathView, options: CreateOptions) OperationError!File {
+    pub fun createNativeFile(&self, path: RelativeNativePathView, options: CreateOptions) OperationError!File {
         let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(.CreateFile).?,
             path.ptr(),
@@ -222,7 +222,7 @@ extend Dir {
         !.fromOwnedDescriptor(handle)
     }
 
-    pub fn createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!() {
+    pub fun createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!() {
         let bytes = path.bytes();
         let split = parentSplit(bytes, true);
         let current = b".";
@@ -247,15 +247,15 @@ extend Dir {
         ).withOperation(.CreateDir)
     }
 
-    pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!() {
+    pub fun deleteNativeFile(&self, path: RelativeNativePathView) OperationError!() {
         self.deleteNative(path, .DeleteFile, false, false)
     }
 
-    pub fn deleteNativeDir(&self, path: RelativeNativePathView) OperationError!() {
+    pub fun deleteNativeDir(&self, path: RelativeNativePathView) OperationError!() {
         self.deleteNative(path, .DeleteDir, true, true)
     }
 
-    fn deleteNative(
+    fun deleteNative(
         &self,
         path: RelativeNativePathView,
         operation: Operation,
@@ -282,7 +282,7 @@ extend Dir {
         ).withOperation(operation)
     }
 
-    pub fn renameNativeTo(
+    pub fun renameNativeTo(
         &self,
         oldPath: RelativeNativePathView,
         newDir: &Dir,
@@ -331,7 +331,7 @@ extend Dir {
         ).withOperation(.Rename)
     }
 
-    pub fn nativeMetadata(&self, path: RelativeNativePathView, options: MetadataOptions) OperationError!Metadata {
+    pub fun nativeMetadata(&self, path: RelativeNativePathView, options: MetadataOptions) OperationError!Metadata {
         let metadata = os::metadataAtBeneath(
             self.borrowHandle().withOperation(.Metadata).?,
             path.ptr(),
@@ -343,11 +343,11 @@ extend Dir {
 }
 
 extend File {
-    fn fromOwnedDescriptor(handle: os::FileHandle) File {
+    fun fromOwnedDescriptor(handle: os::FileHandle) File {
         .{ handle: ?handle }
     }
 
-    pub fn open(path: PathView, options: OpenOptions) OperationError!File {
+    pub fun open(path: PathView, options: OpenOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.OpenFile).?;
         let handle = os::openAt(
@@ -362,7 +362,7 @@ extend File {
         !.fromOwnedDescriptor(handle)
     }
 
-    pub fn create(path: PathView, options: CreateOptions) OperationError!File {
+    pub fun create(path: PathView, options: CreateOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let native = path.encode(&mut storage[..]).withOperation(.CreateFile).?;
         let handle = os::openAt(
@@ -377,47 +377,47 @@ extend File {
         !.fromOwnedDescriptor(handle)
     }
 
-    pub fn seekTo(&self, offset: u64) Error!u64 {
+    pub fun seekTo(&self, offset: u64) Error!u64 {
         if offset > maxI64AsU64 {
             return .OutOfRange!;
         }
         !(self.borrowHandle().?.seek(offset as i64, .Start).?)
     }
 
-    pub fn seekBy(&self, delta: i64) Error!u64 {
+    pub fun seekBy(&self, delta: i64) Error!u64 {
         !(self.borrowHandle().?.seek(delta, .Current).?)
     }
 
-    pub fn seekFromEnd(&self, delta: i64) Error!u64 {
+    pub fun seekFromEnd(&self, delta: i64) Error!u64 {
         !(self.borrowHandle().?.seek(delta, .End).?)
     }
 
-    pub fn len(&self) Error!u64 {
+    pub fun len(&self) Error!u64 {
         let metadata = self.metadata().?;
         !metadata.size()
     }
 
-    pub fn metadata(&self) Error!Metadata {
+    pub fun metadata(&self) Error!Metadata {
         let metadata = self.borrowHandle().?.metadata().?;
         !metadata.asFsMetadata()
     }
 
-    pub fn truncate(&self, len: u64) Error!() {
+    pub fun truncate(&self, len: u64) Error!() {
         if len > maxI64AsU64 {
             return .OutOfRange!;
         }
         !(self.borrowHandle().?.truncate(len).?)
     }
 
-    pub fn setPermissions(&self, permissions: u32) Error!() {
+    pub fun setPermissions(&self, permissions: u32) Error!() {
         !(self.borrowHandle().?.setPermissions(permissions).?)
     }
 
-    pub fn sync(&self) Error!() {
+    pub fun sync(&self) Error!() {
         !(self.borrowHandle().?.sync().?)
     }
 
-    pub fn syncData(&self) Error!() {
+    pub fun syncData(&self) Error!() {
         !(self.borrowHandle().?.syncData().?)
     }
 

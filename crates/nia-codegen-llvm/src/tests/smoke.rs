@@ -8,15 +8,15 @@ fn large_source_module_emits_multiple_non_overlapping_partitions() {
     std::fs::write(
         &main,
         r#"
-fn helper0() i32 { 0 }
-fn helper1() i32 { 1 }
-fn helper2() i32 { 2 }
-fn helper3() i32 { 3 }
-fn helper4() i32 { 4 }
-fn helper5() i32 { 5 }
-fn helper6() i32 { 6 }
+fun helper0() i32 { 0 }
+fun helper1() i32 { 1 }
+fun helper2() i32 { 2 }
+fun helper3() i32 { 3 }
+fun helper4() i32 { 4 }
+fun helper5() i32 { 5 }
+fun helper6() i32 { 6 }
 
-fn main() i32 {
+fun main() i32 {
     helper0() + helper1() + helper2() + helper3()
         + helper4() + helper5() + helper6()
 }
@@ -175,15 +175,15 @@ fn partition_fingerprints_track_only_exact_declaration_dependencies() {
     fn source(helper0_ty: &str, helper1_ty: &str) -> String {
         format!(
             r#"
-fn helper0() {helper0_ty} {{ 0 }}
-fn helper1() {helper1_ty} {{ 1 }}
-fn helper2() i32 {{ 2 }}
-fn helper3() i32 {{ 3 }}
-fn helper4() i32 {{ 4 }}
-fn helper5() i32 {{ 5 }}
-fn helper6() i32 {{ 6 }}
+fun helper0() {helper0_ty} {{ 0 }}
+fun helper1() {helper1_ty} {{ 1 }}
+fun helper2() i32 {{ 2 }}
+fun helper3() i32 {{ 3 }}
+fun helper4() i32 {{ 4 }}
+fun helper5() i32 {{ 5 }}
+fun helper6() i32 {{ 6 }}
 
-fn main() i64 {{
+fun main() i64 {{
     helper0() as i64
 }}
 "#,
@@ -297,7 +297,7 @@ static blob5: [u8; 4] = [5u8; 4];
 static blob6: [u8; 4] = [6u8; 4];
 static blob7: [u8; 4] = [7u8; 4];
 
-fn main() usize {
+fun main() usize {
     blob0.len() + blob1.len() + blob2.len() + blob3.len()
         + blob4.len() + blob5.len() + blob6.len() + blob7.len()
 }
@@ -396,11 +396,11 @@ fn codegen_program_emits_llvm_ir_with_each_nia_optimization_level() {
         r#"
 static zeroes: [i32; 4] = [0; 4];
 
-fn answer() i32 {
+fun answer() i32 {
     42
 }
 
-fn main() i32 {
+fun main() i32 {
     answer() + zeroes[0]
 }
 "#,

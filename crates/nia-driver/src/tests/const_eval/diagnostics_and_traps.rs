@@ -7,11 +7,11 @@ fn unused_const_function_rejects_wrong_return_type() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongReturn() usize {
+const fun wrongReturn() usize {
     true
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -32,16 +32,16 @@ fn unused_const_function_rejects_runtime_call_in_expression_statement() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongCall() usize {
+const fun wrongCall() usize {
     runtimeOnly();
     2
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -53,7 +53,7 @@ fn main() i32 { 0 }
             .filter(|diagnostic| diagnostic
                 .diagnostic
                 .summary
-                .contains("const expression can only call `const fn`"))
+                .contains("const expression can only call `const fun`"))
             .count(),
         1,
         "{:?}",
@@ -67,12 +67,12 @@ fn unused_const_function_rejects_runtime_only_atomic_builtin() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongBuiltin() u32 {
+const fun wrongBuiltin() u32 {
     let value: u32 = 1;
     std::builtin::atomicLoad[u32](&value, 0usize)
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -93,21 +93,21 @@ fn unused_const_function_rejects_function_pointer_values_and_calls() {
     write(
         &root.join("main.nia"),
         r#"
-const fn increment(value: usize) usize {
+const fun increment(value: usize) usize {
     value + 1
 }
 
-const fn storesFunctionPointer() usize {
+const fun storesFunctionPointer() usize {
     let callback = & increment;
     1
 }
 
-const fn callsFunctionPointer() usize {
+const fun callsFunctionPointer() usize {
     let callback = & increment;
     callback(1)
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -141,18 +141,18 @@ fn unused_const_function_rejects_runtime_call_in_unselected_branch() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongCall() usize {
+const fun wrongCall() usize {
     if false {
         return runtimeOnly();
     }
     2
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -161,7 +161,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -178,18 +178,18 @@ struct Value {
 }
 
 extend Value {
-    fn runtimeOnly(self) usize {
+    fun runtimeOnly(self) usize {
         self.inner
     }
 }
 
-const fn wrongCall() usize {
+const fun wrongCall() usize {
     let mut result: usize = 0;
     result = Value{inner: 1}.runtimeOnly();
     result
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -198,7 +198,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -210,12 +210,12 @@ fn unused_const_function_rejects_local_initializer_type_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongLocal() usize {
+const fun wrongLocal() usize {
     let value: usize = true;
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -236,13 +236,13 @@ fn unused_const_function_rejects_assignment_to_immutable_local() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongAssignment() usize {
+const fun wrongAssignment() usize {
     let value: usize = 1;
     value = 2;
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -263,13 +263,13 @@ fn unused_const_function_rejects_assignment_type_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongAssignment() usize {
+const fun wrongAssignment() usize {
     let mut value: usize = 1;
     value = true;
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -290,13 +290,13 @@ fn unused_const_function_rejects_invalid_assignment_path() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongAssignment(index: usize) usize {
+const fun wrongAssignment(index: usize) usize {
     let mut value: usize = 1;
     value[index] = 2;
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -317,13 +317,13 @@ fn unused_const_function_rejects_readonly_slice_assignment() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongAssignment(values: &[usize]) usize {
+const fun wrongAssignment(values: &[usize]) usize {
     let mut view: &[usize] = values;
     view[0] = 2;
     view[0]
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -344,13 +344,13 @@ fn unused_const_function_accepts_parameter_indexed_assignment() {
     write(
         &root.join("main.nia"),
         r#"
-const fn update(index: usize) usize {
+const fun update(index: usize) usize {
     let mut values: [usize; 2] = [1, 2];
     values[index] += 1;
     values[0]
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -364,13 +364,13 @@ fn unused_generic_const_function_accepts_plain_assignment() {
     write(
         &root.join("main.nia"),
         r#"
-const fn replace[T](value: T, replacement: T) T {
+const fun replace[T](value: T, replacement: T) T {
     let mut result: T = value;
     result = replacement;
     result
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -384,13 +384,13 @@ fn unused_const_function_rejects_non_numeric_compound_assignment() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongAssignment() usize {
+const fun wrongAssignment() usize {
     let mut value: bool = true;
     value += false;
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -411,12 +411,12 @@ fn unused_const_function_checks_assignment_tail_as_void() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongTail() usize {
+const fun wrongTail() usize {
     let mut value: usize = 1;
     value = 2
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -437,11 +437,11 @@ fn unused_const_function_rejects_non_bool_conditions() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongCondition() usize {
+const fun wrongCondition() usize {
     if 1usize {
         return runtimeOnly();
     }
@@ -449,7 +449,7 @@ const fn wrongCondition() usize {
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -475,11 +475,11 @@ fn unused_const_function_rejects_invalid_builtin_unary_operand() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongNot() bool {
+const fun wrongNot() bool {
     not 1usize
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -500,16 +500,16 @@ fn unused_const_function_rejects_invalid_builtin_binary_operands() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongAdd() usize {
+const fun wrongAdd() usize {
     true + false;
     0
 }
 
-const fn wrongEquality() bool {
+const fun wrongEquality() bool {
     1usize == true
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -535,11 +535,11 @@ fn unused_const_function_rejects_incompatible_if_branch_types() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongBranches() usize {
+const fun wrongBranches() usize {
     if true { 1usize } else { false }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -560,12 +560,12 @@ fn unused_generic_const_function_defers_constrained_operator_types() {
     write(
         &root.join("main.nia"),
         r#"
-const fn add[T](lhs: T, rhs: T) T
+const fun add[T](lhs: T, rhs: T) T
 where T: Add[T, Output = T] {
     lhs + rhs
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -581,14 +581,14 @@ fn const_call_rejects_unsatisfied_generic_where_bound() {
         r#"
 trait Marker {}
 
-const fn constrained[T]() usize
+const fun constrained[T]() usize
 where T: Marker {
     7usize
 }
 
 const width: usize = constrained[i32]();
 
-fn main() i32 { width as i32 }
+fun main() i32 { width as i32 }
 "#,
     );
 
@@ -611,17 +611,17 @@ fn const_call_forwards_enclosing_generic_where_bound() {
         r#"
 trait Marker {}
 
-const fn constrained[T]() usize
+const fun constrained[T]() usize
 where T: Marker {
     7usize
 }
 
-const fn forwarding[T]() usize
+const fun forwarding[T]() usize
 where T: Marker {
     constrained[T]()
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -640,7 +640,7 @@ using entry::api;
 
 const width: usize = api::constrained[i32]();
 
-fn main() i32 { width as i32 }
+fun main() i32 { width as i32 }
 "#,
     );
     write(
@@ -648,7 +648,7 @@ fn main() i32 { width as i32 }
         r#"
 pub trait Marker {}
 
-pub const fn constrained[T]() usize
+pub const fun constrained[T]() usize
 where T: Marker {
     7usize
 }
@@ -672,18 +672,18 @@ fn unused_const_function_rejects_match_pattern_and_checks_arm_body() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongSwitch(value: usize) usize {
+const fun wrongSwitch(value: usize) usize {
     match value {
         true => runtimeOnly(),
         _ => 0,
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -704,13 +704,13 @@ fn unused_const_function_rejects_incompatible_match_arm_types() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongSwitch(value: usize) usize {
+const fun wrongSwitch(value: usize) usize {
     match value {
         0usize => 1usize,
         _ => false,
     }
 }
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -731,18 +731,18 @@ fn unused_const_function_checks_match_body_when_pattern_type_is_unknown() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn unresolvedSwitch(value: usize) usize {
+const fun unresolvedSwitch(value: usize) usize {
     match value {
         0 => runtimeOnly(),
         _ => 0,
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -751,7 +751,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -763,16 +763,16 @@ fn unused_const_function_audits_all_array_literal_elements_and_length() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongArray() usize {
+const fun wrongArray() usize {
     let values: [usize; 2] = [true, runtimeOnly(), 3usize];
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -801,12 +801,12 @@ fn unused_const_function_rejects_non_integer_array_repeat_count() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongRepeat() usize {
+const fun wrongRepeat() usize {
     let values: [usize; 2] = [1usize; true];
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -827,12 +827,12 @@ fn unused_const_function_rejects_array_literal_in_non_array_context() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongArrayShape() usize {
+const fun wrongArrayShape() usize {
     let value: usize = [1usize];
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -853,11 +853,11 @@ fn unused_generic_const_function_accepts_contextual_array_elements() {
     write(
         &root.join("main.nia"),
         r#"
-const fn copy[T](values: [T; 2]) [T; 2] {
+const fun copy[T](values: [T; 2]) [T; 2] {
     [values[0usize], values[1usize]]
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -871,11 +871,11 @@ fn unused_const_function_rejects_invalid_array_indexes() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongIndexes() usize {
+const fun wrongIndexes() usize {
     let values: [usize; 2] = [1usize, 2usize];
     values[true];
     values[3usize];
@@ -884,7 +884,7 @@ const fn wrongIndexes() usize {
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -910,11 +910,11 @@ fn unused_const_function_rejects_invalid_array_slices() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongSlices(start: usize) usize {
+const fun wrongSlices(start: usize) usize {
     let values: [usize; 2] = [1usize, 2usize];
     values[true..runtimeOnly()];
     values[-1..1];
@@ -928,7 +928,7 @@ const fn wrongSlices(start: usize) usize {
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -954,14 +954,14 @@ fn unused_const_function_accepts_parameter_dependent_index() {
     write(
         &root.join("main.nia"),
         r#"
-const fn inspect(
+const fun inspect(
     values: [usize; 4],
     index: usize,
 ) usize {
     values[index]
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -975,13 +975,13 @@ fn unused_generic_const_function_defers_trait_based_index_and_slice_types() {
     write(
         &root.join("main.nia"),
         r#"
-const fn inspectIndex[T](value: T) usize
+const fun inspectIndex[T](value: T) usize
 where T: Index[bool] {
     let selected = value[true];
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1000,16 +1000,16 @@ struct Point {
     y: usize,
 }
 
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongStruct() usize {
+const fun wrongStruct() usize {
     Point{x: true, z: runtimeOnly()};
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1036,7 +1036,7 @@ fn unused_const_function_audits_duplicate_struct_field_value() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
@@ -1044,19 +1044,19 @@ struct Value {
     value: usize,
 }
 
-const fn wrongStruct() usize {
+const fun wrongStruct() usize {
     let value = Value {value: 1usize, value: runtimeOnly()};
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     for message in [
         "duplicate struct field `value`",
-        "const expression can only call `const fn`",
+        "const expression can only call `const fun`",
     ] {
         assert!(
             program
@@ -1075,12 +1075,12 @@ fn unused_const_function_rejects_struct_literal_in_non_struct_context() {
     write(
         &root.join("main.nia"),
         r#"
-const fn wrongStructShape() usize {
+const fun wrongStructShape() usize {
     let value = usize {inner: 1usize};
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1105,11 +1105,11 @@ struct Box[T] {
     value: T,
 }
 
-const fn wrap[T](value: T) Box[T] {
+const fun wrap[T](value: T) Box[T] {
     Box[T] { value }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1129,11 +1129,11 @@ enum Event {
     Resize { width: usize, height: usize },
 }
 
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn wrongEnums() usize {
+const fun wrongEnums() usize {
     let a: Event = Event::Data(true, runtimeOnly(), 3usize);
     let b: Event = Event::Closed(runtimeOnly());
     let c: Event = Event::Resize { width: true, extra: runtimeOnly() };
@@ -1146,7 +1146,7 @@ const fn wrongEnums() usize {
     0
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1182,15 +1182,15 @@ enum Event {
     Resize { width: usize, height: usize },
 }
 
-const fn data(value: usize) Event {
+const fun data(value: usize) Event {
     Event::Data(value, 2usize)
 }
 
-const fn resize(width: usize, height: usize) Event {
+const fun resize(width: usize, height: usize) Event {
     Event::Resize { width: width, height: height }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1204,13 +1204,13 @@ fn recursive_const_evaluation_has_a_call_depth_limit() {
     write(
         &root.join("main.nia"),
         r#"
-const fn recurse(value: usize) usize {
+const fun recurse(value: usize) usize {
     recurse(value + 1)
 }
 
 const result: usize = recurse(0);
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1236,7 +1236,7 @@ fn terminating_recursive_const_function_remains_valid() {
     write(
         &root.join("main.nia"),
         r#"
-const fn countdown(value: usize) usize {
+const fun countdown(value: usize) usize {
     if value == 0 {
         return 0;
     }
@@ -1245,7 +1245,7 @@ const fn countdown(value: usize) usize {
 
 const result: usize = countdown(32);
 
-fn main() i32 {
+fun main() i32 {
     result as i32
 }
 "#,
@@ -1264,7 +1264,7 @@ fn const_integer_division_and_remainder_reject_zero_divisors() {
 const divideByZero: i32 = 1 / 0;
 const remainderByZero: i32 = 1 % 0;
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1297,14 +1297,14 @@ const hiddenAddOverflow: u8 = (255u8 + 1u8) - 1u8;
 const hiddenMulOverflow: i32 = (2147483647i32 * 2i32) / 2i32;
 const contextualOverflow: u8 = (255 + 1) - 1;
 
-const fn overflowInReturnContext() u8 {
+const fun overflowInReturnContext() u8 {
     (255 + 1) - 1
 }
 
 const contextualFunctionOverflow: u8 = overflowInReturnContext();
 const negationOverflow: i8 = -(-128i8);
 
-const fn compoundAssignmentOverflow() u8 {
+const fun compoundAssignmentOverflow() u8 {
     let mut value: u8 = 255u8;
     value += 1u8;
     value
@@ -1312,13 +1312,13 @@ const fn compoundAssignmentOverflow() u8 {
 
 struct ByteBox { value: u8 }
 
-const fn compoundFieldOverflow() u8 {
+const fun compoundFieldOverflow() u8 {
     let mut value: ByteBox = ByteBox { value: 255u8 };
     value.value += 1u8;
     value.value
 }
 
-const fn compoundIndexOverflow() u8 {
+const fun compoundIndexOverflow() u8 {
     let mut values: [u8; 1] = [255u8];
     values[0] += 1u8;
     values[0]
@@ -1328,7 +1328,7 @@ const compoundOverflow: u8 = compoundAssignmentOverflow();
 const compoundField: u8 = compoundFieldOverflow();
 const compoundIndex: u8 = compoundIndexOverflow();
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1378,14 +1378,14 @@ fn generic_const_integer_arithmetic_uses_substituted_width() {
     write(
         &root.join("main.nia"),
         r#"
-const fn add[T](lhs: T, rhs: T) T
+const fun add[T](lhs: T, rhs: T) T
 where T: Add[T, Output = T] {
     lhs + rhs
 }
 
 const overflow: u8 = add[u8](255u8, 1u8);
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1406,7 +1406,7 @@ fn imported_const_integer_arithmetic_uses_definition_module_types() {
     write(
         &root.join("math.nia"),
         r#"
-pub const fn add(lhs: u8, rhs: u8) u8 {
+pub const fun add(lhs: u8, rhs: u8) u8 {
     lhs + rhs
 }
 "#,
@@ -1419,7 +1419,7 @@ using entry::math;
 
 const overflow: u8 = math::add(255u8, 1u8);
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1445,7 +1445,7 @@ const valueOverflow: u8 = (128u8 << 1u8) >> 1u8;
 const signedOverflow: i8 = (64i8 << 1i8) >> 1i8;
 const contextualOverflow: u8 = (128 << 1) >> 1;
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1482,7 +1482,7 @@ fn const_dependency_cycles_are_diagnosed() {
 const a: i32 = b;
 const b: i32 = a;
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1503,7 +1503,7 @@ fn const_rejects_runtime_local_dependency() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut runtime = 4;
     const n: usize = runtime;
     let mut values: [i32; n] = [1, 2, 3, 4];
@@ -1531,7 +1531,7 @@ fn const_error_builtin_reports_message() {
         r#"
 const n: usize = std::builtin::error("unsupported target");
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1552,7 +1552,7 @@ fn const_error_builtin_is_pruned_by_const_if_expression() {
     write(
         &root.join("main.nia"),
         r#"
-const fn selected() usize {
+const fun selected() usize {
     if true {
         return 4usize;
     }
@@ -1561,7 +1561,7 @@ const fn selected() usize {
 
 const n: usize = selected();
 
-fn main() usize { n }
+fun main() usize { n }
 "#,
     );
 
@@ -1577,7 +1577,7 @@ fn const_error_builtin_requires_string_message() {
         r#"
 const n: usize = std::builtin::error(10usize);
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1598,7 +1598,7 @@ fn error_builtin_is_not_runtime_panic() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() usize {
+fun main() usize {
     std::builtin::error("runtime panic")
 }
 "#,
@@ -1621,7 +1621,7 @@ fn trap_builtin_is_never_typed() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() i32 {
+fun main() i32 {
     std::builtin::trap()
 }
 "#,
@@ -1637,7 +1637,7 @@ fn const_trap_is_pruned_by_an_unselected_branch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn selected(flag: bool) usize {
+const fun selected(flag: bool) usize {
     if flag {
         std::builtin::trap();
     }
@@ -1646,7 +1646,7 @@ const fn selected(flag: bool) usize {
 
 const n: usize = selected(false);
 
-fn main(flag: bool) usize { selected(flag) + n }
+fun main(flag: bool) usize { selected(flag) + n }
 "#,
     );
 
@@ -1660,7 +1660,7 @@ fn const_trap_reports_only_when_evaluated() {
     write(
         &root.join("main.nia"),
         r#"
-const fn selected(flag: bool) usize {
+const fun selected(flag: bool) usize {
     if flag {
         std::builtin::trap();
     }
@@ -1669,7 +1669,7 @@ const fn selected(flag: bool) usize {
 
 const n: usize = selected(true);
 
-fn main() usize { n }
+fun main() usize { n }
 "#,
     );
 
@@ -1690,7 +1690,7 @@ fn trap_builtin_must_be_called() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() () {
+fun main() () {
     std::builtin::trap;
 }
 "#,
@@ -1713,11 +1713,11 @@ fn trap_builtin_rejects_arguments() {
     write(
         &root.join("main.nia"),
         r#"
-fn value_arg() () {
+fun value_arg() () {
     std::builtin::trap(1);
 }
 
-fn type_arg() () {
+fun type_arg() () {
     std::builtin::trap[usize]();
 }
 "#,
@@ -1749,18 +1749,18 @@ fn unused_const_function_uses_shared_optional_and_error_union_constructor_checks
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn invalidConstructors() () {
+const fun invalidConstructors() () {
     let optional: ?usize = ?true;
     let success: usize!usize = !false;
     let failure: usize!usize = true!;
     let hiddenCall: ?usize = ?runtimeOnly();
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1792,12 +1792,12 @@ union Bits {
     flag: bool,
 }
 
-const fn inspect() usize {
+const fun inspect() usize {
     let bits = Bits { integer: 1 };
     bits.integer
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1816,12 +1816,12 @@ union Payload {
     integer: u16,
 }
 
-const fn inspect() u16 {
+const fun inspect() u16 {
     let payload = Payload { integer: 1 };
     payload.integer
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1844,12 +1844,12 @@ union Payload {
     integer: u16,
 }
 
-const fn inspect() u16 {
+const fun inspect() u16 {
     let payload = Payload { integer: 1 };
     payload.integer
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1863,19 +1863,19 @@ fn unused_const_function_uses_shared_propagation_checks() {
     write(
         &root.join("main.nia"),
         r#"
-const fn invalidOptional(value: ?usize) usize {
+const fun invalidOptional(value: ?usize) usize {
     value.?
 }
 
-const fn invalidError(value: usize!usize) ?usize {
+const fun invalidError(value: usize!usize) ?usize {
     ?value.?
 }
 
-const fn invalidOperand(value: usize) usize {
+const fun invalidOperand(value: usize) usize {
     value.?
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1902,11 +1902,11 @@ fn unused_const_function_audits_invalid_recursive_patterns_and_arm_calls() {
     write(
         &root.join("main.nia"),
         r#"
-fn runtimeOnly() usize {
+fun runtimeOnly() usize {
     1
 }
 
-const fn invalidPatterns(value: usize) usize {
+const fun invalidPatterns(value: usize) usize {
     match value {
         ?payload => runtimeOnly(),
         !payload => runtimeOnly(),
@@ -1915,7 +1915,7 @@ const fn invalidPatterns(value: usize) usize {
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1945,16 +1945,16 @@ struct SourceError {}
 struct TargetError {}
 
 extend SourceError : std::builtin::IntoError[TargetError] {
-    fn intoError(self) TargetError {
+    fun intoError(self) TargetError {
         {}
     }
 }
 
-const fn propagate(value: SourceError!usize) TargetError!usize {
+const fun propagate(value: SourceError!usize) TargetError!usize {
     !(value.?)
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1963,7 +1963,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("requires `intoError` to be declared `const fn`")),
+            .contains("requires `intoError` to be declared `const fun`")),
         "{:?}",
         program.diagnostics
     );

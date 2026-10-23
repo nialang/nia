@@ -20,7 +20,7 @@ using std::mem;
 using std::process;
 using std::string;
 
-fn foundAt(result: ?usize, expected: usize) bool {
+fun foundAt(result: ?usize, expected: usize) bool {
     if result is ?index {
         index == expected
     } else {
@@ -28,7 +28,7 @@ fn foundAt(result: ?usize, expected: usize) bool {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let text: &[char] = &"alpha λ beta λ";
     if not text.equals(&"alpha λ beta λ")
@@ -516,7 +516,7 @@ static catProgram = "/bin/cat";
 @[if os == "macos"]
 static catProgram = "/bin/cat";
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let page: &mut mem::Allocator = &mut pageAllocator;
 
@@ -775,7 +775,7 @@ fn check_std_path_does_not_adopt_raw_owned_text() {
         r#"
 using std;
 
-fn main() () {
+fun main() () {
     let mut text: [char; 3] = ['n', 'i', 'a'];
     _ = std::Path::fromOwnedSlice(&mut text[..]);
 }

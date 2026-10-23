@@ -1,13 +1,13 @@
 path: fail/atomic_control_recovery/main.nia
 code: E0201
 summary: unknown value `missing_order`
-label: 90..103 Primary Source no value named `missing_order` is visible in this scope
+label: 91..104 Primary Source no value named `missing_order` is visible in this scope
 help: check the spelling, import `missing_order`, or declare it before this use
 
 path: fail/atomic_control_recovery/main.nia
 code: E0201
 summary: unknown value `missing_operation`
-label: 155..172 Primary Source no value named `missing_operation` is visible in this scope
+label: 156..173 Primary Source no value named `missing_operation` is visible in this scope
 help: check the spelling, import `missing_operation`, or declare it before this use
 
 report:

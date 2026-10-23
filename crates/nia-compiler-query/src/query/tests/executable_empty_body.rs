@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn executable_function_body_produces_factless_empty_body() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() () {}");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() () {}");
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 

@@ -3,12 +3,12 @@ code: E0201
 summary: implementation of trait requires explicit implementation of supertrait `Base`
 label: 37..42 Primary Source this implementation has no `Base` supertrait witness
 help: add an implementation of `Base` for this target type
-related: 63..67 the implemented trait requires `Base` here
+related: 64..68 the implemented trait requires `Base` here
 
 path: fail/trait_requirement_source/main.nia
 code: E0301
 summary: unknown struct field `child`
-label: 154..165 Primary Source unknown struct field `child`
+label: 156..167 Primary Source unknown struct field `child`
 note: the receiver has type `Local`
 
 report:

@@ -17,7 +17,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 256] = [0; 256];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
@@ -89,7 +89,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut arena = mem::ArenaAllocator::init(&mut page);
@@ -165,7 +165,7 @@ fn emit_exe_std_mem_arena_allocator_resize_remap_and_free_edges() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut arena = mem::ArenaAllocator::init(&mut page);
@@ -243,7 +243,7 @@ struct RejectFreeAllocator {
 }
 
 extend RejectFreeAllocator {
-    fn init() RejectFreeAllocator {
+    fun init() RejectFreeAllocator {
         Self {
             backing: mem::PageAllocator::init(),
             rejectedFrees: 0,
@@ -251,13 +251,13 @@ extend RejectFreeAllocator {
         }
     }
 
-    fn rejectNext(&mut self, count: usize) () {
+    fun rejectNext(&mut self, count: usize) () {
         self.rejectedFrees = count;
     }
 }
 
 extend RejectFreeAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         let block = self.backing.alloc(layout).?;
         if not block.isEmpty() {
             self.liveBlocks += 1;
@@ -265,7 +265,7 @@ extend RejectFreeAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if self.rejectedFrees != 0usize and not block.isEmpty() {
             self.rejectedFrees -= 1;
             return mem::Error::Invalid!;
@@ -278,7 +278,7 @@ extend RejectFreeAllocator : mem::Allocator {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut child = RejectFreeAllocator::init();
     let mut arena = mem::ArenaAllocator::init(&mut child);
@@ -354,7 +354,7 @@ struct MixedOwnerAllocator {
 }
 
 extend MixedOwnerAllocator {
-    fn init() MixedOwnerAllocator {
+    fun init() MixedOwnerAllocator {
         Self {
             backing: mem::PageAllocator::init(),
             malformedNext: false,
@@ -364,13 +364,13 @@ extend MixedOwnerAllocator {
         }
     }
 
-    fn rejectNext(&mut self, count: usize) () {
+    fun rejectNext(&mut self, count: usize) () {
         self.rejectedFrees = count;
     }
 }
 
 extend MixedOwnerAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if self.malformedNext {
             self.malformedNext = false;
             self.malformedLive = true;
@@ -383,7 +383,7 @@ extend MixedOwnerAllocator : mem::Allocator {
         !block
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if self.rejectedFrees != 0usize and not block.isEmpty() {
             self.rejectedFrees -= 1;
             return mem::Error::Invalid!;
@@ -399,20 +399,20 @@ extend MixedOwnerAllocator : mem::Allocator {
         !()
     }
 
-    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
         _ = block;
         _ = newLayout;
         false
     }
 
-    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+    fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
         _ = block;
         _ = newLayout;
         null
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut child = MixedOwnerAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
@@ -501,7 +501,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
@@ -579,7 +579,7 @@ fn emit_exe_std_mem_general_purpose_allocator_supports_large_overaligned_realloc
 using std::mem;
 using std::process;
 
-fn reallocOrExit(
+fun reallocOrExit(
     allocator: &mut mem::Allocator,
     block: mem::Block,
     layout: mem::Layout,
@@ -617,7 +617,7 @@ fn reallocOrExit(
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
@@ -698,7 +698,7 @@ fn emit_exe_std_mem_general_purpose_allocator_rejects_invalid_free_and_resize() 
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
@@ -800,7 +800,7 @@ fn emit_exe_std_mem_allocator_realloc_preserves_byte_prefix() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut block: mem::Block;
@@ -898,7 +898,7 @@ struct CountingAllocator {
 }
 
 extend CountingAllocator {
-    fn init(buffer: &mut [u8]) CountingAllocator {
+    fun init(buffer: &mut [u8]) CountingAllocator {
         Self {
             buffer,
             end_index: 0,
@@ -907,13 +907,13 @@ extend CountingAllocator {
         }
     }
 
-    fn failNextFrees(&mut self, count: usize) () {
+    fun failNextFrees(&mut self, count: usize) () {
         self.fail_free_count = count;
     }
 }
 
 extend CountingAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if layout.isEmpty() {
             return !mem::Block::init(layout.align() as &mut u8, layout);
         }
@@ -935,7 +935,7 @@ extend CountingAllocator : mem::Allocator {
         !mem::Block::init(aligned as &mut u8, layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if block.isEmpty() {
             return !();
         }
@@ -948,7 +948,7 @@ extend CountingAllocator : mem::Allocator {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 64] = [0; 64];
     let mut allocator = CountingAllocator::init(&mut storage);
@@ -1039,7 +1039,7 @@ fn emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
@@ -1160,28 +1160,28 @@ struct ResizeOnlyPageAllocator {
 }
 
 extend ResizeOnlyPageAllocator {
-    fn init() ResizeOnlyPageAllocator {
+    fun init() ResizeOnlyPageAllocator {
         Self { page: mem::PageAllocator::init() }
     }
 }
 
 extend ResizeOnlyPageAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         self.page.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         self.page.free(block)
     }
 
-    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
         block.align() == newLayout.align()
             and block.size() != 0
             and newLayout.size() != 0
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = ResizeOnlyPageAllocator::init();
     let initial = mem::Layout::init(64, 8192).?;
@@ -1231,7 +1231,7 @@ fn emit_exe_std_mem_allocator_realloc_from_empty_block() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut empty_layout: mem::Layout;
@@ -1311,20 +1311,20 @@ struct MalformedAllocator {
 }
 
 extend MalformedAllocator {
-    fn init() MalformedAllocator {
+    fun init() MalformedAllocator {
         Self { failNextFree: true }
     }
 }
 
 extend MalformedAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if layout.isEmpty() {
             return !mem::Block::empty(layout);
         }
         !mem::Block::init((usize::MAX - 1usize) as &mut u8, layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         _ = block;
         if self.failNextFree {
             self.failNextFree = false;
@@ -1333,20 +1333,20 @@ extend MalformedAllocator : mem::Allocator {
         !()
     }
 
-    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
         _ = block;
         _ = newLayout;
         false
     }
 
-    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+    fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
         _ = block;
         _ = newLayout;
         null
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut child = MalformedAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);

@@ -11,27 +11,27 @@ pub struct FixedBufferAllocator {
 }
 
 extend FixedBufferAllocator {
-    pub fn init(buffer: &mut [u8]) FixedBufferAllocator {
+    pub fun init(buffer: &mut [u8]) FixedBufferAllocator {
         .{ buffer, endIndex: 0 }
     }
 
-    pub fn reset(&mut self) () {
+    pub fun reset(&mut self) () {
         self.endIndex = 0;
     }
 
-    pub fn used(&self) usize {
+    pub fun used(&self) usize {
         self.endIndex
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         self.buffer.len()
     }
 
-    pub fn remaining(&self) usize {
+    pub fun remaining(&self) usize {
         self.capacity() - self.used()
     }
 
-    fn ownsBlock(&self, block: Block) bool {
+    fun ownsBlock(&self, block: Block) bool {
         if block.isEmpty() {
             return true;
         }
@@ -59,7 +59,7 @@ extend FixedBufferAllocator {
         end <= limit
     }
 
-    fn isLastAllocation(&self, block: Block) bool {
+    fun isLastAllocation(&self, block: Block) bool {
         if block.isEmpty() {
             return false;
         }
@@ -85,7 +85,7 @@ extend FixedBufferAllocator {
 }
 
 extend FixedBufferAllocator : Allocator {
-    pub fn alloc(&mut self, layout: Layout) Error!Block {
+    pub fun alloc(&mut self, layout: Layout) Error!Block {
         if layout.isEmpty() {
             return !.empty(layout);
         }
@@ -124,7 +124,7 @@ extend FixedBufferAllocator : Allocator {
         !.init(aligned as &mut u8, layout)
     }
 
-    pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
+    pub fun resize(&mut self, block: Block, newLayout: Layout) bool {
         if block.align() != newLayout.align() {
             return false;
         }
@@ -158,7 +158,7 @@ extend FixedBufferAllocator : Allocator {
         true
     }
 
-    pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+    pub fun remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
@@ -168,7 +168,7 @@ extend FixedBufferAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) Error!() {
+    pub fun free(&mut self, block: Block) Error!() {
         if block.isEmpty() {
             return !();
         }

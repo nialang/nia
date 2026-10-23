@@ -25,17 +25,17 @@ fn callable_generic_codegen_keeps_function_items_and_closures_direct() {
     std::fs::write(
         &main,
         r#"
-fn apply[F](callback: F, value: i32) i32
-where F: Fn(i32) i32
+fun apply[F](callback: F, value: i32) i32
+where F: Fun(i32) i32
 {
     callback(value)
 }
 
-fn increment(value: i32) i32 {
+fun increment(value: i32) i32 {
     value + 1
 }
 
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     apply(increment, 2) + apply(\[base] value: i32 -> { base + value }, 3)
 }
 "#,
@@ -64,13 +64,13 @@ fn monomorphic_closure_passed_to_generic_callable_keeps_source_entry() {
     std::fs::write(
         &main,
         r#"
-fn apply[F](callback: F) i32
-where F: Fn() i32
+fun apply[F](callback: F) i32
+where F: Fun() i32
 {
     callback()
 }
 
-fn main() i32 {
+fun main() i32 {
     let callback = \ -> { 7 };
     apply(callback)
 }
@@ -91,12 +91,12 @@ fn known_local_function_pointer_is_devirtualized() {
     std::fs::write(
         &main,
         r#"
-fn increment(value: i32) i32 {
+fun increment(value: i32) i32 {
     value + 1
 }
 
-fn main() i32 {
-    let pointer: &fn(i32) i32 = &increment;
+fun main() i32 {
+    let pointer: &fun(i32) i32 = &increment;
     pointer(41)
 }
 "#,
@@ -150,7 +150,7 @@ fn readiness_coordinator_retries_units_only_after_exact_owner_publication() {
 module geom;
 using entry::geom;
 
-fn main() i32 {
+fun main() i32 {
     let mut point = geom::Point { x: 40, y: 2 };
     point.x + point.y
 }
@@ -225,7 +225,7 @@ fn closure_codegen_materializes_direct_entry_calls() {
     std::fs::write(
         &main,
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     callback(1)
 }
@@ -264,7 +264,7 @@ fn curried_closure_codegen_returns_a_nested_capturing_state() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let make = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
     let add = make(2, 3);
     add(4)
@@ -313,9 +313,9 @@ fn callable_view_codegen_materializes_dynamic_dispatch() {
     std::fs::write(
         &main,
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &callback;
+    let view: &Fun(i32) i32 = &callback;
     view(1)
 }
 "#,
@@ -345,16 +345,16 @@ fn callable_effect_codegen_dispatches_functions_and_mutable_captures() {
     std::fs::write(
         &main,
         r#"
-fn ignore(value: i32) () {
+fun ignore(value: i32) () {
     _ = value;
     ()
 }
 
-fn apply(callback: &mut Fn(i32) (), value: i32) () {
+fun apply(callback: &mut Fun(i32) (), value: i32) () {
     callback(value);
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut total = 0;
     apply(&ignore, 1);
     apply(&mut \[&mut total] value: i32 -> {
@@ -386,11 +386,11 @@ fn function_pointer_callable_codegen_materializes_function_branch() {
     std::fs::write(
         &main,
         r#"
-fn add(value: i32) i32 { value + 1 }
+fun add(value: i32) i32 { value + 1 }
 
-fn main() i32 {
-    let pointer: &fn(i32) i32 = &add;
-    let callable: &Fn(i32) i32 = pointer;
+fun main() i32 {
+    let pointer: &fun(i32) i32 = &add;
+    let callable: &Fun(i32) i32 = pointer;
     callable(2)
 }
 "#,
@@ -403,7 +403,7 @@ fn main() i32 {
     let ir = common::source_module_ir(&output, "main.nia");
     assert!(
         !ir.contains("callable.is_function")
-            && ir.contains("callable.fn.call")
+            && ir.contains("callable.fun.call")
             && ir.contains("callable_adapter"),
         "LLVM IR omitted unified callable adapter dispatch: {ir}"
     );
@@ -420,7 +420,7 @@ fn function_pointer_callable_codegen_forwards_indirect_return_storage() {
     std::fs::write(
         &main,
         r#"
-fn produce(value: i32) bool!i32 {
+fun produce(value: i32) bool!i32 {
     if value == 1 {
         !42
     } else {
@@ -428,9 +428,9 @@ fn produce(value: i32) bool!i32 {
     }
 }
 
-fn main(flag: bool) bool!i32 {
-    let pointer: &fn(i32) bool!i32 = &produce;
-    let callable: &Fn(i32) bool!i32 = pointer;
+fun main(flag: bool) bool!i32 {
+    let pointer: &fun(i32) bool!i32 = &produce;
+    let callable: &Fun(i32) bool!i32 = pointer;
     callable(if flag { 1 } else { 0 })
 }
 "#,
@@ -457,7 +457,7 @@ fn callable_view_codegen_passes_indirect_error_union_return_storage() {
     std::fs::write(
         &main,
         r#"
-fn main(flag: bool) bool!i32 {
+fun main(flag: bool) bool!i32 {
     let callback = \value: i32 -> {
         if value == 1 {
             !42
@@ -465,7 +465,7 @@ fn main(flag: bool) bool!i32 {
             true!
         }
     };
-    let view: &Fn(i32) bool!i32 = &callback;
+    let view: &Fun(i32) bool!i32 = &callback;
     view(if flag { 1 } else { 0 })
 }
 "#,
@@ -491,13 +491,13 @@ fn closure_function_pointer_codegen_materializes_adapter() {
     std::fs::write(
         &main,
         r#"
-fn apply[T](value: T) T {
+fun apply[T](value: T) T {
     let callback = \inner: T -> { inner };
-    let pointer: &fn(T) T = &callback;
+    let pointer: &fun(T) T = &callback;
     pointer(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply[i32](7)
 }
 "#,
@@ -533,7 +533,7 @@ fn main() i32 {
         "LLVM IR omitted no-capture adapter `{adapter_symbol}`: {ir}"
     );
     assert!(
-        ir.contains("closure.fn.call"),
+        ir.contains("closure.fun.call"),
         "LLVM IR omitted adapter entry call: {ir}"
     );
 }
@@ -545,12 +545,12 @@ fn generic_closure_codegen_uses_the_concrete_instance_entry() {
     std::fs::write(
         &main,
         r#"
-fn apply[T](value: T) T {
+fun apply[T](value: T) T {
     let callback = \[value] -> { value };
     callback()
 }
 
-fn main() i32 {
+fun main() i32 {
     apply[i32](7)
 }
 "#,
@@ -598,20 +598,20 @@ fn generic_closure_passed_to_static_callable_retains_instance_entry() {
     std::fs::write(
         &main,
         r#"
-fn invoke[F](callback: F) i32
-where F: Fn() i32
+fun invoke[F](callback: F) i32
+where F: Fun() i32
 {
     callback()
 }
 
-fn make[T](value: T) i32
+fun make[T](value: T) i32
 where T: Sized
 {
     let callback = \ -> { std::builtin::size[T]() as i32 };
     invoke(callback)
 }
 
-fn main() i32 {
+fun main() i32 {
     make[i32](1) + make[i64](2)
 }
 "#,

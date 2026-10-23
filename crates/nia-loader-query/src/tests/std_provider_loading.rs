@@ -7,7 +7,7 @@ fn query_loader_loads_len_prelude_provider_on_demand() {
     write(
         &main_path,
         r#"
-fn main(values: &[u8]) usize {
+fun main(values: &[u8]) usize {
     values.len()
 }
 "#,
@@ -36,9 +36,9 @@ fn query_loader_resolves_unqualified_len_in_impl_without_loading_other_builtins(
         r#"
 struct Window {}
 extend Window : Len {
-    const fn len(&self) usize { 0usize }
+    const fun len(&self) usize { 0usize }
 }
-fn main() () {}
+fun main() () {}
 "#,
     );
 
@@ -58,7 +58,7 @@ fn query_loader_does_not_load_len_provider_without_len_demand() {
     write(
         &main_path,
         r#"
-fn main() usize {
+fun main() usize {
     1usize
 }
 "#,
@@ -80,7 +80,7 @@ fn query_loader_loads_builtin_trait_provider_from_facade() {
         r#"
 using std;
 
-fn main() () {
+fun main() () {
     for _ in 1usize..4usize {}
 }
 "#,
@@ -107,7 +107,7 @@ fn query_loader_loads_range_provider_for_range_methods_without_iter_import() {
     write(
         &main_path,
         r#"
-fn main() () {
+fun main() () {
     let range = (1..4).iter();
     _ = range;
 }
@@ -136,7 +136,7 @@ fn query_loader_does_not_load_iterator_provider_without_builtin_trait_demand() {
     write(
         &main_path,
         r#"
-fn main() () {
+fun main() () {
     let range = 1usize..4usize;
     _ = range;
 }
@@ -185,7 +185,7 @@ fn query_loader_loads_provider_through_explicit_facade_reexport() {
 using std::process::ExitCode;
 using std::fs::PathError;
 
-fn main(error: PathError) ExitCode!() {
+fun main(error: PathError) ExitCode!() {
     error!
 }
 "#,
@@ -239,7 +239,7 @@ fn query_loader_loads_iterator_provider_for_for_in_iterator_values() {
         r#"
 using std::process;
 
-fn main(init: process::Init) () {
+fun main(init: process::Init) () {
     for _ in init.env().iter() {}
 }
 "#,
@@ -266,7 +266,7 @@ fn query_loader_keeps_trait_search_on_the_processed_collection_branch() {
         r#"
 using std::collections;
 
-fn main(values: collections::ArrayList[i32]) usize {
+fun main(values: collections::ArrayList[i32]) usize {
     for value in values {
         _ = value;
     }
@@ -291,7 +291,7 @@ fn query_loader_loads_facade_trait_impl_provider_for_used_trait_method() {
         r#"
 using std::hash;
 
-fn main() u64 {
+fun main() u64 {
 let mut hasher = hash::Wyhash::init(1u64);
 42usize.hash(&mut hasher);
 hasher.finish()
@@ -318,7 +318,7 @@ fn query_loader_loads_reexported_type_inherent_provider_chain() {
 using std::fs;
 using std::io;
 
-fn main(file: fs::File, buffer: &mut [u8]) fs::Error!io::FileWriter {
+fun main(file: fs::File, buffer: &mut [u8]) fs::Error!io::FileWriter {
 file.writer(buffer)
 }
 "#,
@@ -341,7 +341,7 @@ fn query_loader_loads_native_path_validation_without_file_operations() {
         r#"
 using std::fs::{NativePathView, PathError};
 
-fn main(bytes: &[u8]) PathError!NativePathView {
+fun main(bytes: &[u8]) PathError!NativePathView {
 NativePathView::fromBytes(bytes)
 }
 "#,
@@ -370,7 +370,7 @@ fn query_loader_loads_relative_path_validation_without_file_operations() {
         r#"
 using std::fs::{PathError, PathView, RelativePathView};
 
-fn main(path: PathView) PathError!RelativePathView {
+fun main(path: PathView) PathError!RelativePathView {
 path.relative()
 }
 "#,
@@ -399,7 +399,7 @@ fn query_loader_loads_contained_metadata_provider_chain() {
         r#"
 using std::fs;
 
-fn main(dir: &fs::Dir, path: fs::RelativePathView) () {
+fun main(dir: &fs::Dir, path: fs::RelativePathView) () {
     _ = dir.metadata(path, fs::MetadataOptions::init());
 }
 "#,
@@ -433,7 +433,7 @@ fn query_loader_forwards_provider_requests_to_the_selected_reexport_source() {
         r#"
 using std::collections::ArrayList;
 
-fn main() usize {
+fun main() usize {
 let list = ArrayList[i32]::init();
 _ = list;
 0

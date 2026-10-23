@@ -4,15 +4,15 @@
 //
 // `trap` returns `never`, so it can be used in branches that do not continue.
 @[builtin("trap")]
-pub const fn trap() never;
+pub const fun trap() never;
 
 // Emits a compile-time diagnostic with a const string message.
 @[builtin("error")]
-pub const fn error(message: &[char]) never;
+pub const fun error(message: &[char]) never;
 
 // Embeds a file at const.
 @[builtin("embed")]
-pub const fn embed(path: &[char]) ();
+pub const fun embed(path: &[char]) ();
 
 // Compiler-checked inline assembly configuration.
 @[builtin("AsmConfig")]
@@ -28,4 +28,4 @@ pub type AsmOutputs;
 
 // Emits target inline assembly from a compiler-checked configuration literal.
 @[builtin("asm")]
-pub fn asm(config: AsmConfig) ();
+pub fun asm(config: AsmConfig) ();

@@ -29,7 +29,7 @@ enum TargetError: i32 {
     _,
 }
 
-fn source(ok: bool) SourceError!(i32, i32) {
+fun source(ok: bool) SourceError!(i32, i32) {
     if ok {
         !(40, 2)
     } else {
@@ -37,7 +37,7 @@ fn source(ok: bool) SourceError!(i32, i32) {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
     let success = source(true).mapError(&\cause: SourceError -> {
@@ -122,7 +122,7 @@ enum TargetError: i32 {
     _,
 }
 
-fn source(ok: bool) SourceError!(i32, i32) {
+fun source(ok: bool) SourceError!(i32, i32) {
     if ok {
         !(20, 22)
     } else {
@@ -130,7 +130,7 @@ fn source(ok: bool) SourceError!(i32, i32) {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let success = source(true).orElse(&\cause: SourceError -> {
         _ = cause;
@@ -224,13 +224,13 @@ enum Failure: i32 {
     _,
 }
 
-fn fallible(value: Failure!i32) Failure!i32 {
+fun fallible(value: Failure!i32) Failure!i32 {
     value.map(\value: i32 -> value + 1).andThen(\value: i32 -> {
         if value == 3 { Failure::Bad! } else { !(value * 2) }
     })
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let success = fallible(!20);
     if not success.isSuccess() or success.isError() {
@@ -288,12 +288,12 @@ enum Failure: i32 {
     _,
 }
 
-fn source(calls: &mut usize, succeeds: bool) Failure!usize {
+fun source(calls: &mut usize, succeeds: bool) Failure!usize {
     calls.* += 1usize;
     if succeeds { !42usize } else { Failure::Missing! }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut calls = 0usize;
     let mut observed = 0usize;
@@ -376,7 +376,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : builtin::IntoError[TargetError] {
-    const fn intoError(self) TargetError {
+    const fun intoError(self) TargetError {
         match self {
             SourceError::Missing => TargetError::Wrapped,
             _ => TargetError::Unexpected,
@@ -384,11 +384,11 @@ extend SourceError : builtin::IntoError[TargetError] {
     }
 }
 
-const fn propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize) {
+const fun propagate(value: SourceError!(usize, usize)) TargetError!(usize, usize) {
     !(value.?)
 }
 
-const fn propagateStd(value: fs::Error!usize) process::ExitCode!usize {
+const fun propagateStd(value: fs::Error!usize) process::ExitCode!usize {
     !(value.?)
 }
 
@@ -407,7 +407,7 @@ const width: usize = match success {
     cause! => cause.0 as usize,
 };
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if width != 52 {
         return process::ExitCode(1)!;
@@ -453,17 +453,17 @@ enum Failure: i32 {
     _,
 }
 
-fn operation(order: &mut usize, succeeds: bool) Failure!usize {
+fun operation(order: &mut usize, succeeds: bool) Failure!usize {
     order.* = order.* * 10usize + 1usize;
     if succeeds { !7usize } else { Failure::Primary! }
 }
 
-fn cleanup(order: &mut usize, succeeds: bool) Failure!() {
+fun cleanup(order: &mut usize, succeeds: bool) Failure!() {
     order.* = order.* * 10usize + 2usize;
     if succeeds { !() } else { Failure::Cleanup! }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut order = 0usize;
     match operation(&mut order, true).cleanupAfter(cleanup(&mut order, true)) {
@@ -535,17 +535,17 @@ enum Failure: i32 {
     _,
 }
 
-fn first(counter: &mut usize) Failure!() {
+fun first(counter: &mut usize) Failure!() {
     counter.* += 1usize;
     Failure::First!
 }
 
-fn second(counter: &mut usize) Failure!() {
+fun second(counter: &mut usize) Failure!() {
     counter.* += 1usize;
     Failure::Second!
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut counter: usize = 0;
     let mut cleanup = error::cleanup::CleanupAccumulator[Failure]::init();

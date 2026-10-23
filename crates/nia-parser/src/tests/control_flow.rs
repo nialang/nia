@@ -5,7 +5,7 @@ use super::common::*;
 fn parses_nested_tuple_binding_patterns_and_mutability() {
     let (module, errors) = parse_module(
         r#"
-fn main(pair: (i32, (bool, i32))) {
+fun main(pair: (i32, (bool, i32))) {
     let mut (x, (flag, y)) = pair;
     let (mut selected, fixed) = (1, 2);
     let () = ();
@@ -95,7 +95,7 @@ pub extern union Bits[T] {
 fn parses_for_in_binding_with_range_iterator() {
     let (module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     for i in 0i32..10i32 {
         _ = i;
     }
@@ -125,7 +125,7 @@ fn main() {
 fn parses_for_in_pointer_patterns() {
     let (module, errors) = parse_module(
         r#"
-fn main(xs: &[&i32], ys: &[&mut i32]) {
+fun main(xs: &[&i32], ys: &[&mut i32]) {
     for &x in xs {}
     for &mut y in ys {}
     for _ in 0..3 {}
@@ -158,7 +158,7 @@ fn main(xs: &[&i32], ys: &[&mut i32]) {
 fn parses_local_binding_pointer_patterns() {
     let (module, errors) = parse_module(
         r#"
-fn main(ptr: &i32, mut_ptr: &mut i32) {
+fun main(ptr: &i32, mut_ptr: &mut i32) {
     let &x = ptr;
     let &mut y: &mut i32 = mut_ptr;
 }
@@ -185,7 +185,7 @@ fn main(ptr: &i32, mut_ptr: &mut i32) {
 fn rejects_local_const_mut_binding() {
     let (_module, errors) = parse_module(
         r#"
-const fn width() usize {
+const fun width() usize {
     const mut value: usize = 1usize;
     value
 }
@@ -203,7 +203,7 @@ const fn width() usize {
 fn rejects_local_const_let_binding() {
     let (_module, errors) = parse_module(
         r#"
-const fn width() usize {
+const fun width() usize {
     const let value: usize = 1usize;
     value
 }
@@ -222,9 +222,9 @@ fn parses_conditional_item_and_statement_attributes() {
     let (module, errors) = parse_module(
         r#"
 @[if os == "linux" and arch == "x86_64"]
-fn selected() i32 { 1 }
+fun selected() i32 { 1 }
 
-fn main() i32 {
+fun main() i32 {
     @[if pointerWidth == 64]
     let value = 1;
     @[if os == "linux"]
@@ -258,11 +258,11 @@ fn parses_profile_attributes() {
     let (module, errors) = parse_module(
         r#"
 @[debug]
-fn debugOnly() () {}
+fun debugOnly() () {}
 @[release]
-fn releaseOnly() () {}
+fun releaseOnly() () {}
 @[test]
-fn testOnly() () {}
+fun testOnly() () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -284,20 +284,20 @@ fn testOnly() () {}
 fn control_flow_statement_boundary_stops_binary_expr_across_newline() {
     let (module, errors) = parse_module(
         r#"
-fn tail_after_if(bytes: &[u8], start: usize) &[u8] {
+fun tail_after_if(bytes: &[u8], start: usize) &[u8] {
     if start == 0usize {
     }
     &bytes[start..bytes.len()]
 }
 
-fn tail_after_if_let(bytes: &[u8], maybe: ?usize) &[u8] {
+fun tail_after_if_let(bytes: &[u8], maybe: ?usize) &[u8] {
     if maybe is ?start {
         _ = start;
     }
     &bytes[..]
 }
 
-fn parenthesized_if_can_still_be_binary(flag: bool, mask: bool) bool {
+fun parenthesized_if_can_still_be_binary(flag: bool, mask: bool) bool {
     (if flag {
         true
     } else {
@@ -344,7 +344,7 @@ fn parenthesized_if_can_still_be_binary(flag: bool, mask: bool) bool {
 fn rejects_let_keyword_in_for_in_binding() {
     let (_module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     for let mut i in 0..10 {}
 }
 "#,
@@ -361,7 +361,7 @@ fn main() {
 fn parses_if_pattern_condition_chain() {
     let (module, errors) = parse_module(
         r#"
-fn main() bool {
+fun main() bool {
     if get() is ?value and value.ready() {
         true
     } else {
@@ -394,7 +394,7 @@ fn main() bool {
 fn parses_multiple_if_pattern_clauses() {
     let (module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     if first() is ?a and second(a) is ?b {}
 }
 "#,
@@ -424,7 +424,7 @@ fn main() {
 fn parses_boolean_clauses_before_first_if_pattern() {
     let (module, errors) = parse_module(
         r#"
-fn main(enabled: bool, pageReady: bool, first: ?i32, second: ?i32) {
+fun main(enabled: bool, pageReady: bool, first: ?i32, second: ?i32) {
     if enabled and pageReady and first is ?a and a > 0 and second is ?b and b > a {}
 }
 "#,
@@ -474,7 +474,7 @@ fn main(enabled: bool, pageReady: bool, first: ?i32, second: ?i32) {
 fn keeps_plain_boolean_and_condition_as_an_if_expression() {
     let (module, errors) = parse_module(
         r#"
-fn main(first: bool, second: bool) {
+fun main(first: bool, second: bool) {
     if first and second {}
 }
 "#,
@@ -497,7 +497,7 @@ fn main(first: bool, second: bool) {
 fn rejects_or_in_if_pattern_condition_chain() {
     let (_module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     if get() is ?value or other() is ?fallback {}
 }
 "#,
@@ -514,7 +514,7 @@ fn main() {
 fn parses_boolean_or_clause_before_first_if_pattern() {
     let (module, errors) = parse_module(
         r#"
-fn main(enabled: bool, fallback: bool, value: ?i32) {
+fun main(enabled: bool, fallback: bool, value: ?i32) {
     if enabled or fallback and value is ?item {}
 }
 "#,
@@ -548,7 +548,7 @@ fn main(enabled: bool, fallback: bool, value: ?i32) {
 fn rejects_not_wrapped_pattern_condition() {
     let (_module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     if value is ?x and not other() is true {}
 }
 "#,
@@ -565,7 +565,7 @@ fn main() {
 fn rejects_for_in_binding_type_annotation() {
     let (_module, errors) = parse_module(
         r#"
-fn main() {
+fun main() {
     for i: usize in 0..10 {}
 }
 "#,
@@ -582,9 +582,9 @@ fn main() {
 fn parses_defer_with_complex_expression_forms() {
     let (module, errors) = parse_module(
         r#"
-fn cleanup() {}
+fun cleanup() {}
 
-fn main(flag: bool) {
+fun main(flag: bool) {
     defer cleanup();
     defer if flag {
         cleanup();
@@ -627,9 +627,9 @@ fn main(flag: bool) {
 fn parses_match_arm_expression_statement_and_block_bodies() {
     let (module, errors) = parse_module(
         r#"
-fn cleanup() {}
+fun cleanup() {}
 
-fn main(state: i32) i32 {
+fun main(state: i32) i32 {
     loop {
         match state {
             0 => cleanup(),
@@ -673,7 +673,7 @@ fn main(state: i32) i32 {
 fn parses_if_is_and_recursive_match_patterns() {
     let (module, errors) = parse_module(
         r#"
-fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
+fun main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     let a = match result {
         !ok => {
             ok
@@ -784,7 +784,7 @@ fn parses_nominal_patterns_with_shorthand_and_renaming() {
 struct Point { x: i32, y: i32 }
 enum Event { Resize { width: i32, height: i32 } }
 
-fn inspect(point: Point, event: Event) i32 {
+fun inspect(point: Point, event: Event) i32 {
     let Point { y: second, x } = point;
     match event {
         Event::Resize { width, height: h } => x + second + width + h,
@@ -828,7 +828,7 @@ fn parses_terminal_nominal_pattern_rest() {
 struct Point { x: i32, y: i32 }
 enum Event { Resize { width: i32, height: i32 } }
 
-fn inspect(point: Point, event: Event) i32 {
+fun inspect(point: Point, event: Event) i32 {
     let Point { x, .. } = point;
     match event {
         Event::Resize { .. } => x,
@@ -862,11 +862,11 @@ fn diagnoses_duplicate_and_non_terminal_nominal_pattern_rest() {
         r#"
 struct Point { x: i32, y: i32 }
 
-fn duplicate(point: Point) {
+fun duplicate(point: Point) {
     let Point { .., .. } = point;
 }
 
-fn non_terminal(point: Point) {
+fun non_terminal(point: Point) {
     let Point { .., x } = point;
 }
 "#,
@@ -892,7 +892,7 @@ fn parses_named_nominal_pattern_inside_error_payload() {
 enum Operation { Read, Write }
 enum Failure { System { operation: Operation, code: i32 } }
 
-fn inspect(value: Failure!i32) i32 {
+fun inspect(value: Failure!i32) i32 {
     match value {
         Failure::System { operation: Operation::Read, code: _ }! => 1,
         _ => 0,
@@ -929,7 +929,7 @@ fn inspect(value: Failure!i32) i32 {
 fn does_not_consume_if_body_as_unqualified_nominal_pattern_before_fallible_tail() {
     let (_, errors) = parse_module(
         r#"
-fn inspect(value: ?i32) i32 {
+fun inspect(value: ?i32) i32 {
     if value is ?error {
         return error!;
     }
@@ -944,7 +944,7 @@ fn inspect(value: ?i32) i32 {
 fn parses_match_arm_pattern_lists_and_ranges() {
     let (module, errors) = parse_module(
         r#"
-fn main(state: i32) i32 {
+fun main(state: i32) i32 {
     match state {
         0, 1 => 10,
         2..5 => 20,
@@ -996,7 +996,7 @@ fn main(state: i32) i32 {
 fn parses_match_destructuring_bindings_and_explicit_value_patterns() {
     let (module, errors) = parse_module(
         r#"
-fn main(value: ?i32, tag: i32) i32 {
+fun main(value: ?i32, tag: i32) i32 {
     match value {
         ?payload => payload,
         null => match tag {
@@ -1040,7 +1040,7 @@ fn main(value: ?i32, tag: i32) i32 {
 fn rejects_open_ended_match_range_patterns() {
     let (_module, errors) = parse_module(
         r#"
-fn main(state: i32) i32 {
+fun main(state: i32) i32 {
     match state {
         1.. => 10,
         _ => 20,

@@ -16,7 +16,7 @@ fn emit_exe_std_mem_core_allocator_and_layout_cases() {
 using std::mem;
 using std::process;
 
-fn check_page_allocator_allocates() process::ExitCode!() {
+fun check_page_allocator_allocates() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
     match mem::Layout::of[u8]() {
@@ -38,7 +38,7 @@ fn check_page_allocator_allocates() process::ExitCode!() {
     !()
 }
 
-fn check_page_allocator_overaligned_layouts() process::ExitCode!() {
+fun check_page_allocator_overaligned_layouts() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     let mut layout: mem::Layout;
     match mem::Layout::init(64, 8192) {
@@ -66,7 +66,7 @@ fn check_page_allocator_overaligned_layouts() process::ExitCode!() {
     !()
 }
 
-fn check_layout_rejects_invalid_alignment() process::ExitCode!() {
+fun check_layout_rejects_invalid_alignment() process::ExitCode!() {
     match mem::Layout::init(16, 3) {
         !ok => { _ = ok;
                 return process::ExitCode(1)!; },
@@ -77,7 +77,7 @@ fn check_layout_rejects_invalid_alignment() process::ExitCode!() {
     !()
 }
 
-fn check_layout_rejects_array_size_overflow() process::ExitCode!() {
+fun check_layout_rejects_array_size_overflow() process::ExitCode!() {
     match mem::Layout::array[i32](usize::MAX) {
         !ok => { _ = ok;
                 return process::ExitCode(1)!; },
@@ -88,7 +88,7 @@ fn check_layout_rejects_array_size_overflow() process::ExitCode!() {
     !()
 }
 
-fn check_allocator_can_allocate_typed_slices() process::ExitCode!() {
+fun check_allocator_can_allocate_typed_slices() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     match allocator.allocSlice[i32](4) {
         mut !allocation => { allocation.asMutSlice()[0] = 10;
@@ -116,13 +116,13 @@ struct NonEmptyZeroAllocator {
 struct Empty {}
 
 extend NonEmptyZeroAllocator {
-    fn init() NonEmptyZeroAllocator {
+    fun init() NonEmptyZeroAllocator {
         Self { backing: mem::PageAllocator::init(), freeCount: 0 }
     }
 }
 
 extend NonEmptyZeroAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if layout.isEmpty() {
             self.backing.alloc(mem::Layout::init(1, layout.align()).?)
         } else {
@@ -130,7 +130,7 @@ extend NonEmptyZeroAllocator : mem::Allocator {
         }
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if not block.isEmpty() {
             self.freeCount += 1;
         }
@@ -138,7 +138,7 @@ extend NonEmptyZeroAllocator : mem::Allocator {
     }
 }
 
-fn check_zero_length_slice_releases_block_owner() process::ExitCode!() {
+fun check_zero_length_slice_releases_block_owner() process::ExitCode!() {
     let mut allocator = NonEmptyZeroAllocator::init();
     let mut allocation = allocator.allocSlice[u8](0).?;
     allocation.deinit(&mut allocator).?;
@@ -152,7 +152,7 @@ fn check_zero_length_slice_releases_block_owner() process::ExitCode!() {
     !()
 }
 
-fn check_zero_sized_value_releases_block_owner() process::ExitCode!() {
+fun check_zero_sized_value_releases_block_owner() process::ExitCode!() {
     let mut allocator = NonEmptyZeroAllocator::init();
     let mut owned = mem::allocValue[Empty](&mut allocator, {}).?;
     owned.deinit(&mut allocator).?;
@@ -181,7 +181,7 @@ fn check_zero_sized_value_releases_block_owner() process::ExitCode!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     check_page_allocator_allocates().?;
     check_page_allocator_overaligned_layouts().?;
@@ -225,7 +225,7 @@ fn emit_exe_std_mem_fixed_buffer_allocator_resize_and_reset() {
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 64] = [0; 64];
     let mut allocator = mem::FixedBufferAllocator::init(&mut storage[..]);
@@ -309,21 +309,21 @@ struct FailOnceAllocator {
 }
 
 extend FailOnceAllocator {
-    fn init() FailOnceAllocator {
+    fun init() FailOnceAllocator {
         Self { backing: mem::PageAllocator::init(), failNextFree: false }
     }
 
-    fn failNext(&mut self) () {
+    fun failNext(&mut self) () {
         self.failNextFree = true;
     }
 }
 
 extend FailOnceAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         self.backing.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if self.failNextFree and not block.isEmpty() {
             self.failNextFree = false;
             return mem::Error::Invalid!;
@@ -332,7 +332,7 @@ extend FailOnceAllocator : mem::Allocator {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = FailOnceAllocator::init();
     let mut owned = mem::allocValue[u64](&mut allocator, 42u64).?;
@@ -357,7 +357,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         \[base] value: i32 -> { base + value },
     ).?;
     let mut callableState = callableStorage.valueMut();
-    let callableView: &mut Fn(i32) i32 = &mut callableState.*;
+    let callableView: &mut Fun(i32) i32 = &mut callableState.*;
     let mut callableOwner = callableStorage.intoCallable(callableView);
     callableStorage.deinit(&mut allocator).?;
     allocator.failNext();
@@ -432,7 +432,7 @@ fn std_mem_obsolete_allocator_spellings_are_absent() {
 using std::mem;
 using std::process;
 
-fn probe(
+fun probe(
     allocator: &mut mem::Allocator,
     layout: mem::Layout,
     block: mem::Block,
@@ -445,7 +445,7 @@ fn probe(
     __PROBE__
 }
 
-fn main() () {}
+fun main() () {}
 "#;
     for (name, expression) in probes {
         std::fs::write(&main, source.replace("__PROBE__", expression))

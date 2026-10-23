@@ -5,6 +5,6 @@ enum Value {
     Kept,
 }
 
-fn tuple_type(value: (, i32,, bool)) () {}
+fun tuple_type(value: (, i32,, bool)) () {}
 
-fn later() () {}
+fun later() () {}

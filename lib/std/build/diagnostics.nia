@@ -11,7 +11,7 @@ using error::Error;
 using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
 
-pub(pkg) fn reportBuildError(error: Error) Error!() {
+pub(pkg) fun reportBuildError(error: Error) Error!() {
     let mut buffer: [u8; 1024] = [0; 1024];
     let mut stderr = io::FileWriter::stderr(&mut buffer);
     stderr.print(
@@ -21,7 +21,7 @@ pub(pkg) fn reportBuildError(error: Error) Error!() {
     stderr.flush().withBuildContext(Operation::Report, Subject::Diagnostic)
 }
 
-pub(pkg) fn reportUnknownBuildStep(step: &[char]) Error!() {
+pub(pkg) fun reportUnknownBuildStep(step: &[char]) Error!() {
     let mut buffer: [u8; 256] = [0; 256];
     let mut stderr = io::FileWriter::stderr(&mut buffer);
     stderr.print(

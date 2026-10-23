@@ -1,4 +1,4 @@
-fn main(value: (bool, bool, bool)) () {
+fun main(value: (bool, bool, bool)) () {
     match value {
         (true, @ (bad, value), false) => (),
         _ => (),
@@ -8,6 +8,6 @@ fn main(value: (bool, bool, bool)) () {
     later();
 }
 
-fn typed(value: (bool, @ (bad, value), i32)) () {}
-fn consume(first: bool, second: i32, third: i32) () {}
-fn later() () {}
+fun typed(value: (bool, @ (bad, value), i32)) () {}
+fun consume(first: bool, second: i32, third: i32) () {}
+fun later() () {}

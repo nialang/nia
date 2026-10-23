@@ -11,26 +11,26 @@ pub enum BufferError: i32 {
 pub trait Writer {
     type Error;
 
-    fn shortWrite(&self) Error;
+    fun shortWrite(&self) Error;
 
     // A write reports at most the number of bytes available in the source
     // slice; larger reports are converted to the standard I/O error.
-    fn invalidWrite(&self) Error {
+    fun invalidWrite(&self) Error {
         self.shortWrite()
     }
 
-    fn write(&mut self, bytes: &[u8]) Error!usize;
+    fun write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn flush(&mut self) Error!() {
+    fun flush(&mut self) Error!() {
         !()
     }
 
-    fn writeByte(&mut self, byte: u8) Error!() {
+    fun writeByte(&mut self, byte: u8) Error!() {
         let bytes: [u8; 1] = [byte];
         self.writeAll(&bytes[..])
     }
 
-    fn writeAll(&mut self, bytes: &[u8]) Error!() {
+    fun writeAll(&mut self, bytes: &[u8]) Error!() {
         let mut written: usize = 0;
         while written < bytes.len() {
             let chunk = & bytes[written..];
@@ -46,7 +46,7 @@ pub trait Writer {
         !()
     }
 
-    fn writeUtf8(&mut self, text: &[char]) Error!() {
+    fun writeUtf8(&mut self, text: &[char]) Error!() {
         for &ch in text {
             self.writeAll(ch.encodeUtf8().bytes()).?;
         }
@@ -57,17 +57,17 @@ pub trait Writer {
 pub trait Reader {
     type Error;
 
-    fn endOfStream(&self) Error;
+    fun endOfStream(&self) Error;
 
     // A read reports at most the number of bytes available in the destination
     // slice; larger reports are converted to the standard I/O error.
-    fn invalidRead(&self) Error {
+    fun invalidRead(&self) Error {
         self.endOfStream()
     }
 
-    fn read(&mut self, bytes: &mut [u8]) Error!usize;
+    fun read(&mut self, bytes: &mut [u8]) Error!usize;
 
-    fn readExact(&mut self, bytes: &mut [u8]) Error!() {
+    fun readExact(&mut self, bytes: &mut [u8]) Error!() {
         let mut read: usize = 0;
         while read < bytes.len() {
             let chunk = &mut bytes[read..];

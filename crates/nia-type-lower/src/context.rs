@@ -211,7 +211,7 @@ impl TypeLowerer<'_, '_> {
                 "trait object pointee types are unsized and not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
             Some(TyKind::CallablePointee { .. }) => Some(
-                "callable interface types are unsized and not valid as values, fields, parameters, or array elements; use `&Fn(...)` or `&mut Fn(...)` for a callable view",
+                "callable interface types are unsized and not valid as values, fields, parameters, or array elements; use `&Fun(...)` or `&mut Fun(...)` for a callable view",
             ),
             Some(TyKind::BuiltinTrait { .. }) => Some(
                 "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",

@@ -235,7 +235,7 @@ impl<'a> BodyChecker<'a> {
                                         "this closure captures {capture_count} value(s), but a thin function pointer has no environment storage"
                                     ))
                                     .help(
-                                        "use a callable view such as `&Fn(...)` to retain the closure environment",
+                                        "use a callable view such as `&Fun(...)` to retain the closure environment",
                                     )
                                     .finish(),
                             );

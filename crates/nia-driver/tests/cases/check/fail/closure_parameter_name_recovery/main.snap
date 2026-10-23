@@ -1,7 +1,7 @@
 path: fail/closure_parameter_name_recovery/main.nia
 code: E0101
 summary: expected closure parameter name; found `,`
-label: 36..37 Primary Source expected closure parameter name; found `,`
+label: 37..38 Primary Source expected closure parameter name; found `,`
 help: use an identifier in this position
 
 report:

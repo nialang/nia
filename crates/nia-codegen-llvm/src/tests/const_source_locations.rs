@@ -11,7 +11,7 @@ fn caller_location_is_available_in_const_initializers() {
 
 const HERE: SourceLocation = callerLocation();
 
-fn main() u32 {
+fun main() u32 {
     HERE.line()
 }
 "#,
@@ -38,13 +38,13 @@ fn tracked_const_functions_forward_their_outer_callsite() {
         r#"using std::{SourceLocation, callerLocation};
 
 @[trackCaller]
-const fn capture() SourceLocation {
+const fun capture() SourceLocation {
     callerLocation()
 }
 
 const HERE: SourceLocation = capture();
 
-fn main() u32 {
+fun main() u32 {
     HERE.line()
 }
 "#,

@@ -1,7 +1,7 @@
 path: fail/tuple_expression_nested_recovery/main.nia
 code: E0101
 summary: expected expression
-label: 32..33 Primary Source expected expression
+label: 33..34 Primary Source expected expression
 help: provide an expression here, such as a literal, name, or call
 
 report:

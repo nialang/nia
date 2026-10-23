@@ -124,8 +124,8 @@ enum Event: u16 {
 fn parses_extern_items_and_binding_declarations() {
     let (module, errors) = parse_module(
         r#"
-pub extern fn printf(fmt: &u8, ...);
-pub extern fn add(a: i32, b: i32) i32 {
+pub extern fun printf(fmt: &u8, ...);
+pub extern fun add(a: i32, b: i32) i32 {
     a + b
 }
 extern struct CPoint {
@@ -135,7 +135,7 @@ extern struct CPoint {
 extern static errno: i32;
 extern static mut global_counter: usize;
 
-fn main() {
+fun main() {
     let mut p: CPoint;
     let origin: CPoint;
 }
@@ -172,7 +172,7 @@ fn parses_item_and_field_attributes() {
     let (module, errors) = parse_module(
         r#"
 @[linkName("runtime_start")]
-pub extern fn start(argc: i32) i32;
+pub extern fun start(argc: i32) i32;
 
 @[layout.version(1, true)]
 struct Header {
@@ -229,14 +229,14 @@ fn parses_trait_and_extend_method_attributes() {
         r#"
 trait Report {
     @[trackCaller]
-    fn report(&self) ();
+    fun report(&self) ();
 }
 
 struct Value {}
 
 extend Value {
     @[trackCaller]
-    pub fn report(&self) () {}
+    pub fun report(&self) () {}
 }
 "#,
     );
@@ -265,7 +265,7 @@ fn rejects_bare_at_item_attribute_without_brackets() {
     let (_, errors) = parse_module(
         r#"
 @linkName("runtime_start")
-extern fn start() i32;
+extern fun start() i32;
 "#,
     );
     assert!(
@@ -282,7 +282,7 @@ fn rejects_extern_binding_without_static() {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, or `static` after `extern`")),
+            .contains("expected `struct`, `union`, `fun`, or `static` after `extern`")),
         "{errors:?}"
     );
 }
@@ -299,7 +299,7 @@ fn rejects_bare_binding_syntax() {
 
     let (_, local_errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     answer: i32 = 42;
     answer
 }
@@ -315,7 +315,7 @@ fn main() i32 {
 
 #[test]
 fn rejects_top_level_let_without_stalling_recovery() {
-    let (module, errors) = parse_module("let VALUE = 1; fn main() i32 { 0 }");
+    let (module, errors) = parse_module("let VALUE = 1; fun main() i32 { 0 }");
 
     assert!(
         errors.iter().any(|error| error
@@ -335,7 +335,7 @@ let OLD = 1;
 answer: i32 = 42;
 extern errno: i32;
 static kept: i32 = 1;
-fn main() i32 { kept }
+fun main() i32 { kept }
 "#,
     );
 
@@ -477,11 +477,11 @@ using A::B::{C::foo, D::E::{F::goo, G}, H::Color::*};
 
 #[test]
 fn rejects_extern_before_pub_modifier_order() {
-    let (_, errors) = parse_module("extern pub fn add(a: i32, b: i32) i32;");
+    let (_, errors) = parse_module("extern pub fun add(a: i32, b: i32) i32;");
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, or `static` after `extern`")),
+            .contains("expected `struct`, `union`, `fun`, or `static` after `extern`")),
         "{errors:?}"
     );
 }
@@ -495,7 +495,7 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(&self) T { self.value }
+    fun get(&self) T { self.value }
 }
 "#,
     );

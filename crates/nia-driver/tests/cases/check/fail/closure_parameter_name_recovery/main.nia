@@ -1,5 +1,5 @@
-fn retained() () {
+fun retained() () {
     let value = \, second: bool -> second;
 }
 
-fn later() () {}
+fun later() () {}

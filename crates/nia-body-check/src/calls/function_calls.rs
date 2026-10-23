@@ -776,7 +776,7 @@ impl<'a> BodyChecker<'a> {
     /// Returns the callable shape promised by a `where F: Fn(...) R` bound
     /// when `ty` is the generic parameter `F` of the function being checked.
     ///
-    /// `Fn(...) R` is represented by the existing unsized callable pointee in
+    /// `Fun(...) R` is represented by the existing unsized callable pointee in
     /// signatures. It is deliberately kept separate from `&Fn(...) R`, which
     /// is a runtime-erased callable view and must not satisfy this bound.
     pub(crate) fn static_callable_bound(

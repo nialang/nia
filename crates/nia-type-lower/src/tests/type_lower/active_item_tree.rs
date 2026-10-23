@@ -7,9 +7,9 @@ fn lowers_types_from_active_item_tree_only() {
     let (module, errors) = parse_module(
         r#"
 @[if false]
-fn skipped(value: MissingType) () {}
+fun skipped(value: MissingType) () {}
 @[if true]
-fn selected(value: i32) () {}
+fun selected(value: i32) () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -54,7 +54,7 @@ left: i32,
 right: i32,
 }
 
-fn first(pair: &Pair) i32 {
+fun first(pair: &Pair) i32 {
 pair.left
 }
 "#,
@@ -106,7 +106,7 @@ pair.left
 fn declaration_lowering_includes_local_static_types_only() {
     let (module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     let ignored: bool = false;
     static retained: i32 = 0;
 }

@@ -1,12 +1,12 @@
 trait Marker {}
 
-fn require[T](value: T) ()
+fun require[T](value: T) ()
 where T: Marker
 {
     _ = value;
 }
 
-fn main() () {
+fun main() () {
     require(missing);
     require((missing, 1));
     require(1);

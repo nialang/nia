@@ -7,14 +7,14 @@ fn const_pointer_equality_uses_allocation_provenance() {
     write(
         &root.join("main.nia"),
         r#"
-const fn samePlace() bool {
+const fun samePlace() bool {
     let value: usize = 7;
     let first = &value;
     let second = &value;
     first == second
 }
 
-const fn distinctPlaces() bool {
+const fun distinctPlaces() bool {
     let left: usize = 7;
     let right: usize = 7;
     &left == &right
@@ -22,7 +22,7 @@ const fn distinctPlaces() bool {
 
 const width: usize = if samePlace() and not distinctPlaces() { 2 } else { 0 };
 
-fn main() usize {
+fun main() usize {
     let values: [usize; width] = [1, 2];
     values.len()
 }
@@ -39,7 +39,7 @@ fn const_place_pointer_dereference_reads_the_live_allocation() {
     write(
         &root.join("main.nia"),
         r#"
-const fn read() usize {
+const fun read() usize {
     let mut value: usize = 4;
     let pointer = &value;
     value = 11;
@@ -48,7 +48,7 @@ const fn read() usize {
 
 const width: usize = read();
 
-fn main() usize {
+fun main() usize {
     let values: [u8; width] = [0; width];
     values.len()
 }
@@ -65,18 +65,18 @@ fn const_function_can_return_caller_pointer_provenance() {
     write(
         &root.join("main.nia"),
         r#"
-const fn identity(pointer: &usize) &usize {
+const fun identity(pointer: &usize) &usize {
     pointer
 }
 
-const fn read() usize {
+const fun read() usize {
     let value: usize = 13;
     identity(&value).*
 }
 
 const width: usize = read();
 
-fn main() usize {
+fun main() usize {
     let values: [u8; width] = [0; width];
     values.len()
 }
@@ -93,7 +93,7 @@ fn const_function_rejects_pointer_to_local_storage_escape() {
     write(
         &root.join("main.nia"),
         r#"
-const fn dangling() &usize {
+const fun dangling() &usize {
     let value: usize = 7;
     &value
 }
@@ -123,7 +123,7 @@ struct Holder {
     pointer: &usize,
 }
 
-const fn dangling() Holder {
+const fun dangling() Holder {
     let value: usize = 7;
     Holder { pointer: &value }
 }
@@ -149,7 +149,7 @@ fn const_pointer_rejects_dereference_after_nested_scope_ends() {
     write(
         &root.join("main.nia"),
         r#"
-const fn danglingRead() usize {
+const fun danglingRead() usize {
     let mut pointer: &usize = &0usize;
     if true {
         let value: usize = 7;
@@ -182,7 +182,7 @@ fn top_level_const_can_promote_a_frozen_readonly_array_allocation() {
 const values: &[usize; 2] = &[5, 9];
 const width: usize = values.*[1];
 
-fn main() usize {
+fun main() usize {
     let array: [u8; width] = [0; width];
     array.len()
 }
@@ -199,7 +199,7 @@ fn local_const_can_promote_a_frozen_readonly_array_allocation() {
     write(
         &root.join("main.nia"),
         r#"
-fn main() usize {
+fun main() usize {
     const values: &[usize; 2] = &[5, 9];
     values.*[1]
 }
@@ -216,7 +216,7 @@ fn const_function_rejects_readonly_rvalue_temporary_escape() {
     write(
         &root.join("main.nia"),
         r#"
-const fn temporary() &[usize; 2] {
+const fun temporary() &[usize; 2] {
     &[5, 9]
 }
 
@@ -267,7 +267,7 @@ union Slot {
     integer: usize,
 }
 
-const fn read() usize {
+const fun read() usize {
     let value: usize = 21;
     let pointer = &value;
     let slot = Slot { pointer: pointer };
@@ -276,7 +276,7 @@ const fn read() usize {
 
 const width: usize = read();
 
-fn main() usize {
+fun main() usize {
     let values: [u8; width] = [0; width];
     values.len()
 }
@@ -301,7 +301,7 @@ union Slot {
 const slot: Slot = Slot { pointer: &34usize };
 const width: usize = slot.pointer.*;
 
-fn main() usize {
+fun main() usize {
     let values: [u8; width] = [0; width];
     values.len()
 }
@@ -323,7 +323,7 @@ union Slot {
     integer: usize,
 }
 
-const fn bits() usize {
+const fun bits() usize {
     let value: usize = 21;
     let slot = Slot { pointer: &value };
     slot.integer
@@ -355,7 +355,7 @@ union Slot {
     integer: usize,
 }
 
-const fn pointer() &usize {
+const fun pointer() &usize {
     let slot = Slot { integer: 0 };
     slot.pointer
 }
@@ -388,7 +388,7 @@ union Slot {
     integer: usize,
 }
 
-const fn bits() usize {
+const fun bits() usize {
     let value: usize = 21;
     let mut slot = Slot { pointer: &value };
     slot.byte = 0;
@@ -421,7 +421,7 @@ union Slot {
     integer: usize,
 }
 
-const fn dangling() Slot {
+const fun dangling() Slot {
     let value: usize = 21;
     Slot { pointer: &value }
 }
@@ -454,7 +454,7 @@ union Slot {
 
 const slot: Slot = Slot { pointer: &34usize };
 
-fn main() Slot {
+fun main() Slot {
     slot
 }
 "#,
@@ -524,7 +524,7 @@ const constOnlyValue: u32 = pointers::read[u32](
     pointers::pass[u32](pointers::constOnlySlot),
 );
 
-fn main() usize {
+fun main() usize {
     let runtimeSlot = pointers::pass[usize](pointers::firstSlot);
     let runtimeOnlySlot = pointers::pass[u64](pointers::runtimeOnlySlot);
     if compileValue == 41
@@ -555,15 +555,15 @@ pub const secondSlot: PointerSlot[usize] = PointerSlot[usize] { pointer: &41usiz
 pub const constOnlySlot: PointerSlot[u32] = PointerSlot[u32] { pointer: &89u32 };
 pub const runtimeOnlySlot: PointerSlot[u64] = PointerSlot[u64] { pointer: &144u64 };
 
-pub const fn pass[T](slot: PointerSlot[T]) PointerSlot[T] {
+pub const fun pass[T](slot: PointerSlot[T]) PointerSlot[T] {
     slot
 }
 
-pub const fn read[T](slot: PointerSlot[T]) T {
+pub const fun read[T](slot: PointerSlot[T]) T {
     slot.pointer.*
 }
 
-pub const fn same[T](left: PointerSlot[T], right: PointerSlot[T]) bool {
+pub const fun same[T](left: PointerSlot[T], right: PointerSlot[T]) bool {
     left.pointer == right.pointer
 }
 "#,

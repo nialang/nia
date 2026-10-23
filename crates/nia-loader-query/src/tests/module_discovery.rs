@@ -7,7 +7,7 @@ fn query_loader_loads_declared_modules_once() {
     write(&root.join("a.nia"), "module b;");
     fs::create_dir_all(root.join("a")).expect("create child dir");
     write(&root.join("a/b.nia"), "");
-    write(&root.join("b.nia"), "pub fn value() i32 { 1 }");
+    write(&root.join("b.nia"), "pub fun value() i32 { 1 }");
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
@@ -26,7 +26,10 @@ fn query_loader_keeps_package_root_separate_from_entry_module() {
     let package = root.join("pkg.nia");
     write(&package, "pub module config;");
     write(&root.join("config.nia"), "pub const answer: i32 = 42;");
-    write(&main, "using pkg::config; fn main() i32 { config::answer }");
+    write(
+        &main,
+        "using pkg::config; fun main() i32 { config::answer }",
+    );
 
     let program = super::load_program_request(
         test_request(main.to_string_lossy().into_owned())
@@ -58,7 +61,7 @@ fn query_loader_discovers_package_relative_qualified_expression_paths() {
     let package = root.join("pkg.nia");
     write(&package, "pub module config;");
     write(&root.join("config.nia"), "pub const answer: i32 = 42;");
-    write(&main, "fn main() i32 { pkg::config::answer }");
+    write(&main, "fun main() i32 { pkg::config::answer }");
 
     let program = super::load_program_request(
         test_request(main.to_string_lossy().into_owned())
@@ -79,7 +82,7 @@ fn query_loader_discovers_package_relative_qualified_type_paths() {
     write(&root.join("config.nia"), "pub struct Config {}");
     write(
         &main,
-        "fn consume(value: pkg::config::Config) () { _ = value; }",
+        "fun consume(value: pkg::config::Config) () { _ = value; }",
     );
 
     let program = super::load_program_request(
@@ -140,7 +143,7 @@ fn source_existence_change_rebuilds_missing_module_graph() {
         .expect("missing-module program load");
     assert!(has_error_diagnostics(&missing.diagnostics));
     let missing_entry = missing.graph.entry();
-    write(&defs, "pub fn value() i32 { 1 }");
+    write(&defs, "pub fun value() i32 { 1 }");
 
     database
         .invalidate_source(defs.to_string_lossy().into_owned())
@@ -178,7 +181,7 @@ module missing;
 module present;
 "#,
     );
-    write(&root.join("present.nia"), "pub fn value() i32 { 1 }");
+    write(&root.join("present.nia"), "pub fun value() i32 { 1 }");
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
@@ -208,7 +211,7 @@ module missing;
 module present;
 "#,
     );
-    write(&root.join("present.nia"), "pub fn value() i32 { 1 }");
+    write(&root.join("present.nia"), "pub fun value() i32 { 1 }");
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 

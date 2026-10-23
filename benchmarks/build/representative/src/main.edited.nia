@@ -1,7 +1,7 @@
 using helper;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let value = helper::value();
     if value + 1 != 8 {

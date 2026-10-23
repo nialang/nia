@@ -25,16 +25,16 @@ struct Token {
 struct Marker {}
 
 extend Token : Eq[Token] {
-    fn eq(&self, other: &Token) bool {
+    fun eq(&self, other: &Token) bool {
         self.value == other.value
     }
 
-    fn ne(&self, other: &Token) bool {
+    fun ne(&self, other: &Token) bool {
         self.value != other.value
     }
 }
 
-fn foundAt(result: ?usize, expected: usize) bool {
+fun foundAt(result: ?usize, expected: usize) bool {
     if result is ?index {
         index == expected
     } else {
@@ -42,7 +42,7 @@ fn foundAt(result: ?usize, expected: usize) bool {
     }
 }
 
-fn sum(values: &[i32]) i32 {
+fun sum(values: &[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -50,7 +50,7 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-fn sumMutView(values: &mut [i32]) i32 {
+fun sumMutView(values: &mut [i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -58,7 +58,7 @@ fn sumMutView(values: &mut [i32]) i32 {
     total
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let values: [i32; 5] = [2, 3, 5, 7, 11];
@@ -470,7 +470,7 @@ fn check_std_take_does_not_claim_double_ended_iteration() {
         r#"
 using std::iter;
 
-fn main() () {
+fun main() () {
     _ = (0usize..10usize).iter().take(3usize).rev();
 }
 "#,

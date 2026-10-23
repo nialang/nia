@@ -10,7 +10,7 @@ Every program starts at the standard entry point:
 ```nia
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -32,7 +32,7 @@ using std::iter;
 
 const limit: usize = 3;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let answer = 42;            // i32: unsuffixed integers default to i32
@@ -86,22 +86,22 @@ answer=43 wide=43 code=110 count=3 first=42
 using std::io;
 using std::process;
 
-fn square(x: i32) i32 {
+fun square(x: i32) i32 {
     x * x
 }
 
-fn abs(x: i32) i32 {
+fun abs(x: i32) i32 {
     if x < 0 {
         return -x;
     }
     x
 }
 
-fn grade(score: i32) [char; 4] {
+fun grade(score: i32) [char; 4] {
     if score >= 60 { "pass" } else { "fail" }
 }
 
-fn sumTo(limit: i32) i32 {
+fun sumTo(limit: i32) i32 {
     let mut total = 0;
     for i in 1..=limit {
         total += i;
@@ -109,7 +109,7 @@ fn sumTo(limit: i32) i32 {
     total
 }
 
-fn firstPowerAbove(threshold: i32) i32 {
+fun firstPowerAbove(threshold: i32) i32 {
     let mut value = 1;
     while value <= threshold {
         value *= 2;
@@ -117,7 +117,7 @@ fn firstPowerAbove(threshold: i32) i32 {
     value
 }
 
-fn countOdd(limit: i32) i32 {
+fun countOdd(limit: i32) i32 {
     let mut odd = 0;
     let mut i = 0;
     loop {
@@ -133,7 +133,7 @@ fn countOdd(limit: i32) i32 {
     odd
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let block = {
         let base = square(3);
@@ -177,28 +177,28 @@ struct Point {
 
 extend Point {
     // An associated function: called as `Point::init(...)`.
-    fn init(x: i32, y: i32) Point {
+    fun init(x: i32, y: i32) Point {
         Point { x, y }
     }
 
     // `&self` receives a read-only pointer to the receiver.
-    fn lengthSquared(&self) i32 {
+    fun lengthSquared(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 
     // `&mut self` may modify the receiver.
-    fn translate(&mut self, dx: i32, dy: i32) () {
+    fun translate(&mut self, dx: i32, dy: i32) () {
         self.x += dx;
         self.y += dy;
     }
 
     // `self` takes the receiver by value.
-    fn swapped(self) Point {
+    fun swapped(self) Point {
         Self { x: self.y, y: self.x }
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut p = Point::init(3, 4);
     p.translate(1, 1);
@@ -243,7 +243,7 @@ enum Shape {
     Empty,
 }
 
-fn classify(score: i32) Band {
+fun classify(score: i32) Band {
     match score {
         0..60 => .Low,
         60..90 => .Middle,
@@ -251,7 +251,7 @@ fn classify(score: i32) Band {
     }
 }
 
-fn area(shape: Shape) i32 {
+fun area(shape: Shape) i32 {
     match shape {
         .Circle(radius) => 3 * radius * radius,
         .Rect { width, height } => width * height,
@@ -259,7 +259,7 @@ fn area(shape: Shape) i32 {
     }
 }
 
-fn describe(value: i32) i32 {
+fun describe(value: i32) i32 {
     match value {
         0, 1 => 10,
         2..=4 => 20,
@@ -267,7 +267,7 @@ fn describe(value: i32) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let band = classify(75);
     let code = band as u8;
@@ -305,7 +305,7 @@ binding, so constants are matched through a path such as `Color::Red`.
 using std::io;
 using std::process;
 
-fn sum(values: &[i32]) i32 {
+fun sum(values: &[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -313,13 +313,13 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-fn fill(values: &mut [i32], value: i32) () {
+fun fill(values: &mut [i32], value: i32) () {
     for index in 0..values.len() {
         values[index] = value;
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let numbers: [i32; 5] = [1, 2, 3, 4, 5];
     let mut zeros = [0; 4];              // [i32; 4], every element 0
@@ -376,7 +376,7 @@ enum ParseError {
 }
 
 // `?T` holds either a value (`?value`) or `null`.
-fn firstChar(text: &[char]) ?char {
+fun firstChar(text: &[char]) ?char {
     match text.get(0) {
         ?ch => ?ch.*,
         null => null,
@@ -384,13 +384,13 @@ fn firstChar(text: &[char]) ?char {
 }
 
 // `.?` on an optional returns `null` from this function when empty.
-fn firstTwice(text: &[char]) ?u32 {
+fun firstTwice(text: &[char]) ?u32 {
     let ch = firstChar(text).?;
     ?(ch as u32 * 2)
 }
 
 // `E!T` holds either a success value (`!value`) or an error (`error!`).
-fn parseDigits(text: &[char]) ParseError!u32 {
+fun parseDigits(text: &[char]) ParseError!u32 {
     if text.len() == 0 {
         return ParseError::Empty!;
     }
@@ -405,13 +405,13 @@ fn parseDigits(text: &[char]) ParseError!u32 {
 }
 
 // `.?` on an error union returns the error from this function.
-fn sumOf(left: &[char], right: &[char]) ParseError!u32 {
+fun sumOf(left: &[char], right: &[char]) ParseError!u32 {
     let a = parseDigits(left).?;
     let b = parseDigits(right).?;
     !(a + b)
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let total = match sumOf(&"40", &"2") {
         !value => value,
@@ -458,19 +458,19 @@ struct Log {
 }
 
 extend Log {
-    fn record(&mut self, value: i32) () {
+    fun record(&mut self, value: i32) () {
         self.entries[self.length] = value;
         self.length += 1;
     }
 }
 
-fn cleanupOrder(log: &mut Log) () {
+fun cleanupOrder(log: &mut Log) () {
     defer log.record(1);
     defer log.record(2);
     log.record(3);
 }   // on exit: record(2), then record(1)
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut log = Log { entries: [0; 4], length: 0 };
     cleanupOrder(&mut log);
@@ -529,16 +529,16 @@ struct Pair[T] {
 }
 
 extend[T] Pair[T] {
-    fn swap(self) Pair[T] {
+    fun swap(self) Pair[T] {
         Pair[T] { first: self.second, second: self.first }
     }
 }
 
 // A trait with one required method and one default method.
 trait Shape {
-    fn area(&self) i32;
+    fun area(&self) i32;
 
-    fn isLarge(&self) bool {
+    fun isLarge(&self) bool {
         self.area() > 100
     }
 }
@@ -548,7 +548,7 @@ struct Square {
 }
 
 extend Square : Shape {
-    fn area(&self) i32 {
+    fun area(&self) i32 {
         self.side * self.side
     }
 }
@@ -561,14 +561,14 @@ struct Money {
 extend Money : Add[Money] {
     type Output = Money;
 
-    fn add(self, rhs: Money) Money {
+    fun add(self, rhs: Money) Money {
         Money { cents: self.cents + rhs.cents }
     }
 }
 
 // Bounds are written in a `where` clause; generic code may only use what
 // its bounds promise.
-fn total[T](values: &[T], start: T) T
+fun total[T](values: &[T], start: T) T
 where T: Add[T, Output = T] + Sized
 {
     let mut sum = start;
@@ -578,13 +578,13 @@ where T: Add[T, Output = T] + Sized
     sum
 }
 
-fn describe[S](shape: &S) i32
+fun describe[S](shape: &S) i32
 where S: Shape
 {
     if shape.isLarge() { 1 } else { 0 }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let pair = Pair[i32] { first: 1, second: 2 }.swap();
     let ints = total(&[1, 2, 3], 0);
@@ -602,7 +602,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 first=2 ints=6 cents=449 large=1
 ```
 
-Type parameters are written in brackets, as in `Pair[T]`, `fn total[T]`, and
+Type parameters are written in brackets, as in `Pair[T]`, `fun total[T]`, and
 `extend[T] Pair[T]`. Type arguments are usually inferred; `Pair[i32]` or
 `total[i32](...)` states them explicitly.
 
@@ -622,16 +622,16 @@ using std::io;
 using std::process;
 using std::iter;
 
-// `&Fn(i32) i32` is a non-owning view of any closure with that signature.
-fn applyTwice(f: &Fn(i32) i32, value: i32) i32 {
+// `&Fun(i32) i32` is a non-owning view of any closure with that signature.
+fun applyTwice(f: &Fun(i32) i32, value: i32) i32 {
     f(f(value))
 }
 
-fn double(x: i32) i32 {
+fun double(x: i32) i32 {
     x * 2
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let increment = \x -> x + 1;
@@ -649,7 +649,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let c = applyTwice(&counted, 5);
 
     // A plain function pointer has no captured state.
-    let pointer: &fn(i32) i32 = &double;
+    let pointer: &fun(i32) i32 = &double;
     let d = pointer(21);
 
     // Iterator adapters take closures too.
@@ -677,12 +677,12 @@ A closure bound with `let` can use the same inference when a later `&` address
 conversion supplies its callable type; an annotation is needed only when the
 body and all callable uses leave a parameter unconstrained.
 
-A function that accepts any closure takes a callable view, `&Fn(Args) Return`
-or `&mut Fn(Args) Return`, made with `&closure`. A view points at the closure's
+A function that accepts any closure takes a callable view, `&Fun(Args) Return`
+or `&mut Fun(Args) Return`, made with `&closure`. A view points at the closure's
 state: it never allocates and must not outlive the closure, so the compiler
 rejects returning it or storing it past the closure's scope. Ordinary pointers
 carry no such check; keeping them valid is the program's job.
-`&fn(Args) Return` is a plain function pointer; named functions and closures
+`&fun(Args) Return` is a plain function pointer; named functions and closures
 without captures convert to it.
 
 ## Modules And Visibility
@@ -706,7 +706,7 @@ using std::process;
 using geometry::{Point, origin};
 using geometry::shapes::Rect;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let corner = Point { x: 3, y: 4 };
     let rect = Rect { min: origin(), max: corner };
@@ -726,17 +726,17 @@ pub struct Point {
     y: i32,
 }
 
-pub fn origin() Point {
+pub fun origin() Point {
     Point { x: 0, y: 0 }
 }
 
 // Private: visible only inside this module.
-fn clamp(value: i32) i32 {
+fun clamp(value: i32) i32 {
     if value < 0 { 0 } else { value }
 }
 
 // Visible anywhere in the current package.
-pub(pkg) fn span(low: i32, high: i32) i32 {
+pub(pkg) fun span(low: i32, high: i32) i32 {
     clamp(high - low)
 }
 ```
@@ -752,7 +752,7 @@ pub struct Rect {
 }
 
 extend Rect {
-    pub fn area(&self) i32 {
+    pub fun area(&self) i32 {
         span(self.min.x, self.max.x) * span(self.min.y, self.max.y)
     }
 }
@@ -787,16 +787,16 @@ using std::io;
 using std::process;
 
 @[if os == "windows"]
-fn platformName() [char; 7] {
+fun platformName() [char; 7] {
     "windows"
 }
 
 @[if os != "windows"]
-fn platformName() [char; 5] {
+fun platformName() [char; 5] {
     "posix"
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let name = platformName();
     let width = target::pointerWidth;

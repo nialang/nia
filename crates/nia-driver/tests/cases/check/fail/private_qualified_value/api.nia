@@ -1,4 +1,4 @@
-fn hidden() i32 {
+fun hidden() i32 {
     42
 }
 

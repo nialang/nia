@@ -10,7 +10,7 @@ using pkg::fs;
 using pkg::mem;
 
 extend BuildPaths {
-    pub(pkg) fn init() BuildPaths {
+    pub(pkg) fun init() BuildPaths {
         .{
             packageRoot: .init(),
             buildDir: .init(),
@@ -20,7 +20,7 @@ extend BuildPaths {
         }
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.toolchainResourceRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainResourceRoot));
         cleanup.attempt(self.toolchainExecutable.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainExecutable));
@@ -32,27 +32,27 @@ extend BuildPaths {
 }
 
 extend BuildPathView {
-    pub fn init(path: &[char]) BuildPathView {
+    pub fun init(path: &[char]) BuildPathView {
         .{ path }
     }
 
-    pub fn text(&self) &[char] {
+    pub fun text(&self) &[char] {
         self.path
     }
 
-    pub(pkg) fn isValid(&self) bool {
+    pub(pkg) fun isValid(&self) bool {
         isValidBuildPath(self.path)
     }
 }
 
-pub(pkg) fn isValidPackagePath(path: &[char], allowEmpty: bool) bool {
+pub(pkg) fun isValidPackagePath(path: &[char], allowEmpty: bool) bool {
     if path.len() == 0 {
         return allowEmpty;
     }
     isValidBuildPath(path)
 }
 
-pub(pkg) fn isValidBuildPath(text: &[char]) bool {
+pub(pkg) fun isValidBuildPath(text: &[char]) bool {
     if text.len() == 0 or text[0] == '/' or text[text.len() - 1] == '/' {
         return false;
     }

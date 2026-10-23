@@ -1,19 +1,19 @@
 path: fail/nested_required_type_recovery/main.nia
 code: E0201
 summary: unknown type `Missing`
-label: 81..88 Primary Source unknown type `Missing`
+label: 83..90 Primary Source unknown type `Missing`
 help: check the type name, module path, and whether the type is public
 
 path: fail/nested_required_type_recovery/main.nia
 code: E0201
 summary: unknown type `Other`
-label: 122..127 Primary Source unknown type `Other`
+label: 124..129 Primary Source unknown type `Other`
 help: check the type name, module path, and whether the type is public
 
 path: fail/nested_required_type_recovery/main.nia
 code: E0301
 summary: type mismatch in call argument 1: expected i32, got bool
-label: 151..155 Primary Source type mismatch in call argument 1: expected i32, got bool
+label: 153..157 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 

@@ -1,41 +1,41 @@
 path: fail/generic_parameter_parser_recovery/main.nia
 code: E0101
 summary: expected generic parameter
-label: 12..13 Primary Source expected generic parameter
+label: 13..14 Primary Source expected generic parameter
 help: use an identifier in this position
 
 path: fail/generic_parameter_parser_recovery/main.nia
 code: E0101
 summary: expected type
-label: 56..57 Primary Source expected type
+label: 58..59 Primary Source expected type
 help: provide a type name or type expression here
 
 path: fail/generic_parameter_parser_recovery/main.nia
 code: E0101
 summary: expected type
-label: 105..106 Primary Source expected type
+label: 108..109 Primary Source expected type
 help: provide a type name or type expression here
 
 report:
 error[E0101]: expected generic parameter
-  --> fail/generic_parameter_parser_recovery/main.nia:1:13
+  --> fail/generic_parameter_parser_recovery/main.nia:1:14
   |
-1 | fn retained[, Kept]() () {}
-  |             ^
+1 | fun retained[, Kept]() () {}
+  |              ^
 help: use an identifier in this position
 
 error[E0101]: expected type
-  --> fail/generic_parameter_parser_recovery/main.nia:3:28
+  --> fail/generic_parameter_parser_recovery/main.nia:3:29
   |
-3 | fn const_retained[Missing: , Kept: i32]() () {}
-  |                            ^
+3 | fun const_retained[Missing: , Kept: i32]() () {}
+  |                             ^
 help: provide a type name or type expression here
 
 error[E0101]: expected type
-  --> fail/generic_parameter_parser_recovery/main.nia:5:28
+  --> fail/generic_parameter_parser_recovery/main.nia:5:29
   |
-5 | fn const_terminal[Missing: ]() () {}
-  |                            ^
+5 | fun const_terminal[Missing: ]() () {}
+  |                             ^
 help: provide a type name or type expression here
 
 summary: 3 errors, 0 warnings

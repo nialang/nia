@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn source_and_syntax_fingerprints_are_domain_separated() {
-        let source = "fn main() i32 { 0 }";
+        let source = "fun main() i32 { 0 }";
         assert_eq!(syntax_fingerprint(source), syntax_fingerprint(source));
         assert_ne!(
             source_content_fingerprint(source).parts(),
@@ -760,34 +760,34 @@ mod tests {
     fn item_signature_fingerprint_excludes_function_and_method_bodies() {
         let before = signature_fingerprint(
             r#"
-fn main(value: i32) i32 { value + 1 }
+fun main(value: i32) i32 { value + 1 }
 trait Value {
-    fn get(self) i32 { 1 }
+    fun get(self) i32 { 1 }
 }
 extend Value {
-    fn twice(self) i32 { self.get() * 2 }
+    fun twice(self) i32 { self.get() * 2 }
 }
 "#,
         );
         let body_edit = signature_fingerprint(
             r#"
-fn main(value: i32) i32 { value + 200 }
+fun main(value: i32) i32 { value + 200 }
 trait Value {
-    fn get(self) i32 { 99 }
+    fun get(self) i32 { 99 }
 }
 extend Value {
-    fn twice(self) i32 { self.get() * 400 }
+    fun twice(self) i32 { self.get() * 400 }
 }
 "#,
         );
         let signature_edit = signature_fingerprint(
             r#"
-fn main(value: i64) i32 { value + 200 }
+fun main(value: i64) i32 { value + 200 }
 trait Value {
-    fn get(self) i32 { 99 }
+    fun get(self) i32 { 99 }
 }
 extend Value {
-    fn twice(self) i32 { self.get() * 400 }
+    fun twice(self) i32 { self.get() * 400 }
 }
 "#,
         );
@@ -798,7 +798,7 @@ extend Value {
 
     #[test]
     fn item_signature_fingerprint_recovers_malformed_body_spans() {
-        let source = "fn main() i32 { 1 }";
+        let source = "fun main() i32 { 1 }";
         let (module, errors) = nia_parser::parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
         let mut malformed_module = module.clone();
@@ -832,8 +832,8 @@ extend Value {
 
     #[test]
     fn exact_source_and_syntax_fingerprints_track_body_edits() {
-        let before = "fn main() i32 { 1 }";
-        let after = "fn main() i32 { 2 }";
+        let before = "fun main() i32 { 1 }";
+        let after = "fun main() i32 { 2 }";
 
         assert_ne!(
             source_content_fingerprint(before),
@@ -1044,7 +1044,7 @@ extend Value {
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let dependency =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/dependency.nia"));
-        let source = source_content_fingerprint("fn main() i32 { 0 }");
+        let source = source_content_fingerprint("fun main() i32 { 0 }");
         let dependency_source = source_content_fingerprint("pub struct Value {}");
         let program = frontend_program_source_fingerprint([
             (&module, source, 19),
@@ -1057,7 +1057,7 @@ extend Value {
         let changed = frontend_program_source_fingerprint([
             (
                 &module,
-                source_content_fingerprint("fn main() i32 { 1 }"),
+                source_content_fingerprint("fun main() i32 { 1 }"),
                 19,
             ),
             (&dependency, dependency_source, 19),
@@ -1182,8 +1182,8 @@ extend Value {
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_module =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/other.nia"));
-        let before_source = "fn main() i32 { 1 }";
-        let after_source = "fn main() i32 { 2 }";
+        let before_source = "fun main() i32 { 1 }";
+        let after_source = "fun main() i32 { 2 }";
         let before_signature = parsed_signature_fingerprint(before_source);
         let after_signature = parsed_signature_fingerprint(after_source);
 

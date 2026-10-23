@@ -138,7 +138,7 @@ fn missing_toolchain_preserves_operational_identity_across_commands() {
 fn artifact_write_errors_preserve_operational_identity_in_both_formats() {
     let root = temp_dir("artifact_write_reports");
     let main = root.join("main.nia");
-    std::fs::write(&main, "pub fn main() i32 { 0 }\n").expect("valid entry");
+    std::fs::write(&main, "pub fun main() i32 { 0 }\n").expect("valid entry");
     for (flag, output_path, summary) in [("-o", &*root, "write"), ("--out-dir", &main, "create")] {
         for format in ["text", "json"] {
             let output = support::nia_command()
@@ -210,7 +210,7 @@ fn runner_failure_preserves_captured_output_across_workflows() {
     std::fs::write(
         root.join("build.nia"),
         r#"using std::build;
- pub fn build(b: &mut build::Build) build::Error!() {
+ pub fun build(b: &mut build::Build) build::Error!() {
     _ = b;
     build::Error::Invalid { operation: .Validate, subject: .Build }!
 }
@@ -252,7 +252,7 @@ fn external_command_failure_preserves_streams_without_corrupting_json() {
         nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
     let root = temp_dir("external_failure_reports");
     std::fs::write(root.join("build.nia"), r#"using std::build;
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let step = (if b.hostTarget().os().equals(&"windows") {
         let args = [
             build::CommandArgument::literal(&"/d"),
@@ -331,7 +331,7 @@ fn external_command_search_tries_pathext_with_and_without_a_cache_policy() {
     std::fs::write(
         root.join("build.nia"),
         r#"using std::build;
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let plainArgs = [
         build::CommandArgument::literal(&"/d"),
         build::CommandArgument::literal(&"/c"),
@@ -431,7 +431,7 @@ fn archive_process_failure_preserves_streams_across_workflows() {
         root.join("build.nia"),
         r#"using std::build;
 using std::fs;
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let root = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"main.nia"))).?;
     let archive = b.addStaticArchive(build::StaticArchiveOptions::init(&"library", root)).?;
     let archiveStep = b.addEmitStaticArchiveStep(&"archive", archive).?;
@@ -527,7 +527,7 @@ fn windows_archive_process_failure_preserves_streams_across_workflows() {
         root.join("build.nia"),
         r#"using std::build;
 using std::fs;
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let root = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"main.nia"))).?;
     let archive = b.addStaticArchive(build::StaticArchiveOptions::init(&"library", root)).?;
     let archiveStep = b.addEmitStaticArchiveStep(&"archive", archive).?;

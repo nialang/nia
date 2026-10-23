@@ -1,35 +1,35 @@
 path: fail/trait_candidate_locations/main.nia
 code: E0301
 summary: ambiguous trait method `rank`
-label: 66..78 Primary Source ambiguous trait method `rank`
+label: 67..79 Primary Source ambiguous trait method `rank`
 note: candidate methods:
   - Left::rank
   - Right::rank
 help: narrow the receiver type or trait bounds so that only one candidate applies
-related: 57..76 candidate `Left::rank` is declared here
-related: 18..37 candidate `Right::rank` is declared here
+related: 58..78 candidate `Left::rank` is declared here
+related: 18..38 candidate `Right::rank` is declared here
 
 path: fail/trait_candidate_locations/main.nia
 code: E0301
 summary: ambiguous dynamic trait method `rank`
-label: 123..135 Primary Source ambiguous dynamic trait method `rank`
+label: 125..137 Primary Source ambiguous dynamic trait method `rank`
 note: candidate methods:
   - Left::rank
   - Right::rank
 help: narrow the receiver type or trait bounds so that only one candidate applies
-related: 57..76 candidate `Left::rank` is declared here
-related: 18..37 candidate `Right::rank` is declared here
+related: 58..78 candidate `Left::rank` is declared here
+related: 18..38 candidate `Right::rank` is declared here
 
 path: fail/trait_candidate_locations/main.nia
 code: E0301
 summary: ambiguous trait associated function `make`
-label: 216..228 Primary Source ambiguous trait associated function `make`
+label: 219..231 Primary Source ambiguous trait associated function `make`
 note: candidate methods:
   - FactoryLeft::make
   - FactoryRight::make
 help: narrow the receiver type or trait bounds so that only one candidate applies
-related: 187..211 candidate `FactoryLeft::make` is declared here
-related: 136..160 candidate `FactoryRight::make` is declared here
+related: 190..215 candidate `FactoryLeft::make` is declared here
+related: 138..163 candidate `FactoryRight::make` is declared here
 
 report:
 error[E0301]: ambiguous trait method `rank`

@@ -19,7 +19,7 @@ using std::process;
 static mut invocationCount: i32 = 0;
 static mut total: i32 = 0;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
     (1..5).iter().forEach(&\[offset] value: i32 -> {
@@ -74,7 +74,7 @@ fn emit_exe_std_iterator_fold_accepts_capturing_borrowed_closure() {
 using std::iter;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
     let total = (1..5).iter().fold(0, &\[offset] acc: i32, value: i32 -> {
@@ -126,7 +126,7 @@ fn emit_exe_std_iterator_callbacks_infer_projected_item_parameters() {
 using std::iter;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let squares = (1..5).iter().fold(0, &\acc, value -> acc + value * value);
     let add = \acc, value -> acc + value;
@@ -180,14 +180,14 @@ fn check_rejects_callable_view_stored_through_parameter_field() {
         r#"
 using std::process;
 
-struct Holder { callback: &Fn(i32) i32 }
+struct Holder { callback: &Fun(i32) i32 }
 
-fn retain(holder: &mut Holder) () {
+fun retain(holder: &mut Holder) () {
     let callback = \value: i32 -> value;
     holder.callback = &callback;
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut holder = Holder { callback: &\value: i32 -> value };
     retain(&mut holder);
@@ -232,7 +232,7 @@ enum FoldError: i32 {
 }
 
 extend FoldError : builtin::IntoError[process::ExitCode] {
-    const fn intoError(self) process::ExitCode {
+    const fun intoError(self) process::ExitCode {
         match self {
             FoldError::Rejected => {},
             _ => {},
@@ -243,7 +243,7 @@ extend FoldError : builtin::IntoError[process::ExitCode] {
 
 static mut invocationCount: i32 = 0;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
     let folded: FoldError!(i32, i32) = (1..5).iter().tryFold(
@@ -321,7 +321,7 @@ using std::process;
 
 static mut predicateCount: i32 = 0;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let target = 4;
     let index = (1..6).iter().position(&\[target] value: i32 -> {
@@ -385,30 +385,30 @@ struct Counter {
 }
 
 extend Counter : iter::Step {
-    fn forwardChecked(self) ?Counter {
+    fun forwardChecked(self) ?Counter {
         if self.value == 5 { null } else { ?Counter { value: self.value + 1 } }
     }
 }
 
 extend Counter : iter::StepBack {
-    fn backwardChecked(self) ?Counter {
+    fun backwardChecked(self) ?Counter {
         if self.value == 0 { null } else { ?Counter { value: self.value - 1 } }
     }
 }
 
 extend Counter : Eq[Counter] {
-    fn eq(&self, other: &Counter) bool { self.value == other.value }
-    fn ne(&self, other: &Counter) bool { self.value != other.value }
+    fun eq(&self, other: &Counter) bool { self.value == other.value }
+    fun ne(&self, other: &Counter) bool { self.value != other.value }
 }
 
 extend Counter : Ord[Counter] {
-    fn lt(&self, other: &Counter) bool { self.value < other.value }
-    fn le(&self, other: &Counter) bool { self.value <= other.value }
-    fn gt(&self, other: &Counter) bool { self.value > other.value }
-    fn ge(&self, other: &Counter) bool { self.value >= other.value }
+    fun lt(&self, other: &Counter) bool { self.value < other.value }
+    fun le(&self, other: &Counter) bool { self.value <= other.value }
+    fun gt(&self, other: &Counter) bool { self.value > other.value }
+    fun ge(&self, other: &Counter) bool { self.value >= other.value }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut half = iter::Range[Counter]::init(
@@ -495,7 +495,7 @@ struct Stride {
 }
 
 extend Stride : iter::Step {
-    fn forwardChecked(self) ?Stride {
+    fun forwardChecked(self) ?Stride {
         if self.value == 8 {
             ?self
         } else if self.value >= 9 {
@@ -507,7 +507,7 @@ extend Stride : iter::Step {
 }
 
 extend Stride : iter::StepBack {
-    fn backwardChecked(self) ?Stride {
+    fun backwardChecked(self) ?Stride {
         if self.value == 7 {
             ?self
         } else if self.value <= -3 {
@@ -519,18 +519,18 @@ extend Stride : iter::StepBack {
 }
 
 extend Stride : Eq[Stride] {
-    fn eq(&self, other: &Stride) bool { self.value == other.value }
-    fn ne(&self, other: &Stride) bool { self.value != other.value }
+    fun eq(&self, other: &Stride) bool { self.value == other.value }
+    fun ne(&self, other: &Stride) bool { self.value != other.value }
 }
 
 extend Stride : Ord[Stride] {
-    fn lt(&self, other: &Stride) bool { self.value < other.value }
-    fn le(&self, other: &Stride) bool { self.value <= other.value }
-    fn gt(&self, other: &Stride) bool { self.value > other.value }
-    fn ge(&self, other: &Stride) bool { self.value >= other.value }
+    fun lt(&self, other: &Stride) bool { self.value < other.value }
+    fun le(&self, other: &Stride) bool { self.value <= other.value }
+    fun gt(&self, other: &Stride) bool { self.value > other.value }
+    fun ge(&self, other: &Stride) bool { self.value >= other.value }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut forward = iter::Range[Stride]::init(
@@ -681,7 +681,7 @@ fn emit_exe_std_u128_ranges_cover_integer_endpoints() {
 using std::iter;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let first = u128::MAX - 2u128;
 
@@ -752,7 +752,7 @@ fn emit_exe_std_owned_iterator_adapters_expose_constructors() {
 using std::iter;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut take = iter::Take[iter::Range[i32]]::init(

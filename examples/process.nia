@@ -2,7 +2,7 @@ using std::fs;
 using std::process;
 using process::{ExitCode, Init};
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"printf '%s\n' \"$NIA_EXAMPLE_MODE\""];
     let environment: [process::EnvEntry; 1] = [
         process::EnvEntry::init(&"NIA_EXAMPLE_MODE", &"typed environment"),

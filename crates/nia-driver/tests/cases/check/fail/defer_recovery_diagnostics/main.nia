@@ -1,4 +1,4 @@
-fn main() () {
+fun main() () {
     defer missing_deferred;
     missing_later;
 }

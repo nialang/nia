@@ -7,7 +7,7 @@ fn semantic_const_lowering_requires_resolved_function_locals() {
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(
         r#"
-const fn add_one(x: usize) usize {
+const fun add_one(x: usize) usize {
 let y = x + 1;
 y
 }

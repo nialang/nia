@@ -5,7 +5,7 @@ use super::*;
 fn compiler_fact_batches_reuse_cached_product_handles() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } extend S { fn get(self) i32 { self.value } }",
+        "struct S { value: i32 } extend S { fun get(self) i32 { self.value } }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -76,7 +76,7 @@ fn compiler_fact_batches_reuse_cached_product_handles() {
 fn extension_index_queries_reuse_single_layer_product_handles() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "trait Read { fn read(self) i32; } struct S { value: i32 } extend S { fn get(self) i32 { self.value } }",
+        "trait Read { fun read(self) i32; } struct S { value: i32 } extend S { fun get(self) i32 { self.value } }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

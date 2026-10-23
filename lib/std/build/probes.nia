@@ -17,13 +17,13 @@ const maxProbeArguments: usize = 256;
 const probeGit: &[char] = &"git";
 
 extend Build {
-    pub fn attachEnvironment(&mut self, environment: process::Env) () {
+    pub fun attachEnvironment(&mut self, environment: process::Env) () {
         self.environment = ?environment;
     }
 
     /// Reads and records a package-relative file using caller-owned bounded
     /// storage. The probe fails when the file does not fit in `buffer`.
-    pub fn probeFile(&mut self, path: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
+    pub fun probeFile(&mut self, path: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
         if buffer.len() > maxProbeFileBytes or self.configureObservationCount >= maxObservationRecords {
             return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
         }
@@ -60,7 +60,7 @@ extend Build {
     }
 
     /// Records whether a package-relative file path currently exists.
-    pub fn probeFilePresence(&mut self, path: fs::PathView) Error!bool {
+    pub fun probeFilePresence(&mut self, path: fs::PathView) Error!bool {
         if self.configureObservationCount >= maxObservationRecords {
             return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
         }
@@ -95,7 +95,7 @@ extend Build {
     /// Records the bounded direct entries of a package-relative directory.
     /// Entry order is normalized by the host validator; names, file kinds,
     /// and sizes are retained so the host can re-read the same fact.
-    pub fn probeDirectory(&mut self, path: fs::PathView, buffer: &mut [u8]) Error!() {
+    pub fun probeDirectory(&mut self, path: fs::PathView, buffer: &mut [u8]) Error!() {
         if buffer.len() > maxProbeDirectoryBytes
             or self.configureObservationCount >= maxObservationRecords
         {
@@ -180,7 +180,7 @@ extend Build {
 
     /// Records a UTF-8 environment value. Missing variables return `null` and
     /// are still recorded as an explicit absent fact.
-    pub fn probeEnv(&mut self, name: &[char]) Error!?&[u8] {
+    pub fun probeEnv(&mut self, name: &[char]) Error!?&[u8] {
         if self.configureObservationCount >= maxObservationRecords {
             return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
         }
@@ -240,7 +240,7 @@ extend Build {
 
     /// Executes a bounded host command in the package root. Only stdout and
     /// the exit status become evidence; stderr is intentionally discarded.
-    pub fn probeCommand(
+    pub fun probeCommand(
         &mut self,
         command: fs::PathView,
         arguments: &[&[char]],
@@ -266,7 +266,7 @@ extend Build {
     }
 
     /// Records `git status --porcelain=v1 --branch` from the package root.
-    pub fn probeGitState(&mut self, buffer: &mut [u8]) Error!&[u8] {
+    pub fun probeGitState(&mut self, buffer: &mut [u8]) Error!&[u8] {
         let arguments: [&[char]; 3] = [&"status", &"--porcelain=v1", &"--branch"];
         let mut request = collections::ArrayList[u8]::initCapacity(self.allocator, 0)
             .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
@@ -275,7 +275,7 @@ extend Build {
     }
 
     /// Resolves a tool through the host environment and records its version.
-    pub fn probeTool(&mut self, name: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
+    pub fun probeTool(&mut self, name: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
         let arguments: [&[char]; 1] = [&"--version"];
         let mut request = collections::ArrayList[u8]::initCapacity(self.allocator, name.text().len() * 4)
             .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
@@ -286,7 +286,7 @@ extend Build {
         self.runProbe(name, &arguments[..], &request, 7, buffer)
     }
 
-    fn runProbe(
+    fun runProbe(
         &mut self,
         command: fs::PathView,
         arguments: &[&[char]],
@@ -352,7 +352,7 @@ extend Build {
     }
 }
 
-fn pathUtf8Length(text: &[char]) Error!usize {
+fun pathUtf8Length(text: &[char]) Error!usize {
     let mut length: usize = 0;
     for &ch in text {
         length = match length.checkedAdd(ch.encodeUtf8().byteLen()) {
@@ -363,7 +363,7 @@ fn pathUtf8Length(text: &[char]) Error!usize {
     !length
 }
 
-fn appendProbePath(
+fun appendProbePath(
     bytes: &mut collections::ArrayList[u8],
     allocator: &mut mem::Allocator,
     text: &[char],
@@ -374,7 +374,7 @@ fn appendProbePath(
     !()
 }
 
-fn appendProbeText(
+fun appendProbeText(
     bytes: &mut collections::ArrayList[u8],
     allocator: &mut mem::Allocator,
     text: &[char],
@@ -384,7 +384,7 @@ fn appendProbeText(
     appendProbePath(bytes, allocator, text)
 }
 
-fn appendProbeU32(
+fun appendProbeU32(
     bytes: &mut collections::ArrayList[u8],
     allocator: &mut mem::Allocator,
     value: u32,
@@ -399,7 +399,7 @@ fn appendProbeU32(
     !()
 }
 
-fn appendProbeU64(
+fun appendProbeU64(
     bytes: &mut collections::ArrayList[u8],
     allocator: &mut mem::Allocator,
     value: u64,
@@ -418,7 +418,7 @@ fn appendProbeU64(
     !()
 }
 
-fn appendObservationRecord(build: &mut Build, record: &collections::ArrayList[u8]) Error!() {
+fun appendObservationRecord(build: &mut Build, record: &collections::ArrayList[u8]) Error!() {
     let needed = match build.configureObservationBytes.len().checkedAdd(record.len()) {
         ?value => value,
         null => return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!,

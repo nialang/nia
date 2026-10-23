@@ -20,11 +20,11 @@ fn resolves_module_value_names_and_defers_locals() {
         r#"
 static mut counter = 0;
 
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
 a + b + counter
 }
 
-fn main() i32 {
+fun main() i32 {
 let mut local = add(counter, 1);
 local
 }
@@ -59,7 +59,7 @@ local
 fn treats_std_builtin_paths_as_regular_qualified_values() {
     let (module, errors) = parse_module(
         r#"
-fn main() usize {
+fun main() usize {
 let mut a = std::builtin::size[usize]();
 let mut b = std::builtin::align[usize]();
 const d: usize = std::builtin::error("bad");
@@ -85,11 +85,11 @@ fn resolves_values_from_active_item_tree_only() {
     let (module, errors) = parse_module(
         r#"
 @[if false]
-fn skipped() usize {
+fun skipped() usize {
 unknown()
 }
 @[if true]
-fn selected() usize {
+fun selected() usize {
 std::builtin::size[usize]()
 }
 "#,
@@ -122,7 +122,7 @@ fn resolves_value_names_embedded_in_patterns() {
         r#"
 const EXPECTED: i32 = 1;
 
-fn isExpected(value: i32) bool {
+fun isExpected(value: i32) bool {
     match value {
         (EXPECTED) => true,
         _ => false,
@@ -166,7 +166,7 @@ fn isExpected(value: i32) bool {
 fn resolves_primitive_associated_limits() {
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     i32::MIN
 }
 "#,
@@ -199,7 +199,7 @@ fn resolves_nominal_associated_values_through_provider() {
         r#"
 struct Box {}
 
-fn main() i32 {
+fun main() i32 {
     Box::VALUE
 }
 "#,
@@ -263,7 +263,7 @@ enum Color {
     Red,
 }
 
-fn main() Color {
+fun main() Color {
     Color::Red
 }
 "#,
@@ -325,7 +325,7 @@ fn standalone_expression_resolution_uses_caller_store() {
         r#"
 const VALUE: i32 = 1;
 
-fn main() i32 {
+fun main() i32 {
     VALUE
 }
 "#,
@@ -373,7 +373,7 @@ fn main() i32 {
 fn records_type_prefixes_for_module_qualified_associated_values() {
     let (consumer, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     dep::Box::VALUE
 }
 "#,

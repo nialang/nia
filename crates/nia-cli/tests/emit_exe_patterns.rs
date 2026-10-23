@@ -14,14 +14,14 @@ fn emit_exe_tuple_values_projections_and_patterns() {
         r#"
 using std::process;
 
-const fn const_select(value: (usize, (bool, usize))) usize {
+const fun const_select(value: (usize, (bool, usize))) usize {
     match value {
         (left, (true, right)) => left + right,
         (_, (_, fallback)) => fallback,
     }
 }
 
-fn runtime_select(pair: (i32, (bool, i32))) i32 {
+fun runtime_select(pair: (i32, (bool, i32))) i32 {
     if pair is (40, (true, value)) {
         value
     } else {
@@ -34,7 +34,7 @@ fn runtime_select(pair: (i32, (bool, i32))) i32 {
 
 const width: usize = const_select((3usize, (true, 5usize)));
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut pair = (40, (true, 2));
     pair.0 += pair.1.1;
@@ -86,30 +86,30 @@ struct Point { x: i32, y: i32 }
 struct Box[T] { value: T, tag: i32 }
 enum Event { Stop, Resize { wide: bool, height: i32 } }
 
-const fn constSum(point: Point) i32 {
+const fun constSum(point: Point) i32 {
     let mut Point { y, x } = point;
     x += 1;
     x + y
 }
 
-fn runtimeSum(point: Point) i32 {
+fun runtimeSum(point: Point) i32 {
     let Point { y: second, x } = point;
     x + second
 }
 
-fn unbox[T](boxed: Box[T]) T {
+fun unbox[T](boxed: Box[T]) T {
     let Box { value, .. } = boxed;
     value
 }
 
-fn classify(point: Point) i32 {
+fun classify(point: Point) i32 {
     match point {
         Point { x: 0, .. } => 7,
         Point { .. } => 9,
     }
 }
 
-fn readOptional(point: ?Point) i32 {
+fun readOptional(point: ?Point) i32 {
     if point is ?Point { x, .. } {
         x
     } else {
@@ -117,7 +117,7 @@ fn readOptional(point: ?Point) i32 {
     }
 }
 
-fn eventScore(event: Event) i32 {
+fun eventScore(event: Event) i32 {
     match event {
         Event::Stop => 0,
         Event::Resize { wide: true, .. } => 1,
@@ -127,7 +127,7 @@ fn eventScore(event: Event) i32 {
 
 const total: i32 = constSum(Point { x: 19, y: 22 });
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if total != 42 {
         return process::ExitCode(1)!;
@@ -183,21 +183,21 @@ fn emit_exe_match_destructuring_matches_const_semantics() {
         r#"
 using std::process;
 
-fn read_optional(value: ?i32) i32 {
+fun read_optional(value: ?i32) i32 {
     match value {
         ?payload => payload,
         null => 0,
     }
 }
 
-fn read_error(value: i32!i32) i32 {
+fun read_error(value: i32!i32) i32 {
     match value {
         !payload => payload,
         error! => error,
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if read_optional(?4) != 4 {
         return process::ExitCode(1)!;
@@ -263,7 +263,7 @@ static mut conversionCount: i32 = 0;
 static mut sourceCount: i32 = 0;
 
 extend SourceError : builtin::IntoError[TargetError] {
-    fn intoError(self) TargetError {
+    fun intoError(self) TargetError {
         conversionCount += 1;
         match self {
             SourceError::Failed => TargetError::Converted,
@@ -273,32 +273,32 @@ extend SourceError : builtin::IntoError[TargetError] {
 }
 
 extend EmptySourceError : builtin::IntoError[EmptyTargetError] {
-    fn intoError(self) EmptyTargetError {
+    fun intoError(self) EmptyTargetError {
         conversionCount += 1;
         {}
     }
 }
 
-fn failVoid() SourceError!() {
+fun failVoid() SourceError!() {
     SourceError::Failed!
 }
 
-fn failEmpty() EmptySourceError!() {
+fun failEmpty() EmptySourceError!() {
     EmptySourceError {}!
 }
 
-fn propagateWithDefer() TargetError!() {
+fun propagateWithDefer() TargetError!() {
     defer conversionCount *= 10;
     failVoid().?;
     !()
 }
 
-fn propagateEmpty() EmptyTargetError!() {
+fun propagateEmpty() EmptyTargetError!() {
     failEmpty().?;
     !()
 }
 
-fn source(succeed: bool) SourceError!i32 {
+fun source(succeed: bool) SourceError!i32 {
     sourceCount += 1;
     if succeed {
         !41
@@ -307,13 +307,13 @@ fn source(succeed: bool) SourceError!i32 {
     }
 }
 
-fn propagate[Source, Target](value: Source!i32) Target!i32
+fun propagate[Source, Target](value: Source!i32) Target!i32
 where Source: builtin::IntoError[Target]
 {
     !(value.? + 1)
 }
 
-fn largeSource(succeed: bool) SourceError![u8; 64] {
+fun largeSource(succeed: bool) SourceError![u8; 64] {
     if succeed {
         ![7; 64]
     } else {
@@ -321,21 +321,21 @@ fn largeSource(succeed: bool) SourceError![u8; 64] {
     }
 }
 
-fn propagateLarge(succeed: bool) TargetError![u8; 64] {
+fun propagateLarge(succeed: bool) TargetError![u8; 64] {
     let value = largeSource(succeed).?;
     !value
 }
 
-fn largeOptional(succeed: bool) ?[u8; 64] {
+fun largeOptional(succeed: bool) ?[u8; 64] {
     if succeed { ?[9; 64] } else { null }
 }
 
-fn propagateLargeOptional(succeed: bool) ?[u8; 64] {
+fun propagateLargeOptional(succeed: bool) ?[u8; 64] {
     let value = largeOptional(succeed).?;
     ?value
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     match propagate[SourceError, TargetError](source(true)) {
         !value => {

@@ -14,14 +14,14 @@ struct Pair[A, B] {
     second: B,
 }
 
-fn take_pair(value: Pair[i32, usize]) () {}
-fn take_read_point_ptr(value: &Point) () {}
-fn take_array(value: [i32; 3]) () {}
-fn take_slice(value: &[i32]) () {}
-fn take_fn_ptr(value: &fn(i32, usize) bool) () {}
-fn pred(value: i32, width: usize) () {}
+fun take_pair(value: Pair[i32, usize]) () {}
+fun take_read_point_ptr(value: &Point) () {}
+fun take_array(value: [i32; 3]) () {}
+fun take_slice(value: &[i32]) () {}
+fun take_fn_ptr(value: &fun(i32, usize) bool) () {}
+fun pred(value: i32, width: usize) () {}
 
-fn main(value: (), ptr: &u8) () {
+fun main(value: (), ptr: &u8) () {
     let mut short = [1, 2];
     _ = value as usize;
     take_pair(true);
@@ -75,7 +75,7 @@ fn main(value: (), ptr: &u8) () {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("expected &fn(i32, usize) bool")),
+            .any(|message| message.contains("expected &fun(i32, usize) bool")),
         "{:?}",
         checked.diagnostics
     );
@@ -104,13 +104,13 @@ fn suppresses_recovery_trait_obligation_diagnostics() {
         r#"
 trait Marker {}
 
-fn require[T](value: T) ()
+fun require[T](value: T) ()
 where T: Marker
 {
     _ = value;
 }
 
-fn main() () {
+fun main() () {
     require(missing);
     require((missing, 1));
     require(1);
@@ -144,7 +144,7 @@ fn main() () {
 fn suppresses_unary_recovery_trait_diagnostics() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     _ = -missing;
     _ = !missing;
     _ = ~missing;
@@ -177,7 +177,7 @@ fn main() () {
 fn type_checks_closure_state_and_body_without_panicking() {
     let checked = pipeline(
         r#"
-fn main(base: i32) () {
+fun main(base: i32) () {
     let callback = \[base] value: i32 -> { base + value };
     ()
 }
@@ -214,13 +214,13 @@ fn main(base: i32) () {
 fn generic_inference_reuses_closure_identity_for_one_source_node() {
     let checked = pipeline(
         r#"
-fn identity[T](value: T) T
+fun identity[T](value: T) T
 where T: Sized
 {
     value
 }
 
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = identity(\[base] value: i32 -> { base + value });
     callback(1)
 }
@@ -234,7 +234,7 @@ fn main(base: i32) i32 {
 fn assigns_closure_identities_in_source_order() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     let first = \value: i32 -> value;
     let second = \value: i32 -> value + 1;
     _ = first(1) + second(2);
@@ -268,7 +268,7 @@ fn main() () {
 fn rejects_self_referential_inference_without_recursing() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     let recursive = &recursive;
     _ = recursive + recursive;
 }

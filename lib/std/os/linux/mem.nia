@@ -13,20 +13,20 @@ pub struct MappedPages {
 }
 
 extend MappedPages {
-    pub fn ptr(&self) &mut u8 {
+    pub fun ptr(&self) &mut u8 {
         self.ptr
     }
 
-    pub fn releasePtr(&self) &mut u8 {
+    pub fun releasePtr(&self) &mut u8 {
         self.releasePtr
     }
 
-    pub fn releaseSize(&self) usize {
+    pub fun releaseSize(&self) usize {
         self.releaseSize
     }
 }
 
-fn rawMapPages(len: usize) Errno!&mut u8 {
+fun rawMapPages(len: usize) Errno!&mut u8 {
     let protReadWrite: usize = 3;
     let privateAnonymous: usize = 34;
     let ret = syscall::syscall6(
@@ -49,29 +49,29 @@ fn rawMapPages(len: usize) Errno!&mut u8 {
     }
 }
 
-fn rawUnmapPages(ptr: &mut u8, len: usize) Errno!() {
+fun rawUnmapPages(ptr: &mut u8, len: usize) Errno!() {
     let ret = syscall::syscall3(syscall::munmap, ptr as usize, len, 0);
     ret.syscallSuccess()
 }
 
 // A mapping remains owned until validation publishes MappedPages.
-fn rejectMappedRange(ptr: &mut u8, len: usize) Errno!MappedPages {
+fun rejectMappedRange(ptr: &mut u8, len: usize) Errno!MappedPages {
     rawUnmapPages(ptr, len).?;
     .OutOfRange!
 }
 
-pub fn pageSize() usize {
+pub fun pageSize() usize {
     nativePageSize
 }
 
-pub fn pageAlignedLen(len: usize) Errno!usize {
+pub fun pageAlignedLen(len: usize) Errno!usize {
     if len.alignForward(pageSize()) is ?value {
         return !value;
     }
     .OutOfRange!
 }
 
-pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 {
         return .Invalid!;
     }
@@ -110,7 +110,7 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     }
 }
 
-pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+pub fun unmapPages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 {
         .Invalid!
     } else {

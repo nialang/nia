@@ -243,7 +243,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
 
 fn run_inspection_contracts(source: &Path) {
     for (target, expected) in [
-        ("--tokens", &["Fn", "Ident"][..]),
+        ("--tokens", &["Fun", "Ident"][..]),
         ("--ast", &["FunctionItem", "name: SymbolId"]),
         ("--checked", &["CheckedProgram", "modules"]),
         ("--backend", &["BackendProgram", "functions", "main"]),

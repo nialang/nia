@@ -30,7 +30,7 @@ fn captured_local_address_is_safe_while_closure_state_stays_local() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-pub fn main() i32 {
+pub fun main() i32 {
     let value = 41;
     let ptr = &value;
     let callback = \[ptr] -> ptr.* + 1;
@@ -52,17 +52,17 @@ fn captured_address_escape_propagates_across_function_summaries() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn store[T](slot: &mut T, value: T) () {
+fun store[T](slot: &mut T, value: T) () {
     slot.* = value;
 }
 
-fn captureAndStore(ptr: &i32) () {
+fun captureAndStore(ptr: &i32) () {
     let callback = \[ptr] -> { ptr.* };
     let mut slot = callback;
     store(&mut slot, callback);
 }
 
-pub fn main() () {
+pub fun main() () {
     let value = 1;
     captureAndStore(&value);
 }
@@ -85,11 +85,11 @@ fn ordinary_local_pointer_flow_is_not_owned_by_closure_escape_analysis() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn store(slot: &mut &i32, value: &i32) () {
+fun store(slot: &mut &i32, value: &i32) () {
     slot.* = value;
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
     let first = 1;
     let second = 2;
     let mut slot = &first;
@@ -112,13 +112,13 @@ fn local_callable_view_use_does_not_escape() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn invoke(callback: &Fn(i32) i32, value: i32) i32 {
+fun invoke(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-pub fn main(base: i32) i32 {
+pub fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &callback;
+    let view: &Fun(i32) i32 = &callback;
     invoke(view, 1)
 }
 "#,
@@ -137,14 +137,14 @@ fn direct_and_aggregate_returns_reject_stack_backed_views() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn direct(base: i32) &Fn(i32) i32 {
+fun direct(base: i32) &Fun(i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     &callback
 }
 
-fn aggregate(base: i32) (&Fn(i32) i32, i32) {
+fun aggregate(base: i32) (&Fun(i32) i32, i32) {
     let callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &callback;
+    let view: &Fun(i32) i32 = &callback;
     (view, 1)
 }
 "#,
@@ -164,30 +164,30 @@ fn direct_call_summaries_propagate_return_and_escape_behavior() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn identity(callback: &Fn(i32) i32) &Fn(i32) i32 {
+fun identity(callback: &Fun(i32) i32) &Fun(i32) i32 {
     callback
 }
 
-extern fn retain(callback: &Fn(i32) i32) ();
+extern fun retain(callback: &Fun(i32) i32) ();
 
-fn store(slot: &mut &Fn(i32) i32, callback: &Fn(i32) i32) () {
+fun store(slot: &mut &Fun(i32) i32, callback: &Fun(i32) i32) () {
     slot.* = callback;
 }
 
-fn returned(base: i32) &Fn(i32) i32 {
+fun returned(base: i32) &Fun(i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     identity(&callback)
 }
 
-fn passed_to_unknown(base: i32) () {
+fun passed_to_unknown(base: i32) () {
     let callback = \[base] value: i32 -> { base + value };
     retain(&callback);
 }
 
-fn stored_indirectly(base: i32) () {
+fun stored_indirectly(base: i32) () {
     let fallback = \[base] value: i32 -> { base - value };
     let callback = \[base] value: i32 -> { base + value };
-    let mut slot: &Fn(i32) i32 = &fallback;
+    let mut slot: &Fun(i32) i32 = &fallback;
     store(&mut slot, &callback);
 }
 "#,
@@ -220,17 +220,17 @@ fn aggregate_field_summary_does_not_escape_an_unrelated_callable() {
         r#"
 struct Case {
     marker: &i32,
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retainMarker(marker: &i32) ();
+extern fun retainMarker(marker: &i32) ();
 
-fn run(case: Case) () {
+fun run(case: Case) () {
     retainMarker(case.marker);
     (case.callback)();
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     run(Case { marker: marker, callback: &callback });
 }
@@ -252,16 +252,16 @@ fn aggregate_field_summary_rejects_an_escaping_callable_field() {
         r#"
 struct Case {
     marker: &i32,
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retainCallback(callback: &Fn() ()) ();
+extern fun retainCallback(callback: &Fun() ()) ();
 
-fn leak(case: Case) () {
+fun leak(case: Case) () {
     retainCallback(case.callback);
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     leak(Case { marker: marker, callback: &callback });
 }
@@ -286,16 +286,16 @@ fn returned_aggregate_preserves_field_provenance() {
         r#"
 struct Case {
     marker: &i32,
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retainMarker(marker: &i32) ();
+extern fun retainMarker(marker: &i32) ();
 
-fn make(marker: &i32, callback: &Fn() ()) Case {
+fun make(marker: &i32, callback: &Fun() ()) Case {
     Case { marker: marker, callback: callback }
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     let case = make(marker, &callback);
     retainMarker(case.marker);
@@ -319,16 +319,16 @@ fn returned_aggregate_still_rejects_an_escaping_callable_field() {
         r#"
 struct Case {
     marker: &i32,
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retainCallback(callback: &Fn() ()) ();
+extern fun retainCallback(callback: &Fun() ()) ();
 
-fn make(marker: &i32, callback: &Fn() ()) Case {
+fun make(marker: &i32, callback: &Fun() ()) Case {
     Case { marker: marker, callback: callback }
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     let case = make(marker, &callback);
     retainCallback(case.callback);
@@ -352,14 +352,14 @@ fn tuple_projection_does_not_escape_a_sibling_callable() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-extern fn retainMarker(marker: &i32) ();
+extern fun retainMarker(marker: &i32) ();
 
-fn run(pair: (&i32, &Fn() ())) () {
+fun run(pair: (&i32, &Fun() ())) () {
     retainMarker(pair.0);
     (pair.1)();
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     run((marker, &callback));
 }
@@ -381,18 +381,18 @@ fn indexed_aggregate_preserves_its_field_provenance() {
         r#"
 struct Case {
     marker: &i32,
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retainMarker(marker: &i32) ();
+extern fun retainMarker(marker: &i32) ();
 
-fn run(cases: &[Case]) () {
+fun run(cases: &[Case]) () {
     let case = &cases[0];
     retainMarker(case.marker);
     (case.callback)();
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     let cases: [Case; 1] = [Case { marker: marker, callback: &callback }];
     run(&cases[..]);
@@ -414,14 +414,14 @@ fn indexed_assignment_keeps_sibling_element_provenance() {
         "main.nia",
         r#"
 struct Case {
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retain(callback: &Fn() ()) ();
+extern fun retain(callback: &Fun() ()) ();
 
-fn noop() () {}
+fun noop() () {}
 
-pub fn main(base: i32) () {
+pub fun main(base: i32) () {
     let callback = \[base] -> { _ = base; () };
     let mut cases: [Case; 2] = [
         Case { callback: &callback },
@@ -451,22 +451,22 @@ fn projected_field_can_be_reembedded_before_an_escape() {
         r#"
 struct Case {
     marker: &i32,
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
 struct CaseResult {
     marker: &i32,
 }
 
-extern fn retainResult(result: CaseResult) ();
+extern fun retainResult(result: CaseResult) ();
 
-fn run(cases: &[Case]) () {
+fun run(cases: &[Case]) () {
     let case = &cases[0];
     retainResult(CaseResult { marker: case.marker });
     (case.callback)();
 }
 
-pub fn main(marker: &i32, base: i32) () {
+pub fun main(marker: &i32, base: i32) () {
     let callback = \[base] -> { _ = base; () };
     let cases: [Case; 1] = [Case { marker: marker, callback: &callback }];
     run(&cases[..]);
@@ -488,20 +488,20 @@ fn static_trait_dispatch_uses_the_selected_safe_implementation_summary() {
         "main.nia",
         r#"
 trait Run {
-    fn run(&self) ();
+    fun run(&self) ();
 }
 
 struct Case {
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
 extend Case : Run {
-    fn run(&self) () {
+    fun run(&self) () {
         (self.callback)()
     }
 }
 
-pub fn main(base: i32) () {
+pub fun main(base: i32) () {
     let callback = \[base] -> { _ = base; () };
     Case { callback: &callback }.run();
 }
@@ -522,22 +522,22 @@ fn static_trait_dispatch_preserves_implementation_escape_effects() {
         "main.nia",
         r#"
 trait Store {
-    fn store(&self) ();
+    fun store(&self) ();
 }
 
 struct Case {
-    callback: &Fn() (),
+    callback: &Fun() (),
 }
 
-extern fn retain(callback: &Fn() ()) ();
+extern fun retain(callback: &Fun() ()) ();
 
 extend Case : Store {
-    fn store(&self) () {
+    fun store(&self) () {
         retain(self.callback)
     }
 }
 
-pub fn main(base: i32) () {
+pub fun main(base: i32) () {
     let callback = \[base] -> { _ = base; () };
     Case { callback: &callback }.store();
 }
@@ -560,7 +560,7 @@ fn mutually_recursive_call_summaries_converge_and_preserve_returned_callable() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn first(callback: &Fn(i32) i32, depth: i32) &Fn(i32) i32 {
+fun first(callback: &Fun(i32) i32, depth: i32) &Fun(i32) i32 {
     if depth == 0 {
         callback
     } else {
@@ -568,7 +568,7 @@ fn first(callback: &Fn(i32) i32, depth: i32) &Fn(i32) i32 {
     }
 }
 
-fn second(callback: &Fn(i32) i32, depth: i32) &Fn(i32) i32 {
+fun second(callback: &Fun(i32) i32, depth: i32) &Fun(i32) i32 {
     if depth == 0 {
         callback
     } else {
@@ -576,7 +576,7 @@ fn second(callback: &Fn(i32) i32, depth: i32) &Fn(i32) i32 {
     }
 }
 
-pub fn main(base: i32) &Fn(i32) i32 {
+pub fun main(base: i32) &Fun(i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     first(&callback, 2)
 }
@@ -599,9 +599,9 @@ fn inner_block_view_cannot_flow_into_an_outer_local() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-pub fn main(base: i32) i32 {
+pub fun main(base: i32) i32 {
     let outer = \[base] value: i32 -> { base + value };
-    let mut view: &Fn(i32) i32 = &outer;
+    let mut view: &Fun(i32) i32 = &outer;
     {
         let inner = \[base] value: i32 -> { base - value };
         view = &inner;
@@ -627,7 +627,7 @@ fn placement_through_a_stack_pointer_remains_stack_backed() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn place[T](destination: &mut u8, value: T) &mut T
+fun place[T](destination: &mut u8, value: T) &mut T
 where T: Sized
 {
     let mut target = destination as &mut T;
@@ -635,7 +635,7 @@ where T: Sized
     target
 }
 
-fn leak(base: i32) &Fn(i32) i32 {
+fun leak(base: i32) &Fun(i32) i32 {
     let mut storage: [u8; 16] = [0; 16];
     let mut state = place(&mut storage[0], \[base] value: i32 -> { base + value });
     &mut state.*
@@ -659,7 +659,7 @@ fn explicit_nonlexical_storage_allows_an_escaping_callable_view() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn place[T](destination: &mut u8, value: T) &mut T
+fun place[T](destination: &mut u8, value: T) &mut T
 where T: Sized
 {
     let mut target = destination as &mut T;
@@ -667,7 +667,7 @@ where T: Sized
     target
 }
 
-fn escape(address: usize, base: i32) &Fn(i32) i32 {
+fun escape(address: usize, base: i32) &Fun(i32) i32 {
     let mut state = place(address as &mut u8, \[base] value: i32 -> { base + value });
     &mut state.*
 }
@@ -687,7 +687,7 @@ fn propagated_error_provenance_does_not_contaminate_the_success_value() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn place[T](destination: &mut u8, value: T) &mut T
+fun place[T](destination: &mut u8, value: T) &mut T
 where T: Sized
 {
     let mut target = destination as &mut T;
@@ -695,7 +695,7 @@ where T: Sized
     target
 }
 
-fn separate(input: &mut u8, fail: bool) &mut u8!&mut u8 {
+fun separate(input: &mut u8, fail: bool) &mut u8!&mut u8 {
     if fail {
         return input!;
     }
@@ -703,7 +703,7 @@ fn separate(input: &mut u8, fail: bool) &mut u8!&mut u8 {
     !(address as &mut u8)
 }
 
-fn escape(address: usize, base: i32) &mut u8!&Fn(i32) i32 {
+fun escape(address: usize, base: i32) &mut u8!&Fun(i32) i32 {
     let mut local = 0u8;
     let destination = separate(&mut local, false).?;
     let mut state = place(destination, \[base] value: i32 -> { base + value });
@@ -726,17 +726,17 @@ fn unrelated_storage_cannot_hide_a_stack_backed_callable() {
         "main.nia",
         r#"
 struct Owner {
-    callback: &Fn(i32) i32,
+    callback: &Fun(i32) i32,
     storage: &mut u8,
 }
 
-fn pack(callback: &Fn(i32) i32, storage: &mut u8) Owner {
+fun pack(callback: &Fun(i32) i32, storage: &mut u8) Owner {
     Owner { callback, storage }
 }
 
-fn leak(storage: &mut u8, base: i32) Owner {
+fun leak(storage: &mut u8, base: i32) Owner {
     let state = \[base] value: i32 -> { base + value };
-    let callback: &Fn(i32) i32 = &state;
+    let callback: &Fun(i32) i32 = &state;
     pack(callback, storage)
 }
 "#,
@@ -758,12 +758,12 @@ fn closure_summary_preserves_the_selected_capture_slot() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn select(first: &Fn(i32) i32, second: &Fn(i32) i32) &Fn(i32) i32 {
+fun select(first: &Fun(i32) i32, second: &Fun(i32) i32) &Fun(i32) i32 {
     let choose = \[first, second] -> { first };
     choose()
 }
 
-fn preserve(external: &Fn(i32) i32, base: i32) &Fn(i32) i32 {
+fun preserve(external: &Fun(i32) i32, base: i32) &Fun(i32) i32 {
     let local = \[base] value: i32 -> { base + value };
     select(external, &local)
 }
@@ -783,13 +783,13 @@ fn expression_callee_callable_abi_is_rejected_before_escape_analysis() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-extern fn retain(callback: &Fn(i32) i32) ();
+extern fun retain(callback: &Fun(i32) i32) ();
 
-fn consume(callback: &Fn(i32) i32) () {
+fun consume(callback: &Fun(i32) i32) () {
     retain(callback);
 }
 
-pub fn main(external: &Fn(i32) i32, base: i32) () {
+pub fun main(external: &Fun(i32) i32, base: i32) () {
     let local = \[base] value: i32 -> { base + value };
     let mut selected = external;
     ({ selected = &local; consume })(selected);
@@ -811,9 +811,9 @@ fn while_condition_provenance_is_reapplied_after_each_backedge() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-extern fn retain(callback: &Fn(i32) i32) ();
+extern fun retain(callback: &Fun(i32) i32) ();
 
-pub fn main(external: &Fn(i32) i32, base: i32) () {
+pub fun main(external: &Fun(i32) i32, base: i32) () {
     let local = \[base] value: i32 -> { base + value };
     let mut pending = external;
     let mut selected = external;
@@ -841,9 +841,9 @@ fn repeated_scalar_tuple_return_does_not_retain_callable_provenance() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-extern fn erase(callback: &Fn(i32) i32) (i32, i32);
+extern fun erase(callback: &Fun(i32) i32) (i32, i32);
 
-pub fn main(base: i32) (i32, i32) {
+pub fun main(base: i32) (i32, i32) {
     let local = \[base] value: i32 -> { base + value };
     erase(&local)
 }
@@ -866,9 +866,9 @@ fn defers_observe_scope_exit_state_in_lifo_order() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-extern fn retain(callback: &Fn(i32) i32) ();
+extern fun retain(callback: &Fun(i32) i32) ();
 
-pub fn main(external: &Fn(i32) i32, base: i32) () {
+pub fun main(external: &Fun(i32) i32, base: i32) () {
     let local = \[base] value: i32 -> { base + value };
     let mut selected = external;
     defer retain(selected);
@@ -893,9 +893,9 @@ fn return_paths_run_active_defers_before_later_environment_overwrites() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-extern fn retain(callback: &Fn(i32) i32) ();
+extern fun retain(callback: &Fun(i32) i32) ();
 
-pub fn main(external: &Fn(i32) i32, base: i32, stop: bool) () {
+pub fun main(external: &Fun(i32) i32, base: i32, stop: bool) () {
     let local = \[base] value: i32 -> { base + value };
     let mut selected = external;
     defer retain(selected);
@@ -924,7 +924,7 @@ fn assignment_place_effects_precede_rhs_provenance_reads() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-pub fn main(destination: &mut &Fn(i32) i32, external: &Fn(i32) i32, base: i32) () {
+pub fun main(destination: &mut &Fun(i32) i32, external: &Fun(i32) i32, base: i32) () {
     let local = \[base] value: i32 -> { base + value };
     let mut selected = external;
     ({ selected = &local; destination }).* = selected;
@@ -945,14 +945,14 @@ pub fn main(destination: &mut &Fn(i32) i32, external: &Fn(i32) i32, base: i32) (
 
 #[test]
 fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let entry = fixture.entry_id();
     fixture.add_child(
         entry,
         "child",
         "child.nia",
         r#"
-pub fn leak(base: i32) &Fn(i32) i32 {
+pub fun leak(base: i32) &Fun(i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     &callback
 }
@@ -973,7 +973,7 @@ pub fn leak(base: i32) &Fn(i32) i32 {
     let executable_fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-pub fn main(base: i32) &Fn(i32) i32 {
+pub fun main(base: i32) &Fun(i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     &callback
 }
@@ -1001,7 +1001,7 @@ fn closure_safety_follows_direct_calls_into_support_modules() {
         r#"
 using helper;
 
-pub fn main(base: i32) () {
+pub fun main(base: i32) () {
     let callback = \[base] value: i32 -> { base + value };
     helper::retain(&callback);
 }
@@ -1013,9 +1013,9 @@ pub fn main(base: i32) () {
         "helper",
         "helper.nia",
         r#"
-extern fn sink(callback: &Fn(i32) i32) ();
+extern fun sink(callback: &Fun(i32) i32) ();
 
-pub fn retain(callback: &Fn(i32) i32) () {
+pub fun retain(callback: &Fun(i32) i32) () {
     sink(callback);
 }
 "#,
@@ -1037,7 +1037,7 @@ fn closure_safety_loads_safe_callees_from_support_modules() {
         r#"
 using helper;
 
-pub fn main(base: i32) () {
+pub fun main(base: i32) () {
     let callback = \[base] value: i32 -> { base + value };
     helper::invoke(&callback);
 }
@@ -1049,7 +1049,7 @@ pub fn main(base: i32) () {
         "helper",
         "helper.nia",
         r#"
-pub fn invoke(callback: &Fn(i32) i32) () {
+pub fun invoke(callback: &Fun(i32) i32) () {
     _ = callback(1);
 }
 "#,

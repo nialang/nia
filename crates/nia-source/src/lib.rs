@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn source_file_defaults_to_initial_revision() {
         let source_id = SourceId::isolated();
-        let file = SourceFile::new(source_id, SourcePath::new("main.nia"), "fn main() {}");
+        let file = SourceFile::new(source_id, SourcePath::new("main.nia"), "fun main() {}");
 
         assert_eq!(file.revision, SourceRevision::INITIAL);
         assert_eq!(
@@ -954,7 +954,7 @@ mod tests {
         let path = SourcePath::new("main.nia");
 
         let file = sources
-            .set_source(path.clone(), "fn main() i32 { 0 }")
+            .set_source(path.clone(), "fun main() i32 { 0 }")
             .expect("store source");
 
         assert_eq!(file.id.store_id(), sources.table.id());
@@ -972,7 +972,7 @@ mod tests {
         assert_eq!(sources.source_for_path(&missing), None);
 
         let file = sources
-            .set_source(main.clone(), "fn main() i32 { 0 }")
+            .set_source(main.clone(), "fun main() i32 { 0 }")
             .expect("store source");
         assert_eq!(file.id.local_index(), 0);
         let missing_id = sources.id_for_path(&missing).expect("missing source id");
@@ -986,16 +986,16 @@ mod tests {
         let path = SourcePath::new("main.nia");
 
         let first = sources
-            .set_source(path.clone(), "fn main() i32 { 0 }")
+            .set_source(path.clone(), "fun main() i32 { 0 }")
             .expect("store first source");
         let second = sources
-            .set_source(path.clone(), "fn main() i32 { 1 }")
+            .set_source(path.clone(), "fun main() i32 { 1 }")
             .expect("store second source");
 
         assert_eq!(first.id, second.id);
         assert_eq!(first.revision, SourceRevision::INITIAL);
         assert_eq!(second.revision, SourceRevision(1));
-        assert_eq!(second.text.as_ref(), "fn main() i32 { 1 }");
+        assert_eq!(second.text.as_ref(), "fun main() i32 { 1 }");
     }
 
     #[test]
@@ -1004,10 +1004,10 @@ mod tests {
         let path = SourcePath::new("main.nia");
 
         let first = sources
-            .set_source(path.clone(), "fn main() i32 { 0 }")
+            .set_source(path.clone(), "fun main() i32 { 0 }")
             .expect("store first source");
         let second = sources
-            .set_source(path, "fn main() i32 { 1 }")
+            .set_source(path, "fun main() i32 { 1 }")
             .expect("store second source");
 
         assert_eq!(sources.source_for_version(first.version()), None);

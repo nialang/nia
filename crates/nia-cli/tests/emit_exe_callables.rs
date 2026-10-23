@@ -19,25 +19,25 @@ struct Source { value: i32 }
 struct Target { value: i32 }
 struct Runner {}
 
-fn makeSource() Source { Source { value: 20 } }
+fun makeSource() Source { Source { value: 20 } }
 
 extend Source {
-    fn intoTarget(self) Target { Target { value: self.value * 2 } }
+    fun intoTarget(self) Target { Target { value: self.value * 2 } }
 }
 
 extend Runner {
-    fn apply[Input, Output, Mapper](self, value: Input, callback: Mapper) Output
-    where Mapper: Fn(Input) Output
+    fun apply[Input, Output, Mapper](self, value: Input, callback: Mapper) Output
+    where Mapper: Fun(Input) Output
     {
         callback(value)
     }
 
-    fn applyBorrowed[Input, Output](self, value: Input, callback: &Fn(Input) Output) Output {
+    fun applyBorrowed[Input, Output](self, value: Input, callback: &Fun(Input) Output) Output {
         callback(value)
     }
 }
 
-fn transform[Context](context: Context, offset: i32) i32 {
+fun transform[Context](context: Context, offset: i32) i32 {
     let result = Runner {}.apply(makeSource(), \[context, offset] value -> {
         _ = context;
         Target { value: value.intoTarget().value + offset }
@@ -49,7 +49,7 @@ fn transform[Context](context: Context, offset: i32) i32 {
     result.value + borrowed.value
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if transform(1i32, 2) != 84 { return process::ExitCode(1)!; }
     if transform(true, 3) != 86 { return process::ExitCode(2)!; }

@@ -805,7 +805,7 @@ mod tests {
 
     #[test]
     fn syntax_tree_preserves_full_source_text() {
-        let source = "pub fn main() i32 { // keep me\n  0\n}\n";
+        let source = "pub fun main() i32 { // keep me\n  0\n}\n";
         let tree = flat(source, None);
 
         assert_eq!(tree.full_text(), source);
@@ -820,7 +820,7 @@ mod tests {
     #[test]
     fn tokens_filter_trivia_but_keep_source_text() {
         let version = version(1);
-        let tree = flat("fn  main() // c\n{}", Some(version));
+        let tree = flat("fun  main() // c\n{}", Some(version));
         let tokens = tree.tokens();
         let kinds = tokens
             .iter()
@@ -830,7 +830,7 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                TokenKind::Fn,
+                TokenKind::Fun,
                 TokenKind::Ident,
                 TokenKind::LParen,
                 TokenKind::RParen,
@@ -852,7 +852,7 @@ mod tests {
 
     #[test]
     fn token_views_share_green_text_storage() {
-        let tree = flat("fn", None);
+        let tree = flat("fun", None);
         let GreenElement::Token(green) = &tree.green_root().children()[0] else {
             panic!("expected source token");
         };
@@ -861,7 +861,7 @@ mod tests {
 
     #[test]
     fn unsupported_unicode_remains_lossless() {
-        let source = "fn 中() {}";
+        let source = "fun 中() {}";
         let tree = flat(source, None);
 
         assert_eq!(tree.full_text(), source);
@@ -882,7 +882,7 @@ mod tests {
     #[test]
     fn red_root_has_child_path_node_identity() {
         let version = version(5);
-        let tree = flat("fn main() () {}", Some(version));
+        let tree = flat("fun main() () {}", Some(version));
         let key = tree.root().node_key().expect("root node key");
 
         assert_eq!(key.source_version(), version);
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn grammar_events_build_nodes_without_losing_source() {
-        let source = "fn main() {}";
+        let source = "fun main() {}";
         let mut events = vec![GreenEvent::Start(SyntaxKind::SourceFile)];
         events.push(GreenEvent::Start(SyntaxKind::FunctionDecl));
         let mut tokens = tokenize_lossless(source);
@@ -919,7 +919,7 @@ mod tests {
     #[test]
     fn grammar_events_reject_unbalanced_or_out_of_order_nodes() {
         let error = SyntaxTree::from_green_events(
-            "fn",
+            "fun",
             None,
             [GreenEvent::Start(SyntaxKind::FunctionDecl)],
         )
@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn grammar_events_retain_zero_width_missing_nodes() {
-        let source = "fn";
+        let source = "fun";
         let mut events = vec![
             GreenEvent::Start(SyntaxKind::SourceFile),
             GreenEvent::Start(SyntaxKind::Missing),

@@ -1,7 +1,7 @@
 path: fail/unknown_method/main.nia
 code: E0201
 summary: unknown method `dtaa`
-label: 30..40 Primary Source no method named `dtaa` is available here
+label: 31..41 Primary Source no method named `dtaa` is available here
 note: the receiver has type `i32`
 help: check the method name, import a trait that provides `dtaa`, or use a field access
 

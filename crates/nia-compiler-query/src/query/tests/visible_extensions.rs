@@ -9,7 +9,7 @@ fn executable_visible_extensions_follow_facade_provider_chains() {
 module facade;
 using entry::facade;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let init = facade::Init::init();
 let args = init.args();
 let mut iter = args.iter();
@@ -46,13 +46,13 @@ pub using self::types::{Args, ArgsIter, Init};
 using entry::facade::types::{Args, ArgsIter};
 
 extend Args {
-pub fn iter(&self) ArgsIter {
+pub fun iter(&self) ArgsIter {
     ArgsIter {}
 }
 }
 
 extend ArgsIter {
-pub fn next(&mut self) ?i32 {
+pub fun next(&mut self) ?i32 {
     ?42
 }
 }
@@ -67,11 +67,11 @@ pub fn next(&mut self) ?i32 {
 using entry::facade::types::{Args, Init};
 
 extend Init {
-pub fn init() Init {
+pub fun init() Init {
     {}
 }
 
-pub fn args(&self) Args {
+pub fun args(&self) Args {
     Args {}
 }
 }
@@ -103,7 +103,7 @@ fn visible_extensions_do_not_expand_using_type_modules_as_provider_modules() {
 module facade;
 using entry::facade;
 
-pub fn main(value: facade::Used) i32 {
+pub fun main(value: facade::Used) i32 {
 value.len()
 }
 "#,
@@ -129,7 +129,7 @@ pub using self::types::{Unused, Used};
 using entry::facade::types::Used;
 
 extend Used {
-pub fn len(&self) i32 {
+pub fun len(&self) i32 {
     1
 }
 }
@@ -172,7 +172,7 @@ fn visible_trait_impls_follow_facade_reexport_item_modules() {
 module parse;
 using entry::parse;
 
-pub fn main() i32 {
+pub fun main() i32 {
 (&"abc").parse[i32]()
 }
 "#,
@@ -193,26 +193,26 @@ pub using parse_impl::From;
         "fmt/parse_impl.nia",
         r#"
 pub trait From[Input] {
-fn from(input: Input) Self;
+fun from(input: Input) Self;
 }
 
 extend[Unit] [Unit]
 where Unit: Sized
 {
-pub fn parse[T](&self) T
+pub fun parse[T](&self) T
 where T: From[&[Unit]] {
 [T]::from(self)
 }
 }
 
 extend i32 : From[&[char]] {
-fn from(input: &[char]) i32 {
+fun from(input: &[char]) i32 {
     input.len() as i32
 }
 }
 
 extend i32 : From[&[u8]] {
-fn from(input: &[u8]) i32 {
+fun from(input: &[u8]) i32 {
     input.len() as i32
 }
 }

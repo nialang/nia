@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn deduplicates_generic_instances() {
-    let (module, errors) = parse_module("fn id[T](value: T) T { value }");
+    let (module, errors) = parse_module("fun id[T](value: T) T { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let fixture = test_fixture();
     let defs = collect_module_defs(fixture.module_id, &module).expect("collect definitions");
@@ -51,9 +51,9 @@ fn deduplicates_generic_instances() {
 fn generic_body_instantiations_are_expanded_from_concrete_roots_only() {
     let (module, errors) = parse_module(
         r#"
-fn inner[T](value: T) T { value }
-fn outer[T](value: T) T { inner[T](value) }
-fn main() i32 { outer(1) }
+fun inner[T](value: T) T { value }
+fun outer[T](value: T) T { inner[T](value) }
+fun main() i32 { outer(1) }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -112,9 +112,9 @@ fn main() i32 { outer(1) }
 fn nested_generic_body_instantiations_append_to_session_store() {
     let (module, errors) = parse_module(
         r#"
-fn inner[T](value: T) T { value }
-fn outer[T](value: &T) &T { inner[&T](value) }
-fn main() i32 { 0 }
+fun inner[T](value: T) T { value }
+fun outer[T](value: &T) &T { inner[&T](value) }
+fun main() i32 { 0 }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -187,10 +187,10 @@ fn main() i32 { 0 }
 fn nested_instances_substitute_const_arguments_and_array_lengths() {
     let (module, errors) = parse_module(
         r#"
-fn typed[T]() () {}
-fn counted[N: usize]() () {}
-fn mixed[T, N: usize]() () {}
-fn outer[N: usize]() () {}
+fun typed[T]() () {}
+fun counted[N: usize]() () {}
+fun mixed[T, N: usize]() () {}
+fun outer[N: usize]() () {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");

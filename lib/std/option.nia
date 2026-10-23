@@ -1,18 +1,18 @@
 // Transformations and queries for Nia optional values (`?Value`).
 
 extend[Value] ?Value {
-    pub fn isPresent(&self) bool {
+    pub fun isPresent(&self) bool {
         let value = self.*;
         if value is ?_ { true } else { false }
     }
 
-    pub fn isNull(&self) bool {
+    pub fun isNull(&self) bool {
         let value = self.*;
         if value is null { true } else { false }
     }
 
-    pub fn map[Mapped, Mapper](self, mapper: Mapper) ?Mapped
-    where Mapper: Fn(Value) Mapped
+    pub fun map[Mapped, Mapper](self, mapper: Mapper) ?Mapped
+    where Mapper: Fun(Value) Mapped
     {
         if self is ?value {
             ?mapper(value)
@@ -21,8 +21,8 @@ extend[Value] ?Value {
         }
     }
 
-    pub fn andThen[Mapped, Next](self, next: Next) ?Mapped
-    where Next: Fn(Value) ?Mapped
+    pub fun andThen[Mapped, Next](self, next: Next) ?Mapped
+    where Next: Fun(Value) ?Mapped
     {
         if self is ?value {
             next(value)

@@ -31,7 +31,7 @@ enum FileSource {
 }
 
 extend FileSource {
-    fn handle(&self) fs::Error!os::FileHandle {
+    fun handle(&self) fs::Error!os::FileHandle {
         match self.* {
             .Borrowed(file) => file.borrowHandle(),
             .Standard(handle) => !handle,
@@ -40,43 +40,43 @@ extend FileSource {
 }
 
 extend fs::File {
-    pub fn writer(&self, buffer: &mut [u8]) fs::Error!FileWriter {
+    pub fun writer(&self, buffer: &mut [u8]) fs::Error!FileWriter {
         _ = self.borrowHandle().?;
         !.init(.Borrowed(self), buffer)
     }
 
-    pub fn reader(&self, buffer: &mut [u8]) fs::Error!FileReader {
+    pub fun reader(&self, buffer: &mut [u8]) fs::Error!FileReader {
         _ = self.borrowHandle().?;
         !.init(.Borrowed(self), buffer)
     }
 }
 
 extend FileWriter {
-    fn init(file: FileSource, buffer: &mut [u8]) FileWriter {
+    fun init(file: FileSource, buffer: &mut [u8]) FileWriter {
         .{ file, buffer, len: 0 }
     }
 
-    pub fn stdout(buffer: &mut [u8]) FileWriter {
+    pub fun stdout(buffer: &mut [u8]) FileWriter {
         .init(.Standard(os::FileHandle::stdout()), buffer)
     }
 
-    pub fn stderr(buffer: &mut [u8]) FileWriter {
+    pub fun stderr(buffer: &mut [u8]) FileWriter {
         .init(.Standard(os::FileHandle::stderr()), buffer)
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         self.buffer.len()
     }
 
-    pub fn buffered(&self) &[u8] {
+    pub fun buffered(&self) &[u8] {
         & self.buffer[0..self.len]
     }
 
-    fn writeDirect(&mut self, bytes: &[u8]) fs::Error!usize {
+    fun writeDirect(&mut self, bytes: &[u8]) fs::Error!usize {
         let n = self.file.handle().?.writeSome(bytes).?;
         if n > bytes.len() {
             return .Io!;
@@ -84,7 +84,7 @@ extend FileWriter {
         !n
     }
 
-    fn appendBuffered(&mut self, bytes: &[u8]) () {
+    fun appendBuffered(&mut self, bytes: &[u8]) () {
         let mut index: usize = 0;
         while index < bytes.len() {
             self.buffer[self.len + index] = bytes[index];
@@ -97,11 +97,11 @@ extend FileWriter {
 extend FileWriter : Writer {
     type Error = fs::Error;
 
-    pub fn shortWrite(&self) Error {
+    pub fun shortWrite(&self) Error {
         fs::Error::Io
     }
 
-    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+    pub fun write(&mut self, bytes: &[u8]) Error!usize {
         if bytes.len() == 0 {
             !0
         } else if self.buffer.len() == 0 {
@@ -119,7 +119,7 @@ extend FileWriter : Writer {
         }
     }
 
-    pub fn flush(&mut self) Error!() {
+    pub fun flush(&mut self) Error!() {
         while self.len != 0 {
             let n = self.writeDirect(& self.buffer[0..self.len]).?;
             if n == 0 {
@@ -144,32 +144,32 @@ extend FileWriter : Writer {
 }
 
 extend FileReader {
-    fn init(file: FileSource, buffer: &mut [u8]) FileReader {
+    fun init(file: FileSource, buffer: &mut [u8]) FileReader {
         .{ file, buffer, start: 0, end: 0 }
     }
 
-    pub fn stdin(buffer: &mut [u8]) FileReader {
+    pub fun stdin(buffer: &mut [u8]) FileReader {
         .init(.Standard(os::FileHandle::stdin()), buffer)
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.end - self.start
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         self.buffer.len()
     }
 
-    pub fn buffered(&self) &[u8] {
+    pub fun buffered(&self) &[u8] {
         & self.buffer[self.start..self.end]
     }
 
-    pub fn discardBuffered(&mut self) () {
+    pub fun discardBuffered(&mut self) () {
         self.start = 0;
         self.end = 0;
     }
 
-    fn readDirect(&mut self, bytes: &mut [u8]) fs::Error!usize {
+    fun readDirect(&mut self, bytes: &mut [u8]) fs::Error!usize {
         let n = self.file.handle().?.readSome(bytes).?;
         if n > bytes.len() {
             return .Io!;
@@ -177,7 +177,7 @@ extend FileReader {
         !n
     }
 
-    fn readBuffered(&mut self, bytes: &mut [u8]) usize {
+    fun readBuffered(&mut self, bytes: &mut [u8]) usize {
         let mut count = bytes.len();
         if count > self.len() {
             count = self.len();
@@ -195,11 +195,11 @@ extend FileReader {
 extend FileReader : Reader {
     type Error = fs::Error;
 
-    pub fn endOfStream(&self) Error {
+    pub fun endOfStream(&self) Error {
         fs::Error::Io
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+    pub fun read(&mut self, bytes: &mut [u8]) Error!usize {
         if bytes.len() == 0 {
             !0
         } else if self.len() != 0 {

@@ -5,7 +5,7 @@ use super::common::*;
 fn checks_direct_calls_to_concrete_closure_values() {
     let checked = pipeline(
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     callback(2)
 }
@@ -19,17 +19,17 @@ fn main(base: i32) i32 {
 fn statically_dispatches_function_item_through_callable_generic() {
     let checked = pipeline(
         r#"
-fn apply[F](callback: F, value: i32) i32
-where F: Fn(i32) i32
+fun apply[F](callback: F, value: i32) i32
+where F: Fun(i32) i32
 {
     callback(value)
 }
 
-fn increment(value: i32) i32 {
+fun increment(value: i32) i32 {
     value + 1
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(increment, 2)
 }
 "#,
@@ -41,13 +41,13 @@ fn main() i32 {
 fn static_callable_generic_infers_unannotated_closure_parameter_and_return() {
     let checked = pipeline(
         r#"
-fn apply[Mapper, Output](callback: Mapper, value: i32) Output
-where Mapper: Fn(i32) Output
+fun apply[Mapper, Output](callback: Mapper, value: i32) Output
+where Mapper: Fun(i32) Output
 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(\value -> value + 1, 2)
 }
 "#,
@@ -59,13 +59,13 @@ fn main() i32 {
 fn static_callable_generic_infers_identity_return_without_result_context() {
     let checked = pipeline(
         r#"
-fn apply[Mapper, Output](callback: Mapper) Output
-where Mapper: Fn(i32) Output
+fun apply[Mapper, Output](callback: Mapper) Output
+where Mapper: Fun(i32) Output
 {
     callback(1)
 }
 
-fn main() i32 {
+fun main() i32 {
     let result = apply(\value: i32 -> value);
     _ = result;
     0
@@ -83,17 +83,17 @@ struct Target {
     value: i32,
 }
 
-fn makeTarget(value: i32) Target {
+fun makeTarget(value: i32) Target {
     Target { value }
 }
 
-fn apply[Mapper, Output](callback: Mapper, value: i32) Output
-where Mapper: Fn(i32) Output
+fun apply[Mapper, Output](callback: Mapper, value: i32) Output
+where Mapper: Fun(i32) Output
 {
     callback(value)
 }
 
-fn main() Target {
+fun main() Target {
     apply(makeTarget, 2)
 }
 "#,
@@ -105,18 +105,18 @@ fn main() Target {
 fn callable_generic_rejects_runtime_function_pointer() {
     let checked = pipeline(
         r#"
-fn apply[F](callback: F, value: i32) i32
-where F: Fn(i32) i32
+fun apply[F](callback: F, value: i32) i32
+where F: Fun(i32) i32
 {
     callback(value)
 }
 
-fn increment(value: i32) i32 {
+fun increment(value: i32) i32 {
     value + 1
 }
 
-fn main() i32 {
-    let pointer: &fn(i32) i32 = &increment;
+fun main() i32 {
+    let pointer: &fun(i32) i32 = &increment;
     apply(pointer, 2)
 }
 "#,
@@ -135,13 +135,13 @@ fn main() i32 {
 fn statically_dispatches_capturing_closure_through_callable_generic() {
     let checked = pipeline(
         r#"
-fn apply[F](callback: F, value: i32) i32
-where F: Fn(i32) i32
+fun apply[F](callback: F, value: i32) i32
+where F: Fun(i32) i32
 {
     callback(value)
 }
 
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     apply(\[base] value: i32 -> { base + value }, 2)
 }
 "#,
@@ -153,7 +153,7 @@ fn main(base: i32) i32 {
 fn explains_non_callable_callee_type_and_next_step() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let value: i32 = 1;
     value()
 }
@@ -179,13 +179,13 @@ fn main() i32 {
 fn coerces_function_pointer_to_callable_view() {
     let checked = pipeline(
         r#"
-fn add(value: i32) i32 { value + 1 }
+fun add(value: i32) i32 { value + 1 }
 
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(&add, 2)
 }
 "#,
@@ -197,11 +197,11 @@ fn main() i32 {
 fn coerces_runtime_function_pointer_to_callable_view() {
     let checked = pipeline(
         r#"
-fn add(value: i32) i32 { value + 1 }
+fun add(value: i32) i32 { value + 1 }
 
-fn main() i32 {
-    let pointer: &fn(i32) i32 = &add;
-    let callable: &Fn(i32) i32 = pointer;
+fun main() i32 {
+    let pointer: &fun(i32) i32 = &add;
+    let callable: &Fun(i32) i32 = pointer;
     callable(2)
 }
 "#,
@@ -213,11 +213,11 @@ fn main() i32 {
 fn infers_closure_signature_from_callable_context() {
     let checked = pipeline(
         r#"
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(&\value -> { value + 1 }, 2)
 }
 "#,
@@ -229,7 +229,7 @@ fn main() i32 {
 fn infers_local_closure_signature_from_a_later_call() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let identity = \value -> { value };
     identity(3)
 }
@@ -242,11 +242,11 @@ fn main() i32 {
 fn infers_let_bound_closure_when_passed_by_readonly_view() {
     let checked = pipeline(
         r#"
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let increment = \value -> { value + 1 };
     apply(&increment, 2)
 }
@@ -259,11 +259,11 @@ fn main() i32 {
 fn infers_let_bound_closure_for_generic_callable_view() {
     let checked = pipeline(
         r#"
-fn apply[T](callback: &Fn(T) T, value: T) T {
+fun apply[T](callback: &Fun(T) T, value: T) T {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let identity = \value -> { value };
     apply(&identity, 2)
 }
@@ -276,11 +276,11 @@ fn main() i32 {
 fn infers_let_bound_closure_for_mutable_callable_view() {
     let checked = pipeline(
         r#"
-fn applyMut(callback: &mut Fn(i32) i32, value: i32) i32 {
+fun applyMut(callback: &mut Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut increment = \value -> { value + 1 };
     applyMut(&mut increment, 2)
 }
@@ -293,11 +293,11 @@ fn main() i32 {
 fn infers_let_bound_closure_for_explicit_generic_callable_view() {
     let checked = pipeline(
         r#"
-fn apply[T](callback: &Fn(T) T, value: T) T {
+fun apply[T](callback: &Fun(T) T, value: T) T {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     let identity = \value -> value;
     apply[i32](&identity, 2)
 }
@@ -310,11 +310,11 @@ fn main() i32 {
 fn infers_nested_closure_signatures_across_later_calls() {
     let checked = pipeline(
         r#"
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(&\left -> {
         apply(&\right -> { right + 1 }, left)
     }, 2)
@@ -328,7 +328,7 @@ fn main() i32 {
 fn reports_unresolved_closure_parameter_without_constraints() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let identity = \value -> { value };
     0
 }
@@ -349,11 +349,11 @@ fn main() i32 {
 fn rejects_explicit_closure_parameter_that_conflicts_with_callable_context() {
     let checked = pipeline(
         r#"
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(&\value: i64 -> { value }, 2)
 }
 "#,
@@ -373,7 +373,7 @@ fn main() i32 {
 fn keeps_inferred_closures_monotype_when_called_with_conflicting_types() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let identity = \value -> { value };
     _ = identity(1);
     _ = identity(true);
@@ -391,11 +391,11 @@ fn main() i32 {
 fn closure_signature_contributes_to_generic_callable_inference() {
     let checked = pipeline(
         r#"
-fn apply[T](callback: &Fn(T) T, value: T) T {
+fun apply[T](callback: &Fun(T) T, value: T) T {
     callback(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     apply(&\value -> { value }, 1)
 }
 "#,
@@ -407,11 +407,11 @@ fn main() i32 {
 fn mutable_closure_address_infers_generic_readonly_callable_signature() {
     let checked = pipeline(
         r#"
-fn accepts[T](callback: &Fn(T) T) i32 {
+fun accepts[T](callback: &Fun(T) T) i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut callback = \value: i32 -> { value };
     accepts(&mut callback)
 }
@@ -425,11 +425,11 @@ fn main() i32 {
 fn mismatched_closure_arity_does_not_partially_infer_generics() {
     let checked = pipeline(
         r#"
-fn accepts[T](callback: &Fn(T, T) T, value: T) T {
+fun accepts[T](callback: &Fun(T, T) T, value: T) T {
     callback(value, value)
 }
 
-fn main() bool {
+fun main() bool {
     accepts(&\value: i32 -> { value }, true)
 }
 "#,
@@ -455,11 +455,11 @@ fn main() bool {
 fn nested_closure_shape_mismatch_does_not_commit_earlier_substitutions() {
     let checked = pipeline(
         r#"
-fn accepts[T, U](callback: &Fn(T, (U, U)) T, value: T) T {
+fun accepts[T, U](callback: &Fun(T, (U, U)) T, value: T) T {
     callback(value, (value, value))
 }
 
-fn main() bool {
+fun main() bool {
     accepts(&\value: i32, pair: (bool,) -> { value }, true)
 }
 "#,
@@ -481,11 +481,11 @@ fn main() bool {
 fn readonly_closure_address_does_not_infer_mutable_callable_generics() {
     let checked = pipeline(
         r#"
-fn accepts[T](callback: &mut Fn(T) T, value: T) T {
+fun accepts[T](callback: &mut Fun(T) T, value: T) T {
     callback(value)
 }
 
-fn main() bool {
+fun main() bool {
     accepts(&\value: i32 -> { value }, true)
 }
 "#,
@@ -503,11 +503,11 @@ fn main() bool {
 fn generic_thin_function_pointer_infers_from_readonly_closure_address() {
     let checked = pipeline(
         r#"
-fn accepts[T](callback: &fn(T) T) i32 {
+fun accepts[T](callback: &fun(T) T) i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     accepts(&\value: i32 -> { value })
 }
 "#,
@@ -520,11 +520,11 @@ fn main() i32 {
 fn generic_callable_infers_range_bound_from_closure_signature() {
     let checked = pipeline(
         r#"
-fn accepts[T](callback: &Fn(T..T) T) i32 {
+fun accepts[T](callback: &Fun(T..T) T) i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     accepts(&\bounds: usize..usize -> { bounds.end() })
 }
 "#,
@@ -538,14 +538,14 @@ fn generic_callable_infers_trait_object_argument_from_closure_signature() {
     let checked = pipeline(
         r#"
 trait Consumer[T] {
-    fn consume(&self, value: T) T;
+    fun consume(&self, value: T) T;
 }
 
-fn accepts[T](callback: &Fn(&Consumer[T]) T) i32 {
+fun accepts[T](callback: &Fun(&Consumer[T]) T) i32 {
     1
 }
 
-fn main() i32 {
+fun main() i32 {
     accepts(&\source: &Consumer[i32] -> {
         _ = source;
         1
@@ -562,7 +562,7 @@ fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"
 extend[Value, Source, Target] Source!Value {
-    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
         match self {
             !value => !value,
             error! => mapper(error)!,
@@ -570,11 +570,11 @@ extend[Value, Source, Target] Source!Value {
     }
 }
 
-fn source() i32!i32 {
+fun source() i32!i32 {
     1!
 }
 
-fn main() bool!i32 {
+fun main() bool!i32 {
     source().mapError(&\error: i32 -> { error == 1 })
 }
 "#,
@@ -593,7 +593,7 @@ enum TargetError: i32 {
 }
 
 extend[Value, Source, Target] Source!Value {
-    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
         match self {
             !value => !value,
             error! => mapper(error)!,
@@ -601,11 +601,11 @@ extend[Value, Source, Target] Source!Value {
     }
 }
 
-fn source() i32!i32 {
+fun source() i32!i32 {
     1!
 }
 
-fn main() i32 {
+fun main() i32 {
     let mapped = source().mapError(&\error: i32 -> {
         _ = error;
         TargetError::Mapped
@@ -628,7 +628,7 @@ enum TargetError {
 }
 
 extend[Value, Source, Target] Source!Value {
-    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
         match self {
             !value => !value,
             error! => mapper(error)!,
@@ -636,7 +636,7 @@ extend[Value, Source, Target] Source!Value {
     }
 }
 
-fn map_error(source: i32!i32) TargetError!i32 {
+fun map_error(source: i32!i32) TargetError!i32 {
     source.mapError(&\cause -> TargetError::Converted(cause))
 }
 "#,
@@ -657,20 +657,20 @@ struct Target {
 }
 
 extend Source {
-    fn intoTarget(&self) Target {
+    fun intoTarget(&self) Target {
         Target { value: self.value }
     }
 }
 
 extend[Value] ?Value {
-    fn map[Mapped, Mapper](self, mapper: Mapper) ?Mapped
-    where Mapper: Fn(Value) Mapped
+    fun map[Mapped, Mapper](self, mapper: Mapper) ?Mapped
+    where Mapper: Fun(Value) Mapped
     {
         if self is ?value { ?mapper(value) } else { null }
     }
 }
 
-fn main(source: ?Source) ?Target {
+fun main(source: ?Source) ?Target {
     source.map(\value -> value.intoTarget())
 }
 "#,
@@ -694,35 +694,35 @@ struct Source {{ value: i32 }}
 struct Target {{ value: i32 }}
 struct Runner {{}}
 
-fn makeSource() Source {{ Source {{ value: 42 }} }}
+fun makeSource() Source {{ Source {{ value: 42 }} }}
 
 extend Source {{
-    fn intoTarget(self) Target {{ Target {{ value: self.value }} }}
+    fun intoTarget(self) Target {{ Target {{ value: self.value }} }}
 }}
 
-fn apply[Input, Output, Mapper](value: Input, callback: Mapper) Output
-where Mapper: Fn(Input) Output
+fun apply[Input, Output, Mapper](value: Input, callback: Mapper) Output
+where Mapper: Fun(Input) Output
 {{
     callback(value)
 }}
 
-fn applyBorrowed[Input, Output](value: Input, callback: &Fn(Input) Output) Output {{
+fun applyBorrowed[Input, Output](value: Input, callback: &Fun(Input) Output) Output {{
     callback(value)
 }}
 
 extend Runner {{
-    fn apply[Input, Output, Mapper](self, value: Input, callback: Mapper) Output
-    where Mapper: Fn(Input) Output
+    fun apply[Input, Output, Mapper](self, value: Input, callback: Mapper) Output
+    where Mapper: Fun(Input) Output
     {{
         callback(value)
     }}
 
-    fn applyBorrowed[Input, Output](self, value: Input, callback: &Fn(Input) Output) Output {{
+    fun applyBorrowed[Input, Output](self, value: Input, callback: &Fun(Input) Output) Output {{
         callback(value)
     }}
 }}
 
-fn main() i32 {{
+fun main() i32 {{
     let result = {call};
     _ = result;
     0
@@ -750,13 +750,13 @@ struct Target {
 }
 
 extend Source {
-    fn intoTarget(&self) Target {
+    fun intoTarget(&self) Target {
         Target { value: self.value }
     }
 }
 
 extend[Value] ?Value {
-    fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
+    fun map[Mapped](self, mapper: &Fun(Value) Mapped) ?Mapped {
         match self {
             ?value => ?mapper(value),
             null => null,
@@ -764,7 +764,7 @@ extend[Value] ?Value {
     }
 }
 
-fn main(source: ?Source) i32 {
+fun main(source: ?Source) i32 {
     let mapped = source.map(&\value -> value.intoTarget());
     _ = mapped;
     0
@@ -788,19 +788,19 @@ struct Target {
 }
 
 extend Source {
-    fn intoTarget(&self) Target {
+    fun intoTarget(&self) Target {
         Target { value: self.value }
     }
 }
 
-fn map[Value, Mapped](value: ?Value, mapper: &Fn(Value) Mapped) ?Mapped {
+fun map[Value, Mapped](value: ?Value, mapper: &Fun(Value) Mapped) ?Mapped {
     match value {
         ?present => ?mapper(present),
         null => null,
     }
 }
 
-fn main(source: ?Source) i32 {
+fun main(source: ?Source) i32 {
     let mapped = map(source, &\value -> value.intoTarget());
     _ = mapped;
     0
@@ -816,7 +816,7 @@ fn fallible_callable_argument_infers_nested_error_union_return() {
     let checked = pipeline(
         r#"
 extend[Value, Source, Target] Source!Value {
-    fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
         match self {
             !value => !value,
             error! => fallback(error),
@@ -824,11 +824,11 @@ extend[Value, Source, Target] Source!Value {
     }
 }
 
-fn source() i32!i32 {
+fun source() i32!i32 {
     1!
 }
 
-fn main() i32 {
+fun main() i32 {
     let recovered = source().orElse(&\error: i32 -> {
         if error == 1 {
             !42
@@ -852,7 +852,7 @@ fn fallible_error_recovery_rejects_a_different_success_type() {
     let checked = pipeline(
         r#"
 extend[Value, Source, Target] Source!Value {
-    fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
         match self {
             !value => !value,
             error! => fallback(error),
@@ -860,11 +860,11 @@ extend[Value, Source, Target] Source!Value {
     }
 }
 
-fn source() i32!i32 {
+fun source() i32!i32 {
     1!
 }
 
-fn main() bool!i32 {
+fun main() bool!i32 {
     source().orElse(&\error: i32 -> {
         if error == 1 {
             !42i64
@@ -889,11 +889,11 @@ fn main() bool!i32 {
 fn constructs_and_calls_readonly_and_mutable_callable_views() {
     let checked = pipeline(
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &callback;
+    let view: &Fun(i32) i32 = &callback;
     let mut mutable_callback = \[base] value: i32 -> { base + value };
-    let mutable_view: &mut Fn(i32) i32 = &mut mutable_callback;
+    let mutable_view: &mut Fun(i32) i32 = &mut mutable_callback;
     view(1) + mutable_view(2)
 }
 "#,
@@ -934,9 +934,9 @@ fn main(base: i32) i32 {
 fn constructs_readonly_callable_view_from_mutable_closure_state() {
     let checked = pipeline(
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let mut callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &mut callback;
+    let view: &Fun(i32) i32 = &mut callback;
     view(1)
 }
 "#,
@@ -959,10 +959,10 @@ fn main(base: i32) i32 {
 
 #[test]
 fn rejects_callable_views_with_mismatched_signatures() {
-    for target in ["&Fn(i64) i32", "&Fn(i32) i64"] {
+    for target in ["&Fun(i64) i32", "&Fun(i32) i64"] {
         let checked = pipeline(&format!(
             r#"
-fn main(base: i32) i32 {{
+fun main(base: i32) i32 {{
     let callback = \[base] value: i32 -> {{ base + value }};
     let view: {target} = &callback;
     0
@@ -982,9 +982,9 @@ fn main(base: i32) i32 {{
 fn rejects_readonly_closure_state_for_mutable_callable_view() {
     let checked = pipeline(
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
-    let view: &mut Fn(i32) i32 = &callback;
+    let view: &mut Fun(i32) i32 = &callback;
     0
 }
 "#,
@@ -1000,10 +1000,10 @@ fn main(base: i32) i32 {
 fn callable_view_construction_requires_explicit_closure_address_syntax() {
     let checked = pipeline(
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     let state = &callback;
-    let view: &Fn(i32) i32 = state;
+    let view: &Fun(i32) i32 = state;
     0
 }
 "#,
@@ -1019,9 +1019,9 @@ fn main(base: i32) i32 {
 fn decays_no_capture_closure_to_thin_function_pointer() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let callback = \value: i32 -> { value + 1 };
-    let pointer: &fn(i32) i32 = &callback;
+    let pointer: &fun(i32) i32 = &callback;
     pointer(2)
 }
 "#,
@@ -1053,9 +1053,9 @@ fn main() i32 {
 fn rejects_capturing_closure_to_thin_function_pointer_with_dedicated_diagnostic() {
     let checked = pipeline(
         r#"
-fn main(base: i32) i32 {
+fun main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
-    let pointer: &fn(i32) i32 = &callback;
+    let pointer: &fun(i32) i32 = &callback;
     0
 }
 "#,
@@ -1081,7 +1081,7 @@ fn main(base: i32) i32 {
         diagnostic
             .help
             .iter()
-            .any(|help| help.contains("callable view") && help.contains("&Fn(...)"))
+            .any(|help| help.contains("callable view") && help.contains("&Fun(...)"))
     );
 }
 
@@ -1089,9 +1089,9 @@ fn main(base: i32) i32 {
 fn rejects_no_capture_closure_function_pointer_signature_mismatch() {
     let checked = pipeline(
         r#"
-fn main() i32 {
+fun main() i32 {
     let callback = \value: i32 -> { value + 1 };
-    let pointer: &fn(i64) i32 = &callback;
+    let pointer: &fun(i64) i32 = &callback;
     0
 }
 "#,
@@ -1107,17 +1107,17 @@ fn main() i32 {
 fn thin_function_pointer_decay_requires_direct_readonly_closure_address() {
     for source in [
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut callback = \value: i32 -> { value + 1 };
-    let pointer: &fn(i32) i32 = &mut callback;
+    let pointer: &fun(i32) i32 = &mut callback;
     0
 }
 "#,
         r#"
-fn main() i32 {
+fun main() i32 {
     let callback = \value: i32 -> { value + 1 };
     let state = &callback;
-    let pointer: &fn(i32) i32 = state;
+    let pointer: &fun(i32) i32 = state;
     0
 }
 "#,
@@ -1135,8 +1135,8 @@ fn main() i32 {
 fn checks_simple_calls_to_module_functions() {
     let checked = pipeline(
         r#"
-fn id(x: i32) i32 { x }
-fn main() i32 {
+fun id(x: i32) i32 { x }
+fun main() i32 {
     id(1)
 }
 "#,
@@ -1149,9 +1149,9 @@ fn rejects_builtin_function_pointers() {
     let checked = pipeline(
         r#"
 @[builtin("trap")]
-pub fn trap() never;
+pub fun trap() never;
 
-fn main() () {
+fun main() () {
     _ = &trap;
 }
 "#,
@@ -1173,9 +1173,9 @@ fn rejects_tracked_caller_function_pointers() {
     let checked = pipeline(
         r#"
 @[trackCaller]
-fn tracked() i32 { 1 }
+fun tracked() i32 { 1 }
 
-fn main() () {
+fun main() () {
     _ = &tracked;
 }
 
@@ -1194,7 +1194,7 @@ fn main() () {
 #[test]
 fn records_exact_tracked_callsite_location_in_typed_ir() {
     let checked =
-        pipeline("@[trackCaller]\nfn tracked() i32 { 1 }\n\nfn main() i32 {\n    tracked()\n}\n");
+        pipeline("@[trackCaller]\nfun tracked() i32 { 1 }\n\nfun main() i32 {\n    tracked()\n}\n");
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let main = checked
         .ir
@@ -1227,9 +1227,9 @@ fn records_exact_tracked_callsite_location_in_typed_ir() {
 fn checks_direct_call_argument_count_and_types() {
     let checked = pipeline(
         r#"
-fn add(a: i32, b: i32) i32 { a + b }
+fun add(a: i32, b: i32) i32 { a + b }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     _ = add(flag, 1);
     _ = add(1);
     0
@@ -1272,11 +1272,11 @@ struct Item {
     value: i32,
 }
 
-fn take(items: & [Item]) i32 {
+fun take(items: & [Item]) i32 {
     items.len() as i32
 }
 
-fn main() i32 {
+fun main() i32 {
     take(&[
         Item { value: 1 },
         Item { value: 2 },
@@ -1291,10 +1291,10 @@ fn main() i32 {
 fn checks_explicit_generic_function_calls() {
     let checked = pipeline(
         r#"
-fn id[T](value: T) T { value }
-fn pair[T](left: T, right: T) T { left }
+fun id[T](value: T) T { value }
+fun pair[T](left: T, right: T) T { left }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut x: i32 = id[i32](1);
     _ = id[i32](flag);
     _ = id[i32, bool](1);
@@ -1326,9 +1326,9 @@ fn main(flag: bool) i32 {
 fn disambiguates_bracket_suffix_between_index_and_generic_instantiation() {
     let checked = pipeline(
         r#"
-fn id[T](value: T) T { value }
+fun id[T](value: T) T { value }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs: [i32; 3] = [10, 20, 30];
     let mut i32: usize = 1;
     let mut indexed = xs[i32];
@@ -1367,14 +1367,14 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 }
 
-fn id[T](value: T) T { value }
+fun id[T](value: T) T { value }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs: [i32; 3] = [10, 20, 30];
     let mut i32: usize = 1;
     let mut indexed = xs[i32];
@@ -1403,13 +1403,13 @@ fn main() i32 {
 fn records_generic_calls_inside_defer_blocks() {
     let checked = pipeline(
         r#"
-extern fn log(value: i32);
+extern fun log(value: i32);
 
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     defer {
         log(id[i32](7))
     };
@@ -1443,11 +1443,11 @@ fn main() i32 {
 fn records_generic_calls_inside_binary_operator_operands() {
     let checked = pipeline(
         r#"
-fn id[T](value: T) T {
+fun id[T](value: T) T {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     id[i32](1) + id[i32](2)
 }
 "#,
@@ -1482,11 +1482,11 @@ fn main() i32 {
 fn records_runtime_generic_const_call_before_indexing_its_result() {
     let checked = pipeline(
         r#"
-const fn pair[T](first: T, second: T) [T; 2] {
+const fun pair[T](first: T, second: T) [T; 2] {
     [first, second]
 }
 
-fn main() u32 {
+fun main() u32 {
     pair[u32](1, 2)[1]
 }
 "#,
@@ -1508,11 +1508,11 @@ fn main() u32 {
 fn checks_simd_lane_builtins() {
     let checked = pipeline(
         r#"
-fn lane(v: u8x16, i: usize) u8 {
+fun lane(v: u8x16, i: usize) u8 {
     std::builtin::extract(v, i)
 }
 
-fn changed(v: u8x16, i: usize) u8x16 {
+fun changed(v: u8x16, i: usize) u8x16 {
     std::builtin::insert(v, i, 9u8)
 }
 "#,
@@ -1524,7 +1524,7 @@ fn changed(v: u8x16, i: usize) u8x16 {
 fn rejects_invalid_simd_lane_builtins() {
     let checked = pipeline(
         r#"
-fn invalid(v: u8x16) () {
+fun invalid(v: u8x16) () {
     _ = std::builtin::extract[u8](v, 0usize);
     _ = std::builtin::extract(1u8, 0usize);
     _ = std::builtin::insert(v, 0usize, true);
@@ -1559,7 +1559,7 @@ fn invalid(v: u8x16) () {
 fn simd_builtins_do_not_reject_error_recovery_types() {
     let checked = pipeline(
         r#"
-fn invalid() usize {
+fun invalid() usize {
     _ = std::builtin::extract(missing, 0usize);
     _ = std::builtin::bitmask(missing);
     _ = std::builtin::splat[MissingVector](1u8);
@@ -1603,7 +1603,7 @@ fn invalid() usize {
 fn builtins_do_not_reject_structural_error_recovery_types() {
     let checked = pipeline(
         r#"
-fn invalid() () {
+fun invalid() () {
     _ = std::builtin::extract(&missing_vector, 0usize);
     _ = std::builtin::bitmask([missing_mask]);
     _ = std::builtin::loadUnaligned[i32](&missing_pointer);
@@ -1645,7 +1645,7 @@ fn simd_builtin_type_argument_rejects_a_resolved_const_value() {
         r#"
 const LANE: usize = 1;
 
-fn invalid() usize {
+fun invalid() usize {
     _ = std::builtin::ctz[LANE](0usize);
     0
 }
@@ -1663,7 +1663,7 @@ fn invalid() usize {
 fn checks_atomic_builtin_ordering_rules() {
     let checked = pipeline(
         r#"
-fn main() () {
+fun main() () {
     let mut value = 0i32;
     _ = std::builtin::atomicLoad[i32](&value, 3usize);
     std::builtin::atomicStore[i32](&mut value, 1i32, 2usize);
@@ -1722,7 +1722,7 @@ fn main() () {
 fn atomic_builtins_do_not_reject_error_recovery_types() {
     let checked = pipeline(
         r#"
-fn invalid() () {
+fun invalid() () {
     let mut value = 0i32;
     _ = std::builtin::atomicLoad[Missing](value, 1usize);
     _ = std::builtin::atomicRmw[Missing](&mut value, 99usize, 1i32, 1usize);
@@ -1772,7 +1772,7 @@ fn invalid() () {
 fn atomic_builtins_do_not_const_check_unresolved_control_arguments() {
     let checked = pipeline(
         r#"
-fn invalid() () {
+fun invalid() () {
     let mut value = 0i32;
     _ = std::builtin::atomicLoad[i32](value, missing_order);
     _ = std::builtin::atomicRmw[i32](&mut value, missing_operation, 1i32, 1usize);
@@ -1811,7 +1811,7 @@ struct Point {
     x: i32,
 }
 
-fn main() () {
+fun main() () {
     let mut point = Point { x: 1 };
     _ = std::builtin::atomicLoad[Point](&point, 1usize);
     _ = std::builtin::atomicRmw[Point](&mut point, 1usize, Point { x: 2 }, 1usize);
@@ -1834,11 +1834,11 @@ fn main() () {
 fn checks_splat_builtin() {
     let checked = pipeline(
         r#"
-fn make() u8x16 {
+fun make() u8x16 {
     std::builtin::splat[u8x16](7u8)
 }
 
-fn invalid() u8 {
+fun invalid() u8 {
     std::builtin::splat[u8](1u8)
 }
 "#,
@@ -1858,15 +1858,15 @@ fn invalid() u8 {
 fn checks_simd_bitmask_builtin() {
     let checked = pipeline(
         r#"
-fn mask(v: u8x16) usize {
+fun mask(v: u8x16) usize {
     std::builtin::bitmask(v == std::builtin::splat[u8x16](7u8))
 }
 
-fn invalid_value(v: u8x16) usize {
+fun invalid_value(v: u8x16) usize {
     std::builtin::bitmask(v)
 }
 
-fn invalid_type_arg(v: boolx16) usize {
+fun invalid_type_arg(v: boolx16) usize {
     std::builtin::bitmask[usize](v)
 }
 "#,
@@ -1893,15 +1893,15 @@ fn invalid_type_arg(v: boolx16) usize {
 fn checks_bit_intrinsic_builtins() {
     let checked = pipeline(
         r#"
-fn bits(mask: usize) usize {
+fun bits(mask: usize) usize {
     std::builtin::ctz[usize](mask) + std::builtin::clz[usize](mask) + std::builtin::popcount[usize](mask)
 }
 
-fn invalid_type(value: bool) usize {
+fun invalid_type(value: bool) usize {
     std::builtin::ctz[bool](value)
 }
 
-fn missing_type(value: usize) usize {
+fun missing_type(value: usize) usize {
     std::builtin::popcount(value)
 }
 "#,
@@ -1928,11 +1928,11 @@ fn missing_type(value: usize) usize {
 fn checks_load_unaligned_builtin() {
     let checked = pipeline(
         r#"
-fn load(ptr: &u8) u8x8 {
+fun load(ptr: &u8) u8x8 {
     std::builtin::loadUnaligned[u8x8](ptr)
 }
 
-fn invalid_ptr(ptr: &u16) u8x8 {
+fun invalid_ptr(ptr: &u16) u8x8 {
     std::builtin::loadUnaligned[u8x8](ptr)
 }
 "#,
@@ -1952,7 +1952,7 @@ fn invalid_ptr(ptr: &u16) u8x8 {
 fn load_unaligned_does_not_reject_error_recovery_pointers() {
     let checked = pipeline(
         r#"
-fn invalid() u8x8 {
+fun invalid() u8x8 {
     std::builtin::loadUnaligned[u8x8](missing)
 }
 "#,
@@ -1972,7 +1972,7 @@ fn invalid() u8x8 {
 fn slice_len_does_not_reject_error_recovery_pointers() {
     let checked = pipeline(
         r#"
-fn invalid() usize {
+fun invalid() usize {
     std::builtin::sliceLen(missing)
 }
 "#,
@@ -1992,7 +1992,7 @@ fn invalid() usize {
 fn slice_len_still_rejects_non_pointer_arguments() {
     let checked = pipeline(
         r#"
-fn invalid() usize {
+fun invalid() usize {
     std::builtin::sliceLen(1usize)
 }
 "#,

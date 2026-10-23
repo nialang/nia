@@ -5,7 +5,7 @@ using pkg::os::windows::types::{
     Errno,
 };
 
-pub fn random(bytes: &mut [u8]) Errno!() {
+pub fun random(bytes: &mut [u8]) Errno!() {
     if bytes.len() == 0 { return !(); }
     // ProcessPrng fills any length and cannot fail.
     _ = ProcessPrng(bytes.ptrMut(), bytes.len());

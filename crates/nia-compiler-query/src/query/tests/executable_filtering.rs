@@ -14,7 +14,7 @@ end: i32,
 extend Counter : Iterator {
 type Item = i32;
 
-fn next(&mut self) ?i32 {
+fun next(&mut self) ?i32 {
     if self.current >= self.end {
         null
     } else {
@@ -25,7 +25,7 @@ fn next(&mut self) ?i32 {
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut total = 0;
 let mut iter = Counter { current: 0, end: 3 };
 for value in iter {
@@ -73,7 +73,7 @@ end: i32,
 extend Counter : Iterator {
 type Item = i32;
 
-fn next(&mut self) ?i32 {
+fun next(&mut self) ?i32 {
     if self.current >= self.end {
         null
     } else {
@@ -89,12 +89,12 @@ struct Unused {}
 extend Unused : Iterator {
 type Item = i32;
 
-fn next(&mut self) ?i32 {
+fun next(&mut self) ?i32 {
     ?missing_symbol
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut total = 0;
 let mut iter = Counter { current: 0, end: 3 };
 for value in iter {
@@ -141,23 +141,23 @@ fn executable_checked_modules_do_not_body_check_unused_trait_witness_methods() {
         "main.nia",
         r#"
 trait Ops {
-fn used(self) i32;
-fn unused(self) i32;
+fun used(self) i32;
+fun unused(self) i32;
 }
 
 struct Value {}
 
 extend Value : Ops {
-fn used(self) i32 {
+fun used(self) i32 {
     1
 }
 
-fn unused(self) i32 {
+fun unused(self) i32 {
     missing_symbol
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let value = Value {};
 value.used()
 }
@@ -194,13 +194,13 @@ fn executable_checked_modules_include_trait_witnesses_required_by_generic_where_
         "main.nia",
         r#"
 trait IntoError[Target] {
-fn intoError(self) Target;
+fun intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
 where Source: IntoError[Target]
 {
-fn cast_error(self) Target!T {
+fun cast_error(self) Target!T {
     match self {
         !ok => {
             !ok
@@ -221,7 +221,7 @@ value: i32,
 }
 
 extend Source : IntoError[Target] {
-fn intoError(self) Target {
+fun intoError(self) Target {
     Target { value: self.value }
 }
 }
@@ -229,12 +229,12 @@ fn intoError(self) Target {
 struct Unused {}
 
 extend Unused : IntoError[Target] {
-fn intoError(self) Target {
+fun intoError(self) Target {
     missing_symbol
 }
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let value: Source!i32 = Source { value: 1 }!;
 match value.cast_error() {
     !ok => {
@@ -289,11 +289,11 @@ fn executable_checked_modules_include_trait_witnesses_required_by_default_method
 trait Writer {
 type Error;
 
-fn short_write(&self) Error;
+fun short_write(&self) Error;
 
-fn write(&mut self) Error!usize;
+fun write(&mut self) Error!usize;
 
-fn write_all(&mut self) Error!() {
+fun write_all(&mut self) Error!() {
     let n = self.write().?;
     if n == 0usize {
         return self.short_write()!;
@@ -309,11 +309,11 @@ value: i32,
 extend FileWriter : Writer {
 type Error = i32;
 
-fn short_write(&self) Error {
+fun short_write(&self) Error {
     1
 }
 
-fn write(&mut self) Error!usize {
+fun write(&mut self) Error!usize {
     self.value = 2;
     !1usize
 }
@@ -324,16 +324,16 @@ struct Unused {}
 extend Unused : Writer {
 type Error = i32;
 
-fn short_write(&self) Error {
+fun short_write(&self) Error {
     missing_symbol
 }
 
-fn write(&mut self) Error!usize {
+fun write(&mut self) Error!usize {
     missing_symbol
 }
 }
 
-pub fn main() i32!i32 {
+pub fun main() i32!i32 {
 let mut writer = FileWriter { value: 0 };
 writer.write_all().?;
 !writer.value
@@ -385,7 +385,7 @@ fn executable_checked_modules_do_not_body_check_unreachable_globals() {
         r#"
 static unused = missing_symbol;
 
-pub fn main() i32 {
+pub fun main() i32 {
 0
 }
 "#,
@@ -427,7 +427,7 @@ fn executable_checked_modules_do_not_retain_rejected_static_initializers() {
         r#"
 static used: i32 = { 1 };
 
-pub fn main() i32 {
+pub fun main() i32 {
     used
 }
 "#,
@@ -472,7 +472,7 @@ fn executable_checked_modules_keep_type_owner_modules_type_only() {
 module types;
 using entry::types;
 
-pub fn main(value: types::Used) i32 {
+pub fun main(value: types::Used) i32 {
 value.value
 }
 "#,
@@ -487,7 +487,7 @@ pub struct Used {
 value: i32,
 }
 
-pub fn unused_bad() i32 {
+pub fun unused_bad() i32 {
 missing_symbol
 }
 "#,

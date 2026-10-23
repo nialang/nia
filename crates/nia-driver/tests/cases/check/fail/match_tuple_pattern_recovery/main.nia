@@ -1,4 +1,4 @@
-fn main(value: (bool, bool)) () {
+fun main(value: (bool, bool)) () {
     match value {
         (true, , false) => (),
         _ => (),
@@ -6,4 +6,4 @@ fn main(value: (bool, bool)) () {
     later();
 }
 
-fn later() () {}
+fun later() () {}

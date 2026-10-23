@@ -1,4 +1,4 @@
-fn main() usize {
+fun main() usize {
     let from = 1usize..;
     let to = ..2usize;
     _ = from.end();

@@ -1,2 +1,2 @@
 module api;
-fn main() i32 { api }
+fun main() i32 { api }

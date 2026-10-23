@@ -12,8 +12,8 @@ help: check that the surrounding delimiters are balanced
 
 path: fail/unterminated_record_bodies_recovery/main.nia
 code: E0101
-summary: expected `}` after enum body; found `fn`
-label: 90..92 Primary Source expected `}` after enum body; found `fn`
+summary: expected `}` after enum body; found `fun`
+label: 90..93 Primary Source expected `}` after enum body; found `fun`
 help: check that the surrounding delimiters are balanced
 
 report:
@@ -31,11 +31,11 @@ error[E0101]: expected `}` after union body; found `enum`
   | ^^^^
 help: check that the surrounding delimiters are balanced
 
-error[E0101]: expected `}` after enum body; found `fn`
+error[E0101]: expected `}` after enum body; found `fun`
   --> fail/unterminated_record_bodies_recovery/main.nia:4:1
   |
-4 | fn later() () {}
-  | ^^
+4 | fun later() () {}
+  | ^^^
 help: check that the surrounding delimiters are balanced
 
 summary: 3 errors, 0 warnings

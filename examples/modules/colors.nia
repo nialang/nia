@@ -4,7 +4,7 @@ pub enum Color: u8 {
     Green,
 }
 
-pub fn code(color: Color) i32 {
+pub fun code(color: Color) i32 {
     match color {
         .Red => 1,
         .Black => 2,

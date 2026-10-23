@@ -960,7 +960,7 @@ impl<'a> SignatureCollector<'a> {
                         self.diagnostics.push(
                             Diagnostic::user_error(
                                 codes::ITEM_SIGNATURE,
-                                "`@[naked]` is only valid on `extern fn` definitions",
+                                "`@[naked]` is only valid on `extern fun` definitions",
                             )
                             .primary(
                                 attribute.span,
@@ -1028,7 +1028,7 @@ impl<'a> SignatureCollector<'a> {
                         self.diagnostics.push(
                             Diagnostic::user_error(
                                 codes::ITEM_SIGNATURE,
-                                "`@[trackCaller]` is not valid on `extern fn`",
+                                "`@[trackCaller]` is not valid on `extern fun`",
                             )
                             .primary(attribute.span, "this function is declared `extern`")
                             .help("remove `extern` before using `@[trackCaller]`")
@@ -1057,10 +1057,10 @@ impl<'a> SignatureCollector<'a> {
                     self.diagnostics.push(
                         Diagnostic::user_error(
                             codes::ITEM_SIGNATURE,
-                            "`@[noMangle]` is not supported; use an `extern fn` definition and optional `@[exportName]`",
+                            "`@[noMangle]` is not supported; use an `extern fun` definition and optional `@[exportName]`",
                         )
                         .primary(attribute.span, "`noMangle` is not supported")
-                        .help("use an `extern fn` definition with optional `@[exportName]`")
+                        .help("use an `extern fun` definition with optional `@[exportName]`")
                         .finish(),
                     );
                 }

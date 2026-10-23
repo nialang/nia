@@ -941,7 +941,7 @@ mod tests {
         let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let sources = vec![SourceRecord {
             identity: "build-package:root:/src/main.nia".to_string(),
-            fingerprint: nia_compiler_query::source_content_fingerprint("fn main() i32 { 0 }"),
+            fingerprint: nia_compiler_query::source_content_fingerprint("fun main() i32 { 0 }"),
             byte_len: 19,
         }];
         let module_identity = module_identity(&module);

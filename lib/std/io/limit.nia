@@ -18,15 +18,15 @@ pub struct LimitedReader[R] {
 }
 
 extend Limit {
-    pub fn unlimited() Limit {
+    pub fun unlimited() Limit {
         .{ remaining: null }
     }
 
-    pub fn limited(remaining: usize) Limit {
+    pub fun limited(remaining: usize) Limit {
         .{ remaining: ?remaining }
     }
 
-    pub fn remaining(&self) ?usize {
+    pub fun remaining(&self) ?usize {
         self.remaining
     }
 }
@@ -34,11 +34,11 @@ extend Limit {
 extend[R] LimitedReader[R]
 where R: Reader
 {
-    pub fn init(reader: &mut R, limit: Limit) LimitedReader[R] {
+    pub fun init(reader: &mut R, limit: Limit) LimitedReader[R] {
         .{ reader, limit }
     }
 
-    pub fn remaining(&self) ?usize {
+    pub fun remaining(&self) ?usize {
         self.limit.remaining()
     }
 }
@@ -48,15 +48,15 @@ where R: Reader
 {
     type Error = [R as Reader]::Error;
 
-    pub fn endOfStream(&self) Error {
+    pub fun endOfStream(&self) Error {
         self.reader.endOfStream()
     }
 
-    pub fn invalidRead(&self) Error {
+    pub fun invalidRead(&self) Error {
         self.reader.invalidRead()
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+    pub fun read(&mut self, bytes: &mut [u8]) Error!usize {
         if self.limit.remaining is ?remaining {
             if remaining == 0 {
                 return !0;

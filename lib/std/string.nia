@@ -41,30 +41,30 @@ struct TextFormatWriter {
 }
 
 extend String {
-    pub fn init() String {
+    pub fun init() String {
         .{
             text: .init(),
             formatBytes: .init(),
         }
     }
 
-    pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!String {
+    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!String {
         let mut text = collections::ArrayList[char]::initCapacity(allocator, capacity).?;
         !.{ text, formatBytes: .init() }
     }
 
-    pub fn fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
+    pub fun fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
         let mut out = String::initCapacity(allocator, text.len()).?;
         out.append(allocator, text).?;
         !out
     }
 
-    pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
+    pub fun fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
         let view = unicode::Utf8View::fromBytes(bytes).?;
         !(String::fromUtf8View(allocator, view).?)
     }
 
-    pub fn fromUtf8View(allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!String {
+    pub fun fromUtf8View(allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!String {
         let mut out = String::initCapacity(allocator, view.scalarCount()).?;
         for scalar in view {
             out.text.appendAssumeCapacity(scalar);
@@ -72,12 +72,12 @@ extend String {
         !out
     }
 
-    pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!() {
+    pub fun appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!() {
         let view = unicode::Utf8View::fromBytes(bytes).?;
         !(self.appendUtf8View(allocator, view).?)
     }
 
-    pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
+    pub fun appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
         let oldLen = self.len();
         let newLen = match oldLen.checkedAdd(view.scalarCount()) {
             ?value => value,
@@ -90,7 +90,7 @@ extend String {
         !()
     }
 
-    pub fn appendFormat(
+    pub fun appendFormat(
         &mut self,
         allocator: &mut mem::Allocator,
         template: &[char],
@@ -116,66 +116,66 @@ extend String {
         !()
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.text.deinit(allocator));
         cleanup.attempt(self.formatBytes.deinit(allocator));
         cleanup.finish()
     }
 
-    fn releaseFormatBytes(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    fun releaseFormatBytes(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.formatBytes.deinit(allocator)
     }
 
-    pub fn text(&self) &[char] {
+    pub fun text(&self) &[char] {
         self.text.asSlice()
     }
 
-    pub fn textMut(&mut self) &mut [char] {
+    pub fun textMut(&mut self) &mut [char] {
         self.text.asMutSlice()
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.text.len()
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         self.text.capacity()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.text.isEmpty()
     }
 
-    pub fn clear(&mut self) () {
+    pub fun clear(&mut self) () {
         self.text.clear()
     }
 
-    pub fn equals(&self, other: &[char]) bool {
+    pub fun equals(&self, other: &[char]) bool {
         self.text().equals(other)
     }
 
-    pub fn startsWith(&self, prefix: &[char]) bool {
+    pub fun startsWith(&self, prefix: &[char]) bool {
         self.text().startsWith(prefix)
     }
 
-    pub fn endsWith(&self, suffix: &[char]) bool {
+    pub fun endsWith(&self, suffix: &[char]) bool {
         self.text().endsWith(suffix)
     }
 
-    pub fn find(&self, needle: &[char]) ?usize {
+    pub fun find(&self, needle: &[char]) ?usize {
         self.text().find(needle)
     }
 
-    pub fn contains(&self, needle: &[char]) bool {
+    pub fun contains(&self, needle: &[char]) bool {
         self.text().contains(needle)
     }
 
-    pub fn split(&self, separator: &[char]) slice::SliceSplit[char] {
+    pub fun split(&self, separator: &[char]) slice::SliceSplit[char] {
         self.text().split(separator)
     }
 
-    pub fn replaceAll(
+    pub fun replaceAll(
         &self,
         allocator: &mut mem::Allocator,
         needle: &[char],
@@ -184,40 +184,40 @@ extend String {
         replaceAllText(allocator, self.text(), needle, replacement)
     }
 
-    pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+    pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         self.text.ensureTotalCapacity(allocator, capacity)
     }
 
-    pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         self.text.reserve(allocator, additional)
     }
 
-    pub fn push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!() {
+    pub fun push(&mut self, allocator: &mut mem::Allocator, ch: char) mem::Error!() {
         self.text.push(allocator, ch)
     }
 
-    pub fn pushAssumeCapacity(&mut self, ch: char) () {
+    pub fun pushAssumeCapacity(&mut self, ch: char) () {
         self.text.appendAssumeCapacity(ch)
     }
 
-    pub fn append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!() {
+    pub fun append(&mut self, allocator: &mut mem::Allocator, text: &[char]) mem::Error!() {
         self.text.appendSlice(allocator, text)
     }
 
-    pub fn appendAssumeCapacity(&mut self, text: &[char]) () {
+    pub fun appendAssumeCapacity(&mut self, text: &[char]) () {
         self.text.appendSliceAssumeCapacity(text)
     }
 
     // Retires any pending formatting staging owner first, so a successful
     // transfer leaves no second allocation behind in this string.
-    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[char] {
+    pub fun intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[char] {
         self.releaseFormatBytes(allocator).?;
         self.text.intoOwnedSlice(allocator)
     }
 }
 
 extend [char] {
-    pub fn replaceAll(
+    pub fun replaceAll(
         &self,
         allocator: &mut mem::Allocator,
         needle: &[char],
@@ -228,7 +228,7 @@ extend [char] {
 }
 
 extend [&[char]] {
-    pub fn join(
+    pub fun join(
         &self,
         allocator: &mut mem::Allocator,
         separator: &[char],
@@ -256,7 +256,7 @@ extend [&[char]] {
     }
 }
 
-fn replaceAllText(
+fun replaceAllText(
     allocator: &mut mem::Allocator,
     source: &[char],
     needle: &[char],
@@ -290,21 +290,21 @@ fn replaceAllText(
 }
 
 extend String : Eq[String] {
-    fn eq(&self, other: &String) bool {
+    fun eq(&self, other: &String) bool {
         self.equals(other.text())
     }
 
-    fn ne(&self, other: &String) bool {
+    fun ne(&self, other: &String) bool {
         not self.equals(other.text())
     }
 }
 
 extend TextFormatWriter {
-    fn init(allocator: &mut mem::Allocator) TextFormatWriter {
+    fun init(allocator: &mut mem::Allocator) TextFormatWriter {
         .{ allocator, bytes: .init(), failure: null }
     }
 
-    fn deinit(&mut self) mem::Error!() {
+    fun deinit(&mut self) mem::Error!() {
         self.bytes.deinit(self.allocator)
     }
 
@@ -312,7 +312,7 @@ extend TextFormatWriter {
     // cleanup allocation error is reported only when formatting succeeded. A
     // backing whose free failed moves to `out` as a pending owner, retried
     // before the next format and during `String::deinit`.
-    fn finish(&mut self, out: &mut String, primary: ?TextFormatError) TextFormatError!() {
+    fun finish(&mut self, out: &mut String, primary: ?TextFormatError) TextFormatError!() {
         if self.deinit() is error! {
             out.formatBytes = self.bytes;
             self.bytes = .init();
@@ -327,11 +327,11 @@ extend TextFormatWriter {
         !()
     }
 
-    fn appendTo(&mut self, out: &mut String) TextFormatError!() {
+    fun appendTo(&mut self, out: &mut String) TextFormatError!() {
         !(out.appendUtf8(self.allocator, self.bytes.asSlice()).?)
     }
 
-    fn textError(&self, error: fmt::Error) TextFormatError {
+    fun textError(&self, error: fmt::Error) TextFormatError {
         if error == fmt::Error::Write {
             if self.failure is ?failure {
                 return .Allocation(failure);
@@ -344,11 +344,11 @@ extend TextFormatWriter {
 extend TextFormatWriter : io::Writer {
     type Error = mem::Error;
 
-    fn shortWrite(&self) mem::Error {
+    fun shortWrite(&self) mem::Error {
         .OutOfMemory
     }
 
-    fn write(&mut self, bytes: &[u8]) mem::Error!usize {
+    fun write(&mut self, bytes: &[u8]) mem::Error!usize {
         if self.bytes.appendSlice(self.allocator, bytes) is error! {
             self.failure = ?error;
             return error!;
@@ -358,25 +358,25 @@ extend TextFormatWriter : io::Writer {
 }
 
 extend mem::Error : builtin::IntoError[TextError] {
-    const fn intoError(self) TextError {
+    const fun intoError(self) TextError {
         TextError::Allocation(self)
     }
 }
 
 extend unicode::Utf8DecodeError : builtin::IntoError[TextError] {
-    const fn intoError(self) TextError {
+    const fun intoError(self) TextError {
         TextError::InvalidUtf8(self)
     }
 }
 
 extend mem::Error : builtin::IntoError[TextFormatError] {
-    const fn intoError(self) TextFormatError {
+    const fun intoError(self) TextFormatError {
         TextFormatError::Allocation(self)
     }
 }
 
 extend TextError : builtin::IntoError[TextFormatError] {
-    const fn intoError(self) TextFormatError {
+    const fun intoError(self) TextFormatError {
         match self {
             .InvalidUtf8(error) => .InvalidUtf8(error),
             .Allocation(error) => .Allocation(error),
@@ -385,11 +385,11 @@ extend TextError : builtin::IntoError[TextFormatError] {
 }
 
 extend String : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         self.text().format(formatter)
     }
 
-    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+    fun formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         self.text().formatSpec(formatter, spec)
     }
 }

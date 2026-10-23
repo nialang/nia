@@ -3,7 +3,7 @@ use super::common::*;
 
 #[test]
 fn nested_bracket_type_retains_ambiguous_const_argument() {
-    let (module, errors) = parse_module("fn inspect() () { consume[Buffer[COUNT]]() }");
+    let (module, errors) = parse_module("fun inspect() () { consume[Buffer[COUNT]]() }");
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Function(function) = &module.items[0].kind else {
         panic!("function");
@@ -26,9 +26,9 @@ fn nested_bracket_type_retains_ambiguous_const_argument() {
 #[test]
 fn rejected_type_recovery_reports_the_error_and_keeps_following_items() {
     for source in [
-        "fn invalid(value: self) {} fn after() {}",
-        "struct Invalid { field: self, next: i32 } fn after() {}",
-        "fn invalid() { let value: i32 extra = 0; } fn after() {}",
+        "fun invalid(value: self) {} fun after() {}",
+        "struct Invalid { field: self, next: i32 } fun after() {}",
+        "fun invalid() { let value: i32 extra = 0; } fun after() {}",
     ] {
         let (module, errors) = parse_module(source);
         assert!(
@@ -44,7 +44,7 @@ fn rejected_type_recovery_reports_the_error_and_keeps_following_items() {
 
 #[test]
 fn bracket_arguments_keep_receiver_and_namespace_value_readings() {
-    let source = "fn main() { let a = buffer[self.len + index]; let b = buffer[self::OFFSET]; let c = buffer[pkg::OFFSET]; let d = buffer[super::OFFSET]; }";
+    let source = "fun main() { let a = buffer[self.len + index]; let b = buffer[self::OFFSET]; let c = buffer[pkg::OFFSET]; let d = buffer[super::OFFSET]; }";
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Function(function) = &module.items[0].kind else {
@@ -72,7 +72,7 @@ fn bracket_arguments_keep_receiver_and_namespace_value_readings() {
             assert!(matches!(value.kind, ExprKind::Qualified { .. }));
         }
     }
-    let (_, errors) = parse_module("fn invalid(value: self) {} ");
+    let (_, errors) = parse_module("fun invalid(value: self) {} ");
     assert!(
         !errors.is_empty(),
         "bare self is a receiver value, not a type"
@@ -81,7 +81,7 @@ fn bracket_arguments_keep_receiver_and_namespace_value_readings() {
 
 #[test]
 fn preserves_self_qualified_types_in_signatures_and_bodies() {
-    let source = "fn identity(value: self::model::Hidden) self::model::Hidden { let local: self::model::Hidden = value; local }";
+    let source = "fun identity(value: self::model::Hidden) self::model::Hidden { let local: self::model::Hidden = value; local }";
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Function(function) = &module.items[0].kind else {
@@ -112,7 +112,7 @@ fn preserves_self_qualified_types_in_signatures_and_bodies() {
 fn parses_unit_and_tuple_types_and_values() {
     let (module, errors) = parse_module(
         r#"
-fn values(unit: (), single: (i32,), pair: (i32, bool), grouped: (i32)) () {
+fun values(unit: (), single: (i32,), pair: (i32, bool), grouped: (i32)) () {
     let a = ();
     let b = (1,);
     let c = (1, true);
@@ -178,7 +178,7 @@ struct Pair {
     left: (i32, bool),
 }
 
-fn project(pair: Pair) bool {
+fun project(pair: Pair) bool {
     let first = (1, true).0;
     pair.left.0.1
 }
@@ -212,7 +212,7 @@ fn project(pair: Pair) bool {
 fn parses_explicit_capture_closures() {
     let (module, errors) = parse_module(
         r#"
-fn make(base: i32) () {
+fun make(base: i32) () {
     let offset = 2;
     let add = \[base, offset] value: i32 -> {
         base + offset + value
@@ -261,7 +261,7 @@ fn make(base: i32) () {
 fn parses_closure_parameters_without_type_annotations() {
     let (module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     let callback = \left, right -> { left + right };
     ()
 }
@@ -287,7 +287,7 @@ fn main() () {
 fn parses_closure_capture_modes_and_expression_body() {
     let (module, errors) = parse_module(
         r#"
-fn main(x: i32, y: i32, z: i32) () {
+fun main(x: i32, y: i32, z: i32) () {
     let callback = \[x, &y, &mut z] a, b -> x + y.* + z.* + a + b;
     ()
 }
@@ -328,7 +328,7 @@ fn main(x: i32, y: i32, z: i32) () {
 fn parses_consecutive_closures_as_right_nested_expressions() {
     let (module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     let curried = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
     ()
 }
@@ -369,7 +369,7 @@ fn main() () {
 fn closure_capture_entries_must_be_names() {
     let (_module, errors) = parse_module(
         r#"
-fn main(x: i32) () {
+fun main(x: i32) () {
     let callback = \[captured = x] -> captured;
     ()
 }
@@ -386,7 +386,7 @@ fn main(x: i32) () {
 fn rejects_empty_closure_capture_list() {
     let (_module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     let callback = \[] value -> value;
     ()
 }
@@ -403,7 +403,7 @@ fn main() () {
 fn rejects_non_identifier_closure_parameters() {
     let (_module, errors) = parse_module(
         r#"
-fn main() () {
+fun main() () {
     let callback = \value: i32, ... -> value;
     ()
 }
@@ -429,7 +429,7 @@ fn rejects_non_canonical_tuple_projection_fields() {
     ] {
         let source = format!(
             r#"
-fn project(pair: (i32, bool)) i32 {{
+fun project(pair: (i32, bool)) i32 {{
     pair.{field}
 }}
 "#
@@ -446,15 +446,15 @@ fn project(pair: (i32, bool)) i32 {{
 fn reports_malformed_tuple_types_values_and_patterns() {
     for (source, expected) in [
         (
-            "fn malformed() () { let value = 1 as (i32, bool u8); }",
+            "fun malformed() () { let value = 1 as (i32, bool u8); }",
             "expected `,` or `)` after type parameter",
         ),
         (
-            "fn value() () { let pair = (1, true false); }",
+            "fun value() () { let pair = (1, true false); }",
             "expected `)` after tuple",
         ),
         (
-            "fn bind() () { let (first, second third) = (1, 2); }",
+            "fun bind() () { let (first, second third) = (1, 2); }",
             "expected binding pattern",
         ),
     ] {
@@ -470,7 +470,7 @@ fn reports_malformed_tuple_types_values_and_patterns() {
 fn parses_opaque_only_as_a_distinct_type_syntax() {
     let (module, errors) = parse_module(
         r#"
-extern fn use_pointer(value: &opaque) &mut opaque;
+extern fun use_pointer(value: &opaque) &mut opaque;
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -495,7 +495,7 @@ enum Mode {
     Active,
 }
 
-fn main(mode: Mode) i32 {
+fun main(mode: Mode) i32 {
     if mode == Mode::Active {
         1
     } else {
@@ -519,7 +519,7 @@ fn main(mode: Mode) i32 {
 fn parses_function_body_statements_and_expressions() {
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut x = 1 + 2 * 3 << 1;
     defer cleanup();
     if x > 3 {
@@ -569,10 +569,10 @@ fn parses_structured_types_and_aggregate_literals() {
         r#"
 struct Header {
     bytes: [u8; _],
-    callback: &fn(i32, ...) (),
+    callback: &fun(i32, ...) (),
 }
 
-fn make() Header {
+fun make() Header {
     let mut data: [u8; _] = [0; 8];
     let mut more: [u8; _] = [1, 2, 3];
     let mut header = Header { bytes: data, callback: cb };
@@ -628,10 +628,10 @@ fn make() Header {
 fn parses_callable_interface_types() {
     let (module, errors) = parse_module(
         r#"
-type Callback = Fn(i32, bool) i32;
-type CallbackRef = &Fn(i32) i32;
-type CallbackMut = &mut Fn(i32) i32;
-type UnitCallback = Fn();
+type Callback = Fun(i32, bool) i32;
+type CallbackRef = &Fun(i32) i32;
+type CallbackMut = &mut Fun(i32) i32;
+type UnitCallback = Fun();
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -676,7 +676,7 @@ type UnitCallback = Fn();
 
 #[test]
 fn rejects_variadic_callable_interface_types() {
-    let (_, errors) = parse_module("type Callback = Fn(i32, ...);");
+    let (_, errors) = parse_module("type Callback = Fun(i32, ...);");
     assert!(
         errors.iter().any(|error| error
             .message
@@ -693,7 +693,7 @@ struct Pair[T] {
     value: T,
 }
 
-fn make(ptr: &u8, xs: &[i32; _]) Pair[i32] {
+fun make(ptr: &u8, xs: &[i32; _]) Pair[i32] {
     let mut size = std::builtin::size[Pair[i32]]();
     let mut offset = std::builtin::offset[Pair[i32]]("value");
     let mut addr = ptr as usize;
@@ -763,7 +763,7 @@ struct Point {
 }
 
 extend Point {
-    fn shifted(self, x: i32) Self {
+    fun shifted(self, x: i32) Self {
         Self { x, y: self.y }
     }
 }
@@ -793,7 +793,7 @@ extend Point {
 fn rejects_anonymous_aggregate_expressions() {
     let (_, errors) = parse_module(
         r#"
-fn make() () {
+fun make() () {
     let value = { x: 1 };
     _ = value;
 }
@@ -817,7 +817,7 @@ enum Color {
     Resize { value: i32 },
 }
 
-fn make(point: Point, color: Color) Point {
+fun make(point: Point, color: Color) Point {
     let a: Point = .{ x: 1, y: 2 };
     let b: Color = .Red;
     let c: Color = .Data(3);
@@ -872,7 +872,7 @@ fn make(point: Point, color: Color) Point {
 fn rejects_removed_at_prefixed_builtin_call_syntax() {
     let (_, errors) = parse_module(
         r#"
-fn size() usize {
+fun size() usize {
     @size[usize]()
 }
 "#,
@@ -898,7 +898,7 @@ struct Point {
     y: i32,
 }
 
-fn make() i32 {
+fun make() i32 {
     let mut p = Point{x: 1, y: 2};
     let mut xs = [1, 2, 3];
     let mut boxes = [Box { value: 1 }];
@@ -949,7 +949,7 @@ fn make() i32 {
 fn parses_slice_types_and_ranges() {
     let (module, errors) = parse_module(
         r#"
-fn take(xs: &[i32], ys: &mut [i32]) usize {
+fun take(xs: &[i32], ys: &mut [i32]) usize {
     let mut a = &xs[..];
     let mut b = &xs[0..2];
     let mut c = &xs[0..=2];
@@ -998,10 +998,10 @@ fn take(xs: &[i32], ys: &mut [i32]) usize {
 fn parses_slice_pointee_type_and_extend_target() {
     let (module, errors) = parse_module(
         r#"
-fn take(xs: [i32]) () {}
+fun take(xs: [i32]) () {}
 
 extend[T] [T] {
-    fn len2(& self) usize {
+    fun len2(& self) usize {
         self.len()
     }
 }
@@ -1029,12 +1029,12 @@ trait Format {}
 
 extend [char] : Format {}
 extend [u8] {
-    fn len2(& self) usize {
+    fun len2(& self) usize {
         self.len()
     }
 }
 extend [&[char]] {
-    fn partCount(&self) usize {
+    fun partCount(&self) usize {
         self.len()
     }
 }
@@ -1078,7 +1078,7 @@ extend [&[char]] {
 fn parses_bit_not_unary_operator() {
     let (module, errors) = parse_module(
         r#"
-fn main(x: u32) u32 {
+fun main(x: u32) u32 {
     ~x
 }
 "#,
@@ -1101,7 +1101,7 @@ fn main(x: u32) u32 {
 fn parses_nested_reference_slice_types() {
     let (module, errors) = parse_module(
         r#"
-fn take(xs: &&[u8]) {}
+fun take(xs: &&[u8]) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -1121,7 +1121,7 @@ fn take(xs: &&[u8]) {}
 fn distinguishes_slice_and_array_pointer_types() {
     let (module, errors) = parse_module(
         r#"
-fn take(slice: &[u8], array: &[u8; 3], inferred: &mut [u8; _]) {}
+fun take(slice: &[u8], array: &[u8; 3], inferred: &mut [u8; _]) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -1169,7 +1169,7 @@ fn take(slice: &[u8], array: &[u8; 3], inferred: &mut [u8; _]) {}
 fn does_not_parse_removed_length_first_syntax_as_an_array_type() {
     let (module, _) = parse_module(
         r#"
-fn take(values: [3]i32) () {}
+fun take(values: [3]i32) () {}
 "#,
     );
     let ItemKind::Function(function) = &module.items[0].kind else {
@@ -1188,7 +1188,7 @@ fn take(values: [3]i32) () {}
 fn parses_volatile_pointer_types() {
     let (module, errors) = parse_module(
         r#"
-fn use_regs(read: ^u32, write: ^mut u32, maybe: ?^mut i32) {}
+fun use_regs(read: ^u32, write: ^mut u32, maybe: ?^mut i32) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -1226,7 +1226,7 @@ fn use_regs(read: ^u32, write: ^mut u32, maybe: ?^mut i32) {}
 fn parses_optional_and_error_union_syntax() {
     let (module, errors) = parse_module(
         r#"
-fn maybe(x: bool, err: i32) i32!i32 {
+fun maybe(x: bool, err: i32) i32!i32 {
     let mut a: ?i32 = ?10i32;
     let mut b: i32!i32 = !20i32;
     let mut c: i32!i32 = err!;
@@ -1294,7 +1294,7 @@ fn maybe(x: bool, err: i32) i32!i32 {
 fn parses_optional_error_union_as_error_union_with_optional_error_type() {
     let (module, errors) = parse_module(
         r#"
-fn read() ?Error!i32 {}
+fun read() ?Error!i32 {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -1314,7 +1314,7 @@ fn read() ?Error!i32 {}
 fn parses_error_union_optional_as_error_union_of_optional() {
     let (module, errors) = parse_module(
         r#"
-fn read() Error!?i32 {}
+fun read() Error!?i32 {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -1334,10 +1334,10 @@ fn read() Error!?i32 {}
 fn parenthesized_types_override_optional_error_union_precedence() {
     let (module, errors) = parse_module(
         r#"
-fn optional_error() (?Error)!i32 {}
-fn optional_value() Error!(?i32) {}
-fn optional_of_error() ?(Error!i32) {}
-fn nested_optional_of_error() ??(Error!i32) {}
+fun optional_error() (?Error)!i32 {}
+fun optional_value() Error!(?i32) {}
+fun optional_of_error() ?(Error!i32) {}
+fun nested_optional_of_error() ??(Error!i32) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -1398,7 +1398,7 @@ fn nested_optional_of_error() ??(Error!i32) {}
 fn parses_optional_and_error_union_if_patterns() {
     let (module, errors) = parse_module(
         r#"
-fn optional(value: ?i32) i32 {
+fun optional(value: ?i32) i32 {
     if value is ?x {
         x
     } else {
@@ -1406,7 +1406,7 @@ fn optional(value: ?i32) i32 {
     }
 }
 
-fn error_union(value: i32!i32) i32 {
+fun error_union(value: i32!i32) i32 {
     match value {
         !x => {
             x
@@ -1439,7 +1439,7 @@ fn error_union(value: i32!i32) i32 {
 
 #[test]
 fn parses_extern_function_pointer_type_as_a_type_annotation() {
-    let (module, errors) = parse_module("struct Header { callback: &extern fn(i32) () }");
+    let (module, errors) = parse_module("struct Header { callback: &extern fun(i32) () }");
     assert!(errors.is_empty(), "{errors:?}");
     let ItemKind::Struct(header) = &module.items[0].kind else {
         panic!("expected struct");

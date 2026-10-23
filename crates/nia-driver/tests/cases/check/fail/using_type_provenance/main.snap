@@ -8,7 +8,7 @@ related: 0..21 the `using` directive is here
 path: fail/using_type_provenance/main.nia
 code: E0201
 summary: type `missing` is unavailable
-label: 38..45 Primary Source name `missing` is unavailable because its `using` directive did not find it
+label: 39..46 Primary Source name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
 related: 13..20 the imported type is selected here
 related: 0..21 the `using` directive is here
@@ -17,7 +17,7 @@ cause: fail/using_type_provenance/main.nia E0201 13..20
 path: fail/using_type_provenance/main.nia
 code: E0201
 summary: type `missing` is unavailable
-label: 47..54 Primary Source name `missing` is unavailable because its `using` directive did not find it
+label: 48..55 Primary Source name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
 related: 13..20 the imported type is selected here
 related: 0..21 the `using` directive is here
@@ -33,20 +33,20 @@ help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
 
 error[E0201]: type `missing` is unavailable
-  --> fail/using_type_provenance/main.nia:3:16
+  --> fail/using_type_provenance/main.nia:3:17
   |
-3 | fn main(value: missing) missing { value }
-  |                ^^^^^^^ name `missing` is unavailable because its `using` directive did not find it
+3 | fun main(value: missing) missing { value }
+  |                 ^^^^^^^ name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:14: the imported type is selected here
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here
 note: caused by error[E0201] at fail/using_type_provenance/main.nia:1:14
 
 error[E0201]: type `missing` is unavailable
-  --> fail/using_type_provenance/main.nia:3:25
+  --> fail/using_type_provenance/main.nia:3:26
   |
-3 | fn main(value: missing) missing { value }
-  |                         ^^^^^^^ name `missing` is unavailable because its `using` directive did not find it
+3 | fun main(value: missing) missing { value }
+  |                          ^^^^^^^ name `missing` is unavailable because its `using` directive did not find it
 help: check the imported module path and make sure `missing` is declared there
 related: fail/using_type_provenance/main.nia:1:14: the imported type is selected here
 related: fail/using_type_provenance/main.nia:1:1: the `using` directive is here

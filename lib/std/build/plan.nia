@@ -51,22 +51,22 @@ struct PlanEncoder {
 }
 
 extend PlanEncoder {
-    fn init(allocator: &mut mem::Allocator) PlanEncoder {
+    fun init(allocator: &mut mem::Allocator) PlanEncoder {
         .{ allocator, bytes: .init() }
     }
 
-    fn intoBytes(self) collections::ArrayList[u8] {
+    fun intoBytes(self) collections::ArrayList[u8] {
         self.bytes
     }
 
-    fn writeBytes(&mut self, value: &[u8]) Error!() {
+    fun writeBytes(&mut self, value: &[u8]) Error!() {
         if value.len() > maxPlanBytes - self.bytes.len() {
             return invalidPlan();
         }
         self.bytes.appendSlice(self.allocator, value).withBuildContext(Operation::Encode, Subject::BuildPlan)
     }
 
-    fn writeBlob(&mut self, value: &[u8]) Error!() {
+    fun writeBlob(&mut self, value: &[u8]) Error!() {
         if value.len() > u32::MAX as usize {
             return invalidPlan();
         }
@@ -74,14 +74,14 @@ extend PlanEncoder {
         self.writeBytes(value)
     }
 
-    fn writeU8(&mut self, value: u8) Error!() {
+    fun writeU8(&mut self, value: u8) Error!() {
         if self.bytes.len() == maxPlanBytes {
             return invalidPlan();
         }
         self.bytes.push(self.allocator, value).withBuildContext(Operation::Encode, Subject::BuildPlan)
     }
 
-    fn writeU32(&mut self, value: u32) Error!() {
+    fun writeU32(&mut self, value: u32) Error!() {
         let encoded: [u8; 4] = [
             value as u8,
             (value >> 8) as u8,
@@ -91,7 +91,7 @@ extend PlanEncoder {
         self.writeBytes(&encoded)
     }
 
-    fn writeCount(&mut self, value: usize) Error!() {
+    fun writeCount(&mut self, value: usize) Error!() {
         if value > maxItems {
             return invalidPlan();
         }
@@ -101,7 +101,7 @@ extend PlanEncoder {
     // Every protocol count is bounded before it is narrowed to u32. Keeping
     // the addition checked also prevents a forged in-memory build from
     // wrapping an aggregate count before writeCount can reject it.
-    fn addCount(left: usize, right: usize) Error!usize {
+    fun addCount(left: usize, right: usize) Error!usize {
         let value = match left.checkedAdd(right) {
             ?value => value,
             null => return invalidPlan(),
@@ -112,7 +112,7 @@ extend PlanEncoder {
         !value
     }
 
-    fn writeString(&mut self, value: &[char]) Error!() {
+    fun writeString(&mut self, value: &[char]) Error!() {
         let byteLen = utf8Length(value).?;
         self.writeU32(byteLen as u32).?;
         for &ch in value.iter() {
@@ -121,11 +121,11 @@ extend PlanEncoder {
         !()
     }
 
-    fn writeRootPackage(&mut self) Error!() {
+    fun writeRootPackage(&mut self) Error!() {
         self.writeString(&"root")
     }
 
-    fn writePackageKey(&mut self, package: PackageHandle, packages: &[types::Package]) Error!() {
+    fun writePackageKey(&mut self, package: PackageHandle, packages: &[types::Package]) Error!() {
         if package.index() == 0 {
             return self.writeRootPackage();
         }
@@ -136,53 +136,53 @@ extend PlanEncoder {
         self.writeString(packages[index].name.text())
     }
 
-    fn writeNodeKey(&mut self, package: PackageHandle, name: &[char], packages: &[types::Package]) Error!() {
+    fun writeNodeKey(&mut self, package: PackageHandle, name: &[char], packages: &[types::Package]) Error!() {
         self.writePackageKey(package, packages).?;
         self.writeString(name)
     }
 
-    fn writeRootNodeKey(&mut self, name: &[char]) Error!() {
+    fun writeRootNodeKey(&mut self, name: &[char]) Error!() {
         self.writeRootPackage().?;
         self.writeString(name)
     }
 
-    fn writePackagePath(&mut self, package: PackageHandle, path: fs::PathView, packages: &[types::Package]) Error!() {
+    fun writePackagePath(&mut self, package: PackageHandle, path: fs::PathView, packages: &[types::Package]) Error!() {
         self.writeU8(0).?;
         self.writePackageKey(package, packages).?;
         self.writeLogicalPathText(path.text())
     }
 
-    fn writeBuildPath(&mut self, path: &[char]) Error!() {
+    fun writeBuildPath(&mut self, path: &[char]) Error!() {
         self.writeU8(1).?;
         self.writeLogicalPathText(path)
     }
 
-    fn writeRootPackagePath(&mut self, path: fs::PathView) Error!() {
+    fun writeRootPackagePath(&mut self, path: fs::PathView) Error!() {
         self.writeU8(0).?;
         self.writeRootPackage().?;
         self.writeLogicalPathText(path.text())
     }
 
-    fn writeArtifactPath(&mut self, name: &[char]) Error!() {
+    fun writeArtifactPath(&mut self, name: &[char]) Error!() {
         self.writeU8(4).?;
         self.writeRootNodeKey(name).?;
         self.writeString(&"")
     }
 
-    fn writePackageRootPath(&mut self) Error!() {
+    fun writePackageRootPath(&mut self) Error!() {
         self.writeU8(0).?;
         self.writeRootPackage().?;
         self.writeString(&"")
     }
 
-    fn writeLogicalPathText(&mut self, path: &[char]) Error!() {
+    fun writeLogicalPathText(&mut self, path: &[char]) Error!() {
         if not isValidLogicalPath(path) {
             return invalidPlan();
         }
         self.writeString(path)
     }
 
-    fn writeTarget(&mut self, target: TargetView) Error!() {
+    fun writeTarget(&mut self, target: TargetView) Error!() {
         // The toolchain decodes the name against its maintained targets.
         if target.name().len() == 0 or containsNul(target.name()) {
             return invalidPlan();
@@ -190,7 +190,7 @@ extend PlanEncoder {
         self.writeString(target.name())
     }
 
-    fn writeOptimization(&mut self, optimization: OptimizationMode) Error!() {
+    fun writeOptimization(&mut self, optimization: OptimizationMode) Error!() {
         self.writeU8(match optimization {
             .O0 => 0,
             .O1 => 1,
@@ -202,7 +202,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeRuntime(&mut self, runtime: Runtime) Error!() {
+    fun writeRuntime(&mut self, runtime: Runtime) Error!() {
         self.writeU8(match runtime {
             .Bare => 0,
             .Freestanding => 1,
@@ -210,7 +210,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
+    fun writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
         self.writeU8(match resourceClass {
             .Conservative => 0,
             .Cpu => 1,
@@ -219,7 +219,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeCommandEnvironmentPolicy(&mut self, policy: CommandEnvironmentPolicy) Error!() {
+    fun writeCommandEnvironmentPolicy(&mut self, policy: CommandEnvironmentPolicy) Error!() {
         self.writeU8(match policy {
             .Inherit => 0,
             .Clear => 1,
@@ -227,7 +227,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeCommandCachePolicy(&mut self, policy: CommandCachePolicy) Error!() {
+    fun writeCommandCachePolicy(&mut self, policy: CommandCachePolicy) Error!() {
         self.writeU8(match policy {
             .Uncacheable => 0,
             .DeclaredInputs => 1,
@@ -238,7 +238,7 @@ extend PlanEncoder {
         })
     }
 
-    fn writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!() {
+    fun writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!() {
         self.writeRootNodeKey(moduleRecord.name.text()).?;
         match moduleRecord.sourceRoot {
             .Package => self.writePackagePath(moduleRecord.package, moduleRecord.rootSource.view(), packages).?,
@@ -258,7 +258,7 @@ extend PlanEncoder {
         !()
     }
 
-    fn writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module]) Error!() {
+    fun writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
         self.writeRootNodeKey(target.name.text()).?;
         self.writeRootNodeKey(moduleRecord.name.text()).?;
@@ -267,7 +267,7 @@ extend PlanEncoder {
         self.writeRuntime(target.runtime)
     }
 
-    fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {
+    fun writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
         self.writeRootNodeKey(target.name.text()).?;
         self.writeRootNodeKey(moduleRecord.name.text()).?;
@@ -276,7 +276,7 @@ extend PlanEncoder {
         self.writeU8(0)
     }
 
-    fn writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module]) Error!() {
+    fun writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
         self.writeRootNodeKey(target.name.text()).?;
         self.writeRootNodeKey(moduleRecord.name.text()).?;
@@ -285,7 +285,7 @@ extend PlanEncoder {
         self.writeU8(0)
     }
 
-    fn writeAction(
+    fun writeAction(
         &mut self,
         step: Step,
         modules: &[Module],
@@ -530,7 +530,7 @@ extend PlanEncoder {
         }
     }
 
-    fn writeStep(&mut self, build: &Build, step: Step) Error!() {
+    fun writeStep(&mut self, build: &Build, step: Step) Error!() {
         self.writeRootNodeKey(step.name.text()).?;
         self.writeRootNodeKey(step.name.text()).?;
         let mut dependencyCount: usize = 0;
@@ -549,7 +549,7 @@ extend PlanEncoder {
         !()
     }
 
-    fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle) Error!() {
+    fun writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle) Error!() {
         match handle {
             ?step => {
                 self.writeU8(1).?;
@@ -559,7 +559,7 @@ extend PlanEncoder {
         }
     }
 
-    fn writeBuild(&mut self, build: &Build) Error!() {
+    fun writeBuild(&mut self, build: &Build) Error!() {
         self.writeBytes(&b"NIA-PLN\0"[..]).?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
@@ -618,11 +618,11 @@ extend PlanEncoder {
 }
 
 extend Build {
-    fn cleanupPlanEncoding(&mut self) Error!() {
+    fun cleanupPlanEncoding(&mut self) Error!() {
         self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan)
     }
 
-    pub fn writePlanDraft(&mut self, path: fs::PathView) Error!() {
+    pub fun writePlanDraft(&mut self, path: fs::PathView) Error!() {
         self.validatePlan().?;
         self.cleanupPlanEncoding().?;
         let mut encoder = PlanEncoder::init(self.allocator);
@@ -712,7 +712,7 @@ extend Build {
     }
 }
 
-fn appendDraftU32(
+fun appendDraftU32(
     bytes: &mut collections::ArrayList[u8],
     allocator: &mut mem::Allocator,
     value: u32,
@@ -727,7 +727,7 @@ fn appendDraftU32(
     !()
 }
 
-fn utf8Length(text: &[char]) Error!usize {
+fun utf8Length(text: &[char]) Error!usize {
     let mut len: usize = 0;
     for &ch in text.iter() {
         let encodedLen = ch.encodeUtf8().byteLen();
@@ -739,7 +739,7 @@ fn utf8Length(text: &[char]) Error!usize {
     !len
 }
 
-fn isValidLogicalPath(text: &[char]) bool {
+fun isValidLogicalPath(text: &[char]) bool {
     if text.len() == 0 {
         return true;
     }
@@ -773,7 +773,7 @@ fn isValidLogicalPath(text: &[char]) bool {
             and text[componentStart + 1] == '.')
 }
 
-fn containsNul(text: &[char]) bool {
+fun containsNul(text: &[char]) bool {
     for &ch in text.iter() {
         if ch == '\0' {
             return true;
@@ -782,18 +782,18 @@ fn containsNul(text: &[char]) bool {
     false
 }
 
-fn textEquals(left: &[char], right: &[char]) bool {
+fun textEquals(left: &[char], right: &[char]) bool {
     left.equals(right)
 }
 
-fn invalidPlan[T]() Error!T {
+fun invalidPlan[T]() Error!T {
     Error::Invalid {
         operation: Operation::Validate,
         subject: Subject::BuildPlan,
     }!
 }
 
-fn rememberPrimary(firstError: &mut ?Error, result: Error!()) () {
+fun rememberPrimary(firstError: &mut ?Error, result: Error!()) () {
     if result is err! and firstError.* is null {
         firstError.* = ?err;
     }

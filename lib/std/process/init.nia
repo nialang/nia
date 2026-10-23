@@ -6,19 +6,19 @@ using types::{Args, Env, Init};
 extend Init {
     // Runtime startup constructs the public process context before invoking
     // the language-level entry::main contract.
-    pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
+    pub fun init(argc: usize, argv: &&u8, envp: &&u8) Init {
         .{ args: .init(argc, argv), env: .init(envp) }
     }
 
-    pub fn argc(&self) usize {
+    pub fun argc(&self) usize {
         self.args.len()
     }
 
-    pub fn args(&self) Args {
+    pub fun args(&self) Args {
         self.args
     }
 
-    pub fn env(&self) Env {
+    pub fun env(&self) Env {
         self.env
     }
 }

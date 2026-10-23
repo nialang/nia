@@ -1,7 +1,7 @@
-fn main() () {
+fun main() () {
     consume(true false);
     later();
 }
 
-fn consume(first: bool, second: bool) () {}
-fn later() () {}
+fun consume(first: bool, second: bool) () {}
+fun later() () {}

@@ -1057,7 +1057,7 @@ mod tests {
         fs::write(project.join("src/main.nia"), "pub module leaf;\n").unwrap();
         fs::write(
             project.join("src/leaf.nia"),
-            "pub fn value() i64 { 1i64 }\n",
+            "pub fun value() i64 { 1i64 }\n",
         )
         .unwrap();
         let before = source_snapshot(project, "generated:test").unwrap();
@@ -1071,7 +1071,7 @@ mod tests {
         fs::write(project.join("target/app"), "product").unwrap();
         fs::write(
             project.join("src/leaf.nia"),
-            "pub fn value() i64 { 2i64 }\n",
+            "pub fun value() i64 { 2i64 }\n",
         )
         .unwrap();
 

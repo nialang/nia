@@ -1018,7 +1018,7 @@ mod tests {
     #[test]
     fn pruning_without_conditional_statements_shares_item_payloads() {
         let (module, errors) =
-            nia_parser::parse_module("fn first() i32 { 1 }\nfn second() i32 { 2 }");
+            nia_parser::parse_module("fun first() i32 { 1 }\nfun second() i32 { 2 }");
         assert!(errors.is_empty(), "{errors:?}");
         let tree = ModuleItemTree::from_owned_module(module);
         let original = tree.items.shared_items().collect::<Vec<_>>();
@@ -1044,8 +1044,8 @@ mod tests {
     fn conditional_statement_pruning_replaces_only_affected_payload() {
         let (module, errors) = nia_parser::parse_module(
             r#"
-fn unchanged() i32 { 1 }
-fn changed() i32 {
+fun unchanged() i32 { 1 }
+fun changed() i32 {
     @[if false]
     _ = 0;
     2
@@ -1077,7 +1077,7 @@ fn changed() i32 {
     fn conditional_statement_pruning_updates_active_item_tree_bodies() {
         let (module, errors) = nia_parser::parse_module(
             r#"
-fn main() i32 {
+fun main() i32 {
     @[if false]
     _ = missing_name;
     1
@@ -1101,7 +1101,7 @@ fn main() i32 {
     fn selected_conditional_statement_remains_in_active_item_tree_body() {
         let (module, errors) = nia_parser::parse_module(
             r#"
-fn main() i32 {
+fun main() i32 {
     @[if true]
     _ = 0;
     1
@@ -1127,17 +1127,17 @@ fn main() i32 {
         let (module, errors) = nia_parser::parse_module(
             r#"
 @[debug]
-fn debugOnly() () {}
+fun debugOnly() () {}
 @[release]
-fn releaseOnly() () {}
+fun releaseOnly() () {}
 @[test]
-fn testOnly() () {}
+fun testOnly() () {}
 @[debug]
 @[test]
-fn debugTestOnly() () {}
+fun debugTestOnly() () {}
 @[release]
 @[test]
-fn releaseTestOnly() () {}
+fun releaseTestOnly() () {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1195,9 +1195,9 @@ fn releaseTestOnly() () {}
     #[test]
     fn duplicate_profile_and_test_attributes_are_rejected() {
         for source in [
-            "@[debug]\n@[debug]\nfn duplicate() () {}",
-            "@[debug]\n@[release]\nfn conflicting() () {}",
-            "@[test]\n@[test]\nfn duplicate() () {}",
+            "@[debug]\n@[debug]\nfun duplicate() () {}",
+            "@[debug]\n@[release]\nfun conflicting() () {}",
+            "@[test]\n@[test]\nfun duplicate() () {}",
         ] {
             let (module, errors) = nia_parser::parse_module(source);
             assert!(errors.is_empty(), "{errors:?}");
@@ -1216,10 +1216,10 @@ fn releaseTestOnly() () {}
         let (module, errors) = nia_parser::parse_module(
             r#"
 @[if arch == "x86" and os == "linux" and endian == "little" and pointerWidth == 32]
-fn selected() i32 { 1 }
+fun selected() i32 { 1 }
 
 @[if arch == "x86_64" or pointerWidth == 64]
-fn rejected() i32 { 2 }
+fun rejected() i32 { 2 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1238,10 +1238,10 @@ fn rejected() i32 { 2 }
         let (module, errors) = nia_parser::parse_module(
             r#"
 @[if false and missing_target_name]
-fn hidden() i32 { 1 }
+fun hidden() i32 { 1 }
 
 @[if true or missing_target_name]
-fn visible() i32 { 2 }
+fun visible() i32 { 2 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1258,7 +1258,7 @@ fn visible() i32 { 2 }
         let (module, errors) = nia_parser::parse_module(
             r#"
 @[if pointerWidth]
-fn invalid() i32 { 1 }
+fun invalid() i32 { 1 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

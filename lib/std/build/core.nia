@@ -106,15 +106,15 @@ using types::{
 };
 
 extend Build {
-    pub fn packageRoot(&self) fs::PathView {
+    pub fun packageRoot(&self) fs::PathView {
         self.paths.packageRoot.view()
     }
 
-    pub fn rootPackage(&self) PackageHandle {
+    pub fun rootPackage(&self) PackageHandle {
         .init(self.ownerId, 0)
     }
 
-    pub fn addPackage(&mut self, options: PackageOptions) Error!PackageHandle {
+    pub fun addPackage(&mut self, options: PackageOptions) Error!PackageHandle {
         self.cleanupPendingPackage().?;
         let packageIndex = match self.packages.len().checkedAdd(1) {
             ?value => value,
@@ -162,11 +162,11 @@ extend Build {
     // Resolves an already declared package dependency by its manifest name.
     // The host resolves this marker against the root manifest and selected
     // checkout; build scripts never provide dependency filesystem paths.
-    pub fn addDependency(&mut self, name: &[char]) Error!PackageHandle {
+    pub fun addDependency(&mut self, name: &[char]) Error!PackageHandle {
         self.addPackage(PackageOptions::dependency(name))
     }
 
-    pub(pkg) fn cleanupPendingPackage(&mut self) Error!() {
+    pub(pkg) fun cleanupPendingPackage(&mut self) Error!() {
         if not self.hasPendingPackage {
             return !();
         }
@@ -175,42 +175,42 @@ extend Build {
         !()
     }
 
-    pub fn buildDir(&self) fs::PathView {
+    pub fun buildDir(&self) fs::PathView {
         self.paths.buildDir.view()
     }
 
-    pub fn cacheDir(&self) fs::PathView {
+    pub fun cacheDir(&self) fs::PathView {
         self.paths.cacheDir.view()
     }
 
-    pub fn toolchainExecutable(&self) fs::PathView {
+    pub fun toolchainExecutable(&self) fs::PathView {
         self.paths.toolchainExecutable.view()
     }
 
-    pub fn toolchainResourceRoot(&self) fs::PathView {
+    pub fun toolchainResourceRoot(&self) fs::PathView {
         self.paths.toolchainResourceRoot.view()
     }
 
     // The target that compiles and runs this build's tools.
-    pub fn hostTarget(&self) TargetView {
+    pub fun hostTarget(&self) TargetView {
         self.targets.asSlice()[self.hostTarget].view()
     }
 
     // The invocation-selected target used by artifacts that name no target.
-    pub fn artifactTarget(&self) TargetView {
+    pub fun artifactTarget(&self) TargetView {
         self.targets.asSlice()[self.artifactTarget].view()
     }
 
     // Resolves a canonical maintained target name, such as
     // `x86_64-apple-macos`, for an artifact's `forTarget` option.
-    pub fn target(&self, name: &[char]) Error!TargetView {
+    pub fun target(&self, name: &[char]) Error!TargetView {
         if self.findTarget(name) is ?index {
             return !self.targets.asSlice()[index].view();
         }
         .Invalid { operation: .Validate, subject: .Targets }!
     }
 
-    fn findTarget(&self, name: &[char]) ?usize {
+    fun findTarget(&self, name: &[char]) ?usize {
         let mut index: usize = 0;
         while index < self.targets.len() {
             if self.targets.asSlice()[index].name.text().equals(name) {
@@ -223,7 +223,7 @@ extend Build {
 
     // An artifact without a target uses the invocation artifact target. A
     // selected view must name a member of this build's target matrix.
-    fn resolveArtifactTarget(&self, target: ?TargetView, subject: Subject) Error!usize {
+    fun resolveArtifactTarget(&self, target: ?TargetView, subject: Subject) Error!usize {
         match target {
             null => !self.artifactTarget,
             ?view => if self.findTarget(view.name) is ?index {
@@ -236,11 +236,11 @@ extend Build {
 
     // Steps describe graph work. The build runner later performs execution,
     // output publication, caching, and cancellation for the frozen plan.
-    pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
+    pub fun addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
         self.addStepRecord(name, .Aggregate, .{ aggregate: .init() })
     }
 
-    pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
+    pub fun addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
         self.preparePendingStep(name, .Uncacheable).?;
         if self.pendingStep.initializeUncacheable(self.allocator, name, description) is primary! {
             _ = self.cleanupPendingStep();
@@ -249,7 +249,7 @@ extend Build {
         self.commitPendingStep()
     }
 
-    pub fn addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
+    pub fun addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
         let handle = StepHandle::init(self.ownerId, self.steps.len());
         if not output.isValid() or contents.len() > 67108864 {
             return .Invalid {
@@ -270,12 +270,12 @@ extend Build {
         self.commitPendingStep()
     }
 
-    pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+    pub fun addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
         self.addStepRecord(name, .CheckExecutable, .{ executable: .init(target) })
     }
 
-    pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+    pub fun addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
         let archiveCount = self.executables.asSlice()[target.index()].staticArchives.len();
         self.dependencies.reserve(
@@ -310,7 +310,7 @@ extend Build {
         !result
     }
 
-    fn addExecutableArchiveDependencies(
+    fun addExecutableArchiveDependencies(
         &mut self,
         step: StepHandle,
         target: ExecutableHandle,
@@ -330,17 +330,17 @@ extend Build {
         !()
     }
 
-    pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
+    pub fun addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
         self.validateObjectHandle(target).?;
         self.addStepRecord(name, .EmitObject, .{ object: .init(target) })
     }
 
-    pub fn addEmitStaticArchiveStep(&mut self, name: &[char], target: StaticArchiveHandle) Error!StepHandle {
+    pub fun addEmitStaticArchiveStep(&mut self, name: &[char], target: StaticArchiveHandle) Error!StepHandle {
         self.validateStaticArchiveHandle(target).?;
         self.addStepRecord(name, .EmitStaticArchive, .{ staticArchive: .init(target) })
     }
 
-    pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
+    pub fun addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
         self.validateExecutableHandle(options.target).?;
         let producer = if self.findEmitStep(options.target) is ?producer {
             producer
@@ -355,7 +355,7 @@ extend Build {
         self.addRunStepRecord(name, options, .RunExecutable, producer)
     }
 
-    pub fn addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
+    pub fun addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
         self.validateExecutableHandle(options.target).?;
         let producer = if self.findEmitStep(options.target) is ?producer {
             producer
@@ -373,7 +373,7 @@ extend Build {
     // A suite is one host executable whose root module may import any number of
     // test modules. The executable and test action are registered together;
     // source organization remains an ordinary Nia module concern.
-    pub fn addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
+    pub fun addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
         let mut compileName = string::String::fromSlice(self.allocator, name)
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         let result = self.addOwnedTestSuite(name, rootModule, &mut compileName);
@@ -382,7 +382,7 @@ extend Build {
         result.cleanupAfter(cleanup)
     }
 
-    fn addOwnedTestSuite(
+    fun addOwnedTestSuite(
         &mut self,
         name: &[char],
         rootModule: ModuleHandle,
@@ -395,7 +395,7 @@ extend Build {
         self.addTestExecutableStep(name, .init(executable))
     }
 
-    fn addRunStepRecord(
+    fun addRunStepRecord(
         &mut self,
         name: &[char],
         options: RunOptions,
@@ -415,7 +415,7 @@ extend Build {
         self.finishStepDependency(result, producer)
     }
 
-    pub fn addInstallExecutableStep(
+    pub fun addInstallExecutableStep(
         &mut self,
         name: &[char],
         target: ExecutableHandle,
@@ -449,7 +449,7 @@ extend Build {
         self.finishStepDependency(result, producer)
     }
 
-    pub fn addInstallStaticArchiveStep(
+    pub fun addInstallStaticArchiveStep(
         &mut self,
         name: &[char],
         target: StaticArchiveHandle,
@@ -483,7 +483,7 @@ extend Build {
         self.finishStepDependency(result, producer)
     }
 
-    pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
+    pub fun addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
         validateExternalCommand(options, self.steps.len()).?;
         let mut artifactInputCount: usize = 0;
         if options.arguments is ?arguments {
@@ -576,7 +576,7 @@ extend Build {
         !result
     }
 
-    fn addExternalCommandDependencies(
+    fun addExternalCommandDependencies(
         &mut self,
         step: StepHandle,
         arguments: ?&[CommandArgument],
@@ -644,7 +644,7 @@ extend Build {
         !()
     }
 
-    pub fn dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!() {
+    pub fun dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!() {
         self.validateStepHandle(step).?;
         self.validateStepHandle(dependency).?;
         if step.index() == dependency.index() {
@@ -666,7 +666,7 @@ extend Build {
         !()
     }
 
-    pub fn setDefaultStep(&mut self, step: StepHandle) Error!() {
+    pub fun setDefaultStep(&mut self, step: StepHandle) Error!() {
         self.validateStepHandle(step).?;
         self.defaultStep = ?step;
         self.planValidated = false;
@@ -676,7 +676,7 @@ extend Build {
     // Modules and artifacts retain borrowed descriptors as owned plan records.
     // Build-rooted source paths are generated inputs and gain producer edges
     // during complete-graph validation.
-    pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
+    pub fun addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
         self.cleanupPendingModule().?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
 
@@ -747,7 +747,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fn cleanupPendingModule(&mut self) Error!() {
+    pub(pkg) fun cleanupPendingModule(&mut self) Error!() {
         if not self.hasPendingModule {
             return !();
         }
@@ -756,7 +756,7 @@ extend Build {
         !()
     }
 
-    pub fn addExecutable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
+    pub fun addExecutable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
         self.cleanupPendingExecutable().?;
         let handle = ExecutableHandle::init(self.ownerId, self.executables.len());
         if not isValidStableName(options.name) {
@@ -840,7 +840,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fn cleanupPendingExecutable(&mut self) Error!() {
+    pub(pkg) fun cleanupPendingExecutable(&mut self) Error!() {
         if not self.hasPendingExecutable {
             return !();
         }
@@ -849,7 +849,7 @@ extend Build {
         !()
     }
 
-    pub fn addObject(&mut self, options: ObjectOptions) Error!ObjectHandle {
+    pub fun addObject(&mut self, options: ObjectOptions) Error!ObjectHandle {
         self.cleanupPendingObject().?;
         let handle = ObjectHandle::init(self.ownerId, self.objects.len());
         if not isValidStableName(options.name) {
@@ -902,7 +902,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fn cleanupPendingObject(&mut self) Error!() {
+    pub(pkg) fun cleanupPendingObject(&mut self) Error!() {
         if not self.hasPendingObject {
             return !();
         }
@@ -911,7 +911,7 @@ extend Build {
         !()
     }
 
-    pub fn addStaticArchive(&mut self, options: StaticArchiveOptions) Error!StaticArchiveHandle {
+    pub fun addStaticArchive(&mut self, options: StaticArchiveOptions) Error!StaticArchiveHandle {
         self.cleanupPendingStaticArchive().?;
         let handle = StaticArchiveHandle::init(self.ownerId, self.staticArchives.len());
         if not isValidStableName(options.name) {
@@ -964,7 +964,7 @@ extend Build {
         !handle
     }
 
-    pub(pkg) fn cleanupPendingStaticArchive(&mut self) Error!() {
+    pub(pkg) fun cleanupPendingStaticArchive(&mut self) Error!() {
         if not self.hasPendingStaticArchive {
             return !();
         }
@@ -973,7 +973,7 @@ extend Build {
         !()
     }
 
-    pub fn requestedStep(&self) ?&[char] {
+    pub fun requestedStep(&self) ?&[char] {
         if self.hasRequestedStep {
             ?self.requestedStep.text()
         } else {
@@ -981,7 +981,7 @@ extend Build {
         }
     }
 
-    pub fn validatePlan(&mut self) Error!() {
+    pub fun validatePlan(&mut self) Error!() {
         if self.planValidated {
             return !();
         }
@@ -1013,7 +1013,7 @@ extend Build {
         !()
     }
 
-    fn ensureGeneratedModuleDependencies(&mut self) Error!() {
+    fun ensureGeneratedModuleDependencies(&mut self) Error!() {
         let mut missingCount: usize = 0;
         let mut index: usize = 0;
         while index < self.steps.len() {
@@ -1039,7 +1039,7 @@ extend Build {
         !()
     }
 
-    fn compilerModuleIndexForStep(&self, index: usize) ?usize {
+    fun compilerModuleIndexForStep(&self, index: usize) ?usize {
         let step = self.steps.asSlice()[index];
         match step.kind {
             .CheckExecutable => ?self.executables.asSlice()[
@@ -1061,7 +1061,7 @@ extend Build {
         }
     }
 
-    fn missingGeneratedDependenciesForStep(&self, index: usize) Error!usize {
+    fun missingGeneratedDependenciesForStep(&self, index: usize) Error!usize {
         let moduleIndex = match self.compilerModuleIndexForStep(index) {
             ?moduleIndex => moduleIndex,
             null => return !0,
@@ -1105,7 +1105,7 @@ extend Build {
         !count
     }
 
-    fn addGeneratedDependenciesForStep(&mut self, index: usize) Error!() {
+    fun addGeneratedDependenciesForStep(&mut self, index: usize) Error!() {
         let moduleIndex = match self.compilerModuleIndexForStep(index) {
             ?moduleIndex => moduleIndex,
             null => return !(),
@@ -1135,7 +1135,7 @@ extend Build {
         !()
     }
 
-    fn requireGeneratedSourceProducer(
+    fun requireGeneratedSourceProducer(
         &self,
         path: &[char],
         consumerIndex: usize,
@@ -1151,14 +1151,14 @@ extend Build {
         }
     }
 
-    fn validateDependencyGraph(&mut self) Error!() {
+    fun validateDependencyGraph(&mut self) Error!() {
         self.cleanupValidationScratch().?;
         let operation = self.validateDependencyGraphWithScratch();
         let cleanup = self.cleanupValidationScratch();
         operation.cleanupAfter(cleanup)
     }
 
-    fn validateDependencyGraphWithScratch(&mut self) Error!() {
+    fun validateDependencyGraphWithScratch(&mut self) Error!() {
         self.validationIndegree = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
@@ -1224,7 +1224,7 @@ extend Build {
         !()
     }
 
-    fn cleanupValidationScratch(&mut self) Error!() {
+    fun cleanupValidationScratch(&mut self) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(
             Operation::Release,
@@ -1237,43 +1237,43 @@ extend Build {
         cleanup.finish()
     }
 
-    pub fn reportError(&mut self, error: Error) Error!() {
+    pub fun reportError(&mut self, error: Error) Error!() {
         reportBuildError(error)
     }
 
-    fn findStep(&self, name: &[char]) ?Step {
+    fun findStep(&self, name: &[char]) ?Step {
         findStepRecord(self.steps.asSlice(), name)
     }
 
-    fn findExecutable(&self, name: &[char]) ?ExecutableTarget {
+    fun findExecutable(&self, name: &[char]) ?ExecutableTarget {
         findExecutableRecord(self.executables.asSlice(), name)
     }
 
-    fn findObject(&self, name: &[char]) ?ObjectTarget {
+    fun findObject(&self, name: &[char]) ?ObjectTarget {
         findObjectRecord(self.objects.asSlice(), name)
     }
 
-    fn findStaticArchive(&self, name: &[char]) ?StaticArchiveTarget {
+    fun findStaticArchive(&self, name: &[char]) ?StaticArchiveTarget {
         findStaticArchiveRecord(self.staticArchives.asSlice(), name)
     }
 
-    fn findModule(&self, name: &[char]) ?Module {
+    fun findModule(&self, name: &[char]) ?Module {
         findModuleRecord(self.modules.asSlice(), name)
     }
 
-    fn findEmitStep(&self, target: ExecutableHandle) ?StepHandle {
+    fun findEmitStep(&self, target: ExecutableHandle) ?StepHandle {
         findEmitStepRecord(self.ownerId, self.steps.asSlice(), target)
     }
 
-    fn findEmitObjectStep(&self, target: ObjectHandle) ?StepHandle {
+    fun findEmitObjectStep(&self, target: ObjectHandle) ?StepHandle {
         findEmitObjectStepRecord(self.ownerId, self.steps.asSlice(), target)
     }
 
-    fn findEmitStaticArchiveStep(&self, target: StaticArchiveHandle) ?StepHandle {
+    fun findEmitStaticArchiveStep(&self, target: StaticArchiveHandle) ?StepHandle {
         findEmitStaticArchiveStepRecord(self.ownerId, self.steps.asSlice(), target)
     }
 
-    fn rollbackLastStep(&mut self) Error!() {
+    fun rollbackLastStep(&mut self) Error!() {
         match self.steps.pop() {
             ?step => {
                 self.pendingStep = step;
@@ -1287,11 +1287,11 @@ extend Build {
         }
     }
 
-    fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!() {
+    fun validateExecutableHandle(&self, handle: ExecutableHandle) Error!() {
         validateExecutableHandleValue(self.ownerId, self.executables.len(), handle)
     }
 
-    fn validateRunnableExecutable(&self, handle: ExecutableHandle, stepIndex: usize) Error!() {
+    fun validateRunnableExecutable(&self, handle: ExecutableHandle, stepIndex: usize) Error!() {
         validateRunnableTarget(
             self.executables.asSlice()[handle.index()].targetIndex,
             self.hostTarget,
@@ -1299,31 +1299,31 @@ extend Build {
         )
     }
 
-    fn validateObjectHandle(&self, handle: ObjectHandle) Error!() {
+    fun validateObjectHandle(&self, handle: ObjectHandle) Error!() {
         validateObjectHandleValue(self.ownerId, self.objects.len(), handle)
     }
 
-    fn validateStaticArchiveHandle(&self, handle: StaticArchiveHandle) Error!() {
+    fun validateStaticArchiveHandle(&self, handle: StaticArchiveHandle) Error!() {
         validateStaticArchiveHandleValue(self.ownerId, self.staticArchives.len(), handle)
     }
 
-    fn validatePackageHandle(&self, handle: PackageHandle) Error!() {
+    fun validatePackageHandle(&self, handle: PackageHandle) Error!() {
         validatePackageHandleValue(self.ownerId, self.packages.len(), handle)
     }
 
-    fn validateModuleHandle(&self, handle: ModuleHandle) Error!() {
+    fun validateModuleHandle(&self, handle: ModuleHandle) Error!() {
         validateModuleHandleValue(self.ownerId, self.modules.len(), handle)
     }
 
-    fn validateStepHandle(&self, handle: StepHandle) Error!() {
+    fun validateStepHandle(&self, handle: StepHandle) Error!() {
         validateStepHandleValue(self.ownerId, self.steps.len(), handle)
     }
 
-    fn reportUnknownStep(&mut self, step: &[char]) Error!() {
+    fun reportUnknownStep(&mut self, step: &[char]) Error!() {
         reportUnknownBuildStep(step)
     }
 
-    fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
+    fun addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
         self.prepareStepSlot(name).?;
         self.pendingStep = .initSimple(self.steps.len(), kind, payload);
         self.hasPendingStep = true;
@@ -1337,7 +1337,7 @@ extend Build {
         self.commitPendingStep()
     }
 
-    fn preparePendingStep(&mut self, name: &[char], kind: StepKind) Error!() {
+    fun preparePendingStep(&mut self, name: &[char], kind: StepKind) Error!() {
         self.prepareStepSlot(name).?;
         self.pendingStep = if kind is (.GeneratedFile) {
             .initGeneratedFile(self.steps.len())
@@ -1348,7 +1348,7 @@ extend Build {
         !()
     }
 
-    fn preparePendingRunStep(
+    fun preparePendingRunStep(
         &mut self,
         name: &[char],
         kind: StepKind,
@@ -1360,7 +1360,7 @@ extend Build {
         !()
     }
 
-    fn prepareInstallExecutableStep(
+    fun prepareInstallExecutableStep(
         &mut self,
         name: &[char],
         target: ExecutableHandle,
@@ -1371,7 +1371,7 @@ extend Build {
         !()
     }
 
-    fn prepareInstallStaticArchiveStep(
+    fun prepareInstallStaticArchiveStep(
         &mut self,
         name: &[char],
         target: StaticArchiveHandle,
@@ -1382,7 +1382,7 @@ extend Build {
         !()
     }
 
-    fn prepareExternalCommandStep(
+    fun prepareExternalCommandStep(
         &mut self,
         name: &[char],
         options: ExternalCommandOptions,
@@ -1393,7 +1393,7 @@ extend Build {
         !()
     }
 
-    fn prepareStepSlot(&mut self, name: &[char]) Error!() {
+    fun prepareStepSlot(&mut self, name: &[char]) Error!() {
         self.cleanupPendingStep().?;
         if not isValidStableName(name) {
             return .Invalid {
@@ -1411,7 +1411,7 @@ extend Build {
         !()
     }
 
-    fn commitPendingStep(&mut self) Error!StepHandle {
+    fun commitPendingStep(&mut self) Error!StepHandle {
         if not self.hasPendingStep {
             return .Internal(.Initialize)!;
         }
@@ -1422,7 +1422,7 @@ extend Build {
         !handle
     }
 
-    fn finishStepDependency(
+    fun finishStepDependency(
         &mut self,
         step: StepHandle,
         dependency: StepHandle,
@@ -1434,7 +1434,7 @@ extend Build {
         !step
     }
 
-    pub(pkg) fn cleanupPendingStep(&mut self) Error!() {
+    pub(pkg) fun cleanupPendingStep(&mut self) Error!() {
         if not self.hasPendingStep {
             return !();
         }

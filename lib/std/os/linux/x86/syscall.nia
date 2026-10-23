@@ -27,7 +27,7 @@ pub const pipe2: usize = 331;
 pub const getrandom: usize = 355;
 pub const statx: usize = 383;
 
-pub fn syscall0(number: usize) isize {
+pub fun syscall0(number: usize) isize {
     let mut ret: isize = 0;
     pkg::builtin::asm(.{
         code: b"int 0x80",
@@ -39,7 +39,7 @@ pub fn syscall0(number: usize) isize {
     ret
 }
 
-pub fn syscall1(number: usize, arg0: usize) isize {
+pub fun syscall1(number: usize, arg0: usize) isize {
     let mut ret: isize = 0;
     pkg::builtin::asm(.{
         code:
@@ -57,7 +57,7 @@ pub fn syscall1(number: usize, arg0: usize) isize {
     ret
 }
 
-pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
+pub fun syscall2(number: usize, arg0: usize, arg1: usize) isize {
     let mut ret: isize = 0;
     pkg::builtin::asm(.{
         code:
@@ -76,7 +76,7 @@ pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
     ret
 }
 
-pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
+pub fun syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     let mut ret: isize = 0;
     pkg::builtin::asm(.{
         code:
@@ -96,7 +96,7 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     ret
 }
 
-pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
+pub fun syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
     let mut ret: isize = 0;
     pkg::builtin::asm(.{
         code:
@@ -119,7 +119,7 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
     ret
 }
 
-pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
+pub fun syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
     let mut ret: isize = 0;
     pkg::builtin::asm(.{
         code:
@@ -145,7 +145,7 @@ pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
     ret
 }
 
-pub fn syscall6(
+pub fun syscall6(
     number: usize,
     arg0: usize,
     arg1: usize,

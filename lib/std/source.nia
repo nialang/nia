@@ -12,21 +12,21 @@ pub struct SourceLocation {
 }
 
 extend SourceLocation {
-    pub fn file(&self) &[u8] {
+    pub fun file(&self) &[u8] {
         self.file
     }
 
-    pub fn line(&self) u32 {
+    pub fun line(&self) u32 {
         self.line
     }
 
-    pub fn column(&self) u32 {
+    pub fun column(&self) u32 {
         self.column
     }
 }
 
 extend SourceLocation : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.writeBytes(self.file).?;
         formatter.writeByte(b':').?;
         formatter.writeUnsigned(self.line as u128).?;
@@ -38,4 +38,4 @@ extend SourceLocation : fmt::Format {
 // Returns this expression's lexical location, or the outermost tracked call
 // site when evaluated in a `@[trackCaller]` function.
 @[builtin("callerLocation")]
-pub const fn callerLocation() SourceLocation;
+pub const fun callerLocation() SourceLocation;

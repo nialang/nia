@@ -4,23 +4,23 @@ using pkg::os;
 using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, OpenMode, OpenOptions};
 
 extend OpenOptions {
-    pub fn readOnly() OpenOptions {
+    pub fun readOnly() OpenOptions {
         .{ mode: .ReadOnly }
     }
 
-    pub fn writeOnly() OpenOptions {
+    pub fun writeOnly() OpenOptions {
         .{ mode: .WriteOnly }
     }
 
-    pub fn readWrite() OpenOptions {
+    pub fun readWrite() OpenOptions {
         .{ mode: .ReadWrite }
     }
 
-    pub fn mode(&self) OpenMode {
+    pub fun mode(&self) OpenMode {
         self.mode
     }
 
-    pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
+    pub(pkg) fun osMode(&self) os::Error!os::OpenMode {
         match self.mode() {
             .ReadOnly => !.ReadOnly,
             .WriteOnly => !.WriteOnly,
@@ -31,63 +31,63 @@ extend OpenOptions {
 }
 
 extend OpenDirOptions {
-    pub fn init() OpenDirOptions {
+    pub fun init() OpenDirOptions {
         .{ followSymlinks: true }
     }
 
-    pub fn noFollow() OpenDirOptions {
+    pub fun noFollow() OpenDirOptions {
         .{ followSymlinks: false }
     }
 
-    pub fn followSymlinks(&self) bool {
+    pub fun followSymlinks(&self) bool {
         self.followSymlinks
     }
 }
 
 extend MetadataOptions {
-    pub fn init() MetadataOptions {
+    pub fun init() MetadataOptions {
         .{ followSymlinks: true }
     }
 
-    pub fn noFollow() MetadataOptions {
+    pub fun noFollow() MetadataOptions {
         .{ followSymlinks: false }
     }
 
-    pub fn followSymlinks(&self) bool {
+    pub fun followSymlinks(&self) bool {
         self.followSymlinks
     }
 }
 
 extend CreateOptions {
-    pub fn init() CreateOptions {
+    pub fun init() CreateOptions {
         .{ read: false, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
-    pub fn readWrite() CreateOptions {
+    pub fun readWrite() CreateOptions {
         .{ read: true, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
-    pub fn exclusive() CreateOptions {
+    pub fun exclusive() CreateOptions {
         .{ read: false, truncate: true, exclusive: true, permissions: 0o666 }
     }
 
-    pub fn read(&self) bool {
+    pub fun read(&self) bool {
         self.read
     }
 
-    pub fn truncate(&self) bool {
+    pub fun truncate(&self) bool {
         self.truncate
     }
 
-    pub fn isExclusive(&self) bool {
+    pub fun isExclusive(&self) bool {
         self.exclusive
     }
 
-    pub fn permissions(&self) u32 {
+    pub fun permissions(&self) u32 {
         self.permissions
     }
 
-    pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
+    pub(pkg) fun osMode(&self) os::Error!os::OpenMode {
         if self.read() {
             !.ReadWrite
         } else {
@@ -97,11 +97,11 @@ extend CreateOptions {
 }
 
 extend CreateDirOptions {
-    pub fn init() CreateDirOptions {
+    pub fun init() CreateDirOptions {
         .{ permissions: 0o777 }
     }
 
-    pub fn permissions(&self) u32 {
+    pub fun permissions(&self) u32 {
         self.permissions
     }
 }

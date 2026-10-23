@@ -1,16 +1,16 @@
 using dep::model;
 
-fn make() model::Value {
+fun make() model::Value {
     model::Value::package_make(41)
 }
 
-fn score(value: model::Value) i32 {
+fun score(value: model::Value) i32 {
     value.package_score()
 }
 
-fn pointers() () {
-    let make: &fn(i32) model::Value = &model::Value::package_make;
-    let score: &fn(&model::Value) i32 = &model::Value::package_score;
+fun pointers() () {
+    let make: &fun(i32) model::Value = &model::Value::package_make;
+    let score: &fun(&model::Value) i32 = &model::Value::package_score;
     _ = make;
     _ = score;
 }

@@ -1,5 +1,5 @@
 struct Point { x: i32 }
 
-fn invalid() () {
+fun invalid() () {
     _ = std::builtin::offset[Point](missing);
 }

@@ -10,7 +10,7 @@ fn records_local_facts_by_source_versioned_node_keys() {
     };
     let lowered = nia_parser::parse_versioned(
         r#"
-fn main(a: i32) i32 {
+fun main(a: i32) i32 {
 let mut x = a;
 x
 }
@@ -47,7 +47,7 @@ fn records_local_facts_by_red_child_path_origins() {
     };
     let lowered = nia_parser::parse_versioned(
         r#"
-fn main(a: i32) i32 {
+fun main(a: i32) i32 {
 let mut x = a;
 x
 }

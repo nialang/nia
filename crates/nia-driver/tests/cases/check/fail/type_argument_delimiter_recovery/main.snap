@@ -1,13 +1,13 @@
 path: fail/type_argument_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `]` after type argument; found `bool`
-label: 31..35 Primary Source expected `,` or `]` after type argument; found `bool`
+label: 32..36 Primary Source expected `,` or `]` after type argument; found `bool`
 
 report:
 error[E0101]: expected `,` or `]` after type argument; found `bool`
-  --> fail/type_argument_delimiter_recovery/main.nia:1:32
+  --> fail/type_argument_delimiter_recovery/main.nia:1:33
   |
-1 | fn retained(value: Wrapper[i32 bool]) () {}
-  |                                ^^^^
+1 | fun retained(value: Wrapper[i32 bool]) () {}
+  |                                 ^^^^
 
 summary: 1 error, 0 warnings

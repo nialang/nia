@@ -4,7 +4,7 @@ use super::*;
 fn required_type_arguments_report_unresolved_candidates() {
     let module_ids = ModuleIdAllocator::new().expect("module allocator");
     let module_id = module_ids.allocate().expect("module id");
-    let source = "struct Box[T] { value: T } struct Sized[N: usize] {} const LENGTH: usize = 2; fn inspect(value: Box[Missing], valid: Sized[LENGTH]) () {}";
+    let source = "struct Box[T] { value: T } struct Sized[N: usize] {} const LENGTH: usize = 2; fun inspect(value: Box[Missing], valid: Sized[LENGTH]) () {}";
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("definitions");
@@ -32,7 +32,7 @@ struct Box[T] {
 value: T,
 }
 
-fn make() Box[4] {
+fun make() Box[4] {
 Box[4] { value: 0 }
 }
 "#,
@@ -58,10 +58,10 @@ fn reports_generic_type_argument_count_mismatches() {
 struct Point {}
 struct Box[T] { value: T }
 type Pair[T, U] = T;
-fn missing_arg(a: Box) {}
-fn extra_arg(a: Box[i32, bool]) {}
-fn alias_missing_arg(a: Pair[i32]) {}
-fn non_generic_arg(a: Point[i32]) {}
+fun missing_arg(a: Box) {}
+fun extra_arg(a: Box[i32, bool]) {}
+fun alias_missing_arg(a: Pair[i32]) {}
+fun non_generic_arg(a: Point[i32]) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -102,10 +102,10 @@ array: [(); 1],
 never_field: never,
 }
 
-fn bad_param(x: ()) () {}
-fn bad_never_param(x: never) () {}
-fn good_return() () {}
-fn good_never_return() never {}
+fun bad_param(x: ()) () {}
+fun bad_never_param(x: never) () {}
+fun good_return() () {}
+fun good_never_return() never {}
 
 static mut global_void: ();
 "#,

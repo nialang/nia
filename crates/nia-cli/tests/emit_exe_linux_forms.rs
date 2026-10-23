@@ -18,32 +18,32 @@ using std::io;
 using std::process;
 
 trait Shape {
-    fn area(&self) i32;
+    fun area(&self) i32;
 }
 
 struct Square { side: i32 }
 struct Rect { w: i32, h: i32 }
 
 extend Square : Shape {
-    fn area(&self) i32 { self.side * self.side }
+    fun area(&self) i32 { self.side * self.side }
 }
 
 extend Rect : Shape {
-    fn area(&self) i32 { self.w * self.h }
+    fun area(&self) i32 { self.w * self.h }
 }
 
-fn one() i32 { 1 }
-fn two() i32 { 2 }
-fn three() i32 { 3 }
+fun one() i32 { 1 }
+fun two() i32 { 2 }
+fun three() i32 { 3 }
 
-static handlers: [&fn() i32; 3] = [&one, &two, &three];
+static handlers: [&fun() i32; 3] = [&one, &two, &three];
 static marker: i32 = 7;
 
-fn measure(shape: &Shape) i32 {
+fun measure(shape: &Shape) i32 {
     shape.area()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let square = Square { side: 3 };
     let rect = Rect { w: 4, h: 5 };

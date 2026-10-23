@@ -1,7 +1,7 @@
 path: fail/bracket_argument_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `]` after bracket argument; found `false`
-label: 43..48 Primary Source expected `,` or `]` after bracket argument; found `false`
+label: 44..49 Primary Source expected `,` or `]` after bracket argument; found `false`
 
 report:
 error[E0101]: expected `,` or `]` after bracket argument; found `false`

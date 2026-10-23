@@ -8,12 +8,12 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let provider_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+            "struct Widget {} extend Widget { pub fun score(&self) i32 { 1 } }",
         )
         .expect("store provider source");
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -100,12 +100,12 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let provider_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+            "struct Widget {} extend Widget { pub fun score(&self) i32 { 1 } }",
         )
         .expect("store provider source");
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(

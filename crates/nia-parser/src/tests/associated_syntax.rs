@@ -5,8 +5,8 @@ use super::common::*;
 fn parses_explicit_generic_function_instantiation() {
     let (module, errors) = parse_module(
         r#"
-fn id[T](value: T) T { value }
-fn main() i32 {
+fun id[T](value: T) T { value }
+fun main() i32 {
     id[i32](1)
 }
 
@@ -28,7 +28,7 @@ fn main() i32 {
 fn recovers_when_generic_argument_replay_cannot_produce_a_type() {
     let (module, errors) = parse_module(
         r#"
-fn main() i32 {
+fun main() i32 {
     missing[&]
 }
 "#,
@@ -93,12 +93,12 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 }
 
-fn main() Box[i32] {
+fun main() Box[i32] {
     Box[i32]::make(1)
 }
 "#,
@@ -123,12 +123,12 @@ fn parses_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
 extend[T] &T {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &u8) bool {
+fun main(ptr: &u8) bool {
     [&u8]::is_null(ptr)
 }
 "#,
@@ -156,7 +156,7 @@ trait Simd {
     const Lanes: usize;
 }
 
-fn lanes[T]() usize where T: Simd {
+fun lanes[T]() usize where T: Simd {
     [T as Simd]::Lanes
 }
 "#,
@@ -177,7 +177,7 @@ fn lanes[T]() usize where T: Simd {
 #[test]
 fn retains_the_selected_name_span_in_qualified_values() {
     let source = r#"
-fn main() i32 {
+fun main() i32 {
     missing::value()
 }
 "#;
@@ -206,12 +206,12 @@ fn parses_deep_pointer_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
 extend &&&&&& &&i32 {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &&&&&& &&i32) bool {
+fun main(ptr: &&&&&& &&i32) bool {
     [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
@@ -236,12 +236,12 @@ fn parses_array_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
 extend[T] [T; 3] {
-    fn first(self) T {
+    fun first(self) T {
         self[0]
     }
 }
 
-fn main(triple: [i32; 3]) i32 {
+fun main(triple: [i32; 3]) i32 {
     [[i32; 3]]::first(triple)
 }
 "#,
@@ -266,16 +266,16 @@ fn parses_array_structural_type_target_in_binary_expr() {
     let (module, errors) = parse_module(
         r#"
 extend[T] [T; 3] {
-    fn first(self) T {
+    fun first(self) T {
         self[0]
     }
 }
 
-fn zero() i32 {
+fun zero() i32 {
     0
 }
 
-fn main(triple: [i32; 3]) i32 {
+fun main(triple: [i32; 3]) i32 {
     [[i32; 3]]::first(triple) + zero() as i32
 }
 "#,
@@ -296,10 +296,10 @@ fn parses_explicit_associated_type_projection() {
 trait Source {
     type Item;
 
-    fn get(&self) [Self as Source]::Item;
+    fun get(&self) [Self as Source]::Item;
 }
 
-fn read[T](value: &T) [T as Source]::Item
+fun read[T](value: &T) [T as Source]::Item
 where T: Source {
     value.get()
 }
@@ -329,7 +329,7 @@ fn parses_generic_trait_associated_type_projection() {
 trait Add[Rhs] {
     type Output;
 
-    fn add(&self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+    fun add(&self, rhs: Rhs) [Self as Add[Rhs]]::Output;
 }
 "#,
     );
@@ -364,7 +364,7 @@ trait Slice[R] {
     type Output;
 }
 
-fn take[S](items: S, end: usize) [S as Slice[usize..usize]]::Output
+fun take[S](items: S, end: usize) [S as Slice[usize..usize]]::Output
 where S: Slice[..] {
     0..end
 }
@@ -423,12 +423,12 @@ trait Mapper[A, B] {
     type D;
 }
 
-fn add_same[T](a: T, b: T) T
+fun add_same[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     a
 }
 
-fn mapped[T, A, B](value: T) T
+fun mapped[T, A, B](value: T) T
 where T: Mapper[A, B, C = i32, D = bool] {
     value
 }
@@ -516,22 +516,22 @@ fn parses_structural_type_targets_after_if_statements() {
     let (module, errors) = parse_module(
         r#"
 extend[T] &T {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] [T; 3] {
-    fn first(self) T {
+    fun first(self) T {
         self[0]
     }
 }
 
-fn zero() usize {
+fun zero() usize {
     0usize
 }
 
-fn main(ptr: &u8, triple: [i32; 3]) i32 {
+fun main(ptr: &u8, triple: [i32; 3]) i32 {
     if [&u8]::is_null(ptr) {}
     [[i32; 3]]::first(triple) + zero() as i32
 }
@@ -550,7 +550,7 @@ fn main(ptr: &u8, triple: [i32; 3]) i32 {
 fn parses_index_before_field_as_index_not_generic_instantiation() {
     let (module, errors) = parse_module(
         r#"
-fn main(items: &[i32], i: usize) i32 {
+fun main(items: &[i32], i: usize) i32 {
     items[i].value
 }
 "#,
@@ -576,12 +576,12 @@ struct box[T] {
 }
 
 extend[T] box[T] {
-    fn make(value: T) box[T] {
+    fun make(value: T) box[T] {
         Self { value }
     }
 }
 
-fn main() box[i32] {
+fun main() box[i32] {
     box[i32]::make(1)
 }
 "#,

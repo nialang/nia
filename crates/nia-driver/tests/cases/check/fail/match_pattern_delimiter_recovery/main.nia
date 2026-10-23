@@ -1,4 +1,4 @@
-fn main(value: bool) () {
+fun main(value: bool) () {
     match value {
         true false => (),
         _ => (),

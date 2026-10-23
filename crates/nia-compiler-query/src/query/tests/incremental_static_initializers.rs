@@ -6,7 +6,7 @@ use super::*;
 fn body_edit_keeps_unrelated_lowered_function_product_green() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "fn helper() i32 { 1 } pub fn main() i32 { helper() }",
+        "fun helper() i32 { 1 } pub fun main() i32 { helper() }",
     );
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -67,7 +67,7 @@ fn body_edit_keeps_unrelated_lowered_function_product_green() {
 
     fixture.update_module_source(
         module_id,
-        "fn helper() i32 { 2 } pub fn main() i32 { helper() }",
+        "fun helper() i32 { 2 } pub fun main() i32 { helper() }",
         SourceRevision(1),
     );
     database.update(CompileRequest::new(fixture.program()));
@@ -96,7 +96,7 @@ fn global_edit_preserves_unrelated_static_init_semantic_value() {
 static first: [u8; 4] = [1, 2, 3, 4];
 static second: [u8; 4] = [5, 6, 7, 8];
 
-pub fn main() u8 {
+pub fun main() u8 {
 first[0] + second[0]
 }
 "#,
@@ -159,7 +159,7 @@ first[0] + second[0]
 static first: [u8; 4] = [9, 2, 3, 4];
 static second: [u8; 4] = [5, 6, 7, 8];
 
-pub fn main() u8 {
+pub fun main() u8 {
 first[0] + second[0]
 }
 "#,
@@ -204,14 +204,14 @@ fn static_init_ref_summary_drives_reachability_without_aggregate_payload() {
 struct Helper {}
 
 extend Helper {
-fn value() i32 {
+fun value() i32 {
     7
 }
 }
 
-static callback: &fn() i32 = &Helper::value;
+static callback: &fun() i32 = &Helper::value;
 
-pub fn main() i32 {
+pub fun main() i32 {
 callback()
 }
 "#,
@@ -267,13 +267,13 @@ fn generic_function_pointer_static_initializers_materialize_concrete_instances()
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn identity[T](value: T) T {
+fun identity[T](value: T) T {
     value
 }
 
-static callback: &fn(i32) i32 = &identity[i32];
+static callback: &fun(i32) i32 = &identity[i32];
 
-pub fn main() i32 {
+pub fun main() i32 {
     callback(7)
 }
 "#,
@@ -344,13 +344,13 @@ fn const_generic_function_pointer_static_initializers_materialize_concrete_insta
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn identity[T, N: usize](value: T) T {
+fun identity[T, N: usize](value: T) T {
     value
 }
 
-static callback: &fn(i32) i32 = &identity[i32, 3];
+static callback: &fun(i32) i32 = &identity[i32, 3];
 
-pub fn main() i32 {
+pub fun main() i32 {
     callback(7)
 }
 "#,
@@ -422,17 +422,17 @@ fn local_static_item_uses_owner_function_facts_for_associated_function_reference
 struct Helper {}
 
 extend Helper {
-fn value() i32 {
+fun value() i32 {
     7
 }
 }
 
-fn invoke() i32 {
-static callback: &fn() i32 = &Helper::value;
+fun invoke() i32 {
+static callback: &fun() i32 = &Helper::value;
 callback()
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 invoke()
 }
 "#,

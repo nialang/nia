@@ -19,13 +19,13 @@ pub enum Error: i32 {
 }
 
 pub trait FormatWriter {
-    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!();
+    fun writeFmtBytes(&mut self, bytes: &[u8]) Error!();
 }
 
 pub trait Format {
-    fn format(&self, formatter: &mut Formatter) Error!();
+    fun format(&self, formatter: &mut Formatter) Error!();
 
-    fn formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+    fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
         spec.validate().?;
         if spec.presentation() == FormatPresentation::Display {
             self.format(formatter)
@@ -34,7 +34,7 @@ pub trait Format {
         }
     }
 
-    fn formatUsizeArg(&self) ?usize {
+    fun formatUsizeArg(&self) ?usize {
         null
     }
 }
@@ -68,7 +68,7 @@ pub struct FormatSpec {
 }
 
 extend FormatSpec {
-    pub fn init(
+    pub fun init(
         presentation: FormatPresentation,
         width: usize,
         precision: ?usize,
@@ -80,63 +80,63 @@ extend FormatSpec {
         .{ presentation, width, precision, fill, alignment, signPlus, alternate }
     }
 
-    pub fn display() FormatSpec {
+    pub fun display() FormatSpec {
         .init(.Display, 0, null, ' ', .None, false, false)
     }
 
-    pub fn lowerHex() FormatSpec {
+    pub fun lowerHex() FormatSpec {
         .init(.LowerHex, 0, null, ' ', .None, false, false)
     }
 
-    pub fn upperHex() FormatSpec {
+    pub fun upperHex() FormatSpec {
         .init(.UpperHex, 0, null, ' ', .None, false, false)
     }
 
-    pub fn binary() FormatSpec {
+    pub fun binary() FormatSpec {
         .init(.Binary, 0, null, ' ', .None, false, false)
     }
 
-    pub fn octal() FormatSpec {
+    pub fun octal() FormatSpec {
         .init(.Octal, 0, null, ' ', .None, false, false)
     }
 
-    pub fn pointer() FormatSpec {
+    pub fun pointer() FormatSpec {
         .init(.Pointer, 0, null, ' ', .None, false, false)
     }
 
-    pub fn presentation(&self) FormatPresentation {
+    pub fun presentation(&self) FormatPresentation {
         self.presentation
     }
 
-    pub fn width(&self) usize {
+    pub fun width(&self) usize {
         self.width
     }
 
-    pub fn precision(&self) ?usize {
+    pub fun precision(&self) ?usize {
         self.precision
     }
 
-    pub fn hasPrecision(&self) bool {
+    pub fun hasPrecision(&self) bool {
         self.precision.isPresent()
     }
 
-    pub fn fill(&self) char {
+    pub fun fill(&self) char {
         self.fill
     }
 
-    pub fn alignment(&self) FormatAlignment {
+    pub fun alignment(&self) FormatAlignment {
         self.alignment
     }
 
-    pub fn signPlus(&self) bool {
+    pub fun signPlus(&self) bool {
         self.signPlus
     }
 
-    pub fn alternate(&self) bool {
+    pub fun alternate(&self) bool {
         self.alternate
     }
 
-    pub fn validate(&self) Error!() {
+    pub fun validate(&self) Error!() {
         match self.presentation {
             .Display => {},
             .LowerHex => {},
@@ -161,7 +161,7 @@ pub struct Formatter {
     writer: &mut FormatWriter,
 }
 
-fn validateRadix(radix: u128) Error!() {
+fun validateRadix(radix: u128) Error!() {
     if radix == 2 or radix == 8 or radix == 10 or radix == 16 {
         !()
     } else {
@@ -170,25 +170,25 @@ fn validateRadix(radix: u128) Error!() {
 }
 
 extend Formatter {
-    pub fn init(writer: &mut FormatWriter) Formatter {
+    pub fun init(writer: &mut FormatWriter) Formatter {
         .{ writer }
     }
 
-    pub fn writeBytes(&mut self, bytes: &[u8]) Error!() {
+    pub fun writeBytes(&mut self, bytes: &[u8]) Error!() {
         self.writer.writeFmtBytes(bytes)
     }
 
-    pub fn writeByte(&mut self, byte: u8) Error!() {
+    pub fun writeByte(&mut self, byte: u8) Error!() {
         let bytes: [u8; 1] = [byte];
         self.writeBytes(&bytes[..])
     }
 
-    pub fn writeChar(&mut self, ch: char) Error!() {
+    pub fun writeChar(&mut self, ch: char) Error!() {
         let encoded = ch.encodeUtf8();
         self.writeBytes(encoded.bytes())
     }
 
-    pub fn writeText(&mut self, text: &[char]) Error!() {
+    pub fun writeText(&mut self, text: &[char]) Error!() {
         let mut index: usize = 0;
         while index < text.len() {
             self.writeChar(text[index]).?;
@@ -197,7 +197,7 @@ extend Formatter {
         !()
     }
 
-    pub fn writeTextPrefix(&mut self, text: &[char], count: usize) Error!() {
+    pub fun writeTextPrefix(&mut self, text: &[char], count: usize) Error!() {
         let mut index: usize = 0;
         while index < text.len() and index < count {
             self.writeChar(text[index]).?;
@@ -206,7 +206,7 @@ extend Formatter {
         !()
     }
 
-    pub fn precisionWidth(&mut self, contentWidth: usize, spec: FormatSpec) usize {
+    pub fun precisionWidth(&mut self, contentWidth: usize, spec: FormatSpec) usize {
         _ = self;
         match spec.precision() {
             ?precision => {
@@ -222,7 +222,7 @@ extend Formatter {
         }
     }
 
-    pub fn writeFill(&mut self, fill: char, count: usize) Error!() {
+    pub fun writeFill(&mut self, fill: char, count: usize) Error!() {
         let mut index: usize = 0;
         while index < count {
             self.writeChar(fill).?;
@@ -231,7 +231,7 @@ extend Formatter {
         !()
     }
 
-    fn paddingWidth(&mut self, contentWidth: usize, spec: FormatSpec) usize {
+    fun paddingWidth(&mut self, contentWidth: usize, spec: FormatSpec) usize {
         _ = self;
         if spec.width() > contentWidth {
             spec.width() - contentWidth
@@ -240,7 +240,7 @@ extend Formatter {
         }
     }
 
-    pub fn writePaddingBefore(&mut self, contentWidth: usize, spec: FormatSpec) Error!() {
+    pub fun writePaddingBefore(&mut self, contentWidth: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
         let padding = self.paddingWidth(contentWidth, spec);
         match spec.alignment() {
@@ -250,7 +250,7 @@ extend Formatter {
         }
     }
 
-    pub fn writePaddingAfter(&mut self, contentWidth: usize, spec: FormatSpec) Error!() {
+    pub fun writePaddingAfter(&mut self, contentWidth: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
         let padding = self.paddingWidth(contentWidth, spec);
         match spec.alignment() {
@@ -260,15 +260,15 @@ extend Formatter {
         }
     }
 
-    pub fn writeUnsigned(&mut self, value: u128) Error!() {
+    pub fun writeUnsigned(&mut self, value: u128) Error!() {
         self.writeUnsignedRadix(value, 10, false)
     }
 
-    pub fn writePointer(&mut self, value: usize) Error!() {
+    pub fun writePointer(&mut self, value: usize) Error!() {
         self.writePointerSpec(value, FormatSpec::pointer())
     }
 
-    pub fn writePointerSpec(&mut self, value: usize, spec: FormatSpec) Error!() {
+    pub fun writePointerSpec(&mut self, value: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
         if spec.signPlus() or spec.alternate() or spec.hasPrecision() {
             return .InvalidTemplate!;
@@ -285,7 +285,7 @@ extend Formatter {
         self.writeUnsignedRadixSpec(value as u128, 16, false, pointerSpec)
     }
 
-    pub fn writeUnsignedRadix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
+    pub fun writeUnsignedRadix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
         validateRadix(radix).?;
         if radix == 10 {
             self.writeUnsignedBase10(value, uppercase)
@@ -300,7 +300,7 @@ extend Formatter {
         }
     }
 
-    fn unsignedDigitCount(&mut self, value: u128, radix: u128) usize {
+    fun unsignedDigitCount(&mut self, value: u128, radix: u128) usize {
         _ = self;
         if value == 0 {
             1
@@ -315,7 +315,7 @@ extend Formatter {
         }
     }
 
-    pub fn writeUnsignedRadixSpec(
+    pub fun writeUnsignedRadixSpec(
         &mut self,
         value: u128,
         radix: u128,
@@ -347,7 +347,7 @@ extend Formatter {
         }
     }
 
-    fn writeUnsignedPrefix(
+    fun writeUnsignedPrefix(
         &mut self,
         radix: u128,
         uppercase: bool,
@@ -370,7 +370,7 @@ extend Formatter {
         }
     }
 
-    fn writeUnsignedDigit(&mut self, digit: u128, uppercase: bool) Error!() {
+    fun writeUnsignedDigit(&mut self, digit: u128, uppercase: bool) Error!() {
         if digit < 10 {
             self.writeByte((digit as u8) + b'0')
         } else if uppercase {
@@ -380,7 +380,7 @@ extend Formatter {
         }
     }
 
-    fn writeUnsignedBase10(&mut self, value: u128, uppercase: bool) Error!() {
+    fun writeUnsignedBase10(&mut self, value: u128, uppercase: bool) Error!() {
         _ = uppercase;
         if value == 0 {
             self.writeByte(b'0')
@@ -407,7 +407,7 @@ extend Formatter {
         }
     }
 
-    fn writeUnsignedPowerOfTwo(
+    fun writeUnsignedPowerOfTwo(
         &mut self,
         value: u128,
         startShift: u32,
@@ -436,11 +436,11 @@ extend Formatter {
         }
     }
 
-    pub fn writeSigned(&mut self, value: i128) Error!() {
+    pub fun writeSigned(&mut self, value: i128) Error!() {
         self.writeSignedRadix(value, 10, false)
     }
 
-    pub fn writeSignedRadix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
+    pub fun writeSignedRadix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
         validateRadix(radix).?;
         if value < 0 {
             self.writeByte(b'-').?;
@@ -450,7 +450,7 @@ extend Formatter {
         }
     }
 
-    fn signedAbs(&mut self, value: i128) u128 {
+    fun signedAbs(&mut self, value: i128) u128 {
         _ = self;
         if value < 0 {
             ((0 - (value + 1)) as u128) + 1
@@ -459,7 +459,7 @@ extend Formatter {
         }
     }
 
-    pub fn writeSignedRadixSpec(
+    pub fun writeSignedRadixSpec(
         &mut self,
         value: i128,
         radix: u128,
@@ -514,7 +514,7 @@ extend Formatter {
 extend[W] W : FormatWriter
 where W: io::Writer
 {
-    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
+    fun writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
         self.writeAll(bytes).mapError(&\cause: [W as io::Writer]::Error -> {
             _ = cause;
             Error::Write

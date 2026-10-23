@@ -7,7 +7,7 @@ fn nominal_const_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -15,7 +15,7 @@ struct Config { width: usize, enabled: bool }
 const config = Config { width: 4usize, enabled: true };
 const n: usize = id(config.width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -32,7 +32,7 @@ fn nested_nominal_const_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -41,7 +41,7 @@ struct Config { target: Target }
 const config = Config { target: Target { word_bits: 64usize } };
 const n: usize = id(config.target.word_bits / 8usize);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -68,13 +68,13 @@ pub const config = Config { width: 4usize };
 module config;
 using entry::config;
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id(config::config.width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -91,21 +91,21 @@ fn const_function_local_nominal_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 struct Target { word_bits: usize }
 struct Config { target: Target }
 
-const fn width() usize {
+const fun width() usize {
     const config = Config { target: Target { word_bits: 64usize } };
     id(config.target.word_bits) / 8usize
 }
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -122,7 +122,7 @@ fn const_if_nominal_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -135,7 +135,7 @@ const config = if true {
 };
 const n: usize = id(config.width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -152,7 +152,7 @@ fn if_expr_is_an_ordinary_const_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -165,7 +165,7 @@ const config = if true {
 };
 const n: usize = id(config.width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -182,7 +182,7 @@ fn if_expr_rejects_non_bool_condition() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -211,7 +211,7 @@ fn const_fn_returns_if_expr_value() {
     write(
         &root.join("main.nia"),
         r#"
-const fn select() usize {
+const fun select() usize {
     if true {
         4usize
     } else {
@@ -221,7 +221,7 @@ const fn select() usize {
 
 const n: usize = select();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -238,18 +238,18 @@ fn const_char_literals_are_typed_scalar_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn choose_char(value: char) char {
+const fun choose_char(value: char) char {
     value
 }
 
-const fn widen_byte(value: u8) usize {
+const fun widen_byte(value: u8) usize {
     value as usize
 }
 
 const ch: char = choose_char('A');
 const n: usize = widen_byte(b'\n') + 1usize;
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -266,13 +266,13 @@ fn const_bitwise_not_evaluates_integer_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn mask(value: usize) usize {
+const fun mask(value: usize) usize {
     ~value & 15usize
 }
 
 const n: usize = mask(10usize);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -289,13 +289,13 @@ fn const_casts_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const n: usize = id(b'a' as usize);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -312,11 +312,11 @@ fn const_integer_casts_convert_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn narrow(value: usize) usize {
+const fun narrow(value: usize) usize {
     (value as u8) as usize
 }
 
-const fn signed(value: usize) i32 {
+const fun signed(value: usize) i32 {
     (value as i8) as i32
 }
 
@@ -357,7 +357,7 @@ fn bit_counting_builtins_are_const_evaluable_at_target_width() {
     write(
         &root.join("main.nia"),
         r#"
-const fn trailing(value: u8) u8 {
+const fun trailing(value: u8) u8 {
     std::builtin::ctz[u8](value)
 }
 
@@ -437,11 +437,11 @@ fn const_float_values_drive_casts_and_conditions() {
     write(
         &root.join("main.nia"),
         r#"
-const fn scale(value: f64) f64 {
+const fun scale(value: f64) f64 {
     value * 2.0f64 + 0.5f64
 }
 
-const fn wide(value: usize) f64 {
+const fun wide(value: usize) f64 {
     value as f64
 }
 
@@ -496,7 +496,7 @@ fn generic_const_function_rejects_non_numeric_cast_operand() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -521,7 +521,7 @@ fn generic_const_function_rejects_nominal_cast_operand() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -547,7 +547,7 @@ fn const_float_compound_assignments_update_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut value: f64 = 1.5f64;
     value += 2.5f64;
     value *= 2.0f64;
@@ -582,15 +582,15 @@ fn resolved_f32_operations_round_each_const_intermediate() {
     write(
         &root.join("main.nia"),
         r#"
-const fn rounded_binary() usize {
+const fun rounded_binary() usize {
     (16777216.0f32 + 1.0f32) as usize
 }
 
-const fn rounded_up_binary() usize {
+const fun rounded_up_binary() usize {
     (16777216.0f32 + 3.0f32) as usize
 }
 
-const fn rounded_compound() usize {
+const fun rounded_compound() usize {
     let mut value: f32 = 16777216.0f32;
     value += 1.0f32;
     value as usize
@@ -644,14 +644,14 @@ fn generic_const_function_infers_type_arg_from_negative_float() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const value: f64 = id(-1.5f64);
 const n: usize = if value < 0.0f64 { 4usize } else { 0usize };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -668,7 +668,7 @@ fn generic_const_function_rejects_mismatched_equality_operands() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -693,7 +693,7 @@ fn generic_const_function_rejects_non_bool_logic_operands() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -718,7 +718,7 @@ fn generic_const_function_rejects_non_bool_not_operand() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -873,7 +873,7 @@ fn const_string_literals_are_typed_arrays() {
     write(
         &root.join("main.nia"),
         r#"
-const fn accept4(value: [char; 4]) usize {
+const fun accept4(value: [char; 4]) usize {
     if value[0] == 'n' {
         4usize
     } else {
@@ -881,14 +881,14 @@ const fn accept4(value: [char; 4]) usize {
     }
 }
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
 const text: [char; 4] = id("nia!");
 const n: usize = accept4(text);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -905,13 +905,13 @@ fn const_array_len_method_evaluates_array_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn total(values: [usize; 3], text: [char; 4]) usize {
+const fun total(values: [usize; 3], text: [char; 4]) usize {
     values.len() + text.len() + (&values[1..]).len()
 }
 
 const n: usize = total([1usize, 2usize, 3usize], "nia!");
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -934,18 +934,18 @@ struct Window {
 }
 
 extend Window : Len {
-    const fn len(&self) usize {
+    const fun len(&self) usize {
         self.end - self.start
     }
 }
 
-const fn width(value: Window) usize {
+const fun width(value: Window) usize {
     value.len()
 }
 
 const n: usize = width(Window { start: 2usize, end: 7usize });
 
-fn main() i32 {
+fun main() i32 {
     let value = Window { start: 4usize, end: 9usize };
     let mut values: [i32; n] = [0; n];
     (value.len() + values.len()) as i32
@@ -968,7 +968,7 @@ struct Header {
     second: i32,
 }
 
-const fn arrayLen[T, N: usize](value: [T; N]) usize {
+const fun arrayLen[T, N: usize](value: [T; N]) usize {
     value.len()
 }
 
@@ -976,7 +976,7 @@ const n: usize = arrayLen(
     [0u8; std::builtin::size[Header]()]
 );
 
-fn main() i32 {
+fun main() i32 {
     let values: [u8; std::builtin::size[Header]()] =
         [0u8; std::builtin::size[Header]()];
     (n + arrayLen(values)) as i32
@@ -994,7 +994,7 @@ fn const_range_start_and_end_methods_evaluate_bounds() {
     write(
         &root.join("main.nia"),
         r#"
-const fn total() usize {
+const fun total() usize {
     let both = 2usize..5usize;
     let from = 7usize..;
     let to = ..11usize;
@@ -1003,7 +1003,7 @@ const fn total() usize {
 
 const n: usize = total();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -1020,28 +1020,28 @@ fn const_slice_pointer_methods_project_the_first_element() {
     write(
         &root.join("main.nia"),
         r#"
-const fn first(values: &[usize]) usize {
+const fun first(values: &[usize]) usize {
     let mut ptr = values.ptr();
     ptr.*
 }
 
-const fn first_mut(values: &mut [usize]) usize {
+const fun first_mut(values: &mut [usize]) usize {
     let mut ptr = values.ptrMut();
     ptr.*
 }
 
-const fn read_array(values: [usize; 3]) usize {
+const fun read_array(values: [usize; 3]) usize {
     first(&values[..])
 }
 
-const fn read_mut_array() usize {
+const fun read_mut_array() usize {
     let mut values: [usize; 2] = [4, 5];
     first_mut(&mut values[..])
 }
 
 const n: usize = read_array([7usize, 8usize, 9usize]) + read_mut_array();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -1059,18 +1059,18 @@ fn const_extension_takes_priority_over_slice_pointer_fallback() {
         &root.join("main.nia"),
         r#"
 extend[T] [T] {
-    const fn ptr(&self) usize {
+    const fun ptr(&self) usize {
         6usize
     }
 }
 
-const fn projected(values: [usize; 2]) usize {
+const fun projected(values: [usize; 2]) usize {
     (&values[..]).ptr()
 }
 
 const n: usize = projected([1usize, 2usize]);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -1088,7 +1088,7 @@ fn const_pointer_projection_rejects_empty_slice_without_fabricating_provenance()
     write(
         &root.join("main.nia"),
         r#"
-const fn project() usize {
+const fun project() usize {
     let values: [usize; 0] = [];
     let pointer = (&values[..]).ptr();
     0usize
@@ -1116,14 +1116,14 @@ fn const_extension_takes_priority_over_builtin_range_method() {
         &root.join("main.nia"),
         r#"
 extend[T] T..T {
-    const fn start(&self) T {
+    const fun start(&self) T {
         self.end()
     }
 }
 
 const n: usize = (1usize..2usize).start();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0, 0];
     values.len() as i32
 }
@@ -1141,7 +1141,7 @@ fn runtime_extension_blocks_builtin_range_fallback_at_const() {
         &root.join("main.nia"),
         r#"
 extend usize..usize {
-    fn start(&self) usize {
+    fun start(&self) usize {
         2usize
     }
 }
@@ -1155,7 +1155,7 @@ const n: usize = (1usize..2usize).start();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         program.diagnostics
     );

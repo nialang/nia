@@ -272,7 +272,7 @@ pub(super) fn emit_smoke_cases() -> &'static [EmitSmokeCase] {
             files: &[(
                 "main.nia",
                 r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
 struct Counter {
     current: i32,
@@ -282,7 +282,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         if self.current >= self.end {
             null
         } else {
@@ -299,7 +299,7 @@ enum State: u8 {
     _,
 }
 
-fn classify(state: State) i32 {
+fun classify(state: State) i32 {
     defer log(1);
     match state {
         State::Start => return 10,
@@ -309,7 +309,7 @@ fn classify(state: State) i32 {
     0
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut total = 0;
     let mut iter = Counter { current: 0, end: 4 };
     for i in iter {
@@ -340,7 +340,7 @@ using entry::facade;
 
 using facade::{Box, make_box, read_box};
 
-fn main() i32 {
+fun main() i32 {
     let mut box: Box[i32] = make_box(40);
     read_box(& box) + facade::answer
 }
@@ -364,16 +364,16 @@ pub struct Box[T] {
 }
 
 extend[T] Box[T] {
-    pub fn get(& self) T {
+    pub fun get(& self) T {
         self.value
     }
 }
 
-pub fn make_box[T](value: T) Box[T] {
+pub fun make_box[T](value: T) Box[T] {
     Box[T] { value }
 }
 
-pub fn read_box(box: & Box[i32]) i32 {
+pub fun read_box(box: & Box[i32]) i32 {
     box.get()
 }
 "#,
@@ -398,7 +398,7 @@ static byte_ptr: & u8 = &bytes[0];
 static mut global: i32 = 5;
 static global_ptr: &i32 = &global;
 
-fn main() i32 {
+fun main() i32 {
     global_ptr.* + header.tag as i32 + header.flag as i32 + byte_ptr.* as i32
 }
 "#,
@@ -410,7 +410,7 @@ fn main() i32 {
             files: &[(
                 "main.nia",
                 r#"
-fn sum(xs: & [i32]) i32 {
+fun sum(xs: & [i32]) i32 {
     let mut out = 0;
     let mut i = 0usize;
     while i < xs.len() {
@@ -420,12 +420,12 @@ fn sum(xs: & [i32]) i32 {
     out
 }
 
-fn fill(xs: &mut [i32]) i32 {
+fun fill(xs: &mut [i32]) i32 {
     xs[0] = 9;
     xs[0]
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut xs: [i32; 4] = [1, 2, 3, 4];
     let mut part = & xs[1..=2];
     sum(part) + sum(&[5, 6]) + fill(&mut [0, 1])
@@ -439,7 +439,7 @@ fn main() i32 {
             files: &[(
                 "main.nia",
                 r#"
-fn maybe(flag: bool) ?i32 {
+fun maybe(flag: bool) ?i32 {
     if flag {
         ?4
     } else {
@@ -447,7 +447,7 @@ fn maybe(flag: bool) ?i32 {
     }
 }
 
-fn wrap(flag: bool) i32!i32 {
+fun wrap(flag: bool) i32!i32 {
     if flag {
         !7
     } else {
@@ -455,21 +455,21 @@ fn wrap(flag: bool) i32!i32 {
     }
 }
 
-fn read_optional(value: ?i32) i32 {
+fun read_optional(value: ?i32) i32 {
     match value {
         ?x => x,
         null => 0,
     }
 }
 
-fn read_error(value: i32!i32) i32 {
+fun read_error(value: i32!i32) i32 {
     match value {
         !x => x,
         e! => e,
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     read_optional(maybe(true)) + read_error(wrap(false))
 }
 "#,
@@ -486,7 +486,7 @@ module facade;
 module convert;
 using entry::facade;
 
-fn main() i32 {
+fun main() i32 {
     facade::run()
 }
 "#,
@@ -500,11 +500,11 @@ pub struct Item {
     value: i32,
 }
 
-fn read() convert::A!?Item {
+fun read() convert::A!?Item {
     !(?Item { value: 7 })
 }
 
-pub fn run() i32 {
+pub fun run() i32 {
     match read().as_b() {
         !maybe => {
             match maybe {
@@ -536,13 +536,13 @@ pub enum B: i32 {
     _
 }
 
-fn to_b(error: A) B {
+fun to_b(error: A) B {
     _ = error;
     B::Other
 }
 
 extend[T] A!T {
-    pub fn as_b(self) B!T {
+    pub fun as_b(self) B!T {
         match self {
             !value => {
                 !value
@@ -566,18 +566,18 @@ extend[T] A!T {
 type RawPtr[T] = &T;
 
 extend[T] RawPtr[T] {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 
-    fn zero() usize {
+    fun zero() usize {
         0usize
     }
 }
 
-fn main(ptr: &i32) i32 {
-    let is_null: &fn(&i32) bool = & [&i32]::is_null;
-    let zero: &fn() usize = & [&i32]::zero;
+fun main(ptr: &i32) i32 {
+    let is_null: &fun(&i32) bool = & [&i32]::is_null;
+    let zero: &fun() usize = & [&i32]::zero;
     if is_null(ptr) or [&i32]::is_null(ptr) {
         zero() as i32
     } else {
@@ -606,7 +606,7 @@ enum Flag: u32 {
     _,
 }
 
-fn main(flag: Flag) i32 {
+fun main(flag: Flag) i32 {
     let mut values: [i32; width] = [10, 20, 30, 40];
     let mut bits = Bits { i: values[0] };
     match flag {

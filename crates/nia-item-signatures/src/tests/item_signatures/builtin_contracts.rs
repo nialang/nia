@@ -5,7 +5,7 @@ fn records_builtin_function_attributes() {
     let signatures = signatures_ok(
         r#"
 @[builtin("trap")]
-pub fn trap() never;
+pub fun trap() never;
 "#,
     );
 
@@ -26,18 +26,18 @@ fn records_track_caller_on_functions_and_methods() {
     let signatures = signatures_ok(
         r#"
 @[trackCaller]
-fn top() () {}
+fun top() () {}
 
 trait Report {
     @[trackCaller]
-    fn report(&self) ();
+    fun report(&self) ();
 }
 
 struct Value {}
 
 extend Value {
     @[trackCaller]
-    fn report(&self) () {}
+    fun report(&self) () {}
 }
 "#,
     );
@@ -55,14 +55,14 @@ fn rejects_invalid_track_caller_attributes() {
     let signatures = signatures(
         r#"
 @[trackCaller]
-extern fn foreign() ();
+extern fun foreign() ();
 
 @[trackCaller(1)]
-fn withArgument() () {}
+fun withArgument() () {}
 
 @[trackCaller]
 @[trackCaller]
-fn duplicate() () {}
+fun duplicate() () {}
 "#,
     );
     let summaries = signatures
@@ -70,13 +70,13 @@ fn duplicate() () {}
         .iter()
         .map(|diagnostic| diagnostic.summary.as_str())
         .collect::<Vec<_>>();
-    assert!(summaries.contains(&"`@[trackCaller]` is not valid on `extern fn`"));
+    assert!(summaries.contains(&"`@[trackCaller]` is not valid on `extern fun`"));
     assert!(summaries.contains(&"`@[trackCaller]` does not take arguments"));
     assert!(summaries.contains(&"duplicate `@[trackCaller]` function attribute"));
     let extern_error = signatures
         .diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.summary == "`@[trackCaller]` is not valid on `extern fn`")
+        .find(|diagnostic| diagnostic.summary == "`@[trackCaller]` is not valid on `extern fun`")
         .expect("trackCaller extern diagnostic");
     assert!(
         extern_error
@@ -165,12 +165,12 @@ fn records_builtin_extend_attributes_with_bodyless_methods() {
     let signatures = signatures_ok(
         r#"
 trait Probe {
-fn probe(&self) usize;
+fun probe(&self) usize;
 }
 
 @[builtin("test.Probe")]
 extend[T] [T] : Probe {
-fn probe(&self) usize;
+fun probe(&self) usize;
 }
 "#,
     );
@@ -187,7 +187,7 @@ fn probe(&self) usize;
 fn bodyless_non_extern_functions_require_builtin_attribute() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let (module, errors) = parse_module("fn missing_body() ();");
+    let (module, errors) = parse_module("fun missing_body() ();");
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);

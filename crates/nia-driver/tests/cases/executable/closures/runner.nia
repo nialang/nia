@@ -7,17 +7,17 @@ struct Pair {
     right: i32,
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let base = helper::marker();
     let callback = \[base] value: i32 -> { base + value };
-    let view: &Fn(i32) i32 = &callback;
+    let view: &Fun(i32) i32 = &callback;
     let increment = \value: i32 -> { value + 1 };
-    let incrementPointer: &fn(i32) i32 = &increment;
+    let incrementPointer: &fun(i32) i32 = &increment;
     let swap = \value: Pair -> {
         Pair { left: value.right, right: value.left }
     };
-    let swapPointer: &fn(Pair) Pair = &swap;
+    let swapPointer: &fun(Pair) Pair = &swap;
     let swapped = swapPointer(Pair { left: 4, right: 5 });
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
@@ -28,7 +28,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut noCapture = mem::allocValue(&mut allocator, \value: i32 -> { value + 2 }).?;
     let mut noCaptureState = noCapture.valueMut();
-    let noCaptureView: &mut Fn(i32) i32 = &mut noCaptureState.*;
+    let noCaptureView: &mut Fun(i32) i32 = &mut noCaptureState.*;
     let mut noCaptureOwner = noCapture.intoCallable(noCaptureView);
     defer noCaptureOwner.deinit(&mut allocator).?;
     let noCaptureResult = noCaptureOwner.callback()(3);

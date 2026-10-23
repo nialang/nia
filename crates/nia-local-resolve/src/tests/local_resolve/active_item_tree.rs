@@ -8,11 +8,11 @@ fn resolves_locals_from_active_item_tree_only() {
     let (module, errors) = parse_module(
         r#"
 @[if false]
-fn skipped() i32 {
+fun skipped() i32 {
 missing
 }
 @[if true]
-fn selected() i32 {
+fun selected() i32 {
 let mut value = 1;
 value
 }
@@ -55,12 +55,12 @@ fn filtered_local_resolution_preserves_full_tree_local_ids() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-fn unused(a: i32) i32 {
+fun unused(a: i32) i32 {
 let mut x = a;
 x
 }
 
-fn used(b: i32) i32 {
+fun used(b: i32) i32 {
 let mut y = b;
 y
 }
@@ -143,7 +143,7 @@ y
 fn filtered_tree_with_unallocated_local_identity_returns_internal_error() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let (module, errors) = parse_module("fn used(value: i32) i32 { value }");
+    let (module, errors) = parse_module("fun used(value: i32) i32 { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let tree = ModuleItemTree::from_module(&module);
     let full = tree.active_items(&mut BoolResolver(true)).unwrap();

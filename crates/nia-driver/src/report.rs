@@ -993,7 +993,7 @@ mod tests {
 
     #[test]
     fn parse_reports_share_rule_help_across_text_and_json() {
-        let source = "fn main() { let value = 1 }";
+        let source = "fun main() { let value = 1 }";
         let (_module, errors) = nia_parser::parse_module(source);
         let help = "add the missing `;` to terminate this declaration or statement";
 
@@ -1022,7 +1022,7 @@ mod tests {
                 stdout: "linker context".to_string(),
             },
             Some("main.nia"),
-            Some("fn main() () {}"),
+            Some("fun main() () {}"),
         );
         assert!(rendered.contains("error[E0701]"), "{rendered}");
         assert!(
@@ -1051,7 +1051,7 @@ mod tests {
                 stdout: "archive context".to_string(),
             },
             Some("main.nia"),
-            Some("fn main() () {}"),
+            Some("fun main() () {}"),
         );
         assert!(rendered.starts_with("error[E0701]:"), "{rendered}");
         assert!(rendered.contains("archive tool `ar` failed"), "{rendered}");

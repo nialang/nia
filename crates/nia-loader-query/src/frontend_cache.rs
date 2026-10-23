@@ -2013,7 +2013,7 @@ mod tests {
         let sources = SourceDatabase::new();
         let entry = SourcePath::new("src/main.nia");
         sources
-            .set_source(entry.clone(), "fn main() () {}")
+            .set_source(entry.clone(), "fun main() () {}")
             .expect("install source");
         let symbols = SymbolTable::new();
         let demands = HashSet::from([ProviderDemand {

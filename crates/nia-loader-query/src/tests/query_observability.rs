@@ -4,7 +4,7 @@ use super::*;
 fn query_trace_records_source_frontend_dependencies() {
     let root = temp_dir("query_trace_records_source_frontend_dependencies");
     let main_path = root.join("main.nia");
-    write(&main_path, "fn main() i32 { 0 }");
+    write(&main_path, "fun main() i32 { 0 }");
     let main_path = main_path.to_string_lossy().into_owned();
 
     let trace = load_program_trace(main_path, ModuleMap::default());
@@ -29,7 +29,7 @@ fn provider_summary_is_cached_per_module_source_version() {
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     sources
         .set_source(
@@ -38,7 +38,7 @@ fn provider_summary_is_cached_per_module_source_version() {
 struct Widget { value: i32 }
 
 extend Widget {
-    pub fn score(&self) i32 {
+    pub fun score(&self) i32 {
         self.value
     }
 }
@@ -125,7 +125,7 @@ fn missing_provider_products_refresh_when_source_appears() {
 pub struct Widget {}
 
 extend Widget {
-    pub fn score(&self) i32 { 1 }
+    pub fun score(&self) i32 { 1 }
 }
 
 pub using dep::Other;

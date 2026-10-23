@@ -10,7 +10,7 @@ fn associated_types_resolve_explicit_projection_in_trait_methods() {
 trait Source {
     type Item;
 
-    fn get(& self) [Self as Source]::Item;
+    fun get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -20,17 +20,17 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.value
     }
 }
 
-fn read[T](value: & T) [T as Source]::Item
+fun read[T](value: & T) [T as Source]::Item
 where T: Source {
     value.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 3 };
     read[Counter](& counter)
 }
@@ -57,11 +57,11 @@ extend Counter : Source {
     type Item = i32;
 }
 
-fn id(value: [Counter as Source]::Item) [Counter as Source]::Item {
+fun id(value: [Counter as Source]::Item) [Counter as Source]::Item {
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     id(7)
 }
 "#,
@@ -82,7 +82,7 @@ trait Source {
 }
 
 trait Back[Item] {
-    fn back(& self) Item;
+    fun back(& self) Item;
 }
 
 struct Box[T] {
@@ -94,18 +94,18 @@ extend[T] Box[T] : Source {
 }
 
 extend[T] Box[T] : Back[T] {
-    fn back(& self) T {
+    fun back(& self) T {
         self.value
     }
 }
 
-fn read[B](value: & B) [B as Source]::Item
+fun read[B](value: & B) [B as Source]::Item
 where B: Source + Back[[B as Source]::Item]
 {
     value.back()
 }
 
-fn main() i32 {
+fun main() i32 {
     let box = Box[i32] { value: 7 };
     read[Box[i32]](&box)
 }
@@ -125,11 +125,11 @@ fn subtrait_methods_can_return_inherited_associated_type_projection() {
 trait Source {
     type Item;
 
-    fn next(&mut self) ?[Self as Source]::Item;
+    fun next(&mut self) ?[Self as Source]::Item;
 }
 
 trait Back : Source {
-    fn next_back(&mut self) ?[Self as Source]::Item;
+    fun next_back(&mut self) ?[Self as Source]::Item;
 }
 
 struct Counter {
@@ -139,24 +139,24 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn next(&mut self) ?i32 {
+    fun next(&mut self) ?i32 {
         ?self.value
     }
 }
 
 extend Counter : Back {
-    fn next_back(&mut self) ?i32 {
+    fun next_back(&mut self) ?i32 {
         ?self.value
     }
 }
 
-fn read_back[B](value: &mut B) ?[B as Source]::Item
+fun read_back[B](value: &mut B) ?[B as Source]::Item
 where B: Back
 {
     value.next_back()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 7 };
     match read_back[Counter](&mut counter) {
         ?value => {
@@ -185,7 +185,7 @@ trait Source {
 }
 
 trait Back : Source {
-    fn next_back(&mut self) ?[Self as Source]::Item;
+    fun next_back(&mut self) ?[Self as Source]::Item;
 }
 
 struct Box[T] {
@@ -197,12 +197,12 @@ extend[T] Box[T] : Source {
 }
 
 extend[T] Box[T] : Back {
-    fn next_back(&mut self) ?T {
+    fun next_back(&mut self) ?T {
         ?self.value
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value = Box[i32] { value: 7 };
     match value.next_back() {
         ?item => {
@@ -227,7 +227,7 @@ fn source_subtrait_methods_can_return_builtin_associated_type_projection() {
         &root.join("main.nia"),
         r#"
 trait Back : Iterator {
-    fn next_back(&mut self) ?[Self as Iterator]::Item;
+    fun next_back(&mut self) ?[Self as Iterator]::Item;
 }
 
 struct Box[T] {
@@ -237,18 +237,18 @@ struct Box[T] {
 extend[T] Box[T] : Iterator {
     type Item = T;
 
-    fn next(&mut self) ?T {
+    fun next(&mut self) ?T {
         ?self.value
     }
 }
 
 extend[T] Box[T] : Back {
-    fn next_back(&mut self) ?T {
+    fun next_back(&mut self) ?T {
         self.next()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut value = Box[i32] { value: 7 };
     match value.next_back() {
         ?item => {
@@ -274,7 +274,7 @@ fn generic_wrapper_impl_can_return_where_bound_builtin_associated_projection() {
         &root.join("main.nia"),
         r#"
 trait Back : Iterator {
-    fn next_back(&mut self) ?[Self as Iterator]::Item;
+    fun next_back(&mut self) ?[Self as Iterator]::Item;
 }
 
 struct Rev[I]
@@ -288,7 +288,7 @@ where I: Back
 {
     type Item = [I as Iterator]::Item;
 
-    fn next(&mut self) ?[I as Iterator]::Item {
+    fun next(&mut self) ?[I as Iterator]::Item {
         self.iter.next_back()
     }
 }
@@ -296,12 +296,12 @@ where I: Back
 extend[I] Rev[I] : Back
 where I: Back
 {
-    fn next_back(&mut self) ?[I as Iterator]::Item {
+    fun next_back(&mut self) ?[I as Iterator]::Item {
         self.iter.next()
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -318,7 +318,7 @@ fn associated_type_shorthand_normalizes_nested_generic_wrapper_calls() {
 trait Reader {
     type Error;
 
-    fn read(& self) Error!usize;
+    fun read(& self) Error!usize;
 }
 
 enum IoError: i32 {
@@ -331,7 +331,7 @@ struct Source {}
 extend Source : Reader {
     type Error = IoError;
 
-    fn read(& self) Error!usize {
+    fun read(& self) Error!usize {
         !1
     }
 }
@@ -345,12 +345,12 @@ where R: Reader
 {
     type Error = [R as Reader]::Error;
 
-    fn read(& self) Error!usize {
+    fun read(& self) Error!usize {
         self.reader.read()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut source = Source {};
     let mut limit = Limit[Source] { reader: &source };
     match limit.read() {
@@ -386,13 +386,13 @@ pub trait Writer {
 module io;
 using entry::io;
 
-fn error_of[W](value: [W as io::Writer]::Error) ()
+fun error_of[W](value: [W as io::Writer]::Error) ()
 where W: io::Writer
 {
     _ = value;
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -431,13 +431,13 @@ struct Box[T] {
     value: T,
 }
 
-fn boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
+fun boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
 where W: io::Writer
 {
     Box[[W as io::Writer]::Error] { value }
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -469,18 +469,18 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn init(value: T) Box[T] {
+    fun init(value: T) Box[T] {
         Self { value }
     }
 }
 
-fn boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
+fun boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
 where W: io::Writer
 {
     Box[[W as io::Writer]::Error]::init(value)
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -510,7 +510,7 @@ extend Point : Pair {
     type Extra = i32;
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -603,7 +603,7 @@ extend Vec4 : Simd {
     const Extra: usize = 4usize;
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -696,7 +696,7 @@ extend Vec4 : Simd {
     const Lanes: usize = 4usize;
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -717,12 +717,12 @@ struct Point {
 extend Point {
     type Item = i32;
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.x
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -757,7 +757,7 @@ extend Point : Pair {
     type Item = i64;
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -790,11 +790,11 @@ struct NotTrait {
     value: i32,
 }
 
-fn bad[T](value: T) [T as NotTrait]::Item {
+fun bad[T](value: T) [T as NotTrait]::Item {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -819,12 +819,12 @@ trait Source {
     type Item;
 }
 
-fn bad[T](value: T) [T as Source]::Missing
+fun bad[T](value: T) [T as Source]::Missing
 where T: Source {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -848,7 +848,7 @@ fn impl_method_signature_checks_associated_type_projection() {
 trait Source {
     type Item;
 
-    fn get(& self) [Self as Source]::Item;
+    fun get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -858,12 +858,12 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(& self) bool {
+    fun get(& self) bool {
         true
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -923,8 +923,8 @@ trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
-    fn map_d(& self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
+    fun map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fun map_d(& self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
         _ = self.map_c(a, b);
         fallback
     }
@@ -938,17 +938,17 @@ extend Pairer : Mapper[i32, i32] {
     type C = i32;
     type D = i32;
 
-    fn map_c(& self, a: i32, b: i32) i32 {
+    fun map_c(& self, a: i32, b: i32) i32 {
         self.seed + a + b
     }
 }
 
-fn mapped[T](value: & T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
+fun mapped[T](value: & T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
 where T: Mapper[i32, i32] {
     value.map_d(1, 2, fallback)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Pairer { seed: 3 };
     mapped[Pairer](& p, 9)
 }
@@ -968,7 +968,7 @@ fn associated_type_bindings_normalize_open_projections() {
 trait Combines[Rhs] {
     type Output;
 
-    fn add(& self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
+    fun add(& self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
 }
 
 struct Number {
@@ -978,17 +978,17 @@ struct Number {
 extend Number : Combines[Number] {
     type Output = Number;
 
-    fn add(& self, rhs: Number) Number {
+    fun add(& self, rhs: Number) Number {
         Number { value: self.value + rhs.value }
     }
 }
 
-fn add_same[T](a: & T, b: T) T
+fun add_same[T](a: & T, b: T) T
 where T: Combines[T, Output = T] {
     a.add(b)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut one = Number { value: 1 };
     let mut two = Number { value: 2 };
     add_same[Number](& one, two).value
@@ -1010,12 +1010,12 @@ trait Combines[Rhs] {
     type Output;
 }
 
-fn id[T](value: T) T
+fun id[T](value: T) T
 where T: Combines[T, Output = T] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1039,15 +1039,15 @@ fn associated_type_bindings_do_not_forge_unbound_projection_equality() {
 trait Combines[Rhs] {
     type Output;
 
-    fn add(& self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
+    fun add(& self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
 }
 
-fn bad[T](a: & T, b: T) T
+fun bad[T](a: & T, b: T) T
 where T: Combines[T] {
     a.add(b)
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1074,22 +1074,22 @@ trait Combines[Rhs] {
 
 struct NotTrait {}
 
-fn unknown[T](value: T) T
+fun unknown[T](value: T) T
 where T: Combines[T, Missing = T] {
     value
 }
 
-fn duplicate[T](value: T) T
+fun duplicate[T](value: T) T
 where T: Combines[T, Output = T, Output = i32] {
     value
 }
 
-fn non_trait[T](value: T) T
+fun non_trait[T](value: T) T
 where T: NotTrait[Output = T] {
     value
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1130,8 +1130,8 @@ trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
-    fn map_d(& self, a: A, b: B) [Self as Mapper[A, B]]::D;
+    fun map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fun map_d(& self, a: A, b: B) [Self as Mapper[A, B]]::D;
 }
 
 struct Pairer {
@@ -1142,26 +1142,26 @@ extend Pairer : Mapper[i32, bool] {
     type C = i32;
     type D = bool;
 
-    fn map_c(& self, a: i32, b: bool) i32 {
+    fun map_c(& self, a: i32, b: bool) i32 {
         if b { self.seed + a } else { self.seed }
     }
 
-    fn map_d(& self, a: i32, b: bool) bool {
+    fun map_d(& self, a: i32, b: bool) bool {
         if b { a > 0 } else { false }
     }
 }
 
-fn map_c_i32[T](value: & T) i32
+fun map_c_i32[T](value: & T) i32
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map_c(2, true)
 }
 
-fn map_d_bool[T](value: & T) bool
+fun map_d_bool[T](value: & T) bool
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map_d(2, true)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Pairer { seed: 3 };
     if map_d_bool[Pairer](& p) { map_c_i32[Pairer](& p) } else { 0 }
 }
@@ -1181,13 +1181,13 @@ fn associated_type_resolution_uses_current_impl_identity_not_target_type() {
 trait Reader {
     type Error;
 
-    fn read(& self) Error!i32;
+    fun read(& self) Error!i32;
 }
 
 trait Writer {
     type Error;
 
-    fn write(& self) Error!i32;
+    fun write(& self) Error!i32;
 }
 
 enum ReadError: i32 {
@@ -1205,7 +1205,7 @@ struct Device {}
 extend Device : Writer {
     type Error = WriteError;
 
-    fn write(& self) Error!i32 {
+    fun write(& self) Error!i32 {
         !2
     }
 }
@@ -1213,12 +1213,12 @@ extend Device : Writer {
 extend Device : Reader {
     type Error = ReadError;
 
-    fn read(& self) Error!i32 {
+    fun read(& self) Error!i32 {
         !1
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut device = Device {};
     match device.read() {
         !value => {
@@ -1252,13 +1252,13 @@ extend Vec4 : Simd {
     const Lanes: usize = 4usize;
 }
 
-fn lanes[T]() usize
+fun lanes[T]() usize
 where T: Simd
 {
     [T as Simd]::Lanes
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1284,7 +1284,7 @@ extend Vec4 : Simd {
     const Lanes: bool = true;
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1350,7 +1350,7 @@ extend Vec4 : Simd {
     const Lanes = 4usize;
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1415,13 +1415,13 @@ extend Vec4 : simd::Simd {
     const Lanes: usize = 4usize;
 }
 
-fn lanes[T]() usize
+fun lanes[T]() usize
 where T: simd::Simd
 {
     [T as simd::Simd]::Lanes
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1447,11 +1447,11 @@ extend Four : Shape {
     const N: usize = 4usize;
 }
 
-fn fourth(values: [u8; [Four as Shape]::N]) u8 {
+fun fourth(values: [u8; [Four as Shape]::N]) u8 {
     values[3]
 }
 
-fn main() i32 {
+fun main() i32 {
     fourth([1u8, 2u8, 3u8, 4u8]) as i32
 }
 "#,
@@ -1479,7 +1479,7 @@ extend[N: usize] Buf[N] : HasLen {
     const Len: usize = N;
 }
 
-const fn len[T]() usize
+const fun len[T]() usize
 where T: HasLen
 {
     [T as HasLen]::Len
@@ -1488,7 +1488,7 @@ where T: HasLen
 const A: usize = len[Buf[4]]();
 const B: usize = len[Buf[8]]();
 
-fn main() usize {
+fun main() usize {
     A * 10usize + B
 }
 "#,
@@ -1512,7 +1512,7 @@ extend [u8; 4] : HasLen {
     const Len: usize = 4usize;
 }
 
-const fn len[N: usize]() usize
+const fun len[N: usize]() usize
 where [u8; N]: HasLen
 {
     [[u8; N] as HasLen]::Len
@@ -1520,7 +1520,7 @@ where [u8; N]: HasLen
 
 const RESULT: usize = len[4]();
 
-fn main() usize {
+fun main() usize {
     RESULT
 }
 "#,
@@ -1550,7 +1550,7 @@ extend Value : Base {
 
 extend Value : Sub {}
 
-const fn n[T]() usize
+const fun n[T]() usize
 where T: Sub
 {
     [T as Base]::N
@@ -1558,7 +1558,7 @@ where T: Sub
 
 const WIDTH: usize = n[Value]();
 
-fn main() usize {
+fun main() usize {
     let values: [usize; WIDTH] = [1, 2, 3, 4, 5, 6];
     values[5]
 }
@@ -1585,12 +1585,12 @@ extend Store : Slot[3] {
     const Width: usize = 3usize;
 }
 
-const fn width_store() usize
+const fun width_store() usize
 {
     [Store as Slot[3]]::Width
 }
 
-fn generic_width[T, N: usize]() usize
+fun generic_width[T, N: usize]() usize
 where T: Slot[N]
 {
     [T as Slot[N]]::Width
@@ -1598,7 +1598,7 @@ where T: Slot[N]
 
 const WIDTH: usize = width_store();
 
-fn main() usize {
+fun main() usize {
     let values: [usize; WIDTH] = [1, 2, 3];
     values[2] + generic_width[Store, 3]()
 }
@@ -1615,25 +1615,25 @@ fn builtin_simd_trait_projects_lane_type() {
     write(
         &root.join("main.nia"),
         r#"
-fn concrete(value: [u8x16 as Simd]::Lane) u8 {
+fun concrete(value: [u8x16 as Simd]::Lane) u8 {
     value
 }
 
-fn lanes() usize {
+fun lanes() usize {
     [u8x16 as Simd]::Lanes
 }
 
-fn lane_array(values: [u8; [u8x16 as Simd]::Lanes]) u8 {
+fun lane_array(values: [u8; [u8x16 as Simd]::Lanes]) u8 {
     values[15]
 }
 
-fn generic[V](value: [V as Simd]::Lane) ()
+fun generic[V](value: [V as Simd]::Lane) ()
 where V: Simd
 {
     _ = value;
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1649,13 +1649,13 @@ fn builtin_simd_mask_implies_simd_lane_projection() {
     write(
         &root.join("main.nia"),
         r#"
-fn generic[V](value: [V as Simd]::Lane) ()
+fun generic[V](value: [V as Simd]::Lane) ()
 where V: SimdMask
 {
     _ = value;
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,

@@ -1,1 +1,1 @@
-extend never { fn invalid(self) () {} } pub fn main() i32 { 0 }
+extend never { fun invalid(self) () {} } pub fun main() i32 { 0 }

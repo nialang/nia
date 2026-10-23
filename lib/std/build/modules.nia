@@ -32,7 +32,7 @@ using types::{
 };
 
 extend ModuleOptions {
-    pub fn init(name: &[char], rootSource: fs::PathView) ModuleOptions {
+    pub fun init(name: &[char], rootSource: fs::PathView) ModuleOptions {
         .{
             name,
             sourceRoot: .Package,
@@ -43,7 +43,7 @@ extend ModuleOptions {
         }
     }
 
-    pub fn fromPackage(
+    pub fun fromPackage(
         name: &[char],
         package: PackageHandle,
         rootSource: fs::PathView,
@@ -58,7 +58,7 @@ extend ModuleOptions {
         }
     }
 
-    pub fn fromBuild(name: &[char], rootSource: BuildPathView) ModuleOptions {
+    pub fun fromBuild(name: &[char], rootSource: BuildPathView) ModuleOptions {
         .{
             name,
             sourceRoot: .Build,
@@ -69,7 +69,7 @@ extend ModuleOptions {
         }
     }
 
-    pub fn withOptimization(self, optimization: OptimizationMode) ModuleOptions {
+    pub fun withOptimization(self, optimization: OptimizationMode) ModuleOptions {
         .{
             name: self.name,
             sourceRoot: self.sourceRoot,
@@ -80,7 +80,7 @@ extend ModuleOptions {
         }
     }
 
-    pub fn withImports(self, imports: &[ModuleImport]) ModuleOptions {
+    pub fun withImports(self, imports: &[ModuleImport]) ModuleOptions {
         .{
             name: self.name,
             sourceRoot: self.sourceRoot,
@@ -93,28 +93,28 @@ extend ModuleOptions {
 }
 
 extend PackageOptions {
-    pub fn init(name: &[char], root: fs::PathView) PackageOptions {
+    pub fun init(name: &[char], root: fs::PathView) PackageOptions {
         .{ name, root, manifestDependency: false }
     }
 
-    pub(pkg) fn dependency(name: &[char]) PackageOptions {
+    pub(pkg) fun dependency(name: &[char]) PackageOptions {
         .{ name, root: fs::PathView::init(&""), manifestDependency: true }
     }
 }
 
 extend Package {
-    pub(pkg) fn init(index: usize) Package {
+    pub(pkg) fun init(index: usize) Package {
         .{ index, name: .init(), root: .init(), manifestDependency: false }
     }
 
-    pub(pkg) fn initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
+    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
         self.name = string::String::fromSlice(allocator, options.name).withBuildContext(.Retain, .Package(self.index)).?;
         self.root = fs::Path::fromView(allocator, options.root).withBuildContext(.Retain, .Package(self.index)).?;
         self.manifestDependency = options.manifestDependency;
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.root.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
@@ -123,7 +123,7 @@ extend Package {
 }
 
 extend Module {
-    pub(pkg) fn init(
+    pub(pkg) fun init(
         index: usize,
         sourceRoot: ModuleSourceRoot,
         package: PackageHandle,
@@ -132,7 +132,7 @@ extend Module {
         .{ index, name: .init(), sourceRoot, package, rootSource: .init(), optimization, imports: .init() }
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -153,7 +153,7 @@ extend Module {
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         let mut elements: CleanupAccumulator[Error] = .init();
         let mut index = self.imports.len();
@@ -173,7 +173,7 @@ extend Module {
 }
 
 extend ModuleImport {
-    pub fn init(name: &[char], path: fs::PathView) ModuleImport {
+    pub fun init(name: &[char], path: fs::PathView) ModuleImport {
         .{
             name,
             sourceRoot: .Package,
@@ -182,7 +182,7 @@ extend ModuleImport {
         }
     }
 
-    pub fn fromPackage(
+    pub fun fromPackage(
         name: &[char],
         package: PackageHandle,
         path: fs::PathView,
@@ -195,7 +195,7 @@ extend ModuleImport {
         }
     }
 
-    pub fn fromBuild(name: &[char], path: BuildPathView) ModuleImport {
+    pub fun fromBuild(name: &[char], path: BuildPathView) ModuleImport {
         .{
             name,
             sourceRoot: .Build,
@@ -206,7 +206,7 @@ extend ModuleImport {
 }
 
 extend OwnedModuleImport {
-    pub(pkg) fn init(
+    pub(pkg) fun init(
         import: ModuleImport,
         index: usize,
         ownerId: usize,
@@ -220,13 +220,13 @@ extend OwnedModuleImport {
         }
     }
 
-    pub(pkg) fn initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
+    pub(pkg) fun initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
         self.name = string::String::fromSlice(allocator, import.name).withBuildContext(.Retain, .ModuleImport(self.index)).?;
         self.path = fs::Path::fromView(allocator, import.path).withBuildContext(.Retain, .ModuleImport(self.index)).?;
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.path.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
@@ -234,7 +234,7 @@ extend OwnedModuleImport {
     }
 }
 
-pub(pkg) fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
+pub(pkg) fun validateModuleImports(imports: ?&[ModuleImport]) Error!() {
     if imports is ?items {
         let mut index: usize = 0;
         for &import in items.iter() {
@@ -268,7 +268,7 @@ pub(pkg) fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
     !()
 }
 
-fn isValidModuleImportName(name: &[char]) bool {
+fun isValidModuleImportName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }

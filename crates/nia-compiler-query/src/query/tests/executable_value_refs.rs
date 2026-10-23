@@ -5,7 +5,7 @@ use super::*;
 fn executable_value_refs_resolve_only_the_requested_body_item() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "fn helper() i32 { 1 } fn main() i32 { helper() }",
+        "fun helper() i32 { 1 } fun main() i32 { helper() }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -62,7 +62,7 @@ fn executable_value_refs_resolve_only_the_requested_body_item() {
 
 #[test]
 fn executable_value_ref_item_refreshes_from_current_module_facts() {
-    let source = "fn helper() i32 { 1 } fn main() i32 { helper() }";
+    let source = "fun helper() i32 { 1 } fun main() i32 { helper() }";
     let mut fixture = LoadedProgramFixture::new("main.nia", source);
     let module_id = fixture.entry_id();
     let database = fixture.database();
@@ -92,7 +92,7 @@ fn executable_value_ref_item_refreshes_from_current_module_facts() {
 fn executable_value_refs_include_unqualified_static_uses() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "static mut calls: i32 = 0; fn main() i32 { calls += 1; calls }",
+        "static mut calls: i32 = 0; fun main() i32 { calls += 1; calls }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -123,9 +123,9 @@ fn executable_value_refs_include_closure_captures_and_bodies() {
         r#"
 static mut offset: i32 = 1;
 
-fn helper(value: i32) i32 { value }
+fun helper(value: i32) i32 { value }
 
-fn main() i32 {
+fun main() i32 {
     let base = offset;
     let callback = \[base] value: i32 -> {
         helper(base + offset + value)
@@ -167,11 +167,11 @@ static mut secondValue: i32 = 2;
 struct Value {}
 
 extend Value {
-    fn first(&self) i32 { firstValue }
-    fn second(&self) i32 { secondValue }
+    fun first(&self) i32 { firstValue }
+    fun second(&self) i32 { secondValue }
 }
 
-fn main() i32 {
+fun main() i32 {
     let value = Value {};
     value.first() + value.second()
 }
@@ -205,7 +205,7 @@ fn main() i32 {
 
 #[test]
 fn value_ref_rescan_observation_is_enabled_only_with_timings() {
-    let source = "static mut value: i32 = 1; fn main() i32 { value }";
+    let source = "static mut value: i32 = 1; fun main() i32 { value }";
     let fixture = LoadedProgramFixture::new("main.nia", source);
     let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 

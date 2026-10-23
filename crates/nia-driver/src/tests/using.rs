@@ -11,14 +11,14 @@ module math;
 using entry::math;
 using math::add;
 
-fn main() i32 {
+fun main() i32 {
     add(40, 2)
 }
 "#,
     );
     write(
         &root.join("math.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -35,7 +35,7 @@ module math;
 using entry::math;
 using math::{add, sub as minus};
 
-fn main() i32 {
+fun main() i32 {
     add(40, minus(4, 2))
 }
 "#,
@@ -43,8 +43,8 @@ fn main() i32 {
     write(
         &root.join("math.nia"),
         r#"
-pub fn add(a: i32, b: i32) i32 { a + b }
-pub fn sub(a: i32, b: i32) i32 { a - b }
+pub fun add(a: i32, b: i32) i32 { a + b }
+pub fun sub(a: i32, b: i32) i32 { a - b }
 "#,
     );
 
@@ -62,7 +62,7 @@ module math;
 using entry::math;
 using math::{add, sub as minus, Operator::*};
 
-fn main(flag: bool) math::Operator {
+fun main(flag: bool) math::Operator {
     let mut n = add(40, minus(4, 2));
     if flag { Add } else { Sub }
 }
@@ -72,8 +72,8 @@ fn main(flag: bool) math::Operator {
         &root.join("math.nia"),
         r#"
 pub enum Operator: u8 { Add, Sub }
-pub fn add(a: i32, b: i32) i32 { a + b }
-pub fn sub(a: i32, b: i32) i32 { a - b }
+pub fun add(a: i32, b: i32) i32 { a + b }
+pub fun sub(a: i32, b: i32) i32 { a - b }
 "#,
     );
 
@@ -91,7 +91,7 @@ module math;
 using entry::math;
 using math::*;
 
-fn main(p: Point) i32 {
+fun main(p: Point) i32 {
     add(p.x, p.y)
 }
 "#,
@@ -100,7 +100,7 @@ fn main(p: Point) i32 {
         &root.join("math.nia"),
         r#"
 pub struct Point { x: i32, y: i32 }
-pub fn add(a: i32, b: i32) i32 { a + b }
+pub fun add(a: i32, b: i32) i32 { a + b }
 "#,
     );
 
@@ -119,7 +119,7 @@ module impl;
 using entry::facade;
 using facade::*;
 
-fn main(p: Point) i32 {
+fun main(p: Point) i32 {
     add(p.x, p.y)
 }
 "#,
@@ -135,7 +135,7 @@ pub using impl::*;
         &root.join("impl.nia"),
         r#"
 pub struct Point { x: i32, y: i32 }
-pub fn add(a: i32, b: i32) i32 { a + b }
+pub fun add(a: i32, b: i32) i32 { a + b }
 "#,
     );
 
@@ -152,7 +152,7 @@ fn pub_using_wildcard_does_not_reexport_non_public_child_modules() {
 module parent;
 using entry::parent;
 
-fn main() i32 {
+fun main() i32 {
     parent::facade::internal::secret()
 }
 "#,
@@ -176,14 +176,14 @@ pub using source::*;
         &root.join("parent/source.nia"),
         r#"
 pub(super) module internal;
-pub fn visible() i32 { 1 }
+pub fun visible() i32 { 1 }
 "#,
     );
     std::fs::create_dir_all(root.join("parent/source")).expect("create source dir");
     write(
         &root.join("parent/source/internal.nia"),
         r#"
-pub fn secret() i32 { 42 }
+pub fun secret() i32 { 42 }
 "#,
     );
 
@@ -212,7 +212,7 @@ module facade;
 module impl;
 using entry::facade;
 
-fn main() i32 {
+fun main() i32 {
     facade::impl::add(40, 2)
 }
 "#,
@@ -226,7 +226,7 @@ pub using impl;
     );
     write(
         &root.join("impl.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -244,7 +244,7 @@ module impl;
 using entry::facade;
 using facade::*;
 
-fn main() i32 {
+fun main() i32 {
     impl::add(40, 2)
 }
 "#,
@@ -258,7 +258,7 @@ pub using impl;
     );
     write(
         &root.join("impl.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -275,7 +275,7 @@ module facade;
 module impl;
 using entry::facade;
 
-fn main() i32 {
+fun main() i32 {
     facade::add(40, 2)
 }
 "#,
@@ -289,7 +289,7 @@ pub using impl::add;
     );
     write(
         &root.join("impl.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -306,7 +306,7 @@ module facade;
 module math;
 using entry::facade;
 
-fn main(flag: bool) facade::Operator {
+fun main(flag: bool) facade::Operator {
     let mut n = facade::add(40, facade::minus(4, 2));
     if flag { facade::Add } else { facade::Sub }
 }
@@ -323,8 +323,8 @@ pub using math::{Operator, add, sub as minus, Operator::*};
         &root.join("math.nia"),
         r#"
 pub enum Operator: u8 { Add, Sub }
-pub fn add(a: i32, b: i32) i32 { a + b }
-pub fn sub(a: i32, b: i32) i32 { a - b }
+pub fun add(a: i32, b: i32) i32 { a + b }
+pub fun sub(a: i32, b: i32) i32 { a - b }
 "#,
     );
 
@@ -343,7 +343,7 @@ module math;
 module palette;
 using entry::facade;
 
-fn main(flag: bool) facade::palette::Color {
+fun main(flag: bool) facade::palette::Color {
     let mut n = facade::add(40, 2);
     if flag { facade::Red } else { facade::DDD }
 }
@@ -359,7 +359,7 @@ pub using {math, math::add, palette, palette::Color::{Red, DDD}};
     );
     write(
         &root.join("math.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
     write(
         &root.join("palette.nia"),
@@ -387,7 +387,7 @@ module h;
 using entry::rootmod;
 using rootmod::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
 
-fn main(flag: bool) rootmod::a::h::Color {
+fun main(flag: bool) rootmod::a::h::Color {
     let mut n = foo(40, 2) + goo(1) + g(2);
     if flag { Red } else { Blue }
 }
@@ -418,7 +418,7 @@ pub using c;
     );
     write(
         &root.join("c.nia"),
-        r#"pub fn foo(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun foo(a: i32, b: i32) i32 { a + b }"#,
     );
     write(
         &root.join("d.nia"),
@@ -432,10 +432,10 @@ pub using e;
         r#"
 using entry::f;
 pub using f;
-pub fn g(a: i32) i32 { a + 3 }
+pub fun g(a: i32) i32 { a + 3 }
 "#,
     );
-    write(&root.join("f.nia"), r#"pub fn goo(a: i32) i32 { a + 4 }"#);
+    write(&root.join("f.nia"), r#"pub fun goo(a: i32) i32 { a + 4 }"#);
     write(&root.join("h.nia"), r#"pub enum Color: u8 { Red, Blue }"#);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -450,12 +450,12 @@ module math;
 using entry::math;
 using math::missing;
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#;
     write(&root.join("main.nia"), source);
     write(
         &root.join("math.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -502,10 +502,10 @@ module api;
 using entry::api;
 using entry::api::{present, missing_value};
 
-fn main() () {}
+fun main() () {}
 "#;
     write(&root.join("main.nia"), source);
-    write(&root.join("api.nia"), "pub fn present() () {}");
+    write(&root.join("api.nia"), "pub fun present() () {}");
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     let diagnostic = program
@@ -527,8 +527,8 @@ fn main() () {}
 #[test]
 fn using_private_item_reports_declaration_evidence() {
     let root = temp_dir("using_private_item_reports_declaration_evidence");
-    let source = "\nmodule api;\nusing entry::api;\nusing api::hidden;\n\nfn main() () {}\n";
-    let api_source = "fn hidden() () {}\n";
+    let source = "\nmodule api;\nusing entry::api;\nusing api::hidden;\n\nfun main() () {}\n";
+    let api_source = "fun hidden() () {}\n";
     write(&root.join("main.nia"), source);
     write(&root.join("api.nia"), api_source);
 
@@ -546,7 +546,7 @@ fn using_private_item_reports_declaration_evidence() {
     assert!(
         diagnostic.diagnostic.related.iter().any(|related| {
             related.message == "the private item is declared here"
-                && related.span.start == api_source.find("fn hidden").unwrap()
+                && related.span.start == api_source.find("fun hidden").unwrap()
                 && related
                     .source_path
                     .as_deref()
@@ -562,9 +562,9 @@ fn qualified_unknown_value_offers_bounded_spelling_help() {
     let root = temp_dir("qualified_unknown_value_offers_bounded_spelling_help");
     write(
         &root.join("main.nia"),
-        "module api;\nusing entry::api;\nfn main() () { api::pront(); }\n",
+        "module api;\nusing entry::api;\nfun main() () { api::pront(); }\n",
     );
-    write(&root.join("api.nia"), "pub fn print() () {}\n");
+    write(&root.join("api.nia"), "pub fun print() () {}\n");
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     let diagnostic = program
@@ -598,7 +598,7 @@ fn qualified_unknown_type_offers_bounded_spelling_help() {
     let root = temp_dir("qualified_unknown_type_offers_bounded_spelling_help");
     write(
         &root.join("main.nia"),
-        "module api;\nusing entry::api;\nfn main() api::Pint { api::Pint {} }\n",
+        "module api;\nusing entry::api;\nfun main() api::Pint { api::Pint {} }\n",
     );
     write(&root.join("api.nia"), "pub struct Point {}\n");
 
@@ -639,7 +639,7 @@ module math;
 module facade;
 using entry::facade;
 
-fn main() i32 {
+fun main() i32 {
     facade::math::add(40, 2)
 }
 "#,
@@ -652,7 +652,7 @@ pub using entry::math;
     );
     write(
         &root.join("math.nia"),
-        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+        r#"pub fun add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -668,7 +668,7 @@ fn using_local_enum_variant_brings_bare_name() {
 enum Color: u8 { Red, Black }
 using Color::Red;
 
-fn main() Color { Red }
+fun main() Color { Red }
 "#,
     );
 
@@ -685,11 +685,11 @@ fn using_local_enum_wildcard_brings_all_variants() {
 enum Color: u8 { Red, Black, Green }
 using Color::*;
 
-fn pick(flag: bool) Color {
+fun pick(flag: bool) Color {
     if flag { Red } else { Black }
 }
 
-fn main() Color { pick(true) }
+fun main() Color { pick(true) }
 "#,
     );
 
@@ -707,7 +707,7 @@ module palette;
 using entry::palette;
 using palette::Color::{Red, Black as Dark};
 
-fn main() palette::Color {
+fun main() palette::Color {
     let mut c: palette::Color = Red;
     Dark
 }
@@ -734,7 +734,7 @@ module facade;
 module palette;
 using entry::facade;
 
-fn main() facade::Color {
+fun main() facade::Color {
     facade::Red
 }
 "#,
@@ -767,7 +767,7 @@ fn using_unknown_enum_variant_reports_diagnostic() {
 enum Color: u8 { Red, Black }
 using Color::Purple;
 
-fn main() Color { Red }
+fun main() Color { Red }
 "#,
     );
 
@@ -791,7 +791,7 @@ fn qualified_cross_module_enum_variant_access() {
 module palette;
 using entry::palette;
 
-fn main() palette::Color {
+fun main() palette::Color {
     let mut c: palette::Color = palette::Color::Red;
     palette::Color::Black
 }
@@ -815,7 +815,7 @@ fn lowers_cross_module_enum_equality_as_intrinsic_operator() {
 module palette;
 using entry::palette;
 
-fn same(a: palette::Color, b: palette::Color) bool {
+fun same(a: palette::Color, b: palette::Color) bool {
     a == b
 }
 "#,
@@ -858,7 +858,7 @@ using entry::defs;
 
 using defs::{Box, Mode};
 
-fn main() i32 {
+fun main() i32 {
     let mut box = Box::make(Mode::A);
     box.mode as u8 as i32
 }
@@ -877,7 +877,7 @@ pub struct Box {
 }
 
 extend Box {
-    pub fn make(mode: Mode) Box {
+    pub fun make(mode: Mode) Box {
         Self { mode }
     }
 }
@@ -897,7 +897,7 @@ fn match_exhaustive_over_cross_module_enum() {
 module palette;
 using entry::palette;
 
-fn pick(c: palette::Color) i32 {
+fun pick(c: palette::Color) i32 {
     match c {
         palette::Color::Red => return 0,
         palette::Color::Black => return 1,
@@ -906,7 +906,7 @@ fn pick(c: palette::Color) i32 {
     -1
 }
 
-fn main() i32 { pick(palette::Color::Red) }
+fun main() i32 { pick(palette::Color::Red) }
 "#,
     );
     write(
@@ -927,14 +927,14 @@ fn match_over_cross_module_enum_reports_missing_variants() {
 module palette;
 using entry::palette;
 
-fn pick(c: palette::Color) i32 {
+fun pick(c: palette::Color) i32 {
     match c {
         palette::Color::Red => return 0,
     }
     -1
 }
 
-fn main() i32 { pick(palette::Color::Red) }
+fun main() i32 { pick(palette::Color::Red) }
 "#,
     );
     write(
@@ -962,7 +962,7 @@ fn uses_cross_module_public_union() {
 module bits;
 using entry::bits;
 
-fn main() i32 {
+fun main() i32 {
     let mut value = bits::Bits { i: 7 };
     value.i
 }
@@ -986,9 +986,9 @@ fn rejects_cross_module_nia_types_at_extern_abi_boundaries() {
 module types;
 using entry::types;
 
-extern fn bad_struct(point: types::Point);
-extern fn bad_union(bits: types::Bits);
-extern fn bad_enum(color: types::Color);
+extern fun bad_struct(point: types::Point);
+extern fun bad_union(bits: types::Bits);
+extern fun bad_enum(color: types::Color);
 "#,
     );
     write(
@@ -1026,10 +1026,10 @@ fn entry_checking_rejects_extern_abi_types_with_or_without_calls() {
 module types;
 using entry::types;
 
-extern fn called(flag: bool);
-extern fn unreachable(point: types::Point);
+extern fun called(flag: bool);
+extern fun unreachable(point: types::Point);
 
-fn main() i32 {
+fun main() i32 {
     called(true);
     0
 }
@@ -1039,7 +1039,7 @@ fn main() i32 {
         &root.join("types.nia"),
         r#"
 pub struct Point { x: i32 }
-extern fn type_module_only(flag: char);
+extern fun type_module_only(flag: char);
 "#,
     );
 
@@ -1074,8 +1074,8 @@ fn rejects_cross_module_aliases_to_invalid_extern_abi_types() {
 module types;
 using entry::types;
 
-extern fn bad_flag(flag: types::Flag);
-extern fn bad_generic(flag: types::Identity[bool]);
+extern fun bad_flag(flag: types::Flag);
+extern fun bad_generic(flag: types::Identity[bool]);
 extern struct Header { values: types::Repeat[bool, 4] }
 "#,
     );
@@ -1138,11 +1138,11 @@ fn failed_group_selector_leaves_valid_sibling_usable() {
     let source = r#"module api;
 using entry::api::{present, absent};
 
-fn main() i32 {
+fun main() i32 {
     present()
 }
 "#;
-    let diagnostics = using_diagnostics(source, "pub fn present() i32 { 1 }");
+    let diagnostics = using_diagnostics(source, "pub fun present() i32 { 1 }");
 
     assert_eq!(
         diagnostics,
@@ -1159,11 +1159,11 @@ fn unused_import_warning_skips_failed_names_and_marks_the_selector() {
     let source = r#"module api;
 using entry::api::{present, absent};
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#;
-    let diagnostics = using_diagnostics(source, "pub fn present() i32 { 1 }");
+    let diagnostics = using_diagnostics(source, "pub fun present() i32 { 1 }");
 
     assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
     assert!(

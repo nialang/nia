@@ -34,7 +34,7 @@ extend Command {
     /// file, relative to the child's working directory. A bare name is
     /// searched in the `PATH` of the child's environment; on Windows a name
     /// without an extension also tries each `PATHEXT` extension.
-    pub fn init(path: fs::PathView, env: Env) Command {
+    pub fun init(path: fs::PathView, env: Env) Command {
         .{
             path,
             arguments: null,
@@ -46,31 +46,31 @@ extend Command {
         }
     }
 
-    pub fn path(&self) fs::PathView {
+    pub fun path(&self) fs::PathView {
         self.path
     }
 
-    pub fn arguments(&self) ?&[&[char]] {
+    pub fun arguments(&self) ?&[&[char]] {
         self.arguments
     }
 
-    pub fn stdin(&self) StdIo {
+    pub fun stdin(&self) StdIo {
         self.stdin
     }
 
-    pub fn stdout(&self) StdIo {
+    pub fun stdout(&self) StdIo {
         self.stdout
     }
 
-    pub fn stderr(&self) StdIo {
+    pub fun stderr(&self) StdIo {
         self.stderr
     }
 
-    pub fn cwd(&self) ?fs::PathView {
+    pub fun cwd(&self) ?fs::PathView {
         self.cwd
     }
 
-    pub fn withArguments(self, arguments: &[&[char]]) Command {
+    pub fun withArguments(self, arguments: &[&[char]]) Command {
         .{
             path: self.path,
             arguments: ?arguments,
@@ -82,7 +82,7 @@ extend Command {
         }
     }
 
-    pub fn withStdin(self, behavior: StdIo) Command {
+    pub fun withStdin(self, behavior: StdIo) Command {
         .{
             path: self.path,
             arguments: self.arguments,
@@ -94,7 +94,7 @@ extend Command {
         }
     }
 
-    pub fn withStdout(self, behavior: StdIo) Command {
+    pub fun withStdout(self, behavior: StdIo) Command {
         .{
             path: self.path,
             arguments: self.arguments,
@@ -106,7 +106,7 @@ extend Command {
         }
     }
 
-    pub fn withStderr(self, behavior: StdIo) Command {
+    pub fun withStderr(self, behavior: StdIo) Command {
         .{
             path: self.path,
             arguments: self.arguments,
@@ -118,7 +118,7 @@ extend Command {
         }
     }
 
-    pub fn withCwd(self, cwd: fs::PathView) Command {
+    pub fun withCwd(self, cwd: fs::PathView) Command {
         .{
             path: self.path,
             arguments: self.arguments,
@@ -130,7 +130,7 @@ extend Command {
         }
     }
 
-    pub fn withEnvironment(self, entries: &[EnvEntry]) Command {
+    pub fun withEnvironment(self, entries: &[EnvEntry]) Command {
         .{
             path: self.path,
             arguments: self.arguments,
@@ -142,7 +142,7 @@ extend Command {
         }
     }
 
-    pub fn withoutEnvironment(self) Command {
+    pub fun withoutEnvironment(self) Command {
         .{
             path: self.path,
             arguments: self.arguments,
@@ -154,15 +154,15 @@ extend Command {
         }
     }
 
-    pub fn spawn(&self) SpawnAttempt {
+    pub fun spawn(&self) SpawnAttempt {
         .start(self)
     }
 
-    pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
+    pub fun spawnWithAllocator(&self, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
         .start(self, allocator)
     }
 
-    fn executeSpawn(
+    fun executeSpawn(
         &self,
         allocator: &mut mem::Allocator,
         storage: &mut SpawnStorage,
@@ -218,7 +218,7 @@ extend Command {
 }
 
 extend SpawnStorage {
-    fn init() SpawnStorage {
+    fun init() SpawnStorage {
         .{
             argumentBytes: .init(),
             argv: .init(),
@@ -230,13 +230,13 @@ extend SpawnStorage {
         }
     }
 
-    fn execute(&mut self, command: &Command, allocator: &mut mem::Allocator) () {
+    fun execute(&mut self, command: &Command, allocator: &mut mem::Allocator) () {
         if command.executeSpawn(allocator, self) is cause! {
             self.outcome = ?.Failure(cause);
         }
     }
 
-    fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
+    fun finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
         let nativeResult = self.finishNativeSpawn();
         let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.cwdBytes.deinit(allocator));
@@ -257,7 +257,7 @@ extend SpawnStorage {
         }
     }
 
-    fn finishNativeSpawn(&mut self) Error!() {
+    fun finishNativeSpawn(&mut self) Error!() {
         if self.nativeSpawn is ?value {
             let mut attempt = value;
             self.nativeSpawn = null;
@@ -285,7 +285,7 @@ extend SpawnStorage {
 }
 
 extend SpawnAttempt {
-    fn start(command: &Command) SpawnAttempt {
+    fun start(command: &Command) SpawnAttempt {
         let mut attempt: SpawnAttempt = .{
             allocator: .init(),
             storage: .init(),
@@ -295,26 +295,26 @@ extend SpawnAttempt {
         attempt
     }
 
-    pub fn finish(&mut self) Error!Child {
+    pub fun finish(&mut self) Error!Child {
         let allocator: &mut mem::Allocator = &mut self.allocator;
         self.storage.finish(allocator)
     }
 }
 
 extend AllocatorSpawnAttempt {
-    fn start(command: &Command, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
+    fun start(command: &Command, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
         let mut attempt: AllocatorSpawnAttempt = .{ storage: .init() };
         _ = attempt.storage.execute(command, allocator);
         attempt
     }
 
-    pub fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
+    pub fun finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
         self.storage.finish(allocator)
     }
 }
 
 extend StdIo {
-    fn asOsStdio(self) os::StdIo {
+    fun asOsStdio(self) os::StdIo {
         match self {
             .Inherit => .Inherit,
             .Ignore => .Ignore,
@@ -323,7 +323,7 @@ extend StdIo {
     }
 }
 
-fn appendArgument(
+fun appendArgument(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     argument: &[char],
@@ -337,7 +337,7 @@ fn appendArgument(
     )
 }
 
-fn appendPath(
+fun appendPath(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     path: fs::PathView,
@@ -350,7 +350,7 @@ fn appendPath(
     )
 }
 
-fn appendText(
+fun appendText(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     text: &[char],
@@ -374,7 +374,7 @@ fn appendText(
     !()
 }
 
-fn validateEnvironment(entries: &[EnvEntry]) Error!() {
+fun validateEnvironment(entries: &[EnvEntry]) Error!() {
     let mut index: usize = 0;
     for &entry in entries {
         if entry.name().isEmpty() {
@@ -408,7 +408,7 @@ fn validateEnvironment(entries: &[EnvEntry]) Error!() {
     !()
 }
 
-fn appendEnvironmentEntry(
+fun appendEnvironmentEntry(
     allocator: &mut mem::Allocator,
     bytes: &mut collections::ArrayList[u8],
     entry: EnvEntry,
@@ -442,7 +442,7 @@ fn appendEnvironmentEntry(
     !()
 }
 
-fn appendCStringPointers(
+fun appendCStringPointers(
     allocator: &mut mem::Allocator,
     bytes: &[u8],
     pointers: &mut collections::ArrayList[&u8],
@@ -462,13 +462,13 @@ fn appendCStringPointers(
 }
 
 extend[T] os::Error!T {
-    fn withSpawnSetupContext(self) Error!T {
+    fun withSpawnSetupContext(self) Error!T {
         self.mapError(&\cause: os::Error -> .SpawnSetup(cause.intoError()))
     }
 }
 
 extend mem::Error : builtin::IntoError[Error] {
-    const fn intoError(self) Error {
+    const fun intoError(self) Error {
         Error::Allocation(self)
     }
 }

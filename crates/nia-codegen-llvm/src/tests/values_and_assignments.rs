@@ -8,7 +8,7 @@ fn emits_if_expression_from_function_ir() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut x = 1;
     if x == 1 { 40 } else { 2 }
 }
@@ -37,7 +37,7 @@ fn emits_signed_integer_comparisons_from_operand_type() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let ret: isize = -2isize;
     if ret < 0isize { 0 } else { 1 }
 }
@@ -68,11 +68,11 @@ fn emits_nested_value_function_flow_from_function_ir() {
     std::fs::write(
         &main,
         r#"
-fn take(x: i32, y: i32) i32 {
+fun take(x: i32, y: i32) i32 {
     x + y
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     let mut values = [
         if flag { 1 } else { 2 },
         { let mut tmp = 3; tmp },
@@ -106,9 +106,9 @@ fn emits_deferred_function_body_from_function_ir() {
     std::fs::write(
         &main,
         r#"
-extern fn log(x: i32);
+extern fun log(x: i32);
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     defer {
         if flag {
             log(1);
@@ -146,7 +146,7 @@ fn emits_while_condition_value_flow_from_function_ir() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut i = 0;
     while { i < 2 } {
         i += 1;
@@ -175,7 +175,7 @@ fn emits_plain_local_assignment() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut x = 1;
     x = 41;
     x + 1
@@ -202,10 +202,10 @@ fn scalar_call_assignment_evaluates_rhs_before_place_address() {
     std::fs::write(
         &main,
         r#"
-extern fn rhs() i32;
-extern fn slot() &mut i32;
+extern fun rhs() i32;
+extern fun slot() &mut i32;
 
-fn main() i32 {
+fun main() i32 {
     slot().* = rhs();
     0
 }
@@ -229,16 +229,16 @@ fn mutable_call_results_keep_abi_types_through_readonly_coercions() {
     std::fs::write(
         &main,
         r#"
-extern fn slot() &mut i32;
-extern fn read_pointer(value: &i32);
-fn values(value: &mut [i32]) &mut [i32] {
+extern fun slot() &mut i32;
+extern fun read_pointer(value: &i32);
+fun values(value: &mut [i32]) &mut [i32] {
     value
 }
-fn read_slice(value: &[i32]) () {
+fun read_slice(value: &[i32]) () {
     _ = value;
 }
 
-fn main(xs: &mut [i32]) i32 {
+fun main(xs: &mut [i32]) i32 {
     read_pointer(slot());
     let value: &i32 = slot();
     _ = value.*;
@@ -263,11 +263,11 @@ fn emits_index_assignment_through_mutable_slice_call_result() {
     std::fs::write(
         &main,
         r#"
-fn identity(xs: &mut [i32]) &mut [i32] {
+fun identity(xs: &mut [i32]) &mut [i32] {
     xs
 }
 
-fn main(xs: &mut [i32]) i32 {
+fun main(xs: &mut [i32]) i32 {
     identity(xs)[0usize] = 41;
     identity(xs)[0usize] += 1;
     identity(xs)[0usize]
@@ -297,7 +297,7 @@ struct Point {
     y: i32,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Point { x: 10, y: 20 };
     let mut xs: [i32; 3] = [1, 2, 3];
     p.x += xs[1];
@@ -336,12 +336,12 @@ struct T {
 }
 
 extend S {
-    fn make(x: i32) S {
+    fun make(x: i32) S {
         Self { x }
     }
 }
 
-fn build() T {
+fun build() T {
     let mut t = T { xs: [S::make(0); 4] };
 
     let mut i = 0u16;
@@ -353,7 +353,7 @@ fn build() T {
     t
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut t = build();
     t.xs[2].x
 }
@@ -387,12 +387,12 @@ struct T {
 }
 
 extend S {
-    fn make(x: i32) S {
+    fun make(x: i32) S {
         Self { x }
     }
 }
 
-fn build() T {
+fun build() T {
     let mut t = T { xs: [S::make(0); 4] };
 
     let mut i = 0u16;
@@ -404,7 +404,7 @@ fn build() T {
     t
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut t = build();
     t.xs[2].x
 }
@@ -427,18 +427,18 @@ fn emits_dynamic_index_call_from_struct_function_pointer_array_field() {
         &main,
         r#"
 struct Table {
-    fns: [&fn(i32) i32; 2],
+    fns: [&fun(i32) i32; 2],
 }
 
-fn add1(x: i32) i32 {
+fun add1(x: i32) i32 {
     x + 1
 }
 
-fn add2(x: i32) i32 {
+fun add2(x: i32) i32 {
     x + 2
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut table = Table { fns: [& add1, & add2] };
     let mut i: usize = 1;
     table.fns[i](40)

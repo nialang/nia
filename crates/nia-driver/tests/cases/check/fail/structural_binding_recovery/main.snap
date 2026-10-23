@@ -1,7 +1,7 @@
 path: fail/structural_binding_recovery/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 33..40 Primary Source no value named `missing` is visible in this scope
+label: 34..41 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

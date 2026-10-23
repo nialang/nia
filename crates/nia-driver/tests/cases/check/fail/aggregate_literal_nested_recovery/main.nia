@@ -3,9 +3,9 @@ struct Point {
     y: bool,
 }
 
-fn main() () {
+fun main() () {
     let point = Point { x: @ (bad, value), y: true };
     later();
 }
 
-fn later() () {}
+fun later() () {}

@@ -4,18 +4,18 @@
 // representation; no wrapper type is introduced.
 
 extend[Value, Source] Source!Value {
-    pub fn isSuccess(&self) bool {
+    pub fun isSuccess(&self) bool {
         let result = self.*;
         if result is !_ { true } else { false }
     }
 
-    pub fn isError(&self) bool {
+    pub fun isError(&self) bool {
         let result = self.*;
         if result is _! { true } else { false }
     }
 
-    pub fn map[Mapped, Mapper](self, mapper: Mapper) Source!Mapped
-    where Mapper: Fn(Value) Mapped
+    pub fun map[Mapped, Mapper](self, mapper: Mapper) Source!Mapped
+    where Mapper: Fun(Value) Mapped
     {
         match self {
             !value => !mapper(value),
@@ -23,8 +23,8 @@ extend[Value, Source] Source!Value {
         }
     }
 
-    pub fn andThen[Mapped, Next](self, next: Next) Source!Mapped
-    where Next: Fn(Value) Source!Mapped
+    pub fun andThen[Mapped, Next](self, next: Next) Source!Mapped
+    where Next: Fun(Value) Source!Mapped
     {
         match self {
             !value => next(value),
@@ -34,7 +34,7 @@ extend[Value, Source] Source!Value {
 
     // Observe a failure without changing the result or its error type.
     // The callback is borrowed, synchronous, and runs only on the error arm.
-    pub fn inspectError(self, inspector: &Fn(Source) ()) Source!Value {
+    pub fun inspectError(self, inspector: &Fun(Source) ()) Source!Value {
         match self {
             !value => !value,
             error! => {
@@ -46,14 +46,14 @@ extend[Value, Source] Source!Value {
 }
 
 extend[Value, Source, Target] Source!Value {
-    pub fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+    pub fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
         match self {
             !value => !value,
             error! => mapper(error)!,
         }
     }
 
-    pub fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+    pub fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
         match self {
             !value => !value,
             error! => fallback(error),

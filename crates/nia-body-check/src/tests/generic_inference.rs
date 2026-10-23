@@ -15,7 +15,7 @@ extend[N: usize] Box[N] : Source[N] {
     type Item = [Self as Source[N]]::Item;
 }
 
-fn main() i32 {
+fun main() i32 {
     let value: [Box[3] as Source[3]]::Item = 0;
     value
 }
@@ -39,12 +39,12 @@ struct Box[T] {
     value: T,
 }
 
-fn id[T](value: T) T { value }
-fn unbox[T](box: Box[T]) T { box.value }
-fn deref_id[T](value: &T) T { value.* }
-fn choose[T](left: T, right: T) T { left }
+fun id[T](value: T) T { value }
+fun unbox[T](box: Box[T]) T { box.value }
+fun deref_id[T](value: &T) T { value.* }
+fun choose[T](left: T, right: T) T { left }
 
-fn main(box: Box[i32], ptr: & i32, flag: bool) i32 {
+fun main(box: Box[i32], ptr: & i32, flag: bool) i32 {
     let mut a: i32 = id(1);
     let mut b: i32 = unbox(box);
     let mut c: i32 = deref_id(ptr);
@@ -70,14 +70,14 @@ fn main(box: Box[i32], ptr: & i32, flag: bool) i32 {
 fn infers_generic_function_type_arguments_from_expected_return_type() {
     let checked = pipeline(
         r#"
-fn id[T](value: T) T { value }
-fn choose[T](left: T, right: T) T { left }
+fun id[T](value: T) T { value }
+fun choose[T](left: T, right: T) T { left }
 
-fn from_return() i32 {
+fun from_return() i32 {
     id(1)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut a: i32 = id(1);
     let mut b: usize = id(1);
     let mut c: i32 = choose(id(1), 2);
@@ -120,12 +120,12 @@ fn main() i32 {
 fn infers_generic_from_array_layout_builtin_and_marker() {
     let checked = pipeline(
         r#"
-fn inspect[T](value: [u8; std::builtin::size[T]()], marker: T) T {
+fun inspect[T](value: [u8; std::builtin::size[T]()], marker: T) T {
     _ = value;
     marker
 }
 
-fn main() i32 {
+fun main() i32 {
     inspect([1u8, 2u8, 3u8, 4u8], 1i32)
 }
 "#,
@@ -137,16 +137,16 @@ fn main() i32 {
 fn infers_generic_type_from_array_layout_builtin_operand() {
     let checked = pipeline(
         r#"
-fn inspect[T](value: [u8; std::builtin::size[T]()]) usize {
+fun inspect[T](value: [u8; std::builtin::size[T]()]) usize {
     _ = value;
     0usize
 }
 
-fn caller(value: [u8; std::builtin::size[i32]()]) usize {
+fun caller(value: [u8; std::builtin::size[i32]()]) usize {
     inspect(value)
 }
 
-fn main(value: [u8; std::builtin::size[i32]()]) usize {
+fun main(value: [u8; std::builtin::size[i32]()]) usize {
     caller(value)
 }
 "#,
@@ -166,12 +166,12 @@ fn main(value: [u8; std::builtin::size[i32]()]) usize {
 fn rejects_array_layout_builtin_length_mismatch_after_type_inference() {
     let checked = pipeline(
         r#"
-fn inspect[T](value: [u8; std::builtin::size[T]()], marker: T) T {
+fun inspect[T](value: [u8; std::builtin::size[T]()], marker: T) T {
     _ = value;
     marker
 }
 
-fn main() i32 {
+fun main() i32 {
     inspect([1u8, 2u8, 3u8], 1i32)
 }
 "#,
@@ -183,12 +183,12 @@ fn main() i32 {
 fn reports_missing_generic_type_hidden_in_array_layout_builtin() {
     let checked = pipeline(
         r#"
-fn inspect[T](value: [u8; std::builtin::size[T]()]) usize {
+fun inspect[T](value: [u8; std::builtin::size[T]()]) usize {
     _ = value;
     0usize
 }
 
-fn main() usize {
+fun main() usize {
     inspect([1u8, 2u8, 3u8, 4u8])
 }
 "#,
@@ -238,9 +238,9 @@ fn main() usize {
 fn explains_conflicting_generic_inference_with_actionable_help() {
     let checked = pipeline(
         r#"
-fn choose[T](left: T, right: T) T { left }
+fun choose[T](left: T, right: T) T { left }
 
-fn main() i32 {
+fun main() i32 {
     choose(1, true)
 }
 "#,
@@ -272,12 +272,12 @@ fn main() i32 {
 fn explains_conflicting_const_generic_inference_with_values_and_help() {
     let checked = pipeline(
         r#"
-fn same[N: usize](left: [i32; N], right: [i32; N]) () {
+fun same[N: usize](left: [i32; N], right: [i32; N]) () {
     _ = left;
     _ = right;
 }
 
-fn main(left: [i32; 2], right: [i32; 3]) () {
+fun main(left: [i32; 2], right: [i32; 3]) () {
     same(left, right)
 }
 "#,
@@ -309,12 +309,12 @@ fn main(left: [i32; 2], right: [i32; 3]) () {
 fn rejects_implicit_trailing_generic_argument_inference() {
     let checked = pipeline(
         r#"
-fn keep_first[T, U](left: T, right: U) T {
+fun keep_first[T, U](left: T, right: U) T {
     _ = right;
     left
 }
 
-fn main() i32 {
+fun main() i32 {
     keep_first[i32](7, true)
 }
 "#,
@@ -335,17 +335,17 @@ fn main() i32 {
 fn explicit_generic_inference_placeholders_cover_type_and_const_parameters() {
     let checked = pipeline(
         r#"
-fn keep_first[T, U](left: T, right: U) T {
+fun keep_first[T, U](left: T, right: U) T {
     _ = right;
     left
 }
 
-fn take_array[T, N: usize](xs: [T; N]) usize {
+fun take_array[T, N: usize](xs: [T; N]) usize {
     _ = xs;
     N
 }
 
-fn main(xs: [u8; 4]) i32 {
+fun main(xs: [u8; 4]) i32 {
     keep_first[i32, _](7, true) + take_array[_, _](xs) as i32
 }
 "#,
@@ -357,12 +357,12 @@ fn main(xs: [u8; 4]) i32 {
 fn infers_const_generic_array_lengths_from_call_arguments() {
     let checked = pipeline(
         r#"
-fn take_array[T, N: usize](xs: [T; N]) usize {
+fun take_array[T, N: usize](xs: [T; N]) usize {
     _ = xs;
     0usize
 }
 
-fn main(xs: [u8; 4]) usize {
+fun main(xs: [u8; 4]) usize {
     take_array(xs) + take_array[u8, 4](xs) + take_array[u8, _](xs)
 }
 "#,
@@ -389,18 +389,18 @@ fn trait_object_vtable_instantiations_retain_const_arguments() {
     let checked = pipeline(
         r#"
 trait Scaled[N: usize] {
-    fn value(& self) usize { 8usize }
+    fun value(& self) usize { 8usize }
 }
 
 struct Meter {}
 
 extend[N: usize] Meter : Scaled[N] {}
 
-fn read(value: & Scaled[8]) usize {
+fun read(value: & Scaled[8]) usize {
     value.value()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -427,11 +427,11 @@ fn trait_object_vtable_instantiations_include_inherited_default_methods() {
     let checked = pipeline(
         r#"
 trait Base[N: usize] {
-    fn value(& self) usize { N }
+    fun value(& self) usize { N }
 }
 
 trait Child[N: usize] : Base[N] {
-    fn child(& self) usize { 1usize }
+    fun child(& self) usize { 1usize }
 }
 
 struct Meter {}
@@ -439,11 +439,11 @@ struct Meter {}
 extend[N: usize] Meter : Base[N] {}
 extend[N: usize] Meter : Child[N] {}
 
-fn read(value: & Child[8]) usize {
+fun read(value: & Child[8]) usize {
     value.value() + value.child()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -470,21 +470,21 @@ fn trait_object_vtable_instantiations_deduplicate_diamond_supertraits() {
     let checked = pipeline(
         r#"
 trait Base[N: usize] {
-    fn base(& self) usize { N }
+    fun base(& self) usize { N }
 }
 
 type BaseAlias[N: usize] = Base[N];
 
 trait Left[N: usize] : BaseAlias[N] {
-    fn left(& self) usize { 1usize }
+    fun left(& self) usize { 1usize }
 }
 
 trait Right[N: usize] : Base[N] {
-    fn right(& self) usize { 2usize }
+    fun right(& self) usize { 2usize }
 }
 
 trait Root[N: usize] : Left[N] + Right[N] {
-    fn root(& self) usize { 3usize }
+    fun root(& self) usize { 3usize }
 }
 
 struct Meter {}
@@ -494,11 +494,11 @@ extend[N: usize] Meter : Left[N] {}
 extend[N: usize] Meter : Right[N] {}
 extend[N: usize] Meter : Root[N] {}
 
-fn read(value: & Root[8]) usize {
+fun read(value: & Root[8]) usize {
     value.left() + value.right() + value.root()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -525,21 +525,21 @@ fn trait_object_vtable_guards_compare_const_values_semantically() {
     let checked = pipeline(
         r#"
 trait Base[N: usize] {
-    fn base(& self) usize { N }
+    fun base(& self) usize { N }
 }
 
 type BaseAlias[N: usize] = Base[N];
 
 trait Left[N: usize] : Base[N] {
-    fn left(& self) usize { 1usize }
+    fun left(& self) usize { 1usize }
 }
 
 trait Right[N: usize] : BaseAlias[3usize] {
-    fn right(& self) usize { 2usize }
+    fun right(& self) usize { 2usize }
 }
 
 trait Root[N: usize] : Left[N] + Right[N] {
-    fn root(& self) usize { 3usize }
+    fun root(& self) usize { 3usize }
 }
 
 struct Meter {}
@@ -549,11 +549,11 @@ extend[N: usize] Meter : Left[N] {}
 extend[N: usize] Meter : Right[N] {}
 extend[N: usize] Meter : Root[N] {}
 
-fn read(value: & Root[3]) usize {
+fun read(value: & Root[3]) usize {
     value.base() + value.left() + value.right() + value.root()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -579,12 +579,12 @@ fn main() usize {
 fn infers_const_generic_array_lengths_from_array_literal_arguments() {
     let checked = pipeline(
         r#"
-fn take_array[T, N: usize](xs: [T; N]) usize {
+fun take_array[T, N: usize](xs: [T; N]) usize {
     _ = xs;
     0usize
 }
 
-fn main() usize {
+fun main() usize {
     take_array([1u8, 2u8, 3u8, 4u8])
 }
 "#,
@@ -611,11 +611,11 @@ struct Buffer[T, N: usize] {
     items: [T; N],
 }
 
-fn inspect[T, N: usize](value: Buffer[T, N]) () {
+fun inspect[T, N: usize](value: Buffer[T, N]) () {
     _ = value;
 }
 
-fn main(value: Buffer[i32, 4]) () {
+fun main(value: Buffer[i32, 4]) () {
     inspect(value)
 }
 "#,
@@ -650,11 +650,11 @@ trait Parent[T] {
 
 trait Child : Parent[i32] {}
 
-fn inspect[T](value: &Child[[Self as Parent[T]]::Item = T]) () {
+fun inspect[T](value: &Child[[Self as Parent[T]]::Item = T]) () {
     _ = value;
 }
 
-fn main(value: &Child[[Self as Parent[i32]]::Item = i32]) () {
+fun main(value: &Child[[Self as Parent[i32]]::Item = i32]) () {
     inspect(value)
 }
 "#,
@@ -682,7 +682,7 @@ trait Parent[T] {
 
 trait Child : Parent[i32] + Parent[bool] + Parent[usize] {}
 
-fn inspect[T, U](expected: U, value: &Child[
+fun inspect[T, U](expected: U, value: &Child[
     [Self as Parent[T]]::Item = U,
     [Self as Parent[i32]]::Item = bool,
     [Self as Parent[usize]]::Item = bool,
@@ -690,7 +690,7 @@ fn inspect[T, U](expected: U, value: &Child[
     _ = (expected, value);
 }
 
-fn main(value: &Child[
+fun main(value: &Child[
     [Self as Parent[i32]]::Item = bool,
     [Self as Parent[bool]]::Item = i32,
     [Self as Parent[usize]]::Item = bool,
@@ -733,7 +733,7 @@ extend Store : Slot[bool] {
 
 extend Store : Both {}
 
-fn inspect[T](value: &Both[
+fun inspect[T](value: &Both[
     [Self as Slot[T]]::Item = bool,
     [Self as Slot[i32]]::Item = bool,
 ]) usize {
@@ -741,7 +741,7 @@ fn inspect[T](value: &Both[
     7
 }
 
-fn main() usize {
+fun main() usize {
     let store = Store {};
     let value: &Both[
         [Self as Slot[i32]]::Item = bool,
@@ -762,12 +762,12 @@ fn main() usize {
 fn infers_const_generic_lengths_through_tuple_arguments() {
     let checked = pipeline(
         r#"
-fn tupleLen[N: usize](value: ([i32; N], bool)) usize {
+fun tupleLen[N: usize](value: ([i32; N], bool)) usize {
     _ = value;
     N
 }
 
-fn main(values: [i32; 3]) usize {
+fun main(values: [i32; 3]) usize {
     tupleLen((values, true))
 }
 "#,
@@ -792,12 +792,12 @@ fn main(values: [i32; 3]) usize {
 fn infers_const_generic_lengths_through_callable_arguments() {
     let checked = pipeline(
         r#"
-fn callableLen[N: usize](callback: &Fn([i32; N]) i32) usize {
+fun callableLen[N: usize](callback: &Fun([i32; N]) i32) usize {
     _ = callback;
     N
 }
 
-fn main(callback: &Fn([i32; 4]) i32) usize {
+fun main(callback: &Fun([i32; 4]) i32) usize {
     callableLen(callback)
 }
 "#,
@@ -823,14 +823,14 @@ fn reconstructed_trait_object_types_match_structurally() {
     let checked = pipeline(
         r#"
 trait Consumer[T] {
-    fn consume(&self, value: T) T;
+    fun consume(&self, value: T) T;
 }
 
-fn identity[T](value: &Consumer[T]) &Consumer[T] {
+fun identity[T](value: &Consumer[T]) &Consumer[T] {
     value
 }
 
-fn main(value: &Consumer[i32]) &Consumer[i32] {
+fun main(value: &Consumer[i32]) &Consumer[i32] {
     identity(value)
 }
 "#,
@@ -843,13 +843,13 @@ fn main(value: &Consumer[i32]) &Consumer[i32] {
 fn incompatible_pointer_does_not_seed_const_generic_length() {
     let checked = pipeline(
         r#"
-fn selectLen[N: usize](first: &mut [i32; N], second: [i32; N]) usize {
+fun selectLen[N: usize](first: &mut [i32; N], second: [i32; N]) usize {
     _ = first;
     _ = second;
     N
 }
 
-fn main(readonly: &[i32; 2], values: [i32; 3]) usize {
+fun main(readonly: &[i32; 2], values: [i32; 3]) usize {
     selectLen(readonly, values)
 }
 "#,
@@ -869,12 +869,12 @@ fn main(readonly: &[i32; 2], values: [i32; 3]) usize {
 fn incompatible_late_tuple_field_does_not_seed_const_generic_length() {
     let checked = pipeline(
         r#"
-fn tupleLen[N: usize](value: ([i32; N], &mut i32)) usize {
+fun tupleLen[N: usize](value: ([i32; N], &mut i32)) usize {
     _ = value;
     N
 }
 
-fn main(values: [i32; 2], readonly: &i32) usize {
+fun main(values: [i32; 2], readonly: &i32) usize {
     tupleLen((values, readonly))
 }
 "#,
@@ -894,11 +894,11 @@ fn main(values: [i32; 2], readonly: &i32) usize {
 fn infers_range_bound_literals_from_peer_bound_type() {
     let checked = pipeline(
         r#"
-fn take_range[T](bounds: T..T) T {
+fun take_range[T](bounds: T..T) T {
     bounds.end()
 }
 
-fn main(count: usize) usize {
+fun main(count: usize) usize {
     let mut from_suffix = take_range(0..4usize);
     let mut from_variable = take_range(0..count);
     from_suffix + from_variable
@@ -913,7 +913,7 @@ fn infers_generic_function_input_from_where_predicate_impl_candidates() {
     let checked = pipeline_with_len_provider(
         r#"
 trait DecodeFrom[Input] {
-    fn decode(input: Input) Self;
+    fun decode(input: Input) Self;
 }
 
 struct Wrapped {}
@@ -922,32 +922,32 @@ struct Bytes {
     data: [u8; 3],
 }
 
-fn decode[T, Input](input: Input) T
+fun decode[T, Input](input: Input) T
 where T: DecodeFrom[Input]
 {
     [T]::decode(input)
 }
 
 extend i32 : DecodeFrom[&[char]] {
-    fn decode(input: &[char]) i32 {
+    fun decode(input: &[char]) i32 {
         input.len() as i32
     }
 }
 
 extend i32 : DecodeFrom[&[u8]] {
-    fn decode(input: &[u8]) i32 {
+    fun decode(input: &[u8]) i32 {
         input.len() as i32
     }
 }
 
 extend i32 : DecodeFrom[Wrapped] {
-    fn decode(input: Wrapped) i32 {
+    fun decode(input: Wrapped) i32 {
         _ = input;
         0
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let bytes: [u8; 3] = [1, 2, 3];
     let wrapped = Bytes { data: bytes };
     decode[i32, _](&"abc") + decode[i32, _](&bytes) + decode[i32, _](&wrapped.data)
@@ -976,13 +976,13 @@ extend Bad : Source {
     type Item = bool;
 }
 
-fn require[T](value: T) ()
+fun require[T](value: T) ()
 where T: Source[Item = i32]
 {
     _ = value;
 }
 
-fn main(good: Good, bad: Bad) () {
+fun main(good: Good, bad: Bad) () {
     require(good);
     require(bad);
 }
@@ -1049,11 +1049,11 @@ where T: Source[Item = i32]
     value: T,
 }
 
-fn accept(value: Holder[Good]) () {
+fun accept(value: Holder[Good]) () {
     _ = value;
 }
 
-fn reject(value: Holder[Bad]) () {
+fun reject(value: Holder[Bad]) () {
     _ = value;
 }
 "#,
@@ -1086,13 +1086,13 @@ trait Marker {}
 
 extend i32 : Marker {}
 
-fn make[T]() i32
+fun make[T]() i32
 where T: Marker
 {
     0
 }
 
-fn main() i32 {
+fun main() i32 {
     make[_]()
 }
 "#,
@@ -1132,14 +1132,14 @@ extend[T] Box[T] : Source {
     type Item = T;
 }
 
-fn infer_item[S, Item](source: S) i32
+fun infer_item[S, Item](source: S) i32
 where S: Source[Item = Item]
 {
     _ = source;
     0
 }
 
-fn main(source: Box[i32]) i32 {
+fun main(source: Box[i32]) i32 {
     infer_item[_, _](source)
 }
 "#,
@@ -1162,13 +1162,13 @@ extend Pair : Source {
     type Item = (i32, bool);
 }
 
-fn require[T](value: T) ()
+fun require[T](value: T) ()
 where T: Source[Item = (i32, bool)]
 {
     _ = value;
 }
 
-fn main(pair: Pair) () {
+fun main(pair: Pair) () {
     require(pair);
 }
 "#,
@@ -1192,13 +1192,13 @@ extend Pair : Source {
     type Item = (Box[3], bool);
 }
 
-fn require[T](value: T) ()
+fun require[T](value: T) ()
 where T: Source[Item = (Box[3usize], bool)]
 {
     _ = value;
 }
 
-fn main(pair: Pair) () {
+fun main(pair: Pair) () {
     require(pair);
 }
 "#,
@@ -1223,14 +1223,14 @@ extend[T] Box[T] : Source {
     type Item = T;
 }
 
-fn reject_pair[S, Item](source: S) i32
+fun reject_pair[S, Item](source: S) i32
 where S: Source[Item = (Item, Item)]
 {
     _ = source;
     0
 }
 
-fn main(pair: Box[(i32, bool)]) i32 {
+fun main(pair: Box[(i32, bool)]) i32 {
     reject_pair[_, _](pair)
 }
 "#,
@@ -1259,7 +1259,7 @@ trait Parent {
 }
 
 trait Child : Parent[Item = i32] {
-    fn value(&self) i32 {
+    fun value(&self) i32 {
         let item: [Self as Parent]::Item = 7;
         item
     }
@@ -1275,13 +1275,13 @@ fn resolves_receiver_parse_facade_through_result_protocol() {
     let checked = pipeline_with_len_provider(
         r#"
 trait From[Input] {
-    fn from(input: Input) i32!Self;
+    fun from(input: Input) i32!Self;
 }
 
 extend[Unit] [Unit]
 where Unit: Sized
 {
-    fn parse[T](&self) i32!T
+    fun parse[T](&self) i32!T
     where T: From[&[Unit]]
     {
         [T]::from(self)
@@ -1289,7 +1289,7 @@ where Unit: Sized
 }
 
 extend i32 : From[&[char]] {
-    fn from(input: &[char]) i32!i32 {
+    fun from(input: &[char]) i32!i32 {
         if input.len() == 0 {
             1!
         } else {
@@ -1298,7 +1298,7 @@ extend i32 : From[&[char]] {
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     match (&"nia").parse[i32]() {
         !value => value,
         _ => 0,
@@ -1313,9 +1313,9 @@ fn main() i32 {
 fn checks_fixed_prefix_of_variadic_extern_calls() {
     let checked = pipeline(
         r#"
-extern fn printf(fmt: &u8, ...);
+extern fun printf(fmt: &u8, ...);
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     _ = printf(flag, 1);
     let mut s = b"hello\0";
     printf(&s[0], s);
@@ -1351,11 +1351,11 @@ fn main(flag: bool) i32 {
 fn infers_generic_element_from_string_slice_pointer_coercion() {
     let checked = pipeline(
         r#"
-fn first[T](value: &[T]) T {
+fun first[T](value: &[T]) T {
     value[0]
 }
 
-fn main() char {
+fun main() char {
     first(&"nia")
 }
 "#,
@@ -1367,11 +1367,11 @@ fn main() char {
 fn infers_generic_element_from_byte_string_slice_pointer_coercion() {
     let checked = pipeline(
         r#"
-fn first[T](value: &[T]) T {
+fun first[T](value: &[T]) T {
     value[0]
 }
 
-fn main() u8 {
+fun main() u8 {
     first(&b"nia")
 }
 "#,
@@ -1383,11 +1383,11 @@ fn main() u8 {
 fn infers_generic_element_from_mutable_array_slice_pointer() {
     let checked = pipeline(
         r#"
-fn first[T](value: &mut [T]) T {
+fun first[T](value: &mut [T]) T {
     value[0]
 }
 
-fn main(values: [i32; 2]) i32 {
+fun main(values: [i32; 2]) i32 {
     first(&mut values)
 }
 "#,
@@ -1399,11 +1399,11 @@ fn main(values: [i32; 2]) i32 {
 fn rejects_readonly_array_pointer_for_mutable_slice_parameter() {
     let checked = pipeline(
         r#"
-fn first[T](value: &mut [T]) T {
+fun first[T](value: &mut [T]) T {
     value[0]
 }
 
-fn main(values: [i32; 2]) i32 {
+fun main(values: [i32; 2]) i32 {
     first(&values)
 }
 "#,
@@ -1415,9 +1415,9 @@ fn main(values: [i32; 2]) i32 {
 fn structural_recovery_does_not_publish_generic_shape_cascade() {
     let checked = pipeline(
         r#"
-fn choose[T](left: T, right: T) T { left }
+fun choose[T](left: T, right: T) T { left }
 
-fn main() () {
+fun main() () {
     _ = choose((missing, 1i32), (true, false));
 }
 "#,

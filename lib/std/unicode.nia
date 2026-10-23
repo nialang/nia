@@ -33,35 +33,35 @@ pub enum Utf8DecodeError: i32 {
 }
 
 extend Utf8Scalar {
-    fn init(bytes: [u8; 4], byteLen: usize) Utf8Scalar {
+    fun init(bytes: [u8; 4], byteLen: usize) Utf8Scalar {
         .{ bytes, byteLen }
     }
 
-    pub fn byteLen(&self) usize {
+    pub fun byteLen(&self) usize {
         self.byteLen
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         & self.bytes[0..self.byteLen]
     }
 }
 
 extend DecodedUtf8Scalar {
-    fn init(scalar: char, byteLen: usize) DecodedUtf8Scalar {
+    fun init(scalar: char, byteLen: usize) DecodedUtf8Scalar {
         .{ scalar, byteLen }
     }
 
-    pub fn scalar(&self) char {
+    pub fun scalar(&self) char {
         self.scalar
     }
 
-    pub fn byteLen(&self) usize {
+    pub fun byteLen(&self) usize {
         self.byteLen
     }
 }
 
 extend Utf8View {
-    pub fn fromBytes(bytes: &[u8]) Utf8DecodeError!Utf8View {
+    pub fun fromBytes(bytes: &[u8]) Utf8DecodeError!Utf8View {
         let mut scalarCount: usize = 0;
         let mut byteIndex: usize = 0;
         while byteIndex < bytes.len() {
@@ -78,33 +78,33 @@ extend Utf8View {
         !.{ bytes: bytes, scalarCount: scalarCount }
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         self.bytes
     }
 
-    pub fn byteLen(&self) usize {
+    pub fun byteLen(&self) usize {
         self.bytes.len()
     }
 
-    pub fn scalarCount(&self) usize {
+    pub fun scalarCount(&self) usize {
         self.scalarCount
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.bytes.len() == 0
     }
 }
 
 extend Utf8ViewIter {
-    fn init(view: Utf8View) Utf8ViewIter {
+    fun init(view: Utf8View) Utf8ViewIter {
         .{ bytes: view.bytes(), byteIndex: 0, remaining: view.scalarCount() }
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.remaining
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.remaining == 0
     }
 }
@@ -113,7 +113,7 @@ extend Utf8View : Iterable {
     type Item = char;
     type Iter = Utf8ViewIter;
 
-    pub fn iter(&self) Utf8ViewIter {
+    pub fun iter(&self) Utf8ViewIter {
         .init(self.*)
     }
 }
@@ -121,7 +121,7 @@ extend Utf8View : Iterable {
 extend Utf8ViewIter : Iterator {
     type Item = char;
 
-    pub fn next(&mut self) ?char {
+    pub fun next(&mut self) ?char {
         if self.remaining == 0 {
             return null;
         }
@@ -154,7 +154,7 @@ extend Utf8ViewIter : Iterator {
     }
 }
 
-fn nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
+fun nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
     if current.checkedAdd(width) is ?next and next <= limit {
         return ?next;
     };
@@ -162,11 +162,11 @@ fn nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
 }
 
 extend char {
-    pub fn codepoint(self) u32 {
+    pub fun codepoint(self) u32 {
         self as u32
     }
 
-    pub fn encodeUtf8(self) Utf8Scalar {
+    pub fun encodeUtf8(self) Utf8Scalar {
         let code = self as u32;
         if code <= 127 {
             .init([code as u8, 0, 0, 0], 1)
@@ -195,15 +195,15 @@ extend char {
     }
 }
 
-pub const fn fromScalarValue(value: u32) ?char {
+pub const fun fromScalarValue(value: u32) ?char {
     pkg::builtin::charFromU32(value)
 }
 
-pub const fn isValidScalarValue(value: u32) bool {
+pub const fun isValidScalarValue(value: u32) bool {
     value <= 0x10ffff and not (value >= 0xd800 and value <= 0xdfff)
 }
 
-pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
+pub fun decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
     if bytes.len() == 0 {
         return .Empty!;
     }
@@ -247,7 +247,7 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
     .InvalidScalar!
 }
 
-fn isOverlongUtf8(code: u32, width: usize) bool {
+fun isOverlongUtf8(code: u32, width: usize) bool {
     match width {
         1 => false,
         2 => code < 0x80,

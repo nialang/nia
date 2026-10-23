@@ -1,4 +1,4 @@
-fn main() () {
+fun main() () {
     let &value = (missing, 1);
     _ = value;
 }

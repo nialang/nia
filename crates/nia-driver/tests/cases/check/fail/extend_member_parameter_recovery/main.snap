@@ -1,13 +1,13 @@
 path: fail/extend_member_parameter_recovery/main.nia
 code: E0101
 summary: expected `,` or `)` after parameter; found `second`
-label: 54..60 Primary Source expected `,` or `)` after parameter; found `second`
+label: 55..61 Primary Source expected `,` or `)` after parameter; found `second`
 
 report:
 error[E0101]: expected `,` or `)` after parameter; found `second`
-  --> fail/extend_member_parameter_recovery/main.nia:4:23
+  --> fail/extend_member_parameter_recovery/main.nia:4:24
   |
-4 |     fn bad(first: i32 second: bool) Value { Value {} }
-  |                       ^^^^^^
+4 |     fun bad(first: i32 second: bool) Value { Value {} }
+  |                        ^^^^^^
 
 summary: 1 error, 0 warnings

@@ -17,7 +17,7 @@ using std;
 using std::mem;
 using std::process;
 
-fn sumBorrowed(values: &std::ArrayList[i32]) i32 {
+fun sumBorrowed(values: &std::ArrayList[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -25,7 +25,7 @@ fn sumBorrowed(values: &std::ArrayList[i32]) i32 {
     total
 }
 
-fn sumMutBorrowed(values: &mut std::ArrayList[i32]) i32 {
+fun sumMutBorrowed(values: &mut std::ArrayList[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -33,7 +33,7 @@ fn sumMutBorrowed(values: &mut std::ArrayList[i32]) i32 {
     total
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -369,7 +369,7 @@ using std;
 using std::mem;
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -456,13 +456,13 @@ struct NonEmptyZeroAllocator {
 }
 
 extend NonEmptyZeroAllocator {
-    fn init() NonEmptyZeroAllocator {
+    fun init() NonEmptyZeroAllocator {
         Self { backing: mem::PageAllocator::init(), freeCount: 0 }
     }
 }
 
 extend NonEmptyZeroAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         if layout.isEmpty() {
             self.backing.alloc(mem::Layout::init(1, layout.align()).?)
         } else {
@@ -470,7 +470,7 @@ extend NonEmptyZeroAllocator : mem::Allocator {
         }
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if not block.isEmpty() {
             self.freeCount += 1;
         }
@@ -478,7 +478,7 @@ extend NonEmptyZeroAllocator : mem::Allocator {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut sourcePage = mem::PageAllocator::init();
     let mut sourceGpa = mem::GeneralPurposeAllocator::init(&mut sourcePage);
@@ -612,7 +612,7 @@ using std::process;
 
 struct Marker {}
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;
@@ -698,21 +698,21 @@ struct FailingAllocator {
 }
 
 extend FailingAllocator {
-    fn init(buffer: &mut [u8]) FailingAllocator {
+    fun init(buffer: &mut [u8]) FailingAllocator {
         Self { backing: mem::FixedBufferAllocator::init(buffer), freeCount: 0, failures: 0 }
     }
 
-    fn failNextFrees(&mut self, count: usize) () {
+    fun failNextFrees(&mut self, count: usize) () {
         self.failures = count;
     }
 }
 
 extend FailingAllocator : mem::Allocator {
-    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
         self.backing.alloc(layout)
     }
 
-    fn free(&mut self, block: mem::Block) mem::Error!() {
+    fun free(&mut self, block: mem::Block) mem::Error!() {
         if not block.isEmpty() {
             self.freeCount += 1;
             if self.failures != 0 {
@@ -723,20 +723,20 @@ extend FailingAllocator : mem::Allocator {
         self.backing.free(block)
     }
 
-    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
         _ = block;
         _ = newLayout;
         false
     }
 
-    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+    fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
         _ = block;
         _ = newLayout;
         null
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut storage: [u8; 8192] = [0; 8192];
     let mut allocator = FailingAllocator::init(&mut storage);
@@ -862,7 +862,7 @@ using std;
 using std::mem;
 using std::process;
 
-fn expectInvalid(result: mem::Error!()) process::ExitCode!() {
+fun expectInvalid(result: mem::Error!()) process::ExitCode!() {
     match result {
         !ok => { _ = ok;
                 return process::ExitCode(90)!; },
@@ -873,7 +873,7 @@ fn expectInvalid(result: mem::Error!()) process::ExitCode!() {
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
     let mut page = &mut allocator;

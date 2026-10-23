@@ -1260,7 +1260,7 @@ mod tests {
                 key: ActionKey::new(package.clone(), "generate").unwrap(),
                 kind: ActionKind::GeneratedFile {
                     output: LogicalPath::new(LogicalPathRoot::Build, "generated.nia").unwrap(),
-                    contents: b"pub fn generated() () {}\n".to_vec(),
+                    contents: b"pub fun generated() () {}\n".to_vec(),
                 },
             },
             PlanAction {

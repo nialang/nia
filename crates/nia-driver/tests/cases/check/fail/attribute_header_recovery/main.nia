@@ -1,12 +1,12 @@
 @[broken.]
-fn retained() () {}
+fun retained() () {}
 
-fn later() () {}
+fun later() () {}
 
 @[unterminated.
-fn final() () {}
+fun final() () {}
 
-fn main() () {
+fun main() () {
     @[statement.
     let kept = 1;
     return;

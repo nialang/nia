@@ -1,7 +1,7 @@
 path: fail/match_pattern_delimiter_recovery/main.nia
 code: E0101
 summary: expected `,` or `=>` after match pattern; found `false`
-label: 57..62 Primary Source expected `,` or `=>` after match pattern; found `false`
+label: 58..63 Primary Source expected `,` or `=>` after match pattern; found `false`
 
 report:
 error[E0101]: expected `,` or `=>` after match pattern; found `false`

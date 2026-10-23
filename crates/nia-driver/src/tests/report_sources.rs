@@ -10,12 +10,13 @@ fn diagnostic_reports_retain_dependency_overlays_across_edits_and_cache() {
     let consumer = root.join("consumer.nia");
     write(
         &entry,
-        "module api; module consumer; pub fn main() i32 { consumer::run() }\n",
+        "module api; module consumer; pub fun main() i32 { consumer::run() }\n",
     );
-    write(&api, "fn hidden(value: i32) i32 { value }\n");
-    write(&consumer, "pub fn run() i32 { entry::api::hidden(1) }\n");
-    let api_overlay = "// declaration overlay\n\nfn hidden(value: i32) i32 { value }\n";
-    let consumer_overlay = "// consumer overlay\n\npub fn run() i32 { entry::api::hidden(true) }\n";
+    write(&api, "fun hidden(value: i32) i32 { value }\n");
+    write(&consumer, "pub fun run() i32 { entry::api::hidden(1) }\n");
+    let api_overlay = "// declaration overlay\n\nfun hidden(value: i32) i32 { value }\n";
+    let consumer_overlay =
+        "// consumer overlay\n\npub fun run() i32 { entry::api::hidden(true) }\n";
     let request = || CheckRequest::new(entry.to_string_lossy().into_owned());
     let make_driver = |verify_frontend_cache| {
         let driver = Driver::with_config(DriverConfig {
@@ -78,13 +79,13 @@ fn diagnostic_reports_retain_dependency_overlays_across_edits_and_cache() {
     driver
         .set_source(
             api.to_string_lossy(),
-            "pub fn hidden(value: i32) i32 { value }\n",
+            "pub fun hidden(value: i32) i32 { value }\n",
         )
         .expect("repair visibility");
     driver
         .set_source(
             consumer.to_string_lossy(),
-            "pub fn run() i32 { entry::api::hidden(1) }\n",
+            "pub fun run() i32 { entry::api::hidden(1) }\n",
         )
         .expect("repair argument");
     driver
@@ -108,7 +109,7 @@ fn unavailable_report_sources_do_not_read_later_files() {
     let root = temp_dir("unavailable_report_sources");
     let entry = root.join("main.nia");
     let absent = root.join("absent.nia");
-    write(&entry, "module absent; pub fn main() i32 { 0 }\n");
+    write(&entry, "module absent; pub fun main() i32 { 0 }\n");
     let program = checked_program_from_output(
         test_driver().check_all_modules(CheckRequest::new(entry.to_string_lossy().into_owned())),
     );

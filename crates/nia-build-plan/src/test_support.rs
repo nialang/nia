@@ -191,7 +191,7 @@ pub(crate) fn generated_source_draft(
                 key: generate,
                 kind: ActionKind::GeneratedFile {
                     output: LogicalPath::new(LogicalPathRoot::Build, generated_path).unwrap(),
-                    contents: b"pub fn generated() () {}\n".to_vec(),
+                    contents: b"pub fun generated() () {}\n".to_vec(),
                 },
             },
             PlanAction {

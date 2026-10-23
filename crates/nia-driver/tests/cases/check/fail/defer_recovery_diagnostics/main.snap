@@ -1,13 +1,13 @@
 path: fail/defer_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing_deferred`
-label: 25..41 Primary Source no value named `missing_deferred` is visible in this scope
+label: 26..42 Primary Source no value named `missing_deferred` is visible in this scope
 help: check the spelling, import `missing_deferred`, or declare it before this use
 
 path: fail/defer_recovery_diagnostics/main.nia
 code: E0201
 summary: unknown value `missing_later`
-label: 47..60 Primary Source no value named `missing_later` is visible in this scope
+label: 48..61 Primary Source no value named `missing_later` is visible in this scope
 help: check the spelling, import `missing_later`, or declare it before this use
 
 report:

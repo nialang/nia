@@ -23,11 +23,11 @@ fn trait_object_extension_methods_resolve_on_object_values() {
         &root.join("main.nia"),
         r#"
 trait Allocator {
-    fn alloc(&mut self) i32;
+    fun alloc(&mut self) i32;
 }
 
 extend Allocator {
-    fn alloc_twice(&mut self) i32 {
+    fun alloc_twice(&mut self) i32 {
         self.alloc() + self.alloc()
     }
 }
@@ -37,16 +37,16 @@ struct PageAllocator {
 }
 
 extend PageAllocator : Allocator {
-    fn alloc(&mut self) i32 {
+    fun alloc(&mut self) i32 {
         self.value
     }
 }
 
-fn use_allocator(allocator: &mut Allocator) i32 {
+fun use_allocator(allocator: &mut Allocator) i32 {
     allocator.alloc_twice()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut allocator = PageAllocator { value: 21 };
     use_allocator(&mut allocator)
 }
@@ -64,11 +64,11 @@ fn trait_object_extension_methods_infer_method_generics() {
         &root.join("main.nia"),
         r#"
 trait Allocator {
-    fn alloc(&mut self, len: usize) i32;
+    fun alloc(&mut self, len: usize) i32;
 }
 
 extend Allocator {
-    fn alloc_slice[T](&mut self, len: usize) i32
+    fun alloc_slice[T](&mut self, len: usize) i32
     where T: Sized
     {
         self.alloc(len * std::builtin::size[T]())
@@ -80,16 +80,16 @@ struct PageAllocator {
 }
 
 extend PageAllocator : Allocator {
-    fn alloc(&mut self, len: usize) i32 {
+    fun alloc(&mut self, len: usize) i32 {
         self.value + len as i32
     }
 }
 
-fn use_allocator(allocator: &mut Allocator) i32 {
+fun use_allocator(allocator: &mut Allocator) i32 {
     allocator.alloc_slice[i32](4usize)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut allocator = PageAllocator { value: 21 };
     use_allocator(&mut allocator)
 }
@@ -107,11 +107,11 @@ fn readonly_trait_object_extension_methods_resolve_on_readonly_objects() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(&self) i32;
+    fun get(&self) i32;
 }
 
 extend Source {
-    fn get_plus_one(&self) i32 {
+    fun get_plus_one(&self) i32 {
         self.get() + 1
     }
 }
@@ -121,16 +121,16 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn get(&self) i32 {
+    fun get(&self) i32 {
         self.value
     }
 }
 
-fn read(source: &Source) i32 {
+fun read(source: &Source) i32 {
     source.get_plus_one()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 41 };
     read(&counter)
 }
@@ -149,7 +149,7 @@ fn bare_trait_is_still_not_a_value_type() {
         r#"
 trait Allocator {}
 
-fn main() i32 {
+fun main() i32 {
     let mut allocator: Allocator;
     0
 }
@@ -180,9 +180,9 @@ fn trait_object_supertrait_upcast_is_recorded() {
 trait Parent {}
 trait Child : Parent {}
 
-fn accept(parent: & Parent) () {}
+fun accept(parent: & Parent) () {}
 
-fn use_child(child: & Child) () {
+fun use_child(child: & Child) () {
     accept(child)
 }
 "#,
@@ -218,9 +218,9 @@ fn trait_object_non_supertrait_upcast_is_rejected() {
 trait Parent {}
 trait Other {}
 
-fn accept(parent: & Parent) () {}
+fun accept(parent: & Parent) () {}
 
-fn use_other(other: & Other) () {
+fun use_other(other: & Other) () {
     accept(other)
 }
 "#,
@@ -244,7 +244,7 @@ fn concrete_pointer_coerces_to_trait_object_and_dispatches_method() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 struct Counter {
@@ -252,16 +252,16 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.value
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     read(& counter)
 }
@@ -287,13 +287,13 @@ fn const_generic_trait_object_preserves_impl_and_supertrait_instances() {
         &root.join("main.nia"),
         r#"
 trait Base[N: usize] {
-    fn value(& self) usize {
+    fun value(& self) usize {
         8usize
     }
 }
 
 trait Scaled[N: usize] : Base[N] {
-    fn doubled(& self) usize;
+    fun doubled(& self) usize;
 }
 
 struct Meter {}
@@ -301,16 +301,16 @@ struct Meter {}
 extend[N: usize] Meter : Base[N] {}
 
 extend[N: usize] Meter : Scaled[N] {
-    fn doubled(& self) usize {
+    fun doubled(& self) usize {
         16usize
     }
 }
 
-fn read(value: & Scaled[8]) usize {
+fun read(value: & Scaled[8]) usize {
     value.value() + value.doubled()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -362,21 +362,21 @@ fn backend_vtable_guards_compare_diamond_const_instances_semantically() {
         &root.join("main.nia"),
         r#"
 trait Base[N: usize] {
-    fn base(& self) usize { N }
+    fun base(& self) usize { N }
 }
 
 type BaseAlias[N: usize] = Base[N];
 
 trait Left[N: usize] : BaseAlias[N] {
-    fn left(& self) usize { 1usize }
+    fun left(& self) usize { 1usize }
 }
 
 trait Right[N: usize] : Base[3usize] {
-    fn right(& self) usize { 2usize }
+    fun right(& self) usize { 2usize }
 }
 
 trait Root[N: usize] : Left[N] + Right[N] {
-    fn root(& self) usize { 3usize }
+    fun root(& self) usize { 3usize }
 }
 
 struct Meter {}
@@ -387,11 +387,11 @@ extend[N: usize] Meter : Left[N] {}
 extend[N: usize] Meter : Right[N] {}
 extend[N: usize] Meter : Root[N] {}
 
-fn read(value: & Root[3]) usize {
+fun read(value: & Root[3]) usize {
     value.base() + value.left() + value.right() + value.root()
 }
 
-fn main() usize {
+fun main() usize {
     let meter = Meter {};
     read(& meter)
 }
@@ -427,7 +427,7 @@ fn mutable_pointer_coerces_to_mutable_trait_object_and_dispatches_method() {
         &root.join("main.nia"),
         r#"
 trait CounterLike {
-    fn bump(&mut self) i32;
+    fun bump(&mut self) i32;
 }
 
 struct Counter {
@@ -435,17 +435,17 @@ struct Counter {
 }
 
 extend Counter : CounterLike {
-    fn bump(&mut self) i32 {
+    fun bump(&mut self) i32 {
         self.value += 1;
         self.value
     }
 }
 
-fn bump(counter: &mut CounterLike) i32 {
+fun bump(counter: &mut CounterLike) i32 {
     counter.bump()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 8 };
     bump(&mut counter)
 }
@@ -471,20 +471,20 @@ fn array_literal_reference_elements_coerce_to_trait_objects() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend i32 : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.*
     }
 }
 
-fn read_all(sources: & [ & Source]) i32 {
+fun read_all(sources: & [ & Source]) i32 {
     sources[0].get()
 }
 
-fn main() i32 {
+fun main() i32 {
     read_all(&[&8])
 }
 "#,
@@ -507,20 +507,20 @@ fn reference_coerces_to_readonly_trait_object_argument() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend i32 : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.*
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     read(&8)
 }
 "#,
@@ -543,20 +543,20 @@ fn value_does_not_coerce_to_readonly_trait_object_argument() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend i32 : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.*
     }
 }
 
-fn read(source: & Source) i32 {
+fun read(source: & Source) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     read(8)
 }
 "#,
@@ -582,11 +582,11 @@ fn imported_public_trait_impl_private_method_coerces_to_trait_object() {
 module fmt;
 using entry::fmt;
 
-fn read(source: &fmt::Format) i32 {
+fun read(source: &fmt::Format) i32 {
     source.format()
 }
 
-fn main() i32 {
+fun main() i32 {
     read(&8)
 }
 "#,
@@ -595,11 +595,11 @@ fn main() i32 {
         &root.join("fmt.nia"),
         r#"
 pub trait Format {
-    fn format(&self) i32;
+    fun format(&self) i32;
 }
 
 extend i32 : Format {
-    fn format(&self) i32 {
+    fun format(&self) i32 {
         self.*
     }
 }
@@ -628,11 +628,11 @@ module std;
 module fmt;
 using entry::std;
 
-fn use_all(args: &[&std::fmt::Format[std::fmt::Error]]) i32 {
+fun use_all(args: &[&std::fmt::Format[std::fmt::Error]]) i32 {
     args[0].format()
 }
 
-fn main() i32 {
+fun main() i32 {
     use_all(&[&10])
 }
 "#,
@@ -653,11 +653,11 @@ pub enum Error {
 }
 
 pub trait Format[E] {
-    fn format(&self) i32;
+    fun format(&self) i32;
 }
 
 extend[E] i32 : Format[E] {
-    fn format(&self) i32 {
+    fun format(&self) i32 {
         self.*
     }
 }
@@ -709,20 +709,20 @@ fn value_does_not_coerce_to_mutable_trait_object_argument() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(& self) i32;
+    fun get(& self) i32;
 }
 
 extend i32 : Source {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.*
     }
 }
 
-fn read(source: &mut Source) i32 {
+fun read(source: &mut Source) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     read(8)
 }
 "#,
@@ -748,7 +748,7 @@ fn trait_object_method_call_wins_over_blanket_extension_methods() {
 trait Other {}
 
 trait Writer[E] {
-    fn writeFmtBytes(&mut self, bytes: &[u8]) E!();
+    fun writeFmtBytes(&mut self, bytes: &[u8]) E!();
 }
 
 struct Formatter[E] {
@@ -756,11 +756,11 @@ struct Formatter[E] {
 }
 
 extend[E] Formatter[E] {
-    fn write_all(&mut self, bytes: &[u8]) E!() {
+    fun write_all(&mut self, bytes: &[u8]) E!() {
         self.writer.writeFmtBytes(bytes)
     }
 
-    fn writeByte(&mut self) E!() {
+    fun writeByte(&mut self) E!() {
         let mut bytes: [u8; 1] = [0];
         self.write_all(&bytes[..]).?;
         !()
@@ -770,7 +770,7 @@ extend[E] Formatter[E] {
 extend[W] W : Writer[i32]
 where W: Other
 {
-    fn writeFmtBytes(&mut self, bytes: &[u8]) i32!() {
+    fun writeFmtBytes(&mut self, bytes: &[u8]) i32!() {
         _ = bytes;
         !()
     }
@@ -798,7 +798,7 @@ fn trait_object_methods_may_return_bound_associated_types() {
 trait Source {
     type Item;
 
-    fn get(& self) [Self as Source]::Item;
+    fun get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -808,16 +808,16 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.value
     }
 }
 
-fn read(source: & Source[Item = i32]) i32 {
+fun read(source: & Source[Item = i32]) i32 {
     source.get()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 42 };
     read(& counter)
 }
@@ -844,17 +844,17 @@ fn trait_object_upcast_matches_explicit_supertrait_associated_type_bindings() {
 trait FatherA {
     type Item;
 
-    fn a(& self) [Self as FatherA]::Item;
+    fun a(& self) [Self as FatherA]::Item;
 }
 
 trait FatherB {
     type Item;
 
-    fn b(& self) [Self as FatherB]::Item;
+    fun b(& self) [Self as FatherB]::Item;
 }
 
 trait Child : FatherA + FatherB {
-    fn child(& self) i32;
+    fun child(& self) i32;
 }
 
 struct Both {
@@ -864,7 +864,7 @@ struct Both {
 extend Both : FatherA {
     type Item = i32;
 
-    fn a(& self) i32 {
+    fun a(& self) i32 {
         self.value
     }
 }
@@ -872,33 +872,33 @@ extend Both : FatherA {
 extend Both : FatherB {
     type Item = usize;
 
-    fn b(& self) usize {
+    fun b(& self) usize {
         1usize
     }
 }
 
 extend Both : Child {
-    fn child(& self) i32 {
+    fun child(& self) i32 {
         self.value + 1
     }
 }
 
-fn read_a(parent: & FatherA[Item = i32]) i32 {
+fun read_a(parent: & FatherA[Item = i32]) i32 {
     parent.a()
 }
 
-fn read_b(parent: & FatherB[Item = usize]) usize {
+fun read_b(parent: & FatherB[Item = usize]) usize {
     parent.b()
 }
 
-fn from_child(child: & Child[
+fun from_child(child: & Child[
     [Self as FatherA]::Item = i32,
     [Self as FatherB]::Item = usize,
 ]) i32 {
     read_a(child) + read_b(child) as i32
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut both = Both { value: 41 };
     from_child(& both)
 }
@@ -926,11 +926,11 @@ fn trait_object_upcast_uses_declared_supertrait_associated_type_bindings() {
 trait Parent {
     type Item;
 
-    fn parent(& self) [Self as Parent]::Item;
+    fun parent(& self) [Self as Parent]::Item;
 }
 
 trait Child : Parent[Item = i32] {
-    fn child(& self) i32;
+    fun child(& self) i32;
 }
 
 struct Counter {
@@ -940,26 +940,26 @@ struct Counter {
 extend Counter : Parent {
     type Item = i32;
 
-    fn parent(& self) i32 {
+    fun parent(& self) i32 {
         self.value
     }
 }
 
 extend Counter : Child {
-    fn child(& self) i32 {
+    fun child(& self) i32 {
         self.value + 1
     }
 }
 
-fn as_parent(child: & Child) & Parent[Item = i32] {
+fun as_parent(child: & Child) & Parent[Item = i32] {
     child
 }
 
-fn read_child(child: & Child) i32 {
+fun read_child(child: & Child) i32 {
     child.parent()
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 20 };
     let mut child: & Child = & counter;
     as_parent(child).parent() + read_child(child)
@@ -1002,11 +1002,11 @@ extend Counter : Left {}
 extend Counter : Right {}
 extend Counter : Child {}
 
-fn as_root(child: & Child) & Root[Item = i32] {
+fun as_root(child: & Child) & Root[Item = i32] {
     child
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut counter = Counter { value: 7 };
     _ = as_root(& counter);
     counter.value
@@ -1036,11 +1036,11 @@ trait Parent {
 
 trait Child : Parent[Item = i32] {}
 
-fn reject_wrong_parent(child: & Child) & Parent[Item = bool] {
+fun reject_wrong_parent(child: & Child) & Parent[Item = bool] {
     child
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1070,28 +1070,28 @@ fn trait_object_upcast_rejects_unbound_supertrait_associated_type_fakeref() {
 trait FatherA {
     type Item;
 
-    fn a(& self) [Self as FatherA]::Item;
+    fun a(& self) [Self as FatherA]::Item;
 }
 
 trait FatherB {
     type Item;
 
-    fn b(& self) [Self as FatherB]::Item;
+    fun b(& self) [Self as FatherB]::Item;
 }
 
 trait Child : FatherA + FatherB {
-    fn child(& self) i32;
+    fun child(& self) i32;
 }
 
-fn read_b(parent: & FatherB[Item = usize]) usize {
+fun read_b(parent: & FatherB[Item = usize]) usize {
     parent.b()
 }
 
-fn forged(child: & Child[[Self as FatherA]::Item = i32]) usize {
+fun forged(child: & Child[[Self as FatherA]::Item = i32]) usize {
     read_b(child)
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1113,10 +1113,10 @@ fn trait_object_rejects_non_receiver_methods() {
         &root.join("main.nia"),
         r#"
 trait Bad {
-    fn make() i32;
+    fun make() i32;
 }
 
-fn read(bad: & Bad) i32 {
+fun read(bad: & Bad) i32 {
     _ = bad;
     0
 }
@@ -1141,10 +1141,10 @@ fn trait_object_rejects_method_generics() {
         &root.join("main.nia"),
         r#"
 trait Bad {
-    fn id[T](& self, value: T) T;
+    fun id[T](& self, value: T) T;
 }
 
-fn read(bad: & Bad) i32 {
+fun read(bad: & Bad) i32 {
     bad::id[i32](1)
 }
 "#,
@@ -1164,10 +1164,10 @@ fn trait_object_rejects_self_outside_receiver() {
         &root.join("main.nia"),
         r#"
 trait Bad {
-    fn same(& self, other: & Self) bool;
+    fun same(& self, other: & Self) bool;
 }
 
-fn read(bad: & Bad) bool {
+fun read(bad: & Bad) bool {
     bad::same(bad)
 }
 "#,
@@ -1191,10 +1191,10 @@ fn trait_object_rejects_self_in_layout_builtin_array_length() {
         &root.join("main.nia"),
         r#"
 trait Bad {
-    fn consume(& self, bytes: [u8; std::builtin::size[Self]()]);
+    fun consume(& self, bytes: [u8; std::builtin::size[Self]()]);
 }
 
-fn read(bad: & Bad) {
+fun read(bad: & Bad) {
     _ = bad;
 }
 "#,
@@ -1220,12 +1220,12 @@ fn trait_object_projection_binding_matches_const_trait_instance() {
 trait Slot[N: usize] {
     type Item;
 
-    fn get(& self) [Self as Slot[N]]::Item;
+    fun get(& self) [Self as Slot[N]]::Item;
 }
 
 trait Bad : Slot[1, Item = i32] + Slot[2, Item = Self] {}
 
-fn read(bad: & Bad) {
+fun read(bad: & Bad) {
     _ = bad;
 }
 "#,
@@ -1251,12 +1251,12 @@ fn trait_object_projection_binding_accepts_distinct_const_instances() {
 trait Slot[N: usize] {
     type Item;
 
-    fn get(& self) [Self as Slot[N]]::Item;
+    fun get(& self) [Self as Slot[N]]::Item;
 }
 
 trait Good : Slot[1, Item = i32] + Slot[2, Item = bool] {}
 
-fn read(good: & Good) {
+fun read(good: & Good) {
     _ = good;
 }
 "#,
@@ -1273,10 +1273,10 @@ fn trait_object_accepts_concrete_layout_builtin_array_length() {
         &root.join("main.nia"),
         r#"
 trait Good {
-    fn consume(& self, bytes: [u8; std::builtin::size[u32]()]);
+    fun consume(& self, bytes: [u8; std::builtin::size[u32]()]);
 }
 
-fn read(good: & Good) {
+fun read(good: & Good) {
     _ = good;
 }
 "#,
@@ -1293,7 +1293,7 @@ fn readonly_trait_object_rejects_mutable_receiver_method() {
         &root.join("main.nia"),
         r#"
 trait Mutate {
-    fn set(&mut self, value: i32);
+    fun set(&mut self, value: i32);
 }
 
 struct Cell {
@@ -1301,16 +1301,16 @@ struct Cell {
 }
 
 extend Cell : Mutate {
-    fn set(&mut self, value: i32) {
+    fun set(&mut self, value: i32) {
         self.value = value;
     }
 }
 
-fn write_value(cell: & Mutate) {
+fun write_value(cell: & Mutate) {
     cell.set(1);
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
 
@@ -1332,10 +1332,10 @@ fn trait_object_rejects_sized_supertrait() {
         &root.join("main.nia"),
         r#"
 trait Child : Sized {
-    fn value(&self) i32;
+    fun value(&self) i32;
 }
 
-fn read(child: &Child) i32 {
+fun read(child: &Child) i32 {
     child.value()
 }
 "#,
@@ -1360,7 +1360,7 @@ fn trait_object_builtin_iterator_supertrait_is_rejected() {
         r#"
 trait Child : Iterator {}
 
-fn read(child: &Child) i32 {
+fun read(child: &Child) i32 {
     _ = child;
     0
 }
@@ -1385,12 +1385,12 @@ fn trait_object_object_safety_checks_each_generic_supertrait_instance() {
         &root.join("main.nia"),
         r#"
 trait Base[T, N: usize] {
-    fn value(& self, other: & Self) T;
+    fun value(& self, other: & Self) T;
 }
 
 trait Root : Base[i32, 4] {}
 
-fn read(root: & Root) i32 {
+fun read(root: & Root) i32 {
     _ = root;
     0
 }
@@ -1416,10 +1416,10 @@ fn trait_object_rejects_source_associated_values_without_vtable_contract() {
         r#"
 trait Source {
     const Width: usize;
-    fn value(& self) usize;
+    fun value(& self) usize;
 }
 
-fn read(source: & Source) usize {
+fun read(source: & Source) usize {
     source.value()
 }
 "#,

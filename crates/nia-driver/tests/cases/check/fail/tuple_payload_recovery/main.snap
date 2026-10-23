@@ -13,13 +13,13 @@ help: provide a type name or type expression here
 path: fail/tuple_payload_recovery/main.nia
 code: E0101
 summary: expected type
-label: 88..89 Primary Source expected type
+label: 89..90 Primary Source expected type
 help: provide a type name or type expression here
 
 path: fail/tuple_payload_recovery/main.nia
 code: E0101
 summary: expected type
-label: 94..95 Primary Source expected type
+label: 95..96 Primary Source expected type
 help: provide a type name or type expression here
 
 report:
@@ -38,17 +38,17 @@ error[E0101]: expected type; found `,`
 help: provide a type name or type expression here
 
 error[E0101]: expected type
-  --> fail/tuple_payload_recovery/main.nia:8:23
+  --> fail/tuple_payload_recovery/main.nia:8:24
   |
-8 | fn tuple_type(value: (, i32,, bool)) () {}
-  |                       ^
+8 | fun tuple_type(value: (, i32,, bool)) () {}
+  |                        ^
 help: provide a type name or type expression here
 
 error[E0101]: expected type
-  --> fail/tuple_payload_recovery/main.nia:8:29
+  --> fail/tuple_payload_recovery/main.nia:8:30
   |
-8 | fn tuple_type(value: (, i32,, bool)) () {}
-  |                             ^
+8 | fun tuple_type(value: (, i32,, bool)) () {}
+  |                              ^
 help: provide a type name or type expression here
 
 summary: 4 errors, 0 warnings

@@ -170,13 +170,13 @@ pub extern struct OpenHow {
 }
 
 extend Errno {
-    pub fn fromCode(code: i32) Errno {
+    pub fun fromCode(code: i32) Errno {
         code as Errno
     }
 }
 
 extend SpawnError {
-    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
+    pub fun fromStage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage {
             .Setup => .Setup(errno),
             .Stdio => .Stdio(errno),
@@ -186,7 +186,7 @@ extend SpawnError {
         }
     }
 
-    pub fn stage(&self) SpawnStage {
+    pub fun stage(&self) SpawnStage {
         match self.* {
             .Setup(_) => .Setup,
             .Stdio(_) => .Stdio,
@@ -196,7 +196,7 @@ extend SpawnError {
         }
     }
 
-    pub fn primary(&self) Errno {
+    pub fun primary(&self) Errno {
         match self.* {
             .Setup(cause) => cause,
             .Stdio(cause) => cause,
@@ -208,109 +208,109 @@ extend SpawnError {
 }
 
 extend SpawnAttempt {
-    pub fn success(result: SpawnResult) SpawnAttempt {
+    pub fun success(result: SpawnResult) SpawnAttempt {
         .{ result: ?result, error: null, pendingReap: null, pendingReapError: null }
     }
 
-    pub fn failure(error: SpawnError) SpawnAttempt {
+    pub fun failure(error: SpawnError) SpawnAttempt {
         .{ result: null, error: ?error, pendingReap: null, pendingReapError: null }
     }
 
-    pub fn reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
+    pub fun reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
         .{ result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
     }
 }
 
 extend FileDescriptor {
-    pub fn init(fd: i32) FileDescriptor {
+    pub fun init(fd: i32) FileDescriptor {
         .{ fd }
     }
 
-    pub fn fromSyscall(ret: isize) Errno!FileDescriptor {
+    pub fun fromSyscall(ret: isize) Errno!FileDescriptor {
         if ret < 0 or ret > i32::MAX as isize {
             return .Io!;
         }
         !.init(ret as i32)
     }
 
-    pub fn fromKernel(fd: i32) Errno!FileDescriptor {
+    pub fun fromKernel(fd: i32) Errno!FileDescriptor {
         if fd < 0 {
             return .Io!;
         }
         !.init(fd)
     }
 
-    pub fn stdin() FileDescriptor {
+    pub fun stdin() FileDescriptor {
         .init(0)
     }
 
-    pub fn stdout() FileDescriptor {
+    pub fun stdout() FileDescriptor {
         .init(1)
     }
 
-    pub fn stderr() FileDescriptor {
+    pub fun stderr() FileDescriptor {
         .init(2)
     }
 
-    pub fn raw(&self) i32 {
+    pub fun raw(&self) i32 {
         self.fd
     }
 }
 
 extend Pipe {
-    pub fn init(read: FileDescriptor, write: FileDescriptor) Pipe {
+    pub fun init(read: FileDescriptor, write: FileDescriptor) Pipe {
         .{ read, write }
     }
 
-    pub fn read(&self) FileDescriptor {
+    pub fun read(&self) FileDescriptor {
         self.read
     }
 
-    pub fn write(&self) FileDescriptor {
+    pub fun write(&self) FileDescriptor {
         self.write
     }
 }
 
 extend ProcessId {
-    pub const fn init(pid: i32) ProcessId {
+    pub const fun init(pid: i32) ProcessId {
         .{ pid }
     }
 
-    pub fn fromSyscall(ret: isize) Errno!ProcessId {
+    pub fun fromSyscall(ret: isize) Errno!ProcessId {
         if ret <= 0 or ret > i32::MAX as isize {
             return .Io!;
         }
         !.init(ret as i32)
     }
 
-    pub const fn raw(&self) i32 {
+    pub const fun raw(&self) i32 {
         self.pid
     }
 }
 
 extend WaitStatus {
-    pub fn init(raw: i32) WaitStatus {
+    pub fun init(raw: i32) WaitStatus {
         .{ raw }
     }
 
-    pub fn raw(&self) i32 {
+    pub fun raw(&self) i32 {
         self.raw
     }
 
-    pub fn exited(&self) bool {
+    pub fun exited(&self) bool {
         (self.raw & 0x7f) == 0
     }
 
-    pub fn signaled(&self) bool {
+    pub fun signaled(&self) bool {
         let signal = self.raw & 0x7f;
         signal != 0 and signal != 0x7f
     }
 
-    pub fn stopped(&self) bool {
+    pub fun stopped(&self) bool {
         (self.raw & 0xff) == 0x7f
     }
 
-    pub fn exitCode(&self) ?i32 {
+    pub fun exitCode(&self) ?i32 {
         if self.exited() {
             ?((self.raw >> 8) & 0xff)
         } else {
@@ -318,7 +318,7 @@ extend WaitStatus {
         }
     }
 
-    pub fn signal(&self) ?i32 {
+    pub fun signal(&self) ?i32 {
         if self.signaled() {
             ?(self.raw & 0x7f)
         } else {
@@ -326,7 +326,7 @@ extend WaitStatus {
         }
     }
 
-    pub fn stopSignal(&self) ?i32 {
+    pub fun stopSignal(&self) ?i32 {
         if self.stopped() {
             ?((self.raw >> 8) & 0xff)
         } else {
@@ -336,7 +336,7 @@ extend WaitStatus {
 }
 
 extend SpawnResult {
-    pub fn init(
+    pub fun init(
         pid: ProcessId,
         stdin: ?FileDescriptor,
         stdout: ?FileDescriptor,
@@ -345,25 +345,25 @@ extend SpawnResult {
         .{ pid, stdin, stdout, stderr }
     }
 
-    pub fn pid(&self) ProcessId {
+    pub fun pid(&self) ProcessId {
         self.pid
     }
 
-    pub fn stdin(&self) ?FileDescriptor {
+    pub fun stdin(&self) ?FileDescriptor {
         self.stdin
     }
 
-    pub fn stdout(&self) ?FileDescriptor {
+    pub fun stdout(&self) ?FileDescriptor {
         self.stdout
     }
 
-    pub fn stderr(&self) ?FileDescriptor {
+    pub fun stderr(&self) ?FileDescriptor {
         self.stderr
     }
 }
 
 extend SpawnOptions {
-    pub fn init() SpawnOptions {
+    pub fun init() SpawnOptions {
         .{
             stdin: .Inherit,
             stdout: .Inherit,
@@ -372,71 +372,71 @@ extend SpawnOptions {
         }
     }
 
-    pub fn stdin(&self) StdIo {
+    pub fun stdin(&self) StdIo {
         self.stdin
     }
 
-    pub fn stdout(&self) StdIo {
+    pub fun stdout(&self) StdIo {
         self.stdout
     }
 
-    pub fn stderr(&self) StdIo {
+    pub fun stderr(&self) StdIo {
         self.stderr
     }
 
-    pub fn cwd(&self) ?&u8 {
+    pub fun cwd(&self) ?&u8 {
         self.cwd
     }
 
-    pub fn setStdin(&mut self, behavior: StdIo) () {
+    pub fun setStdin(&mut self, behavior: StdIo) () {
         self.stdin = behavior;
     }
 
-    pub fn setStdout(&mut self, behavior: StdIo) () {
+    pub fun setStdout(&mut self, behavior: StdIo) () {
         self.stdout = behavior;
     }
 
-    pub fn setStderr(&mut self, behavior: StdIo) () {
+    pub fun setStderr(&mut self, behavior: StdIo) () {
         self.stderr = behavior;
     }
 
-    pub fn setCwd(&mut self, path: &u8) () {
+    pub fun setCwd(&mut self, path: &u8) () {
         self.cwd = ?path;
     }
 }
 
 extend DirectoryEntry {
-    pub fn init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry {
+    pub fun init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry {
         .{ kind, name, size }
     }
 
-    pub fn kind(&self) FileKind {
+    pub fun kind(&self) FileKind {
         self.kind
     }
 
-    pub fn name(&self) &[u8] {
+    pub fun name(&self) &[u8] {
         self.name
     }
 
-    pub fn size(&self) u64 { self.size }
+    pub fun size(&self) u64 { self.size }
 }
 
 extend Timestamp {
-    pub fn init(seconds: i64, nanos: u32) Timestamp {
+    pub fun init(seconds: i64, nanos: u32) Timestamp {
         .{ seconds, nanos }
     }
 
-    pub fn seconds(&self) i64 {
+    pub fun seconds(&self) i64 {
         self.seconds
     }
 
-    pub fn nanos(&self) u32 {
+    pub fun nanos(&self) u32 {
         self.nanos
     }
 }
 
 extend FileMetadata {
-    pub fn init(
+    pub fun init(
         kind: FileKind,
         inode: u64,
         nlink: u32,
@@ -450,45 +450,45 @@ extend FileMetadata {
         .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
     }
 
-    pub fn kind(&self) FileKind {
+    pub fun kind(&self) FileKind {
         self.kind
     }
 
-    pub fn inode(&self) u64 {
+    pub fun inode(&self) u64 {
         self.inode
     }
 
-    pub fn nlink(&self) u32 {
+    pub fun nlink(&self) u32 {
         self.nlink
     }
 
-    pub fn size(&self) u64 {
+    pub fun size(&self) u64 {
         self.size
     }
 
-    pub fn mode(&self) u32 {
+    pub fun mode(&self) u32 {
         self.mode
     }
 
-    pub fn blockSize(&self) u32 {
+    pub fun blockSize(&self) u32 {
         self.blockSize
     }
 
-    pub fn atime(&self) ?Timestamp {
+    pub fun atime(&self) ?Timestamp {
         self.atime
     }
 
-    pub fn mtime(&self) Timestamp {
+    pub fun mtime(&self) Timestamp {
         self.mtime
     }
 
-    pub fn ctime(&self) ?Timestamp {
+    pub fun ctime(&self) ?Timestamp {
         self.ctime
     }
 }
 
 extend isize {
-    pub fn syscallSuccess(self) Errno!() {
+    pub fun syscallSuccess(self) Errno!() {
         if self < 0 {
             self.syscallError()!
         } else if self != 0 {
@@ -498,7 +498,7 @@ extend isize {
         }
     }
 
-    pub fn syscallError(self) Errno {
+    pub fun syscallError(self) Errno {
         if self >= 0 or self == isize::MIN {
             return Errno::Io;
         }

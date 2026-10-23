@@ -8,7 +8,7 @@ fn trait_impl_methods_are_checked_against_trait_requirements() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(& self) i32;
+    fun show(& self) i32;
 }
 
 struct Point {
@@ -16,12 +16,12 @@ struct Point {
 }
 
 extend Point : Show {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         self.x
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut point = Point { x: 7 };
     point.show()
 }
@@ -39,9 +39,9 @@ fn concrete_trait_default_method_dispatch_finds_impl_trait() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(& self) i32;
+    fun show(& self) i32;
 
-    fn double(& self) i32 {
+    fun double(& self) i32 {
         self.show() * 2
     }
 }
@@ -51,12 +51,12 @@ struct Point {
 }
 
 extend Point : Show {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         self.x
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut point = Point { x: 7 };
     point.double()
 }
@@ -74,7 +74,7 @@ fn trait_associated_function_dispatch_uses_bounds_and_impls() {
         &root.join("main.nia"),
         r#"
 trait ReadText {
-    fn read_text(text: &[char]) Self;
+    fun read_text(text: &[char]) Self;
 }
 
 struct Number {
@@ -82,7 +82,7 @@ struct Number {
 }
 
 extend Number : ReadText {
-    fn read_text(text: &[char]) Number {
+    fun read_text(text: &[char]) Number {
         if text.len() == 2usize and text[0] == '4' and text[1] == '2' {
             Number { value: 42 }
         } else {
@@ -91,13 +91,13 @@ extend Number : ReadText {
     }
 }
 
-fn parse_generic[T](text: &[char]) T
+fun parse_generic[T](text: &[char]) T
 where T: ReadText
 {
     [T]::read_text(text)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut direct = [Number]::read_text(&"42");
     let mut generic = parse_generic[Number](&"42");
     direct.value + generic.value
@@ -116,8 +116,8 @@ fn trait_impl_rejects_extra_missing_and_mismatched_methods() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(& self) i32;
-    fn size(& self) i32;
+    fun show(& self) i32;
+    fun size(& self) i32;
 }
 
 struct Point {
@@ -125,16 +125,16 @@ struct Point {
 }
 
 extend Point : Show {
-    fn show(self) i32 {
+    fun show(self) i32 {
         self.x
     }
 
-    fn debug(& self) i32 {
+    fun debug(& self) i32 {
         self.x
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -226,7 +226,7 @@ fn trait_impl_substitutes_self_in_required_signatures() {
         &root.join("main.nia"),
         r#"
 trait Same {
-    fn eq(& self, other: & Self) bool;
+    fun eq(& self, other: & Self) bool;
 }
 
 struct Point {
@@ -234,12 +234,12 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(& self, other: & Point) bool {
+    fun eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
-fn main() bool {
+fun main() bool {
     let mut a = Point { x: 1 };
     let mut b = Point { x: 1 };
     a.eq(& b)
@@ -258,7 +258,7 @@ fn trait_impl_where_clause_constrains_impl_availability() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(& self) i32;
+    fun show(& self) i32;
 }
 
 trait Marker {}
@@ -271,18 +271,18 @@ struct Box[T] {
 
 extend[T] Box[T] : Show
 where T: Marker {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         _ = self;
         1
     }
 }
 
-fn needs_show[S](value: &S) i32
+fun needs_show[S](value: &S) i32
 where S: Show {
     value.show()
 }
 
-fn main(value: &Box[bool]) i32 {
+fun main(value: &Box[bool]) i32 {
     needs_show[Box[bool]](value)
 }
 "#,
@@ -308,13 +308,13 @@ fn trait_impl_where_clause_is_available_inside_impl_methods() {
 trait Source {
     type Item;
 
-    fn get(& self) [Self as Source]::Item;
+    fun get(& self) [Self as Source]::Item;
 }
 
 trait Wrapper {
     type Item;
 
-    fn get_wrapped(& self) [Self as Wrapper]::Item;
+    fun get_wrapped(& self) [Self as Wrapper]::Item;
 }
 
 struct Box[T] {
@@ -325,12 +325,12 @@ extend[T] Box[T] : Wrapper
 where T: Source {
     type Item = [T as Source]::Item;
 
-    fn get_wrapped(& self) [T as Source]::Item {
+    fun get_wrapped(& self) [T as Source]::Item {
         self.value.get()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -354,16 +354,16 @@ struct Point {
 }
 
 extend Point : traits::Show {
-    fn show(& self) i32 {
+    fun show(& self) i32 {
         self.x
     }
 
-    fn debug(& self) i32 {
+    fun debug(& self) i32 {
         self.x
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -372,8 +372,8 @@ fn main() i32 {
         &root.join("traits.nia"),
         r#"
 pub trait Show {
-    fn show(& self) i32;
-    fn size(& self) i32;
+    fun show(& self) i32;
+    fun size(& self) i32;
 }
 "#,
     );
@@ -406,10 +406,10 @@ fn package_trait_discovery_does_not_import_structural_extension_methods() {
         r#"
 using pkg::Show;
 extend[T] (T, T) : Show where T: Sized {
-    fn show(&self) i32 { 7 }
+    fun show(&self) i32 { 7 }
 }
 extend[T] (T, T) where T: Sized {
-    pub fn hidden(&self) i32 { 11 }
+    pub fun hidden(&self) i32 { 11 }
 }
 "#,
     );
@@ -421,7 +421,7 @@ extend[T] (T, T) where T: Sized {
         write(
             &root.join("dep.nia"),
             &format!(
-                "{} module providers; pub trait Show {{ fn show(&self) i32; }}",
+                "{} module providers; pub trait Show {{ fun show(&self) i32; }}",
                 if import.is_empty() { "" } else { "pub" },
             ),
         );
@@ -431,8 +431,8 @@ extend[T] (T, T) where T: Sized {
                 r#"
 using dep::Show;
 {import}
-pub fn prove[T](value: T) i32 where T: Show {{ value.show() }}
-pub fn main(value: (i32, i32)) i32 {{
+pub fun prove[T](value: T) i32 where T: Show {{ value.show() }}
+pub fun main(value: (i32, i32)) i32 {{
     let _ = prove(value);
     value.{call}()
 }}
@@ -481,7 +481,7 @@ fn cross_module_receiver_parse_resolves_result_protocol_impl() {
 module parse;
 using entry::parse;
 
-fn main() i32 {
+fun main() i32 {
     (&"abc").parse[i32]()
 }
 "#,
@@ -498,13 +498,13 @@ pub using parse_impl::From;
         &root.join("parse/parse_impl.nia"),
         r#"
 pub trait From[Input] {
-    fn from(input: Input) Self;
+    fun from(input: Input) Self;
 }
 
 extend[Unit] [Unit]
 where Unit: Sized
 {
-    pub fn parse[T](&self) T
+    pub fun parse[T](&self) T
     where T: From[&[Unit]]
     {
         [T]::from(self)
@@ -512,13 +512,13 @@ where Unit: Sized
 }
 
 extend i32 : From[&[char]] {
-    fn from(input: &[char]) i32 {
+    fun from(input: &[char]) i32 {
         input.len() as i32
     }
 }
 
 extend i32 : From[&[u8]] {
-    fn from(input: &[u8]) i32 {
+    fun from(input: &[u8]) i32 {
         input.len() as i32
     }
 }
@@ -539,11 +539,11 @@ fn cross_module_generic_trait_method_dispatch_finds_impl_defined_with_generic() 
 pub trait Writer {
     type Error;
 
-    fn write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
-    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!();
+    fun write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
+    fun write_all(& self, bytes: &[u8]) [Self as Writer]::Error!();
 }
 
-pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!()
+pub fun write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     let mut written = writer.write(bytes).?;
@@ -570,12 +570,12 @@ enum Error: i32 {
 extend File : io::Writer {
     type Error = Error;
 
-    fn write(& self, bytes: &[u8]) Error!usize {
+    fun write(& self, bytes: &[u8]) Error!usize {
         _ = self;
         !(bytes.len())
     }
 
-    fn write_all(& self, bytes: &[u8]) Error!() {
+    fun write_all(& self, bytes: &[u8]) Error!() {
         let mut written = 0usize;
         while written < bytes.len() {
             let mut chunk = & bytes[written..];
@@ -586,7 +586,7 @@ extend File : io::Writer {
     }
 }
 
-fn main() () {
+fun main() () {
     let mut stdout = File { raw: 1 };
     match io::write_fully_with[File](& stdout, &b"nia\n") {
         !ok => {
@@ -621,7 +621,7 @@ pub enum Error: i32 {
 }
 
 extend FileDescriptor {
-    pub fn standard_output() FileDescriptor {
+    pub fun standard_output() FileDescriptor {
         Self { raw: 1 }
     }
 }
@@ -639,7 +639,7 @@ pub struct File {
 }
 
 extend File {
-    pub fn standard_output() File {
+    pub fun standard_output() File {
         Self { handle: os::FileDescriptor::standard_output() }
     }
 }
@@ -653,11 +653,11 @@ using entry::fs;
 pub trait Writer {
     type Error;
 
-    fn write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
-    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!();
+    fun write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
+    fun write_all(& self, bytes: &[u8]) [Self as Writer]::Error!();
 }
 
-pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!()
+pub fun write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     let mut written = writer.write(bytes).?;
@@ -668,12 +668,12 @@ where W: Writer
 extend fs::File : Writer {
     type Error = fs::Error;
 
-    fn write(& self, bytes: &[u8]) fs::Error!usize {
+    fun write(& self, bytes: &[u8]) fs::Error!usize {
         _ = self;
         !(bytes.len())
     }
 
-    fn write_all(& self, bytes: &[u8]) fs::Error!() {
+    fun write_all(& self, bytes: &[u8]) fs::Error!() {
         let mut written = 0usize;
         while written < bytes.len() {
             let mut chunk = & bytes[written..];
@@ -694,7 +694,7 @@ module io;
 using entry::fs;
 using entry::io;
 
-fn main() () {
+fun main() () {
     let mut stdout = fs::File::standard_output();
     match io::write_fully_with[fs::File](& stdout, &b"nia\n") {
         !ok => {
@@ -720,10 +720,10 @@ fn mutable_generic_trait_receiver_uses_pointee_self_type() {
 trait Writer {
     type Error;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!();
+    fun write_all(&mut self, bytes: &[u8]) Error!();
 }
 
-fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!()
+fun forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     writer.write_all(bytes)
@@ -739,13 +739,13 @@ struct Sink {}
 extend Sink : Writer {
     type Error = Error;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!() {
+    fun write_all(&mut self, bytes: &[u8]) Error!() {
         _ = bytes;
         !()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut sink = Sink {};
     match forward[Sink](&mut sink, &b"ok") {
         !ok => {
@@ -773,15 +773,15 @@ fn generic_trait_bound_can_call_default_trait_method_in_backend() {
 trait Writer {
     type Error;
 
-    fn write(&mut self, bytes: &[u8]) Error!usize;
+    fun write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn write_all(&mut self, bytes: &[u8]) Error!() {
+    fun write_all(&mut self, bytes: &[u8]) Error!() {
         _ = self.write(bytes).?;
         !()
     }
 }
 
-fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!()
+fun forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!()
 where W: Writer
 {
     writer.write_all(bytes)
@@ -797,12 +797,12 @@ struct Sink {}
 extend Sink : Writer {
     type Error = Error;
 
-    fn write(&mut self, bytes: &[u8]) Error!usize {
+    fun write(&mut self, bytes: &[u8]) Error!usize {
         !bytes.len()
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut sink = Sink {};
     match forward[Sink](&mut sink, &b"ok") {
         !ok => {
@@ -830,19 +830,19 @@ fn blanket_impl_with_projected_trait_arg_can_call_source_trait_method() {
 trait Writer {
     type Error;
 
-    fn write_all(&mut self) Error!() {
+    fun write_all(&mut self) Error!() {
         !()
     }
 }
 
 trait FormatWriter[E] {
-    fn writeFmtBytes(&mut self) E!();
+    fun writeFmtBytes(&mut self) E!();
 }
 
 extend[W] W : FormatWriter[[W as Writer]::Error]
 where W: Writer
 {
-    fn writeFmtBytes(&mut self) [W as Writer]::Error!() {
+    fun writeFmtBytes(&mut self) [W as Writer]::Error!() {
         self.write_all()
     }
 }
@@ -858,7 +858,7 @@ extend Sink : Writer {
     type Error = Error;
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut sink = Sink {};
     match sink.writeFmtBytes() {
         !ok => {

@@ -72,7 +72,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     sources
-        .set_source(main.clone(), "fn main() i32 { 0 }")
+        .set_source(main.clone(), "fun main() i32 { 0 }")
         .expect("store source");
     let db = registered_query_db(test_loader_context(
         main.clone(),
@@ -107,7 +107,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
 
     let source_id = sources.id_for_path(&main).expect("allocate source id");
     sources
-        .set_source(main.clone(), "fn main() i32 { 1 }")
+        .set_source(main.clone(), "fun main() i32 { 1 }")
         .expect("store edited source");
     let invalidation = db
         .with_retirement(|retirement| {
@@ -176,7 +176,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
         .set_source(main.clone(), "")
         .expect("store main source");
     sources
-        .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
+        .set_source(SourcePath::new("defs.nia"), "pub fun value() i32 { 1 }")
         .expect("store defs source");
     let db = registered_query_db(test_loader_context(
         main.clone(),
@@ -216,7 +216,7 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
         .set_source(main.clone(), "")
         .expect("store main source");
     sources
-        .set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }")
+        .set_source(SourcePath::new("defs.nia"), "pub fun value() i32 { 1 }")
         .expect("store defs source");
     let database = LoaderDatabase::new_for_test(test_request(main.as_str()).with_sources(sources));
     let first = database.load_program().expect("initial program load");

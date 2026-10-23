@@ -7,12 +7,12 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let first_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+            "struct Widget {} extend Widget { pub fun score(&self) i32 { 1 } }",
         )
         .expect("store first provider source");
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -30,7 +30,7 @@ fn body_only_edits_reuse_item_signature_provider_summary() {
     let edited_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn score(&self) i32 { 2 + 3 } }",
+            "struct Widget {} extend Widget { pub fun score(&self) i32 { 2 + 3 } }",
         )
         .expect("store edited provider source");
     let edited_identity = provider_cache_identity(&edited_file);
@@ -77,12 +77,12 @@ fn signature_edits_publish_distinct_provider_summaries() {
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let first_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+            "struct Widget {} extend Widget { pub fun score(&self) i32 { 1 } }",
         )
         .expect("store first provider source");
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
@@ -96,7 +96,7 @@ fn signature_edits_publish_distinct_provider_summaries() {
     let edited_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn rank(&self) i32 { 1 } }",
+            "struct Widget {} extend Widget { pub fun rank(&self) i32 { 1 } }",
         )
         .expect("store edited provider source");
     let edited_identity = provider_cache_identity(&edited_file);
@@ -141,12 +141,12 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
     let main = SourcePath::new("main.nia");
     let provider = SourcePath::new("provider.nia");
     sources
-        .set_source(main.clone(), "fn main() () {}")
+        .set_source(main.clone(), "fun main() () {}")
         .expect("store main source");
     let provider_file = sources
         .set_source(
             provider.clone(),
-            "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+            "struct Widget {} extend Widget { pub fun score(&self) i32 { 1 } }",
         )
         .expect("store provider source");
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(

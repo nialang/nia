@@ -8,7 +8,7 @@ enum Event {
     Resize { width: i32, height: i32 },
 }
 
-const fn const_score(event: Event) i32 {
+const fun const_score(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(value) => value,
@@ -17,7 +17,7 @@ const fn const_score(event: Event) i32 {
     }
 }
 
-fn score(event: Event) i32 {
+fun score(event: Event) i32 {
     match event {
         Event::Closed => 0,
         Event::Data(value) => value,
@@ -31,12 +31,12 @@ const data_score: i32 = const_score(Event::Data(2));
 const move_score: i32 = const_score(Event::Move(3, 4));
 const resize_score: i32 = const_score(Event::Resize { height: 5, width: 6 });
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let dataConstructor: &fn(i32) Event = &Event::Data;
-    let omittedConstructor: &fn(i32, i32) Event = &.Move;
-    let resizeConstructor: &fn(i32, i32) Event = &Event::Resize;
-    let remoteConstructor: &fn(helper::Pair) helper::RemoteEvent = &helper::RemoteEvent::Pair;
+    let dataConstructor: &fun(i32) Event = &Event::Data;
+    let omittedConstructor: &fun(i32, i32) Event = &.Move;
+    let resizeConstructor: &fun(i32, i32) Event = &Event::Resize;
+    let remoteConstructor: &fun(helper::Pair) helper::RemoteEvent = &helper::RemoteEvent::Pair;
     if score(Event::Closed) != closed_score or closed_score != 0 {
         return process::ExitCode(10)!;
     }

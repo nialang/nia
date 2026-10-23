@@ -1,6 +1,6 @@
 using pkg::fmt::core;
 
-fn formatSignedSpec(
+fun formatSignedSpec(
     value: i128,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
@@ -18,7 +18,7 @@ fn formatSignedSpec(
     }
 }
 
-fn formatUnsignedSpec(
+fun formatUnsignedSpec(
     value: u128,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
@@ -36,7 +36,7 @@ fn formatUnsignedSpec(
     }
 }
 
-fn formatTextSpec(
+fun formatTextSpec(
     formatter: &mut core::Formatter,
     text: &[char],
     spec: core::FormatSpec,
@@ -50,7 +50,7 @@ fn formatTextSpec(
     formatter.writePaddingAfter(contentWidth, spec)
 }
 
-fn formatBytesSpec(
+fun formatBytesSpec(
     formatter: &mut core::Formatter,
     bytes: &[u8],
     spec: core::FormatSpec,
@@ -65,130 +65,130 @@ fn formatBytesSpec(
 }
 
 extend i8 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeSigned(self.* as i128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
 extend i16 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeSigned(self.* as i128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
 extend i32 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeSigned(self.* as i128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
 extend i64 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeSigned(self.* as i128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
 extend i128 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeSigned(self.*)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatSignedSpec(self.*, formatter, spec)
     }
 }
 
 extend isize : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeSigned(self.* as i128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
 extend u8 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeUnsigned(self.* as u128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
 extend u16 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeUnsigned(self.* as u128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
 extend u32 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeUnsigned(self.* as u128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
 extend u64 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeUnsigned(self.* as u128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
 extend u128 : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeUnsigned(self.*)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatUnsignedSpec(self.*, formatter, spec)
     }
 }
 
 extend usize : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeUnsigned(self.* as u128)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 
-    fn formatUsizeArg(&self) ?usize {
+    fun formatUsizeArg(&self) ?usize {
         ?self.*
     }
 }
 
-fn formatPointerSpec(
+fun formatPointerSpec(
     value: usize,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
@@ -203,11 +203,11 @@ fn formatPointerSpec(
 extend[T] &T : core::Format
 where T: Sized
 {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writePointer(self.* as usize)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatPointerSpec(self.* as usize, formatter, spec)
     }
 }
@@ -215,17 +215,17 @@ where T: Sized
 extend[T] &mut T : core::Format
 where T: Sized
 {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writePointer(self.* as usize)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatPointerSpec(self.* as usize, formatter, spec)
     }
 }
 
 extend bool : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         if self.* {
             formatter.writeText(&"true")
         } else {
@@ -233,7 +233,7 @@ extend bool : core::Format {
         }
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         if self.* {
             formatTextSpec(formatter, &"true", spec)
         } else {
@@ -243,11 +243,11 @@ extend bool : core::Format {
 }
 
 extend char : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeChar(self.*)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
             return .InvalidTemplate!;
         }
@@ -261,7 +261,7 @@ extend char : core::Format {
 }
 
 extend [char] : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         let mut index: usize = 0;
         while index < self.len() {
             formatter.writeChar(self[index]).?;
@@ -270,17 +270,17 @@ extend [char] : core::Format {
         !()
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatTextSpec(formatter, self, spec)
     }
 }
 
 extend [u8] : core::Format {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeBytes(self)
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         formatBytesSpec(formatter, self, spec)
     }
 }
@@ -288,7 +288,7 @@ extend [u8] : core::Format {
 extend[T] [T] : core::Format
 where T: Sized + core::Format
 {
-    fn format(&self, formatter: &mut core::Formatter) core::Error!() {
+    fun format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeByte(b'[').?;
         let mut index: usize = 0;
         while index < self.len() {
@@ -301,7 +301,7 @@ where T: Sized + core::Format
         formatter.writeByte(b']')
     }
 
-    fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+    fun formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         spec.validate().?;
         if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0 or spec.hasPrecision() or spec.signPlus() or spec.alternate() {
             return .InvalidTemplate!;

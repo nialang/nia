@@ -38,15 +38,15 @@ where T: Sized + Eq[T]
 extend[T] SliceIter[T]
 where T: Sized
 {
-    fn fromRawParts(ptr: &T, len: usize) SliceIter[T] {
+    fun fromRawParts(ptr: &T, len: usize) SliceIter[T] {
         .{ ptr, len, index: 0 }
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len - self.index
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -54,15 +54,15 @@ where T: Sized
 extend[T] SliceIterMut[T]
 where T: Sized
 {
-    fn fromRawParts(ptr: &mut T, len: usize) SliceIterMut[T] {
+    fun fromRawParts(ptr: &mut T, len: usize) SliceIterMut[T] {
         .{ ptr, len, index: 0 }
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len - self.index
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 }
@@ -70,7 +70,7 @@ where T: Sized
 extend[T] SliceSplit[T]
 where T: Sized + Eq[T]
 {
-    fn init(items: &[T], separator: &[T]) SliceSplit[T] {
+    fun init(items: &[T], separator: &[T]) SliceSplit[T] {
         .{ remaining: items, separator, done: false }
     }
 }
@@ -80,7 +80,7 @@ where T: Sized
 {
     type Item = &T;
 
-    pub fn next(&mut self) ?&T {
+    pub fun next(&mut self) ?&T {
         if self.index >= self.len {
             null
         } else {
@@ -102,7 +102,7 @@ where T: Sized
 extend[T] SliceIter[T] : iter::DoubleEndedIterator
 where T: Sized
 {
-    pub fn nextBack(&mut self) ?[SliceIter[T] as Iterator]::Item {
+    pub fun nextBack(&mut self) ?[SliceIter[T] as Iterator]::Item {
         if self.index >= self.len {
             null
         } else {
@@ -126,7 +126,7 @@ where T: Sized
 {
     type Item = &mut T;
 
-    pub fn next(&mut self) ?&mut T {
+    pub fun next(&mut self) ?&mut T {
         if self.index >= self.len {
             null
         } else {
@@ -148,7 +148,7 @@ where T: Sized
 extend[T] SliceIterMut[T] : iter::DoubleEndedIterator
 where T: Sized
 {
-    pub fn nextBack(&mut self) ?[SliceIterMut[T] as Iterator]::Item {
+    pub fun nextBack(&mut self) ?[SliceIterMut[T] as Iterator]::Item {
         if self.index >= self.len {
             null
         } else {
@@ -172,7 +172,7 @@ where T: Sized + Eq[T]
 {
     type Item = &[T];
 
-    pub fn next(&mut self) ?&[T] {
+    pub fun next(&mut self) ?&[T] {
         if self.done {
             return null;
         }
@@ -195,11 +195,11 @@ where T: Sized + Eq[T]
 extend[T] [T]
 where T: Sized
 {
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 
-    pub fn get(&self, index: usize) ?&T {
+    pub fun get(&self, index: usize) ?&T {
         if index >= self.len() {
             null
         } else {
@@ -207,7 +207,7 @@ where T: Sized
         }
     }
 
-    pub fn getMut(&mut self, index: usize) ?&mut T {
+    pub fun getMut(&mut self, index: usize) ?&mut T {
         if index >= self.len() {
             null
         } else {
@@ -215,15 +215,15 @@ where T: Sized
         }
     }
 
-    pub fn first(&self) ?&T {
+    pub fun first(&self) ?&T {
         self.get(0)
     }
 
-    pub fn firstMut(&mut self) ?&mut T {
+    pub fun firstMut(&mut self) ?&mut T {
         self.getMut(0)
     }
 
-    pub fn last(&self) ?&T {
+    pub fun last(&self) ?&T {
         if self.len() == 0 {
             null
         } else {
@@ -231,7 +231,7 @@ where T: Sized
         }
     }
 
-    pub fn lastMut(&mut self) ?&mut T {
+    pub fun lastMut(&mut self) ?&mut T {
         if self.len() == 0 {
             null
         } else {
@@ -239,7 +239,7 @@ where T: Sized
         }
     }
 
-    pub fn getRange(&self, start: usize, end: usize) ?&[T] {
+    pub fun getRange(&self, start: usize, end: usize) ?&[T] {
         if start > end or end > self.len() {
             null
         } else {
@@ -247,7 +247,7 @@ where T: Sized
         }
     }
 
-    pub fn getRangeMut(&mut self, start: usize, end: usize) ?&mut [T] {
+    pub fun getRangeMut(&mut self, start: usize, end: usize) ?&mut [T] {
         if start > end or end > self.len() {
             null
         } else {
@@ -255,7 +255,7 @@ where T: Sized
         }
     }
 
-    pub fn copyFrom(&mut self, source: &[T]) usize {
+    pub fun copyFrom(&mut self, source: &[T]) usize {
         let mut count = self.len();
         if source.len() < count {
             count = source.len();
@@ -264,11 +264,11 @@ where T: Sized
         count
     }
 
-    pub fn iter(&self) SliceIter[T] {
+    pub fun iter(&self) SliceIter[T] {
         .fromRawParts(self.ptr(), self.len())
     }
 
-    pub fn iterMut(&mut self) SliceIterMut[T] {
+    pub fun iterMut(&mut self) SliceIterMut[T] {
         .fromRawParts(self.ptrMut(), self.len())
     }
 }
@@ -276,7 +276,7 @@ where T: Sized
 extend[T] [T]
 where T: Sized + Eq[T]
 {
-    pub fn equals(&self, other: &[T]) bool {
+    pub fun equals(&self, other: &[T]) bool {
         if self.len() != other.len() {
             return false;
         }
@@ -289,21 +289,21 @@ where T: Sized + Eq[T]
         true
     }
 
-    pub fn startsWith(&self, prefix: &[T]) bool {
+    pub fun startsWith(&self, prefix: &[T]) bool {
         if prefix.len() > self.len() {
             return false;
         }
         (&self[0..prefix.len()]).equals(prefix)
     }
 
-    pub fn endsWith(&self, suffix: &[T]) bool {
+    pub fun endsWith(&self, suffix: &[T]) bool {
         if suffix.len() > self.len() {
             return false;
         }
         (&self[(self.len() - suffix.len())..]).equals(suffix)
     }
 
-    pub fn find(&self, needle: &[T]) ?usize {
+    pub fun find(&self, needle: &[T]) ?usize {
         if needle.isEmpty() {
             return ?0;
         }
@@ -320,7 +320,7 @@ where T: Sized + Eq[T]
         null
     }
 
-    pub fn contains(&self, needle: &[T]) bool {
+    pub fun contains(&self, needle: &[T]) bool {
         if self.find(needle) is ?_ {
             true
         } else {
@@ -328,7 +328,7 @@ where T: Sized + Eq[T]
         }
     }
 
-    pub fn split(&self, separator: &[T]) SliceSplit[T] {
+    pub fun split(&self, separator: &[T]) SliceSplit[T] {
         .init(self, separator)
     }
 }
@@ -336,7 +336,7 @@ where T: Sized + Eq[T]
 extend[T] [T]
 where T: Sized + Ord[T]
 {
-    pub fn compare(&self, other: &[T]) cmp::Ordering {
+    pub fun compare(&self, other: &[T]) cmp::Ordering {
         let mut len = self.len();
         if other.len() < len {
             len = other.len();
@@ -367,7 +367,7 @@ where T: Sized
     type Item = &T;
     type Iter = SliceIter[T];
 
-    pub fn iter(&self) SliceIter[T] {
+    pub fun iter(&self) SliceIter[T] {
         .fromRawParts(self.ptr(), self.len())
     }
 }
@@ -378,7 +378,7 @@ where T: Sized
     type Item = &T;
     type Iter = SliceIter[T];
 
-    pub fn iter(&self) SliceIter[T] {
+    pub fun iter(&self) SliceIter[T] {
         .fromRawParts(self.*.ptr(), self.*.len())
     }
 }
@@ -389,7 +389,7 @@ where T: Sized
     type Item = &T;
     type Iter = SliceIter[T];
 
-    pub fn iter(&self) SliceIter[T] {
+    pub fun iter(&self) SliceIter[T] {
         .fromRawParts(self.*.ptr(), self.*.len())
     }
 }

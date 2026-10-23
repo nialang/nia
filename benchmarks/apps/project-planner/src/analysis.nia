@@ -19,7 +19,7 @@ pub struct Summary {
 }
 
 extend Summary {
-    pub fn init(
+    pub fun init(
         taskCount: usize,
         dependencyCount: usize,
         rootCount: usize,
@@ -30,15 +30,15 @@ extend Summary {
         .{ taskCount, dependencyCount, rootCount, leafCount, totalDuration, criticalDuration }
     }
 
-    pub fn taskCount(&self) usize { self.taskCount }
-    pub fn dependencyCount(&self) usize { self.dependencyCount }
-    pub fn rootCount(&self) usize { self.rootCount }
-    pub fn leafCount(&self) usize { self.leafCount }
-    pub fn totalDuration(&self) u64 { self.totalDuration }
-    pub fn criticalDuration(&self) u64 { self.criticalDuration }
+    pub fun taskCount(&self) usize { self.taskCount }
+    pub fun dependencyCount(&self) usize { self.dependencyCount }
+    pub fun rootCount(&self) usize { self.rootCount }
+    pub fun leafCount(&self) usize { self.leafCount }
+    pub fun totalDuration(&self) u64 { self.totalDuration }
+    pub fun criticalDuration(&self) u64 { self.criticalDuration }
 }
 
-fn visit(
+fun visit(
     allocator: &mut mem::Allocator,
     graph: &model::Graph,
     id: model::TaskId,
@@ -64,7 +64,7 @@ fn visit(
     !()
 }
 
-fn topologicalOrder(
+fun topologicalOrder(
     allocator: &mut mem::Allocator,
     graph: &model::Graph,
 ) Error!collections::ArrayList[model::TaskId] {
@@ -86,7 +86,7 @@ fn topologicalOrder(
     !order
 }
 
-fn isDependency(graph: &model::Graph, candidate: model::TaskId) bool {
+fun isDependency(graph: &model::Graph, candidate: model::TaskId) bool {
     for task in graph.tasks() {
         for &dependency in task.dependencies() {
             if dependency.index() == candidate.index() {
@@ -97,7 +97,7 @@ fn isDependency(graph: &model::Graph, candidate: model::TaskId) bool {
     false
 }
 
-pub fn analyze(allocator: &mut mem::Allocator, graph: &model::Graph) Error!Summary {
+pub fun analyze(allocator: &mut mem::Allocator, graph: &model::Graph) Error!Summary {
     let order = topologicalOrder(allocator, graph).?;
     let mut completion: collections::ArrayList[u64] = .init();
     let mut index: usize = 0;

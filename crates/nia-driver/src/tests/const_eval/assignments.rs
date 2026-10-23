@@ -7,7 +7,7 @@ fn const_function_rejects_assignment_to_immutable_local() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let i: usize = 2;
     i = 5;
     i
@@ -15,7 +15,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -39,7 +39,7 @@ fn const_function_rejects_assignment_value_type_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut i: usize = 2;
     i = true;
     i
@@ -66,7 +66,7 @@ fn const_function_rejects_int_assignment_to_bool() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut value: bool = true;
     value = 1usize;
     1usize
@@ -93,7 +93,7 @@ fn const_function_rejects_array_assignment_shape_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut values: [usize; 2] = [1usize, 2usize];
     values = true;
     values.len()
@@ -120,7 +120,7 @@ fn const_function_rejects_array_assignment_length_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut values: [usize; 2] = [1usize, 2usize];
     values = [1usize; 3usize];
     values.len()
@@ -147,7 +147,7 @@ fn const_function_rejects_optional_assignment_shape_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut value: ?usize = ?1usize;
     value = true;
     1usize
@@ -174,7 +174,7 @@ fn const_function_rejects_error_union_assignment_shape_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut value: usize!usize = !1usize;
     value = true;
     1usize
@@ -204,7 +204,7 @@ fn const_function_rejects_nominal_assignment_missing_field_without_annotation() 
         r#"
 struct Config { width: usize, enabled: bool }
 
-const fn width() usize {
+const fun width() usize {
     let mut config = Config { width: 4usize, enabled: true };
     config = Config { width: 8usize };
     config.width
@@ -238,7 +238,7 @@ struct Point {
     y: usize,
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut p: Point = Point{x: 1usize, y: 2usize};
     p = Point{x: 3usize};
     p.x
@@ -269,7 +269,7 @@ fn const_function_rejects_nominal_assignment_extra_field_without_annotation() {
         r#"
 struct Config { width: usize }
 
-const fn width() usize {
+const fun width() usize {
     let mut config = Config { width: 4usize };
     config = Config { width: 8usize, enabled: true };
     config.width
@@ -303,7 +303,7 @@ struct Point {
     y: usize,
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut p: Point = Point{x: 1usize, y: 2usize};
     p = Point{x: 3usize, y: 4usize, z: 5usize};
     p.x
@@ -337,7 +337,7 @@ struct Point {
     y: usize,
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut p: Point = Point{x: 2, y: 3};
     p.x += 4;
     p.y = p.x + p.y;
@@ -346,7 +346,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -363,7 +363,7 @@ fn const_function_mutates_array_indexes() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut values: [usize; 4] = [1, 2, 3, 4];
     let mut i: usize = 0;
     while i < 4 {
@@ -376,7 +376,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -393,7 +393,7 @@ fn const_compound_assignment_evaluates_index_once() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut values: [usize; 2] = [4, 9];
     let mut calls = 0usize;
     values[{
@@ -405,7 +405,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 591] = [0; n];
     values.len() as i32
 }
@@ -424,7 +424,7 @@ fn const_for_in_rejects_range_iter_method() {
         r#"
 using std::iter;
 
-const fn width() usize {
+const fun width() usize {
     let mut total: usize = 0;
     for value in (0usize..4usize).iter() {
         total += value;
@@ -434,7 +434,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -446,7 +446,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("const expression can only call `const fn`")),
+            .contains("const expression can only call `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -466,7 +466,7 @@ struct Config {
     pairs: [Pair; 2],
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut config: Config = Config{
         pairs: [
             Pair{values: [1, 2]},
@@ -480,7 +480,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -501,7 +501,7 @@ struct Point {
     x: usize,
 }
 
-const fn width() usize {
+const fun width() usize {
     let p: Point = Point{x: 1};
     p.x = 2;
     p.x
@@ -509,7 +509,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -537,7 +537,7 @@ struct Point {
     x: usize,
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut p: Point = Point{x: 1};
     p.x = true;
     p.x
@@ -564,7 +564,7 @@ fn const_function_if_statement_flows_return_and_else_if() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(bits: usize) usize {
+const fun width(bits: usize) usize {
     if bits == 16 {
         return 2;
     } else if bits == 32 {
@@ -575,7 +575,7 @@ const fn width(bits: usize) usize {
 
 const n: usize = width(32);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -592,7 +592,7 @@ fn const_function_for_in_arrays_require_iterator() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width(values: [usize; 4]) usize {
+const fun width(values: [usize; 4]) usize {
     let mut total: usize = 0;
     for value in values {
         total += value;
@@ -602,7 +602,7 @@ const fn width(values: [usize; 4]) usize {
 
 const n: usize = width([1, 2, 3, 4]);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -626,7 +626,7 @@ fn const_function_for_in_ranges_require_iterator() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut total: usize = 0;
     for value in 0usize..=5usize {
         if value == 2usize {
@@ -642,7 +642,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -668,7 +668,7 @@ fn const_function_rejects_for_in_ranges_without_iterator() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     let mut total: usize = 0;
     for value in ..5usize {
         total += value;
@@ -678,7 +678,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -710,7 +710,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    const fn next(&mut self) ?usize {
+    const fun next(&mut self) ?usize {
         if self.current >= self.end {
             null
         } else {
@@ -722,12 +722,12 @@ extend Counter : Iterator {
 }
 
 extend Counter {
-    const fn next(&mut self) ?usize {
+    const fun next(&mut self) ?usize {
         null
     }
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut total: usize = 0;
     let mut iter = Counter{current: 0, end: 4};
     for value in iter {
@@ -744,7 +744,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 2] = [0; n];
     values.len() as i32
 }
@@ -769,7 +769,7 @@ struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    const fn next(&mut self) ?usize {
+    const fun next(&mut self) ?usize {
         if self.current >= self.end {
             null
         } else {
@@ -789,12 +789,12 @@ extend Bounds : Iterable {
     type Item = usize;
     type Iter = Counter;
 
-    const fn iter(&self) Counter {
+    const fun iter(&self) Counter {
         Counter { current: self.start, end: self.end }
     }
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut total = 0usize;
     let bounds = Bounds { start: 2, end: 5 };
     let mut direct = bounds.iter();
@@ -812,7 +812,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 11] = [0; n];
     values.len() as i32
 }
@@ -832,7 +832,7 @@ fn imported_generic_const_iterable_executes_trait_witnesses() {
 module pair;
 using entry::pair;
 
-const fn total(values: pair::Pair[usize]) usize {
+const fun total(values: pair::Pair[usize]) usize {
     let mut result: usize = 0;
     for value in values {
         result += value;
@@ -842,7 +842,7 @@ const fn total(values: pair::Pair[usize]) usize {
 
 const n: usize = total(pair::pair(4, 6));
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 10] = [0; n];
     values.len() as i32
 }
@@ -865,7 +865,7 @@ pub struct PairIter[T] {
 extend[T] PairIter[T] : Iterator {
     type Item = T;
 
-    pub const fn next(&mut self) ?T {
+    pub const fun next(&mut self) ?T {
         match self.index {
             0usize => {
                 self.index += 1;
@@ -884,12 +884,12 @@ extend[T] Pair[T] : Iterable {
     type Item = T;
     type Iter = PairIter[T];
 
-    pub const fn iter(&self) PairIter[T] {
+    pub const fun iter(&self) PairIter[T] {
         PairIter[T] { first: self.first, second: self.second, index: 0 }
     }
 }
 
-pub const fn pair[T](first: T, second: T) Pair[T] {
+pub const fun pair[T](first: T, second: T) Pair[T] {
     Pair[T] { first: first, second: second }
 }
 "#,
@@ -907,7 +907,7 @@ fn imported_const_iterator_witness_requires_visible_extension_module() {
         r#"
 module counter;
 
-const fn total(iter: counter::Counter) usize {
+const fun total(iter: counter::Counter) usize {
     let mut result: usize = 0;
     for value in iter {
         result += value;
@@ -915,7 +915,7 @@ const fn total(iter: counter::Counter) usize {
     result
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
     write(
@@ -929,7 +929,7 @@ pub struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    pub const fn next(&mut self) ?usize {
+    pub const fun next(&mut self) ?usize {
         null
     }
 }
@@ -956,7 +956,7 @@ fn unused_const_function_rejects_imported_runtime_only_iterator_witness() {
 module counter;
 using entry::counter;
 
-const fn total(iter: counter::Counter) usize {
+const fun total(iter: counter::Counter) usize {
     let mut result: usize = 0;
     for value in iter {
         result += value;
@@ -964,7 +964,7 @@ const fn total(iter: counter::Counter) usize {
     result
 }
 
-const fn first(iter: counter::DirectCounter) usize {
+const fun first(iter: counter::DirectCounter) usize {
     let mut values = iter;
     match values.next() {
         ?value => value,
@@ -972,7 +972,7 @@ const fn first(iter: counter::DirectCounter) usize {
     }
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
     write(
@@ -991,7 +991,7 @@ pub struct DirectCounter {
 extend Counter : Iterator {
     type Item = usize;
 
-    pub fn next(&mut self) ?usize {
+    pub fun next(&mut self) ?usize {
         if self.current >= self.end {
             null
         } else {
@@ -1005,7 +1005,7 @@ extend Counter : Iterator {
 extend DirectCounter : Iterator {
     type Item = usize;
 
-    pub fn next(&mut self) ?usize {
+    pub fun next(&mut self) ?usize {
         if self.current >= self.end {
             null
         } else {
@@ -1017,7 +1017,7 @@ extend DirectCounter : Iterator {
 }
 
 extend Counter {
-    pub const fn next(&mut self) ?usize {
+    pub const fun next(&mut self) ?usize {
         null
     }
 }
@@ -1030,7 +1030,7 @@ extend Counter {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.diagnostic.summary.contains(
-                "`Iterator::next` trait witness used by const for-in must be declared `const fn`"
+                "`Iterator::next` trait witness used by const for-in must be declared `const fun`"
             )),
         "{:?}",
         program.diagnostics
@@ -1039,7 +1039,7 @@ extend Counter {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("`Iterator::next` trait witness used during const evaluation must be declared `const fn`")),
+            .contains("`Iterator::next` trait witness used during const evaluation must be declared `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -1054,7 +1054,7 @@ fn unused_const_function_rejects_imported_runtime_only_iterable_witness() {
 module bounds;
 using entry::bounds;
 
-const fn total(values: bounds::Bounds) usize {
+const fun total(values: bounds::Bounds) usize {
     let mut result: usize = 0;
     for value in values {
         result += value;
@@ -1062,11 +1062,11 @@ const fn total(values: bounds::Bounds) usize {
     result
 }
 
-const fn iterator(values: bounds::Bounds) bounds::Counter {
+const fun iterator(values: bounds::Bounds) bounds::Counter {
     values.iter()
 }
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     );
     write(
@@ -1080,7 +1080,7 @@ pub struct Counter {
 extend Counter : Iterator {
     type Item = usize;
 
-    pub const fn next(&mut self) ?usize {
+    pub const fun next(&mut self) ?usize {
         if self.current >= self.end {
             null
         } else {
@@ -1100,7 +1100,7 @@ extend Bounds : Iterable {
     type Item = usize;
     type Iter = Counter;
 
-    pub fn iter(&self) Counter {
+    pub fun iter(&self) Counter {
         Counter { current: self.start, end: self.end }
     }
 }
@@ -1113,7 +1113,7 @@ extend Bounds : Iterable {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.diagnostic.summary.contains(
-                "`Iterable::iter` trait witness used by const for-in must be declared `const fn`"
+                "`Iterable::iter` trait witness used by const for-in must be declared `const fun`"
             )),
         "{:?}",
         program.diagnostics
@@ -1122,7 +1122,7 @@ extend Bounds : Iterable {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("`Iterable::iter` trait witness used during const evaluation must be declared `const fn`")),
+            .contains("`Iterable::iter` trait witness used during const evaluation must be declared `const fun`")),
         "{:?}",
         program.diagnostics
     );
@@ -1139,7 +1139,7 @@ struct Counter {
 }
 
 extend Counter {
-    const fn bump(&mut self) usize {
+    const fun bump(&mut self) usize {
         self.value += 1;
         self.value
     }
@@ -1149,7 +1149,7 @@ struct State {
     counters: [Counter; 2],
 }
 
-const fn width() usize {
+const fun width() usize {
     let mut state = State {
         counters: [Counter { value: 2 }, Counter { value: 5 }],
     };
@@ -1163,7 +1163,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; 3513] = [0; n];
     values.len() as i32
 }
@@ -1180,13 +1180,13 @@ fn const_function_rejects_escaped_loop_control_flow() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     break;
 }
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -1210,7 +1210,7 @@ fn const_function_rejects_infinite_loop_statements() {
     write(
         &root.join("main.nia"),
         r#"
-const fn width() usize {
+const fun width() usize {
     loop {
         continue;
     }
@@ -1219,7 +1219,7 @@ const fn width() usize {
 
 const n: usize = width();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }

@@ -4,7 +4,7 @@ struct Point {
     y: bool,
 }
 
-fn main(value: (bool, bool)) () {
+fun main(value: (bool, bool)) () {
     match value {
         (true false) => (),
         Pair(true false) => (),

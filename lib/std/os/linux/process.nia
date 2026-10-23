@@ -42,14 +42,14 @@ struct SpawnErrorRecord {
     code: i32,
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     let mut resources: SpawnResources = .init();
     let result = spawnWithResources(path, argv, envp, options, &mut resources);
     resources.closeAll();
     result
 }
 
-fn spawnWithResources(
+fun spawnWithResources(
     path: &u8,
     argv: &&u8,
     envp: &&u8,
@@ -134,7 +134,7 @@ fn spawnWithResources(
 // `execve` does not perform PATH lookup. Keep the typed process API's command
 // behavior consistent with the host shell by resolving bare names in the
 // child's inherited environment before the final exec.
-fn executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
+fun executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
     let mut pathLen: usize = 0;
     while path[pathLen] != 0 {
         pathLen += 1;
@@ -208,14 +208,14 @@ fn executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
     .NoEntry
 }
 
-fn failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
+fun failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
     if reapSpawnFailure(pid) is reapError! {
         return .reapFailure(error, pid, reapError);
     }
     .failure(error)
 }
 
-fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
+fun reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
     if pipe.write() is !fd {
         writeSpawnError(fd, stage, errno);
     } else {
@@ -223,7 +223,7 @@ fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
     }
 }
 
-fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
+fun writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
     let mut record: SpawnErrorRecord = .init(stage, errno);
     let mut bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
     let mut written: usize = 0;
@@ -244,7 +244,7 @@ fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) (
     }
 }
 
-fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
+fun readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
     let mut record: SpawnErrorRecord = .init(.Setup, .Io);
     let mut bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
     let mut readLen: usize = 0;
@@ -271,7 +271,7 @@ fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
     finishSpawnError(fd, !(?SpawnError::fromStage(record.stage(), record.errno())))
 }
 
-fn finishSpawnError(
+fun finishSpawnError(
     fd: types::FileDescriptor,
     result: SpawnError! ?SpawnError,
 ) SpawnError! ?SpawnError {
@@ -294,7 +294,7 @@ fn finishSpawnError(
     }
 }
 
-fn reapSpawnFailure(pid: ProcessId) Errno!() {
+fun reapSpawnFailure(pid: ProcessId) Errno!() {
     // A failed handshake still owns the forked child until wait succeeds.
     loop {
         let result = wait(pid);
@@ -313,7 +313,7 @@ fn reapSpawnFailure(pid: ProcessId) Errno!() {
 }
 
 extend SpawnAttempt {
-    pub fn finish(&mut self) SpawnError!SpawnResult {
+    pub fun finish(&mut self) SpawnError!SpawnResult {
         if self.pendingReap is ?pid {
             if self.pendingReapError is ?cause {
                 self.pendingReapError = null;
@@ -340,7 +340,7 @@ extend SpawnAttempt {
         }
     }
 
-    fn reapError(&self, pid: ProcessId, cause: Errno) SpawnError {
+    fun reapError(&self, pid: ProcessId, cause: Errno) SpawnError {
         let primary = match self.error {
             ?error => error,
             null => .Setup(.Invalid),
@@ -354,7 +354,7 @@ extend SpawnAttempt {
     }
 }
 
-fn applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut SpawnPipe, stderrPipe: &mut SpawnPipe) Errno!() {
+fun applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut SpawnPipe, stderrPipe: &mut SpawnPipe) Errno!() {
     let mut devNull: ?types::FileDescriptor = null;
     if options.stdin() == StdIo::Ignore {
         let fd = openDevNull().?;
@@ -402,7 +402,7 @@ fn applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut
     !()
 }
 
-fn applyCwd(options: SpawnOptions) Errno!() {
+fun applyCwd(options: SpawnOptions) Errno!() {
     if options.cwd() is ?path {
         let ret = syscall::syscall1(syscall::chdir, path as usize);
         ret.syscallSuccess()
@@ -411,7 +411,7 @@ fn applyCwd(options: SpawnOptions) Errno!() {
     }
 }
 
-fn openDevNull() Errno!types::FileDescriptor {
+fun openDevNull() Errno!types::FileDescriptor {
     let path = b"/dev/null\0";
     let ret = syscall::syscall4(
         syscall::openat,
@@ -430,7 +430,7 @@ fn openDevNull() Errno!types::FileDescriptor {
 // Makes `to` refer to `from` in the exec'd image. A descriptor that already
 // is `to` keeps its file but must lose close-on-exec, which dup3 would reject
 // and dup2 would leave set.
-fn dupTo(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
+fun dupTo(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
     if from.raw() == to.raw() {
         let clearFlags: usize = 0;
         let ret = syscall::syscall3(syscall::fcntl, to.raw() as usize, setDescriptorFlags, clearFlags);
@@ -446,11 +446,11 @@ fn dupTo(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
     }
 }
 
-pub fn wait(pid: ProcessId) Errno!WaitStatus {
+pub fun wait(pid: ProcessId) Errno!WaitStatus {
     waitWithOptions(pid, 0)
 }
 
-pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+pub fun tryWait(pid: ProcessId) Errno! ?WaitStatus {
     let mut status: i32 = 0;
     let ret = wait4(pid, &mut status, types::waitNoHang);
     if ret < 0 {
@@ -464,16 +464,16 @@ pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
     }
 }
 
-pub fn kill(pid: ProcessId) Errno!() {
+pub fun kill(pid: ProcessId) Errno!() {
     killWith(pid, types::sigTerm)
 }
 
-pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
+pub fun killWith(pid: ProcessId, signal: i32) Errno!() {
     let ret = syscall::syscall2(syscall::kill, pid.raw() as usize, signal as usize);
     ret.syscallSuccess()
 }
 
-fn waitWithOptions(pid: ProcessId, options: usize) Errno!WaitStatus {
+fun waitWithOptions(pid: ProcessId, options: usize) Errno!WaitStatus {
     let mut status: i32 = 0;
     let ret = wait4(pid, &mut status, options);
     if ret < 0 {
@@ -485,7 +485,7 @@ fn waitWithOptions(pid: ProcessId, options: usize) Errno!WaitStatus {
     }
 }
 
-fn wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
+fun wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
     let ret = syscall::syscall4(
         syscall::wait4,
         pid.raw() as usize,
@@ -496,81 +496,81 @@ fn wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
     ret
 }
 
-pub fn exit(code: i32) () {
+pub fun exit(code: i32) () {
     _ = syscall::syscall1(syscall::exit, code as usize);
     loop {}
 }
 
 extend SpawnErrorRecord {
-    fn init(stage: SpawnStage, errno: Errno) SpawnErrorRecord {
+    fun init(stage: SpawnStage, errno: Errno) SpawnErrorRecord {
         .{ stage: stage as i32, code: errno as i32 }
     }
 
-    fn stage(&self) SpawnStage {
+    fun stage(&self) SpawnStage {
         self.stage as SpawnStage
     }
 
-    fn errno(&self) Errno {
+    fun errno(&self) Errno {
         Errno::fromCode(self.code)
     }
 }
 
 extend SpawnPipe {
-    fn closed() SpawnPipe {
+    fun closed() SpawnPipe {
         .{ read: null, write: null }
     }
 
-    fn init(read: types::FileDescriptor, write: types::FileDescriptor) SpawnPipe {
+    fun init(read: types::FileDescriptor, write: types::FileDescriptor) SpawnPipe {
         .{ read: ?read, write: ?write }
     }
 
-    fn fromPipe(pipe: Pipe) SpawnPipe {
+    fun fromPipe(pipe: Pipe) SpawnPipe {
         .init(pipe.read(), pipe.write())
     }
 
-    fn openCloseOnExec() Errno!SpawnPipe {
+    fun openCloseOnExec() Errno!SpawnPipe {
         let pipe = linuxFd::pipeCloseOnExec().?;
         !SpawnPipe::fromPipe(pipe)
     }
 
-    fn read(&self) Errno!types::FileDescriptor {
+    fun read(&self) Errno!types::FileDescriptor {
         if self.read is ?fd { !fd } else { .Invalid! }
     }
 
-    fn write(&self) Errno!types::FileDescriptor {
+    fun write(&self) Errno!types::FileDescriptor {
         if self.write is ?fd { !fd } else { .Invalid! }
     }
 
-    fn takeRead(&mut self) ?types::FileDescriptor {
+    fun takeRead(&mut self) ?types::FileDescriptor {
         let fd = self.read;
         self.read = null;
         fd
     }
 
-    fn takeWrite(&mut self) ?types::FileDescriptor {
+    fun takeWrite(&mut self) ?types::FileDescriptor {
         let fd = self.write;
         self.write = null;
         fd
     }
 
-    fn closeRead(&mut self) () {
+    fun closeRead(&mut self) () {
         if self.takeRead() is ?fd {
             _ = fd.close();
         }
     }
 
-    fn closeWrite(&mut self) () {
+    fun closeWrite(&mut self) () {
         if self.takeWrite() is ?fd {
             _ = fd.close();
         }
     }
 
-    fn closeAll(&mut self) () {
+    fun closeAll(&mut self) () {
         self.closeRead();
         self.closeWrite();
     }
 
-    fn closeAllExcept(&mut self, options: SpawnOptions) () {
+    fun closeAllExcept(&mut self, options: SpawnOptions) () {
         if self.takeRead() is ?fd {
             if not isStandardTarget(fd, options) {
                 _ = fd.close();
@@ -584,14 +584,14 @@ extend SpawnPipe {
     }
 }
 
-fn isStandardTarget(fd: types::FileDescriptor, options: SpawnOptions) bool {
+fun isStandardTarget(fd: types::FileDescriptor, options: SpawnOptions) bool {
     (options.stdin() != StdIo::Inherit and fd.raw() == 0)
         or (options.stdout() != StdIo::Inherit and fd.raw() == 1)
         or (options.stderr() != StdIo::Inherit and fd.raw() == 2)
 }
 
 extend SpawnResources {
-    fn init() SpawnResources {
+    fun init() SpawnResources {
         .{
             stdin: .closed(),
             stdout: .closed(),
@@ -600,7 +600,7 @@ extend SpawnResources {
         }
     }
 
-    fn closeAll(&mut self) () {
+    fun closeAll(&mut self) () {
         self.stdin.closeAll();
         self.stdout.closeAll();
         self.stderr.closeAll();

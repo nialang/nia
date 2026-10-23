@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn nested_block_edits_share_moved_siblings_and_keep_old_snapshots() {
-        let source = "fn main() { before(); if flag { value[index]; } after(); } fn last() {}";
+        let source = "fun main() { before(); if flag { value[index]; } after(); } fun last() {}";
         let original = parse(source, None).unwrap();
         assert!(original.errors.is_empty(), "{:?}", original.errors);
         let mut current = original.clone();
@@ -335,7 +335,7 @@ mod tests {
             let edit = TextEdit::replace(Span::new(inner, end), replacement);
             current = current.reparse(&edit, None).unwrap();
             assert_eq!(current, parse(current.tree.source(), None).unwrap());
-            for text in ["before();", "after();", "fn last() {}"] {
+            for text in ["before();", "after();", "fun last() {}"] {
                 let before = node_with_text(original.tree.green_root(), source, text).unwrap();
                 let after =
                     node_with_text(current.tree.green_root(), current.tree.source(), text).unwrap();
@@ -351,25 +351,25 @@ mod tests {
     #[test]
     fn edits_match_clean_parsing_across_grammar_and_recovery_boundaries() {
         let sources = [
-            "// header\nmodule first;\nfn main[T](x: T) T { x }\nmodule last;\n",
-            "fn first() { a[T](x); }\nfn second() { b[index]; }\nfn last() {}",
-            "type A = Box[N];\nfn broken(x) { let y = ; }\nmodule last;",
-            "@[test]\nfn first() { \"text\"; }\n// next\nfn last() {}",
-            "fn broken[T(x: T) T;\nmodule next;\nfn last() { $; }",
-            "struct S { x: i32, y: }\ntrait T { fn f(&self); }\nmodule last;",
-            "fn a() { if x { f(); } else { g(); } }\nfn b() {}",
-            "fn a() { match x { ?v => v, null => 0, } }\nfn b() {}",
-            "fn a() { before(); if flag { value[Box[N]]; } after(); } fn b() {}",
-            "fn a() { call[{ value; }]; let x: [T; { n }] = y; } fn b() {}",
-            "fn a() { let x = |v| { v }; loop { if flag { x(); } } } fn b() {}",
+            "// header\nmodule first;\nfun main[T](x: T) T { x }\nmodule last;\n",
+            "fun first() { a[T](x); }\nfun second() { b[index]; }\nfun last() {}",
+            "type A = Box[N];\nfun broken(x) { let y = ; }\nmodule last;",
+            "@[test]\nfun first() { \"text\"; }\n// next\nfun last() {}",
+            "fun broken[T(x: T) T;\nmodule next;\nfun last() { $; }",
+            "struct S { x: i32, y: }\ntrait T { fun f(&self); }\nmodule last;",
+            "fun a() { if x { f(); } else { g(); } }\nfun b() {}",
+            "fun a() { match x { ?v => v, null => 0, } }\nfun b() {}",
+            "fun a() { before(); if flag { value[Box[N]]; } after(); } fun b() {}",
+            "fun a() { call[{ value; }]; let x: [T; { n }] = y; } fun b() {}",
+            "fun a() { let x = |v| { v }; loop { if flag { x(); } } } fun b() {}",
             "// UTF-8: \u{4e2d}\u{6587}\nmodule a;\nmodule b;\n",
             "",
             "// comment",
             "module a; module a; module a;",
-            "$ } ; fn f( {",
+            "$ } ; fun f( {",
         ];
         let edits = [
-            "", " ", "\n", "//", "/*", "x", "Fn", "{", "}", "]", ";", "\"", "\u{4e2d}",
+            "", " ", "\n", "//", "/*", "x", "Fun", "{", "}", "]", ";", "\"", "\u{4e2d}",
         ];
         for source in sources {
             let initial_version = version(1);
@@ -404,7 +404,8 @@ mod tests {
 
     #[test]
     fn reused_tokens_keep_shared_text_and_diagnostics_get_new_origins() {
-        let source = "module first;\nfn changed() { value[index]; }\nfn broken(x) {}\nmodule last;";
+        let source =
+            "module first;\nfun changed() { value[index]; }\nfun broken(x) {}\nmodule last;";
         let first_version = version(1);
         let next_version = SourceVersion {
             revision: SourceRevision(2),
@@ -464,13 +465,13 @@ mod tests {
     #[test]
     fn wide_edits_and_repeated_recovery_match_clean_parsing() {
         let mut current = parse(
-            "module a; fn f[T](x: T) { call[Box[N]](x); } fn g(x) {} module z;",
+            "module a; fun f[T](x: T) { call[Box[N]](x); } fun g(x) {} module z;",
             None,
         )
         .unwrap();
         let replacements = [
             "",
-            "fn f() {}",
+            "fun f() {}",
             "module new;",
             "//",
             "\n",

@@ -86,7 +86,7 @@ pub struct GeneralPurposeAllocator {
 }
 
 extend GeneralPurposeAllocator {
-    pub fn init(child: &mut Allocator) GeneralPurposeAllocator {
+    pub fun init(child: &mut Allocator) GeneralPurposeAllocator {
         .{
             child,
             smallPages: null,
@@ -96,7 +96,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    pub fn deinit(&mut self) Error!() {
+    pub fun deinit(&mut self) Error!() {
         self.deinitLeak = self.deinitLeak or self.hasLiveAllocations();
         self.deinitBacking().?;
         if self.deinitLeak {
@@ -106,12 +106,12 @@ extend GeneralPurposeAllocator {
         !()
     }
 
-    pub fn deinitWithoutLeakCheck(&mut self) Error!() {
+    pub fun deinitWithoutLeakCheck(&mut self) Error!() {
         self.deinitLeak = false;
         self.deinitBacking()
     }
 
-    fn deinitBacking(&mut self) Error!() {
+    fun deinitBacking(&mut self) Error!() {
         let small = self.smallPages;
         let large = self.largeAllocations;
         let pending = self.pendingFree;
@@ -121,7 +121,7 @@ extend GeneralPurposeAllocator {
         self.freeDetachedLists(small, large, pending)
     }
 
-    fn hasLiveAllocations(&self) bool {
+    fun hasLiveAllocations(&self) bool {
         if self.largeAllocations is ?_ {
             return true;
         }
@@ -139,7 +139,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    pub fn capacity(&self) usize {
+    pub fun capacity(&self) usize {
         let mut total: usize = 0;
         let mut page = self.smallPages;
         loop {
@@ -165,7 +165,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    pub fn used(&self) usize {
+    pub fun used(&self) usize {
         let mut total: usize = 0;
         let mut page = self.smallPages;
         loop {
@@ -188,7 +188,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.smallPages.isNull()
             and self.largeAllocations.isNull()
             and self.pendingFree.isNull()
@@ -196,7 +196,7 @@ extend GeneralPurposeAllocator {
 }
 
 extend GeneralPurposeAllocator : Allocator {
-    pub fn alloc(&mut self, layout: Layout) Error!Block {
+    pub fun alloc(&mut self, layout: Layout) Error!Block {
         if self.pendingFree is ?block {
             self.child.free(block).?;
             self.pendingFree = null;
@@ -214,7 +214,7 @@ extend GeneralPurposeAllocator : Allocator {
         }
     }
 
-    pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
+    pub fun resize(&mut self, block: Block, newLayout: Layout) bool {
         if block.isEmpty() {
             return newLayout.isEmpty();
         }
@@ -296,7 +296,7 @@ extend GeneralPurposeAllocator : Allocator {
         }
     }
 
-    pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
+    pub fun remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
@@ -306,7 +306,7 @@ extend GeneralPurposeAllocator : Allocator {
         }
     }
 
-    pub fn free(&mut self, block: Block) Error!() {
+    pub fun free(&mut self, block: Block) Error!() {
         if block.isEmpty() {
             return !();
         }
@@ -318,7 +318,7 @@ extend GeneralPurposeAllocator : Allocator {
 }
 
 extend GeneralPurposeAllocator {
-    fn allocSmall(&mut self, layout: Layout, slotSize: usize) Error!Block {
+    fun allocSmall(&mut self, layout: Layout, slotSize: usize) Error!Block {
         let mut page = match self.findPageWithFreeSlot(slotSize) {
             ?item => {
                 item
@@ -367,7 +367,7 @@ extend GeneralPurposeAllocator {
         !.init(ptr, layout)
     }
 
-    fn freeSmall(&mut self, page: &mut SmallPage, block: Block) Error!() {
+    fun freeSmall(&mut self, page: &mut SmallPage, block: Block) Error!() {
         let mut slot = match smallPageSlotForPtr(page, block.ptr()) {
             ?value => {
                 value
@@ -395,7 +395,7 @@ extend GeneralPurposeAllocator {
         !()
     }
 
-    fn allocateSmallPage(&mut self, slotSize: usize) Error!&mut SmallPage {
+    fun allocateSmallPage(&mut self, slotSize: usize) Error!&mut SmallPage {
         let pageSize = os::pageSize();
         let blockLayout = Layout::init(pageSize, pageSize).?;
         let block = self.child.alloc(blockLayout).?;
@@ -451,7 +451,7 @@ extend GeneralPurposeAllocator {
         !page
     }
 
-    fn releaseEmptySmallPage(&mut self, page: &mut SmallPage) Error!() {
+    fun releaseEmptySmallPage(&mut self, page: &mut SmallPage) Error!() {
         let mut current = self.smallPages;
         let mut previous: ?&mut SmallPage = null;
         loop {
@@ -478,7 +478,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    fn allocLarge(&mut self, layout: Layout) Error!Block {
+    fun allocLarge(&mut self, layout: Layout) Error!Block {
         let headerSize = pkg::builtin::size[LargeHeader]();
         let withHeader = match headerSize.checkedAdd(layout.align()) {
             ?value => {
@@ -530,7 +530,7 @@ extend GeneralPurposeAllocator {
         !.init(userAddr as &mut u8, layout)
     }
 
-    fn freeLarge(&mut self, block: Block) Error!() {
+    fun freeLarge(&mut self, block: Block) Error!() {
         let mut current = self.largeAllocations;
         let mut previous: ?&mut LargeHeader = null;
         loop {
@@ -567,7 +567,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    fn findPageWithFreeSlot(&mut self, slotSize: usize) ?&mut SmallPage {
+    fun findPageWithFreeSlot(&mut self, slotSize: usize) ?&mut SmallPage {
         let mut current = self.smallPages;
         loop {
             if current is ?page {
@@ -581,7 +581,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    fn findSmallPage(&mut self, block: Block) ?&mut SmallPage {
+    fun findSmallPage(&mut self, block: Block) ?&mut SmallPage {
         let mut current = self.smallPages;
         loop {
             if current is ?page {
@@ -595,7 +595,7 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    fn findLargeHeader(&mut self, ptr: &mut u8) ?&mut LargeHeader {
+    fun findLargeHeader(&mut self, ptr: &mut u8) ?&mut LargeHeader {
         let mut current = self.largeAllocations;
         loop {
             if current is ?header {
@@ -613,13 +613,13 @@ extend GeneralPurposeAllocator {
         }
     }
 
-    fn releaseOrRetain(&mut self, block: Block) () {
+    fun releaseOrRetain(&mut self, block: Block) () {
         if self.child.free(block) is error! {
             self.pendingFree = ?block;
         }
     }
 
-    fn freeDetachedLists(
+    fun freeDetachedLists(
         &mut self,
         small: ?&mut SmallPage,
         large: ?&mut LargeHeader,
@@ -667,7 +667,7 @@ extend GeneralPurposeAllocator {
     }
 }
 
-fn smallSlotSize(layout: Layout) ?usize {
+fun smallSlotSize(layout: Layout) ?usize {
     if layout.size() > maxSmallSize or layout.align() > maxSmallSize {
         return null;
     }
@@ -706,7 +706,7 @@ fn smallSlotSize(layout: Layout) ?usize {
     }
 }
 
-fn smallPagePayloadBase(page: &mut SmallPage) ?usize {
+fun smallPagePayloadBase(page: &mut SmallPage) ?usize {
     let base = page.block.ptr() as usize;
     let afterHeader = match base.checkedAdd(pkg::builtin::size[SmallPage]()) {
         ?value => {
@@ -719,7 +719,7 @@ fn smallPagePayloadBase(page: &mut SmallPage) ?usize {
     afterHeader.alignForward(page.slotSize)
 }
 
-fn smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
+fun smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
     let payloadBase = match smallPagePayloadBase(page) {
         ?value => {
             value
@@ -747,7 +747,7 @@ fn smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
     addr < pageEnd
 }
 
-fn smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
+fun smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
     if not smallPageContainsPtr(page, ptr) {
         return null;
     }
@@ -777,7 +777,7 @@ fn smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
     }
 }
 
-fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
+fun smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
     let addr = match (slot as usize).checkedAdd(pkg::builtin::size[SmallSlot]()) {
         ?value => {
             value
@@ -789,7 +789,7 @@ fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
     addr.alignForward(align).map[&mut u8, _](\value: usize -> value as &mut u8)
 }
 
-fn smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
+fun smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
     if slot.magic != smallMagic or not slot.allocated {
         return false;
     }
@@ -807,14 +807,14 @@ fn smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
     ptr as usize == block.ptr() as usize
 }
 
-fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
+fun largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
     headerAddr
         .checkedAdd(pkg::builtin::size[LargeHeader]())
         .map[&mut u8, _](\value: usize -> value as &mut u8)
 }
 
-fn saturatingAdd(left: usize, right: usize) usize {
+fun saturatingAdd(left: usize, right: usize) usize {
     match left.checkedAdd(right) {
         ?value => {
             value

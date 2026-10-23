@@ -77,21 +77,21 @@ pub struct SpawnAttempt { result: ?SpawnResult, error: ?SpawnError, pendingReap:
 pub struct SpawnOptions { stdin: StdIo, stdout: StdIo, stderr: StdIo, cwd: ?&u8 }
 
 extend Timestamp {
-    pub fn init(seconds: i64, nanos: u32) Timestamp {
+    pub fun init(seconds: i64, nanos: u32) Timestamp {
         .{ seconds, nanos }
     }
 
-    pub fn seconds(&self) i64 {
+    pub fun seconds(&self) i64 {
         self.seconds
     }
 
-    pub fn nanos(&self) u32 {
+    pub fun nanos(&self) u32 {
         self.nanos
     }
 }
 
 extend FileMetadata {
-    pub fn init(
+    pub fun init(
         kind: FileKind,
         inode: u64,
         nlink: u32,
@@ -105,55 +105,55 @@ extend FileMetadata {
         .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
     }
 
-    pub fn kind(&self) FileKind { self.kind }
-    pub fn inode(&self) u64 { self.inode }
-    pub fn nlink(&self) u32 { self.nlink }
-    pub fn size(&self) u64 { self.size }
-    pub fn mode(&self) u32 { self.mode }
-    pub fn blockSize(&self) u32 { self.blockSize }
-    pub fn atime(&self) ?Timestamp { self.atime }
-    pub fn mtime(&self) Timestamp { self.mtime }
-    pub fn ctime(&self) ?Timestamp { self.ctime }
+    pub fun kind(&self) FileKind { self.kind }
+    pub fun inode(&self) u64 { self.inode }
+    pub fun nlink(&self) u32 { self.nlink }
+    pub fun size(&self) u64 { self.size }
+    pub fun mode(&self) u32 { self.mode }
+    pub fun blockSize(&self) u32 { self.blockSize }
+    pub fun atime(&self) ?Timestamp { self.atime }
+    pub fun mtime(&self) Timestamp { self.mtime }
+    pub fun ctime(&self) ?Timestamp { self.ctime }
 }
 
 extend DirectoryEntry {
-    pub fn init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry {
+    pub fun init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry {
         .{ kind, name, size }
     }
 
-    pub fn kind(&self) FileKind { self.kind }
-    pub fn name(&self) &[u8] { self.name }
-    pub fn size(&self) u64 { self.size }
+    pub fun kind(&self) FileKind { self.kind }
+    pub fun name(&self) &[u8] { self.name }
+    pub fun size(&self) u64 { self.size }
 }
 
 extend ProcessId {
-    pub const fn init(pid: i32) ProcessId {
+    pub const fun init(pid: i32) ProcessId {
         .{ pid, handle: invalidHandle }
     }
 
-    pub const fn fromHandle(pid: i32, handle: usize) ProcessId {
+    pub const fun fromHandle(pid: i32, handle: usize) ProcessId {
         .{ pid, handle }
     }
 
-    pub const fn raw(&self) i32 { self.pid }
+    pub const fun raw(&self) i32 { self.pid }
 }
 
 extend WaitStatus {
-    pub fn init(raw: i32) WaitStatus {
+    pub fun init(raw: i32) WaitStatus {
         .{ raw }
     }
 
-    pub fn raw(&self) i32 { self.raw }
-    pub fn exited(&self) bool { true }
-    pub fn signaled(&self) bool { false }
-    pub fn stopped(&self) bool { false }
-    pub fn exitCode(&self) ?i32 { ?self.raw }
-    pub fn signal(&self) ?i32 { null }
-    pub fn stopSignal(&self) ?i32 { null }
+    pub fun raw(&self) i32 { self.raw }
+    pub fun exited(&self) bool { true }
+    pub fun signaled(&self) bool { false }
+    pub fun stopped(&self) bool { false }
+    pub fun exitCode(&self) ?i32 { ?self.raw }
+    pub fun signal(&self) ?i32 { null }
+    pub fun stopSignal(&self) ?i32 { null }
 }
 
 extend SpawnResult {
-    pub fn init(
+    pub fun init(
         pid: ProcessId,
         stdin: ?FileDescriptor,
         stdout: ?FileDescriptor,
@@ -162,14 +162,14 @@ extend SpawnResult {
         .{ pid, stdin, stdout, stderr }
     }
 
-    pub fn pid(&self) ProcessId { self.pid }
-    pub fn stdin(&self) ?FileDescriptor { self.stdin }
-    pub fn stdout(&self) ?FileDescriptor { self.stdout }
-    pub fn stderr(&self) ?FileDescriptor { self.stderr }
+    pub fun pid(&self) ProcessId { self.pid }
+    pub fun stdin(&self) ?FileDescriptor { self.stdin }
+    pub fun stdout(&self) ?FileDescriptor { self.stdout }
+    pub fun stderr(&self) ?FileDescriptor { self.stderr }
 }
 
 extend SpawnError {
-    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
+    pub fun fromStage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage {
             .Setup => .Setup(errno),
             .Stdio => .Stdio(errno),
@@ -179,7 +179,7 @@ extend SpawnError {
         }
     }
 
-    pub fn stage(&self) SpawnStage {
+    pub fun stage(&self) SpawnStage {
         match self.* {
             .Setup(_) => .Setup,
             .Stdio(_) => .Stdio,
@@ -189,7 +189,7 @@ extend SpawnError {
         }
     }
 
-    pub fn primary(&self) Errno {
+    pub fun primary(&self) Errno {
         match self.* {
             .Setup(value) => value,
             .Stdio(value) => value,
@@ -201,19 +201,19 @@ extend SpawnError {
 }
 
 extend SpawnAttempt {
-    pub fn success(result: SpawnResult) SpawnAttempt {
+    pub fun success(result: SpawnResult) SpawnAttempt {
         .{ result: ?result, error: null, pendingReap: null, pendingReapError: null }
     }
 
-    pub fn failure(error: SpawnError) SpawnAttempt {
+    pub fun failure(error: SpawnError) SpawnAttempt {
         .{ result: null, error: ?error, pendingReap: null, pendingReapError: null }
     }
 
-    pub fn reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
+    pub fun reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
         .{ result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
     }
 
-    pub fn finish(&mut self) SpawnError!SpawnResult {
+    pub fun finish(&mut self) SpawnError!SpawnResult {
         match self.result {
             ?value => {
                 self.result = null;
@@ -231,24 +231,24 @@ extend SpawnAttempt {
 }
 
 extend SpawnOptions {
-    pub fn init() SpawnOptions {
+    pub fun init() SpawnOptions {
         .{ stdin: .Inherit, stdout: .Inherit, stderr: .Inherit, cwd: null }
     }
 
-    pub fn stdin(&self) StdIo { self.stdin }
-    pub fn stdout(&self) StdIo { self.stdout }
-    pub fn stderr(&self) StdIo { self.stderr }
-    pub fn cwd(&self) ?&u8 { self.cwd }
+    pub fun stdin(&self) StdIo { self.stdin }
+    pub fun stdout(&self) StdIo { self.stdout }
+    pub fun stderr(&self) StdIo { self.stderr }
+    pub fun cwd(&self) ?&u8 { self.cwd }
 
-    pub fn setStdin(&mut self, value: StdIo) () { self.stdin = value }
-    pub fn setStdout(&mut self, value: StdIo) () { self.stdout = value }
-    pub fn setStderr(&mut self, value: StdIo) () { self.stderr = value }
-    pub fn setCwd(&mut self, value: &u8) () { self.cwd = ?value }
+    pub fun setStdin(&mut self, value: StdIo) () { self.stdin = value }
+    pub fun setStdout(&mut self, value: StdIo) () { self.stdout = value }
+    pub fun setStderr(&mut self, value: StdIo) () { self.stderr = value }
+    pub fun setCwd(&mut self, value: &u8) () { self.cwd = ?value }
 }
 
 // Only name-surrogate reparse points are links. Other tags, such as cloud
 // placeholders, keep the kind of the file or directory they store.
-pub(pkg) fn fileKind(attributes: u32, reparseTag: u32) FileKind {
+pub(pkg) fun fileKind(attributes: u32, reparseTag: u32) FileKind {
     if (attributes & fileAttributeReparsePoint) != 0 and (reparseTag & reparseTagNameSurrogate) != 0 {
         .Symlink
     } else if (attributes & fileAttributeDirectory) != 0 {

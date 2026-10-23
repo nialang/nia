@@ -2,12 +2,12 @@
 
 // Counts trailing zero bits.
 @[builtin("ctz")]
-pub const fn ctz[T](value: T) T;
+pub const fun ctz[T](value: T) T;
 
 // Counts leading zero bits.
 @[builtin("clz")]
-pub const fn clz[T](value: T) T;
+pub const fun clz[T](value: T) T;
 
 // Counts one bits.
 @[builtin("popcount")]
-pub const fn popcount[T](value: T) T;
+pub const fun popcount[T](value: T) T;

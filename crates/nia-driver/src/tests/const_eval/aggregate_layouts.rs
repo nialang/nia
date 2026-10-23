@@ -14,7 +14,7 @@ enum Event {
     Resize { width: usize, height: usize },
 }
 
-const fn score(event: Event) usize {
+const fun score(event: Event) usize {
     match event {
         Event::Closed => 0usize,
         Event::Data(value) => value,
@@ -28,7 +28,7 @@ const n: usize = score(Event::Closed)
     + score(Event::Move(3usize, 4usize))
     + score(Event::Resize { height: 5usize, width: 6usize });
 
-fn main() i32 {
+fun main() i32 {
     let values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -49,22 +49,22 @@ struct Point { x: usize, y: usize }
 enum Color { Red, Data(usize) }
 
 extend Point {
-    const fn init() Point { Point { x: 12usize, y: 13usize } }
+    const fun init() Point { Point { x: 12usize, y: 13usize } }
 }
 
-const fn make_data() Color { .Data(8usize) }
-const fn make_local() Color {
+const fun make_data() Color { .Data(8usize) }
+const fun make_local() Color {
     let value: Color = .Data(9usize);
     value
 }
-const fn make_initialized() Point {
+const fun make_initialized() Point {
     let value: Point = .init();
     value
 }
-const fn make_branch(flag: bool) Color {
+const fun make_branch(flag: bool) Color {
     if flag { .Red } else { .Data(10usize) }
 }
-const fn make_nested(flag: bool) Color {
+const fun make_nested(flag: bool) Color {
     if flag {
         let value: Color = .Red;
         value
@@ -84,7 +84,7 @@ const generated_nested: Color = make_nested(true);
 const generated_initialized: Point = make_initialized();
 const n: usize = point.x + point.y;
 
-fn main() i32 {
+fun main() i32 {
     n as i32
 }
 "#,
@@ -103,7 +103,7 @@ fn omitted_patterns_are_const_evaluable() {
 enum Color { Red, Data(usize), Resize { value: usize } }
 enum Cause { Memory(Color), Nested { cause: Color } }
 
-const fn score(color: Color) usize {
+const fun score(color: Color) usize {
     match color {
         .Red => 1usize,
         .Data(value) => value,
@@ -111,7 +111,7 @@ const fn score(color: Color) usize {
     }
 }
 
-const fn nested_score(cause: Cause) usize {
+const fun nested_score(cause: Cause) usize {
     match cause {
         .Memory(color) => match color {
             .Red => 2usize,
@@ -127,7 +127,7 @@ const fn nested_score(cause: Cause) usize {
 }
 
 extend Color {
-    const fn method_score(self) usize {
+    const fun method_score(self) usize {
         match self {
             .Red => 4usize,
             .Data(value) => value,
@@ -141,7 +141,7 @@ const n: usize = score(Color::Data(7usize))
     + nested_score(Cause::Nested { cause: Color::Red })
     + Color::Red.method_score();
 
-fn main() i32 {
+fun main() i32 {
     n as i32
 }
 "#,
@@ -157,7 +157,7 @@ fn const_match_nominal_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -169,7 +169,7 @@ const config = match 1usize {
 };
 const n: usize = id(config.width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -186,7 +186,7 @@ fn nominal_const_array_elements_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -194,7 +194,7 @@ struct Config { width: usize }
 const configs = [Config { width: 4usize }, Config { width: 8usize }];
 const n: usize = id(configs[1].width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -211,7 +211,7 @@ fn nominal_const_array_slices_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -220,7 +220,7 @@ const configs = [Config { width: 4usize }, Config { width: 8usize }, Config { wi
 const selected = configs[1..=2];
 const n: usize = id(selected[1].width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -237,7 +237,7 @@ fn nominal_const_array_repeat_elements_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -245,7 +245,7 @@ struct Config { width: usize }
 const configs = [Config { width: 4usize }; 2usize];
 const n: usize = id(configs[1].width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -262,17 +262,17 @@ fn generic_const_function_infers_type_arg_from_nested_call_return_type() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn array_len[T](value: T) usize {
+const fun array_len[T](value: T) usize {
     7usize
 }
 
 const n: usize = array_len(id(4usize));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -290,15 +290,15 @@ fn generic_const_function_infers_type_arg_from_nested_optional_call_return_type(
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn some[T](value: T) ?T {
+const fun some[T](value: T) ?T {
     ?value
 }
 
-const fn unwrap(value: ?usize) usize {
+const fun unwrap(value: ?usize) usize {
     match value {
         ?payload => {
             payload
@@ -311,7 +311,7 @@ const fn unwrap(value: ?usize) usize {
 
 const n: usize = unwrap(id(some(7usize)));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -328,11 +328,11 @@ fn generic_const_function_infers_type_arg_from_try_payload_return_type() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn use_try(value: ?usize) ?usize {
+const fun use_try(value: ?usize) ?usize {
     ?id(value.?)
 }
 
@@ -341,7 +341,7 @@ const n: usize = match use_try(?7usize) {
     null => 0usize,
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -359,11 +359,11 @@ fn generic_const_function_infers_type_arg_from_error_try_payload_return_type() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn use_try(value: usize!usize) usize!usize {
+const fun use_try(value: usize!usize) usize!usize {
     !id(value.?)
 }
 
@@ -377,7 +377,7 @@ const n: usize = match got {
     },
 };
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -394,7 +394,7 @@ fn generic_const_function_infers_type_arg_from_integer_field() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -404,7 +404,7 @@ const config = Config { target: Target { pointer_width: 64usize } };
 const bits: usize = id(config.target.pointer_width);
 const n: usize = bits / 8usize;
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -421,7 +421,7 @@ fn generic_const_function_infers_type_arg_from_bound_struct() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -431,7 +431,7 @@ const builtin = Config { target: Target { pointer_width: 64usize } };
 const bits: usize = id(builtin.target.pointer_width);
 const n: usize = bits / 8usize;
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -448,11 +448,11 @@ fn generic_const_function_infers_type_arg_from_optional_constructor() {
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
-const fn unwrap(value: ?usize) usize {
+const fun unwrap(value: ?usize) usize {
     match value {
         ?payload => {
             payload
@@ -465,7 +465,7 @@ const fn unwrap(value: ?usize) usize {
 
 const n: usize = unwrap(id(?7usize));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -483,11 +483,11 @@ fn generic_const_function_infers_type_arg_from_error_success_constructor_context
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: usize!T) usize!T {
+const fun id[T](value: usize!T) usize!T {
     value
 }
 
-const fn unwrap(value: usize!usize) usize {
+const fun unwrap(value: usize!usize) usize {
     match value {
         !payload => {
             payload
@@ -500,7 +500,7 @@ const fn unwrap(value: usize!usize) usize {
 
 const n: usize = unwrap(id(!7usize));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -518,11 +518,11 @@ fn generic_const_function_infers_type_arg_from_error_payload_constructor_context
     write(
         &root.join("main.nia"),
         r#"
-const fn id[T](value: T!usize) T!usize {
+const fun id[T](value: T!usize) T!usize {
     value
 }
 
-const fn unwrap(value: usize!usize) usize {
+const fun unwrap(value: usize!usize) usize {
     match value {
         !payload => {
             payload
@@ -535,7 +535,7 @@ const fn unwrap(value: usize!usize) usize {
 
 const n: usize = unwrap(id(3usize!));
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -556,7 +556,7 @@ struct Config {
     widths: [usize; 3],
 }
 
-const fn id[T](value: T) T {
+const fun id[T](value: T) T {
     value
 }
 
@@ -564,7 +564,7 @@ const config: Config = id(Config{widths: [2, 4, 8]});
 const widths: [usize; 3] = id([2, 4, 8]);
 const width: usize = config.widths[1] + widths[0];
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; width] = [0; width];
     values.len() as i32
 }
@@ -587,7 +587,7 @@ using entry::identity;
 const width: usize = 4;
 const n: usize = identity::id(width);
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -596,7 +596,7 @@ fn main() i32 {
     write(
         &root.join("identity.nia"),
         r#"
-pub const fn id[T](value: T) T {
+pub const fun id[T](value: T) T {
     value
 }
 "#,
@@ -612,13 +612,13 @@ fn generic_const_function_reports_uninferred_type_args() {
     write(
         &root.join("main.nia"),
         r#"
-const fn zero[T]() usize {
+const fun zero[T]() usize {
     0
 }
 
 const n: usize = zero();
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
@@ -647,14 +647,14 @@ struct Pair {
     b: i32,
 }
 
-const fn size_of[T]() usize
+const fun size_of[T]() usize
 where T: Sized {
     std::builtin::size[T]()
 }
 
 const n: usize = size_of[Pair]();
 
-fn main() i32 {
+fun main() i32 {
     let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
@@ -682,7 +682,7 @@ struct Pair {
 
 const n: usize = layout::size_of[Pair]();
 
-fn main() i32 {
+fun main() i32 {
     let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
@@ -691,7 +691,7 @@ fn main() i32 {
     write(
         &root.join("layout.nia"),
         r#"
-pub const fn size_of[T]() usize
+pub const fun size_of[T]() usize
 where T: Sized {
     std::builtin::size[T]()
 }
@@ -714,7 +714,7 @@ using entry::bits;
 const compileSlot: bits::ScalarSlot[f32] = bits::slot[f32](1.0);
 const compileBits: u32 = bits::readBits[f32](compileSlot);
 
-fn main() i32 {
+fun main() i32 {
     let runtimeSlot: bits::ScalarSlot[f32] = bits::slot[f32](1.0);
     if compileBits == 1065353216
         and bits::readBits[f32](runtimeSlot) == compileBits {
@@ -733,11 +733,11 @@ pub union ScalarSlot[T] {
     bits: u32,
 }
 
-pub const fn slot[T](value: T) ScalarSlot[T] {
+pub const fun slot[T](value: T) ScalarSlot[T] {
     ScalarSlot[T] { value }
 }
 
-pub const fn readBits[T](slot: ScalarSlot[T]) u32 {
+pub const fun readBits[T](slot: ScalarSlot[T]) u32 {
     slot.bits
 }
 "#,
@@ -760,7 +760,7 @@ using entry::bits;
 const compileBytes: [u8; 5] = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
 const compilePair: bits::Pair[u32] = bits::decode[u32](compileBytes);
 
-fn main() i32 {
+fun main() i32 {
     let runtimeBytes = bits::encode[u32](bits::Pair[u32] { marker: 170, value: 287454020 });
     let runtimePair = bits::decode[u32](runtimeBytes);
     if compileBytes[4] == 170
@@ -787,12 +787,12 @@ pub union PairSlot[T] {
     prefix: [u8; 5],
 }
 
-pub const fn encode[T](value: Pair[T]) [u8; 5] {
+pub const fun encode[T](value: Pair[T]) [u8; 5] {
     let slot = PairSlot[T] { value: value };
     slot.prefix
 }
 
-pub const fn decode[T](bytes: [u8; 5]) Pair[T] {
+pub const fun decode[T](bytes: [u8; 5]) Pair[T] {
     let slot = PairSlot[T] { prefix: bytes };
     slot.value
 }
@@ -816,7 +816,7 @@ using entry::bits;
 const compileSlot: bits::Outer[u32] = bits::layered[u32](1144201745, 26197);
 const compileBytes: [u8; 4] = bits::readBytes[u32](compileSlot);
 
-fn main() i32 {
+fun main() i32 {
     let runtimeSlot = bits::layered[u32](1144201745, 26197);
     let runtimeBytes = bits::readBytes[u32](runtimeSlot);
     let materializedBytes = bits::readBytes[u32](compileSlot);
@@ -846,13 +846,13 @@ pub union Outer[T] {
     bytes: [u8; 4],
 }
 
-pub const fn layered[T](wide: T, narrow: u16) Outer[T] {
+pub const fun layered[T](wide: T, narrow: u16) Outer[T] {
     let mut inner = Inner[T] { wide: wide };
     inner.narrow = narrow;
     Outer[T] { inner }
 }
 
-pub const fn readBytes[T](slot: Outer[T]) [u8; 4] {
+pub const fun readBytes[T](slot: Outer[T]) [u8; 4] {
     slot.bytes
 }
 "#,
@@ -880,7 +880,7 @@ const compileSlot: bits::VectorSlot[u16x2] = bits::slot[u16x2](compileVector);
 const compileBytes: [u8; 4] = bits::readBytes[u16x2](compileSlot);
 const decoded: u16x2 = bits::decode[u16x2](compileBytes);
 
-fn main() i32 {
+fun main() i32 {
     let runtimeVector = std::builtin::insert(
         std::builtin::splat[u16x2](4386),
         1,
@@ -910,21 +910,21 @@ pub union VectorSlot[V] {
     bytes: [u8; 4],
 }
 
-pub const fn slot[V](value: V) VectorSlot[V] {
+pub const fun slot[V](value: V) VectorSlot[V] {
     VectorSlot[V] { value }
 }
 
-pub const fn encode[V](value: V) [u8; 4] {
+pub const fun encode[V](value: V) [u8; 4] {
     let slot = VectorSlot[V] { value: value };
     slot.bytes
 }
 
-pub const fn decode[V](bytes: [u8; 4]) V {
+pub const fun decode[V](bytes: [u8; 4]) V {
     let slot = VectorSlot[V] { bytes: bytes };
     slot.value
 }
 
-pub const fn readBytes[V](slot: VectorSlot[V]) [u8; 4] {
+pub const fun readBytes[V](slot: VectorSlot[V]) [u8; 4] {
     slot.bytes
 }
 "#,
@@ -956,7 +956,7 @@ using entry::config;
 
 const n: usize = config::pair_size;
 
-fn main() i32 {
+fun main() i32 {
     let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
@@ -988,7 +988,7 @@ using entry::config;
 
 const n: usize = std::builtin::size[config::Packet]();
 
-fn main() i32 {
+fun main() i32 {
     let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
 }
@@ -1010,12 +1010,12 @@ struct Pair {
     b: i32,
 }
 
-const fn size_of[T]() usize
+const fun size_of[T]() usize
 where T: Sized {
     std::builtin::size[T]()
 }
 
-fn main() i32 {
+fun main() i32 {
     const n: usize = size_of[Pair]();
     let mut bytes: [u8; n] = [0; n];
     bytes.len() as i32
@@ -1044,7 +1044,7 @@ pub struct Boxed {
 }
 
 extend Item {
-    pub fn zero() Item {
+    pub fun zero() Item {
         Self { value: 0 }
     }
 }
@@ -1057,13 +1057,13 @@ module defs;
 using entry::defs;
 using defs::*;
 
-fn make() Boxed {
+fun make() Boxed {
     Boxed {
         items: [Item::zero(); 4],
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut x = make();
     x.items[0].value as i32
 }
@@ -1091,7 +1091,7 @@ pub struct Boxed {
 }
 
 extend Item {
-    pub fn zero() Item {
+    pub fun zero() Item {
         Self { value: 0 }
     }
 }
@@ -1104,13 +1104,13 @@ module defs;
 using entry::defs;
 using defs::*;
 
-fn make() Boxed {
+fun make() Boxed {
     Boxed {
         items: [Item::zero(); defs::N],
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut x = make();
     x.items[0].value as i32
 }

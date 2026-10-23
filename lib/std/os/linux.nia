@@ -23,14 +23,14 @@ pub using memory::MappedPages;
 
 pub struct DirectoryReader {}
 
-pub fn initDirectoryReader() DirectoryReader { .{} }
+pub fun initDirectoryReader() DirectoryReader { .{} }
 
-pub fn closeDirectoryReader(reader: &mut DirectoryReader) Errno!() {
+pub fun closeDirectoryReader(reader: &mut DirectoryReader) Errno!() {
     _ = reader;
     !()
 }
 
-pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
+pub fun readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
     _ = reader;
     handle.readDirEntries(buffer)
 }
@@ -56,27 +56,27 @@ pub using types::{
 
 pub const maxPathBytes: usize = types::maxPathBytes;
 
-pub fn sigTerm() i32 {
+pub fun sigTerm() i32 {
     types::sigTerm
 }
 
-pub fn cwd() FileDescriptor {
+pub fun cwd() FileDescriptor {
     fd::cwd()
 }
 
-pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+pub fun getCwd(buffer: &mut [u8]) Errno!&[u8] {
     fd::getCwd(buffer)
 }
 
-pub fn pageSize() usize {
+pub fun pageSize() usize {
     memory::pageSize()
 }
 
-pub fn pageAlignedLen(len: usize) Errno!usize {
+pub fun pageAlignedLen(len: usize) Errno!usize {
     memory::pageAlignedLen(len)
 }
 
-pub fn openAt(
+pub fun openAt(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -88,7 +88,7 @@ pub fn openAt(
     fd::openAt(dir, path, mode, create, truncate, exclusive, permissions)
 }
 
-pub fn openAtBeneath(
+pub fun openAtBeneath(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -112,7 +112,7 @@ pub fn openAtBeneath(
     )
 }
 
-pub fn createDirAtBeneath(
+pub fun createDirAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
@@ -121,7 +121,7 @@ pub fn createDirAtBeneath(
     fd::createDirAtBeneath(dir, parent, name, permissions)
 }
 
-pub fn deleteAtBeneath(
+pub fun deleteAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
@@ -130,7 +130,7 @@ pub fn deleteAtBeneath(
     fd::deleteAtBeneath(dir, parent, name, directory)
 }
 
-pub fn renameAtBeneath(
+pub fun renameAtBeneath(
     oldDir: FileDescriptor,
     oldParent: &u8,
     oldName: &u8,
@@ -148,50 +148,50 @@ pub fn renameAtBeneath(
     )
 }
 
-pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+pub fun metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
     stat::metadataAtBeneath(dir, path, followSymlinks)
 }
 
-pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
+pub fun dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
     fd::dirEntryAt(handle, buffer, offset)
 }
 
-pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
+pub fun dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
     fd::dirEntryNextOffset(buffer, offset)
 }
 
-pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     memory::mapPages(len, align)
 }
 
-pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+pub fun unmapPages(ptr: &mut u8, len: usize) Errno!() {
     memory::unmapPages(ptr, len)
 }
 
-pub fn random(bytes: &mut [u8]) Errno!() {
+pub fun random(bytes: &mut [u8]) Errno!() {
     randomImpl::random(bytes)
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     process::spawn(path, argv, envp, options)
 }
 
-pub fn wait(pid: ProcessId) Errno!WaitStatus {
+pub fun wait(pid: ProcessId) Errno!WaitStatus {
     process::wait(pid)
 }
 
-pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+pub fun tryWait(pid: ProcessId) Errno! ?WaitStatus {
     process::tryWait(pid)
 }
 
-pub fn kill(pid: ProcessId) Errno!() {
+pub fun kill(pid: ProcessId) Errno!() {
     process::killWith(pid, types::sigTerm)
 }
 
-pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
+pub fun killWith(pid: ProcessId, signal: i32) Errno!() {
     process::killWith(pid, signal)
 }
 
-pub fn exit(code: i32) () {
+pub fun exit(code: i32) () {
     process::exit(code);
 }

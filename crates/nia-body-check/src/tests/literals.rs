@@ -9,12 +9,12 @@ struct Bytes {
     first: u8,
 }
 
-fn take_byte(x: u8) u8 { x }
+fun take_byte(x: u8) u8 { x }
 
-fn ret_good() u8 { 255 }
-fn ret_bad() u8 { 256 }
+fun ret_good() u8 { 255 }
+fun ret_bad() u8 { 256 }
 
-fn main() u8 {
+fun main() u8 {
     let mut ok: u8 = 255;
     let mut too_large: u8 = 256;
     let mut negative: u8 = -1;
@@ -64,11 +64,11 @@ fn accepts_i128_min_with_contextual_and_explicit_literal_types() {
 const CONTEXTUAL_MIN: i128 = -170141183460469231731687303715884105728;
 const EXPLICIT_MIN: i128 = -170141183460469231731687303715884105728i128;
 
-fn tooSmall() () {
+fun tooSmall() () {
     let value = -170141183460469231731687303715884105729i128;
 }
 
-fn main() i128 {
+fun main() i128 {
     CONTEXTUAL_MIN + EXPLICIT_MIN
 }
 "#,
@@ -86,9 +86,9 @@ fn main() i128 {
 fn checks_float_literals_against_expected_float_types() {
     let checked = pipeline(
         r#"
-fn take32(x: f32) f32 { x }
+fun take32(x: f32) f32 { x }
 
-fn main() f64 {
+fun main() f64 {
     let mut a: f32 = 1.5;
     let mut b: f64 = 1e3;
     let mut too_large: f32 = 1e100;
@@ -146,10 +146,10 @@ fn main() f64 {
 fn defaults_unconstrained_numeric_literals_and_honors_expected_types() {
     let checked = pipeline(
         r#"
-fn take_byte(x: u8) u8 { x }
-fn take32(x: f32) f32 { x }
+fun take_byte(x: u8) u8 { x }
+fun take32(x: f32) f32 { x }
 
-fn main() i32 {
+fun main() i32 {
     let mut default_int = 10;
     let mut default_float = 1.5;
     let mut explicit_byte: u8 = 10;
@@ -202,7 +202,7 @@ fn infers_binary_numeric_literals_from_the_other_operand() {
 static a = 10;
 static ptr = & a;
 
-fn main(x: usize) bool {
+fun main(x: usize) bool {
     let mut forward = a as usize == 0;
     let mut reverse = 0 == a as usize;
     let mut sum: usize = 1 + x;
@@ -219,11 +219,11 @@ fn main(x: usize) bool {
 fn infers_if_branch_numeric_literals_from_expected_and_peer_types() {
     let checked = pipeline(
         r#"
-fn from_return(flag: bool) usize {
+fun from_return(flag: bool) usize {
     if flag { 1 } else { 2 }
 }
 
-fn main(flag: bool, x: usize) usize {
+fun main(flag: bool, x: usize) usize {
     let mut from_binding: usize = if flag { 0 } else { x };
     let mut from_peer = if flag { 1 } else { x };
     from_return(flag) + from_binding + from_peer
@@ -237,22 +237,22 @@ fn main(flag: bool, x: usize) usize {
 fn infers_wrapped_numeric_literals_from_return_types() {
     let checked = pipeline(
         r#"
-fn optionalIndex(flag: bool) ?usize {
+fun optionalIndex(flag: bool) ?usize {
     if flag {
         return ?0;
     }
     null
 }
 
-fn successByte() i32!u8 {
+fun successByte() i32!u8 {
     !1
 }
 
-fn failureByte() u8!i32 {
+fun failureByte() u8!i32 {
     2!
 }
 
-fn main(flag: bool) i32 {
+fun main(flag: bool) i32 {
     _ = optionalIndex(flag);
     _ = successByte();
     _ = failureByte();
@@ -267,7 +267,7 @@ fn main(flag: bool) i32 {
 fn allows_never_if_branches_to_converge_to_the_other_branch_type() {
     let checked = pipeline(
         r#"
-fn then_return_else_unit(flag: bool) () {
+fun then_return_else_unit(flag: bool) () {
     if flag {
         return;
     } else {
@@ -275,7 +275,7 @@ fn then_return_else_unit(flag: bool) () {
     }
 }
 
-fn chained_returns(byte: u8) () {
+fun chained_returns(byte: u8) () {
     if byte == b'/' {
         return;
     } else if byte == b'*' {
@@ -284,7 +284,7 @@ fn chained_returns(byte: u8) () {
     }
 }
 
-fn then_return_else_value(flag: bool) i32 {
+fun then_return_else_value(flag: bool) i32 {
     if flag {
         return 1;
     } else {
@@ -292,7 +292,7 @@ fn then_return_else_value(flag: bool) i32 {
     }
 }
 
-fn then_value_else_return(flag: bool) i32 {
+fun then_value_else_return(flag: bool) i32 {
     if flag {
         1
     } else {
@@ -300,7 +300,7 @@ fn then_value_else_return(flag: bool) i32 {
     }
 }
 
-fn numeric_then_else_return(flag: bool, x: usize) usize {
+fun numeric_then_else_return(flag: bool, x: usize) usize {
     if flag { 1 } else { return x; }
 }
 "#,
@@ -312,10 +312,10 @@ fn numeric_then_else_return(flag: bool, x: usize) usize {
 fn checks_numeric_literal_suffixes() {
     let checked = pipeline(
         r#"
-fn take_usize(value: usize) usize { value }
-fn take_f32(value: f32) f32 { value }
+fun take_usize(value: usize) usize { value }
+fun take_f32(value: f32) f32 { value }
 
-fn main() usize {
+fun main() usize {
     let mut a = 1u8;
     let mut b = 10usize;
     let mut c = 1.0f32;
@@ -394,10 +394,10 @@ fn main() usize {
 fn checks_integer_literal_suffixes_with_radix_and_separators() {
     let checked = pipeline(
         r#"
-fn take_u8(value: u8) usize { value as usize }
-fn take_usize(value: usize) usize { value }
+fun take_u8(value: u8) usize { value as usize }
+fun take_usize(value: usize) usize { value }
 
-fn main() usize {
+fun main() usize {
     let mut hex = 0xffu8;
     let mut bin = 0b1010_0000u8;
     let mut oct = 0o755usize;
@@ -428,10 +428,10 @@ fn main() usize {
 fn checks_float_literal_suffixes_with_exponents_and_separators() {
     let checked = pipeline(
         r#"
-fn take_f32(value: f32) usize { value as usize }
-fn take_f64(value: f64) usize { value as usize }
+fun take_f32(value: f32) usize { value as usize }
+fun take_f64(value: f64) usize { value as usize }
 
-fn main() usize {
+fun main() usize {
     let mut a = 1_000.5f32;
     let mut b = 1.0e-3f64;
     let mut c: f64 = 2.5f32;
@@ -466,10 +466,10 @@ enum Color: u8 {
     Red,
 }
 
-fn id(x: i32) i32 { x }
-fn gid[T](x: T) T { x }
+fun id(x: i32) i32 { x }
+fun gid[T](x: T) T { x }
 
-fn main(ptr: & u8, other: & i32, flag: bool) i32 {
+fun main(ptr: & u8, other: & i32, flag: bool) i32 {
     let mut a: i64 = 1 as i64;
     let mut b: f64 = 1 as f64;
     let mut c: i32 = Color::Red as i32;

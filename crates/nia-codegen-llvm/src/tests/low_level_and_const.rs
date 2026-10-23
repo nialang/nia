@@ -11,7 +11,7 @@ fn emits_negative_float_static_initializers() {
 static single: f32 = -1.5f32;
 static double: f64 = -2.25;
 
-fn main() bool {
+fun main() bool {
     single < double as f32
 }
 "#,
@@ -37,7 +37,7 @@ fn rejects_bare_global_as_pointer_initializer() {
 static mut target: i32 = 1;
 static p: &i32 = target;
 
-fn main() i32 {
+fun main() i32 {
     target
 }
 "#,
@@ -69,7 +69,7 @@ union Slot {
 
 const slot: Slot = Slot { pointer: &34usize };
 
-fn main() bool {
+fun main() bool {
     let left: Slot = slot;
     let right: Slot = slot;
     left.pointer == right.pointer
@@ -114,7 +114,7 @@ union Slot {
 const leftSlot: Slot = Slot { pointer: &34usize };
 const rightSlot: Slot = Slot { pointer: &34usize };
 
-fn main() bool {
+fun main() bool {
     let left: Slot = leftSlot;
     let same: Slot = leftSlot;
     let right: Slot = rightSlot;
@@ -162,7 +162,7 @@ pub const slot: Slot = Slot { pointer: &55usize };
 module defs;
 using entry::defs;
 
-fn main() usize {
+fun main() usize {
     let value: defs::Slot = defs::slot;
     value.pointer.*
 }
@@ -223,7 +223,7 @@ const arraySlot: ArraySlot = ArraySlot { pointer: &[1, 2, 3] };
 const bytesSlot: ArraySlot = ArraySlot { pointer: &b"abc" };
 const textSlot: TextSlot = TextSlot { pointer: &"hi" };
 
-fn main() usize {
+fun main() usize {
     let pair: PairSlot = pairSlot;
     let array: ArraySlot = arraySlot;
     let bytes: ArraySlot = bytesSlot;
@@ -260,7 +260,7 @@ fn static_array_pointers_use_promoted_source_identity() {
 const left: &[u8; 3] = &[1, 2, 3];
 const right: &[u8; 3] = &[1, 2, 3];
 
-fn main() usize {
+fun main() usize {
     const local: &[u8; 3] = &[7, 8, 9];
     left.*[0] as usize
         + left.*[1] as usize
@@ -308,7 +308,7 @@ pub const values: &[u8; 3] = &[4, 5, 6];
 module defs;
 using entry::defs;
 
-fn main() usize {
+fun main() usize {
     defs::values.*[0] as usize + defs::values.*[2] as usize
 }
 "#,
@@ -345,7 +345,7 @@ fn builtin_string_consts_use_definition_identity() {
         r#"
 using std::builtin::target;
 
-fn main() usize {
+fun main() usize {
     target::os.len() + target::os.len() + target::arch.len()
 }
 "#,
@@ -382,7 +382,7 @@ union Slot {
 const firstSlot: Slot = Slot { pointer: &Empty{} };
 const secondSlot: Slot = Slot { pointer: &Empty{} };
 
-fn main() bool {
+fun main() bool {
     let first: Slot = firstSlot;
     let same: Slot = firstSlot;
     let second: Slot = secondSlot;
@@ -425,7 +425,7 @@ const slot: VectorSlot = VectorSlot {
     ),
 };
 
-fn main() u16 {
+fun main() u16 {
     let value: VectorSlot = slot;
     std::builtin::extract(value.pointer.*, 1)
 }
@@ -498,7 +498,7 @@ const arraySlot: ArrayOuter = ArrayOuter {
 };
 const byteSlot: ByteOuter = ByteOuter { pointer: &ByteUnion{byte: 7} };
 
-fn main() usize {
+fun main() usize {
     let value: Outer = slot;
     let holder: HolderOuter = holderSlot;
     let array: ArrayOuter = arraySlot;
@@ -545,19 +545,19 @@ struct Buffer[T, N: usize] {
     data: [T; N],
 }
 
-fn take[T, N: usize](items: [T; N]) usize {
+fun take[T, N: usize](items: [T; N]) usize {
     items.len()
 }
 
-fn make4() Buffer[u8, 4] {
+fun make4() Buffer[u8, 4] {
     Buffer[u8, 4] { data: [1u8, 2u8, 3u8, 4u8] }
 }
 
-fn make8() Buffer[u8, 8] {
+fun make8() Buffer[u8, 8] {
     Buffer[u8, 8] { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
 }
 
-fn main() usize {
+fun main() usize {
     let a = make4();
     let b = make8();
     take(a.data) + take(b.data)
@@ -583,7 +583,7 @@ fn emits_inline_asm_inputs_outputs_and_clobbers() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     let mut value: i64 = 0;
     std::builtin::asm(.{
         code:
@@ -619,11 +619,11 @@ fn emits_volatile_pointer_load_and_store() {
     std::fs::write(
         &main,
         r#"
-extern fn read_reg(reg: ^u32) u32 {
+extern fun read_reg(reg: ^u32) u32 {
     reg.*
 }
 
-extern fn write_reg(reg: ^mut u32, value: u32) () {
+extern fun write_reg(reg: ^mut u32, value: u32) () {
     reg.* = value;
 }
 "#,
@@ -647,11 +647,11 @@ fn emits_trap_builtin_as_llvm_trap() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     std::builtin::trap()
 }
 
-fn statement() () {
+fun statement() () {
     std::builtin::trap();
 }
 "#,
@@ -676,7 +676,7 @@ fn emits_std_builtin_trap_as_llvm_trap() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     std::builtin::trap()
 }
 "#,
@@ -701,7 +701,7 @@ fn const_function_trap_is_available_at_comptime_and_runtime() {
     std::fs::write(
         &main,
         r#"
-const fn selected(flag: bool) usize {
+const fun selected(flag: bool) usize {
     if flag {
         std::builtin::trap();
     }
@@ -710,7 +710,7 @@ const fn selected(flag: bool) usize {
 
 const n: usize = selected(false);
 
-fn main(flag: bool) usize {
+fun main(flag: bool) usize {
     selected(flag) + n
 }
 "#,
@@ -740,7 +740,7 @@ union Bits {
     f: f32,
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut bits = Bits { i: 42 };
     bits.i
 }
@@ -769,7 +769,7 @@ fn emits_const_values_without_runtime_storage() {
 const answer: i32 = 40 + 2;
 static saved: i32 = answer;
 
-fn main() i32 {
+fun main() i32 {
     const local: i32 = answer;
     local
 }
@@ -799,11 +799,11 @@ fn emits_runtime_storage_for_static_string_values() {
 static bytes = b"paw\0";
 static text = "nia";
 
-fn first_byte(xs: &[u8]) i32 {
+fun first_byte(xs: &[u8]) i32 {
     xs[0] as i32
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut byte_ptr: &u8 = &bytes[1];
     let mut byte_slice: &[u8] = &bytes;
     let mut char_slice: &[char] = &text;
@@ -834,7 +834,7 @@ fn emits_arrays_sized_by_imported_const_values() {
 module config;
 using entry::config;
 
-fn main() i32 {
+fun main() i32 {
     let mut values: [i32; config::width] = [1, 2, 3, 4];
     values[3]
 }
@@ -874,7 +874,7 @@ pub struct Boxed {
 }
 
 extend Item {
-    pub fn zero() Item {
+    pub fun zero() Item {
         Self { value: 0 }
     }
 }
@@ -888,19 +888,19 @@ module defs;
 using entry::defs;
 using defs::*;
 
-fn literal_count() Boxed {
+fun literal_count() Boxed {
     Boxed {
         items: [Item::zero(); 4],
     }
 }
 
-fn imported_count() Boxed {
+fun imported_count() Boxed {
     Boxed {
         items: [Item::zero(); defs::N],
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut a = literal_count();
     let mut b = imported_count();
     a.items[0].value as i32 + b.items[0].value as i32
@@ -928,11 +928,11 @@ module defs;
 using entry::defs;
 using defs::Boxed;
 
-fn take(box: Boxed[u8]) u8 {
+fun take(box: Boxed[u8]) u8 {
     box.values[2]
 }
 
-fn main() u8 {
+fun main() u8 {
     let mut box = Boxed[u8] { values: [1, 2, 3] };
     take(box)
 }
@@ -967,7 +967,7 @@ fn emits_large_array_repeat_count_from_const_binding() {
         r#"
 const N: usize = 16;
 
-fn main() i32 {
+fun main() i32 {
     let mut buffer: [u8; N] = [0u8; N];
     0
 }

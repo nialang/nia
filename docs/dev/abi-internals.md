@@ -146,7 +146,7 @@ Function-pointer-to-view conversion uses a private signature-specific adapter
 whose state word carries the thin function pointer, so every view dispatches
 through one `entry(state, args...)` shape with no null-state sentinel or
 runtime function-versus-closure branch. A no-capture closure converted to
-`&fn` uses a separate thin adapter, because the thin ABI has no state
+`&fun` uses a separate thin adapter, because the thin ABI has no state
 parameter.
 
 `std::mem::Allocated[T]` and `CallableAllocation[V]` are ordinary library
@@ -180,7 +180,7 @@ addressability.
 Executable startup is owned by the selected toolchain runtime, a private
 resource under the internal runtime package identity, not public std API.
 
-- Linux x86_64 and i686 runtimes export `_start` as an `extern fn`
+- Linux x86_64 and i686 runtimes export `_start` as an `extern fun`
   (`ExternExport`) and call the Nia root entry contract. The i686 runtime uses
   the `int 0x80` syscall ABI and is experimental.
 - `_start` and its platform startup function (`niaStartStack` on Linux,

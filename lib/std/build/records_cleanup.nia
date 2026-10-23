@@ -19,7 +19,7 @@ using pkg::build::types::{
     TargetStorage,
 };
 
-pub(pkg) fn releaseSteps(
+pub(pkg) fun releaseSteps(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Step],
 ) Error!() {
@@ -35,7 +35,7 @@ pub(pkg) fn releaseSteps(
     cleanup.finish()
 }
 
-pub(pkg) fn releasePackages(
+pub(pkg) fun releasePackages(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Package],
 ) Error!() {
@@ -51,7 +51,7 @@ pub(pkg) fn releasePackages(
     cleanup.finish()
 }
 
-pub(pkg) fn releaseExecutables(
+pub(pkg) fun releaseExecutables(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ExecutableTarget],
 ) Error!() {
@@ -67,7 +67,7 @@ pub(pkg) fn releaseExecutables(
     cleanup.finish()
 }
 
-pub(pkg) fn releaseObjects(
+pub(pkg) fun releaseObjects(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ObjectTarget],
 ) Error!() {
@@ -83,7 +83,7 @@ pub(pkg) fn releaseObjects(
     cleanup.finish()
 }
 
-pub(pkg) fn releaseStaticArchives(
+pub(pkg) fun releaseStaticArchives(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[StaticArchiveTarget],
 ) Error!() {
@@ -99,7 +99,7 @@ pub(pkg) fn releaseStaticArchives(
     cleanup.finish()
 }
 
-pub(pkg) fn releaseModules(
+pub(pkg) fun releaseModules(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Module],
 ) Error!() {
@@ -115,7 +115,7 @@ pub(pkg) fn releaseModules(
     cleanup.finish()
 }
 
-pub(pkg) fn releaseTargets(
+pub(pkg) fun releaseTargets(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[TargetStorage],
 ) Error!() {

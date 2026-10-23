@@ -7,7 +7,7 @@ using pkg::process::types;
 using types::{Child, ChildState, ChildStateKind, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, Term};
 
 extend Child {
-    pub(pkg) fn init(pid: os::ProcessId) Child {
+    pub(pkg) fun init(pid: os::ProcessId) Child {
         .{
             state: .running(.fromOs(pid)),
             stdin: null,
@@ -16,7 +16,7 @@ extend Child {
         }
     }
 
-    pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
+    pub(pkg) fun fromSpawnResult(result: os::SpawnResult) Child {
         .{
             state: .running(.fromOs(result.pid())),
             stdin: result.stdin().map[ChildStdin, _](\handle: os::FileHandle -> ChildStdin { handle: ?handle }),
@@ -25,29 +25,29 @@ extend Child {
         }
     }
 
-    pub fn pid(&self) ProcessId {
+    pub fun pid(&self) ProcessId {
         self.state.pid()
     }
 
-    pub fn takeStdin(&mut self) ?ChildStdin {
+    pub fun takeStdin(&mut self) ?ChildStdin {
         let pipe = self.stdin;
         self.stdin = null;
         pipe
     }
 
-    pub fn takeStdout(&mut self) ?ChildStdout {
+    pub fun takeStdout(&mut self) ?ChildStdout {
         let pipe = self.stdout;
         self.stdout = null;
         pipe
     }
 
-    pub fn takeStderr(&mut self) ?ChildStderr {
+    pub fun takeStderr(&mut self) ?ChildStderr {
         let pipe = self.stderr;
         self.stderr = null;
         pipe
     }
 
-    pub fn closeStdin(&mut self) Error!() {
+    pub fun closeStdin(&mut self) Error!() {
         if self.takeStdin() is ?pipe {
             let mut owned = pipe;
             owned.close().withCloseContext(.Stdin)
@@ -56,7 +56,7 @@ extend Child {
         }
     }
 
-    pub fn closeStdout(&mut self) Error!() {
+    pub fun closeStdout(&mut self) Error!() {
         if self.takeStdout() is ?pipe {
             let mut owned = pipe;
             owned.close().withCloseContext(.Stdout)
@@ -65,7 +65,7 @@ extend Child {
         }
     }
 
-    pub fn closeStderr(&mut self) Error!() {
+    pub fun closeStderr(&mut self) Error!() {
         if self.takeStderr() is ?pipe {
             let mut owned = pipe;
             owned.close().withCloseContext(.Stderr)
@@ -74,7 +74,7 @@ extend Child {
         }
     }
 
-    pub fn closePipes(&mut self) Error!() {
+    pub fun closePipes(&mut self) Error!() {
         let mut cleanup: error::CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.closeStdin());
         cleanup.attempt(self.closeStdout());
@@ -82,7 +82,7 @@ extend Child {
         cleanup.finish()
     }
 
-    fn waitStatus(&mut self) Error!os::WaitStatus {
+    fun waitStatus(&mut self) Error!os::WaitStatus {
         if self.state.status() is ?status {
             return !status;
         }
@@ -94,7 +94,7 @@ extend Child {
         !status
     }
 
-    fn tryWaitStatus(&mut self) Error! ?os::WaitStatus {
+    fun tryWaitStatus(&mut self) Error! ?os::WaitStatus {
         if self.state.status() is ?status {
             return !(?status);
         }
@@ -108,12 +108,12 @@ extend Child {
         !null
     }
 
-    pub fn wait(&mut self) Error!Term {
+    pub fun wait(&mut self) Error!Term {
         let status = self.waitStatus().?;
         !.fromWaitStatus(status)
     }
 
-    pub fn tryWait(&mut self) Error! ?Term {
+    pub fun tryWait(&mut self) Error! ?Term {
         let status = self.tryWaitStatus().?;
         if status is ?value {
             return !(?.fromWaitStatus(value));
@@ -121,11 +121,11 @@ extend Child {
         !null
     }
 
-    pub fn kill(&mut self) Error!Term {
+    pub fun kill(&mut self) Error!Term {
         self.killWith(.Term)
     }
 
-    pub fn killWith(&mut self, signal: Signal) Error!Term {
+    pub fun killWith(&mut self, signal: Signal) Error!Term {
         if self.state.status() is ?status {
             return !.fromWaitStatus(status);
         }
@@ -135,32 +135,32 @@ extend Child {
 }
 
 extend ChildState {
-    fn running(pid: ProcessId) ChildState {
+    fun running(pid: ProcessId) ChildState {
         .{
             kind: ChildStateKind::Running,
             payload: .{ running: .init(pid) },
         }
     }
 
-    fn exited(pid: ProcessId, status: os::WaitStatus) ChildState {
+    fun exited(pid: ProcessId, status: os::WaitStatus) ChildState {
         .{
             kind: ChildStateKind::Exited,
             payload: .{ exited: .init(pid, status) },
         }
     }
 
-    fn pid(&self) ProcessId {
+    fun pid(&self) ProcessId {
         match self.kind {
             .Running => self.payload.running.pid(),
             .Exited => self.payload.exited.pid(),
         }
     }
 
-    fn osPid(&self) os::ProcessId {
+    fun osPid(&self) os::ProcessId {
         self.pid().os()
     }
 
-    fn status(&self) ?os::WaitStatus {
+    fun status(&self) ?os::WaitStatus {
         match self.kind {
             .Running => null,
             .Exited => ?self.payload.exited.status(),
@@ -169,49 +169,49 @@ extend ChildState {
 }
 
 extend RunningChild {
-    fn init(pid: ProcessId) RunningChild {
+    fun init(pid: ProcessId) RunningChild {
         .{ pid }
     }
 
-    fn pid(&self) ProcessId {
+    fun pid(&self) ProcessId {
         self.pid
     }
 }
 
 extend ExitedChild {
-    fn init(pid: ProcessId, status: os::WaitStatus) ExitedChild {
+    fun init(pid: ProcessId, status: os::WaitStatus) ExitedChild {
         .{ pid, status }
     }
 
-    fn pid(&self) ProcessId {
+    fun pid(&self) ProcessId {
         self.pid
     }
 
-    fn status(&self) os::WaitStatus {
+    fun status(&self) os::WaitStatus {
         self.status
     }
 }
 
 extend[T] io::Error!T {
-    fn withCloseContext(self, stream: StdStream) Error!T {
+    fun withCloseContext(self, stream: StdStream) Error!T {
         self.mapError(&\[stream] cause: io::Error -> .Close { stream, cause })
     }
 }
 
 extend[T] os::Error!T {
-    fn withWaitContext(self) Error!T {
+    fun withWaitContext(self) Error!T {
         self.mapError(&\cause: os::Error -> .Wait(cause.intoError()))
     }
 }
 
 extend[T] os::Error!T {
-    fn withTryWaitContext(self) Error!T {
+    fun withTryWaitContext(self) Error!T {
         self.mapError(&\cause: os::Error -> .TryWait(cause.intoError()))
     }
 }
 
 extend[T] os::Error!T {
-    fn withKillContext(self) Error!T {
+    fun withKillContext(self) Error!T {
         self.mapError(&\cause: os::Error -> .Kill(cause.intoError()))
     }
 }

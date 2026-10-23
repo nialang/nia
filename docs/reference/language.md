@@ -46,16 +46,16 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    fn len2(&self) i32 {
+    fun len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
 
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
     a + b
 }
 
-fn sum(xs: &[i32]) i32 {
+fun sum(xs: &[i32]) i32 {
     let mut total = 0;
     for &value in xs {
         total += value;
@@ -63,7 +63,7 @@ fn sum(xs: &[i32]) i32 {
     total
 }
 
-fn score(answer: Pair[i32, i32]) i32 {
+fun score(answer: Pair[i32, i32]) i32 {
     match answer.first {
         0..10 => answer.second,
         10..=42 => answer.first + answer.second,
@@ -71,7 +71,7 @@ fn score(answer: Pair[i32, i32]) i32 {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let v = Vec2 { x: 3, y: 4 };
@@ -98,7 +98,7 @@ runtime the entry package declares a public `main` with this signature:
 ```nia
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }
@@ -134,7 +134,7 @@ These words are reserved and cannot be used as identifiers:
 
 ```text
 and       as        bool      break     const     continue  defer
-else      enum      extend    extern    false     fn        for
+else      enum      extend    extern    false     for       fun
 if        in        is        let       loop      match     module
 mut       never     not       null      opaque    or        pkg
 pub       return    self      Self      static    struct    super
@@ -142,7 +142,7 @@ trait     true      type      union     using     where     while
 ```
 
 The other primitive type names (`i32`, `u8`, `usize`, `f64`, `char`, and so on)
-are not keywords; they are predeclared type names. `Fn` followed by `(` is the
+are not keywords; they are predeclared type names. `Fun` followed by `(` is the
 [callable view](#callable-views) type constructor. `()` is the unit type and has
 no keyword spelling.
 
@@ -307,7 +307,7 @@ created and inspected with `splat`, `extract`, `insert`, and `bitmask` from
 ```nia
 using std::builtin;
 
-fn lanes() usize {
+fun lanes() usize {
     let a: u8x4 = builtin::splat[u8x4](3);
     let b = builtin::insert(a, 1, 7);
     let sum = a + b;
@@ -351,11 +351,11 @@ requires a writable place. `p.*` dereferences. Reads and writes through `^T`
 and `^mut T` are volatile accesses; `^T` cannot be written through.
 
 ```nia
-fn read_reg(reg: ^u32) u32 {
+fun read_reg(reg: ^u32) u32 {
     reg.*
 }
 
-fn write_reg(reg: ^mut u32, value: u32) {
+fun write_reg(reg: ^mut u32, value: u32) {
     reg.* = value;
 }
 ```
@@ -428,15 +428,15 @@ the slice type does; a read-only array pointer still cannot call a method that
 needs `&mut [T]`.
 
 ```nia
-fn first(xs: &[i32]) i32 {
+fun first(xs: &[i32]) i32 {
     xs[0]
 }
 
-fn clear(xs: &mut [i32]) {
+fun clear(xs: &mut [i32]) {
     xs[0] = 0;
 }
 
-fn use_arrays() i32 {
+fun use_arrays() i32 {
     let mut arr = [1, 2, 3];
     clear(&mut arr);
     first(&arr) + first(&[4, 5, 6])
@@ -466,7 +466,7 @@ bound. An omitted slice bound is supplied by the slicing operation, not by
 rewriting the range. `a..b`, `a..=b`, and `a..` are iterable in `for` loops.
 
 ```nia
-fn span() usize {
+fun span() usize {
     let r = 2usize..5;
     r.end() - r.start()
 }
@@ -508,33 +508,33 @@ names one definition, or one instance of a generic definition. Calling it is a
 direct call. A function item can be stored in a local:
 
 ```nia
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
     a + b
 }
 
-fn id[T](x: T) T {
+fun id[T](x: T) T {
     x
 }
 
-fn call_items() i32 {
+fun call_items() i32 {
     let f = add;
     let g = id[i32];
     f(1, 2) + g(3)
 }
 ```
 
-`&fn(A, B) R` is a thin function pointer. `&name` turns a function item into
+`&fun(A, B) R` is a thin function pointer. `&name` turns a function item into
 one; a generic function must be instantiated first (`&id[i32]`, not `&id`).
-An omitted return type means `()`. Only the read-only form exists; `&mut fn`
-is an error. `&extern fn(A, B) R` is a pointer to a function with the C calling
-convention, created by `&` on an `extern fn`; `extern` appears only in the
+An omitted return type means `()`. Only the read-only form exists; `&mut fun`
+is an error. `&extern fun(A, B) R` is a pointer to a function with the C calling
+convention, created by `&` on an `extern fun`; `extern` appears only in the
 type. Function pointer types describe runtime calls and are never callable
 during constant evaluation.
 
 ```nia
-fn pointers() i32 {
-    let p = &add;                       // &fn(i32, i32) i32
-    let q: &fn(i32) i32 = &id[i32];
+fun pointers() i32 {
+    let p = &add;                       // &fun(i32, i32) i32
+    let q: &fun(i32) i32 = &id[i32];
     p(1, 2) + q(3)
 }
 ```
@@ -544,20 +544,20 @@ Non-unit enum variants and receiver methods also have function-item forms; see
 
 ### Callable Views
 
-`Fn(A, B) R` is the unsized interface shared by all [closures](#closures) with
+`Fun(A, B) R` is the unsized interface shared by all [closures](#closures) with
 parameter types `A, B` and return type `R`; an omitted `R` means `()`. It is
 used only behind a pointer:
 
 | Type | Meaning |
 | --- | --- |
-| `&Fn(A) R` | read-only callable view |
-| `&mut Fn(A) R` | writable callable view |
+| `&Fun(A) R` | read-only callable view |
+| `&mut Fun(A) R` | writable callable view |
 
 A view is a non-owning value that refers to a closure's state; it never
-allocates, frees, or extends the life of that state. `Fn` types cannot be
+allocates, frees, or extends the life of that state. `Fun` types cannot be
 variadic. Views are created only by taking the address of a closure where a
-view type is expected; see [Closures](#closures) for the rules. `&Fn(...)` and
-`&fn(...)` are different types. The representation is in the
+view type is expected; see [Closures](#closures) for the rules. `&Fun(...)` and
+`&fun(...)` are different types. The representation is in the
 [ABI reference](abi.md#callable-views-and-closures).
 
 ### Trait Objects
@@ -574,8 +574,8 @@ A source file is a sequence of items. Every item may be preceded by
 
 | Item | Form |
 | --- | --- |
-| Function | `fn name(params) Return { body }`, `const fn ...` |
-| External function | `extern fn name(params) Return;` or with a body |
+| Function | `fun name(params) Return { body }`, `const fun ...` |
+| External function | `extern fun name(params) Return;` or with a body |
 | Struct | `struct Name { field: T, ... }`, `struct Name(T, ...)`, `extern struct` |
 | Union | `union Name { field: T, ... }`, `extern union` |
 | Enum | `enum Name: Backing { Variant, ... }` |
@@ -592,11 +592,11 @@ Top-level `let` is not allowed; global storage uses `static`.
 ### Functions
 
 ```nia
-fn square(x: i32) i32 {
+fun square(x: i32) i32 {
     x * x
 }
 
-fn abs(x: i32) i32 {
+fun abs(x: i32) i32 {
     if x < 0 {
         return -x;
     }
@@ -607,21 +607,21 @@ fn abs(x: i32) i32 {
 Parameters are `name: Type`. The return type follows the parameter list; when
 omitted it is `()`. The body is a [block](#blocks), and its tail expression is
 the return value. `return expr;` returns early, and `return;` returns `()`.
-`const fn` declares a function that can also run during
+`const fun` declares a function that can also run during
 [constant evaluation](#constant-evaluation). Generic parameters and `where`
 clauses are described in [Generics](#generics).
 
 ### External Functions And Statics
 
 `extern` declares or defines a symbol with the C ABI of the target. Visibility
-comes first: `pub extern fn`, never `extern pub fn`.
+comes first: `pub extern fun`, never `extern pub fun`.
 
 ```nia
-extern fn puts(text: &u8) i32;              // declared, defined elsewhere
-extern fn printf(format: &u8, ...) i32;     // variadic declaration
-extern fn notify(code: i32);                // returns ()
+extern fun puts(text: &u8) i32;              // declared, defined elsewhere
+extern fun printf(format: &u8, ...) i32;     // variadic declaration
+extern fun notify(code: i32);                // returns ()
 
-pub extern fn nia_add(a: i32, b: i32) i32 { // defined here, callable from C
+pub extern fun nia_add(a: i32, b: i32) i32 { // defined here, callable from C
     a + b
 }
 
@@ -629,19 +629,19 @@ extern static errno: i32;
 extern static mut shared_counter: usize;
 ```
 
-- A bodyless `extern fn` declares a foreign function; with a body it defines a
+- A bodyless `extern fun` declares a foreign function; with a body it defines a
   C-callable function. Both use the source name as the symbol name.
-- `@[linkName("symbol")]` renames the symbol a bodyless `extern fn` or an
+- `@[linkName("symbol")]` renames the symbol a bodyless `extern fun` or an
   `extern static` refers to. `@[exportName("symbol")]` renames the symbol an
-  `extern fn` definition exports. Neither applies to ordinary functions, and
+  `extern fun` definition exports. Neither applies to ordinary functions, and
   there is no `noMangle` attribute; ordinary functions always use Nia's internal
   names.
-- `...` makes a declaration variadic. Only bodyless `extern fn` declarations
+- `...` makes a declaration variadic. Only bodyless `extern fun` declarations
   can be variadic.
 - `extern static` declares a foreign global and requires a type; it has no
   initializer.
-- `extern fn` cannot be `const` or generic.
-- In an executable, every top-level `pub extern fn` definition of the entry
+- `extern fun` cannot be `const` or generic.
+- In an executable, every top-level `pub extern fun` definition of the entry
   package is exported even if Nia code never calls it.
 
 There are no `extern { ... }` blocks and no ABI strings. Which types may cross
@@ -671,7 +671,7 @@ Inside an `extend` block `Self { ... }` names the extended type. When an
 expected type is known, the name may be omitted with `.{ ... }`:
 
 ```nia
-fn points() i32 {
+fun points() i32 {
     let x = 1;
     let p = Point { x, y: 2 };
     let q: Point = .{ x: 3, y: 4 };
@@ -737,7 +737,7 @@ enum Flag: u32 {
     _,
 }
 
-fn flag_value() u32 {
+fun flag_value() u32 {
     let flag: Flag = 3 as Flag;
     flag as u32
 }
@@ -752,9 +752,9 @@ pointer, unit variants are not constructors, and constructor pointers cannot be
 used in constant evaluation.
 
 ```nia
-fn constructors() Event {
-    let data: &fn(i32) Event = &Event::Data;
-    let resize: &fn(i32, i32) Event = &.Resize;
+fun constructors() Event {
+    let data: &fun(i32) Event = &Event::Data;
+    let resize: &fun(i32, i32) Event = &.Resize;
     _ = data(1);
     resize(640, 480)
 }
@@ -782,7 +782,7 @@ static mut counter: i32 = 0;
 static first_byte = &greeting[0];
 static buffer: [u8; 64];
 
-fn bump() i32 {
+fun bump() i32 {
     counter += 1;
     counter
 }
@@ -842,7 +842,7 @@ annotation describes the value matched by the whole pattern, so
 Binding patterns must be [irrefutable](#patterns).
 
 ```nia
-fn bindings(ptr: &i32, pair: &(i32, i32)) i32 {
+fun bindings(ptr: &i32, pair: &(i32, i32)) i32 {
     let a = 1;
     let mut b: i32 = 2;
     b += a;
@@ -874,10 +874,10 @@ attributes select only whole items and statements.
 | `@[if condition]` | items, statements | keeps the code only when the condition holds for the target |
 | `@[debug]`, `@[release]` | items, statements | keeps the code only in that build profile |
 | `@[test]` | items, statements | keeps the code only in test compilations |
-| `@[linkName("s")]` | bodyless `extern fn`, `extern static` | symbol referenced |
-| `@[exportName("s")]` | `extern fn` with a body | symbol exported |
+| `@[linkName("s")]` | bodyless `extern fun`, `extern static` | symbol referenced |
+| `@[exportName("s")]` | `extern fun` with a body | symbol exported |
 | `@[trackCaller]` | non-`extern` functions and trait methods | caller location tracking |
-| `@[naked]` | `extern fn` definitions | no compiler-generated prologue or epilogue |
+| `@[naked]` | `extern fun` definitions | no compiler-generated prologue or epilogue |
 
 An unrecognized attribute on a function, static, constant, trait, or type alias
 is an error. On struct declarations, fields, and statements an unrecognized
@@ -905,16 +905,16 @@ to ordinary code as constants in `std::builtin::target`.
 
 ```nia
 @[if os == "linux" and arch == "x86_64"]
-fn platform_name() &[char] {
+fun platform_name() &[char] {
     &"linux-x86_64"
 }
 
 @[if not (os == "linux" and arch == "x86_64")]
-fn platform_name() &[char] {
+fun platform_name() &[char] {
     &"other"
 }
 
-fn word_size() usize {
+fun word_size() usize {
     @[if pointerWidth == 64]
     return 8;
     4
@@ -941,18 +941,18 @@ location of the outermost call that entered the chain of tracked calls. In an
 untracked function it returns the location of the `callerLocation()` call
 itself. A trait implementation inherits `@[trackCaller]` from the trait method
 declaration and cannot add it when the declaration lacks it. Tracked functions
-cannot be converted to `&fn(...)` pointers or callable views. `callerLocation`
+cannot be converted to `&fun(...)` pointers or callable views. `callerLocation`
 is usable in constant evaluation. The result is a `std::SourceLocation` with a
 file identity and one-based line and column numbers (columns count Unicode
 scalar values).
 
 ```nia
 @[trackCaller]
-fn here() std::SourceLocation {
+fun here() std::SourceLocation {
     std::callerLocation()
 }
 
-fn report() u32 {
+fun report() u32 {
     let location = here();   // the location of this call
     location.line()
 }
@@ -960,7 +960,7 @@ fn report() u32 {
 
 #### Naked Functions
 
-A `@[naked]` `extern fn` has a body that consists of inline assembly only. The
+A `@[naked]` `extern fun` has a body that consists of inline assembly only. The
 compiler emits no prologue, epilogue, frame, or spills, so its
 [`asm`](builtins.md#inline-assembly) calls cannot have `inputs` or `outputs`.
 The assembly must not return into compiled code; it names other symbols
@@ -1023,7 +1023,7 @@ enum Shape {
 
 const limit: i32 = 100;
 
-fn classify(value: i32) i32 {
+fun classify(value: i32) i32 {
     match value {
         0, 1 => 0,
         2..5 => 1,          // 2, 3, 4
@@ -1033,7 +1033,7 @@ fn classify(value: i32) i32 {
     }
 }
 
-fn area(shape: Shape) i32 {
+fun area(shape: Shape) i32 {
     match shape {
         .Dot => 0,
         .Circle(r) => 3 * r * r,
@@ -1041,7 +1041,7 @@ fn area(shape: Shape) i32 {
     }
 }
 
-fn axis(point: Point) i32 {
+fun axis(point: Point) i32 {
     match point {
         Point { x: 0, y } => y,
         Point { x, y: 0 } => x,
@@ -1049,7 +1049,7 @@ fn axis(point: Point) i32 {
     }
 }
 
-fn nested(value: ?(u8!i32)) i32 {
+fun nested(value: ?(u8!i32)) i32 {
     match value {
         ?!v => v,
         ?e! => e as i32,
@@ -1061,7 +1061,7 @@ fn nested(value: ?(u8!i32)) i32 {
 In bindings, pointer and struct patterns destructure without a `match`:
 
 ```nia
-fn swap_sum(pair: &(i32, i32), point: Point) i32 {
+fun swap_sum(pair: &(i32, i32), point: Point) i32 {
     let &(a, b) = pair;
     let Point { x, .. } = point;
     a + b + x
@@ -1099,11 +1099,11 @@ An expression statement must not silently drop a value. If the value is
 neither `()` nor `never`, discard it explicitly with `_ =`:
 
 ```nia
-fn compute() i32 {
+fun compute() i32 {
     1
 }
 
-fn discard() {
+fun discard() {
     _ = compute();      // `compute();` would be an error
 }
 ```
@@ -1122,7 +1122,7 @@ ends in a `loop` without `break`, has type `never`.
 ### If
 
 ```nia
-fn grade(score: i32) &[char] {
+fun grade(score: i32) &[char] {
     if score >= 90 {
         &"excellent"
     } else if score >= 60 {
@@ -1143,7 +1143,7 @@ expression is evaluated once, and bindings are visible in the `then` branch
 only. `mut` goes inside the pattern: `if maybe is mut ?value { ... }`.
 
 ```nia
-fn first_or_zero(maybe: ?i32) i32 {
+fun first_or_zero(maybe: ?i32) i32 {
     if maybe is ?value {
         value
     } else {
@@ -1158,7 +1158,7 @@ of them are visible in `else`. Plain boolean clauses may come before, between,
 or after `is` clauses.
 
 ```nia
-fn ready_width(enabled: bool, maybe: ?Point) i32 {
+fun ready_width(enabled: bool, maybe: ?Point) i32 {
     if enabled and maybe is ?p and p.x > 0 and not (p.y == 0) {
         p.x
     } else {
@@ -1174,7 +1174,7 @@ alternatives. `is` is valid only in `if` conditions.
 ### Match
 
 ```nia
-fn code(color: Color) i32 {
+fun code(color: Color) i32 {
     match color {
         Color::Black => 0,
         Color::White => 1,
@@ -1192,7 +1192,7 @@ Arm values must have compatible types, except arms that diverge. See
 ### Loops
 
 ```nia
-fn loops(xs: &[i32]) i32 {
+fun loops(xs: &[i32]) i32 {
     let mut total = 0;
     for &value in xs {
         total += value;
@@ -1242,7 +1242,7 @@ type `()` or `never`; discard other values with `_ =`. A block form still ends
 with `;`:
 
 ```nia
-fn deferred() i32 {
+fun deferred() i32 {
     let mut steps = 0;
     {
         defer steps += 1;
@@ -1308,7 +1308,7 @@ through its [operator trait](#built-in-traits), so user types gain operators by
 implementing the trait, and generic code must state the bound it uses:
 
 ```nia
-fn sum_of[T](a: T, b: T) T
+fun sum_of[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     a + b
 }
@@ -1330,7 +1330,7 @@ implicit. The valid casts are:
 | `char` | `u32` |
 | enum | any integer type |
 | integer | open enum |
-| pointer (`&T`, `&mut T`, `^T`, `^mut T`, `&fn`) | any pointer type |
+| pointer (`&T`, `&mut T`, `^T`, `^mut T`, `&fun`) | any pointer type |
 | pointer | `usize`, `isize` |
 | `usize`, `isize` | any pointer type |
 
@@ -1381,19 +1381,19 @@ struct AppError {
 }
 
 extend ParseError : std::builtin::IntoError[AppError] {
-    const fn intoError(self) AppError {
+    const fun intoError(self) AppError {
         AppError { code: self.code }
     }
 }
 
-fn parse(text: &[char]) ParseError!i32 {
+fun parse(text: &[char]) ParseError!i32 {
     if text.len() == 0 {
         return ParseError { code: 1 }!;
     }
     !(text.len() as i32)
 }
 
-fn run() AppError!i32 {
+fun run() AppError!i32 {
     let value = parse(&"42").?;
     !(value * 2)
 }
@@ -1403,12 +1403,12 @@ fn run() AppError!i32 {
 
 ```nia
 pub trait IntoError[Target] {
-    const fn intoError(self) Target;
+    const fun intoError(self) Target;
 }
 ```
 
 During constant evaluation, conversion works only when the selected
-`intoError` is a `const fn`.
+`intoError` is a `const fun`.
 
 ## Closures
 
@@ -1416,7 +1416,7 @@ A closure is written `\` then an optional capture list, a comma-separated
 parameter list, `->`, and one expression:
 
 ```nia
-fn closures() i32 {
+fun closures() i32 {
     let offset = 10;
     let mut log = 0;
     let inc = \value: i32 -> value + 1;
@@ -1449,7 +1449,7 @@ capture that. An inner closure that needs an outer parameter captures it
 explicitly:
 
 ```nia
-fn curried() i32 {
+fun curried() i32 {
     let make = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
     let add = make(2, 3);
     add(4)
@@ -1468,11 +1468,11 @@ parameter type that appears in neither the body nor any callable context cannot
 be inferred and must be annotated.
 
 ```nia
-fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
-fn inferred() i32 {
+fun inferred() i32 {
     let double = \value -> value * 2;
     let increment = \value -> value + 1;
     let direct = double(3);
@@ -1486,23 +1486,23 @@ A closure is a value with its own anonymous type. It converts in two ways, both
 through a `&` or `&mut` expression applied to the closure value while the target
 type is expected:
 
-- To a callable view `&Fn(...)` or `&mut Fn(...)`. `&closure` gives only a
+- To a callable view `&Fun(...)` or `&mut Fun(...)`. `&closure` gives only a
   read-only view; `&mut closure` gives either kind. Parameter and return types
   must match.
-- To a thin `&fn(...)` pointer, only for a closure without captures and only
+- To a thin `&fun(...)` pointer, only for a closure without captures and only
   with `&closure`.
 
 Storing a callable view first and converting it later is not a conversion. A
-closure with captures cannot become a `&fn(...)`.
+closure with captures cannot become a `&fun(...)`.
 
 ```nia
-fn views() i32 {
+fun views() i32 {
     let base = 5;
     let add_base = \[base] value: i32 -> base + value;
-    let view: &Fn(i32) i32 = &add_base;
+    let view: &Fun(i32) i32 = &add_base;
 
     let increment = \value: i32 -> value + 1;
-    let pointer: &fn(i32) i32 = &increment;
+    let pointer: &fun(i32) i32 = &increment;
 
     view(1) + pointer(2)
 }
@@ -1526,29 +1526,29 @@ code: nominal structs, arrays, tuples, enums, and unions, with
 target-dependent sizes taken from the [ABI](abi.md). Reads of uninitialized
 storage and invalid representations are diagnosed.
 
-`const fn` marks a function callable during constant evaluation; it is also an
-ordinary runtime function. A constant context may call `const fn`s but not
-ordinary `fn`s. Each call is staged by its context:
+`const fun` marks a function callable during constant evaluation; it is also an
+ordinary runtime function. A constant context may call `const fun`s but not
+ordinary `fun`s. Each call is staged by its context:
 
 ```nia
-const fn double(value: usize) usize {
+const fun double(value: usize) usize {
     value * 2
 }
 
 const table_len: usize = double(5);    // evaluated at compile time
 
-fn runtime_double(value: usize) usize {
+fun runtime_double(value: usize) usize {
     double(value)                       // an ordinary runtime call
 }
 ```
 
-A `const fn` is checked when declared, whether or not it is used: every branch
+A `const fun` is checked when declared, whether or not it is used: every branch
 must use only const-capable operations, even branches a particular call never
-takes. Inside a `const fn`, `let mut` locals, loops, aggregates, and
+takes. Inside a `const fun`, `let mut` locals, loops, aggregates, and
 destructuring work as at runtime, and each call has fresh locals:
 
 ```nia
-const fn count_up(limit: usize) usize {
+const fun count_up(limit: usize) usize {
     let mut value: usize = 0;
     while value < limit {
         value += 1;
@@ -1556,7 +1556,7 @@ const fn count_up(limit: usize) usize {
     value
 }
 
-const fn shifted_sum(point: Point) i32 {
+const fun shifted_sum(point: Point) i32 {
     let mut Point { x, y }: Point = point;
     x += 1;
     x + y
@@ -1576,14 +1576,14 @@ Pointers in constant evaluation follow these rules:
   pointers.
 
 Calls through function pointers or callable views are not constant
-evaluation. In a `const fn`, a `for` loop requires the selected `Iterable::iter`
-and `Iterator::next` implementations to be `const fn`.
+evaluation. In a `const fun`, a `for` loop requires the selected `Iterable::iter`
+and `Iterator::next` implementations to be `const fun`.
 
 `std::builtin::trap()` returns `never`; reached during constant evaluation it is
 a compile-time error at the call, and at runtime it traps.
 `std::builtin::error(message)` makes `message` a compile-time error when it is
 reached. Either may appear in a branch that a particular evaluation does not
-take. `error` is const-only: a `const fn` that contains it cannot be called
+take. `error` is const-only: a `const fun` that contains it cannot be called
 from runtime code. The
 layout builtins `size`, `align`, and `offset` are constants when their type
 argument is concrete and can be used in array lengths and static initializers;
@@ -1591,7 +1591,7 @@ argument is concrete and can be used in array lengths and static initializers;
 [builtins reference](builtins.md).
 
 ```nia
-const fn checked_width(width: i32) i32 {
+const fun checked_width(width: i32) i32 {
     if width < 0 {
         std::builtin::error("width must not be negative");
     }
@@ -1617,7 +1617,7 @@ brackets after the name, and `extend` takes them after the keyword
 (`extend[T] Box[T]`). Enums are not generic.
 
 ```nia
-fn identity[T](x: T) T {
+fun identity[T](x: T) T {
     x
 }
 
@@ -1626,7 +1626,7 @@ struct Pair[T, U] {
     second: U,
 }
 
-fn length[T, N: usize](values: [T; N]) usize {
+fun length[T, N: usize](values: [T; N]) usize {
     _ = values;
     N
 }
@@ -1646,12 +1646,12 @@ Generic types are instantiated with brackets directly after the name:
 them; a partial list is an error, and `_` asks for inference in one position:
 
 ```nia
-fn choose[T, U](value: T, other: U) T {
+fun choose[T, U](value: T, other: U) T {
     _ = other;
     value
 }
 
-fn generic_calls() usize {
+fun generic_calls() usize {
     let a = choose(1, true);              // all inferred
     let b = choose[i32, _](2, false);     // `U` inferred
     let c = length[_, _]([1, 2, 3]);
@@ -1665,7 +1665,7 @@ header. Predicates are separated by commas, and several bounds on one parameter
 are joined with `+`:
 
 ```nia
-fn describe[T, U](value: &T, other: &U) bool
+fun describe[T, U](value: &T, other: &U) bool
 where T: Ord[U] + Show, U: Eq[U] {
     _ = other;
     value.show() == 0
@@ -1691,19 +1691,19 @@ struct Vec2 {
 extend Vec2 {
     const ZERO: Vec2 = Vec2 { x: 0, y: 0 };
 
-    pub fn new(x: i32, y: i32) Self {
+    pub fun new(x: i32, y: i32) Self {
         Self { x, y }
     }
 
-    pub fn len2(&self) i32 {
+    pub fun len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 
-    pub fn shift(&mut self, dx: i32) {
+    pub fun shift(&mut self, dx: i32) {
         self.x += dx;
     }
 
-    pub fn into_x(self) i32 {
+    pub fun into_x(self) i32 {
         self.x
     }
 }
@@ -1717,7 +1717,7 @@ extend Vec2 {
 | none | associated function, called as `Type::name(...)` |
 
 `Self` names the extended type inside the block (and the implementing type
-inside a trait). `extend` blocks contain `fn`, `const fn`, and `const` members;
+inside a trait). `extend` blocks contain `fun`, `const fun`, and `const` members;
 inherent blocks cannot define associated types, and `let` members are not
 allowed. Visibility is written on each member.
 
@@ -1733,11 +1733,11 @@ module, including through a qualified type path. This does not bring that
 module's imports or extensions on other targets into scope.
 
 ```nia
-fn methods() i32 {
+fun methods() i32 {
     let mut v = Vec2::new(3, 4);
     v.shift(1);
     let by_path = Vec2::len2(&v);         // receiver passed explicitly
-    let f: &fn(&Vec2) i32 = &Vec2::len2;  // unbound method as a function pointer
+    let f: &fun(&Vec2) i32 = &Vec2::len2;  // unbound method as a function pointer
     by_path + f(&v) + Vec2::ZERO.into_x()
 }
 ```
@@ -1754,25 +1754,25 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(&self) T {
+    fun get(&self) T {
         self.value
     }
 
-    fn swap_in[U](&self, other: U) U {
+    fun swap_in[U](&self, other: U) U {
         other
     }
 }
 
 extend[T] &T {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn boxes() bool {
+fun boxes() bool {
     let b = Box[i32] { value: 1 };
     let flag = b.swap_in[bool](true);
-    let p: &fn(&Box[i32], bool) bool = &Box[i32]::swap_in[bool];
+    let p: &fun(&Box[i32], bool) bool = &Box[i32]::swap_in[bool];
     _ = p(&b, flag);
     [&u8]::is_null(0usize as &u8)
 }
@@ -1817,16 +1817,16 @@ struct Product {
 }
 
 extend Builder {
-    fn init() Builder {
+    fun init() Builder {
         Builder { width: 1 }
     }
 
-    fn finish(self) Product {
+    fun finish(self) Product {
         Product { width: self.width }
     }
 }
 
-fn build() i32 {
+fun build() i32 {
     let product: Product = .init().finish();
     product.width
 }
@@ -1847,13 +1847,13 @@ implementing types provide:
 
 ```nia
 trait Show {
-    fn show(&self) i32;
+    fun show(&self) i32;
 }
 
 trait Comparable {
-    fn same(&self, other: &Self) bool;
+    fun same(&self, other: &Self) bool;
 
-    fn different(&self, other: &Self) bool {
+    fun different(&self, other: &Self) bool {
         not self.same(other)
     }
 }
@@ -1874,13 +1874,13 @@ struct Point {
 }
 
 extend Point : Show {
-    fn show(&self) i32 {
+    fun show(&self) i32 {
         self.x
     }
 }
 
 extend Point : Comparable {
-    fn same(&self, other: &Point) bool {
+    fun same(&self, other: &Point) bool {
         self.x == other.x
     }
 }
@@ -1895,16 +1895,16 @@ implementation is written separately.
 
 ```nia
 trait Ordered : Comparable {
-    fn less(&self, other: &Self) bool;
+    fun less(&self, other: &Self) bool;
 }
 
 extend Point : Ordered {
-    fn less(&self, other: &Point) bool {
+    fun less(&self, other: &Point) bool {
         self.x < other.x
     }
 }
 
-fn distinct_and_less[T](a: &T, b: &T) bool
+fun distinct_and_less[T](a: &T, b: &T) bool
 where T: Ordered {
     a.different(b) and a.less(b)
 }
@@ -1921,14 +1921,14 @@ implementations.
 trait Source {
     type Item;
 
-    fn get(&self) [Self as Source]::Item;
+    fun get(&self) [Self as Source]::Item;
 }
 
 trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map(&self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fun map(&self, a: A, b: B) [Self as Mapper[A, B]]::C;
 }
 
 struct Counter {
@@ -1938,12 +1938,12 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&self) i32 {
+    fun get(&self) i32 {
         self.value
     }
 }
 
-fn read_any[T](source: &T) [T as Source]::Item
+fun read_any[T](source: &T) [T as Source]::Item
 where T: Source {
     source.get()
 }
@@ -1955,7 +1955,7 @@ be an associated type of the trait and may be bound once. The binding is part
 of that bound, not a separate equality.
 
 ```nia
-fn mapped[T](value: &T) i32
+fun mapped[T](value: &T) i32
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map(1, true)
 }
@@ -1996,11 +1996,11 @@ receiver and have no generic parameters of their own. Built-in traits cannot be
 used as objects.
 
 ```nia
-fn total(source: &Source[Item = i32]) i32 {
+fun total(source: &Source[Item = i32]) i32 {
     source.get()
 }
 
-fn dispatch() i32 {
+fun dispatch() i32 {
     let counter = Counter { value: 3 };
     total(&counter)
 }
@@ -2015,11 +2015,11 @@ keys, as in `&Child[[Self as A]::Item = i32, [Self as B]::Item = usize]`.
 trait Parent {}
 trait Child : Parent {}
 
-fn accept(parent: &Parent) {
+fun accept(parent: &Parent) {
     _ = parent;
 }
 
-fn forward(child: &Child) {
+fun forward(child: &Child) {
     accept(child)
 }
 ```
@@ -2059,22 +2059,22 @@ struct Meters {
 extend Meters : Add[Meters] {
     type Output = Meters;
 
-    fn add(self, rhs: Meters) Meters {
+    fun add(self, rhs: Meters) Meters {
         Meters { value: self.value + rhs.value }
     }
 }
 
 extend Meters : Eq[Meters] {
-    fn eq(self, rhs: Meters) bool {
+    fun eq(self, rhs: Meters) bool {
         self.value == rhs.value
     }
 
-    fn ne(self, rhs: Meters) bool {
+    fun ne(self, rhs: Meters) bool {
         self.value != rhs.value
     }
 }
 
-fn same_length(a: Meters, b: Meters) bool {
+fun same_length(a: Meters, b: Meters) bool {
     a + b == b + a
 }
 ```
@@ -2084,32 +2084,32 @@ Place traits:
 ```nia
 trait Deref {
     type Target;
-    fn deref(&self) &[Self as Deref]::Target;
+    fun deref(&self) &[Self as Deref]::Target;
 }
 
 trait DerefMut : Deref {
     type Target;
-    fn derefMut(&mut self) &mut [Self as DerefMut]::Target;
+    fun derefMut(&mut self) &mut [Self as DerefMut]::Target;
 }
 
 trait Index[R] {
     type Output;
-    fn index(&self, index: R) &[Self as Index[R]]::Output;
+    fun index(&self, index: R) &[Self as Index[R]]::Output;
 }
 
 trait IndexMut[R] : Index[R] {
     type Output;
-    fn indexMut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
+    fun indexMut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
 }
 
 trait Slice[R] {
     type Output;
-    fn slice(&self, range: R) [Self as Slice[R]]::Output;
+    fun slice(&self, range: R) [Self as Slice[R]]::Output;
 }
 
 trait SliceMut[R] : Slice[R] {
     type Output;
-    fn sliceMut(&mut self, range: R) [Self as SliceMut[R]]::Output;
+    fun sliceMut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 ```
 
@@ -2125,7 +2125,7 @@ Other built-in traits:
 | --- | --- |
 | `Sized` | the type has a known size; required by `size[T]()` and `align[T]()` |
 | `Unsized` | marker for types without a fixed size |
-| `Len` | `const fn len(&self) usize`; implemented for arrays and slices, so `xs.len()` works on both |
+| `Len` | `const fun len(&self) usize`; implemented for arrays and slices, so `xs.len()` works on both |
 | `Iterable`, `Iterator` | the [`for` loop](#loops) protocol (below) |
 | `IntoError[Target]` | error conversion for [`.?`](#propagation) |
 
@@ -2133,12 +2133,12 @@ Other built-in traits:
 trait Iterable {
     type Item;
     type Iter;
-    fn iter(&self) [Self as Iterable]::Iter;
+    fun iter(&self) [Self as Iterable]::Iter;
 }
 
 trait Iterator {
     type Item;
-    fn next(&mut self) ?[Self as Iterator]::Item;
+    fun next(&mut self) ?[Self as Iterator]::Item;
 }
 ```
 
@@ -2219,9 +2219,9 @@ Items are private to their module unless marked:
 | `pub(pkg)` | the whole current package |
 | `pub` | every module that can name it |
 
-Visibility applies to `module`, `using` (re-export), `fn`, `const fn`,
-`extern fn`, `struct`, `union`, `enum`, `trait`, `type`, `static`,
-`extern static`, and `const` items, and to `fn` and `const` members of
+Visibility applies to `module`, `using` (re-export), `fun`, `const fun`,
+`extern fun`, `struct`, `union`, `enum`, `trait`, `type`, `static`,
+`extern static`, and `const` items, and to `fun` and `const` members of
 `extend` blocks. Fields, trait members, and associated type definitions take
 no visibility. Statements cannot be `pub`.
 
@@ -2263,9 +2263,9 @@ pointer decay. To pass a C string, write the terminating `\0` and pass a pointer
 to the first byte:
 
 ```nia
-extern fn puts(text: &u8) i32;
+extern fun puts(text: &u8) i32;
 
-fn greet() {
+fun greet() {
     _ = puts((&b"hello\0").ptr());
 }
 ```

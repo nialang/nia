@@ -9,7 +9,7 @@ using std::string;
 using buildScript;
 
 extend[T] build::Error!T {
-    fn reportAndExit(self, init: process::Init) process::ExitCode!T {
+    fun reportAndExit(self, init: process::Init) process::ExitCode!T {
         match self {
             !value => !value,
             error! => {
@@ -48,7 +48,7 @@ struct TargetText {
     endian: string::String,
 }
 
-fn rememberTargetCleanupError(
+fun rememberTargetCleanupError(
     firstError: &mut ?build::Error,
     result: build::Error!(),
 ) () {
@@ -65,14 +65,14 @@ fn rememberTargetCleanupError(
 }
 
 extend TargetText {
-    fn init() TargetText {
+    fun init() TargetText {
         Self {
             name: string::String::init(),
             endian: string::String::init(),
         }
     }
 
-    fn deinit(
+    fun deinit(
         &mut self,
         allocator: &mut mem::Allocator,
         subject: build::ErrorSubject,
@@ -95,7 +95,7 @@ struct TargetMatrix {
 }
 
 extend TargetMatrix {
-    fn init() TargetMatrix {
+    fun init() TargetMatrix {
         let empty = "";
         Self {
             texts: [TargetText::init(); __NIA_TARGET_COUNT__usize],
@@ -104,7 +104,7 @@ extend TargetMatrix {
         }
     }
 
-    fn read(
+    fun read(
         &mut self,
         cursor: &mut ConfigCursor,
         allocator: &mut mem::Allocator,
@@ -125,11 +125,11 @@ extend TargetMatrix {
         !()
     }
 
-    fn views(&self) &[build::TargetView] {
+    fun views(&self) &[build::TargetView] {
         &self.views[..self.count]
     }
 
-    fn index(&self, cursor: &mut ConfigCursor, subject: build::ErrorSubject) build::Error!usize {
+    fun index(&self, cursor: &mut ConfigCursor, subject: build::ErrorSubject) build::Error!usize {
         let index = cursor.u32().? as usize;
         if index >= self.count {
             return build::Error::Invalid {
@@ -140,7 +140,7 @@ extend TargetMatrix {
         !index
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator) build::Error!() {
+    fun deinit(&mut self, allocator: &mut mem::Allocator) build::Error!() {
         let mut firstError: ?build::Error = null;
         let mut index = self.count;
         while index != 0 {
@@ -161,15 +161,15 @@ struct ConfigCursor {
 }
 
 extend ConfigCursor {
-    fn init(bytes: &[u8]) ConfigCursor {
+    fun init(bytes: &[u8]) ConfigCursor {
         Self { bytes, position: 0 }
     }
 
-    fn remaining(&self) usize {
+    fun remaining(&self) usize {
         self.bytes.len() - self.position
     }
 
-    fn take(&mut self, count: usize) build::Error!&[u8] {
+    fun take(&mut self, count: usize) build::Error!&[u8] {
         if count > self.remaining() {
             return build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
@@ -181,11 +181,11 @@ extend ConfigCursor {
         !&self.bytes[start..self.position]
     }
 
-    fn byte(&mut self) build::Error!u8 {
+    fun byte(&mut self) build::Error!u8 {
         !self.take(1).?[0]
     }
 
-    fn u32(&mut self) build::Error!u32 {
+    fun u32(&mut self) build::Error!u32 {
         let bytes = self.take(4).?;
         !((bytes[0] as u32)
             | ((bytes[1] as u32) << 8u32)
@@ -193,19 +193,19 @@ extend ConfigCursor {
             | ((bytes[3] as u32) << 24u32))
     }
 
-    fn u64(&mut self) build::Error!u64 {
+    fun u64(&mut self) build::Error!u64 {
         let low = self.u32().? as u64;
         let high = self.u32().? as u64;
         !(low | (high << 32u64))
     }
 
-    fn textBytes(&mut self) build::Error!&[u8] {
+    fun textBytes(&mut self) build::Error!&[u8] {
         let len = self.u32().? as usize;
         self.take(len)
     }
 }
 
-fn runnerConfigChecksum(bytes: &[u8]) u64 {
+fun runnerConfigChecksum(bytes: &[u8]) u64 {
     let mut first = 1u32;
     let mut second = 0u32;
     for &byte in bytes {
@@ -215,7 +215,7 @@ fn runnerConfigChecksum(bytes: &[u8]) u64 {
     ((second as u64) << 32u64) | (first as u64)
 }
 
-fn readText(
+fun readText(
     cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
     storage: &mut string::String,
@@ -241,7 +241,7 @@ fn readText(
     !storage.text()
 }
 
-fn readPath(
+fun readPath(
     cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
     storage: &mut fs::Path,
@@ -267,7 +267,7 @@ fn readPath(
     !storage.view()
 }
 
-fn readTarget(
+fun readTarget(
     cursor: &mut ConfigCursor,
     allocator: &mut mem::Allocator,
     storage: &mut TargetText,
@@ -279,7 +279,7 @@ fn readTarget(
     !build::TargetView::init(name, endian, pointerWidth)
 }
 
-fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationMode {
+fun readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationMode {
     let value = cursor.u32().?;
     match value {
         0 => !build::OptimizationMode::O0,
@@ -295,7 +295,7 @@ fn readOptimization(cursor: &mut ConfigCursor) build::Error!build::OptimizationM
     }
 }
 
-fn configPathArg(
+fun configPathArg(
     init: process::Init,
     allocator: &mut mem::Allocator,
     storage: &mut fs::Path,
@@ -340,7 +340,7 @@ fn configPathArg(
     !storage.view()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut pageAllocator);
     defer allocator.deinit().?;

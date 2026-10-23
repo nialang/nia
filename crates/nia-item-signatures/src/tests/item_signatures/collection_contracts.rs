@@ -5,9 +5,9 @@ fn external_symbol_attributes_are_typed_and_directional() {
     let signatures = signatures(
         r#"
 @[linkName("foreign_add")]
-extern fn add(a: i32, b: i32) i32;
+extern fun add(a: i32, b: i32) i32;
 @[exportName("published_add")]
-pub extern fn publish(a: i32, b: i32) i32 { a + b }
+pub extern fun publish(a: i32, b: i32) i32 { a + b }
 "#,
     );
     assert!(
@@ -38,13 +38,13 @@ fn external_symbol_attributes_reject_wrong_direction_and_no_mangle() {
     let signatures = signatures(
         r#"
 @[linkName("bad")]
-fn internal() () {}
+fun internal() () {}
 @[linkName("bad")]
-extern fn defined() () {}
+extern fun defined() () {}
 @[exportName("bad")]
-extern fn imported();
+extern fun imported();
 @[noMangle]
-fn plain() () {}
+fun plain() () {}
 "#,
     );
     let diagnostics = signatures
@@ -126,15 +126,15 @@ extern static raw: i32;
 static unknown: i32 = 0;
 @[linkName("first")]
 @[exportName("second")]
-extern fn conflict();
+extern fun conflict();
 @[linkName()]
-extern fn missing();
+extern fun missing();
 @[linkName(1)]
-extern fn non_string();
+extern fun non_string();
 @[linkName("")]
-extern fn empty();
+extern fun empty();
 @[linkName("bad\0symbol")]
-extern fn nul();
+extern fun nul();
 "#,
     );
 
@@ -223,7 +223,7 @@ fn collects_item_signatures_without_checking_bodies() {
     let module_id = module_ids.allocate().expect("allocate module ID");
     let (module, errors) = parse_module(
         r#"
-extern fn printf(fmt: &u8, ...);
+extern fun printf(fmt: &u8, ...);
 extern static errno: i32;
 
 struct Point {
@@ -233,7 +233,7 @@ y: i32,
 
 extend Point {
 pub const Origin: i32 = 0;
-fn len2(&self) i32 { missing + self.x }
+fun len2(&self) i32 { missing + self.x }
 }
 
 enum Color: u8 {
@@ -244,7 +244,7 @@ Green,
 type Byte = u8;
 static mut counter: i32 = 0;
 
-fn add(a: i32, b: i32) i32 {
+fun add(a: i32, b: i32) i32 {
 a + b
 }
 "#,
@@ -319,13 +319,13 @@ fn rejects_method_generics_shadowing_enclosing_generics() {
     let (module, errors) = parse_module(
         r#"
 trait Carrier[T] {
-    fn convert[T](self, value: T) T;
+    fun convert[T](self, value: T) T;
 }
 
 struct Box[T] { value: T }
 
 extend[T] Box[T] {
-    fn convert[T](self, value: T) T { value }
+    fun convert[T](self, value: T) T { value }
 }
 "#,
     );
@@ -402,9 +402,9 @@ fn collects_item_signatures_from_active_item_tree_only() {
     let (module, errors) = parse_module(
         r#"
 @[if false]
-fn skipped() i32 { 0 }
+fun skipped() i32 { 0 }
 @[if true]
-fn selected() i32 { 1 }
+fun selected() i32 { 1 }
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -457,7 +457,7 @@ fn trait_impl_ids_ignore_type_formatting() {
         r#"
 struct Box[T] { value: T }
 extend[T] &Box[T] {
-fn get(self) T { self.value }
+fun get(self) T { self.value }
 }
 "#,
     );
@@ -465,7 +465,7 @@ fn get(self) T { self.value }
         r#"
 struct Box[T] { value: T }
 extend[T] & Box[ T ] {
-fn get(self) T { self.value }
+fun get(self) T { self.value }
 }
 "#,
     );

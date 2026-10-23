@@ -1,4 +1,4 @@
-pub(super) fn restricted() i32 {
+pub(super) fun restricted() i32 {
     1
 }
 

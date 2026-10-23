@@ -71,7 +71,7 @@ using std::io;
 using std::process;
 using process::{Init, ExitCode};
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
     io::debugPrint(&"hello from nia\n", &[]).?;
     !()
@@ -134,7 +134,7 @@ the package builds:
 using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let app = b.addModule(
         build::ModuleOptions::init(&"hello", fs::PathView::init(&"src/main.nia")),
     ).?;
@@ -158,17 +158,17 @@ and exits with a failure status when one fails:
 using std::process;
 using std::test;
 
-fn addsNumbers() test::Error!() {
+fun addsNumbers() test::Error!() {
     test::expectEqual(2 + 2, 4).?;
     !()
 }
 
-fn measuresText() test::Error!() {
+fun measuresText() test::Error!() {
     test::expect("nia".len() == 3).?;
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
         .init(&"adds numbers", &addsNumbers),
@@ -245,7 +245,7 @@ status 2; a failed check, build, or test exits with status 1.
 ## Runtimes
 
 The runtime decides who owns process entry. `freestanding` links Nia's startup
-code, which builds `process::Init` and calls `pub fn main(init) ExitCode!()`;
+code, which builds `process::Init` and calls `pub fun main(init) ExitCode!()`;
 it uses only the operating system's stable interface and no C library. `bare`
 links no startup and assumes no operating system, for kernels, firmware, and
 other images that define their own entry. Executables in a build script are

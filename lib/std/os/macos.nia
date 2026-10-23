@@ -51,55 +51,55 @@ pub struct SpawnOptions { stdin: StdIo, stdout: StdIo, stderr: StdIo, cwd: ?&u8 
 pub struct MappedPages { ptr: &mut u8, releasePtr: &mut u8, releaseSize: usize }
 
 extend Timestamp {
-    pub fn init(seconds: i64, nanos: u32) Timestamp { .{ seconds, nanos } }
-    pub fn seconds(&self) i64 { self.seconds }
-    pub fn nanos(&self) u32 { self.nanos }
+    pub fun init(seconds: i64, nanos: u32) Timestamp { .{ seconds, nanos } }
+    pub fun seconds(&self) i64 { self.seconds }
+    pub fun nanos(&self) u32 { self.nanos }
 }
 extend FileMetadata {
-    pub fn init(kind: FileKind, inode: u64, nlink: u32, size: u64, mode: u32, blockSize: u32, atime: ?Timestamp, mtime: Timestamp, ctime: ?Timestamp) FileMetadata {
+    pub fun init(kind: FileKind, inode: u64, nlink: u32, size: u64, mode: u32, blockSize: u32, atime: ?Timestamp, mtime: Timestamp, ctime: ?Timestamp) FileMetadata {
         .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
     }
-    pub fn kind(&self) FileKind { self.kind }
-    pub fn inode(&self) u64 { self.inode }
-    pub fn nlink(&self) u32 { self.nlink }
-    pub fn size(&self) u64 { self.size }
-    pub fn mode(&self) u32 { self.mode }
-    pub fn blockSize(&self) u32 { self.blockSize }
-    pub fn atime(&self) ?Timestamp { self.atime }
-    pub fn mtime(&self) Timestamp { self.mtime }
-    pub fn ctime(&self) ?Timestamp { self.ctime }
+    pub fun kind(&self) FileKind { self.kind }
+    pub fun inode(&self) u64 { self.inode }
+    pub fun nlink(&self) u32 { self.nlink }
+    pub fun size(&self) u64 { self.size }
+    pub fun mode(&self) u32 { self.mode }
+    pub fun blockSize(&self) u32 { self.blockSize }
+    pub fun atime(&self) ?Timestamp { self.atime }
+    pub fun mtime(&self) Timestamp { self.mtime }
+    pub fun ctime(&self) ?Timestamp { self.ctime }
 }
 extend DirectoryEntry {
-    pub fn init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry { .{ kind, name, size } }
-    pub fn kind(&self) FileKind { self.kind }
-    pub fn name(&self) &[u8] { self.name }
-    pub fn size(&self) u64 { self.size }
+    pub fun init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry { .{ kind, name, size } }
+    pub fun kind(&self) FileKind { self.kind }
+    pub fun name(&self) &[u8] { self.name }
+    pub fun size(&self) u64 { self.size }
 }
 extend ProcessId {
-    pub const fn init(pid: i32) ProcessId { .{ pid } }
-    pub const fn raw(&self) i32 { self.pid }
+    pub const fun init(pid: i32) ProcessId { .{ pid } }
+    pub const fun raw(&self) i32 { self.pid }
 }
 extend WaitStatus {
-    pub fn init(raw: i32) WaitStatus { .{ raw } }
-    pub fn raw(&self) i32 { self.raw }
-    pub fn exited(&self) bool { (self.raw & 0x7f) == 0 }
-    pub fn signaled(&self) bool { let signal = self.raw & 0x7f; signal != 0 and signal != 0x7f }
-    pub fn stopped(&self) bool { (self.raw & 0xff) == 0x7f }
-    pub fn exitCode(&self) ?i32 { if self.exited() { ?((self.raw >> 8) & 0xff) } else { null } }
-    pub fn signal(&self) ?i32 { if self.signaled() { ?(self.raw & 0x7f) } else { null } }
-    pub fn stopSignal(&self) ?i32 { if self.stopped() { ?((self.raw >> 8) & 0xff) } else { null } }
+    pub fun init(raw: i32) WaitStatus { .{ raw } }
+    pub fun raw(&self) i32 { self.raw }
+    pub fun exited(&self) bool { (self.raw & 0x7f) == 0 }
+    pub fun signaled(&self) bool { let signal = self.raw & 0x7f; signal != 0 and signal != 0x7f }
+    pub fun stopped(&self) bool { (self.raw & 0xff) == 0x7f }
+    pub fun exitCode(&self) ?i32 { if self.exited() { ?((self.raw >> 8) & 0xff) } else { null } }
+    pub fun signal(&self) ?i32 { if self.signaled() { ?(self.raw & 0x7f) } else { null } }
+    pub fun stopSignal(&self) ?i32 { if self.stopped() { ?((self.raw >> 8) & 0xff) } else { null } }
 }
 extend SpawnResult {
-    pub fn init(pid: ProcessId, stdin: ?FileDescriptor, stdout: ?FileDescriptor, stderr: ?FileDescriptor) SpawnResult { .{ pid, stdin, stdout, stderr } }
-    pub fn pid(&self) ProcessId { self.pid }
-    pub fn stdin(&self) ?FileDescriptor { self.stdin }
-    pub fn stdout(&self) ?FileDescriptor { self.stdout }
-    pub fn stderr(&self) ?FileDescriptor { self.stderr }
+    pub fun init(pid: ProcessId, stdin: ?FileDescriptor, stdout: ?FileDescriptor, stderr: ?FileDescriptor) SpawnResult { .{ pid, stdin, stdout, stderr } }
+    pub fun pid(&self) ProcessId { self.pid }
+    pub fun stdin(&self) ?FileDescriptor { self.stdin }
+    pub fun stdout(&self) ?FileDescriptor { self.stdout }
+    pub fun stderr(&self) ?FileDescriptor { self.stderr }
 }
 extend SpawnAttempt {
-    pub fn success(result: SpawnResult) SpawnAttempt { .{ result: ?result, error: null } }
-    pub fn failure(error: SpawnError) SpawnAttempt { .{ result: null, error: ?error } }
-    pub fn finish(&mut self) SpawnError!SpawnResult {
+    pub fun success(result: SpawnResult) SpawnAttempt { .{ result: ?result, error: null } }
+    pub fun failure(error: SpawnError) SpawnAttempt { .{ result: null, error: ?error } }
+    pub fun finish(&mut self) SpawnError!SpawnResult {
         match self.result {
             ?value => { self.result = null; !value },
             null => match self.error { ?value => { self.error = null; value! }, null => .Setup(.Io)! },
@@ -107,69 +107,69 @@ extend SpawnAttempt {
     }
 }
 extend SpawnError {
-    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
+    pub fun fromStage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage { .Setup => .Setup(errno), .Stdio => .Stdio(errno), .Cwd => .Cwd(errno), .Exec => .Exec(errno), _ => .Setup(errno) }
     }
-    pub fn stage(&self) SpawnStage { match self.* { .Setup(_) => .Setup, .Stdio(_) => .Stdio, .Cwd(_) => .Cwd, .Exec(_) => .Exec, .Reap { stage, primary: _, cause: _, pid: _ } => stage } }
-    pub fn primary(&self) Errno { match self.* { .Setup(value) => value, .Stdio(value) => value, .Cwd(value) => value, .Exec(value) => value, .Reap { stage: _, primary, cause: _, pid: _ } => primary } }
+    pub fun stage(&self) SpawnStage { match self.* { .Setup(_) => .Setup, .Stdio(_) => .Stdio, .Cwd(_) => .Cwd, .Exec(_) => .Exec, .Reap { stage, primary: _, cause: _, pid: _ } => stage } }
+    pub fun primary(&self) Errno { match self.* { .Setup(value) => value, .Stdio(value) => value, .Cwd(value) => value, .Exec(value) => value, .Reap { stage: _, primary, cause: _, pid: _ } => primary } }
 }
 extend SpawnOptions {
-    pub fn init() SpawnOptions { .{ stdin: .Inherit, stdout: .Inherit, stderr: .Inherit, cwd: null } }
-    pub fn stdin(&self) StdIo { self.stdin }
-    pub fn stdout(&self) StdIo { self.stdout }
-    pub fn stderr(&self) StdIo { self.stderr }
-    pub fn cwd(&self) ?&u8 { self.cwd }
-    pub fn setStdin(&mut self, value: StdIo) () { self.stdin = value }
-    pub fn setStdout(&mut self, value: StdIo) () { self.stdout = value }
-    pub fn setStderr(&mut self, value: StdIo) () { self.stderr = value }
-    pub fn setCwd(&mut self, value: &u8) () { self.cwd = ?value }
+    pub fun init() SpawnOptions { .{ stdin: .Inherit, stdout: .Inherit, stderr: .Inherit, cwd: null } }
+    pub fun stdin(&self) StdIo { self.stdin }
+    pub fun stdout(&self) StdIo { self.stdout }
+    pub fun stderr(&self) StdIo { self.stderr }
+    pub fun cwd(&self) ?&u8 { self.cwd }
+    pub fun setStdin(&mut self, value: StdIo) () { self.stdin = value }
+    pub fun setStdout(&mut self, value: StdIo) () { self.stdout = value }
+    pub fun setStderr(&mut self, value: StdIo) () { self.stderr = value }
+    pub fun setCwd(&mut self, value: &u8) () { self.cwd = ?value }
 }
 extend MappedPages {
-    pub fn ptr(&self) &mut u8 { self.ptr }
-    pub fn releasePtr(&self) &mut u8 { self.releasePtr }
-    pub fn releaseSize(&self) usize { self.releaseSize }
+    pub fun ptr(&self) &mut u8 { self.ptr }
+    pub fun releasePtr(&self) &mut u8 { self.releasePtr }
+    pub fun releaseSize(&self) usize { self.releaseSize }
 }
 
 extend FileDescriptor {
-    pub fn init(fd: i32) FileDescriptor { .{ fd } }
-    pub fn stdin() FileDescriptor { .init(0) }
-    pub fn stdout() FileDescriptor { .init(1) }
-    pub fn stderr() FileDescriptor { .init(2) }
-    pub fn raw(&self) i32 { self.fd }
-    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
+    pub fun init(fd: i32) FileDescriptor { .{ fd } }
+    pub fun stdin() FileDescriptor { .init(0) }
+    pub fun stdout() FileDescriptor { .init(1) }
+    pub fun stderr() FileDescriptor { .init(2) }
+    pub fun raw(&self) i32 { self.fd }
+    pub fun writeSome(&self, bytes: &[u8]) Errno!usize {
         let ret = bindings::write(self.fd, bytes.ptr(), bytes.len());
         if ret < 0 { return errno()!; }
         if ret as usize > bytes.len() { return .Io!; }
         !(ret as usize)
     }
-    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
+    pub fun readSome(&self, bytes: &mut [u8]) Errno!usize {
         let ret = bindings::read(self.fd, bytes.ptrMut(), bytes.len());
         if ret < 0 { return errno()!; }
         if ret as usize > bytes.len() { return .Io!; }
         !(ret as usize)
     }
-    pub fn close(&self) Errno!() { checkZero(bindings::close(self.fd)) }
-    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
+    pub fun close(&self) Errno!() { checkZero(bindings::close(self.fd)) }
+    pub fun seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
         let ret = bindings::lseek(self.fd, offset, whence as i32);
         if ret < 0 { return errno()!; }
         !(ret as u64)
     }
-    pub fn truncate(&self, len: u64) Errno!() { checkZero(bindings::ftruncate(self.fd, len as i64)) }
-    pub fn setPermissions(&self, permissions: u32) Errno!() {
+    pub fun truncate(&self, len: u64) Errno!() { checkZero(bindings::ftruncate(self.fd, len as i64)) }
+    pub fun setPermissions(&self, permissions: u32) Errno!() {
         checkZero(bindings::fchmod(self.fd, permissions as u16))
     }
-    pub fn sync(&self) Errno!() { checkZero(bindings::fsync(self.fd)) }
-    pub fn syncData(&self) Errno!() { checkZero(bindings::fdatasync(self.fd)) }
-    pub fn metadata(&self) Errno!FileMetadata {
+    pub fun sync(&self) Errno!() { checkZero(bindings::fsync(self.fd)) }
+    pub fun syncData(&self) Errno!() { checkZero(bindings::fdatasync(self.fd)) }
+    pub fun metadata(&self) Errno!FileMetadata {
         let mut stat: bindings::DarwinStat;
         if bindings::fstat(self.fd, &mut stat) != 0 { return errno()!; }
         stat.asMetadata()
     }
 }
 
-pub fn initDirectoryReader() DirectoryReader { .{ base: 0 } }
-pub fn closeDirectoryReader(reader: &mut DirectoryReader) Errno!() { _ = reader; !() }
-pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
+pub fun initDirectoryReader() DirectoryReader { .{ base: 0 } }
+pub fun closeDirectoryReader(reader: &mut DirectoryReader) Errno!() { _ = reader; !() }
+pub fun readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buffer: &mut [u8]) Errno!usize {
     if buffer.len() == 0 { return .Invalid!; }
     let ret = bindings::getdirentries64(handle.fd, buffer.ptrMut(), buffer.len(), &mut reader.base);
     if ret < 0 { return errno()!; }
@@ -177,7 +177,7 @@ pub fn readDirEntries(reader: &mut DirectoryReader, handle: FileDescriptor, buff
     if amount > buffer.len() { return .Io!; }
     !amount
 }
-pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
+pub fun dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!DirectoryEntry {
     if parseDirent(buffer, offset) is ?parsed {
         let metadata = metadataAtDirent(handle, &buffer[parsed.nameStart]).?;
         return !DirectoryEntry::init(
@@ -188,11 +188,11 @@ pub fn dirEntryAt(handle: FileDescriptor, buffer: &[u8], offset: usize) Errno!Di
     }
     .Invalid!
 }
-pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
+pub fun dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
     parseDirent(buffer, offset).map[usize, _](\parsed: ParsedDirent -> parsed.recordEnd)
 }
-pub fn cwd() FileDescriptor { .init(-2) }
-pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+pub fun cwd() FileDescriptor { .init(-2) }
+pub fun getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0 { return .Invalid!; }
     let result = bindings::getcwd(buffer.ptrMut(), buffer.len());
     if result as usize == 0 { return errno()!; }
@@ -201,9 +201,9 @@ pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if length == buffer.len() { return .Io!; }
     !&buffer[0..length]
 }
-pub fn pageSize() usize { 4096 }
-pub fn pageAlignedLen(len: usize) Errno!usize { if len.alignForward(pageSize()) is ?value { !value } else { .OutOfRange! } }
-pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+pub fun pageSize() usize { 4096 }
+pub fun pageAlignedLen(len: usize) Errno!usize { if len.alignForward(pageSize()) is ?value { !value } else { .OutOfRange! } }
+pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
     let alignedLen = pageAlignedLen(len).?;
     let extra = if align > pageSize() { align - pageSize() } else { 0 };
@@ -227,11 +227,11 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     };
     !.{ ptr: resultAddr as &mut u8, releasePtr: mapped, releaseSize: mapLen }
 }
-pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+pub fun unmapPages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 { return .Invalid!; }
     checkZero(bindings::munmap(ptr, pageAlignedLen(len).?))
 }
-pub fn random(bytes: &mut [u8]) Errno!() {
+pub fun random(bytes: &mut [u8]) Errno!() {
     let mut offset: usize = 0;
     while offset < bytes.len() {
         let remaining = bytes.len() - offset;
@@ -242,13 +242,13 @@ pub fn random(bytes: &mut [u8]) Errno!() {
     }
     !()
 }
-pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
+pub fun openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
     let flags = openFlags(mode, false, create, truncate, exclusive, true);
     let ret = bindings::openat(dir.fd, path, flags, permissions);
     if ret < 0 { return errno()!; }
     !FileDescriptor::init(ret)
 }
-pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
+pub fun openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
     let mut storage: [u8; maxPathBytes] = [0; maxPathBytes];
     let length = copyAndValidateRelative(path, &mut storage[..]).?;
     let mut current = dir;
@@ -313,20 +313,20 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
     if ownsCurrent { _ = current.close(); }
     .Invalid!
 }
-pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
+pub fun createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
     let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, false).?;
     let result = bindings::mkdirat(parentHandle.fd, name, permissions as u16);
     let operation = checkZero(result);
     operation.cleanupAfter(parentHandle.close())
 }
-pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
+pub fun deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
     let parentHandle = openAtBeneath(dir, parent, .ReadOnly, true, false, false, false, 0, false).?;
     let flags = if directory { bindings::atRemoveDir } else { 0 };
     let result = bindings::unlinkat(parentHandle.fd, name, flags);
     let operation = checkZero(result);
     operation.cleanupAfter(parentHandle.close())
 }
-pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
+pub fun renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
     let oldHandle = openAtBeneath(oldDir, oldParent, .ReadOnly, true, false, false, false, 0, false).?;
     let newHandle = match openAtBeneath(newDir, newParent, .ReadOnly, true, false, false, false, 0, false) {
         !handle => handle,
@@ -336,7 +336,7 @@ pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, new
     let operation = checkZero(result);
     operation.cleanupAfter(oldHandle.close()).cleanupAfter(newHandle.close())
 }
-pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+pub fun metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
     if followSymlinks {
         let handle = openAtBeneath(dir, path, .ReadOnly, false, false, false, false, 0, true).?;
         let result = handle.metadata();
@@ -394,14 +394,14 @@ struct SpawnPipe { read: ?FileDescriptor, write: ?FileDescriptor }
 struct SpawnResources { stdin: SpawnPipe, stdout: SpawnPipe, stderr: SpawnPipe, error: SpawnPipe }
 struct SpawnErrorRecord { stage: i32, code: i32 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     let mut resources = SpawnResources::init();
     let result = spawnWithResources(path, argv, envp, options, &mut resources);
     resources.closeAll();
     result
 }
 
-fn spawnWithResources(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions, resources: &mut SpawnResources) SpawnAttempt {
+fun spawnWithResources(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions, resources: &mut SpawnResources) SpawnAttempt {
     if options.stdin() == StdIo::Pipe {
         resources.stdin = match SpawnPipe::openCloseOnExec() { !pipe => pipe, error! => return .failure(.Setup(error)) };
     }
@@ -443,7 +443,7 @@ fn spawnWithResources(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions, 
     }
 }
 
-fn executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
+fun executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
     let mut pathLen: usize = 0;
     while path[pathLen] != 0 { pathLen += 1; }
     let mut hasSeparator = false;
@@ -503,18 +503,18 @@ fn executePath(path: &u8, argv: &&u8, envp: &&u8) Errno {
     .NoEntry
 }
 
-fn execveResult(result: i32) Errno {
+fun execveResult(result: i32) Errno {
     if result == 0 { .Io } else { errno() }
 }
 
-fn failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
+fun failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
     if reapSpawnFailure(pid) is cause! {
         return .failure(.Reap { stage: error.stage(), primary: error.primary(), cause: cause, pid: pid });
     }
     .failure(error)
 }
 
-fn reapSpawnFailure(pid: ProcessId) Errno!() {
+fun reapSpawnFailure(pid: ProcessId) Errno!() {
     loop {
         match wait(pid) {
             !status => { _ = status; return !(); },
@@ -525,7 +525,7 @@ fn reapSpawnFailure(pid: ProcessId) Errno!() {
     }
 }
 
-fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, value: Errno) () {
+fun reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, value: Errno) () {
     if pipe.write() is !fd {
         let mut record: SpawnErrorRecord = .{ stage: stage as i32, code: value as i32 };
         let bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
@@ -540,7 +540,7 @@ fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, value: Errno) () {
     }
 }
 
-fn readSpawnError(fd: FileDescriptor) SpawnError! ?SpawnError {
+fun readSpawnError(fd: FileDescriptor) SpawnError! ?SpawnError {
     let mut record: SpawnErrorRecord = .{ stage: SpawnStage::Setup as i32, code: Errno::Io as i32 };
     let bytes = &mut ((&mut record as &mut u8)[0..pkg::builtin::size[SpawnErrorRecord]()]);
     let mut readLen: usize = 0;
@@ -559,14 +559,14 @@ fn readSpawnError(fd: FileDescriptor) SpawnError! ?SpawnError {
     finishSpawnError(fd, !(?SpawnError::fromStage(record.stage as SpawnStage, record.code as Errno)))
 }
 
-fn finishSpawnError(fd: FileDescriptor, result: SpawnError! ?SpawnError) SpawnError! ?SpawnError {
+fun finishSpawnError(fd: FileDescriptor, result: SpawnError! ?SpawnError) SpawnError! ?SpawnError {
     match result {
         !value => { match fd.close() { !ok => { _ = ok; !value }, error! => .Setup(error)! } },
         error! => { _ = fd.close(); error! },
     }
 }
 
-fn applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut SpawnPipe, stderrPipe: &mut SpawnPipe) Errno!() {
+fun applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut SpawnPipe, stderrPipe: &mut SpawnPipe) Errno!() {
     let mut devNull: ?FileDescriptor = null;
     if options.stdin() == StdIo::Ignore {
         let fd = openDevNull().?; devNull = ?fd; dupTo(fd, FileDescriptor::stdin()).?;
@@ -584,33 +584,33 @@ fn applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut
     !()
 }
 
-fn applyCwd(options: SpawnOptions) Errno!() {
+fun applyCwd(options: SpawnOptions) Errno!() {
     if options.cwd() is ?path { checkZero(bindings::chdir(path)) } else { !() }
 }
 
-fn openDevNull() Errno!FileDescriptor {
+fun openDevNull() Errno!FileDescriptor {
     let path = b"/dev/null\0";
     openAt(cwd(), &path[0], .ReadWrite, false, false, false, 0)
 }
 
-fn dupTo(from: FileDescriptor, to: FileDescriptor) Errno!() {
+fun dupTo(from: FileDescriptor, to: FileDescriptor) Errno!() {
     if from.raw() == to.raw() { return checkZero(bindings::fcntl(to.raw(), bindings::fSetFd, 0)); }
     let ret = bindings::dup2(from.raw(), to.raw());
     if ret < 0 { errno()! } else if ret != to.raw() { .Io! } else { !() }
 }
 
-pub fn wait(pid: ProcessId) Errno!WaitStatus { waitWithOptions(pid, 0) }
+pub fun wait(pid: ProcessId) Errno!WaitStatus { waitWithOptions(pid, 0) }
 
-pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+pub fun tryWait(pid: ProcessId) Errno! ?WaitStatus {
     let mut status: i32 = 0;
     let ret = bindings::waitpid(pid.raw(), &mut status, bindings::waitNoHang);
     if ret < 0 { return errno()!; }
     if ret == 0 { !null } else if ret != pid.raw() { .Io! } else { !(?.init(status)) }
 }
 
-pub fn killWith(pid: ProcessId, signal: i32) Errno!() { checkZero(bindings::kill(pid.raw(), signal)) }
+pub fun killWith(pid: ProcessId, signal: i32) Errno!() { checkZero(bindings::kill(pid.raw(), signal)) }
 
-fn waitWithOptions(pid: ProcessId, options: i32) Errno!WaitStatus {
+fun waitWithOptions(pid: ProcessId, options: i32) Errno!WaitStatus {
     let mut status: i32 = 0;
     let ret = bindings::waitpid(pid.raw(), &mut status, options);
     if ret < 0 { return errno()!; }
@@ -618,9 +618,9 @@ fn waitWithOptions(pid: ProcessId, options: i32) Errno!WaitStatus {
 }
 
 extend SpawnPipe {
-    fn closed() SpawnPipe { .{ read: null, write: null } }
-    fn init(read: FileDescriptor, write: FileDescriptor) SpawnPipe { .{ read: ?read, write: ?write } }
-    fn openCloseOnExec() Errno!SpawnPipe {
+    fun closed() SpawnPipe { .{ read: null, write: null } }
+    fun init(read: FileDescriptor, write: FileDescriptor) SpawnPipe { .{ read: ?read, write: ?write } }
+    fun openCloseOnExec() Errno!SpawnPipe {
         let mut fds: [i32; 2] = [0; 2];
         if bindings::pipe(&mut fds[0]) != 0 { return errno()!; }
         let first = bindings::fcntl(fds[0], bindings::fSetFd, bindings::fdCloseOnExec);
@@ -633,30 +633,30 @@ extend SpawnPipe {
         }
         !.init(.init(fds[0]), .init(fds[1]))
     }
-    fn read(&self) Errno!FileDescriptor { if self.read is ?fd { !fd } else { .Invalid! } }
-    fn write(&self) Errno!FileDescriptor { if self.write is ?fd { !fd } else { .Invalid! } }
-    fn takeRead(&mut self) ?FileDescriptor { let value = self.read; self.read = null; value }
-    fn takeWrite(&mut self) ?FileDescriptor { let value = self.write; self.write = null; value }
-    fn closeRead(&mut self) () { if self.takeRead() is ?fd { _ = fd.close(); } }
-    fn closeWrite(&mut self) () { if self.takeWrite() is ?fd { _ = fd.close(); } }
-    fn closeAll(&mut self) () { self.closeRead(); self.closeWrite(); }
-    fn closeAllExcept(&mut self, options: SpawnOptions) () {
+    fun read(&self) Errno!FileDescriptor { if self.read is ?fd { !fd } else { .Invalid! } }
+    fun write(&self) Errno!FileDescriptor { if self.write is ?fd { !fd } else { .Invalid! } }
+    fun takeRead(&mut self) ?FileDescriptor { let value = self.read; self.read = null; value }
+    fun takeWrite(&mut self) ?FileDescriptor { let value = self.write; self.write = null; value }
+    fun closeRead(&mut self) () { if self.takeRead() is ?fd { _ = fd.close(); } }
+    fun closeWrite(&mut self) () { if self.takeWrite() is ?fd { _ = fd.close(); } }
+    fun closeAll(&mut self) () { self.closeRead(); self.closeWrite(); }
+    fun closeAllExcept(&mut self, options: SpawnOptions) () {
         if self.takeRead() is ?fd and not isStandardTarget(fd, options) { _ = fd.close(); }
         if self.takeWrite() is ?fd and not isStandardTarget(fd, options) { _ = fd.close(); }
     }
 }
 
-fn isStandardTarget(fd: FileDescriptor, options: SpawnOptions) bool {
+fun isStandardTarget(fd: FileDescriptor, options: SpawnOptions) bool {
     (options.stdin() != StdIo::Inherit and fd.raw() == 0)
         or (options.stdout() != StdIo::Inherit and fd.raw() == 1)
         or (options.stderr() != StdIo::Inherit and fd.raw() == 2)
 }
 
 extend SpawnResources {
-    fn init() SpawnResources { .{ stdin: .closed(), stdout: .closed(), stderr: .closed(), error: .closed() } }
-    fn closeAll(&mut self) () { self.stdin.closeAll(); self.stdout.closeAll(); self.stderr.closeAll(); self.error.closeAll(); }
+    fun init() SpawnResources { .{ stdin: .closed(), stdout: .closed(), stderr: .closed(), error: .closed() } }
+    fun closeAll(&mut self) () { self.stdin.closeAll(); self.stdout.closeAll(); self.stderr.closeAll(); self.error.closeAll(); }
 }
-pub fn exit(code: i32) () { bindings::exit(code); loop {} }
+pub fun exit(code: i32) () { bindings::exit(code); loop {} }
 
 const statTypeMask: u16 = 0o170000;
 const statFifo: u16 = 0o010000;
@@ -674,7 +674,7 @@ struct ParsedDirent {
     nameEnd: usize,
 }
 
-fn openFlags(mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, followSymlinks: bool) i32 {
+fun openFlags(mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, followSymlinks: bool) i32 {
     let mut flags = mode as i32;
     if directory { flags = flags | bindings::openDirectory; }
     if create { flags = flags | bindings::openCreate; }
@@ -684,7 +684,7 @@ fn openFlags(mode: OpenMode, directory: bool, create: bool, truncate: bool, excl
     flags
 }
 
-fn copyAndValidateRelative(path: &u8, storage: &mut [u8]) Errno!usize {
+fun copyAndValidateRelative(path: &u8, storage: &mut [u8]) Errno!usize {
     let mut length: usize = 0;
     while length < storage.len() and path[length] != 0 {
         storage[length] = path[length];
@@ -708,7 +708,7 @@ fn copyAndValidateRelative(path: &u8, storage: &mut [u8]) Errno!usize {
     !length
 }
 
-fn finalComponentStart(storage: &[u8], length: usize) usize {
+fun finalComponentStart(storage: &[u8], length: usize) usize {
     let mut end = length;
     while end != 0 and storage[end - 1] == b'/' { end -= 1; }
     let mut index = end;
@@ -719,13 +719,13 @@ fn finalComponentStart(storage: &[u8], length: usize) usize {
     0
 }
 
-fn metadataAtDirent(handle: FileDescriptor, path: &u8) Errno!FileMetadata {
+fun metadataAtDirent(handle: FileDescriptor, path: &u8) Errno!FileMetadata {
     let mut stat: bindings::DarwinStat;
     if bindings::fstatat(handle.fd, path, &mut stat, bindings::atSymlinkNoFollow) != 0 { return errno()!; }
     stat.asMetadata()
 }
 
-fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
+fun parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     const reclenOffset: usize = 16;
     const namlenOffset: usize = 18;
     const nameOffset: usize = 21;
@@ -743,19 +743,19 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     ?.{ recordEnd: recordEnd, nameStart: nameStart, nameEnd: nameEnd }
 }
 
-fn readU16(buffer: &[u8], offset: usize) u16 {
+fun readU16(buffer: &[u8], offset: usize) u16 {
     (buffer[offset] as u16) | ((buffer[offset + 1] as u16) << 8)
 }
 
 extend bindings::DarwinTimespec {
-    fn asTimestamp(&self) Errno!Timestamp {
+    fun asTimestamp(&self) Errno!Timestamp {
         if self.nanos < 0 or self.nanos >= nanosPerSecond { return .Invalid!; }
         !Timestamp::init(self.seconds, self.nanos as u32)
     }
 }
 
 extend bindings::DarwinStat {
-    fn kind(&self) FileKind {
+    fun kind(&self) FileKind {
         match self.mode & statTypeMask {
             (statDirectory) => .Directory,
             (statCharacter) => .CharacterDevice,
@@ -768,7 +768,7 @@ extend bindings::DarwinStat {
         }
     }
 
-    fn asMetadata(&self) Errno!FileMetadata {
+    fun asMetadata(&self) Errno!FileMetadata {
         if self.size < 0 or self.blockSize <= 0 { return .OutOfRange!; }
         !FileMetadata::init(
             self.kind(),
@@ -784,7 +784,7 @@ extend bindings::DarwinStat {
     }
 }
 
-fn errno() Errno {
+fun errno() Errno {
     let value = bindings::__error().*;
     // Preserve portable errors for unsupported calls and invalid native paths.
     if value == 78 { .Unsupported }
@@ -792,7 +792,7 @@ fn errno() Errno {
     else { value as Errno }
 }
 
-fn fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {
+fun fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0 { return .Invalid!; }
     let result = if fd.fd == -2 {
         bindings::getcwd(buffer.ptrMut(), buffer.len()) as usize
@@ -807,7 +807,7 @@ fn fdPath(fd: FileDescriptor, buffer: &mut [u8]) Errno!&[u8] {
     !&buffer[0..length]
 }
 
-fn pathWithin(root: &[u8], candidate: &[u8]) bool {
+fun pathWithin(root: &[u8], candidate: &[u8]) bool {
     if root.len() == 1 and root[0] == b'/' {
         return candidate.len() != 0 and candidate[0] == b'/';
     }
@@ -820,7 +820,7 @@ fn pathWithin(root: &[u8], candidate: &[u8]) bool {
     candidate.len() == root.len() or candidate[root.len()] == b'/'
 }
 
-fn ensureContained(root: FileDescriptor, candidate: FileDescriptor) Errno!() {
+fun ensureContained(root: FileDescriptor, candidate: FileDescriptor) Errno!() {
     let mut rootStorage: [u8; fdPathBytes] = [0; fdPathBytes];
     let mut candidateStorage: [u8; fdPathBytes] = [0; fdPathBytes];
     let rootPath = fdPath(root, &mut rootStorage[..]).?;
@@ -828,6 +828,6 @@ fn ensureContained(root: FileDescriptor, candidate: FileDescriptor) Errno!() {
     if pathWithin(rootPath, candidatePath) { !() } else { .CrossDevice! }
 }
 
-fn checkZero(result: i32) Errno!() {
+fun checkZero(result: i32) Errno!() {
     if result == 0 { !() } else { errno()! }
 }

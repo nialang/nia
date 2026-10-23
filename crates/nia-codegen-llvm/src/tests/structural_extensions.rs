@@ -13,12 +13,12 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut b = Box[i32]::make(42);
     b.value
 }
@@ -57,40 +57,40 @@ fn emits_structural_extension_method_calls() {
 type RawPtr[T] = &T;
 
 extend i32 {
-    fn is_zero(self) bool {
+    fun is_zero(self) bool {
         self == 0
     }
 }
 
 extend[T] RawPtr[T] {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] & [T] {
-    fn size(self) usize {
+    fun size(self) usize {
         self.len()
     }
 }
 
 extend[T] [T; 3] {
-    fn first(self) T {
+    fun first(self) T {
         self[0]
     }
 }
 
-extend &fn(i32) i32 {
-    fn apply(self, value: i32) i32 {
+extend &fun(i32) i32 {
+    fun apply(self, value: i32) i32 {
         self(value)
     }
 }
 
-fn inc(value: i32) i32 {
+fun inc(value: i32) i32 {
     value + 1
 }
 
-fn main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
+fun main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
     xs.size() as i32 + triple.first() + (& inc).apply(1)
@@ -131,9 +131,9 @@ module share;
 module ptr;
 using entry::share;
 
-extern fn read_readonly() &u8;
+extern fun read_readonly() &u8;
 
-fn main(mut_ptr: &mut u8) i32 {
+fun main(mut_ptr: &mut u8) i32 {
     let mut readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
@@ -151,13 +151,13 @@ fn main(mut_ptr: &mut u8) i32 {
         root.join("ptr.nia"),
         r#"
 extend[T] &mut T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn is_null(self) bool {
+    pub fun is_null(self) bool {
         self as usize == 0
     }
 }
@@ -196,16 +196,16 @@ struct Cell {
 }
 
 extend &Cell {
-    fn read(&self) i32 {
+    fun read(&self) i32 {
         self.*.value
     }
 }
 
-fn inspect(value: &Cell) i32 {
+fun inspect(value: &Cell) i32 {
     value.read()
 }
 
-fn main() i32 {
+fun main() i32 {
     let cell = Cell { value: 42 };
     inspect(&cell)
 }
@@ -235,18 +235,18 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn make(value: T) Box[T] {
+    fun make(value: T) Box[T] {
         Self { value }
     }
 }
 
 extend Box[i32] {
-    fn make(value: i32) Box[i32] {
+    fun make(value: i32) Box[i32] {
         Self { value: value + 1 }
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut a = Box[i32]::make(41);
     let mut b = Box[bool]::make(true);
     if b.value { a.value } else { 0 }
@@ -285,16 +285,16 @@ struct Point {
 }
 
 extend Point {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.x
     }
 }
 
-fn apply(p: & Point, f: &fn(& Point) i32) i32 {
+fun apply(p: & Point, f: &fun(& Point) i32) i32 {
     f(p)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut p = Point { x: 42 };
     apply(& p, & Point::get)
 }
@@ -324,16 +324,16 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(& self) T {
+    fun get(& self) T {
         self.value
     }
 }
 
-fn apply(box: & Box[i32], f: &fn(& Box[i32]) i32) i32 {
+fun apply(box: & Box[i32], f: &fun(& Box[i32]) i32) i32 {
     f(box)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut box = Box[i32] { value: 42 };
     apply(& box, & Box[i32]::get)
 }
@@ -363,16 +363,16 @@ struct Buffer[N: usize] {
 }
 
 extend[N: usize] Buffer[N] {
-    fn rank(& self) i32 {
+    fun rank(& self) i32 {
         self.value
     }
 }
 
-fn apply(buffer: & Buffer[3], callback: &fn(& Buffer[3]) i32) i32 {
+fun apply(buffer: & Buffer[3], callback: &fun(& Buffer[3]) i32) i32 {
     callback(buffer)
 }
 
-fn main() i32 {
+fun main() i32 {
     let buffer = Buffer[3] { value: 42 };
     apply(& buffer, & Buffer[3]::rank)
 }
@@ -414,14 +414,14 @@ struct Point {
 }
 
 extend Point {
-    fn get(& self) i32 {
+    fun get(& self) i32 {
         self.x
     }
 }
 
-static point_get: &fn(& Point) i32 = & Point::get;
+static point_get: &fun(& Point) i32 = & Point::get;
 
-fn main(p: & Point) i32 {
+fun main(p: & Point) i32 {
     point_get(p)
 }
 "#,
@@ -449,17 +449,17 @@ fn emits_function_pointer_type_alias_fields() {
     std::fs::write(
         &main,
         r#"
-type StepFn = &fn(i32) i32;
+type StepFn = &fun(i32) i32;
 
 struct Step {
     run: StepFn,
 }
 
-fn inc(value: i32) i32 {
+fun inc(value: i32) i32 {
     value + 1
 }
 
-fn main() i32 {
+fun main() i32 {
     let step = Step { run: &inc };
     step.run(41)
 }
@@ -484,24 +484,24 @@ fn emits_structural_associated_calls_and_function_pointers() {
         &main,
         r#"
 extend[T] &T {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 
-    fn zero() usize {
+    fun zero() usize {
         0usize
     }
 }
 
 extend[T] [T; 3] {
-    fn first(self) T {
+    fun first(self) T {
         self[0]
     }
 }
 
-fn main(ptr: &u8, triple: [i32; 3]) i32 {
-    let is_null: &fn(&u8) bool = & [&u8]::is_null;
-    let zero: &fn() usize = & [&u8]::zero;
+fun main(ptr: &u8, triple: [i32; 3]) i32 {
+    let is_null: &fun(&u8) bool = & [&u8]::is_null;
+    let zero: &fun() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
     [[i32; 3]]::first(triple) + zero() as i32
@@ -538,13 +538,13 @@ fn emits_deep_pointer_structural_associated_calls_and_function_pointers() {
         &main,
         r#"
 extend &&&&&& &&i32 {
-    fn is_null(self) bool {
+    fun is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &&&&&& &&i32) bool {
-    let is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
+fun main(ptr: &&&&&& &&i32) bool {
+    let is_null: &fun(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
     is_null(ptr) and [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
@@ -570,12 +570,12 @@ fn emits_numeric_literal_suffix_extension_method_calls() {
         &main,
         r#"
 extend usize {
-    fn plus_one(self) usize {
+    fun plus_one(self) usize {
         self + 1usize
     }
 }
 
-fn main() usize {
+fun main() usize {
     (10usize).plus_one()
 }
 "#,

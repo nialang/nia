@@ -26,7 +26,7 @@ using types::{
 };
 
 extend ExecutableTarget {
-    pub(pkg) fn init(
+    pub(pkg) fun init(
         index: usize,
         rootModule: ModuleHandle,
         targetIndex: usize,
@@ -34,7 +34,7 @@ extend ExecutableTarget {
         .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding }
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -55,7 +55,7 @@ extend ExecutableTarget {
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.staticArchives.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
@@ -65,7 +65,7 @@ extend ExecutableTarget {
 }
 
 extend ObjectTarget {
-    pub(pkg) fn init(
+    pub(pkg) fun init(
         index: usize,
         rootModule: ModuleHandle,
         targetIndex: usize,
@@ -73,7 +73,7 @@ extend ObjectTarget {
         .{ index, name: .init(), rootModule, outputName: .init(), targetIndex }
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -84,7 +84,7 @@ extend ObjectTarget {
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
@@ -93,7 +93,7 @@ extend ObjectTarget {
 }
 
 extend StaticArchiveTarget {
-    pub(pkg) fn init(
+    pub(pkg) fun init(
         index: usize,
         rootModule: ModuleHandle,
         targetIndex: usize,
@@ -101,7 +101,7 @@ extend StaticArchiveTarget {
         .{ index, name: .init(), rootModule, outputName: .init(), targetIndex }
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         name: &[char],
@@ -112,7 +112,7 @@ extend StaticArchiveTarget {
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
@@ -121,46 +121,46 @@ extend StaticArchiveTarget {
 }
 
 extend TargetView {
-    pub fn init(name: &[char], endian: &[char], pointerWidth: u32) TargetView {
+    pub fun init(name: &[char], endian: &[char], pointerWidth: u32) TargetView {
         .{ name, endian, pointerWidth }
     }
 
     // Canonical target name, such as `x86_64-pc-windows-msvc`.
-    pub fn name(&self) &[char] {
+    pub fun name(&self) &[char] {
         self.name
     }
 
-    pub fn arch(&self) &[char] {
+    pub fun arch(&self) &[char] {
         self.component(0)
     }
 
-    pub fn vendor(&self) &[char] {
+    pub fun vendor(&self) &[char] {
         self.component(1)
     }
 
-    pub fn os(&self) &[char] {
+    pub fun os(&self) &[char] {
         self.component(2)
     }
 
     // Empty when the platform has no environment component.
-    pub fn env(&self) &[char] {
+    pub fun env(&self) &[char] {
         self.component(3)
     }
 
-    pub fn endian(&self) &[char] {
+    pub fun endian(&self) &[char] {
         self.endian
     }
 
-    pub fn pointerWidth(&self) u32 {
+    pub fun pointerWidth(&self) u32 {
         self.pointerWidth
     }
 
-    pub fn equals(&self, other: TargetView) bool {
+    pub fun equals(&self, other: TargetView) bool {
         // The toolchain derives every other fact from the name.
         self.name.equals(other.name)
     }
 
-    fn component(&self, index: usize) &[char] {
+    fun component(&self, index: usize) &[char] {
         let mut start: usize = 0;
         let mut current: usize = 0;
         let mut cursor: usize = 0;
@@ -179,11 +179,11 @@ extend TargetView {
 }
 
 extend TargetStorage {
-    pub(pkg) fn init(pointerWidth: u32) TargetStorage {
+    pub(pkg) fun init(pointerWidth: u32) TargetStorage {
         .{ name: .init(), endian: .init(), pointerWidth }
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         target: TargetView,
@@ -194,11 +194,11 @@ extend TargetStorage {
         !()
     }
 
-    pub(pkg) fn view(&self) TargetView {
+    pub(pkg) fun view(&self) TargetView {
         .init(self.name.text(), self.endian.text(), self.pointerWidth)
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.endian.deinit(allocator).withBuildContext(.Release, subject));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, subject));
@@ -210,7 +210,7 @@ extend ExecutableOptions {
     // The invocation artifact target is the default. Select another maintained
     // target with `forTarget`: `b.hostTarget()` for tools that execute during
     // this build, or `b.target(name)` for an additional artifact target.
-    pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
+    pub fun init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
         .{
             name,
             rootModule,
@@ -221,7 +221,7 @@ extend ExecutableOptions {
         }
     }
 
-    pub fn withOutputName(self, outputName: &[char]) ExecutableOptions {
+    pub fun withOutputName(self, outputName: &[char]) ExecutableOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -232,7 +232,7 @@ extend ExecutableOptions {
         }
     }
 
-    pub fn forTarget(self, target: TargetView) ExecutableOptions {
+    pub fun forTarget(self, target: TargetView) ExecutableOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -243,7 +243,7 @@ extend ExecutableOptions {
         }
     }
 
-    pub fn withStaticArchives(self, staticArchives: &[StaticArchiveHandle]) ExecutableOptions {
+    pub fun withStaticArchives(self, staticArchives: &[StaticArchiveHandle]) ExecutableOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -255,7 +255,7 @@ extend ExecutableOptions {
     }
 
     // The default remains freestanding for existing build scripts.
-    pub fn withRuntime(self, runtime: Runtime) ExecutableOptions {
+    pub fun withRuntime(self, runtime: Runtime) ExecutableOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -268,7 +268,7 @@ extend ExecutableOptions {
 }
 
 extend ObjectOptions {
-    pub fn init(name: &[char], rootModule: ModuleHandle) ObjectOptions {
+    pub fun init(name: &[char], rootModule: ModuleHandle) ObjectOptions {
         .{
             name,
             rootModule,
@@ -277,7 +277,7 @@ extend ObjectOptions {
         }
     }
 
-    pub fn withOutputName(self, outputName: &[char]) ObjectOptions {
+    pub fun withOutputName(self, outputName: &[char]) ObjectOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -286,7 +286,7 @@ extend ObjectOptions {
         }
     }
 
-    pub fn forTarget(self, target: TargetView) ObjectOptions {
+    pub fun forTarget(self, target: TargetView) ObjectOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -297,7 +297,7 @@ extend ObjectOptions {
 }
 
 extend StaticArchiveOptions {
-    pub fn init(name: &[char], rootModule: ModuleHandle) StaticArchiveOptions {
+    pub fun init(name: &[char], rootModule: ModuleHandle) StaticArchiveOptions {
         .{
             name,
             rootModule,
@@ -306,7 +306,7 @@ extend StaticArchiveOptions {
         }
     }
 
-    pub fn withOutputName(self, outputName: &[char]) StaticArchiveOptions {
+    pub fun withOutputName(self, outputName: &[char]) StaticArchiveOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -315,7 +315,7 @@ extend StaticArchiveOptions {
         }
     }
 
-    pub fn forTarget(self, target: TargetView) StaticArchiveOptions {
+    pub fun forTarget(self, target: TargetView) StaticArchiveOptions {
         .{
             name: self.name,
             rootModule: self.rootModule,
@@ -325,7 +325,7 @@ extend StaticArchiveOptions {
     }
 }
 
-pub(pkg) fn executableOutputName(options: ExecutableOptions) &[char] {
+pub(pkg) fun executableOutputName(options: ExecutableOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -333,7 +333,7 @@ pub(pkg) fn executableOutputName(options: ExecutableOptions) &[char] {
     }
 }
 
-pub(pkg) fn objectOutputName(options: ObjectOptions) &[char] {
+pub(pkg) fun objectOutputName(options: ObjectOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -341,7 +341,7 @@ pub(pkg) fn objectOutputName(options: ObjectOptions) &[char] {
     }
 }
 
-pub(pkg) fn staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
+pub(pkg) fun staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
     if options.outputName is ?name {
         name
     } else {
@@ -349,7 +349,7 @@ pub(pkg) fn staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
     }
 }
 
-pub(pkg) fn isValidStableName(name: &[char]) bool {
+pub(pkg) fun isValidStableName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
@@ -368,7 +368,7 @@ pub(pkg) fn isValidStableName(name: &[char]) bool {
     true
 }
 
-pub(pkg) fn isValidOutputName(name: &[char]) bool {
+pub(pkg) fun isValidOutputName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }

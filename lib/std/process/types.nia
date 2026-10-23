@@ -237,19 +237,19 @@ pub struct Init {
 }
 
 extend ProcessId {
-    pub(pkg) const fn fromRaw(raw: i32) ProcessId {
+    pub(pkg) const fun fromRaw(raw: i32) ProcessId {
         .{ platform: os::ProcessId::fromRaw(raw) }
     }
 
-    pub(pkg) const fn fromOs(platform: os::ProcessId) ProcessId {
+    pub(pkg) const fun fromOs(platform: os::ProcessId) ProcessId {
         .{ platform }
     }
 
-    pub(pkg) const fn os(&self) os::ProcessId {
+    pub(pkg) const fun os(&self) os::ProcessId {
         self.platform
     }
 
-    pub const fn raw(&self) i32 {
+    pub const fun raw(&self) i32 {
         self.platform.raw()
     }
 }

@@ -1,4 +1,4 @@
-fn invalid() () {
+fun invalid() () {
     std::builtin::asm(.{
         code: missing_code,
         clobbers: [missing_clobber],

@@ -1,12 +1,12 @@
 path: fail/local_resolution_diagnostic/main.nia
 code: E0302
 summary: `self` cannot cross a closure boundary; bind it to a local and capture that local
-label: 102..106 Primary Source `self` cannot cross a closure boundary; bind it to a local and capture that local
+label: 103..107 Primary Source `self` cannot cross a closure boundary; bind it to a local and capture that local
 
 path: fail/local_resolution_diagnostic/main.nia
 code: E0201
 summary: no method receiver is available for `self`
-label: 102..106 Primary Source `self` requires a method receiver
+label: 103..107 Primary Source `self` requires a method receiver
 help: use `self` inside a method with a receiver, or pass a value as an explicit parameter
 
 report:

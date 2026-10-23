@@ -991,7 +991,7 @@ mod tests {
         let (module, errors) = parse_module(
             r#"
 @[if os == "linux"]
-fn selected() i32 { 1 }
+fun selected() i32 { 1 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1006,7 +1006,7 @@ fn selected() i32 { 1 }
 
     #[test]
     fn all_items_active_shares_module_item_storage() {
-        let (module, errors) = parse_module("fn main() i32 { 0 }");
+        let (module, errors) = parse_module("fun main() i32 { 0 }");
         assert!(errors.is_empty(), "{errors:?}");
         let tree = lower_module_items(&module);
 
@@ -1021,8 +1021,8 @@ fn selected() i32 { 1 }
         let (module, errors) = parse_module(
             r#"
 @[if false]
-fn skipped() i32 { 0 }
-fn selected() i32 { 1 }
+fun skipped() i32 { 0 }
+fun selected() i32 { 1 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1039,7 +1039,7 @@ fn selected() i32 { 1 }
 
     #[test]
     fn ordinary_signature_projection_shares_item_payload() {
-        let (module, errors) = parse_module("fn selected() i32 { 1 }");
+        let (module, errors) = parse_module("fun selected() i32 { 1 }");
         assert!(errors.is_empty(), "{errors:?}");
         let active = lower_module_items(&module).all_items_active();
 
@@ -1052,9 +1052,9 @@ fn selected() i32 { 1 }
     fn trimmed_extend_signature_replaces_only_its_payload() {
         let (module, errors) = parse_module(
             r#"
-fn selected() i32 { 1 }
+fun selected() i32 { 1 }
 extend i32 {
-    fn value(self) i32 { self }
+    fun value(self) i32 { self }
     const answer: i32 = 42;
 }
 "#,
@@ -1073,7 +1073,7 @@ extend i32 {
         let (module, errors) = parse_module(
             r#"
 extend i32 {
-    fn value(self) i32 { self }
+    fun value(self) i32 { self }
 }
 "#,
         );
@@ -1090,7 +1090,7 @@ extend i32 {
         let (module, errors) = parse_module(
             r#"
 @[linkName("runtime_start")]
-pub extern fn start(argc: i32) i32;
+pub extern fun start(argc: i32) i32;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1114,11 +1114,11 @@ pub extern fn start(argc: i32) i32;
     fn resolves_active_items_through_condition_resolver() {
         let (module, errors) = parse_module(
             r#"
-fn always() i32 { 1 }
+fun always() i32 { 1 }
 @[if false]
-fn skipped() i32 { 0 }
+fun skipped() i32 { 0 }
 @[if true]
-fn selected() i32 { 2 }
+fun selected() i32 { 2 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1138,8 +1138,8 @@ fn selected() i32 { 2 }
 
     #[test]
     fn function_body_changes_do_not_change_item_tree_declaration_shape() {
-        let (before, before_errors) = parse_module("pub fn main() i32 { 0 }");
-        let (after, after_errors) = parse_module("pub fn main() i32 { 1 }");
+        let (before, before_errors) = parse_module("pub fun main() i32 { 0 }");
+        let (after, after_errors) = parse_module("pub fun main() i32 { 1 }");
         assert!(before_errors.is_empty(), "{before_errors:?}");
         assert!(after_errors.is_empty(), "{after_errors:?}");
 
@@ -1152,8 +1152,8 @@ fn selected() i32 { 2 }
 
     #[test]
     fn function_signature_changes_do_not_change_definition_shape() {
-        let (before, before_errors) = parse_module("pub fn main() i32 { 0 }");
-        let (after, after_errors) = parse_module("pub fn main() u8 { 0 }");
+        let (before, before_errors) = parse_module("pub fun main() i32 { 0 }");
+        let (after, after_errors) = parse_module("pub fun main() u8 { 0 }");
         assert!(before_errors.is_empty(), "{before_errors:?}");
         assert!(after_errors.is_empty(), "{after_errors:?}");
 
@@ -1181,10 +1181,11 @@ fn selected() i32 { 2 }
     #[test]
     fn signature_item_sets_track_their_own_declarations() {
         let (before, before_errors) = parse_module(
-            "pub struct S { value: i32 } static VALUE: i32 = 1; fn helper() i32 { 1 }",
+            "pub struct S { value: i32 } static VALUE: i32 = 1; fun helper() i32 { 1 }",
         );
-        let (after, after_errors) =
-            parse_module("pub struct S { value: i32 } static VALUE: i32 = 1; fn helper() u8 { 1 }");
+        let (after, after_errors) = parse_module(
+            "pub struct S { value: i32 } static VALUE: i32 = 1; fun helper() u8 { 1 }",
+        );
         assert!(before_errors.is_empty(), "{before_errors:?}");
         assert!(after_errors.is_empty(), "{after_errors:?}");
 
@@ -1222,7 +1223,7 @@ fn selected() i32 { 2 }
 
     #[test]
     fn source_revision_changes_do_not_change_item_tree_declaration_shape() {
-        let source = "pub fn main(value: i32) i32 { value }";
+        let source = "pub fun main(value: i32) i32 { value }";
         let source_id = SourceId::isolated();
         let before_tree = parse_versioned_item_tree(source, source_id, SourceRevision::INITIAL);
         let after_tree = parse_versioned_item_tree(source, source_id, SourceRevision(1));
@@ -1235,12 +1236,12 @@ fn selected() i32 { 2 }
     fn body_change_with_new_source_revision_keeps_function_declaration_shape() {
         let source_id = SourceId::isolated();
         let before_tree = parse_versioned_item_tree(
-            "pub fn main() i32 { 0 }",
+            "pub fun main() i32 { 0 }",
             source_id,
             SourceRevision::INITIAL,
         );
         let after_tree =
-            parse_versioned_item_tree("pub fn main() i32 { 1 }", source_id, SourceRevision(1));
+            parse_versioned_item_tree("pub fun main() i32 { 1 }", source_id, SourceRevision(1));
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
@@ -1250,12 +1251,12 @@ fn selected() i32 { 2 }
     fn attribute_layout_and_source_revision_do_not_change_declaration_shape() {
         let source_id = SourceId::isolated();
         let before_tree = parse_versioned_item_tree(
-            "@[if true]\n@[linkName(\"main\")]\npub fn main() i32 { 0 }",
+            "@[if true]\n@[linkName(\"main\")]\npub fun main() i32 { 0 }",
             source_id,
             SourceRevision::INITIAL,
         );
         let after_tree = parse_versioned_item_tree(
-            "\n\n@[if true]\n@[linkName(\"main\")]\npub fn main() i32 { 1 }",
+            "\n\n@[if true]\n@[linkName(\"main\")]\npub fun main() i32 { 1 }",
             source_id,
             SourceRevision(1),
         );
@@ -1307,18 +1308,18 @@ fn selected() i32 { 2 }
             r#"
 struct Box[T] { value: T }
 extend[T] &Box[T] {
-    fn get(self) T { self.value }
+    fun get(self) T { self.value }
 }
-fn main(items: &[Box[i32]]) &Box[i32] { &items[0] }
+fun main(items: &[Box[i32]]) &Box[i32] { &items[0] }
 "#,
         );
         let (after, after_errors) = parse_module(
             r#"
 struct Box[ T ] { value: T }
 extend[ T ] & Box[ T ] {
-    fn get(self) T { self.value }
+    fun get(self) T { self.value }
 }
-fn main(items: & [ Box[ i32 ] ]) & Box[ i32 ] { &items[0] }
+fun main(items: & [ Box[ i32 ] ]) & Box[ i32 ] { &items[0] }
 "#,
         );
         assert!(before_errors.is_empty(), "{before_errors:?}");

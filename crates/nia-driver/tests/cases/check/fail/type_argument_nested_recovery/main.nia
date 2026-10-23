@@ -1,5 +1,5 @@
 struct Wrapper[T, U] {}
 
-fn retained(value: Wrapper[@ (bad, value), bool]) () {}
+fun retained(value: Wrapper[@ (bad, value), bool]) () {}
 
-fn later() () {}
+fun later() () {}

@@ -494,7 +494,7 @@ impl<'a> BodyChecker<'a> {
                         self.report_trait_bound_not_satisfied_named(
                             span,
                             predicate.ty,
-                            format!("Fn({})", self.ty_name(bound.trait_ty)),
+                            format!("Fun({})", self.ty_name(bound.trait_ty)),
                         );
                     }
                     continue;

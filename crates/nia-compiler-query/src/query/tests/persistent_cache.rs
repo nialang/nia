@@ -9,7 +9,7 @@ fn provider_settlement_publishes_final_signature_products() {
         "nia-settled-signature-products-{}-{cache_id}",
         std::process::id()
     ));
-    let source = "fn main() i32 { 1 }";
+    let source = "fun main() i32 { 1 }";
     let source_fingerprint = crate::source_content_fingerprint(source);
     let database = || {
         let fixture = LoadedProgramFixture::new("main.nia", source);
@@ -77,7 +77,7 @@ fn persistent_check_certificate_reuses_diagnostics_and_verifies_fresh() {
         (report, database.query_trace().expect("query trace"))
     };
 
-    let source = "fn main() i32 { 1 }";
+    let source = "fun main() i32 { 1 }";
     let (cold, cold_trace) = compile(source, false);
     assert!(cold.diagnostics.is_empty(), "{:?}", cold.diagnostics);
     assert_eq!(query_executions(&cold_trace, "entry_checked_program"), 1);
@@ -113,7 +113,7 @@ fn persistent_check_certificate_reuses_diagnostics_and_verifies_fresh() {
         1
     );
 
-    let invalid_source = "fn main() i32 { true }";
+    let invalid_source = "fun main() i32 { true }";
     let (edited, edited_trace) = compile(invalid_source, false);
     assert!(!edited.diagnostics.is_empty());
     assert_eq!(query_executions(&edited_trace, "entry_checked_program"), 1);
@@ -198,7 +198,7 @@ fn persistent_executable_value_ref_edges_skip_resolution_and_verify_replacement(
         "nia-executable-value-ref-edges-{}-{cache_id}",
         std::process::id()
     ));
-    let source = "fn helper() i32 { 1 } fn main() i32 { helper() }";
+    let source = "fun helper() i32 { 1 } fun main() i32 { helper() }";
     let source_fingerprint = crate::source_content_fingerprint(source);
     let compile = |verify| {
         let fixture = LoadedProgramFixture::new("main.nia", source);

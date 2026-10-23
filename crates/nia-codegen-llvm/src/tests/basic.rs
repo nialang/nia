@@ -71,7 +71,7 @@ impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
 fn native_object_cache_hit_skips_emission_and_publish() {
     let root = temp_dir("native_object_cache_hit_skips_emission_and_publish");
     let main = root.join("main.nia");
-    std::fs::write(&main, "fn main() i32 { 1 }").expect("write source");
+    std::fs::write(&main, "fun main() i32 { 1 }").expect("write source");
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let cache = Arc::new(AlwaysHitObjectCache {
@@ -101,7 +101,7 @@ fn native_object_cache_hit_skips_emission_and_publish() {
 fn lto_module_cache_hit_skips_prelink_emission_and_publish() {
     let root = temp_dir("lto_module_cache_hit_skips_prelink_emission_and_publish");
     let main = root.join("main.nia");
-    std::fs::write(&main, "fn main() i32 { 1 }").expect("write source");
+    std::fs::write(&main, "fun main() i32 { 1 }").expect("write source");
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let cache = Arc::new(AlwaysHitLtoModuleCache {
@@ -135,7 +135,7 @@ fn emits_only_referenced_declarations_for_codegen_program() {
     std::fs::write(
         &main,
         r#"
-extern fn puts(s: &u8) i32;
+extern fun puts(s: &u8) i32;
 static hello: [u8; 6] = b"hello\0";
 
 extern struct Point {
@@ -143,9 +143,9 @@ extern struct Point {
     y: i32,
 }
 
-extern fn use_point(p: Point) i32;
+extern fun use_point(p: Point) i32;
 
-fn main() i32 {
+fun main() i32 {
     _ = puts(&hello[0]);
     let mut x = 40;
     let mut y = 2;
@@ -179,7 +179,7 @@ fn emits_primitive_vector_param_and_return_types() {
     std::fs::write(
         &main,
         r#"
-fn id(v: u8x16) u8x16 {
+fun id(v: u8x16) u8x16 {
     v
 }
 "#,
@@ -209,7 +209,7 @@ fn emits_splat_builtin() {
     std::fs::write(
         &main,
         r#"
-fn make(value: u8) u8x16 {
+fun make(value: u8) u8x16 {
     std::builtin::splat[u8x16](value)
 }
 "#,
@@ -246,7 +246,7 @@ const changed: u8x4 = std::builtin::insert(filled, 2, 9);
 static copy: u8x4 = changed;
 static copies: [u8x4; 2] = [filled, changed];
 
-fn main() u8 {
+fun main() u8 {
     std::builtin::extract(copy, 2) + std::builtin::extract(copies[0], 0)
 }
 "#,
@@ -276,7 +276,7 @@ static direct: (i32, bool) = (9, false);
 static pairs: [(i32, bool); 2] = [pair, (11, true)];
 pub static zeroSized: ((), ()) = ((), ());
 
-fn main() i32 {
+fun main() i32 {
     named.0 + direct.0 + pairs[1].0
 }
 "#,
@@ -301,11 +301,11 @@ fn emits_vector_lane_builtins() {
     std::fs::write(
         &main,
         r#"
-fn lane(v: u8x16, i: usize) u8 {
+fun lane(v: u8x16, i: usize) u8 {
     std::builtin::extract(v, i)
 }
 
-fn changed(v: u8x16, i: usize, x: u8) u8x16 {
+fun changed(v: u8x16, i: usize, x: u8) u8x16 {
     std::builtin::insert(v, i, x)
 }
 "#,
@@ -349,11 +349,11 @@ union WideSlot {
     bytes: [u8; 32],
 }
 
-fn wrap(vector: u8x32) WideSlot {
+fun wrap(vector: u8x32) WideSlot {
     WideSlot { vector }
 }
 
-fn read(slot: WideSlot) u8x32 {
+fun read(slot: WideSlot) u8x32 {
     slot.vector
 }
 "#,
@@ -381,27 +381,27 @@ fn emits_vector_builtin_operators() {
     std::fs::write(
         &main,
         r#"
-fn add_u8(lhs: u8x16, rhs: u8x16) u8x16 {
+fun add_u8(lhs: u8x16, rhs: u8x16) u8x16 {
     lhs + rhs
 }
 
-fn sub_i8(lhs: i8x16, rhs: i8x16) i8x16 {
+fun sub_i8(lhs: i8x16, rhs: i8x16) i8x16 {
     lhs - rhs
 }
 
-fn mul_u8(lhs: u8x16, rhs: u8x16) u8x16 {
+fun mul_u8(lhs: u8x16, rhs: u8x16) u8x16 {
     lhs * rhs
 }
 
-fn neg_i8(value: i8x16) i8x16 {
+fun neg_i8(value: i8x16) i8x16 {
     -value
 }
 
-fn and_mask(lhs: boolx16, rhs: boolx16) boolx16 {
+fun and_mask(lhs: boolx16, rhs: boolx16) boolx16 {
     lhs & rhs
 }
 
-fn cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
+fun cmp_f32(lhs: f32x4, rhs: f32x4) boolx4 {
     lhs < rhs
 }
 "#,
@@ -450,7 +450,7 @@ fn emits_vector_bitmask_builtin() {
     std::fs::write(
         &main,
         r#"
-fn matching(v: u8x16, tag: u8) usize {
+fun matching(v: u8x16, tag: u8) usize {
     std::builtin::bitmask(v == std::builtin::splat[u8x16](tag))
 }
 "#,
@@ -484,7 +484,7 @@ fn emits_bit_intrinsic_builtins() {
     std::fs::write(
         &main,
         r#"
-fn scan(mask: usize) usize {
+fun scan(mask: usize) usize {
     std::builtin::ctz[usize](mask) + std::builtin::clz[usize](mask) + std::builtin::popcount[usize](mask)
 }
 "#,
@@ -527,11 +527,11 @@ fn emits_wide_integer_shift_with_narrow_count() {
     std::fs::write(
         &main,
         r#"
-fn high(value: u128, count: u32) u128 {
+fun high(value: u128, count: u32) u128 {
     value >> count
 }
 
-fn low(value: u128, count: u32) u128 {
+fun low(value: u128, count: u32) u128 {
     value << count
 }
 "#,
@@ -565,18 +565,18 @@ fn scalar_integer_shifts_validate_counts_and_left_overflow() {
     std::fs::write(
         &main,
         r#"
-fn unsignedLeft(lhs: u8, count: u128) u8 { lhs << count }
-fn signedLeft(lhs: i8, count: i16) i8 { lhs << count }
-fn signedRight(lhs: i8, count: i16) i8 { lhs >> count }
-fn unsignedRight(lhs: u8, count: u16) u8 { lhs >> count }
+fun unsignedLeft(lhs: u8, count: u128) u8 { lhs << count }
+fun signedLeft(lhs: i8, count: i16) i8 { lhs << count }
+fun signedRight(lhs: i8, count: i16) i8 { lhs >> count }
+fun unsignedRight(lhs: u8, count: u16) u8 { lhs >> count }
 
-fn compoundLeft(lhs: u8, count: u16) u8 {
+fun compoundLeft(lhs: u8, count: u16) u8 {
     let mut value = lhs;
     value <<= count;
     value
 }
 
-fn compoundRight(lhs: i8, count: i16) i8 {
+fun compoundRight(lhs: i8, count: i16) i8 {
     let mut value = lhs;
     value >>= count;
     value
@@ -630,12 +630,12 @@ fn vector_integer_shifts_trap_on_any_invalid_lane() {
     std::fs::write(
         &main,
         r#"
-fn unsignedLeft(lhs: u8x16, rhs: u8x16) u8x16 { lhs << rhs }
-fn signedLeft(lhs: i8x16, rhs: i8x16) i8x16 { lhs << rhs }
-fn unsignedRight(lhs: u8x16, rhs: u8x16) u8x16 { lhs >> rhs }
-fn signedRight(lhs: i8x16, rhs: i8x16) i8x16 { lhs >> rhs }
+fun unsignedLeft(lhs: u8x16, rhs: u8x16) u8x16 { lhs << rhs }
+fun signedLeft(lhs: i8x16, rhs: i8x16) i8x16 { lhs << rhs }
+fun unsignedRight(lhs: u8x16, rhs: u8x16) u8x16 { lhs >> rhs }
+fun signedRight(lhs: i8x16, rhs: i8x16) i8x16 { lhs >> rhs }
 
-fn compoundLeft(lhs: u8x16, rhs: u8x16) u8x16 {
+fun compoundLeft(lhs: u8x16, rhs: u8x16) u8x16 {
     let mut value = lhs;
     value <<= rhs;
     value
@@ -687,29 +687,29 @@ fn integer_division_and_remainder_trap_before_llvm_undefined_behavior() {
     std::fs::write(
         &main,
         r#"
-fn signedDiv(lhs: i32, rhs: i32) i32 {
+fun signedDiv(lhs: i32, rhs: i32) i32 {
     lhs / rhs
 }
 
-fn signedRem(lhs: i32, rhs: i32) i32 {
+fun signedRem(lhs: i32, rhs: i32) i32 {
     lhs % rhs
 }
 
-fn unsignedDiv(lhs: u32, rhs: u32) u32 {
+fun unsignedDiv(lhs: u32, rhs: u32) u32 {
     lhs / rhs
 }
 
-fn unsignedRem(lhs: u32, rhs: u32) u32 {
+fun unsignedRem(lhs: u32, rhs: u32) u32 {
     lhs % rhs
 }
 
-fn compoundDiv(lhs: i32, rhs: i32) i32 {
+fun compoundDiv(lhs: i32, rhs: i32) i32 {
     let mut value = lhs;
     value /= rhs;
     value
 }
 
-fn compoundRem(lhs: u32, rhs: u32) u32 {
+fun compoundRem(lhs: u32, rhs: u32) u32 {
     let mut value = lhs;
     value %= rhs;
     value
@@ -753,12 +753,12 @@ fn vector_integer_division_and_remainder_trap_on_any_invalid_lane() {
     std::fs::write(
         &main,
         r#"
-fn signedDiv(lhs: i8x16, rhs: i8x16) i8x16 { lhs / rhs }
-fn signedRem(lhs: i8x16, rhs: i8x16) i8x16 { lhs % rhs }
-fn unsignedDiv(lhs: u8x16, rhs: u8x16) u8x16 { lhs / rhs }
-fn unsignedRem(lhs: u8x16, rhs: u8x16) u8x16 { lhs % rhs }
+fun signedDiv(lhs: i8x16, rhs: i8x16) i8x16 { lhs / rhs }
+fun signedRem(lhs: i8x16, rhs: i8x16) i8x16 { lhs % rhs }
+fun unsignedDiv(lhs: u8x16, rhs: u8x16) u8x16 { lhs / rhs }
+fun unsignedRem(lhs: u8x16, rhs: u8x16) u8x16 { lhs % rhs }
 
-fn compoundDiv(lhs: i8x16, rhs: i8x16) i8x16 {
+fun compoundDiv(lhs: i8x16, rhs: i8x16) i8x16 {
     let mut value = lhs;
     value /= rhs;
     value
@@ -808,21 +808,21 @@ fn scalar_integer_arithmetic_traps_on_overflow() {
     std::fs::write(
         &main,
         r#"
-fn signedAdd(lhs: i8, rhs: i8) i8 { lhs + rhs }
-fn unsignedAdd(lhs: u8, rhs: u8) u8 { lhs + rhs }
-fn signedSub(lhs: i8, rhs: i8) i8 { lhs - rhs }
-fn unsignedSub(lhs: u8, rhs: u8) u8 { lhs - rhs }
-fn signedMul(lhs: i8, rhs: i8) i8 { lhs * rhs }
-fn unsignedMul(lhs: u8, rhs: u8) u8 { lhs * rhs }
-fn signedNeg(value: i8) i8 { -value }
+fun signedAdd(lhs: i8, rhs: i8) i8 { lhs + rhs }
+fun unsignedAdd(lhs: u8, rhs: u8) u8 { lhs + rhs }
+fun signedSub(lhs: i8, rhs: i8) i8 { lhs - rhs }
+fun unsignedSub(lhs: u8, rhs: u8) u8 { lhs - rhs }
+fun signedMul(lhs: i8, rhs: i8) i8 { lhs * rhs }
+fun unsignedMul(lhs: u8, rhs: u8) u8 { lhs * rhs }
+fun signedNeg(value: i8) i8 { -value }
 
-fn compoundAdd(lhs: u8, rhs: u8) u8 {
+fun compoundAdd(lhs: u8, rhs: u8) u8 {
     let mut value = lhs;
     value += rhs;
     value
 }
 
-fn main() i32 {
+fun main() i32 {
     signedAdd(1i8, 2i8) as i32
         + unsignedAdd(1u8, 2u8) as i32
         + signedSub(3i8, 1i8) as i32
@@ -873,7 +873,7 @@ fn emits_compiler_builtins_object_only_when_reachable_ir_needs_it() {
     std::fs::write(
         &plain,
         r#"
-fn main() i32 {
+fun main() i32 {
     40 + 2
 }
 "#,
@@ -906,7 +906,7 @@ fn main() i32 {
     std::fs::write(
         &wide,
         r#"
-fn divrem(value: u128, by: u128) u128 {
+fun divrem(value: u128, by: u128) u128 {
     (value / by) + (value % by)
 }
 "#,
@@ -963,13 +963,13 @@ fn rejects_external_symbols_owned_by_required_compiler_builtins() {
     std::fs::write(
         &plain,
         r#"
-extern fn __udivti3(lhs: u128, rhs: u128) u128 {
+extern fun __udivti3(lhs: u128, rhs: u128) u128 {
     _ = rhs;
     lhs
 }
 extern static mut __umodti3: u128;
 
-fn main() i32 { 0 }
+fun main() i32 { 0 }
 "#,
     )
     .expect("write unreserved builtin-name source");
@@ -991,13 +991,13 @@ fn main() i32 { 0 }
     std::fs::write(
         &wide,
         r#"
-extern fn __udivti3(lhs: u128, rhs: u128) u128 {
+extern fun __udivti3(lhs: u128, rhs: u128) u128 {
     _ = rhs;
     lhs
 }
 extern static mut __umodti3: u128;
 
-fn divrem(value: u128, by: u128) u128 {
+fun divrem(value: u128, by: u128) u128 {
     (value / by) + (value % by)
 }
 "#,
@@ -1039,35 +1039,35 @@ fn emits_compiler_builtins_for_wide_float_casts() {
     std::fs::write(
         &main,
         r#"
-fn from32(value: f32) u128 {
+fun from32(value: f32) u128 {
     value as u128
 }
 
-fn from64(value: f64) u128 {
+fun from64(value: f64) u128 {
     value as u128
 }
 
-fn signedFrom32(value: f32) i128 {
+fun signedFrom32(value: f32) i128 {
     value as i128
 }
 
-fn signedFrom64(value: f64) i128 {
+fun signedFrom64(value: f64) i128 {
     value as i128
 }
 
-fn to32(value: u128) f32 {
+fun to32(value: u128) f32 {
     value as f32
 }
 
-fn to64(value: u128) f64 {
+fun to64(value: u128) f64 {
     value as f64
 }
 
-fn signedTo32(value: i128) f32 {
+fun signedTo32(value: i128) f32 {
     value as f32
 }
 
-fn signedTo64(value: i128) f64 {
+fun signedTo64(value: i128) f64 {
     value as f64
 }
 "#,
@@ -1133,7 +1133,7 @@ fn emits_unaligned_vector_load_builtin() {
     std::fs::write(
         &main,
         r#"
-fn load(ptr: &u8) u8x8 {
+fun load(ptr: &u8) u8x8 {
     std::builtin::loadUnaligned[u8x8](ptr)
 }
 "#,
@@ -1162,21 +1162,21 @@ fn only_extern_symbols_keep_default_visibility() {
     std::fs::write(
         &main,
         r#"
-extern fn puts(s: &u8) i32;
+extern fun puts(s: &u8) i32;
 static hello: [u8; 6] = b"hello\0";
 static mut calls: i32 = 0;
 
-pub extern fn add(a: i32, b: i32) i32 {
+pub extern fun add(a: i32, b: i32) i32 {
     calls += 1;
     helper(a) + b
 }
 
-fn helper(value: i32) i32 {
+fun helper(value: i32) i32 {
     _ = puts(&hello[0]);
     value
 }
 
-fn main() i32 { add(1, 2) }
+fun main() i32 { add(1, 2) }
 "#,
     )
     .expect("write test source");

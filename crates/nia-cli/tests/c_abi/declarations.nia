@@ -19,72 +19,72 @@ extern struct NA { p: Pt, z: f32 }
 extern struct AR { v: [f32; 3] }
 extern struct BQ { a: u8, b: i64 }
 extern struct US { a: u16, b: u8 }
-extern struct FP { f: &extern fn(i32) (), n: i32 }
+extern struct FP { f: &extern fun(i32) (), n: i32 }
 
-extern fn r_i8() i8;
-extern fn r_u8() u8;
-extern fn r_i16() i16;
-extern fn r_u16() u16;
-extern fn r_i32() i32;
-extern fn r_u32() u32;
-extern fn r_i64() i64;
-extern fn r_f32() f32;
-extern fn r_f64() f64;
-extern fn r_ptr() &u8;
-extern fn r_usize() usize;
-extern fn t_scalars(a: i8, b: u8, c: i16, d: u16, e: i32, f: u32, g: i64, h: f32, i: f64, j: &u8, k: usize) ();
-extern fn t_s3(v: S3) ();
-extern fn r_s3() S3;
-extern fn t_s5(v: S5) ();
-extern fn r_s5() S5;
-extern fn t_s6(v: S6) ();
-extern fn r_s6() S6;
-extern fn t_f1(v: F1) ();
-extern fn r_f1() F1;
-extern fn t_f3(v: F3) ();
-extern fn r_f3() F3;
-extern fn t_d1(v: D1) ();
-extern fn r_d1() D1;
-extern fn t_d3(v: D3) ();
-extern fn r_d3() D3;
-extern fn t_d4(v: D4) ();
-extern fn r_d4() D4;
-extern fn t_d5(v: D5) ();
-extern fn r_d5() D5;
-extern fn t_fd(v: FD) ();
-extern fn r_fd() FD;
-extern fn t_df(v: DF) ();
-extern fn r_df() DF;
-extern fn t_ffi(v: FFI) ();
-extern fn r_ffi() FFI;
-extern fn t_iff(v: IFF) ();
-extern fn r_iff() IFF;
-extern fn t_p2(v: P2) ();
-extern fn r_p2() P2;
-extern fn t_na(v: NA) ();
-extern fn r_na() NA;
-extern fn t_ar(v: AR) ();
-extern fn r_ar() AR;
-extern fn t_bq(v: BQ) ();
-extern fn r_bq() BQ;
-extern fn t_us(v: US) ();
-extern fn r_us() US;
-extern fn t_fp(v: FP) ();
-extern fn r_fp() FP;
-extern fn t_sret_ints(a: i64, b: i64, c: i64, d: i64, e: i64, v: P2) P2;
-extern fn t_ints6(a: i64, b: i64, c: i64, d: i64, e: i64, v: P2, f: i64) ();
-extern fn t_ints5(a: i64, b: i64, c: i64, d: i64, e: i64, v: P2, f: i64) ();
-extern fn t_ints4(a: i64, b: i64, c: i64, d: i64, v: P2, f: i64) ();
-extern fn t_sse7(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, v: D1, w: FD, h: f64) ();
-extern fn t_sse8(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, h: f64, v: FD, w: D1) ();
-extern fn t_mixed_exhaust(a: i64, b: i64, c: i64, d: i64, e: i64, v: FD, f: i64) ();
-extern fn t_var(first: i32, ...) i32;
+extern fun r_i8() i8;
+extern fun r_u8() u8;
+extern fun r_i16() i16;
+extern fun r_u16() u16;
+extern fun r_i32() i32;
+extern fun r_u32() u32;
+extern fun r_i64() i64;
+extern fun r_f32() f32;
+extern fun r_f64() f64;
+extern fun r_ptr() &u8;
+extern fun r_usize() usize;
+extern fun t_scalars(a: i8, b: u8, c: i16, d: u16, e: i32, f: u32, g: i64, h: f32, i: f64, j: &u8, k: usize) ();
+extern fun t_s3(v: S3) ();
+extern fun r_s3() S3;
+extern fun t_s5(v: S5) ();
+extern fun r_s5() S5;
+extern fun t_s6(v: S6) ();
+extern fun r_s6() S6;
+extern fun t_f1(v: F1) ();
+extern fun r_f1() F1;
+extern fun t_f3(v: F3) ();
+extern fun r_f3() F3;
+extern fun t_d1(v: D1) ();
+extern fun r_d1() D1;
+extern fun t_d3(v: D3) ();
+extern fun r_d3() D3;
+extern fun t_d4(v: D4) ();
+extern fun r_d4() D4;
+extern fun t_d5(v: D5) ();
+extern fun r_d5() D5;
+extern fun t_fd(v: FD) ();
+extern fun r_fd() FD;
+extern fun t_df(v: DF) ();
+extern fun r_df() DF;
+extern fun t_ffi(v: FFI) ();
+extern fun r_ffi() FFI;
+extern fun t_iff(v: IFF) ();
+extern fun r_iff() IFF;
+extern fun t_p2(v: P2) ();
+extern fun r_p2() P2;
+extern fun t_na(v: NA) ();
+extern fun r_na() NA;
+extern fun t_ar(v: AR) ();
+extern fun r_ar() AR;
+extern fun t_bq(v: BQ) ();
+extern fun r_bq() BQ;
+extern fun t_us(v: US) ();
+extern fun r_us() US;
+extern fun t_fp(v: FP) ();
+extern fun r_fp() FP;
+extern fun t_sret_ints(a: i64, b: i64, c: i64, d: i64, e: i64, v: P2) P2;
+extern fun t_ints6(a: i64, b: i64, c: i64, d: i64, e: i64, v: P2, f: i64) ();
+extern fun t_ints5(a: i64, b: i64, c: i64, d: i64, e: i64, v: P2, f: i64) ();
+extern fun t_ints4(a: i64, b: i64, c: i64, d: i64, v: P2, f: i64) ();
+extern fun t_sse7(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, v: D1, w: FD, h: f64) ();
+extern fun t_sse8(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, h: f64, v: FD, w: D1) ();
+extern fun t_mixed_exhaust(a: i64, b: i64, c: i64, d: i64, e: i64, v: FD, f: i64) ();
+extern fun t_var(first: i32, ...) i32;
 
-extern fn callback(value: i32) () {
+extern fun callback(value: i32) () {
     _ = value;
 }
 
-pub extern fn use_all() () {
+pub extern fun use_all() () {
     let byte: u8 = 0;
     let p = &byte;
     let s3 = S3 { a: 0, b: 0, c: 0 };

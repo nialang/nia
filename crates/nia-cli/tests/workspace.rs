@@ -26,7 +26,7 @@ fn workspace_build_selects_defaults_named_members_and_all_members() {
             member.join("build.nia"),
             r#"using std::build;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let generated = b.addGeneratedFileStep(
         &"generated",
         build::BuildPathView::init(&"selected.txt"),
@@ -115,7 +115,7 @@ fn workspace_members_can_use_the_same_dependency_alias_for_different_packages() 
         .unwrap();
         fs::write(
             member.join("src/main.nia"),
-            "using shared;\nusing std::process;\n\npub const value: u8 = shared::value;\n\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    !()\n}\n",
+            "using shared;\nusing std::process;\n\npub const value: u8 = shared::value;\n\npub fun main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    !()\n}\n",
         )
         .unwrap();
         fs::write(
@@ -123,7 +123,7 @@ fn workspace_members_can_use_the_same_dependency_alias_for_different_packages() 
             r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let moduleHandle = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia"))).?;
     let executableHandle = b.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).?;
     let check = b.addCheckExecutableStep(&"check", executableHandle).?;
@@ -169,7 +169,7 @@ fn workspace_test_selection_continues_by_default_and_honors_fail_fast() {
             r#"using std::build;
 using std::fs;
 
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     let testModule = b.addModule(build::ModuleOptions::init(&"tests", fs::PathView::init(&"tests/main.nia"))).?;
     _ = b.addTestSuite(&"suite", testModule).?;
     !()
@@ -180,7 +180,7 @@ pub fn build(b: &mut build::Build) build::Error!() {
         fs::write(
             member.join("tests/main.nia"),
             format!(
-                "using std::io;\nusing std::process;\n\npub fn main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    let mut buffer: [u8; 0] = [];\n    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);\n    stdout.writeAll(&b\"{name}-ran\\n\").?;\n    process::ExitCode({status})!\n}}\n"
+                "using std::io;\nusing std::process;\n\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    let mut buffer: [u8; 0] = [];\n    let mut stdout = io::FileWriter::stdout(&mut buffer[..]);\n    stdout.writeAll(&b\"{name}-ran\\n\").?;\n    process::ExitCode({status})!\n}}\n"
             ),
         )
         .unwrap();

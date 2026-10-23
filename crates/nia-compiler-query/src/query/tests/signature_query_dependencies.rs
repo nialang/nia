@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn signature_type_resolution_semantic_uses_precise_module_graph_facts() {
-    let fixture = LoadedProgramFixture::new("main.nia", "pub fn make(value: i32) i32 { value }");
+    let fixture = LoadedProgramFixture::new("main.nia", "pub fun make(value: i32) i32 { value }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -50,14 +50,14 @@ fn signature_type_resolution_semantic_uses_precise_module_graph_facts() {
 fn body_check_resolves_program_signatures_through_precise_signature_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "using helper::{Alias, value}; fn main() Alias { value() }",
+        "using helper::{Alias, value}; fun main() Alias { value() }",
     );
     let entry_id = fixture.entry_id();
     fixture.add_child(
         entry_id,
         "helper",
         "helper.nia",
-        "pub type Alias = i32; pub fn value() Alias { 1 }",
+        "pub type Alias = i32; pub fun value() Alias { 1 }",
     );
     let db = query_db(fixture.program());
 
@@ -104,7 +104,7 @@ fn body_check_resolves_trait_method_candidates_through_program_trait_method_inde
 module traits;
 using entry::traits::{Ops, Value};
 
-fn main() i32 {
+fun main() i32 {
 let value = Value {};
 value.used()
 }
@@ -117,13 +117,13 @@ value.used()
         "traits.nia",
         r#"
 pub trait Ops {
-fn used(self) i32;
+fun used(self) i32;
 }
 
 pub struct Value {}
 
 extend Value : Ops {
-fn used(self) i32 {
+fun used(self) i32 {
     1
 }
 }
@@ -170,7 +170,7 @@ fn program_signature_module_ids_use_set_specific_module_facts() {
         "module1.nia",
         "struct S { value: i32 }",
     );
-    let module2 = fixture.add_child(entry_id, "module2", "module2.nia", "fn helper() i32 { 1 }");
+    let module2 = fixture.add_child(entry_id, "module2", "module2.nia", "fun helper() i32 { 1 }");
     let module3 = fixture.add_child(
         entry_id,
         "module3",
@@ -181,13 +181,13 @@ fn program_signature_module_ids_use_set_specific_module_facts() {
         entry_id,
         "module4",
         "module4.nia",
-        "trait Read { fn read(self) i32; }",
+        "trait Read { fun read(self) i32; }",
     );
     let module5 = fixture.add_child(
         entry_id,
         "module5",
         "module5.nia",
-        "struct T {} extend T { pub fn make() T { {} } }",
+        "struct T {} extend T { pub fun make() T { {} } }",
     );
     let module6 = fixture.add_child(
         entry_id,
@@ -284,7 +284,7 @@ fn extension_provider_module_ids_use_parse_ok_provider_summaries() {
         "module1.nia",
         "struct S { value: i32 }",
     );
-    fixture.add_child(entry_id, "module2", "module2.nia", "fn helper() i32 { 1 }");
+    fixture.add_child(entry_id, "module2", "module2.nia", "fun helper() i32 { 1 }");
     fixture.add_child(
         entry_id,
         "module3",
@@ -295,13 +295,13 @@ fn extension_provider_module_ids_use_parse_ok_provider_summaries() {
         entry_id,
         "module4",
         "module4.nia",
-        "trait Read { fn read(self) i32; }",
+        "trait Read { fun read(self) i32; }",
     );
     let module5 = fixture.add_child(
         entry_id,
         "module5",
         "module5.nia",
-        "struct T {} extend T { pub fn make() T { {} } }",
+        "struct T {} extend T { pub fun make() T { {} } }",
     );
     let db = query_db(fixture.program());
 
@@ -328,7 +328,7 @@ fn extension_provider_module_ids_use_parse_ok_provider_summaries() {
 fn program_type_alias_signature_uses_precise_module_facts() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "struct S { value: i32 } type Alias = S; fn helper() i32 { 1 }",
+        "struct S { value: i32 } type Alias = S; fun helper() i32 { 1 }",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
@@ -356,7 +356,7 @@ fn program_type_alias_signature_uses_precise_module_facts() {
 #[test]
 fn layout_uses_full_type_module_signatures_and_array_lengths_without_body_products() {
     let fixture =
-        LoadedProgramFixture::new("main.nia", "struct S { value: i32 } fn helper() i32 { 1 }");
+        LoadedProgramFixture::new("main.nia", "struct S { value: i32 } fun helper() i32 { 1 }");
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
@@ -436,7 +436,7 @@ fn layout_uses_signature_layouts_for_cross_module_types() {
         entry_id,
         "module1",
         "module1.nia",
-        "pub struct S { value: i32 } fn helper() i32 { 1 }",
+        "pub struct S { value: i32 } fun helper() i32 { 1 }",
     );
     let db = query_db(fixture.program());
 
@@ -502,7 +502,7 @@ fn signature_layout_reads_canonical_types_from_store() {
 fn abi_check_uses_abi_signature_index_not_body_signatures() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "extern struct S { value: i32 } extern fn take(value: S) ();",
+        "extern struct S { value: i32 } extern fun take(value: S) ();",
     );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());

@@ -30,7 +30,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn at_const_fn(&self) -> bool {
-        self.at(TokenKind::Const) && matches!(self.nth_kind(1), Some(TokenKind::Fn))
+        self.at(TokenKind::Const) && matches!(self.nth_kind(1), Some(TokenKind::Fun))
     }
 
     pub(crate) fn at_top_level_item_keyword(&self) -> bool {
@@ -42,7 +42,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn at_top_level_item_boundary_except_fn(&self) -> bool {
-        self.at_top_level_item_keyword() && !self.at(TokenKind::Fn)
+        self.at_top_level_item_keyword() && !self.at(TokenKind::Fun)
     }
 
     pub(crate) fn at_namespace_segment(&self) -> bool {
@@ -164,7 +164,7 @@ pub(crate) fn recover_to_attribute_boundary(p: &mut Parser<'_>, checkpoint: Chec
                             | TokenKind::Extend
                             | TokenKind::Enum
                             | TokenKind::Type
-                            | TokenKind::Fn
+                            | TokenKind::Fun
                             | TokenKind::Const
                             | TokenKind::Static
                             | TokenKind::Pub

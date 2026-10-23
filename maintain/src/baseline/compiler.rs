@@ -59,7 +59,7 @@ pub fn large_codegen_source(blob_count: usize, blob_bytes: usize) -> String {
         ));
     }
     lines.push(String::new());
-    lines.push("fn main() usize {".to_owned());
+    lines.push("fun main() usize {".to_owned());
     let lengths = (0..blob_count)
         .map(|blob| format!("blob{blob:03}.len()"))
         .collect::<Vec<_>>();
@@ -76,7 +76,7 @@ pub fn large_codegen_source(blob_count: usize, blob_bytes: usize) -> String {
 /// exercise parsing, item indexing, and signature work without adding native
 /// codegen bodies to the fixed entry point.
 fn source_volume_source(constant_count: usize) -> String {
-    let mut source = String::from("fn main() i32 {\n    0i32\n}\n\n");
+    let mut source = String::from("fun main() i32 {\n    0i32\n}\n\n");
     for index in 0..constant_count {
         writeln!(source, "const SOURCE_VOLUME_{index:05}: i64 = {index}i64;")
             .expect("writing source-volume fixture");
@@ -96,7 +96,7 @@ fn source_volume_workload(name: &str) -> Option<usize> {
 
 /// Generates source bytes that are lexed but do not add semantic items.
 fn source_text_volume_source(padding_bytes: usize) -> String {
-    let mut source = String::from("fn main() i32 {\n    0i32\n}\n");
+    let mut source = String::from("fun main() i32 {\n    0i32\n}\n");
     while source.len() < padding_bytes {
         source.push_str("// source-volume padding for lexer throughput\n");
     }
@@ -758,7 +758,7 @@ mod tests {
     fn source_text_volume_fixture_has_no_extra_items() {
         let source = source_text_volume_source(4_096);
         assert!(source.len() >= 4_096);
-        assert_eq!(source.matches("fn main").count(), 1);
+        assert_eq!(source.matches("fun main").count(), 1);
         assert!(source.contains("source-volume padding"));
         assert_eq!(source_text_volume_workload("source_text_16k"), Some(16_384));
         assert_eq!(source_text_volume_workload("source_text_unknown"), None);

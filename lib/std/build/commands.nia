@@ -34,36 +34,36 @@ using types::{
 extend CommandArgument {
     // Each constructor records the logical root used for dependency validation
     // and cache identity. Literal values declare no file input.
-    pub fn literal(value: &[char]) CommandArgument {
+    pub fun literal(value: &[char]) CommandArgument {
         .{ kind: .Literal, payload: .{ value }, package: .init(0, 0) }
     }
 
-    pub fn packageInput(package: PackageHandle, path: fs::PathView) CommandArgument {
+    pub fun packageInput(package: PackageHandle, path: fs::PathView) CommandArgument {
         .{ kind: .PackageInput, payload: .{ value: path.text() }, package }
     }
 
-    pub fn buildInput(path: BuildPathView) CommandArgument {
+    pub fun buildInput(path: BuildPathView) CommandArgument {
         .{ kind: .BuildInput, payload: .{ value: path.text() }, package: .init(0, 0) }
     }
 
-    pub fn buildOutput(path: BuildPathView) CommandArgument {
+    pub fun buildOutput(path: BuildPathView) CommandArgument {
         .{ kind: .BuildOutput, payload: .{ value: path.text() }, package: .init(0, 0) }
     }
 
-    pub fn artifactInput(artifact: ExecutableHandle) CommandArgument {
+    pub fun artifactInput(artifact: ExecutableHandle) CommandArgument {
         .{ kind: .ArtifactInput, payload: .{ artifact }, package: .init(0, 0) }
     }
 
-    pub fn objectInput(object: ObjectHandle) CommandArgument {
+    pub fun objectInput(object: ObjectHandle) CommandArgument {
         .{ kind: .ObjectInput, payload: .{ object }, package: .init(0, 0) }
     }
 
-    pub fn staticArchiveInput(staticArchive: StaticArchiveHandle) CommandArgument {
+    pub fun staticArchiveInput(staticArchive: StaticArchiveHandle) CommandArgument {
         .{ kind: .StaticArchiveInput, payload: .{ staticArchive }, package: .init(0, 0) }
     }
 }
 
-pub(pkg) fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
+pub(pkg) fun validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
     if arguments is ?values {
         for &value in values.iter() {
             if runArgumentContainsNul(value) {
@@ -77,7 +77,7 @@ pub(pkg) fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() 
     !()
 }
 
-pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!() {
+pub(pkg) fun validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!() {
     if options.program.len() == 0
         or runArgumentContainsNul(options.program)
         or not isValidPackagePath(options.workingDirectory.text(), true)
@@ -187,14 +187,14 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
     !()
 }
 
-fn invalidStep(index: usize) Error!() {
+fun invalidStep(index: usize) Error!() {
     .Invalid {
         operation: .Validate,
         subject: .Step(index),
     }!
 }
 
-fn runArgumentContainsNul(text: &[char]) bool {
+fun runArgumentContainsNul(text: &[char]) bool {
     for &ch in text.iter() {
         if ch == '\0' {
             return true;
@@ -203,7 +203,7 @@ fn runArgumentContainsNul(text: &[char]) bool {
     false
 }
 
-fn environmentNameInvalid(text: &[char]) bool {
+fun environmentNameInvalid(text: &[char]) bool {
     if text.len() == 0 {
         return true;
     }
@@ -220,7 +220,7 @@ extend ExternalCommandOptions {
     // Search commands inherit the process environment. Persistent reuse is
     // available after clearing the environment and declaring typed inputs and
     // outputs through `withDeclaredInputCache`.
-    pub fn search(program: &[char]) ExternalCommandOptions {
+    pub fun search(program: &[char]) ExternalCommandOptions {
         .{
             program,
             arguments: null,
@@ -233,7 +233,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withArguments(self, arguments: &[CommandArgument]) ExternalCommandOptions {
+    pub fun withArguments(self, arguments: &[CommandArgument]) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: ?arguments,
@@ -246,7 +246,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withPackageWorkingDirectory(self, workingDirectory: fs::PathView) ExternalCommandOptions {
+    pub fun withPackageWorkingDirectory(self, workingDirectory: fs::PathView) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -259,7 +259,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withResourceClass(self, resourceClass: ActionResourceClass) ExternalCommandOptions {
+    pub fun withResourceClass(self, resourceClass: ActionResourceClass) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -272,7 +272,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withEnvironment(self, environment: &[CommandEnvironmentInput]) ExternalCommandOptions {
+    pub fun withEnvironment(self, environment: &[CommandEnvironmentInput]) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -285,7 +285,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withClearedEnvironment(self) ExternalCommandOptions {
+    pub fun withClearedEnvironment(self) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -298,7 +298,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withDeclaredInputCache(self) ExternalCommandOptions {
+    pub fun withDeclaredInputCache(self) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -311,7 +311,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withToolAndInputCache(self) ExternalCommandOptions {
+    pub fun withToolAndInputCache(self) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -326,7 +326,7 @@ extend ExternalCommandOptions {
 
     // Full-environment mode uses the inherited environment as its entire
     // contract. Existing explicit overrides remain visible to validation.
-    pub fn withFullEnvironmentCache(self) ExternalCommandOptions {
+    pub fun withFullEnvironmentCache(self) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -339,7 +339,7 @@ extend ExternalCommandOptions {
         }
     }
 
-    pub fn withStdin(self, stdin: CommandArgument) ExternalCommandOptions {
+    pub fun withStdin(self, stdin: CommandArgument) ExternalCommandOptions {
         .{
             program: self.program,
             arguments: self.arguments,
@@ -354,13 +354,13 @@ extend ExternalCommandOptions {
 }
 
 extend CommandEnvironmentInput {
-    pub fn init(name: &[char], value: &[char]) CommandEnvironmentInput {
+    pub fun init(name: &[char], value: &[char]) CommandEnvironmentInput {
         .{ name, value }
     }
 }
 
 extend OwnedCommandArgument {
-    fn init(argument: CommandArgument) OwnedCommandArgument {
+    fun init(argument: CommandArgument) OwnedCommandArgument {
         if argument.kind == CommandArgumentKind::ArtifactInput {
             return .{
                 kind: argument.kind,
@@ -389,7 +389,7 @@ extend OwnedCommandArgument {
         }
     }
 
-    fn initialize(
+    fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         value: &[char],
@@ -402,7 +402,7 @@ extend OwnedCommandArgument {
         !()
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         if self.kind == CommandArgumentKind::ArtifactInput
             or self.kind == CommandArgumentKind::ObjectInput
             or self.kind == CommandArgumentKind::StaticArchiveInput
@@ -414,11 +414,11 @@ extend OwnedCommandArgument {
 }
 
 extend OwnedCommandEnvironmentInput {
-    fn init() OwnedCommandEnvironmentInput {
+    fun init() OwnedCommandEnvironmentInput {
         .{ name: .init(), value: .init() }
     }
 
-    fn initialize(
+    fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         input: CommandEnvironmentInput,
@@ -435,7 +435,7 @@ extend OwnedCommandEnvironmentInput {
         !()
     }
 
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.value.deinit(allocator).withBuildContext(.Release, .Step(index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Step(index)));
@@ -444,7 +444,7 @@ extend OwnedCommandEnvironmentInput {
 }
 
 extend ExternalCommandStep {
-    pub(pkg) fn init(options: ExternalCommandOptions) ExternalCommandStep {
+    pub(pkg) fun init(options: ExternalCommandOptions) ExternalCommandStep {
         .{
             program: .init(),
             arguments: .init(),
@@ -457,7 +457,7 @@ extend ExternalCommandStep {
         }
     }
 
-    pub(pkg) fn initialize(
+    pub(pkg) fun initialize(
         &mut self,
         allocator: &mut mem::Allocator,
         options: ExternalCommandOptions,
@@ -514,7 +514,7 @@ extend ExternalCommandStep {
         !()
     }
 
-    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+    pub(pkg) fun deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
         if self.stdin is ?mut stdin {
             cleanup.attempt(stdin.deinit(allocator, index));

@@ -18,7 +18,7 @@ fn asm_pipeline(source: &str) -> TestBodyCheck {
 fn checks_inline_asm_configuration() {
     let checked = asm_pipeline(
         r#"
-fn main() () {
+fun main() () {
     let mut ret: i64 = 0;
     std::builtin::asm(.{
         code: b"syscall",
@@ -35,7 +35,7 @@ fn main() () {
 
     let bad = asm_pipeline(
         r#"
-fn main() () {
+fun main() () {
     std::builtin::asm(AsmConfig {
         code: 1,
         outputs: AsmOutputs { rax: 10 },
@@ -84,7 +84,7 @@ fn main() () {
 
     let bare_option = asm_pipeline(
         r#"
-fn main() () {
+fun main() () {
     let mut volatile = 0;
     std::builtin::asm(AsmConfig {
         code: b"nop",
@@ -106,7 +106,7 @@ fn main() () {
         r#"
 struct Pair { x: i64 }
 
-fn main() () {
+fun main() () {
     let mut pair = Pair { x: 1 };
     std::builtin::asm(AsmConfig {
         code: b"nop",
@@ -133,7 +133,7 @@ fn main() () {
 fn inline_asm_does_not_shape_check_structural_recovery_operands() {
     let checked = asm_pipeline(
         r#"
-fn main() () {
+fun main() () {
     std::builtin::asm(.{
         code: b"nop",
         inputs: .{ rax: (missing, 1i64) },
@@ -166,7 +166,7 @@ fn main() () {
 fn inline_asm_preserves_unresolved_literal_field_roots() {
     let checked = asm_pipeline(
         r#"
-fn main() () {
+fun main() () {
     std::builtin::asm(.{
         code: missing_code,
         clobbers: [missing_clobber],
@@ -202,7 +202,7 @@ fn main() () {
 fn inline_asm_preserves_unresolved_literal_container_roots() {
     let checked = asm_pipeline(
         r#"
-fn main() () {
+fun main() () {
     std::builtin::asm(missing_config);
     std::builtin::asm(.{
         inputs: missing_inputs,
@@ -242,10 +242,10 @@ fn main() () {
 fn naked_function_assembly_takes_no_operands() {
     let checked = asm_pipeline(
         r#"
-extern fn helper() () {}
+extern fun helper() () {}
 
 @[naked]
-pub extern fn entry() () {
+pub extern fun entry() () {
     std::builtin::asm(.{
         code: b"call helper",
         inputs: .{},
@@ -260,10 +260,10 @@ pub extern fn entry() () {
 
     let bad = asm_pipeline(
         r#"
-extern fn helper() () {}
+extern fun helper() () {}
 
 @[naked]
-pub extern fn entry() () {
+pub extern fun entry() () {
     let mut value: i64 = 0;
     std::builtin::asm(.{
         code: b"call $0",
@@ -274,7 +274,7 @@ pub extern fn entry() () {
     loop {}
 }
 
-fn ordinary() () {
+fun ordinary() () {
     std::builtin::asm(.{ code: b"nop", inputs: .{ reg: &helper } });
 }
 "#,

@@ -8,7 +8,7 @@ struct Point {
 }
 
 extend Point {
-    fn distanceSquared(&self) i32 {
+    fun distanceSquared(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -19,7 +19,7 @@ enum Band: u8 {
     High,
 }
 
-fn classify(score: i32) Band {
+fun classify(score: i32) Band {
     match score {
         0..60 => .Low,
         60..90 => .Middle,
@@ -27,7 +27,7 @@ fn classify(score: i32) Band {
     }
 }
 
-fn sum(values: &[i32]) i32 {
+fun sum(values: &[i32]) i32 {
     let mut total = 0;
     for &value in values {
         total += value;
@@ -35,7 +35,7 @@ fn sum(values: &[i32]) i32 {
     total
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
 
     let mut point = Point { x: 3, y: 4 };

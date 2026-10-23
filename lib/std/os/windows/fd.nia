@@ -68,13 +68,13 @@ using pkg::os::windows::stat::{
 };
 
 extend FileDescriptor {
-    pub fn init(handle: usize) FileDescriptor { .{ handle } }
-    pub fn stdin() FileDescriptor { .init(GetStdHandle(stdInputHandle)) }
-    pub fn stdout() FileDescriptor { .init(GetStdHandle(stdOutputHandle)) }
-    pub fn stderr() FileDescriptor { .init(GetStdHandle(stdErrorHandle)) }
-    pub fn raw(&self) usize { self.handle }
+    pub fun init(handle: usize) FileDescriptor { .{ handle } }
+    pub fun stdin() FileDescriptor { .init(GetStdHandle(stdInputHandle)) }
+    pub fun stdout() FileDescriptor { .init(GetStdHandle(stdOutputHandle)) }
+    pub fun stderr() FileDescriptor { .init(GetStdHandle(stdErrorHandle)) }
+    pub fun raw(&self) usize { self.handle }
 
-    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
+    pub fun writeSome(&self, bytes: &[u8]) Errno!usize {
         if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
         let mut written: u32 = 0;
         if WriteFile(self.handle, bytes.ptr(), bytes.len() as u32, &mut written, 0) == 0 {
@@ -83,7 +83,7 @@ extend FileDescriptor {
         !(written as usize)
     }
 
-    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
+    pub fun readSome(&self, bytes: &mut [u8]) Errno!usize {
         if bytes.len() > u32::MAX as usize { return .OutOfRange!; }
         let mut read: u32 = 0;
         if ReadFile(self.handle, bytes.ptrMut(), bytes.len() as u32, &mut read, 0) == 0 {
@@ -94,13 +94,13 @@ extend FileDescriptor {
         !(read as usize)
     }
 
-    pub fn close(&self) Errno!() {
+    pub fun close(&self) Errno!() {
         if self.handle == 0 or self.handle == invalidHandle { return .BadFd!; }
         if CloseHandle(self.handle) == 0 { return lastError()!; }
         !()
     }
 
-    pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
+    pub fun seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
         let method = match whence { .Start => fileBegin, .Current => fileCurrent, .End => fileEnd, _ => return .Invalid!, };
         let mut position: i64 = 0;
         if SetFilePointerEx(self.handle, offset, &mut position, method) == 0 { return lastError()!; }
@@ -108,7 +108,7 @@ extend FileDescriptor {
         !(position as u64)
     }
 
-    pub fn truncate(&self, len: u64) Errno!() {
+    pub fun truncate(&self, len: u64) Errno!() {
         if len > i64::MAX as u64 { return .OutOfRange!; }
         let info: FileEndOfFileInfo = .{ endOfFile: len as i64 };
         if SetFileInformationByHandle(
@@ -118,7 +118,7 @@ extend FileDescriptor {
         !()
     }
 
-    pub fn setPermissions(&self, permissions: u32) Errno!() {
+    pub fun setPermissions(&self, permissions: u32) Errno!() {
         let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
         let path = handlePath(self.handle, &mut storage[..]).?;
         let mut attributes = GetFileAttributesW(path);
@@ -128,15 +128,15 @@ extend FileDescriptor {
         if SetFileAttributesW(path, attributes) == 0 { return lastError()!; }
         !()
     }
-    pub fn sync(&self) Errno!() {
+    pub fun sync(&self) Errno!() {
         if FlushFileBuffers(self.handle) == 0 { return lastError()!; }
         !()
     }
-    pub fn syncData(&self) Errno!() { self.sync() }
-    pub fn metadata(&self) Errno!FileMetadata { metadataHandle(self.handle) }
+    pub fun syncData(&self) Errno!() { self.sync() }
+    pub fun metadata(&self) Errno!FileMetadata { metadataHandle(self.handle) }
 }
 
-pub fn cwd() FileDescriptor {
+pub fun cwd() FileDescriptor {
     let path: [u16; 2] = [46, 0];
     .init(CreateFileW(
         &path[0],
@@ -149,7 +149,7 @@ pub fn cwd() FileDescriptor {
     ))
 }
 
-pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+pub fun getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0 { return .Invalid!; }
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let length = GetCurrentDirectoryW(storage.len() as u32, &mut storage[0]);
@@ -159,11 +159,11 @@ pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     !&buffer[0..written]
 }
 
-pub fn openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
+pub fun openAt(dir: FileDescriptor, path: &u8, mode: OpenMode, create: bool, truncate: bool, exclusive: bool, permissions: u32) Errno!FileDescriptor {
     openAtBeneath(dir, path, mode, false, create, truncate, exclusive, permissions, true)
 }
 
-pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
+pub fun openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: bool, create: bool, truncate: bool, exclusive: bool, permissions: u32, followSymlinks: bool) Errno!FileDescriptor {
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let native = pathFromHandle(dir, path, &mut storage[..]).?;
     let access = if directory { 0 } else { match mode { .ReadOnly => genericRead, .WriteOnly => genericWrite, .ReadWrite => genericRead | genericWrite, _ => return .Invalid!, } };
@@ -217,7 +217,7 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
 // of that parent. Windows also treats `\`, a drive prefix (`C:`), and an
 // alternate data stream (`name:stream`) as path syntax, and `..` would leave
 // the parent; any of them would reach past the containment check.
-fn checkEntryName(name: &u8) Errno!() {
+fun checkEntryName(name: &u8) Errno!() {
     if name[0] == 0 { return .Invalid!; }
     if name[0] == b'.' and (name[1] == 0 or (name[1] == b'.' and name[2] == 0)) {
         return .Invalid!;
@@ -231,7 +231,7 @@ fn checkEntryName(name: &u8) Errno!() {
     !()
 }
 
-fn createDirPath(parent: &u16, name: &u8) Errno!() {
+fun createDirPath(parent: &u16, name: &u8) Errno!() {
     checkEntryName(name).?;
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let fullPath = joinPath(parent, name, &mut storage[..]).?;
@@ -239,7 +239,7 @@ fn createDirPath(parent: &u16, name: &u8) Errno!() {
     !()
 }
 
-fn deletePath(parent: &u16, name: &u8, directory: bool) Errno!() {
+fun deletePath(parent: &u16, name: &u8, directory: bool) Errno!() {
     checkEntryName(name).?;
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let fullPath = joinPath(parent, name, &mut storage[..]).?;
@@ -251,7 +251,7 @@ fn deletePath(parent: &u16, name: &u8, directory: bool) Errno!() {
     !()
 }
 
-fn renamePath(oldParent: &u16, oldName: &u8, newParent: &u16, newName: &u8) Errno!() {
+fun renamePath(oldParent: &u16, oldName: &u8, newParent: &u16, newName: &u8) Errno!() {
     checkEntryName(oldName).?;
     checkEntryName(newName).?;
     let mut oldStorage: [u16; maxPathUnits] = [0; maxPathUnits];
@@ -262,7 +262,7 @@ fn renamePath(oldParent: &u16, oldName: &u8, newParent: &u16, newName: &u8) Errn
     !()
 }
 
-pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
+pub fun createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissions: u32) Errno!() {
     _ = permissions;
     let parentHandle = openAtBeneath(
         dir,
@@ -284,7 +284,7 @@ pub fn createDirAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, permissio
     result.cleanupAfter(parentHandle.close())
 }
 
-pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
+pub fun deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: bool) Errno!() {
     let parentHandle = openAtBeneath(
         dir,
         parent,
@@ -305,7 +305,7 @@ pub fn deleteAtBeneath(dir: FileDescriptor, parent: &u8, name: &u8, directory: b
     result.cleanupAfter(parentHandle.close())
 }
 
-pub fn renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
+pub fun renameAtBeneath(oldDir: FileDescriptor, oldParent: &u8, oldName: &u8, newDir: FileDescriptor, newParent: &u8, newName: &u8) Errno!() {
     let oldParentHandle = openAtBeneath(
         oldDir,
         oldParent,

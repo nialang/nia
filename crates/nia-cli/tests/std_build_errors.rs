@@ -18,12 +18,12 @@ using std::fs;
 using std::mem;
 using std::process;
 
-fn target() build::TargetView {
+fun target() build::TargetView {
     let empty = "";
     build::TargetView::init(&empty, &empty, 64u32)
 }
 
-fn initBuild(
+fun initBuild(
     init: process::Init,
     allocator: &mut mem::Allocator,
     toolchain: fs::PathView,
@@ -49,14 +49,14 @@ fn initBuild(
     initialization.finish()
 }
 
-fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!() {
+fun addCheck(api: &mut build::Build, source: fs::PathView) build::Error!() {
     let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", source)).?;
     let executable = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).?;
     let check = api.addCheckExecutableStep(&"check", executable).?;
     api.setDefaultStep(check)
 }
 
-fn checkConfigurationDoesNotExecuteCompiler(
+fun checkConfigurationDoesNotExecuteCompiler(
     init: process::Init,
     allocator: &mut mem::Allocator,
 ) process::ExitCode!() {
@@ -71,7 +71,7 @@ fn checkConfigurationDoesNotExecuteCompiler(
     !()
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let mut pageAllocator = mem::PageAllocator::init();
     checkConfigurationDoesNotExecuteCompiler(init, &mut pageAllocator).?;
     !()
@@ -116,7 +116,7 @@ using std::build;
 using std::io;
 using std::process;
 
-fn buildError(cause: process::Error) build::Error {
+fun buildError(cause: process::Error) build::Error {
     build::Error::Failure {
         operation: build::ErrorOperation::ExecuteCommand,
         subject: build::ErrorSubject::Compiler,
@@ -124,7 +124,7 @@ fn buildError(cause: process::Error) build::Error {
     }
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     let spawn = buildError(process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)));
     if (spawn.intoError().0) != 2 {
         return process::ExitCode(1)!;
@@ -193,21 +193,21 @@ using std::fs;
 using std::io;
 using std::process;
 
-fn pathFailure() fs::OperationError!() {
+fun pathFailure() fs::OperationError!() {
     fs::OperationError::Path {
         operation: fs::Operation::OpenFile,
         cause: fs::PathError::ContainsNul,
     }!
 }
 
-fn systemFailure() fs::OperationError!() {
+fun systemFailure() fs::OperationError!() {
     fs::OperationError::System {
         operation: fs::Operation::OpenFile,
         cause: fs::Error::NotFound,
     }!
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let path = match pathFailure().withBuildContext(
         build::ErrorOperation::Publish,

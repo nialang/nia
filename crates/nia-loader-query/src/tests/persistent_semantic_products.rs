@@ -7,7 +7,7 @@ fn persistent_signature_semantics_reuse_lowering_with_fresh_trait_facts() {
     let root = temp_dir("persistent_signature_semantics_with_fresh_trait_facts");
     let source = r#"
 pub struct Box[T] { value: T }
-fn unwrap[T](value: Box[T]) T { value.value }
+fun unwrap[T](value: Box[T]) T { value.value }
 "#;
 
     let first_sources = SourceDatabase::new();
@@ -160,8 +160,8 @@ fn persistent_extension_validation_skips_raw_global_dependencies_across_sessions
     let root = temp_dir("persistent_extension_validation_dependencies");
     let source = r#"
 pub struct Box[T] { value: T }
-extend Box[i32] { fn get(self) i32 { self.value } }
-fn main() i32 { Box[i32] { value: 1 }.get() }
+extend Box[i32] { fun get(self) i32 { self.value } }
+fun main() i32 { Box[i32] { value: 1 }.get() }
 "#;
     let compile = |verify| {
         let sources = SourceDatabase::new();

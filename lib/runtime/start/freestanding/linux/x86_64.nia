@@ -1,5 +1,5 @@
 @[naked]
-pub extern fn _start() () {
+pub extern fun _start() () {
     std::builtin::asm(.{
         code:
             // The linker defines both symbols; `_DYNAMIC` exists only in a

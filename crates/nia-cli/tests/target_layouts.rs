@@ -30,11 +30,11 @@ enum Choice {
     Large(u64),
 }
 
-fn stride(first: usize, second: usize) usize {
+fun stride(first: usize, second: usize) usize {
     second - first
 }
 
-pub fn main(init: Init) ExitCode!() {
+pub fun main(init: Init) ExitCode!() {
     _ = init;
     let wide: [Wide; 2] = [Wide { tag: 1, count: 2 }, Wide { tag: 3, count: 4 }];
     let c_wide: [CWide; 2] = [CWide { tag: 1, ratio: 2.0 }, CWide { tag: 3, ratio: 4.0 }];

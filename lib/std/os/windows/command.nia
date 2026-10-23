@@ -13,7 +13,7 @@ using pkg::os::windows::mem::{
     unmapPages,
 };
 
-pub(pkg) fn appendCommandArgument(storage: &mut [u16], cursor: &mut usize, text: &u8) Errno!() {
+pub(pkg) fun appendCommandArgument(storage: &mut [u16], cursor: &mut usize, text: &u8) Errno!() {
     let mut wideStorage: [u16; maxPathBytes] = [0; maxPathBytes];
     _ = utf8ToWide(text, &mut wideStorage[..]).?;
 
@@ -64,14 +64,14 @@ pub(pkg) fn appendCommandArgument(storage: &mut [u16], cursor: &mut usize, text:
     !()
 }
 
-fn appendCommandUnit(storage: &mut [u16], cursor: &mut usize, value: u16) Errno!() {
+fun appendCommandUnit(storage: &mut [u16], cursor: &mut usize, value: u16) Errno!() {
     if cursor.* + 1 >= storage.len() { return .TooLong!; }
     storage[cursor.*] = value;
     cursor.* += 1;
     !()
 }
 
-fn appendCommandSlashes(storage: &mut [u16], cursor: &mut usize, count: usize) Errno!() {
+fun appendCommandSlashes(storage: &mut [u16], cursor: &mut usize, count: usize) Errno!() {
     let mut index: usize = 0;
     while index < count { appendCommandUnit(storage, cursor, 92).?; index += 1; }
     !()
@@ -83,7 +83,7 @@ fn appendCommandSlashes(storage: &mut [u16], cursor: &mut usize, count: usize) E
 pub(pkg) struct EnvironmentBlock { pages: MappedPages }
 
 extend EnvironmentBlock {
-    pub(pkg) fn init(envp: &&u8) Errno!EnvironmentBlock {
+    pub(pkg) fun init(envp: &&u8) Errno!EnvironmentBlock {
         let pointerSize = pkg::builtin::size[&u8]();
         let mut capacity: usize = 2;
         let mut entry = envp;
@@ -104,7 +104,7 @@ extend EnvironmentBlock {
         !block
     }
 
-    fn fill(&mut self, envp: &&u8, capacity: usize) Errno!() {
+    fun fill(&mut self, envp: &&u8, capacity: usize) Errno!() {
         let pointerSize = pkg::builtin::size[&u8]();
         let units = &mut (self.pages.ptr() as &mut u16)[0..capacity];
         let mut cursor: usize = 0;
@@ -127,11 +127,11 @@ extend EnvironmentBlock {
         !()
     }
 
-    pub(pkg) fn ptr(&self) &u16 {
+    pub(pkg) fun ptr(&self) &u16 {
         self.pages.ptr() as &u16
     }
 
-    pub(pkg) fn close(&mut self) Errno!() {
+    pub(pkg) fun close(&mut self) Errno!() {
         unmapPages(self.pages.releasePtr(), self.pages.releaseSize())
     }
 }

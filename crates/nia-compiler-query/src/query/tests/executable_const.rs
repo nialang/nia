@@ -9,7 +9,7 @@ fn executable_full_lowering_reuses_explicit_and_inferred_const_types() {
 const explicit: usize = 19usize;
 const inferred = 4usize;
 
-pub fn main() usize {
+pub fun main() usize {
 explicit + inferred
 }
 "#,
@@ -56,16 +56,16 @@ fn executable_filtered_const_loads_extensions_when_resolving_method_calls() {
 enum Size { Small }
 
 extend Size {
-const fn value(self) usize {
+const fun value(self) usize {
 4usize
 }
 }
 
-const fn len() usize {
+const fun len() usize {
 Size::Small.value()
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut values: [u8; len()] = [0; 4];
 values[0] as i32
 }
@@ -121,19 +121,19 @@ fn executable_body_check_follows_same_module_call_closure() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
-fn f3() i32 {
+fun f3() i32 {
 3
 }
 
-fn f2() i32 {
+fun f2() i32 {
 f3()
 }
 
-fn f1() i32 {
+fun f1() i32 {
 f2()
 }
 
-pub fn main() i32 {
+pub fun main() i32 {
 f1()
 }
 "#,
@@ -167,7 +167,7 @@ fn executable_filtered_const_resolves_forwarded_array_len_values() {
 module facade;
 using entry::facade;
 
-pub fn main() i32 {
+pub fun main() i32 {
 let mut values: [u8; facade::LEN] = [0; facade::LEN];
 values[0] as i32
 }
@@ -230,13 +230,13 @@ const LEN: usize = raw::LEN;
 struct Box {}
 
 extend Box {
-fn value(&self) usize {
+fun value(&self) usize {
     let mut values: [u8; LEN] = [0; LEN];
     values[0] as usize
 }
 }
 
-pub fn main() usize {
+pub fun main() usize {
 let box = Box {};
 box.value()
 }
@@ -283,7 +283,7 @@ fn signature_const_resolves_receiver_locals_for_omitted_patterns() {
 module palette;
 using entry::palette;
 
-pub fn main() i32 {
+pub fun main() i32 {
     let values: [u8; palette::SIZE] = [0; palette::SIZE];
     values[0] as i32
 }
@@ -298,7 +298,7 @@ pub fn main() i32 {
 pub enum Color { Red, Data(usize) }
 
 extend Color {
-    const fn score(self) usize {
+    const fun score(self) usize {
         match self {
             .Red => 4usize,
             .Data(value) => value,

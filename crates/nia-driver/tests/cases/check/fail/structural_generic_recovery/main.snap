@@ -1,7 +1,7 @@
 path: fail/structural_generic_recovery/main.nia
 code: E0201
 summary: unknown value `missing`
-label: 75..82 Primary Source no value named `missing` is visible in this scope
+label: 77..84 Primary Source no value named `missing` is visible in this scope
 help: check the spelling, import `missing`, or declare it before this use
 
 report:

@@ -1,7 +1,7 @@
 path: fail/bracket_argument_nested_recovery/main.nia
 code: E0101
 summary: expected bracket argument
-label: 38..39 Primary Source expected bracket argument
+label: 39..40 Primary Source expected bracket argument
 
 report:
 error[E0101]: expected bracket argument

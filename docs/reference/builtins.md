@@ -8,16 +8,16 @@ syntax, either fully qualified (`std::builtin::size[T]()`) or after
 `IntoError`, and others) are specified in the
 [language reference](language.md#built-in-traits).
 
-A function marked `const fn` below can also run during
+A function marked `const fun` below can also run during
 [constant evaluation](language.md#constant-evaluation).
 
 ## Layout
 
 | Declaration | Result |
 | --- | --- |
-| `const fn size[T]() usize` | size of `T` in bytes |
-| `const fn align[T]() usize` | alignment of `T` in bytes |
-| `const fn offset[T](field: &[char]) usize` | byte offset of a struct or union field |
+| `const fun size[T]() usize` | size of `T` in bytes |
+| `const fun align[T]() usize` | alignment of `T` in bytes |
+| `const fun offset[T](field: &[char]) usize` | byte offset of a struct or union field |
 
 `size` and `align` require `T: Sized`; generic code states the bound in its
 `where` clause. The `offset` argument is a string literal naming the field;
@@ -37,7 +37,7 @@ const header_size: usize = builtin::size[Header]();
 const length_offset: usize = builtin::offset[Header]("length");
 static scratch: [u8; header_size] = [0; header_size];
 
-fn bytes_per[T]() usize
+fun bytes_per[T]() usize
 where T: Sized {
     builtin::size[T]() + builtin::align[T]()
 }
@@ -47,12 +47,12 @@ where T: Sized {
 
 | Declaration | Meaning |
 | --- | --- |
-| `const fn trap() never` | terminates execution; a compile-time error during constant evaluation |
-| `const fn error(message: &[char]) never` | reports `message` as a compile-time error; const-only |
+| `const fun trap() never` | terminates execution; a compile-time error during constant evaluation |
+| `const fun error(message: &[char]) never` | reports `message` as a compile-time error; const-only |
 | `embed(path)` | the bytes of a file as a `[u8; N]` value; const-only |
 
 `trap` executes the target's trap instruction at runtime. `error` takes a
-string literal or another constant string. A `const fn` that contains `error`
+string literal or another constant string. A `const fun` that contains `error`
 cannot be called from runtime code.
 
 `embed` reads a file at compile time. The path is a string literal resolved
@@ -62,7 +62,7 @@ It may appear only in a constant context, and the bytes are not parsed.
 ```nia
 using std::builtin;
 
-const fn non_zero(value: u32) u32 {
+const fun non_zero(value: u32) u32 {
     if value == 0 {
         builtin::error("value must not be zero");
     }
@@ -71,7 +71,7 @@ const fn non_zero(value: u32) u32 {
 
 const divisor: u32 = non_zero(8);
 
-fn divide(value: u32, by: u32) u32 {
+fun divide(value: u32, by: u32) u32 {
     if by == 0 {
         builtin::trap();
     }
@@ -101,7 +101,7 @@ must be readable at `ptr`, and `T` must be `Sized`.
 ```nia
 using std::builtin;
 
-fn copy_header(source: &[u8]) u32 {
+fun copy_header(source: &[u8]) u32 {
     let mut buffer: [u8; 8] = [0; 8];
     builtin::memset(&mut buffer[..], 0);
     builtin::memcpy[u8](&mut buffer[..], source);
@@ -116,9 +116,9 @@ These are low-level primitives; the standard library's slice operations
 
 | Declaration | Result |
 | --- | --- |
-| `const fn ctz[T](value: T) T` | number of trailing zero bits |
-| `const fn clz[T](value: T) T` | number of leading zero bits |
-| `const fn popcount[T](value: T) T` | number of one bits |
+| `const fun ctz[T](value: T) T` | number of trailing zero bits |
+| `const fun clz[T](value: T) T` | number of leading zero bits |
+| `const fun popcount[T](value: T) T` | number of one bits |
 
 `T` is an integer type and the result has the same type. `ctz` and `clz` of `0`
 return the bit width of `T`, at runtime and during constant evaluation.
@@ -132,10 +132,10 @@ const leading: u8 = std::builtin::clz[u8](0);        // 8
 
 | Declaration | Meaning |
 | --- | --- |
-| `const fn splat[V](value: Lane) V` | a vector with every lane set to `value` |
-| `const fn extract[V](vector: V, index: usize) Lane` | one lane |
-| `const fn insert[V](vector: V, index: usize, value: Lane) V` | a copy with one lane replaced |
-| `const fn bitmask[V](mask: V) usize` | packs a `boolxN` mask, lane 0 in the least significant bit |
+| `const fun splat[V](value: Lane) V` | a vector with every lane set to `value` |
+| `const fun extract[V](vector: V, index: usize) Lane` | one lane |
+| `const fun insert[V](vector: V, index: usize, value: Lane) V` | a copy with one lane replaced |
+| `const fun bitmask[V](mask: V) usize` | packs a `boolxN` mask, lane 0 in the least significant bit |
 
 `V` is a [vector type](language.md#simd-vector-types) and `Lane` its lane
 type. `splat` usually needs its type argument; `extract` and `insert` infer it
@@ -146,7 +146,7 @@ largest lane count `bitmask` accepts is target-defined.
 ```nia
 using std::builtin;
 
-fn count_matches(data: u8x16, needle: u8) usize {
+fun count_matches(data: u8x16, needle: u8) usize {
     let mask = data == builtin::splat[u8x16](needle);
     builtin::popcount[usize](builtin::bitmask(mask))
 }
@@ -201,7 +201,7 @@ types, slices, structs, arrays, and unions are not atomic value types.
 using std::atomic;
 using std::builtin;
 
-fn bump(counter: &mut u32) u32 {
+fun bump(counter: &mut u32) u32 {
     let previous = builtin::atomicRmw[u32](counter, atomic::Add, 1, atomic::AcqRel);
     builtin::fence(atomic::SeqCst);
     previous + builtin::atomicLoad[u32](counter, atomic::Acquire)
@@ -211,7 +211,7 @@ fn bump(counter: &mut u32) u32 {
 ## Inline Assembly
 
 ```nia
-fn exit_linux(code: usize) isize {
+fun exit_linux(code: usize) isize {
     let mut result: isize = 0;
     std::builtin::asm(.{
         code:
@@ -258,8 +258,8 @@ until the end of that call. Other architectures have a single syntax. A
 
 | Declaration | Meaning |
 | --- | --- |
-| `const fn charFromU32(value: u32) ?char` | the `char` for a Unicode scalar value, or `null` |
-| `const fn callerLocation() SourceLocation` | the current source location, or the tracked caller's |
+| `const fun charFromU32(value: u32) ?char` | the `char` for a Unicode scalar value, or `null` |
+| `const fun callerLocation() SourceLocation` | the current source location, or the tracked caller's |
 
 `callerLocation` is also available as `std::callerLocation`, and its result
 type is `std::SourceLocation`, with `file()`, `line()`, and `column()`
@@ -307,7 +307,7 @@ An array pointer reaches `ptr()` through the array-to-slice conversion, so
 error. An empty slice has a data pointer, but dereferencing it is invalid.
 
 ```nia
-fn first_bytes(data: &mut [u8]) usize {
+fun first_bytes(data: &mut [u8]) usize {
     let read: &u8 = data.ptr();
     let mut view = data;
     let write: &mut u8 = view.ptrMut();

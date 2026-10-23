@@ -53,10 +53,10 @@ fn dependency_errors_preserve_identity_across_command_formats() {
     let dependency = root.join("dep.nia");
     let build_dependency = root.join("build/dep.nia");
     let main = root.join("main.nia");
-    std::fs::write(&dependency, "pub fn value() i32 { missing }\n").expect("invalid dependency");
+    std::fs::write(&dependency, "pub fun value() i32 { missing }\n").expect("invalid dependency");
     std::fs::create_dir(root.join("build")).expect("build script module directory");
     std::fs::copy(&dependency, &build_dependency).expect("build script dependency");
-    std::fs::write(&main, "module dep; pub fn main() i32 { dep::value() }\n")
+    std::fs::write(&main, "module dep; pub fun main() i32 { dep::value() }\n")
         .expect("entry source");
     std::fs::write(
         root.join("build.nia"),
@@ -64,7 +64,7 @@ fn dependency_errors_preserve_identity_across_command_formats() {
 using std::build;
 module dep;
 using self::dep;
-pub fn build(b: &mut build::Build) build::Error!() {
+pub fun build(b: &mut build::Build) build::Error!() {
     _ = b;
     _ = self::dep::value();
     !()
@@ -276,7 +276,7 @@ fn check_reports_unused_import_warning_without_failing() {
         r#"
 using std::collections;
 
-fn main() () {}
+fun main() () {}
 "#,
     )
     .expect("write source");
@@ -301,7 +301,7 @@ fn main() () {}
 fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
     let root = temp_dir("captured_diagnostic_reports_remain_deterministic_without_ansi");
     let main = root.join("main.nia");
-    std::fs::write(&main, "fn main() i32 { let value = 0x_ff; value }\n")
+    std::fs::write(&main, "fun main() i32 { let value = 0x_ff; value }\n")
         .expect("write invalid source");
 
     for format in ["text", "json"] {
@@ -328,7 +328,7 @@ fn captured_diagnostic_reports_remain_deterministic_without_ansi() {
 fn emit_checked_preserves_text_json_diagnostic_contract() {
     let root = temp_dir("emit_checked_preserves_text_json_diagnostic_contract");
     let main = root.join("main.nia");
-    std::fs::write(&main, "fn main() i32 { let value = 0x_ff; value }\n")
+    std::fs::write(&main, "fun main() i32 { let value = 0x_ff; value }\n")
         .expect("write invalid source");
 
     for format in ["text", "json"] {
@@ -353,7 +353,7 @@ fn emit_checked_preserves_text_json_diagnostic_contract() {
 #[test]
 fn build_preserves_text_json_diagnostic_contract() {
     let root = temp_dir("build_preserves_text_json_diagnostic_contract");
-    std::fs::write(root.join("build.nia"), "fn main(\n").expect("write invalid build script");
+    std::fs::write(root.join("build.nia"), "fun main(\n").expect("write invalid build script");
 
     for command in ["build", "test"] {
         for format in ["text", "json"] {
@@ -382,7 +382,7 @@ fn failed_using_use_is_grouped_under_its_root_diagnostic() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        "using entry::api::missing_value;\n\nfn main() i32 { missing_value() }\n",
+        "using entry::api::missing_value;\n\nfun main() i32 { missing_value() }\n",
     )
     .expect("write source");
     std::fs::write(root.join("api.nia"), "").expect("write imported module");
@@ -429,7 +429,7 @@ fn emit_checked_exits_cleanly_when_stdout_pipe_closes() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -468,7 +468,7 @@ fn main() i32 {
 fn interactive_terminal_reports_color_text_without_coloring_json() {
     let root = temp_dir("interactive_terminal_reports_color_text_without_coloring_json");
     let main = root.join("main.nia");
-    std::fs::write(&main, "using entry::missing;\nfn main() i32 { 0 }\n")
+    std::fs::write(&main, "using entry::missing;\nfun main() i32 { 0 }\n")
         .expect("write invalid import source");
     std::fs::write(root.join("entry.nia"), "").expect("write imported module");
 
@@ -568,7 +568,7 @@ fn run_with_terminal_stderr(mut command: Command) -> (std::process::ExitStatus, 
 fn check_rejects_misplaced_numeric_separators() {
     let root = temp_dir("check_rejects_misplaced_numeric_separators");
     let main = root.join("main.nia");
-    std::fs::write(&main, "fn main() i32 { let value = 0x_ff; value }\n")
+    std::fs::write(&main, "fun main() i32 { let value = 0x_ff; value }\n")
         .expect("write invalid numeric separator source");
 
     let output = support::nia_command()
@@ -593,7 +593,7 @@ fn emit_obj_reports_unused_import_warning_without_skipping_codegen() {
         r#"
 using std::collections;
 
-pub fn main() () {}
+pub fun main() () {}
 "#,
     )
     .expect("write source");
@@ -947,7 +947,7 @@ fn successful_inspection_writes_nothing_to_stderr() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        "using std::process;\npub fn main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    !()\n}\n",
+        "using std::process;\npub fun main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    !()\n}\n",
     )
     .expect("write test source");
     for format in ["text", "json"] {
@@ -973,7 +973,7 @@ fn timings_option_reports_stage_timings_to_stderr() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1010,7 +1010,7 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&tokens.stdout);
     let stderr = String::from_utf8_lossy(&tokens.stderr);
-    assert!(stdout.contains("Fn"), "{stdout}");
+    assert!(stdout.contains("Fun"), "{stdout}");
     assert!(!stdout.contains("timing "), "{stdout}");
     assert!(stderr.contains("timing summary stage lex:"), "{stderr}");
 
@@ -1146,12 +1146,12 @@ struct Point {
 }
 
 extend Point {
-    fn sum(&self) i32 {
+    fun sum(&self) i32 {
         self.x + self.y
     }
 }
 
-fn main() i32 {
+fun main() i32 {
     let point = Point { x: 1, y: 2 };
     point.sum() - 3
 }
@@ -1201,13 +1201,13 @@ struct Point {
     x: i32,
 }
 
-fn load[T](ptr: &T) T
+fun load[T](ptr: &T) T
 where T: Sized
 {
     std::builtin::atomicLoad[T](ptr, 1usize)
 }
 
-fn main() i32 {
+fun main() i32 {
     let mut point = Point { x: 1 };
     _ = load[Point](&point);
     0
@@ -1271,7 +1271,7 @@ fn emit_obj_writes_native_object() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
+fun main() i32 {
     0
 }
 "#,
@@ -1307,7 +1307,7 @@ fn emit_obj_defaults_to_bare_runtime_and_can_emit_freestanding_startup() {
         r#"
 using std::process;
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     !()
 }

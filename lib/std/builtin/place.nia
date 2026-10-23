@@ -4,59 +4,59 @@
 pub trait Deref {
     type Target;
 
-    fn deref(&self) &[Self as Deref]::Target;
+    fun deref(&self) &[Self as Deref]::Target;
 }
 
 @[builtin("DerefMut")]
 pub trait DerefMut : Deref {
     type Target;
 
-    fn derefMut(&mut self) &mut [Self as DerefMut]::Target;
+    fun derefMut(&mut self) &mut [Self as DerefMut]::Target;
 }
 
 @[builtin("Index")]
 pub trait Index[R] {
     type Output;
 
-    fn index(&self, index: R) &[Self as Index[R]]::Output;
+    fun index(&self, index: R) &[Self as Index[R]]::Output;
 }
 
 @[builtin("IndexMut")]
 pub trait IndexMut[R] : Index[R] {
     type Output;
 
-    fn indexMut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
+    fun indexMut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
 }
 
 @[builtin("Slice")]
 pub trait Slice[R] {
     type Output;
 
-    fn slice(&self, range: R) [Self as Slice[R]]::Output;
+    fun slice(&self, range: R) [Self as Slice[R]]::Output;
 }
 
 @[builtin("SliceMut")]
 pub trait SliceMut[R] : Slice[R] {
     type Output;
 
-    fn sliceMut(&mut self, range: R) [Self as SliceMut[R]]::Output;
+    fun sliceMut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
 pub trait Len {
-    const fn len(&self) usize;
+    const fun len(&self) usize;
 }
 
 extend[T, N: usize] [T; N] : Len {
-    const fn len(&self) usize {
+    const fun len(&self) usize {
         N
     }
 }
 
 extend[T] [T] : Len {
-    const fn len(&self) usize {
+    const fun len(&self) usize {
         sliceLen(&self)
     }
 }
 
 @[builtin("sliceLen")]
-const fn sliceLen[T](value: &[T]) usize;
+const fun sliceLen[T](value: &[T]) usize;

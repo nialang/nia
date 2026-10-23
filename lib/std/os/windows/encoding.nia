@@ -12,13 +12,13 @@ using pkg::os::windows::error::{
     lastError,
 };
 
-pub(pkg) fn cStringLen(path: &u8) usize {
+pub(pkg) fun cStringLen(path: &u8) usize {
     let mut length: usize = 0;
     while path[length] != 0 { length += 1; }
     length
 }
 
-pub(pkg) fn utf8ToWide(text: &u8, storage: &mut [u16]) Errno!&u16 {
+pub(pkg) fun utf8ToWide(text: &u8, storage: &mut [u16]) Errno!&u16 {
     if storage.len() == 0 { return .Invalid!; }
     let length = cStringLen(text);
     if length == 0 { storage[0] = 0; return !&storage[0]; }
@@ -38,7 +38,7 @@ pub(pkg) fn utf8ToWide(text: &u8, storage: &mut [u16]) Errno!&u16 {
     !&storage[0]
 }
 
-pub(pkg) fn wideStringLen(text: &u16) usize {
+pub(pkg) fun wideStringLen(text: &u16) usize {
     let mut length: usize = 0;
     while text[length] != 0 { length += 1; }
     length
@@ -46,7 +46,7 @@ pub(pkg) fn wideStringLen(text: &u16) usize {
 
 // Convert an explicit UTF-16 slice without a terminator. Reject malformed
 // input instead of replacing names with a different filesystem identity.
-pub(pkg) fn wideToUtf8(text: &[u16], storage: &mut [u8]) Errno!usize {
+pub(pkg) fun wideToUtf8(text: &[u16], storage: &mut [u8]) Errno!usize {
     if text.len() == 0 { return !0; }
     if text.len() > i32::MAX as usize { return .TooLong!; }
     let required = WideCharToMultiByte(

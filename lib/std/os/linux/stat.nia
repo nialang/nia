@@ -70,17 +70,17 @@ pub extern struct Statx {
     spare3: [u64; 8],
 }
 
-pub fn metadataFd(fd: FileDescriptor) Errno!FileMetadata {
+pub fun metadataFd(fd: FileDescriptor) Errno!FileMetadata {
     let empty = b"\0";
     statxAt(fd, &empty[0], atEmptyPath, statxRequestBasic)
 }
 
 // Enumeration supplies one NUL-terminated direct entry name, including dot entries.
-pub(pkg) fn directoryEntryMetadata(dir: FileDescriptor, name: &u8) Errno!FileMetadata {
+pub(pkg) fun directoryEntryMetadata(dir: FileDescriptor, name: &u8) Errno!FileMetadata {
     statxAt(dir, name, atSymlinkNoFollow, statxRequestBasic)
 }
 
-pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+pub fun metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
     let mut flags = types::openPath;
     if not followSymlinks {
         flags = flags + types::openNoFollow;
@@ -106,7 +106,7 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     }
 }
 
-fn statxAt(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
+fun statxAt(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
     let mut stx: Statx;
     let mut bytes = &mut ((&mut stx as &mut u8)[0..pkg::builtin::size[Statx]()]);
     pkg::builtin::memset(bytes, 0);
@@ -123,7 +123,7 @@ fn statxAt(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMe
 }
 
 extend StatxTimestamp {
-    fn asTimestamp(&self) Errno!Timestamp {
+    fun asTimestamp(&self) Errno!Timestamp {
         if self.nsec >= nanosPerSecond {
             return .Invalid!;
         }
@@ -132,11 +132,11 @@ extend StatxTimestamp {
 }
 
 extend Statx {
-    fn hasRequiredBasic(&self) bool {
+    fun hasRequiredBasic(&self) bool {
         (self.mask & statxRequiredBasic) == statxRequiredBasic
     }
 
-    fn kind(&self) FileKind {
+    fun kind(&self) FileKind {
         match self.mode & sIfmt {
             (sIfdir) => .Directory,
             (sIfchr) => .CharacterDevice,
@@ -149,7 +149,7 @@ extend Statx {
         }
     }
 
-    pub fn asMetadata(&self) Errno!FileMetadata {
+    pub fun asMetadata(&self) Errno!FileMetadata {
         if not self.hasRequiredBasic() {
             return .Invalid!;
         }

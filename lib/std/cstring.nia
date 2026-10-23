@@ -18,7 +18,7 @@ pub enum CStringBuildError {
 }
 
 extend mem::Error : builtin::IntoError[CStringBuildError] {
-    const fn intoError(self) CStringBuildError {
+    const fun intoError(self) CStringBuildError {
         CStringBuildError::Allocation(self)
     }
 }
@@ -33,13 +33,13 @@ pub struct CString {
 }
 
 extend CString {
-    pub fn init(allocator: &mut mem::Allocator) CStringBuildError!CString {
+    pub fun init(allocator: &mut mem::Allocator) CStringBuildError!CString {
         let mut bytes = collections::ArrayList[u8]::initCapacity(allocator, 1).?;
         bytes.appendAssumeCapacity(0);
         !.{ bytes }
     }
 
-    pub fn fromBytes(allocator: &mut mem::Allocator, bytes: &[u8]) CStringBuildError!CString {
+    pub fun fromBytes(allocator: &mut mem::Allocator, bytes: &[u8]) CStringBuildError!CString {
         for &byte in bytes {
             if byte == 0 {
                 return .ContainsNul!;
@@ -55,11 +55,11 @@ extend CString {
         !.{ bytes: output }
     }
 
-    pub fn fromView(allocator: &mut mem::Allocator, view: CStringView) CStringBuildError!CString {
+    pub fun fromView(allocator: &mut mem::Allocator, view: CStringView) CStringBuildError!CString {
         CString::fromBytes(allocator, view.bytes())
     }
 
-    pub fn fromText(allocator: &mut mem::Allocator, text: &[char]) CStringBuildError!CString {
+    pub fun fromText(allocator: &mut mem::Allocator, text: &[char]) CStringBuildError!CString {
         let mut byteLen: usize = 0;
         for &ch in text {
             if ch.codepoint() == 0 {
@@ -82,44 +82,44 @@ extend CString {
         !.{ bytes: output }
     }
 
-    pub fn view(&self) CStringView {
+    pub fun view(&self) CStringView {
         .fromParts(self.bytes.asSlice().ptr(), self.len())
     }
 
-    pub fn rawPtr(&self) &u8 {
+    pub fun rawPtr(&self) &u8 {
         self.bytes.asSlice().ptr()
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         &self.bytes.asSlice()[0..self.bytes.len() - 1]
     }
 
-    pub fn nulTerminatedBytes(&self) &[u8] {
+    pub fun nulTerminatedBytes(&self) &[u8] {
         self.bytes.asSlice()
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.bytes.len() - 1
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 
-    pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         self.bytes.deinit(allocator)
     }
 }
 
 extend CStringView {
-    fn fromParts(ptr: &u8, len: usize) CStringView {
+    fun fromParts(ptr: &u8, len: usize) CStringView {
         .{ ptr, len }
     }
 
     // Startup arguments arrive with a guaranteed NUL terminator. This internal
     // boundary records that length; external data should use `fromBytes` for
     // bounded validation.
-    pub(pkg) fn fromTerminatedPtr(ptr: &u8) CStringView {
+    pub(pkg) fun fromTerminatedPtr(ptr: &u8) CStringView {
         let mut len: usize = 0;
         while ptr[len] != 0 {
             len += 1;
@@ -127,7 +127,7 @@ extend CStringView {
         .fromParts(ptr, len)
     }
 
-    pub fn fromBytes(bytes: &[u8]) CStringError!CStringView {
+    pub fun fromBytes(bytes: &[u8]) CStringError!CStringView {
         if bytes.len() == 0 {
             return .EmptyInput!;
         }
@@ -142,33 +142,33 @@ extend CStringView {
         !.fromParts(bytes.ptr(), bytes.len() - 1)
     }
 
-    pub fn rawPtr(&self) &u8 {
+    pub fun rawPtr(&self) &u8 {
         self.ptr
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         & self.ptr[0..self.len()]
     }
 
-    pub fn nulTerminatedBytes(&self) &[u8] {
+    pub fun nulTerminatedBytes(&self) &[u8] {
         &self.ptr[0..self.len + 1]
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 
-    pub fn parse[T](self) [T as parse::From[CStringView]]::Error!T
+    pub fun parse[T](self) [T as parse::From[CStringView]]::Error!T
     where T: parse::From[CStringView]
     {
         [T]::from(self)
     }
 
-    pub fn parseRadix[T](self, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T
+    pub fun parseRadix[T](self, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T
     where T: parse::FromRadix[CStringView]
     {
         [T]::fromRadix(self, radix)
@@ -176,21 +176,21 @@ extend CStringView {
 }
 
 extend CString : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         self.view().format(formatter)
     }
 
-    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+    fun formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         self.view().formatSpec(formatter, spec)
     }
 }
 
 extend CStringView : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.writeBytes(self.bytes())
     }
 
-    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+    fun formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         if spec.presentation() != fmt::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
             return .InvalidTemplate!;
         }
@@ -211,7 +211,7 @@ where T: parse::From[&[u8]]
 {
     type Error = [T as parse::From[&[u8]]]::Error;
 
-    fn from(input: CStringView) [T as parse::From[CStringView]]::Error!T {
+    fun from(input: CStringView) [T as parse::From[CStringView]]::Error!T {
         input.bytes().parse[T]()
     }
 }
@@ -221,7 +221,7 @@ where T: parse::FromRadix[&[u8]]
 {
     type Error = [T as parse::FromRadix[&[u8]]]::Error;
 
-    fn fromRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
+    fun fromRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
         input.bytes().parseRadix[T](radix)
     }
 }

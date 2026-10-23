@@ -9,7 +9,7 @@ using pkg::builtin::atomic as atomicBuiltin;
 static mut nextBuildOwnerId: usize = 1;
 static mut buildOwnerIdExhausted: usize = 0;
 
-pub(pkg) fn allocateBuildOwnerId() ?usize {
+pub(pkg) fun allocateBuildOwnerId() ?usize {
     if atomicBuiltin::atomicLoad[usize](&buildOwnerIdExhausted, atomic::SeqCst) != 0 {
         return null;
     }

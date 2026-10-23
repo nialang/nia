@@ -18,24 +18,24 @@ pub struct CleanupAccumulator[Failure] {
 
 extend[Failure] CleanupAccumulator[Failure] {
     // Start an empty, allocation-free cleanup report.
-    pub fn init() CleanupAccumulator[Failure] {
+    pub fun init() CleanupAccumulator[Failure] {
         .{ firstFailure: null }
     }
 
     // Record a failure while always allowing the caller to attempt later work.
-    pub fn attempt(&mut self, result: Failure!()) () {
+    pub fun attempt(&mut self, result: Failure!()) () {
         if result is err! and self.firstFailure is null {
             self.firstFailure = ?err;
         }
     }
 
     // Query whether every attempted cleanup has succeeded so far.
-    pub fn isClean(&self) bool {
+    pub fun isClean(&self) bool {
         if self.firstFailure is ?_ { false } else { true }
     }
 
     // Return the first recorded failure after all cleanup attempts are complete.
-    pub fn finish(self) Failure!() {
+    pub fun finish(self) Failure!() {
         if self.firstFailure is ?err { err! } else { !() }
     }
 }

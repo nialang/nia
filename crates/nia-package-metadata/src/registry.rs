@@ -1042,12 +1042,12 @@ mod tests {
     fn package_archive_checks_digest_bounds_paths_and_entry_kinds() {
         let good = archive(&[
             (1, "src", b""),
-            (0, "src/lib.nia", b"pub fn answer() -> i32 = 42;\n"),
+            (0, "src/lib.nia", b"pub fun answer() -> i32 = 42;\n"),
         ]);
         let digest = *blake3::hash(&good).as_bytes();
         let entries = decode_registry_archive(&good, &digest).unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[1].contents, b"pub fn answer() -> i32 = 42;\n");
+        assert_eq!(entries[1].contents, b"pub fun answer() -> i32 = 42;\n");
 
         let wrong_digest = [0; 32];
         assert!(decode_registry_archive(&good, &wrong_digest).is_err());

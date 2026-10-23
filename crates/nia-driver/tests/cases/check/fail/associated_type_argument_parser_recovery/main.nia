@@ -1,3 +1,3 @@
-fn retained(value: Wrapper[Item = , i32]) () {}
+fun retained(value: Wrapper[Item = , i32]) () {}
 
-fn later() () {}
+fun later() () {}

@@ -4,7 +4,7 @@ use super::*;
 fn rejects_lowered_types_from_another_type_store() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
-    let (module, errors) = parse_module("fn id(value: i32) i32 { value }");
+    let (module, errors) = parse_module("fun id(value: i32) i32 { value }");
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(module_id, &module).expect("collect definitions");
     let resolved = resolve_module_types(&module, &defs);

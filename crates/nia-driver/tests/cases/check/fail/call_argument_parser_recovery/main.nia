@@ -1,8 +1,8 @@
-fn main() () {
+fun main() () {
     consume(, 1,, true);
     later();
 }
 
-fn later() () {}
+fun later() () {}
 
-fn consume(a: i32, b: bool) () {}
+fun consume(a: i32, b: bool) () {}

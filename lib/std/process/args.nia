@@ -7,33 +7,33 @@ using pkg::slice;
 using types::{Arg, Args, ArgsIter};
 
 extend Arg {
-    fn init(ptr: &u8) Arg {
+    fun init(ptr: &u8) Arg {
         .{ text: cstring::CStringView::fromTerminatedPtr(ptr) }
     }
 
-    pub fn cstring(&self) cstring::CStringView {
+    pub fun cstring(&self) cstring::CStringView {
         self.text
     }
 
-    pub fn bytes(&self) &[u8] {
+    pub fun bytes(&self) &[u8] {
         self.text.bytes()
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.text.len()
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len() == 0
     }
 
-    pub fn parse[T](self) [T as parse::From[Arg]]::Error!T
+    pub fun parse[T](self) [T as parse::From[Arg]]::Error!T
     where T: parse::From[Arg]
     {
         [T]::from(self)
     }
 
-    pub fn parseRadix[T](self, radix: u32) [T as parse::FromRadix[Arg]]::Error!T
+    pub fun parseRadix[T](self, radix: u32) [T as parse::FromRadix[Arg]]::Error!T
     where T: parse::FromRadix[Arg]
     {
         [T]::fromRadix(self, radix)
@@ -41,11 +41,11 @@ extend Arg {
 }
 
 extend Arg : fmt::Format {
-    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         self.text.format(formatter)
     }
 
-    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+    fun formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         self.text.formatSpec(formatter, spec)
     }
 }
@@ -55,7 +55,7 @@ where T: parse::From[cstring::CStringView]
 {
     type Error = [T as parse::From[cstring::CStringView]]::Error;
 
-    fn from(input: Arg) [T as parse::From[Arg]]::Error!T {
+    fun from(input: Arg) [T as parse::From[Arg]]::Error!T {
         input.cstring().parse[T]()
     }
 }
@@ -65,30 +65,30 @@ where T: parse::FromRadix[cstring::CStringView]
 {
     type Error = [T as parse::FromRadix[cstring::CStringView]]::Error;
 
-    fn fromRadix(input: Arg, radix: u32) [T as parse::FromRadix[Arg]]::Error!T {
+    fun fromRadix(input: Arg, radix: u32) [T as parse::FromRadix[Arg]]::Error!T {
         input.cstring().parseRadix[T](radix)
     }
 }
 
 extend Args {
-    pub(pkg) fn init(len: usize, ptr: &&u8) Args {
+    pub(pkg) fun init(len: usize, ptr: &&u8) Args {
         let actualLen = if ptr as usize == 0 { 0 } else { len };
         .{ len: actualLen, ptr }
     }
 
-    pub fn len(&self) usize {
+    pub fun len(&self) usize {
         self.len
     }
 
-    pub fn isEmpty(&self) bool {
+    pub fun isEmpty(&self) bool {
         self.len == 0
     }
 
-    pub fn program(&self) ?Arg {
+    pub fun program(&self) ?Arg {
         self.get(0)
     }
 
-    pub fn get(&self, index: usize) ?Arg {
+    pub fun get(&self, index: usize) ?Arg {
         if index >= self.len {
             null
         } else {
@@ -101,18 +101,18 @@ extend Args {
         }
     }
 
-    pub fn iter(&self) ArgsIter {
+    pub fun iter(&self) ArgsIter {
         .init(self.*, 0)
     }
 
-    pub fn skipProgram(&self) ArgsIter {
+    pub fun skipProgram(&self) ArgsIter {
         .init(self.*, 1)
     }
 
 }
 
 extend ArgsIter {
-    pub fn init(args: Args, index: usize) ArgsIter {
+    pub fun init(args: Args, index: usize) ArgsIter {
         let mut start = index;
         if start > args.len() {
             start = args.len();
@@ -120,7 +120,7 @@ extend ArgsIter {
         .{ args, index: start }
     }
 
-    pub fn remaining(&self) usize {
+    pub fun remaining(&self) usize {
         self.args.len() - self.index
     }
 }
@@ -128,7 +128,7 @@ extend ArgsIter {
 extend ArgsIter : Iterator {
     type Item = Arg;
 
-    pub fn next(&mut self) ?Arg {
+    pub fun next(&mut self) ?Arg {
         if self.args.get(self.index) is ?value {
             self.index += 1;
             ?value

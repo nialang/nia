@@ -8,7 +8,7 @@ pub(pkg) module range;
 using pkg::iter::range;
 
 pub trait DoubleEndedIterator : Iterator {
-    fn nextBack(&mut self) ?[Self as Iterator]::Item;
+    fun nextBack(&mut self) ?[Self as Iterator]::Item;
 }
 
 pub struct Take[I]
@@ -27,7 +27,7 @@ where I: DoubleEndedIterator
 extend[I] Take[I]
 where I: Iterator
 {
-    pub fn init(iter: I, remaining: usize) Take[I] {
+    pub fun init(iter: I, remaining: usize) Take[I] {
         .{ iter, remaining }
     }
 }
@@ -37,7 +37,7 @@ where I: Iterator
 {
     type Item = [I as Iterator]::Item;
 
-    pub fn next(&mut self) ?[I as Iterator]::Item {
+    pub fun next(&mut self) ?[I as Iterator]::Item {
         if self.remaining == 0 {
             return null;
         }
@@ -52,7 +52,7 @@ where I: Iterator
 extend[I] Rev[I]
 where I: DoubleEndedIterator
 {
-    pub fn init(iter: I) Rev[I] {
+    pub fun init(iter: I) Rev[I] {
         .{ iter }
     }
 }
@@ -62,7 +62,7 @@ where I: DoubleEndedIterator
 {
     type Item = [I as Iterator]::Item;
 
-    pub fn next(&mut self) ?[I as Iterator]::Item {
+    pub fun next(&mut self) ?[I as Iterator]::Item {
         self.iter.nextBack()
     }
 }
@@ -70,7 +70,7 @@ where I: DoubleEndedIterator
 extend[I] Rev[I] : DoubleEndedIterator
 where I: DoubleEndedIterator
 {
-    pub fn nextBack(&mut self) ?[Rev[I] as Iterator]::Item {
+    pub fun nextBack(&mut self) ?[Rev[I] as Iterator]::Item {
         self.iter.next()
     }
 }
@@ -78,11 +78,11 @@ where I: DoubleEndedIterator
 extend[I] I
 where I: Iterator
 {
-    pub fn take(self, limit: usize) Take[I] {
+    pub fun take(self, limit: usize) Take[I] {
         .init(self, limit)
     }
 
-    pub fn count(self) usize {
+    pub fun count(self) usize {
         let mut iter = self;
         let mut total: usize = 0;
         while true {
@@ -95,7 +95,7 @@ where I: Iterator
         total
     }
 
-    pub fn forEach(self, callback: &Fn([I as Iterator]::Item) ()) () {
+    pub fun forEach(self, callback: &Fun([I as Iterator]::Item) ()) () {
         let mut iter = self;
         while true {
             if iter.next() is ?value {
@@ -106,10 +106,10 @@ where I: Iterator
         }
     }
 
-    pub fn fold[Accumulator](
+    pub fun fold[Accumulator](
         self,
         initial: Accumulator,
-        callback: &Fn(Accumulator, [I as Iterator]::Item) Accumulator,
+        callback: &Fun(Accumulator, [I as Iterator]::Item) Accumulator,
     ) Accumulator {
         let mut iter = self;
         let mut accumulator = initial;
@@ -123,10 +123,10 @@ where I: Iterator
         accumulator
     }
 
-    pub fn tryFold[Accumulator, Error](
+    pub fun tryFold[Accumulator, Error](
         self,
         initial: Accumulator,
-        callback: &Fn(Accumulator, [I as Iterator]::Item) Error!Accumulator,
+        callback: &Fun(Accumulator, [I as Iterator]::Item) Error!Accumulator,
     ) Error!Accumulator {
         let mut iter = self;
         let mut accumulator = initial;
@@ -140,7 +140,7 @@ where I: Iterator
         !accumulator
     }
 
-    pub fn position(self, predicate: &Fn([I as Iterator]::Item) bool) ?usize {
+    pub fun position(self, predicate: &Fun([I as Iterator]::Item) bool) ?usize {
         let mut iter = self;
         let mut index: usize = 0;
         while true {
@@ -160,7 +160,7 @@ where I: Iterator
 extend[I] I
 where I: DoubleEndedIterator
 {
-    pub fn rev(self) Rev[I] {
+    pub fun rev(self) Rev[I] {
         .init(self)
     }
 }
