@@ -11,9 +11,9 @@
 // - a path containing a separator or drive names one file, relative to the
 //   child's working directory when one is requested;
 // - a bare name is searched in the `PATH` of the child's environment, where
-//   an empty entry names the child's working directory. A name without an
-//   extension also tries each `PATHEXT` extension, as the build host's probe
-//   resolver does.
+//   an empty or relative entry is resolved against the child's working
+//   directory. A name without an extension also tries each `PATHEXT`
+//   extension, as the build host's probe resolver does.
 
 using pkg::os::windows::bindings::{
     fileAttributeDirectory, invalidFileAttributes, GetFileAttributesW,
@@ -97,6 +97,11 @@ fn findInDirectory(
             appendDirectory(&mut candidate[..], &mut cursor, value).?;
         }
     } else {
+        // A relative entry, like an empty one, names a directory under the
+        // child's working directory, matching the build host's resolver.
+        if not isAbsolute(directory) and cwd is ?value {
+            appendDirectory(&mut candidate[..], &mut cursor, value).?;
+        }
         appendBytes(&mut candidate[..], &mut cursor, directory).?;
         appendSeparator(&mut candidate[..], &mut cursor).?;
     }

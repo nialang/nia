@@ -702,6 +702,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 "#,
     );
+    std::fs::create_dir_all(root.join("tools/bin")).expect("create relative PATH directory");
+    std::fs::copy(&child, root.join("tools/bin/child.exe")).expect("place relative PATH child");
     std::fs::rename(&child, root.join("tools/child.exe")).expect("place child tool");
     let _cwd_child = emit(
         &root,
@@ -767,6 +769,16 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withEnvironment(&current);
     if status(currentDirectory) != 0 {
         return process::ExitCode(6)!;
+    }
+    // A relative PATH entry is resolved against the child's working
+    // directory: `bin` finds `tools\bin\child.exe`, while the parent's own
+    // working directory has no `bin`.
+    let relative: [process::EnvEntry; 1] = [process::EnvEntry::init(&"Path", &"bin")];
+    let relativeEntry = process::Command::init(std::PathView::init(&"child"), env)
+        .withEnvironment(&relative)
+        .withCwd(std::PathView::init(&"tools"));
+    if status(relativeEntry) != 7 {
+        return process::ExitCode(8)!;
     }
     // A bare name outside that `Path` is not found, even in the working
     // directory or the parent's image directory.
