@@ -129,6 +129,32 @@ pub fn is_link_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
     }
 }
 
+/// Resolves a root-owned symbolic link directly under `/`, such as macOS's
+/// `/var -> private/var` or a merged-usr `/lib -> usr/lib`.
+///
+/// Link-rejecting path walks follow only these: replacing an entry in `/`
+/// requires root, so such a link cannot redirect a walk any more than root
+/// already can. Every other link stays rejected. Returns `None` when `name`
+/// is not such a link, and on hosts without a single filesystem root.
+pub fn trusted_root_link_target(name: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+
+        let link = std::path::Path::new("/").join(name);
+        let metadata = std::fs::symlink_metadata(&link).ok()?;
+        if !metadata.file_type().is_symlink() || metadata.uid() != 0 {
+            return None;
+        }
+        std::fs::canonicalize(link).ok()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = name;
+        None
+    }
+}
+
 fn validate_real_directory(
     path: &std::path::Path,
     metadata: &std::fs::Metadata,
@@ -140,6 +166,28 @@ fn validate_real_directory(
         ));
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod root_link_tests {
+    use super::trusted_root_link_target;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn only_root_owned_links_in_the_filesystem_root_are_trusted() {
+        // Real directories and missing names are not links.
+        assert_eq!(trusted_root_link_target(OsStr::new("dev")), None);
+        assert_eq!(
+            trusted_root_link_target(OsStr::new("nia-no-such-root-entry")),
+            None
+        );
+        // macOS reaches its temp directory through `/var -> private/var`.
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            trusted_root_link_target(OsStr::new("var")),
+            Some(std::path::PathBuf::from("/private/var"))
+        );
+    }
 }
 
 /// Flushes a directory entry where the host exposes directory fsync.

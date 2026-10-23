@@ -663,12 +663,22 @@ pub(super) fn open_cache_root(path: &Path, create: bool) -> io::Result<Dir> {
         }
     }
     let mut directory = Dir::open_ambient_dir(&root_path, ambient_authority())?;
+    let mut at_root = true;
     for component in absolute.components() {
         match component {
             Component::Normal(name) => {
-                directory = open_cache_directory_os(&directory, name, create)?;
+                // A root-owned link directly under `/`, such as macOS's
+                // `/var`, is the system layout rather than a redirection.
+                directory = match nia_compat::trusted_root_link_target(name) {
+                    Some(target) if at_root => Dir::open_ambient_dir(target, ambient_authority())?,
+                    _ => open_cache_directory_os(&directory, name, create)?,
+                };
+                at_root = false;
             }
-            Component::ParentDir => directory = directory.open_parent_dir(ambient_authority())?,
+            Component::ParentDir => {
+                directory = directory.open_parent_dir(ambient_authority())?;
+                at_root = false;
+            }
             Component::Prefix(_) | Component::RootDir | Component::CurDir => {}
         }
     }
