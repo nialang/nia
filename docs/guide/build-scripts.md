@@ -88,6 +88,7 @@ A dependency names exactly one source:
 | --- | --- |
 | Local path | `{ path = "vendor/json" }`, relative to the declaring package |
 | Git | `{ git = "<url>" }` plus at most one of `rev`, `tag`, or `branch` |
+| Registry | `{ registry = "nia", package = "acme/json", version = "^1.4" }`; see [Registry dependencies](#registry-dependencies) |
 | Workspace | `{ workspace = true }`; see [Workspaces](#workspaces) |
 
 `rev` must be a full 40-digit commit hash. Without a selector, Git sources
@@ -123,6 +124,37 @@ the agent instead.
 
 Git fetches request a shallow history with depth 1, which includes the selected
 commit and the files needed to check it out without downloading its ancestors.
+
+### Registry dependencies
+
+A registry dependency names a configured registry, a `namespace/name` package,
+and a SemVer requirement. The requirement must state its operator: `^1.4`,
+`~1.4.2`, `>=1.1, <2`, `=1.4.2`, or `1.*`; a bare `1.4` is rejected rather than
+read as `^1.4`. Registry dependencies cannot also carry `path`, `git`, or Git
+selector fields.
+
+Registries are configured by name in the root `nia.toml`, the workspace root in
+a workspace; a workspace member that declares `[registries]` is rejected:
+
+```toml
+[registries]
+nia = "https://packages.example.test"
+```
+
+Endpoints must be `https://` URLs without credentials, a query, or a fragment.
+Registry names and package segments use lower-case ASCII letters, digits, and
+`-`.
+
+Nia selects one version of each registry package across the whole graph,
+including every selected workspace member and dependency scope: the highest
+version that satisfies every requirement on it. Prereleases are selected only
+when a requirement names a prerelease. Conflicting requirements fail with each
+requiring package, its requirement, and its dependency chain. A package can be
+requested from only one registry within a graph.
+
+Archives are checked against the digest in the registry index before they are
+unpacked and are cached under `.nia/packages` only after the whole tree
+validates.
 
 The first build records each Git dependency's commit and content hash, and each
 registry dependency's selected version, archive digest, and content hash, in

@@ -1,6 +1,21 @@
-# Package Versioning and Registry Design
+# nia-package-metadata
 
-This is the implementation contract for package identity, dependency resolution, and registry distribution. Nia is pre-release software: the new rules apply uniformly and obsolete manifest or lockfile formats are rejected.
+`nia-package-metadata` owns package identity, `nia.toml` manifests and
+workspaces, dependency graph resolution, the registry client and cache, and
+`nia.lock`. [`nia-build`](../nia-build/) calls it before running a build
+script; Git checkouts go through [`nia-git`](../nia-git/). It also owns the
+stable module, definition, and type identities that compiler-owned sections
+embed; those encoders are documented in the crate's `//!` docs.
+
+This README is the implementation contract for versions, resolution, the
+registry formats, the lockfile, and package source identity. The user-facing
+manifest syntax is in
+[Build scripts](../../docs/guide/build-scripts.md#package-manifest).
+
+| Source | Owns |
+| --- | --- |
+| [`src/lib.rs`](src/lib.rs) | Identities, manifests and workspaces, source fingerprints, graph resolution and the version solver, fetching, `nia.lock`, and `nia update` |
+| [`src/registry.rs`](src/registry.rs) | Registry endpoints, index and archive validation, HTTPS fetch, and the validated cache |
 
 ## Package versions
 
@@ -23,8 +38,10 @@ The initial resolver selects one version per `(namespace, name)` across the comp
 
 ## Registry
 
-Support a configured default registry named `nia` alongside path and Git
-sources. Workspace roots configure endpoints in `nia.toml`:
+Registries are named HTTPS endpoints alongside path and Git sources; `nia` is
+the conventional default name. Only the root `nia.toml` (the workspace root in
+a workspace) configures endpoints; a member `[registries]` table is rejected,
+because it would otherwise be silently ignored:
 
 ```toml
 [registries]
@@ -94,19 +111,10 @@ Rollback restores the original bytes, including formatting, or removes a
 newly published lockfile when no lockfile existed before the update. The
 transaction also covers reading the published result for change reporting.
 
-Introduce the new lock schema with registry support and reject every older schema. Do not dual-read, auto-migrate, or rewrite legacy lockfiles. Since Nia is still in development, users regenerate a lockfile using the new resolver.
+Older lock schemas are not read, migrated, or rewritten; users regenerate the
+lockfile with the current resolver.
 
-## Implementation order
-
-The implementation has completed all six milestones: strict SemVer identities;
-registry dependency declarations and graph fingerprints; deterministic
-single-version selection with bounded graph restarts; strict v1 index and
-archive validation; verified fetching, atomic cache publication, lock schema
-2, and locked/offline resolution; and update behavior, CLI reporting,
-documentation, and end-to-end coverage. Future package work should extend this
-contract directly and keep obsolete formats rejected.
-
-The manifest and lockfile rules have no compatibility mode. Changes needed to make the package model coherent should be made directly while the project is unreleased.
+## Graph restarts
 
 Registry graph resolution may restart from the root when a later dependency
 constraint changes an already selected release. Each restart carries explicit
@@ -116,3 +124,28 @@ Cached locked releases contribute constraints to the same graph as newly
 selected releases. A graph restart applies its candidate overrides before
 reusing a cached selection, so adding a compatible requirement can select a
 lower release without repeatedly restoring the previous locked version.
+
+## Compatibility
+
+The manifest, index, archive, and lockfile rules have no compatibility mode.
+While Nia is unreleased, a change that makes the package model coherent is made
+directly, and obsolete formats stay rejected.
+
+## Source identity
+
+A package source identity walks only the selected roots, skips excluded and
+symlinked entries, and streams file contents into BLAKE3 fingerprints. The
+walk is iterative and rejects source trees with more than one million regular
+files before publishing an identity. Manifest source-root and exclude paths are
+normalized as slash-separated, package-relative lexical paths before they enter
+the identity, so redundant `.` components and separators cannot create a second
+identity for one selection; parent, absolute, drive-prefixed, and backslash
+paths are rejected. Fingerprints frame both the count and the entries of each
+source-root and exclusion list.
+
+Canonical package text escapes each namespace, name, and version component
+before joining them as `namespace/name@version`. Percent signs, delimiters,
+control bytes, and non-ASCII UTF-8 bytes use uppercase percent encoding, so
+distinct component tuples cannot share a text identity. Local `nia.toml`
+manifests are limited to 1 MiB; readers consume at most one byte beyond that
+limit and reject oversized input before decoding UTF-8.

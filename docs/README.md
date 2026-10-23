@@ -35,6 +35,8 @@ The command-line help (`nia help`, `nia help <command>`, and
 | [Compiler architecture](dev/architecture.md) | Pipeline, query model, crate layers, and data flows |
 | [ABI internals](dev/abi-internals.md) | How the compiler implements the ABI |
 | [Build system internals](../crates/nia-build/README.md) | Build plans, caching, execution, progress observation, and publication |
+| [Package metadata](../crates/nia-package-metadata/README.md) | Version selection, registry index and archive formats, `nia.lock`, and source identity |
+| [Native Git client](../crates/nia-git/README.md) | Security model, enforced limits, and known gaps of `nia-git` |
 | [Repository maintenance](../maintain/README.md) | Audits, reports, and [performance baselines](../maintain/performance.md) |
 | [Release build](../tools/release/README.md) | Building and packaging release archives |
 

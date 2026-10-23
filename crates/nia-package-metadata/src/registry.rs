@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Strict registry index records and parsing.
+//! Registry endpoints, strict index and archive validation, credential-free
+//! HTTPS fetches, and the validated registry cache. The formats are specified
+//! in the crate README.
 
 use std::{
     ffi::OsStr,

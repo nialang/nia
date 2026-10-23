@@ -93,71 +93,9 @@ on subsequent runs. To repeat a randomized run, set `PROPTEST_RNG_SEED` to the
 same unsigned 64-bit integer before both runs (for example, `12345`). CI runs
 the suite independently on Linux and Windows and uploads regression files.
 
-Parser resource limits belong to the module that owns the input. File and
-transport readers share a bounded-read helper; malformed data and limit
-violations return `InvalidData`, while filesystem and transport errors retain
-their original error kinds. The current limits are:
-
-| Input | Limit |
-| --- | --- |
-| HTTP, Git TCP, or SSH response | 128 MiB |
-| HTTP response headers / each chunk header / trailer section | 64 KiB each |
-| Local pack or compressed loose object | 128 MiB |
-| Decoded object or delta result | 64 MiB per object |
-| Objects in a pack | 1,000,000 |
-| Pack decoded objects, delta instructions, and reconstructed results combined | 512 MiB |
-| Delta dependency depth | 64 |
-| Streamed packet-line advertisement, including flush | 16 MiB |
-| Loose reference / packed references | 4 KiB / 16 MiB |
-| Symbolic reference / annotated tag dereferences | 8 / 8 |
-| SSH identity / known hosts | 1 MiB / 16 MiB |
-| SSH agent identities | 1,024 |
-| SSH channel incoming message payloads, including stderr and control messages | 128 MiB per session |
-| SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
-| SSH plaintext key exchange | 1,024 messages / 1 MiB |
-| SSH encrypted IGNORE/DEBUG before a service/auth/exec response | 1,024 messages / 1 MiB per wait |
-| Checkout directory depth / entries | 64 / 1,000,000 |
-| Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |
-
-Checkout uses an explicit traversal stack and creates each tree path
-exclusively. The destination must be missing or empty, with real directory
-ancestors. The caller owns it throughout checkout and discards partial output
-on failure. Tree entries cannot name Git metadata, traverse directories, or
-use Windows device names and alternate data streams. These checks do not
-protect against another process concurrently replacing destination paths.
-Pack inflation charges the declared size before reading, validates the decoded
-size for both objects and delta instructions, and checks the remaining budget
-before allocating each delta result. Dependency queues resolve each delta once
-without cloning its base. The byte budgets cover decoded payloads; container
-and allocator overhead, compressed input buffers, and transient decoder buffers
-are additional memory.
-Local revision lookup validates reference names before accessing files and
-rejects links or reparse points below the repository root. Loose and packed
-references share commit and bounded tag resolution. Local repositories must
-remain stable during checkout; path checks do not prevent concurrent changes.
-HTTP responses require HTTP/1.0 or HTTP/1.1 status lines and valid header
-fields. Repeated Content-Length or Transfer-Encoding fields, conflicting
-framing, unsupported transfer codings, and body length mismatches are rejected.
-Chunked bodies require a complete trailer terminator and cannot contain
-framing fields in trailers or bytes after the final terminator. Chunk
-extensions are ignored after checking the header for control characters.
-Upload-pack sideband 2 carries progress and is ignored; sideband 3 reports
-failure. HTTP, Git TCP, and SSH checkout fixtures include progress packets.
-SSH channel EOF closes only the remote data direction. Checkout continues
-reading through channel close so a later nonzero exit status or exit signal
-fails the transfer before writing files. A transport EOF before channel close
-is an error; a peer may close without sending an optional exit status. The
-channel validates recipients, packet and window limits, and exit requests in
-both normal reads and waits for send-window space. Unknown channel requests
-that require a reply receive CHANNEL_FAILURE. Incoming stderr and ignored
-control messages count toward the session traffic budget.
-SSH transport MAC sequence numbers continue from the plaintext handshake
-through NEWKEYS because strict key exchange is not negotiated. The handshake
-validates ignored/debug messages, bounds their count and aggregate size, and
-discards one guessed server key-exchange packet when
-`first_kex_packet_follows` is incorrect. Noncanonical booleans, a nonzero
-KEXINIT reserved field, and trailing bytes in authentication success are
-rejected.
+The input limits and protocol checks these suites exercise are specified in
+the [`nia-git` README](../../crates/nia-git/README.md); a change to a limit
+updates that table and the owning module's tests together.
 
 ## Where Tests Live
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! HTTP URL and proxy policy for Git transport.
+//! Git smart HTTP(S): URLs, proxies, request framing, bounded response parsing,
+//! and the `git credential` bridge for HTTPS authentication.
 
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
