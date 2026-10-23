@@ -2,6 +2,8 @@
 //!
 //! Git object validation and checkout live behind this boundary. Package graph
 //! code consumes filesystem roots and never sees Git object representations.
+//! The enforced boundaries and resource limits are specified in this crate's
+//! `README.md`.
 
 use std::io;
 #[cfg(feature = "test-support")]

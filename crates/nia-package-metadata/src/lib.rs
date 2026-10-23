@@ -16,6 +16,9 @@
 //! sections embed for cross-package linkage and caches. Their encoders and
 //! decoders are strict and bounded, and every payload is tied to the protocol
 //! epoch.
+//!
+//! The version, registry, lockfile, and source-identity contract is specified
+//! in this crate's `README.md`.
 
 use std::{
     cmp::Ordering,

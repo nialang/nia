@@ -1,0 +1,151 @@
+# nia-git
+
+`nia-git` is the native Git client that fetches package dependencies. It needs
+no system Git or libgit2: it speaks the smart protocol over local repositories,
+`git://`, HTTP(S), and SSH, and checks out one commit into a caller-opened
+directory. Package resolution, caching, and `nia.lock` belong to
+[`nia-package-metadata`](../nia-package-metadata/); the user-facing source,
+credential, and proxy contract is in
+[Build scripts](../../docs/guide/build-scripts.md#dependency-sources).
+
+The public surface is `checkout_source(source, revision, destination)` for
+dependency checkouts and `fetch_https` for credential-free registry resources.
+
+This README is the crate's security model: what the client enforces, the
+limits it applies, and what it does not protect against. It is an internal
+review, not an independent audit or penetration test. Module mechanics live in
+each module's `//!` docs.
+
+## Layout
+
+| Module | Owns |
+| --- | --- |
+| `input` | Bounded reads shared by transports, repository files, and SSH configuration |
+| `pktline` | Packet-line framing |
+| `object/` | Loose objects, packs, delta application, ref and revision resolution, handle-relative repository access |
+| `transport/local`, `transport/git_tcp` | Local-repository and `git://` checkout |
+| `transport/http` | HTTP(S) URLs, proxies, request framing, response parsing, and the credential-helper bridge |
+| `transport/protocol` | Upload-pack requests, advertised refs, and side-band responses |
+| `transport/ssh/` | Key exchange, packet protection, wire encoding, channel, identities, agent, and `known_hosts` |
+
+Checkout integration tests are in [`tests/`](tests/); parser fuzz targets and
+their corpora are in [`fuzz/`](fuzz/).
+
+## Enforced Boundaries
+
+- **Checkout output.** `checkout_source` writes only through an already opened
+  destination directory handle; replacing the destination pathname after it is
+  opened does not redirect output. Output traversal, exclusive file creation,
+  and metadata cleanup are relative to `cap-std` directory handles. The
+  destination must be missing or empty with real directory ancestors, and the
+  caller discards partial output on failure. Trees are walked with an explicit
+  stack, and each path is created exclusively. Tree entries cannot name Git
+  metadata, traverse directories, or use Windows device names and alternate
+  data streams. Remote pack objects are decoded from the validated response
+  bytes, without a temporary `.git` tree.
+- **Local repositories.** Source paths are made absolute lexically and opened
+  component by component without following links. Refs, loose objects, and
+  pack files are read relative to those handles, so linked source components,
+  ref paths, object fanout, and pack directories are rejected.
+- **Revisions.** Ref names are validated before any file access. Loose and
+  packed refs resolve the same way, and symbolic-ref and annotated-tag
+  dereferencing is bounded.
+- **Packs and deltas.** Pack inflation charges the declared size before reading
+  and validates the decoded size of objects and delta instructions. Truncated
+  streams, checksum-boundary reads, unresolved forward deltas, and excessive
+  delta depth fail. Each delta is resolved once without cloning its base.
+- **HTTP.** Status lines must be HTTP/1.0 or HTTP/1.1. Repeated or conflicting
+  `Content-Length`/`Transfer-Encoding`, unsupported transfer codings, body
+  length mismatches, incomplete chunk terminators, framing fields in trailers,
+  and bytes after the final chunk are rejected. Chunk extensions are ignored
+  after checking for control characters. Redirects and interim responses are
+  not followed; any non-2xx status fails.
+- **Credentials.** HTTPS credentials come from `git credential fill` with
+  `GIT_TERMINAL_PROMPT=0`. The helper runs with a 30-second deadline and a
+  64 KiB output limit, and timeout cleanup kills its Unix process group or
+  Windows process tree. Credentials are held in zeroized memory, sent only over
+  TLS (directly or inside an HTTPS proxy `CONNECT` tunnel), and never written to
+  manifests, lockfiles, caches, or diagnostics. URLs with embedded credentials
+  are rejected. Registry resource fetches never request credentials.
+- **Upload-pack.** Sideband 2 progress is ignored; sideband 3 is fatal.
+- **SSH transport.** Host keys are checked against `known_hosts` after the
+  server signature verifies. MAC sequence numbers continue from the plaintext
+  handshake through NEWKEYS, because strict key exchange is not negotiated. The
+  handshake bounds ignored and debug messages, discards one guessed server
+  key-exchange packet when `first_kex_packet_follows` is wrong, and rejects
+  noncanonical booleans, a nonzero KEXINIT reserved field, and trailing bytes in
+  authentication success.
+- **SSH channel.** The channel validates recipients, flow-control windows,
+  packet sizes, EOF and close ordering, and exit requests, both in normal reads
+  and while waiting for send-window space. EOF closes only the remote data
+  direction; checkout reads through channel close, so a nonzero exit status or
+  exit signal fails the transfer before any file is written. A transport EOF
+  before channel close is an error, while a missing optional exit status is
+  not. Unknown requests that want a reply receive `CHANNEL_FAILURE`, and
+  incoming stderr and ignored control messages count toward the session
+  traffic budget.
+- **SSH identities.** Private identity files must not be readable by other
+  principals: on Unix, no group or other permission bits; on Windows, the owner
+  and every read grant must be the current user, SYSTEM, or Administrators.
+  Agent sockets and named pipes have a 30-second I/O timeout.
+
+Malformed data and limit violations return `InvalidData`; filesystem and
+transport errors keep their original error kinds.
+
+## Resource Limits
+
+Each limit belongs to the module that owns the input, and file and transport
+readers share one bounded-read helper.
+
+| Input | Limit |
+| --- | --- |
+| HTTP, Git TCP, or SSH response | 128 MiB |
+| HTTP response headers / each chunk header / trailer section | 64 KiB each |
+| Local pack or compressed loose object | 128 MiB |
+| Decoded object or delta result | 64 MiB per object |
+| Objects in a pack | 1,000,000 |
+| Pack decoded objects, delta instructions, and reconstructed results combined | 512 MiB |
+| Delta dependency depth | 64 |
+| Streamed packet-line advertisement, including flush | 16 MiB |
+| Loose reference / packed references | 4 KiB / 16 MiB |
+| Symbolic reference / annotated tag dereferences | 8 / 8 |
+| SSH identity / known hosts | 1 MiB / 16 MiB |
+| SSH agent identities | 1,024 |
+| SSH channel incoming payloads, including stderr and control messages | 128 MiB per session |
+| SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
+| SSH plaintext key exchange | 1,024 messages / 1 MiB |
+| SSH encrypted IGNORE/DEBUG before a service, auth, or exec response | 1,024 messages / 1 MiB per wait |
+| Credential helper output / run time | 64 KiB / 30 s |
+| Checkout directory depth / entries | 64 / 1,000,000 |
+| Checkout decoded tree and blob bytes, counting repeated objects | 512 MiB |
+
+Byte budgets count decoded payloads. Container and allocator overhead,
+compressed input buffers, and transient decoder buffers are additional memory,
+so the limits bound accounting rather than exact process memory.
+
+## Known Limits
+
+- Callers must open the checkout destination safely; package fetches open
+  cache and staging components without following links. The checks do not
+  stop another process from changing a local source repository during
+  checkout.
+- The SSH client supports only X25519 key exchange, Ed25519 host keys,
+  AES-128-CTR, HMAC-SHA2-256, public-key authentication, and one upload-pack
+  channel. It does not implement rekeying, host certificates, encrypted
+  identity files, or the rest of the SSH connection protocol. Unsupported
+  messages and algorithms fail closed. Interoperability is tested against a
+  local protocol fixture, not a third-party server.
+- Agent and credential-helper behavior depends on local processes and
+  operating-system facilities outside Nia's control.
+- HTTP redirects, proxy authentication, and interim responses are not
+  supported.
+
+## Assurance
+
+Parser boundaries are covered by deterministic regressions in their owning
+modules, stable property tests, and coverage-guided fuzz targets with minimized
+corpora in [`fuzz/corpus`](fuzz/corpus).
+[Testing](../../docs/dev/testing.md#untrusted-parser-properties) describes how to run them.
+None of these is a proof of absence of defects or external assurance. A change
+to parser boundaries, transport state, filesystem output, cryptography, or
+resource accounting must extend the regression suite and update this document.

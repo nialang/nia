@@ -100,15 +100,16 @@ fingerprints declared source content and applies the explicit `build`,
 `runtime`, and `development` dependency scopes. `PackageGraph::report` exposes
 declared versus resolved edges without loading source modules.
 
-Git dependencies are fetched through the Nia-owned `nia-git` transport for
-local repositories, the Git TCP protocol, HTTP(S), and SSH. The `git://`
-transport is unauthenticated and unencrypted; use HTTPS or verified SSH when
-transport confidentiality and server authentication are required. SSH checks
-server keys against OpenSSH `known_hosts` entries and authenticates with an
-unencrypted Ed25519 identity. Resolved commits and BLAKE3 source hashes are
-recorded in `nia.lock`; fetched trees are kept below the ignored
-`.nia/packages` directory and are checked against the recorded content hash
-before reuse.
+Dependencies are fetched by Nia itself: Git sources through the Nia-owned
+`nia-git` transport (local repositories, the Git TCP protocol, HTTP(S), and
+SSH), and registry packages over HTTPS. The user-facing source,
+credential, proxy, and lockfile contract is in
+[Build scripts](../../docs/guide/build-scripts.md#dependency-sources); the
+registry and lockfile formats are specified in
+[`nia-package-metadata`](../nia-package-metadata/README.md).
+Every selected source is recorded in `nia.lock`, and fetched trees are kept
+below the ignored `.nia/packages` directory and checked against their recorded
+content hash before reuse.
 
 Resolution records each dependency's logical graph root and checkout, including
 checkouts whose edge was filtered from the selected graph. Build plans encode
@@ -124,24 +125,8 @@ by dependency class:
 | Build | To the host build runner |
 
 Generated build roots and package roots not declared in `nia.toml` keep
-their plan behavior unchanged.
-
-Package source identities walk only the selected roots, skip excluded and
-symlinked entries, and stream file contents into BLAKE3 fingerprints. The walk
-is iterative and rejects source trees with more than one million regular files
-before publishing an identity. Manifest source-root and exclude paths are
-normalized as slash-separated, package-relative lexical paths before they enter
-the identity, so redundant `.` components and separators cannot create a second
-identity for one selection; parent, absolute, drive-prefixed, and backslash
-paths are rejected. Fingerprints frame both the count and the entries of each
-source-root and exclusion list.
-
-Canonical package text escapes each namespace, name, and version component
-before joining them as `namespace/name@version`. Percent signs, delimiters,
-control bytes, and non-ASCII UTF-8 bytes use uppercase percent encoding, so
-distinct component tuples cannot share a text identity. Local `nia.toml`
-manifests are limited to 1 MiB; readers consume at most one byte beyond that
-limit and reject oversized input before decoding UTF-8.
+their plan behavior unchanged. Source identity and manifest bounds are owned by
+[`nia-package-metadata`](../nia-package-metadata/README.md#source-identity).
 
 ## Plan Contract
 
