@@ -137,12 +137,13 @@ fn known_host_pattern_matches(pattern: &str, host_port: &str, host: &str, port: 
         return hashed_known_host_matches(pattern, host_port)
             || (port == 22 && hashed_known_host_matches(pattern, host));
     }
-    let candidate = if pattern.starts_with('[') {
-        host_port
+    // As in OpenSSH, a bare pattern names port 22 only; another port must be
+    // written as `[host]:port`.
+    if pattern.starts_with('[') {
+        glob_match(pattern.as_bytes(), host_port.as_bytes())
     } else {
-        host
-    };
-    glob_match(pattern.as_bytes(), candidate.as_bytes())
+        port == 22 && glob_match(pattern.as_bytes(), host.as_bytes())
+    }
 }
 
 fn hashed_known_host_matches(pattern: &str, candidate: &str) -> bool {
@@ -249,6 +250,25 @@ mod tests {
                 .kind(),
             io::ErrorKind::PermissionDenied
         );
+        // A bare pattern trusts port 22 only, as in OpenSSH.
+        assert_eq!(
+            known_hosts
+                .verify("good.example.test", 2222, &key_blob)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        let bracketed = KnownHosts::parse(
+            format!(
+                "[good.example.test]:2222 ssh-ed25519 {}\n",
+                base64(&key_blob)
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        bracketed
+            .verify("good.example.test", 2222, &key_blob)
+            .unwrap();
 
         let encoded_blob = base64(&key_blob);
         let malformed = format!("host.example.test ssh-ed25519 {encoded_blob}x\n");
