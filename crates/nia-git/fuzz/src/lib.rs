@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub fn packet_lines(input: &[u8]) {
     nia_git::fuzzing::packet_lines(input);
 }
