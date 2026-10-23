@@ -322,7 +322,9 @@ fn wait_agent_io(
     transferred: &mut u32,
     timeout: Duration,
 ) -> io::Result<()> {
-    use windows_sys::Win32::Foundation::{ERROR_TIMEOUT, GetLastError};
+    use windows_sys::Win32::Foundation::{
+        ERROR_IO_INCOMPLETE, ERROR_TIMEOUT, GetLastError, WAIT_TIMEOUT,
+    };
     use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, GetOverlappedResultEx};
 
     let timeout_ms = u32::try_from(timeout.as_millis()).expect("agent timeout fits u32");
@@ -332,13 +334,19 @@ fn wait_agent_io(
     }
     // SAFETY: GetLastError reads the calling thread's last Win32 error.
     let error = unsafe { GetLastError() };
-    if error == ERROR_TIMEOUT {
-        // SAFETY: cancel this operation, then wait for cancellation to complete
-        // before the caller's buffer and OVERLAPPED storage leave scope.
-        unsafe {
-            CancelIoEx(handle, overlapped);
-            GetOverlappedResult(handle, overlapped, transferred, 1);
-        }
+    // The wait failing does not mean the operation finished: a timeout
+    // reports WAIT_TIMEOUT, and other failures can leave it pending too. The
+    // kernel may still write into the caller's buffer and OVERLAPPED, both of
+    // which leave scope when this returns, so cancel the operation and wait
+    // for it to settle on every failure path. Waiting on an operation that
+    // already completed returns immediately.
+    // SAFETY: cancel this operation, then block until the kernel has
+    // finished with the buffer and OVERLAPPED storage.
+    unsafe {
+        CancelIoEx(handle, overlapped);
+        GetOverlappedResult(handle, overlapped, transferred, 1);
+    }
+    if matches!(error, WAIT_TIMEOUT | ERROR_TIMEOUT | ERROR_IO_INCOMPLETE) {
         return Err(io::Error::new(
             io::ErrorKind::TimedOut,
             "SSH agent I/O timed out",
@@ -598,6 +606,10 @@ mod tests {
 
         let error = agent_request(&mut client, &[11]).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        // Only the cancellation path produces this message. A raw
+        // WAIT_TIMEOUT error would have the same kind while leaving the read
+        // pending on freed stack storage.
+        assert_eq!(error.to_string(), "SSH agent I/O timed out", "{error:?}");
     }
 }
 
