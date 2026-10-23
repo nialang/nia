@@ -212,7 +212,27 @@ pub fn openAtBeneath(dir: FileDescriptor, path: &u8, mode: OpenMode, directory: 
     !.init(handle)
 }
 
+// The final component of a `*AtBeneath` mutation is joined to a parent that
+// was already checked against the capability root, so it must name one entry
+// of that parent. Windows also treats `\`, a drive prefix (`C:`), and an
+// alternate data stream (`name:stream`) as path syntax, and `..` would leave
+// the parent; any of them would reach past the containment check.
+fn checkEntryName(name: &u8) Errno!() {
+    if name[0] == 0 { return .Invalid!; }
+    if name[0] == b'.' and (name[1] == 0 or (name[1] == b'.' and name[2] == 0)) {
+        return .Invalid!;
+    }
+    let mut index: usize = 0;
+    while name[index] != 0 {
+        let byte = name[index];
+        if byte == 92 or byte == b'/' or byte == b':' { return .Invalid!; }
+        index += 1;
+    }
+    !()
+}
+
 fn createDirPath(parent: &u16, name: &u8) Errno!() {
+    checkEntryName(name).?;
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let fullPath = joinPath(parent, name, &mut storage[..]).?;
     if CreateDirectoryW(fullPath, 0) == 0 { return lastError()!; }
@@ -220,6 +240,7 @@ fn createDirPath(parent: &u16, name: &u8) Errno!() {
 }
 
 fn deletePath(parent: &u16, name: &u8, directory: bool) Errno!() {
+    checkEntryName(name).?;
     let mut storage: [u16; maxPathUnits] = [0; maxPathUnits];
     let fullPath = joinPath(parent, name, &mut storage[..]).?;
     if directory {
@@ -231,6 +252,8 @@ fn deletePath(parent: &u16, name: &u8, directory: bool) Errno!() {
 }
 
 fn renamePath(oldParent: &u16, oldName: &u8, newParent: &u16, newName: &u8) Errno!() {
+    checkEntryName(oldName).?;
+    checkEntryName(newName).?;
     let mut oldStorage: [u16; maxPathUnits] = [0; maxPathUnits];
     let oldPath = joinPath(oldParent, oldName, &mut oldStorage[..]).?;
     let mut newStorage: [u16; maxPathUnits] = [0; maxPathUnits];
