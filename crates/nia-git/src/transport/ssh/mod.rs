@@ -9,7 +9,7 @@ mod kex;
 mod known_hosts;
 mod wire;
 
-use agent::SshAgent;
+use agent::agent_identities;
 use channel::SshExecChannel;
 use cipher::{SshAes128CtrDirection, write_encrypted_ssh_packet};
 use identity::{SshSigner, load_ssh_identity};
@@ -21,6 +21,7 @@ use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 
+use super::http::base64_encode;
 use super::protocol::{
     build_upload_pack_request, parse_advertised_refs, parse_upload_pack_response,
     select_advertised_revision,
@@ -57,6 +58,9 @@ const SSH_CHANNEL_WINDOW: u32 = 2_097_152;
 const SSH_CHANNEL_MAX_PACKET: usize = 32_768;
 const MAX_SSH_CONTROL_MESSAGES: usize = 1024;
 const MAX_SSH_CONTROL_BYTES: usize = 1024 * 1024;
+/// OpenSSH servers disconnect after `MaxAuthTries` failures, six by default;
+/// stay one below so the last offer still gets an answer.
+const MAX_SSH_IDENTITY_ATTEMPTS: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SshUrl {
@@ -156,14 +160,33 @@ struct SshTransportKeys {
     session_id: [u8; 32],
 }
 
+fn validate_ssh_username(username: &str) -> io::Result<()> {
+    if username.is_empty() || username.len() > 256 || username.contains(['\0', '\r', '\n']) {
+        return Err(invalid_packet("SSH username is invalid"));
+    }
+    Ok(())
+}
+
+/// Asks whether the server would accept a key, without a signature. Only a
+/// `PK_OK` reply leads to signing, so rejected keys never reach the agent.
+fn build_publickey_query(username: &str, signer: &dyn SshSigner) -> io::Result<Vec<u8>> {
+    validate_ssh_username(username)?;
+    let mut request = vec![50];
+    encode_ssh_string(username.as_bytes(), &mut request)?;
+    encode_ssh_string(b"ssh-connection", &mut request)?;
+    encode_ssh_string(b"publickey", &mut request)?;
+    request.push(0);
+    encode_ssh_string(signer.signature_algorithm(), &mut request)?;
+    encode_ssh_string(signer.public_key_blob(), &mut request)?;
+    Ok(request)
+}
+
 fn build_publickey_auth_request(
     username: &str,
     session_id: &[u8; 32],
     signer: &mut dyn SshSigner,
 ) -> io::Result<Vec<u8>> {
-    if username.is_empty() || username.len() > 256 || username.contains(['\0', '\r', '\n']) {
-        return Err(invalid_packet("SSH username is invalid"));
-    }
+    validate_ssh_username(username)?;
     let mut signed = Vec::new();
     encode_ssh_string(session_id, &mut signed)?;
     signed.push(50);
@@ -189,11 +212,13 @@ fn build_publickey_auth_request(
     Ok(request)
 }
 
+/// Offers each identity in order until the server accepts one, as OpenSSH
+/// does. The caller bounds the list below the server's attempt limit.
 fn authenticate_publickey(
     stream: &mut (impl Read + Write),
     keys: &mut SshTransportKeys,
     username: &str,
-    signer: &mut dyn SshSigner,
+    identities: &mut [Box<dyn SshSigner>],
 ) -> io::Result<()> {
     let mut service_request = vec![5];
     encode_ssh_string(b"ssh-userauth", &mut service_request)?;
@@ -205,26 +230,89 @@ fn authenticate_publickey(
     }
     reader.finish()?;
 
+    let mut rejected = Vec::new();
+    let mut last_failure = String::new();
+    for signer in identities.iter_mut() {
+        match offer_publickey(stream, keys, username, signer.as_mut())? {
+            None => return Ok(()),
+            Some(failure) => {
+                rejected.push(ssh_key_fingerprint(signer.public_key_blob()));
+                last_failure = failure;
+            }
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "SSH server rejected every offered identity: {} ({last_failure})",
+            rejected.join(", ")
+        ),
+    ))
+}
+
+/// Returns `None` once the server accepts the identity, or the server's
+/// failure details when it rejects the key or its signature.
+fn offer_publickey(
+    stream: &mut (impl Read + Write),
+    keys: &mut SshTransportKeys,
+    username: &str,
+    signer: &mut dyn SshSigner,
+) -> io::Result<Option<String>> {
+    let query = build_publickey_query(username, signer)?;
+    write_encrypted_ssh_packet(stream, &mut keys.outbound, &query)?;
+    let response = read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)?;
+    match response.first().copied() {
+        Some(60) => {
+            let mut reader = SshReader::new(&response[1..]);
+            let algorithm = reader.string()?;
+            let public_key = reader.string()?;
+            reader.finish()?;
+            if algorithm != signer.signature_algorithm() || public_key != signer.public_key_blob() {
+                return Err(invalid_packet(
+                    "SSH server accepted a different public key than offered",
+                ));
+            }
+        }
+        _ => return read_authentication_failure(&response).map(Some),
+    }
+
     let request = build_publickey_auth_request(username, &keys.session_id, signer)?;
     write_encrypted_ssh_packet(stream, &mut keys.outbound, &request)?;
-    match read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)? {
-        payload if payload.as_slice() == [52] => Ok(()),
-        payload if payload.first() == Some(&51) => {
+    let response = read_expected_encrypted_ssh_message_any(stream, &mut keys.inbound)?;
+    if response.as_slice() == [52] {
+        return Ok(None);
+    }
+    read_authentication_failure(&response).map(Some)
+}
+
+fn read_authentication_failure(payload: &[u8]) -> io::Result<String> {
+    match payload.first().copied() {
+        Some(51) => {
             let mut reader = SshReader::new(&payload[1..]);
             let methods = String::from_utf8_lossy(reader.string()?).into_owned();
             let partial = reader.boolean()?;
             reader.finish()?;
-            Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!(
-                    "SSH public-key authentication failed (methods: {methods}, partial: {partial})"
-                ),
-            ))
+            Ok(format!("methods: {methods}, partial: {partial}"))
         }
+        Some(1) => Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "SSH server disconnected during authentication",
+        )),
         _ => Err(invalid_packet(
             "SSH server returned an unexpected authentication response",
         )),
     }
+}
+
+/// Formats a key as `ssh-keygen -l` does, so users can match it to `ssh-add -l`.
+fn ssh_key_fingerprint(public_key: &[u8]) -> String {
+    let algorithm = SshReader::new(public_key)
+        .string()
+        .map_or_else(|_| "unknown".into(), String::from_utf8_lossy);
+    let digest = ring::digest::digest(&ring::digest::SHA256, public_key);
+    let encoded = base64_encode(digest.as_ref());
+    let encoded = std::str::from_utf8(&encoded).expect("base64 output is ASCII");
+    format!("{algorithm} SHA256:{}", encoded.trim_end_matches('='))
 }
 
 fn open_git_upload_pack<'a, S: Read + Write>(
@@ -365,7 +453,11 @@ pub(crate) fn checkout_ssh(
     destination_dir: &Dir,
 ) -> io::Result<String> {
     let ssh_directory = ssh_directory()?;
-    checkout_ssh_with_config_into(source, revision, destination_dir, &ssh_directory, true)
+    let agent = agent_identities()?
+        .into_iter()
+        .map(|identity| Box::new(identity) as Box<dyn SshSigner>)
+        .collect();
+    checkout_ssh_with_config_into(source, revision, destination_dir, &ssh_directory, agent)
 }
 
 #[cfg(test)]
@@ -374,9 +466,49 @@ fn checkout_ssh_with_config(
     revision: &str,
     destination: &Dir,
     ssh_directory: &Path,
-    use_agent: bool,
+    agent: Vec<Box<dyn SshSigner>>,
 ) -> io::Result<String> {
-    checkout_ssh_with_config_into(source, revision, destination, ssh_directory, use_agent)
+    checkout_ssh_with_config_into(source, revision, destination, ssh_directory, agent)
+}
+
+/// Identities to offer, with notes about identities left out for the error
+/// when every offered identity is rejected.
+struct SshIdentityCandidates {
+    identities: Vec<Box<dyn SshSigner>>,
+    notes: Vec<String>,
+}
+
+/// Builds the identities to offer: agent keys in the agent's order, then
+/// `id_ed25519` unless the agent already holds it, at most
+/// [`MAX_SSH_IDENTITY_ATTEMPTS`] in all.
+fn ssh_identity_candidates(
+    mut identities: Vec<Box<dyn SshSigner>>,
+    ssh_directory: &Path,
+) -> io::Result<SshIdentityCandidates> {
+    let mut notes = Vec::new();
+    match load_ssh_identity(ssh_directory) {
+        Ok(file) => {
+            if !identities
+                .iter()
+                .any(|identity| identity.public_key_blob() == file.public_key_blob())
+            {
+                identities.push(Box::new(file));
+            }
+        }
+        // Without an agent key, the identity file is the only credential,
+        // so its error is the failure.
+        Err(error) if identities.is_empty() => return Err(error),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => notes.push(format!("the identity file was not offered: {error}")),
+    }
+    if identities.len() > MAX_SSH_IDENTITY_ATTEMPTS {
+        notes.push(format!(
+            "{} more identities were not offered; at most {MAX_SSH_IDENTITY_ATTEMPTS} are tried",
+            identities.len() - MAX_SSH_IDENTITY_ATTEMPTS
+        ));
+        identities.truncate(MAX_SSH_IDENTITY_ATTEMPTS);
+    }
+    Ok(SshIdentityCandidates { identities, notes })
 }
 
 fn checkout_ssh_with_config_into(
@@ -384,7 +516,7 @@ fn checkout_ssh_with_config_into(
     revision: &str,
     destination_dir: &Dir,
     ssh_directory: &Path,
-    use_agent: bool,
+    agent: Vec<Box<dyn SshSigner>>,
 ) -> io::Result<String> {
     let url = parse_ssh_url(source)?;
     let known_hosts_path = ssh_directory.join("known_hosts");
@@ -404,15 +536,10 @@ fn checkout_ssh_with_config_into(
             )
         })?,
     )?;
-    let mut signer: Box<dyn SshSigner> = if use_agent {
-        if let Some(agent) = SshAgent::connect()? {
-            Box::new(agent)
-        } else {
-            Box::new(load_ssh_identity(ssh_directory)?)
-        }
-    } else {
-        Box::new(load_ssh_identity(ssh_directory)?)
-    };
+    let SshIdentityCandidates {
+        mut identities,
+        notes,
+    } = ssh_identity_candidates(agent, ssh_directory)?;
 
     let address = (url.host.as_str(), url.port)
         .to_socket_addrs()?
@@ -422,7 +549,14 @@ fn checkout_ssh_with_config_into(
     stream.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
     stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
     let mut keys = perform_ssh_key_exchange(&mut stream, &url, &known_hosts)?;
-    authenticate_publickey(&mut stream, &mut keys, &url.user, signer.as_mut())?;
+    authenticate_publickey(&mut stream, &mut keys, &url.user, &mut identities).map_err(
+        |error| {
+            if error.kind() != io::ErrorKind::PermissionDenied || notes.is_empty() {
+                return error;
+            }
+            io::Error::new(error.kind(), format!("{error}; {}", notes.join("; ")))
+        },
+    )?;
     let mut channel = open_git_upload_pack(&mut stream, &mut keys, &url.path)?;
 
     let advertisement = read_packet_section(&mut channel)?;

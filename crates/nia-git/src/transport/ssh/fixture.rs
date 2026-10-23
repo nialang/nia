@@ -20,6 +20,25 @@ pub(crate) fn restrict_to_current_user(path: &Path) {
     assert!(output.status.success(), "{output:?}");
 }
 
+/// Seed of the fixture's `id_ed25519`, which the server accepts by default.
+pub(super) const FIXTURE_IDENTITY_SEED: [u8; 32] = [37; 32];
+
+/// Public-key blobs the client offered without and with a signature, in order.
+#[derive(Debug)]
+pub(super) struct SshFixtureLog {
+    client_proposals: SshKexInit,
+    pub(super) offered: Vec<Vec<u8>>,
+    pub(super) signed: Vec<Vec<u8>>,
+}
+
+pub(super) fn ed25519_public_key_blob(seed: &[u8; 32]) -> Vec<u8> {
+    let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(seed).unwrap();
+    let mut blob = Vec::new();
+    encode_ssh_string(b"ssh-ed25519", &mut blob).unwrap();
+    encode_ssh_string(key_pair.public_key().as_ref(), &mut blob).unwrap();
+    blob
+}
+
 pub(crate) fn with_checkout_fixture(
     mutator: impl FnOnce(&Path),
     callback: impl FnOnce(&Path, &str, &Path, &Path, &str),
@@ -32,6 +51,18 @@ pub(super) fn with_checkout_fixture_status(
     mutator: impl FnOnce(&Path),
     callback: impl FnOnce(&Path, &str, &Path, &Path, &str),
 ) {
+    with_checkout_fixture_accepting(exit_status, &FIXTURE_IDENTITY_SEED, mutator, callback);
+}
+
+/// Runs the fixture with a server that authorizes only the Ed25519 key from
+/// `accepted_seed`, and returns what the client offered.
+pub(super) fn with_checkout_fixture_accepting(
+    exit_status: u32,
+    accepted_seed: &[u8; 32],
+    mutator: impl FnOnce(&Path),
+    callback: impl FnOnce(&Path, &str, &Path, &Path, &str),
+) -> SshFixtureLog {
+    let accepted_key = ed25519_public_key_blob(accepted_seed);
     use std::net::TcpListener;
     use std::process::{Command, Stdio};
 
@@ -273,36 +304,73 @@ pub(super) fn with_checkout_fixture_status(
         put_string(b"ssh-userauth", &mut service_accept);
         write_encrypted_ssh_packet(&mut stream, &mut outbound, &service_accept).unwrap();
 
-        let auth_request = inbound.read_packet(&mut stream).unwrap().payload;
-        assert_eq!(auth_request[0], 50);
-        let mut offset = 1;
-        assert_eq!(take_string(&auth_request, &mut offset), b"git");
-        assert_eq!(take_string(&auth_request, &mut offset), b"ssh-connection");
-        assert_eq!(take_string(&auth_request, &mut offset), b"publickey");
-        assert_eq!(auth_request[offset], 1);
-        offset += 1;
-        assert_eq!(take_string(&auth_request, &mut offset), b"ssh-ed25519");
-        let public_key_blob = take_string(&auth_request, &mut offset);
-        let signature_field_offset = offset;
-        let signature_blob = take_string(&auth_request, &mut offset);
-        assert_eq!(offset, auth_request.len());
-        let mut sig_offset = 0;
-        assert_eq!(take_string(signature_blob, &mut sig_offset), b"ssh-ed25519");
-        let signature = take_string(signature_blob, &mut sig_offset);
-        let mut signed = Vec::new();
-        put_string(&session_id, &mut signed);
-        signed.extend_from_slice(&auth_request[..signature_field_offset]);
-        let mut key_offset = 0;
-        assert_eq!(
-            take_string(public_key_blob, &mut key_offset),
-            b"ssh-ed25519"
-        );
-        let public_key = take_string(public_key_blob, &mut key_offset);
-        assert_eq!(key_offset, public_key_blob.len());
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
-            .verify(&signed, signature)
-            .unwrap();
-        write_encrypted_ssh_packet(&mut stream, &mut outbound, &[52]).unwrap();
+        // Answer unsigned queries with PK_OK only for the accepted key, as an
+        // OpenSSH server with one authorized key would.
+        let mut log = SshFixtureLog {
+            client_proposals,
+            offered: Vec::new(),
+            signed: Vec::new(),
+        };
+        let mut failure = vec![51];
+        put_string(b"publickey", &mut failure);
+        failure.push(0);
+        loop {
+            // A client that has run out of identities closes the connection.
+            let Ok(packet) = inbound.read_packet(&mut stream) else {
+                return log;
+            };
+            let auth_request = packet.payload;
+            assert_eq!(auth_request[0], 50);
+            let mut offset = 1;
+            assert_eq!(take_string(&auth_request, &mut offset), b"git");
+            assert_eq!(take_string(&auth_request, &mut offset), b"ssh-connection");
+            assert_eq!(take_string(&auth_request, &mut offset), b"publickey");
+            let has_signature = auth_request[offset];
+            offset += 1;
+            let algorithm = take_string(&auth_request, &mut offset).to_vec();
+            let public_key_blob = take_string(&auth_request, &mut offset).to_vec();
+            if has_signature == 0 {
+                assert_eq!(offset, auth_request.len());
+                log.offered.push(public_key_blob.clone());
+                if public_key_blob == accepted_key {
+                    let mut ok = vec![60];
+                    put_string(&algorithm, &mut ok);
+                    put_string(&public_key_blob, &mut ok);
+                    write_encrypted_ssh_packet(&mut stream, &mut outbound, &ok).unwrap();
+                } else {
+                    write_encrypted_ssh_packet(&mut stream, &mut outbound, &failure).unwrap();
+                }
+                continue;
+            }
+            assert_eq!(has_signature, 1);
+            assert_eq!(algorithm, b"ssh-ed25519");
+            let signature_field_offset = offset;
+            let signature_blob = take_string(&auth_request, &mut offset);
+            assert_eq!(offset, auth_request.len());
+            log.signed.push(public_key_blob.clone());
+            let mut sig_offset = 0;
+            assert_eq!(take_string(signature_blob, &mut sig_offset), b"ssh-ed25519");
+            let signature = take_string(signature_blob, &mut sig_offset);
+            let mut signed = Vec::new();
+            put_string(&session_id, &mut signed);
+            signed.extend_from_slice(&auth_request[..signature_field_offset]);
+            let mut key_offset = 0;
+            assert_eq!(
+                take_string(&public_key_blob, &mut key_offset),
+                b"ssh-ed25519"
+            );
+            let public_key = take_string(&public_key_blob, &mut key_offset);
+            assert_eq!(key_offset, public_key_blob.len());
+            ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
+                .verify(&signed, signature)
+                .unwrap();
+            if public_key_blob != accepted_key {
+                write_encrypted_ssh_packet(&mut stream, &mut outbound, &failure).unwrap();
+                continue;
+            }
+            write_encrypted_ssh_packet(&mut stream, &mut outbound, &[52]).unwrap();
+            break;
+        }
 
         let open = inbound.read_packet(&mut stream).unwrap().payload;
         assert_eq!(open[0], 90);
@@ -422,7 +490,7 @@ pub(super) fn with_checkout_fixture_status(
             assert_eq!(close, [97, 0, 0, 0, 7]);
             break;
         }
-        client_proposals
+        log
     });
 
     let ssh_config = root.join("ssh");
@@ -447,7 +515,7 @@ pub(super) fn with_checkout_fixture_status(
     .unwrap();
     std::fs::write(
         ssh_config.join("id_ed25519"),
-        openssh_private_key(&[37; 32]),
+        openssh_private_key(&FIXTURE_IDENTITY_SEED),
     )
     .unwrap();
     #[cfg(unix)]
@@ -463,12 +531,12 @@ pub(super) fn with_checkout_fixture_status(
     restrict_to_current_user(&ssh_config.join("id_ed25519"));
     let source = format!("ssh://git@127.0.0.1:{}/org/repo.git", address.port());
     callback(&root, &source, &ssh_config, &repository, &commit_id);
+    let log = server.join().unwrap();
     assert!(
-        server
-            .join()
-            .unwrap()
+        log.client_proposals
             .kex_algorithms
             .contains(&"curve25519-sha256".to_string())
     );
     std::fs::remove_dir_all(root).unwrap();
+    log
 }

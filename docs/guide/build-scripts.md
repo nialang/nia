@@ -119,13 +119,16 @@ repository credentials are sent only inside that encrypted connection.
 
 SSH sources verify the server key against `~/.ssh/known_hosts` (or
 `%USERPROFILE%\.ssh\known_hosts` on Windows), accepting plain and hashed
-OpenSSH entries, and reject unknown or changed host keys. Nia first uses a
-compatible identity from the running SSH agent (`SSH_AUTH_SOCK` on Unix-like
-systems or the OpenSSH agent named pipe on Windows), preferring Ed25519, then
-ECDSA P-256, then RSA with RSA-SHA2-512 signatures. If no supported agent
-identity is available, it reads an unencrypted `~/.ssh/id_ed25519`. Other key
-types and encrypted key files are not read directly; load a supported key into
-the agent instead.
+OpenSSH entries, and reject unknown or changed host keys. Nia offers the
+Ed25519, ECDSA P-256, and RSA (with RSA-SHA2-512 signatures) identities in the
+running SSH agent (`SSH_AUTH_SOCK` on Unix-like systems or the OpenSSH agent
+named pipe on Windows) in the order the agent lists them, as `ssh-add -l`
+shows, followed by an unencrypted `~/.ssh/id_ed25519`. Like OpenSSH, it asks
+the server whether it accepts each key before signing, and it offers at most
+five keys per connection to stay under the server's default attempt limit.
+When the server rejects them all, the error lists each key's fingerprint as
+`ssh-keygen -l` prints it. Other key types and encrypted key files are not read
+directly; load a supported key into the agent instead.
 
 Git fetches request a shallow history with depth 1, which includes the selected
 commit and the files needed to check it out without downloading its ancestors.

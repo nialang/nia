@@ -62,12 +62,127 @@ fn ssh_checkout_does_not_publish_a_pack_when_remote_process_fails() {
             let destination = root.join("failed-checkout");
             std::fs::create_dir(&destination).unwrap();
             let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
-            let error = checkout_ssh_with_config(source, "HEAD", &destination_dir, config, false)
-                .unwrap_err();
+            let error =
+                checkout_ssh_with_config(source, "HEAD", &destination_dir, config, Vec::new())
+                    .unwrap_err();
             assert!(error.to_string().contains("status 17"), "{error}");
             assert!(std::fs::read_dir(destination).unwrap().next().is_none());
         },
     );
+}
+
+fn agent_key(seed: u8) -> Box<dyn SshSigner> {
+    Box::new(identity::SshEd25519Identity {
+        public_key: fixture::ed25519_public_key_blob(&[seed; 32]),
+        private_key: ring::signature::Ed25519KeyPair::from_seed_unchecked(&[seed; 32]).unwrap(),
+    })
+}
+
+/// Checks out from a server that accepts only `accepted_seed`, offering the
+/// given agent keys before the fixture's `id_ed25519`.
+fn checkout_offering(
+    agent_seeds: &[u8],
+    accepted_seed: &[u8; 32],
+) -> (io::Result<String>, fixture::SshFixtureLog) {
+    let mut result = None;
+    let log = fixture::with_checkout_fixture_accepting(
+        0,
+        accepted_seed,
+        |_| {},
+        |root, source, config, _, _| {
+            let destination = root.join("checkout");
+            std::fs::create_dir(&destination).unwrap();
+            let destination_dir = Dir::open_ambient_dir(&destination, ambient_authority()).unwrap();
+            let agent = agent_seeds.iter().map(|&seed| agent_key(seed)).collect();
+            result = Some(checkout_ssh_with_config(
+                source,
+                "HEAD",
+                &destination_dir,
+                config,
+                agent,
+            ));
+        },
+    );
+    (result.unwrap(), log)
+}
+
+#[test]
+fn ssh_auth_tries_agent_keys_in_order_and_signs_only_the_accepted_one() {
+    let (result, log) = checkout_offering(&[1, 2, 3], &[2; 32]);
+    result.unwrap();
+    assert_eq!(
+        log.offered,
+        [
+            fixture::ed25519_public_key_blob(&[1; 32]),
+            fixture::ed25519_public_key_blob(&[2; 32]),
+        ]
+    );
+    assert_eq!(log.signed, [fixture::ed25519_public_key_blob(&[2; 32])]);
+}
+
+#[test]
+fn ssh_auth_falls_back_to_the_identity_file_after_agent_keys() {
+    let file_key = fixture::ed25519_public_key_blob(&fixture::FIXTURE_IDENTITY_SEED);
+    let (result, log) = checkout_offering(&[1], &fixture::FIXTURE_IDENTITY_SEED);
+    result.unwrap();
+    assert_eq!(
+        log.offered,
+        [fixture::ed25519_public_key_blob(&[1; 32]), file_key.clone()]
+    );
+    assert_eq!(log.signed, std::slice::from_ref(&file_key));
+
+    // An agent that already holds the file's key offers it once, even when
+    // the server rejects every key and the whole list is tried.
+    let (result, log) = checkout_offering(&[fixture::FIXTURE_IDENTITY_SEED[0], 1], &[9; 32]);
+    assert!(result.is_err());
+    assert_eq!(
+        log.offered,
+        [file_key, fixture::ed25519_public_key_blob(&[1; 32])]
+    );
+}
+
+#[test]
+fn ssh_auth_stops_below_max_auth_tries_and_names_rejected_keys() {
+    let (result, log) = checkout_offering(&[1, 2, 3, 4, 5, 6], &[9; 32]);
+    let error = result.unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    assert_eq!(log.offered.len(), MAX_SSH_IDENTITY_ATTEMPTS);
+    assert!(log.signed.is_empty(), "rejected keys must not be signed");
+    let message = error.to_string();
+    for seed in 1..=5 {
+        let fingerprint = ssh_key_fingerprint(&fixture::ed25519_public_key_blob(&[seed; 32]));
+        assert!(message.contains(&fingerprint), "{message}");
+    }
+    assert!(
+        message.contains("2 more identities were not offered"),
+        "{message}"
+    );
+}
+
+#[test]
+fn ssh_key_fingerprints_match_ssh_keygen() {
+    let mut blob = Vec::new();
+    encode_ssh_string(b"ssh-ed25519", &mut blob).unwrap();
+    encode_ssh_string(&[7; 32], &mut blob).unwrap();
+    // `ssh-keygen -lf` on the same public key.
+    assert_eq!(
+        ssh_key_fingerprint(&blob),
+        "ssh-ed25519 SHA256:gNSIRW+2Iyiuvsdp/bgjy38bvWHw6wQm3tuoXrl3WjQ"
+    );
+}
+
+#[test]
+fn ssh_publickey_query_carries_no_signature() {
+    let signer = agent_key(4);
+    let query = build_publickey_query("git", signer.as_ref()).unwrap();
+    let mut expected = vec![50];
+    for field in [b"git".as_slice(), b"ssh-connection", b"publickey"] {
+        encode_ssh_string(field, &mut expected).unwrap();
+    }
+    expected.push(0);
+    encode_ssh_string(b"ssh-ed25519", &mut expected).unwrap();
+    encode_ssh_string(signer.public_key_blob(), &mut expected).unwrap();
+    assert_eq!(query, expected);
 }
 
 #[test]
