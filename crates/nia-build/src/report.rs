@@ -18,6 +18,19 @@ use crate::{
     BuildError, CoordinatorError, ExternalCommandError, ExternalCommandFailure, TestFailure,
 };
 
+/// Formats a path for a diagnostic. Canonicalized Windows paths carry a
+/// verbatim `\\?\` prefix that users never typed; this module is the one place
+/// build errors are presented, so the prefix is dropped here.
+fn shown(path: &Path) -> String {
+    let text = path.display().to_string();
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{share}");
+    }
+    text.strip_prefix(r"\\?\")
+        .map(str::to_owned)
+        .unwrap_or(text)
+}
+
 /// Renders one build failure using the canonical diagnostic layout.
 pub fn render_build_error(
     error: &BuildError,
@@ -96,7 +109,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 codes::BUILD_RUNNER,
                 "could not run the generated build runner",
             )
-            .note(format!("runner `{}`: {error}", path.display()))
+            .note(format!("runner `{}`: {error}", shown(path)))
             .help("check the toolchain and executable permissions, then rerun the build")
             .finish();
             append_output_note(&mut diagnostic, "stdout", stdout);
@@ -156,19 +169,19 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 codes::BUILD_PLAN,
                 "could not resolve the local package graph",
             )
-            .note(format!("package root `{}`: {error}", path.display()))
+            .note(format!("package root `{}`: {error}", shown(path)))
             .help("check nia.toml dependency sources, scopes, and protocol epoch")
             .finish(),
         ],
         BuildError::UpdateLock { path, error } => vec![
             Diagnostic::user_error(codes::BUILD_PLAN, "could not update nia.lock")
-                .note(format!("update from `{}`: {error}", path.display()))
+                .note(format!("update from `{}`: {error}", shown(path)))
                 .help("check nia.toml Git and registry sources and the names passed to `nia update`")
                 .finish(),
         ],
         BuildError::WorkspaceSelection { path, detail } => vec![
             Diagnostic::user_error(codes::BUILD_PLAN, "could not select workspace packages")
-                .note(format!("workspace discovery from `{}`: {detail}", path.display()))
+                .note(format!("workspace discovery from `{}`: {detail}", shown(path)))
                 .help("check workspace.members, workspace.default-members, and the selected package names")
                 .finish(),
         ],
@@ -177,7 +190,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 codes::BUILD_PLAN,
                 "build plan references an unavailable manifest dependency",
             )
-            .note(format!("plan draft `{}`: {detail}", path.display()))
+            .note(format!("plan draft `{}`: {detail}", shown(path)))
             .help("use addDependency only for a selected runtime or development dependency declared in nia.toml")
             .finish(),
         ],
@@ -188,7 +201,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             Diagnostic::user_error(codes::BUILD_PLAN, "build path cannot be represented in Nia")
                 .note(format!(
                     "{role} path `{}` is not valid UTF-8",
-                    path.display()
+                    shown(path)
                 ))
                 .help("rename the path to use UTF-8 characters")
                 .finish(),
@@ -215,7 +228,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 codes::BUILD_PLAN,
                 "runner configuration observations are invalid",
             )
-            .note(format!("draft `{}`: {error}", path.display()))
+            .note(format!("draft `{}`: {error}", shown(path)))
             .help("rerun the build after checking the build script's bounded probes")
             .finish(),
         ],
@@ -237,7 +250,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             Diagnostic::user_error(codes::BUILD_PLAN, "could not find `build.nia`")
                 .note(format!(
                     "searched from `{}` and its package boundary",
-                    start.display()
+                    shown(start)
                 ))
                 .help("run the command inside a package containing build.nia, or pass its root")
                 .finish(),
@@ -345,7 +358,7 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
         .note(format!(
             "action `{}` resolved `{}`",
             action.name(),
-            path.display()
+            shown(path)
         ))
         .help("rename the path to use UTF-8 characters")
         .finish(),
@@ -376,7 +389,7 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
             codes::BUILD_ACTION,
             format!("build action `{}` failed to {operation}", action.name()),
         )
-        .note(format!("path `{}`: {error}", path.display()))
+        .note(format!("path `{}`: {error}", shown(path)))
         .help("check the input/output path and available permissions")
         .finish(),
         CoordinatorError::ExternalCommand(details) => external_command_diagnostic(details),
@@ -394,7 +407,7 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
                     action.name()
                 ),
             )
-            .note(format!("path `{}`: {error}", path.display()));
+            .note(format!("path `{}`: {error}", shown(path)));
             if let Some(cause) = cause {
                 diagnostic = diagnostic.note(format!("original action failure: {}", cause));
             }
@@ -414,8 +427,8 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
         )
         .note(format!(
             "output `{}` via lock `{}`: {error}",
-            output.display(),
-            lock.display()
+            shown(output),
+            shown(lock)
         ))
         .finish(),
         CoordinatorError::OutputRecovery(error) => Diagnostic::user_error(
@@ -443,7 +456,7 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
     .note(format!(
         "program `{}` in `{}`",
         details.program,
-        details.working_directory.display()
+        shown(&details.working_directory)
     ))
     .finish();
     match &details.failure {
@@ -550,7 +563,7 @@ fn runner_failure(
         Diagnostic::user_error(codes::BUILD_RUNNER, "build runner exited unsuccessfully")
             .note(format!(
                 "runner `{}` {}",
-                path.display(),
+                shown(path),
                 describe_exit_status(status)
             ))
             .finish();
@@ -588,7 +601,7 @@ fn io_diagnostic(
 fn create_directory_diagnostic(role: &str, path: &Path, error: &std::io::Error) -> Vec<Diagnostic> {
     vec![
         Diagnostic::user_error(codes::ARTIFACT_IO, format!("could not create {role}"))
-            .note(format!("path `{}`: {error}", path.display()))
+            .note(format!("path `{}`: {error}", shown(path)))
             .help("check directory permissions and available disk space")
             .finish(),
     ]
@@ -599,7 +612,7 @@ fn io_plan_diagnostic(operation: &str, path: &Path, error: &std::io::Error) -> V
         Diagnostic::user_error(codes::BUILD_PLAN, "could not complete build handoff")
             .note(format!(
                 "failed to {operation} at `{}`: {error}",
-                path.display()
+                shown(path)
             ))
             .help("remove stale .nia-build files if necessary and check permissions")
             .finish(),
@@ -609,7 +622,7 @@ fn io_plan_diagnostic(operation: &str, path: &Path, error: &std::io::Error) -> V
 fn plan_handoff_diagnostic<T: std::fmt::Display>(path: &Path, error: &T) -> Vec<Diagnostic> {
     vec![
         Diagnostic::user_error(codes::BUILD_PLAN, "could not complete build handoff")
-            .note(format!("path `{}`: {error}", path.display()))
+            .note(format!("path `{}`: {error}", shown(path)))
             .help("remove stale .nia-build files if necessary and check permissions")
             .finish(),
     ]
