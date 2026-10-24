@@ -347,8 +347,11 @@ code calls them, so linked foreign code can call them by name. Other
 functions, including non-`pub` `extern` definitions, are compiled only when
 reachable.
 
-The symbol `_start` is reserved for the toolchain's process entry; a program
-cannot export it.
+A freestanding executable links the toolchain runtime, which exports the
+platform entry symbol (`_start`, or `main` on macOS); defining the same
+external symbol in the program is a duplicate definition. A bare program
+links no runtime and may export any entry symbol its link configuration
+names.
 
 ## Static Data
 

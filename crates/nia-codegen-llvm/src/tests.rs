@@ -95,7 +95,7 @@ fun increment(value: i32) i32 {
     value + 1
 }
 
-fun main() i32 {
+pub fun main() i32 {
     let pointer: &fun(i32) i32 = &increment;
     pointer(41)
 }
@@ -150,7 +150,7 @@ fn readiness_coordinator_retries_units_only_after_exact_owner_publication() {
 module geom;
 using root::geom;
 
-fun main() i32 {
+pub fun main() i32 {
     let mut point = geom::Point { x: 40, y: 2 };
     point.x + point.y
 }

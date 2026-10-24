@@ -400,7 +400,7 @@ fun answer() i32 {
     42
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer() + zeroes[0]
 }
 "#,

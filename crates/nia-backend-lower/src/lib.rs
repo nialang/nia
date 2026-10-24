@@ -70,7 +70,7 @@ use nia_mangle::{MangleModuleId, MangleResolvers, mangle_symbol_id};
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
-use nia_symbol::{SymbolId, SymbolText, known, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolText, symbol_text_or_unresolved};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TyKind, TypeEquivalence};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;

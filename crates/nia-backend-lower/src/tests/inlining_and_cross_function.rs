@@ -8,7 +8,7 @@ fun answer() i32 {
     42
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer()
 }
 "#;
@@ -52,7 +52,7 @@ fun answer() i32 {
     42
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer()
 }
 "#;
@@ -95,7 +95,7 @@ fun one[T]() i32 {
     1
 }
 
-fun main() i32 {
+pub fun main() i32 {
     one[i32]()
 }
 "#;
@@ -140,7 +140,7 @@ fun pair() [i32; 2] {
     [1, 2]
 }
 
-fun main() [i32; 2] {
+pub fun main() [i32; 2] {
     pair()
 }
 "#;
@@ -184,7 +184,7 @@ fun pair() [i32; 2] {
     [1, 2]
 }
 
-fun main() [i32; 2] {
+pub fun main() [i32; 2] {
     pair()
 }
 "#;
@@ -227,7 +227,7 @@ fun pair() [i32; 2] {
     [1, 2]
 }
 
-fun main() [i32; 2] {
+pub fun main() [i32; 2] {
     pair()
 }
 "#;
@@ -277,7 +277,7 @@ fun identity(value: i32) i32 {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity(7)
 }
 "#;
@@ -321,7 +321,7 @@ fun identity(value: i32) i32 {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity(7)
 }
 "#;
@@ -372,7 +372,7 @@ fun identity[T](value: T) T {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity[i32](7)
 }
 "#;
@@ -451,7 +451,7 @@ fun effect() i32 {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     first(7, effect())
 }
 "#;
@@ -501,7 +501,7 @@ fun values() [i32; 5] {
     [1, 2, 3, 4, 5]
 }
 
-fun main() [i32; 5] {
+pub fun main() [i32; 5] {
     values()
 }
 "#;
@@ -577,7 +577,7 @@ fun values[T]() [i32; 5] {
     [1, 2, 3, 4, 5]
 }
 
-fun main() [i32; 5] {
+pub fun main() [i32; 5] {
     values[i32]()
 }
 "#;
@@ -655,7 +655,7 @@ fun answer() i32 {
     42
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer()
 }
 "#;
@@ -728,7 +728,7 @@ fun answer(value: i32) i32 {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer(42)
 }
 "#;
@@ -770,7 +770,7 @@ fun answer[T](value: T) T {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer[i32](42)
 }
 "#;
@@ -812,7 +812,7 @@ fun answer[T]() i32 {
     42
 }
 
-fun main() i32 {
+pub fun main() i32 {
     answer[i32]()
 }
 "#;
@@ -856,7 +856,7 @@ fun answer[N: usize]() usize {
     N
 }
 
-fun main() [usize; 2] {
+pub fun main() [usize; 2] {
     [answer[3](), answer[4]()]
 }
 "#;
@@ -914,7 +914,7 @@ fun values() [i32; 5] {
     items
 }
 
-fun main() [i32; 5] {
+pub fun main() [i32; 5] {
     values()
 }
 "#;
@@ -988,7 +988,7 @@ extend Counter : Source {
     }
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -1183,7 +1183,7 @@ extend[T] Box[T] : Source {
     }
 }
 
-fun main() i32 {
+pub fun main() i32 {
     let mut value = Box[i32] { value: 0 };
     _ = value;
     0
@@ -1351,7 +1351,7 @@ fun identity[T](value: T) T {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity[i32](7)
 }
 "#;
@@ -1396,7 +1396,7 @@ fun identity[T](value: T) T {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity[i32](7)
 }
 "#;
@@ -1440,7 +1440,7 @@ fun pair[T]() [i32; 2] {
     [1, 2]
 }
 
-fun main() [i32; 2] {
+pub fun main() [i32; 2] {
     pair[i32]()
 }
 "#;
@@ -1483,7 +1483,7 @@ fun identity(value: i32) i32 {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity(7)
 }
 "#;
@@ -1518,7 +1518,7 @@ fun effect() i32 {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     identity(effect())
 }
 "#;

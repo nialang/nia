@@ -295,8 +295,9 @@ ordinary Nia functions such as `clamp` stay internal.
 
 In a Nia executable, every top-level `pub extern fun` definition of the entry
 package is exported and kept even when Nia never calls it, so linked C code can
-call back into the program (`nia_square` in the complete example). The name
-`_start` is reserved for the toolchain's process entry.
+call back into the program (`nia_square` in the complete example). A
+freestanding executable must not define the entry symbol that the toolchain
+runtime exports, such as `_start`.
 
 ## C And Nia Type Mapping
 
@@ -356,7 +357,6 @@ offending declaration, whether or not anything calls it:
 | `extern parameter cannot use variadic function pointer` | call the variadic function directly |
 | `` `@[exportName]` requires an extern function definition `` | use `linkName` on a declaration |
 | `` `@[linkName]` is only valid on an external function declaration `` | use `exportName` on a definition |
-| ``external export `_start` is reserved for the compiler-provided runtime`` | choose another name |
 | ``expected `struct`, `union`, `fun`, or `static` after `extern` `` | write `pub extern fun`, not `extern pub fun` |
 
 Type mismatches at call sites are ordinary type errors:

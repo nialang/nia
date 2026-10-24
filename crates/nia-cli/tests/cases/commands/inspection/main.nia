@@ -1,1 +1,1 @@
-fun main() i32 { 42 }
+pub fun main() i32 { 42 }

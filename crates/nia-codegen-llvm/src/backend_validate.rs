@@ -56,7 +56,8 @@ type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<In
 #[derive(Clone, Copy)]
 struct ExternalSymbolState {
     kind: &'static str,
-    has_definition: bool,
+    /// Span of the first definition, when the symbol has one.
+    definition: Option<nia_span::Span>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -125,7 +126,6 @@ pub(super) fn validate_native_backend_program(
     let reserved = builtin_symbols
         .external_definitions()
         .collect::<HashSet<_>>();
-    let runtime_identity = nia_toolchain::runtime_symbol_package_identity();
     for module_id in index.module_ids() {
         let Some(module) = index.module(*module_id) else {
             continue;
@@ -152,26 +152,6 @@ pub(super) fn validate_native_backend_program(
                     symbol,
                     global.span,
                 ));
-            }
-        }
-        for function in &module.functions {
-            if let BackendLinkage::ExternExport { symbol } = &function.linkage
-                && symbol == "_start"
-                && module.symbol_package_identity != runtime_identity
-            {
-                diagnostics.push(Diagnostic::user_error(
-                    nia_diagnostic::codes::LLVM_CODEGEN,
-                    "external export `_start` is reserved for the compiler-provided runtime",
-                )
-                .primary(
-                    function.span,
-                    "external export `_start` is reserved",
-                )
-                .note(
-                    "the runtime owns the `_start` entry symbol so it can initialize the program before calling Nia code",
-                ).help(
-                    "remove this export or choose a different external symbol name",
-                ).finish());
             }
         }
     }
@@ -401,23 +381,28 @@ fn record_external_symbol(
                     previous.kind
                 ),
             ));
-        } else if is_definition && previous.has_definition {
-            diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                format!(
-                    "backend IR external symbol collision: {kind} defines `{symbol}` more than once"
-                ),
-            ));
-        } else {
-            previous.has_definition |= is_definition;
+        } else if is_definition && let Some(first) = previous.definition {
+            // Two sources exporting one name is a program error, whether
+            // both are user code or one is the runtime's entry symbol.
+            diagnostics.push(
+                Diagnostic::user_error(
+                    nia_diagnostic::codes::LLVM_CODEGEN,
+                    format!("external symbol `{symbol}` is defined more than once"),
+                )
+                .primary(span, format!("`{symbol}` is defined again here"))
+                .related(first, "the first definition")
+                .help("rename one of the definitions with `@[exportName]`")
+                .finish(),
+            );
+        } else if is_definition {
+            previous.definition = Some(span);
         }
     } else {
         external.insert(
             symbol.to_string(),
             ExternalSymbolState {
                 kind,
-                has_definition: is_definition,
+                definition: is_definition.then_some(span),
             },
         );
     }
@@ -2496,14 +2481,12 @@ mod owner_tests {
     use super::{
         definition_owner_matches, expected_trait_object_vtable_symbol, member_owner_matches,
         missing_declaration_diagnostic, validate_backend_partition_declarations,
-        validate_native_backend_program,
     };
-    use crate::compiler_builtins::CompilerBuiltinSymbols;
     use crate::declaration_membership::CodegenDeclarationMembership;
     use crate::program_index::ProgramIndex;
     use nia_backend_ir::{
-        BackendConstFacts, BackendFunction, BackendLayouts, BackendLinkage, BackendModule,
-        BackendModuleStore, CodegenUnitDependencies, CodegenUnitId,
+        BackendConstFacts, BackendLayouts, BackendModule, BackendModuleStore,
+        CodegenUnitDependencies, CodegenUnitId,
     };
     use nia_function_ir::FunctionInstanceKey;
     use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
@@ -2569,107 +2552,6 @@ mod owner_tests {
                 def_id: DefId(1),
             }
         ));
-    }
-
-    #[test]
-    fn native_validation_reserves_start_for_the_runtime_package() {
-        fn diagnostics_for(package_identity: &str) -> Vec<nia_diagnostic::Diagnostic> {
-            let module_id = ModuleIdAllocator::new()
-                .expect("create module ID allocator")
-                .allocate()
-                .expect("allocate module ID");
-            let type_store = TypeStore::new().expect("create type store");
-            let interner = type_store.append_for_module(module_id);
-            let return_type = interner.test_primitive(PrimitiveTy::I32);
-            drop(interner);
-            let module = BackendModule {
-                id: module_id,
-                source_identity: SourceIdentity::new("start.nia"),
-                symbol_package_identity: package_identity.to_string(),
-                name: "start".to_string(),
-                const_eval: BackendConstFacts::default(),
-                layouts: BackendLayouts {
-                    target: TargetDataLayout::LP64,
-                    types: Vec::new(),
-                    structs: Vec::new(),
-                    unions: Vec::new(),
-                    enums: Vec::new(),
-                    struct_instances: Vec::new(),
-                    union_instances: Vec::new(),
-                },
-                structs: Vec::new(),
-                unions: Vec::new(),
-                struct_instances: Vec::new(),
-                union_instances: Vec::new(),
-                enums: Vec::new(),
-                globals: Vec::new(),
-                global_instances: Vec::new(),
-                functions: vec![BackendFunction {
-                    def_id: GlobalDefId {
-                        module_id,
-                        def_id: DefId(0),
-                    },
-                    name: nia_symbol::SymbolId::from_stable_hash(0),
-                    linkage: BackendLinkage::ExternExport {
-                        symbol: "_start".to_string(),
-                    },
-                    generics: Vec::new(),
-                    params: Vec::new(),
-                    return_type,
-                    is_variadic: false,
-                    attributes: Vec::new(),
-                    local_names: Default::default(),
-                    function_body: None,
-                    span: nia_span::Span::default(),
-                }],
-                function_instances: Vec::new(),
-                closure_entries: Vec::new(),
-                trait_object_vtables: Vec::new(),
-                generic_instantiations: Vec::new(),
-            };
-            let store = Arc::new(
-                BackendModuleStore::new([module_id]).expect("create backend module store"),
-            );
-            store.publish(module).expect("publish backend module");
-            let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
-            publisher.publish(module_id).expect("publish module");
-            validate_native_backend_program(&index, CompilerBuiltinSymbols::default())
-        }
-
-        let user_diagnostics = diagnostics_for("user/package@0");
-        let start_diagnostic = user_diagnostics
-            .iter()
-            .find(|diagnostic| {
-                diagnostic.category == nia_diagnostic::DiagnosticCategory::User
-                    && diagnostic.summary.contains(
-                        "external export `_start` is reserved for the compiler-provided runtime",
-                    )
-            })
-            .expect("reserved _start must be a user diagnostic");
-        assert_eq!(
-            start_diagnostic.code.as_str(),
-            nia_diagnostic::codes::LLVM_CODEGEN.as_str()
-        );
-        assert!(
-            start_diagnostic
-                .notes
-                .iter()
-                .any(|note| note.contains("runtime owns the `_start` entry symbol"))
-        );
-        assert!(
-            start_diagnostic
-                .help
-                .iter()
-                .any(|help| help.contains("different external symbol"))
-        );
-
-        let runtime_identity = nia_toolchain::runtime_symbol_package_identity();
-        let runtime_diagnostics = diagnostics_for(&runtime_identity);
-        assert!(!runtime_diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .summary
-                .contains("external export `_start` is reserved for the compiler-provided runtime")
-        }));
     }
 
     #[test]

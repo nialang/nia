@@ -199,7 +199,7 @@ extend Value {
     }
 }
 
-fun main() u32 {
+pub fun main() u32 {
     let value = Value { inner: 1 };
     genericLocation[i32](value.inner).line() + value.location().line()
 }

@@ -17,7 +17,7 @@ pub fun exported() i32 {
     3
 }
 
-fun main() i32 {
+pub fun main() i32 {
     used(1)
 }
 "#;
@@ -78,7 +78,7 @@ pub(root) fun provider() i32 {
     1
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -123,7 +123,7 @@ fun unused() i32 {
     1
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -214,7 +214,7 @@ fun seed() i32 {
     kept_id[i32](1)
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -310,7 +310,7 @@ fun slot[T](value: T) T {
     item
 }
 
-fun main() i32 {
+pub fun main() i32 {
     _ = slot[usize](0usize);
     0
 }
@@ -383,7 +383,7 @@ fun unused() i32 {
     2
 }
 
-fun main() i32 {
+pub fun main() i32 {
     middle()
 }
 "#;
@@ -425,7 +425,7 @@ fun unused() i32 {
     2
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -472,7 +472,7 @@ fun unused() i32 {
     unused_id[i32](2)
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -517,7 +517,7 @@ fun id[T](value: T) T {
     out
 }
 
-fun main() i32 {
+pub fun main() i32 {
     id[i32](1)
 }
 "#;
@@ -548,7 +548,7 @@ fun id[T](value: T) T {
     out
 }
 
-fun main() i32 {
+pub fun main() i32 {
     id[i32](1) + id[i32](2)
 }
 "#;
@@ -585,7 +585,7 @@ fun wrapper[T](value: T) T {
     out
 }
 
-fun main() i32 {
+pub fun main() i32 {
     wrapper[i32](1)
 }
 "#;
@@ -625,7 +625,7 @@ fun unused() i32 {
     id[i32](1)
 }
 
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;

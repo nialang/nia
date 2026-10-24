@@ -250,9 +250,7 @@ impl<'a> ModuleLowerer<'a> {
                 .reachable_functions
                 .is_some_and(|functions| functions.binary_search(&def_id).is_ok());
         }
-        def.name == known::MAIN
-            || def.name == known::START_ENTRY
-            || def.visibility != Visibility::Private
+        def.visibility != Visibility::Private
     }
 
     /// Returns whether initial lowering already selected a foreign source body.

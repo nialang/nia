@@ -11,7 +11,6 @@ use nia_defs::DefKind;
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, FunctionInstanceRef};
 use nia_ids::{GlobalDefId, Visibility};
 use nia_opt::OptimizationDepth;
-use nia_symbol::known;
 
 pub(crate) const REMOVE_UNUSED_FUNCTIONS_PASS: &str = "remove-unused-functions";
 pub(crate) const REMOVE_UNUSED_FUNCTION_INSTANCES_PASS: &str = "remove-unused-function-instances";
@@ -191,9 +190,6 @@ impl<'a> ModuleLowerer<'a> {
         let Some(def) = self.input.defs.defs.get(function.def_id.def_id) else {
             return false;
         };
-        if def.name == known::MAIN {
-            return false;
-        }
         matches!(def.kind, DefKind::Function) && def.visibility == Visibility::Private
     }
 

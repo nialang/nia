@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn invalid_function_ir_is_rejected_before_backend_lowering() {
     let source = r#"
-fun main() i32 {
+pub fun main() i32 {
     0
 }
 "#;
@@ -43,7 +43,7 @@ fun main() i32 {
 #[test]
 fn backend_function_parameter_products_must_have_equal_arity() {
     let source = r#"
-fun main(value: i32) i32 {
+pub fun main(value: i32) i32 {
     value
 }
 "#;
@@ -95,7 +95,7 @@ struct Box[T] {
     value: T,
 }
 
-fun main(value: Box[[u8; N]]) () {}
+pub fun main(value: Box[[u8; N]]) () {}
 "#;
     let lowering = lower_source_with_const_mutation(source, |const_eval, type_lowering| {
         for id in type_lowering.const_exprs.keys() {

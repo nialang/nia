@@ -1026,7 +1026,6 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
         format!("extern function reuses `{owned_global_symbol}` already owned by global"),
         format!("extern global reuses `{owned_function_symbol}` already owned by function"),
         "extern global reuses `foreign_shared` already declared by extern function".to_string(),
-        "extern function defines `duplicate_definition` more than once".to_string(),
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, &expected),
@@ -1040,10 +1039,21 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
             .iter()
             .filter(|diagnostic| diagnostic.summary.contains("external symbol collision"))
             .count(),
-        4,
+        3,
         "{:?}",
         output.diagnostics
     );
+    // Two definitions of one exported name are the program's mistake, not
+    // invalid backend IR: the error is a user diagnostic naming both sites.
+    let duplicate = output
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.summary == "external symbol `duplicate_definition` is defined more than once"
+        })
+        .expect("duplicate definition diagnostic");
+    assert_eq!(duplicate.category, DiagnosticCategory::User);
+    assert_eq!(duplicate.related.len(), 1);
     assert!(output.diagnostics.iter().all(|diagnostic| {
         !diagnostic.summary.contains("repeatable_function")
             && !diagnostic.summary.contains("repeatable_global")

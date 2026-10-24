@@ -1,6 +1,6 @@
 static zeroes: [i32; 4] = [0; 4];
 
-fun main() i32 {
+pub fun main() i32 {
     let mut unused = 1;
     zeroes[0]
 }

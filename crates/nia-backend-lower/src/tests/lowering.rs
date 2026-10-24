@@ -35,7 +35,7 @@ extend Point {
     }
 }
 
-fun main() i32 {
+pub fun main() i32 {
     let mut p = Point::make(1, 2);
     p.x
 }
@@ -477,7 +477,7 @@ fn const_bindings_do_not_lower_to_storage() {
     let source = r#"
 const answer: i32 = 40 + 2;
 
-fun main() i32 {
+pub fun main() i32 {
     const local: i32 = answer;
     local
 }
@@ -509,7 +509,7 @@ fn lowers_large_array_repeat_count_from_const_binding() {
     let source = r#"
 const N: usize = 1048576;
 
-fun main() i32 {
+pub fun main() i32 {
     let mut buffer: [u8; N] = [0u8; N];
     0
 }
@@ -555,7 +555,7 @@ fun main() i32 {
 #[test]
 fn lowers_function_body_to_function_ir() {
     let source = r#"
-fun main() i32 {
+pub fun main() i32 {
     defer {
     };
     let mut value = 1;
@@ -597,7 +597,7 @@ fun main() i32 {
 #[test]
 fn lowers_loop_break_and_continue_to_function_ir_branches() {
     let source = r#"
-fun main() i32 {
+pub fun main() i32 {
     loop {
         continue;
         break;
@@ -642,7 +642,7 @@ fun id[T](value: T) T {
     value
 }
 
-fun main() i32 {
+pub fun main() i32 {
     id[i32](42)
 }
 "#;
@@ -678,7 +678,7 @@ fun take[T, N: usize](items: [T; N]) usize {
     N
 }
 
-fun main() usize {
+pub fun main() usize {
     take([1u8, 2u8, 3u8, 4u8]) + take([1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8])
 }
 "#;
@@ -734,7 +734,7 @@ fun choose[T, N: usize, U](left: T, right: U) U {
     right
 }
 
-fun main() i64 {
+pub fun main() i64 {
     choose[i32, 3, i64](1, 9i64)
 }
 "#;
@@ -775,7 +775,7 @@ fun outer[N: usize]() usize {
     inner[N]()
 }
 
-fun main() usize {
+pub fun main() usize {
     outer[3]()
 }
 "#;
@@ -826,7 +826,7 @@ fun make8() Buffer[u8, 8] {
     Buffer[u8, 8] { data: [1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8] }
 }
 
-fun main() usize {
+pub fun main() usize {
     let a = make4();
     let b = make8();
     a.data[0] as usize + b.data[0] as usize
@@ -888,7 +888,7 @@ struct Wrapper {
     data: [u8; std::builtin::size[Inner[i32]]()],
 }
 
-fun main(value: Wrapper) usize {
+pub fun main(value: Wrapper) usize {
     value.data[0] as usize
 }
 "#;
@@ -926,7 +926,7 @@ fun slot[T]() &mut T {
     &mut item
 }
 
-fun main() i32 {
+pub fun main() i32 {
     let mut left = slot[i32]();
     let mut right = slot[u64]();
     _ = left;
@@ -976,7 +976,7 @@ fun slot[T, N: usize, U]() &mut [U; N] {
     &mut item
 }
 
-fun main() i32 {
+pub fun main() i32 {
     let mut value = slot[i32, 3, i64]();
     _ = value;
     0
@@ -1011,7 +1011,7 @@ fun main() i32 {
 #[test]
 fn nested_local_static_shadowing_keeps_distinct_definition_ids() {
     let source = r#"
-fun main() i32 {
+pub fun main() i32 {
     static mut value: i32 = 1;
     if true {
         static mut value: i32 = 2;
@@ -1049,7 +1049,7 @@ fun outer[T](value: &T) &T {
     inner[&T](value)
 }
 
-fun main() i32 {
+pub fun main() i32 {
     let mut value = 1;
     let mut ptr = &value;
     _ = outer[i32](ptr);
@@ -1140,7 +1140,7 @@ extend Env {
     }
 }
 
-fun main(argc: usize, argv: &&u8, envp: &&u8) usize {
+pub fun main(argc: usize, argv: &&u8, envp: &&u8) usize {
     let mut init = Init { argc: argc, argv: argv, envp: envp };
     _ = init;
     argc
