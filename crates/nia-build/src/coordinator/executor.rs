@@ -1479,12 +1479,12 @@ mod package_manifest_import_tests {
             std::fs::write(
                 package.join("nia.toml"),
                 format!(
-                    "[package]\nversion = \"1.0.0\"\nname = \"{}\"\n[library]\npath = \"src/lib.nia\"\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"{}\"\n[library]\npath = \"src/root.nia\"\n",
                     package.file_name().unwrap().to_string_lossy()
                 ),
             )
             .unwrap();
-            std::fs::write(package.join("src/lib.nia"), "pub const value: u8 = 1;\n").unwrap();
+            std::fs::write(package.join("src/root.nia"), "pub const value: u8 = 1;\n").unwrap();
         }
         let edge = |name: &str, scope, package: &std::path::Path| {
             nia_package_metadata::PackageDependencyReport {
@@ -1516,10 +1516,10 @@ mod package_manifest_import_tests {
         assert_eq!(ordinary.len(), 1);
         assert_eq!(ordinary[0].0, "owner");
         assert_eq!(ordinary[0].1, "runtime");
-        assert!(ordinary[0].2.as_str().ends_with("runtime/src/lib.nia"));
+        assert!(ordinary[0].2.as_str().ends_with("runtime/src/root.nia"));
         assert_eq!(
             ordinary[0].2.identity().normalized_path(),
-            "build-package:owner/runtime:/src/lib.nia"
+            "build-package:owner/runtime:/src/root.nia"
         );
 
         let tests = manifest_module_roots(&report, &source_scopes, CompilationMode::Test).unwrap();
@@ -1535,7 +1535,10 @@ mod package_manifest_import_tests {
         insert_module_root(
             &mut module_map,
             "shared",
-            SourcePath::with_identity("/packages/first/src/lib.nia", "package:first:/src/lib.nia"),
+            SourcePath::with_identity(
+                "/packages/first/src/root.nia",
+                "package:first:/src/root.nia",
+            ),
         )
         .unwrap();
         assert!(
@@ -1543,8 +1546,8 @@ mod package_manifest_import_tests {
                 &mut module_map,
                 "shared",
                 SourcePath::with_identity(
-                    "/packages/second/src/lib.nia",
-                    "package:second:/src/lib.nia"
+                    "/packages/second/src/root.nia",
+                    "package:second:/src/root.nia"
                 ),
             )
             .unwrap_err()

@@ -1042,7 +1042,7 @@ mod tests {
     fn package_archive_checks_digest_bounds_paths_and_entry_kinds() {
         let good = archive(&[
             (1, "src", b""),
-            (0, "src/lib.nia", b"pub fun answer() -> i32 = 42;\n"),
+            (0, "src/root.nia", b"pub fun answer() -> i32 = 42;\n"),
         ]);
         let digest = *blake3::hash(&good).as_bytes();
         let entries = decode_registry_archive(&good, &digest).unwrap();
@@ -1175,7 +1175,7 @@ mod tests {
         write_archive_entries(
             &staging_dir,
             &[RegistryArchiveEntry {
-                path: "src/lib.nia".into(),
+                path: "src/root.nia".into(),
                 kind: RegistryArchiveEntryKind::File,
                 contents: b"inside staging root".to_vec(),
             }],
@@ -1183,7 +1183,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            fs::read(moved.join("src/lib.nia")).unwrap(),
+            fs::read(moved.join("src/root.nia")).unwrap(),
             b"inside staging root"
         );
         assert!(fs::read_dir(&outside).unwrap().next().is_none());
@@ -1209,13 +1209,13 @@ mod tests {
         let result = write_archive_entries(
             &staging_dir,
             &[RegistryArchiveEntry {
-                path: "src/lib.nia".into(),
+                path: "src/root.nia".into(),
                 kind: RegistryArchiveEntryKind::File,
                 contents: b"must stay inside staging".to_vec(),
             }],
         );
         assert!(result.is_err());
-        assert!(!outside.join("lib.nia").exists());
+        assert!(!outside.join("root.nia").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1238,7 +1238,7 @@ mod tests {
         drop(staging_dir);
 
         assert!(open_cache_directory(&parent, "staging", false).is_err());
-        assert!(!outside.join("lib.nia").exists());
+        assert!(!outside.join("root.nia").exists());
         fs::remove_file(&staging).unwrap();
         fs::remove_dir_all(root).unwrap();
     }

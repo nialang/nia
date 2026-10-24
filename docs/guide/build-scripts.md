@@ -37,7 +37,7 @@ name = "app"
 version = "0.1.0"
 
 [library]
-path = "src/lib.nia"
+path = "src/root.nia"
 
 [build-dependencies]
 json = { path = "vendor/json" }
@@ -76,7 +76,7 @@ under that name, `using regex;`, without declaring it again in the script. The
 name resolves to the dependency's `[library].path`, so a package that other
 packages import must declare one; the file must lie inside its source roots.
 The library entry roots its own module tree, so its child modules sit beside
-it: with `path = "src/lib.nia"`, `pub module util;` loads `src/util.nia`. Each
+it: with `path = "src/root.nia"`, `pub module util;` loads `src/util.nia`. Each
 dependency resolves its own dependencies from its own manifest, so two packages
 can use one name for different packages.
 
@@ -318,7 +318,7 @@ mathlib = { path = "vendor/mathlib" }
 ```nia
 let mathlib = b.addDependency(&"mathlib").?;
 let imports = [
-    build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"lib.nia")),
+    build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"root.nia")),
 ];
 ```
 
@@ -403,7 +403,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     let mathlib = b.addDependency(&"mathlib").?;
     let imports = [
         build::ModuleImport::init(&"greeting", fs::PathView::init(&"src/greeting.nia")),
-        build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"lib.nia")),
+        build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"root.nia")),
         build::ModuleImport::fromBuild(&"version", build::BuildPathView::init(&"gen/version.nia")),
     ];
     let app = b.addModule(
@@ -437,7 +437,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 ```
 
-`src/greeting.nia` and `vendor/mathlib/lib.nia` are ordinary modules:
+`src/greeting.nia` and `vendor/mathlib/root.nia` are ordinary modules:
 
 ```nia
 // src/greeting.nia
@@ -445,7 +445,7 @@ pub const prefix: [char; 6] = "hello ";
 ```
 
 ```nia
-// vendor/mathlib/lib.nia
+// vendor/mathlib/root.nia
 pub fun square(value: i32) i32 {
     value * value
 }

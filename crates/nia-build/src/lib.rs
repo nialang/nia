@@ -4440,7 +4440,7 @@ version = \"1.0.0\"
             );
             let entries = [
                 ("nia.toml", manifest.as_bytes()),
-                ("src/lib.nia", b"pub fun value() -> i32 = 1;".as_slice()),
+                ("src/root.nia", b"pub fun value() -> i32 = 1;".as_slice()),
             ];
             let mut archive = Vec::new();
             archive.extend_from_slice(b"NIAPKG\0\0");
@@ -4532,10 +4532,10 @@ version = \"1.0.0\"
                 .expect("canonicalize temp root"),
         );
         std::fs::create_dir_all(root.join("src")).expect("create sources");
-        std::fs::write(root.join("src/lib.nia"), "").expect("write library");
+        std::fs::write(root.join("src/root.nia"), "").expect("write library");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/lib.nia\"\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/root.nia\"\n",
         )
         .expect("write manifest");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
@@ -4565,7 +4565,7 @@ version = \"1.0.0\"
                 .for_source(&main)
                 .get("hello")
                 .map(|path| path.identity_ref().normalized_path().to_owned()),
-            Some("build-package:root:/src/lib.nia".to_owned())
+            Some("build-package:root:/src/root.nia".to_owned())
         );
 
         std::fs::create_dir_all(root.join("vendor/hello")).expect("create dependency");
@@ -4576,7 +4576,7 @@ version = \"1.0.0\"
         .expect("write dependency manifest");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/lib.nia\"\n[dependencies]\nhello = { path = \"vendor/hello\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/root.nia\"\n[dependencies]\nhello = { path = \"vendor/hello\" }\n",
         )
         .expect("rewrite manifest");
         let invocation =
@@ -4657,7 +4657,7 @@ version = \"1.0.0\"
         let shared_second = root.join("shared-second");
         for package in [&first, &second, &shared_first, &shared_second] {
             std::fs::create_dir_all(package.join("src")).expect("create package source");
-            std::fs::write(package.join("src/lib.nia"), "pub const value: u8 = 1;\n")
+            std::fs::write(package.join("src/root.nia"), "pub const value: u8 = 1;\n")
                 .expect("write package library");
         }
         std::fs::write(
@@ -4672,7 +4672,7 @@ version = \"1.0.0\"
             std::fs::write(
                 package.join("nia.toml"),
                 format!(
-                    "[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nshared = {{ path = \"{shared_path}\" }}\n"
+                    "[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n[library]\npath = \"src/root.nia\"\n[build-dependencies]\nshared = {{ path = \"{shared_path}\" }}\n"
                 ),
             )
             .expect("write dependency manifest");
@@ -4683,7 +4683,7 @@ version = \"1.0.0\"
         ] {
             std::fs::write(
                 package.join("nia.toml"),
-                format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n[library]\npath = \"src/lib.nia\"\n"),
+                format!("[package]\nversion = \"1.0.0\"\nname = \"{name}\"\n[library]\npath = \"src/root.nia\"\n"),
             )
             .expect("write transitive manifest");
         }
@@ -4694,12 +4694,12 @@ version = \"1.0.0\"
                 .expect("resolve build invocation");
         let map = build_runner_module_map(&invocation).expect("build scoped module map");
         let first_scope = SourcePath::with_identity(
-            first.join("src/lib.nia").to_string_lossy(),
-            "build-package:first:/src/lib.nia",
+            first.join("src/root.nia").to_string_lossy(),
+            "build-package:first:/src/root.nia",
         );
         let second_scope = SourcePath::with_identity(
-            second.join("src/lib.nia").to_string_lossy(),
-            "build-package:second:/src/lib.nia",
+            second.join("src/root.nia").to_string_lossy(),
+            "build-package:second:/src/root.nia",
         );
         assert!(map.get("shared").is_none());
         assert!(
@@ -4707,14 +4707,14 @@ version = \"1.0.0\"
                 .get("shared")
                 .unwrap()
                 .as_str()
-                .ends_with("shared-first/src/lib.nia")
+                .ends_with("shared-first/src/root.nia")
         );
         assert!(
             map.for_source(&second_scope)
                 .get("shared")
                 .unwrap()
                 .as_str()
-                .ends_with("shared-second/src/lib.nia")
+                .ends_with("shared-second/src/root.nia")
         );
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
@@ -4875,20 +4875,20 @@ version = \"1.0.0\"
                     .expect("create nested build dependency");
                 std::fs::write(
                     repository.join("nia.toml"),
-                    "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[build-dependencies]\nnested = { path = \"nested\" }\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/root.nia\"\n[build-dependencies]\nnested = { path = \"nested\" }\n",
                 )
                 .expect("write SSH package manifest");
                 std::fs::write(
-                    repository.join("src/lib.nia"),
+                    repository.join("src/root.nia"),
                     "using nested;\npub const value: u8 = nested::value;\n",
                 )
                 .expect("write SSH package library");
                 std::fs::write(
                     nested.join("nia.toml"),
-                    "[package]\nversion = \"1.0.0\"\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"nested\"\n[library]\npath = \"src/root.nia\"\n",
                 )
                 .expect("write nested manifest");
-                std::fs::write(nested.join("src/lib.nia"), "pub const value: u8 = 7;\n")
+                std::fs::write(nested.join("src/root.nia"), "pub const value: u8 = 7;\n")
                     .expect("write nested library");
             },
             move |_repository, source, ssh_config, _repo| {
@@ -4982,20 +4982,20 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 std::fs::create_dir_all(nested.join("src")).expect("create nested dependency");
                 std::fs::write(
                     repository.join("nia.toml"),
-                    "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/lib.nia\"\n[dependencies]\nnested = { path = \"nested\" }\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"sshdep\"\n[library]\npath = \"src/root.nia\"\n[dependencies]\nnested = { path = \"nested\" }\n",
                 )
                 .expect("write SSH package manifest");
                 std::fs::write(
-                    repository.join("src/lib.nia"),
+                    repository.join("src/root.nia"),
                     "using nested;\npub const value: u8 = nested::value;\n",
                 )
                 .expect("write SSH package library");
                 std::fs::write(
                     nested.join("nia.toml"),
-                    "[package]\nversion = \"1.0.0\"\nname = \"nested\"\n[library]\npath = \"src/lib.nia\"\n",
+                    "[package]\nversion = \"1.0.0\"\nname = \"nested\"\n[library]\npath = \"src/root.nia\"\n",
                 )
                 .expect("write transitive manifest");
-                std::fs::write(nested.join("src/lib.nia"), "pub const value: u8 = 7;\n")
+                std::fs::write(nested.join("src/root.nia"), "pub const value: u8 = 7;\n")
                     .expect("write transitive library");
             },
             move |_repository, source, ssh_config, _repo| {
@@ -5148,23 +5148,23 @@ pub fun build(b: &mut build::Build) build::Error!() {
                     imports: vec![
                         ModuleImport {
                             name: "runtime".to_string(),
-                            path: package_path(runtime_package.clone(), "src/lib.nia"),
+                            path: package_path(runtime_package.clone(), "src/root.nia"),
                         },
                         ModuleImport {
                             name: "development".to_string(),
-                            path: package_path(development_package.clone(), "src/lib.nia"),
+                            path: package_path(development_package.clone(), "src/root.nia"),
                         },
                     ],
                 },
                 PlanModule {
                     key: runtime_module,
-                    root_source: package_path(runtime_package, "src/lib.nia"),
+                    root_source: package_path(runtime_package, "src/root.nia"),
                     optimization: OptimizationMode::O0,
                     imports: Vec::new(),
                 },
                 PlanModule {
                     key: development_module,
-                    root_source: package_path(development_package, "src/lib.nia"),
+                    root_source: package_path(development_package, "src/root.nia"),
                     optimization: OptimizationMode::O0,
                     imports: Vec::new(),
                 },

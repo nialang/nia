@@ -1669,7 +1669,7 @@ mod tests {
         let library = graph
             .intern_package_root(
                 &module_root_symbol_from_text("math"),
-                SourcePath::new("vendor/math/src/lib.nia"),
+                SourcePath::new("vendor/math/src/root.nia"),
             )
             .expect("library root");
         assert_eq!(
@@ -1821,13 +1821,16 @@ mod tests {
         map.insert_scoped(
             &SourceIdentity::new("build-package:workspace/first:/"),
             "shared",
-            SourcePath::with_identity("/deps/first/lib.nia", "build-package:first:/src/lib.nia"),
+            SourcePath::with_identity("/deps/first/root.nia", "build-package:first:/src/root.nia"),
         )
         .expect("first package alias");
         map.insert_scoped(
             &SourceIdentity::new("build-package:workspace/second:/"),
             "shared",
-            SourcePath::with_identity("/deps/second/lib.nia", "build-package:second:/src/lib.nia"),
+            SourcePath::with_identity(
+                "/deps/second/root.nia",
+                "build-package:second:/src/root.nia",
+            ),
         )
         .expect("second package alias");
 

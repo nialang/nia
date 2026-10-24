@@ -105,11 +105,11 @@ fn workspace_members_can_use_the_same_dependency_alias_for_different_packages() 
             dependency.join("nia.toml"),
             "[package]\nversion = \"1.0.0\"\nname = \"".to_owned()
                 + dependency_name
-                + "\"\n[library]\npath = \"src/lib.nia\"\n",
+                + "\"\n[library]\npath = \"src/root.nia\"\n",
         )
         .unwrap();
         fs::write(
-            dependency.join("src/lib.nia"),
+            dependency.join("src/root.nia"),
             format!("pub const value: u8 = {value};\n"),
         )
         .unwrap();
@@ -236,12 +236,12 @@ fn executables_reach_their_own_library_as_a_separate_tree() {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("nia.toml"),
-        "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n[library]\npath = \"src/lib.nia\"\n",
+        "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n[library]\npath = \"src/root.nia\"\n",
     )
     .unwrap();
     // The library roots its own tree, so its child sits beside it.
     fs::write(
-        root.join("src/lib.nia"),
+        root.join("src/root.nia"),
         "module util;\n\npub fun answer() i32 { root::util::value() }\npub(root) fun hidden() i32 { 7 }\n",
     )
     .unwrap();

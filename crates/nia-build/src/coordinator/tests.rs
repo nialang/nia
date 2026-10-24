@@ -335,7 +335,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
             });
             imports.push(ModuleImport {
                 name: name.to_string(),
-                path: LogicalPath::new(LogicalPathRoot::Package(package), "src/lib.nia").unwrap(),
+                path: LogicalPath::new(LogicalPathRoot::Package(package), "src/root.nia").unwrap(),
             });
         }
         let check = ActionKey::new(root_package.clone(), "check").unwrap();

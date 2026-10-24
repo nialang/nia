@@ -158,7 +158,7 @@ fn query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge
     let root =
         temp_dir("query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge");
     let main_path = root.join("main.nia");
-    let pkg_root = root.join("lib.nia");
+    let pkg_root = root.join("root.nia");
     write(
         &main_path,
         r#"

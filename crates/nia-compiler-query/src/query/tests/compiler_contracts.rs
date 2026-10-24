@@ -612,14 +612,14 @@ fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
     index.insert(
         nia_package_metadata::ModuleId {
             package: first.clone(),
-            path: "src/lib.nia".into(),
+            path: "src/root.nia".into(),
         },
         first_module,
     );
     index.insert(
         nia_package_metadata::ModuleId {
             package: second.clone(),
-            path: "src/lib.nia".into(),
+            path: "src/root.nia".into(),
         },
         second_module,
     );
@@ -627,14 +627,14 @@ fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
     assert_eq!(
         index.module(&nia_package_metadata::ModuleId {
             package: first,
-            path: "src/lib.nia".into(),
+            path: "src/root.nia".into(),
         }),
         Some(first_module)
     );
     assert_eq!(
         index.module(&nia_package_metadata::ModuleId {
             package: second,
-            path: "src/lib.nia".into(),
+            path: "src/root.nia".into(),
         }),
         Some(second_module)
     );

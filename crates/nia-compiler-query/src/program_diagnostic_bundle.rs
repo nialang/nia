@@ -217,7 +217,7 @@ mod tests {
                 diagnostic: first,
             },
             ProgramDiagnostic {
-                path: SourcePath::new("src/lib.nia"),
+                path: SourcePath::new("src/root.nia"),
                 diagnostic: Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     Span::new(1, 4),
@@ -226,7 +226,7 @@ mod tests {
             },
         ];
         let source_lengths = BTreeMap::from([
-            ("src/lib.nia".to_owned(), 12),
+            ("src/root.nia".to_owned(), 12),
             ("src/main.nia".to_owned(), 16),
         ]);
 

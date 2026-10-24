@@ -16,19 +16,19 @@ fun main() i32 {
 }
 "#,
     );
-    write(&root.join("dep/lib.nia"), "pub module types;");
+    write(&root.join("dep/root.nia"), "pub module types;");
     std::fs::create_dir_all(root.join("dep")).expect("create type package directory");
     write(
         &root.join("dep/types.nia"),
         "pub struct Widget { value: i32 }",
     );
-    write(&root.join("traits/lib.nia"), "pub module show;");
+    write(&root.join("traits/root.nia"), "pub module show;");
     std::fs::create_dir_all(root.join("traits")).expect("create trait package directory");
     write(
         &root.join("traits/show.nia"),
         "pub trait Show { fun show(&self) i32; }",
     );
-    write(&root.join("extra/lib.nia"), "pub module impls;");
+    write(&root.join("extra/root.nia"), "pub module impls;");
     std::fs::create_dir_all(root.join("extra")).expect("create third package directory");
     write(
         &root.join("extra/impls.nia"),
@@ -48,19 +48,19 @@ pub fun marker() () {}
     module_map
         .insert(
             "dep",
-            SourcePath::new(root.join("dep/lib.nia").to_string_lossy()),
+            SourcePath::new(root.join("dep/root.nia").to_string_lossy()),
         )
         .expect("insert type package");
     module_map
         .insert(
             "traits",
-            SourcePath::new(root.join("traits/lib.nia").to_string_lossy()),
+            SourcePath::new(root.join("traits/root.nia").to_string_lossy()),
         )
         .expect("insert trait package");
     module_map
         .insert(
             "extra",
-            SourcePath::new(root.join("extra/lib.nia").to_string_lossy()),
+            SourcePath::new(root.join("extra/root.nia").to_string_lossy()),
         )
         .expect("insert third package");
 
@@ -92,13 +92,13 @@ fun main(value: &[i32]) i32 {
 
 "#,
     );
-    write(&root.join("traits/lib.nia"), "pub module show;");
+    write(&root.join("traits/root.nia"), "pub module show;");
     std::fs::create_dir_all(root.join("traits")).expect("create trait package directory");
     write(
         &root.join("traits/show.nia"),
         "pub trait Show { fun show(&self) i32; }",
     );
-    write(&root.join("extra/lib.nia"), "pub module impls;");
+    write(&root.join("extra/root.nia"), "pub module impls;");
     std::fs::create_dir_all(root.join("extra")).expect("create third package directory");
     write(
         &root.join("extra/impls.nia"),
@@ -116,13 +116,13 @@ extend &[i32] : show::Show {
     module_map
         .insert(
             "traits",
-            SourcePath::new(root.join("traits/lib.nia").to_string_lossy()),
+            SourcePath::new(root.join("traits/root.nia").to_string_lossy()),
         )
         .expect("insert trait package");
     module_map
         .insert(
             "extra",
-            SourcePath::new(root.join("extra/lib.nia").to_string_lossy()),
+            SourcePath::new(root.join("extra/root.nia").to_string_lossy()),
         )
         .expect("insert third package");
 

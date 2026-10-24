@@ -419,7 +419,7 @@ extend[T] (T, T) where T: Sized {
         ("using dep::providers;", "hidden", true),
     ] {
         write(
-            &root.join("dep/lib.nia"),
+            &root.join("dep/root.nia"),
             &format!(
                 "{} module providers; pub trait Show {{ fun show(&self) i32; }}",
                 if import.is_empty() { "" } else { "pub" },
@@ -443,7 +443,7 @@ pub fun main(value: (i32, i32)) i32 {{
         module_map
             .insert(
                 "dep",
-                crate::SourcePath::new(root.join("dep/lib.nia").to_string_lossy()),
+                crate::SourcePath::new(root.join("dep/root.nia").to_string_lossy()),
             )
             .expect("mount dependency package");
         let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);

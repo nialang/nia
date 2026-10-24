@@ -106,7 +106,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
 fn facade_facts_are_cached_for_reexport_and_provider_loading() {
     let root = temp_dir("facade_facts_are_cached_for_reexport_and_provider_loading");
     let main = root.join("main.nia");
-    let pkg_root = root.join("lib.nia");
+    let pkg_root = root.join("root.nia");
     write(
         &main,
         r#"

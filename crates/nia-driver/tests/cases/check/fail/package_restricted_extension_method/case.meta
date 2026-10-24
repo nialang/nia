@@ -2,4 +2,4 @@ mode=check
 resource=compiler
 source=main.nia
 expect=fail
-module.dep=dep/lib.nia
+module.dep=dep/root.nia

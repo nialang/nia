@@ -5989,7 +5989,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        fs::write(repository.join("src/lib.nia"), "pub fun dependency() {}\n").unwrap();
+        fs::write(repository.join("src/root.nia"), "pub fun dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
         let repository_url = format!(
@@ -6047,7 +6047,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         DefinitionId {
             module: ModuleId {
                 package: package(),
-                path: "src/lib.nia".into(),
+                path: "src/root.nia".into(),
             },
             name: name.into(),
             kind,
@@ -6060,7 +6060,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     fn stable_identity_codecs_round_trip_nested_definitions() {
         let module = ModuleId {
             package: package(),
-            path: "src/lib.nia".into(),
+            path: "src/root.nia".into(),
         };
         let owner = definition("Container", 5, None);
         let member = definition("field", 6, Some(owner));
@@ -6079,7 +6079,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     fn stable_identity_codecs_reject_trailing_bytes_and_cross_module_owners() {
         let mut bytes = encode_module_id(&ModuleId {
             package: package(),
-            path: "src/lib.nia".into(),
+            path: "src/root.nia".into(),
         })
         .unwrap();
         bytes.push(0);
@@ -6181,7 +6181,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("target")).unwrap();
         std::fs::create_dir_all(root.join(".nia-cache")).unwrap();
         std::fs::write(root.join("src/main.nia"), "main").unwrap();
-        std::fs::write(root.join("src/nested/lib.nia"), "lib").unwrap();
+        std::fs::write(root.join("src/nested/root.nia"), "lib").unwrap();
         std::fs::write(root.join("target/generated"), "one").unwrap();
         std::fs::write(root.join(".nia-cache/old"), "one").unwrap();
         let package = package();
@@ -6263,7 +6263,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("actual")).unwrap();
         std::fs::create_dir_all(root.join("nested/actual")).unwrap();
         std::fs::write(root.join("actual/main.nia"), "actual").unwrap();
-        std::fs::write(root.join("nested/actual/lib.nia"), "nested").unwrap();
+        std::fs::write(root.join("nested/actual/root.nia"), "nested").unwrap();
         symlink(root.join("actual"), root.join("linked")).unwrap();
         symlink(root.join("nested/actual"), root.join("nested/linked")).unwrap();
 
@@ -6295,7 +6295,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("actual")).unwrap();
         std::fs::create_dir_all(root.join("nested/actual")).unwrap();
         std::fs::write(root.join("actual/main.nia"), "actual").unwrap();
-        std::fs::write(root.join("nested/actual/lib.nia"), "nested").unwrap();
+        std::fs::write(root.join("nested/actual/root.nia"), "nested").unwrap();
         for (link, target) in [
             (root.join("linked"), root.join("actual")),
             (
@@ -6399,7 +6399,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             std::env::temp_dir().join(format!("nia-package-selection-{}", std::process::id()));
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("examples")).unwrap();
-        std::fs::write(root.join("src/lib.nia"), "lib").unwrap();
+        std::fs::write(root.join("src/root.nia"), "lib").unwrap();
         std::fs::write(root.join("examples/demo.nia"), "demo").unwrap();
         let package = package();
         let selection = PackageSourceSelection {
@@ -6429,7 +6429,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             std::process::id()
         ));
         std::fs::create_dir_all(root.join("src/generated")).unwrap();
-        std::fs::write(root.join("src/lib.nia"), "lib").unwrap();
+        std::fs::write(root.join("src/root.nia"), "lib").unwrap();
         std::fs::write(root.join("src/generated/out.nia"), "generated").unwrap();
 
         let canonical = PackageSourceSelection {
@@ -7242,9 +7242,9 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
         std::fs::write(root.join("src/main.nia"), "root").unwrap();
-        std::fs::write(root.join("crates/lib/src/lib.nia"), "one").unwrap();
+        std::fs::write(root.join("crates/lib/src/root.nia"), "one").unwrap();
         let first = package_source_identity(&root, package()).unwrap();
-        std::fs::write(root.join("crates/lib/src/lib.nia"), "two").unwrap();
+        std::fs::write(root.join("crates/lib/src/root.nia"), "two").unwrap();
         let second = package_source_identity(&root, package()).unwrap();
         assert_eq!(first.source_fingerprint, second.source_fingerprint);
         assert!(
@@ -7484,7 +7484,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 ),
                 (
                     0u8,
-                    "src/lib.nia",
+                    "src/root.nia",
                     b"pub fun value() -> i32 = 1;\n".as_slice(),
                 ),
             ];
@@ -7572,7 +7572,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .join(".nia/packages")
             .join(&source_fingerprint[7..]);
         fs::write(
-            cached_package.join("src/lib.nia"),
+            cached_package.join("src/root.nia"),
             "pub fun value() -> i32 = 2;\n",
         )
         .unwrap();
@@ -7642,7 +7642,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 (0u8, "nia.toml", manifest.as_bytes()),
                 (
                     0u8,
-                    "src/lib.nia",
+                    "src/root.nia",
                     b"pub fun value() -> i32 = 1;".as_slice(),
                 ),
             ];
@@ -7957,7 +7957,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n"),
         )
         .unwrap();
-        std::fs::write(repository.join("src/lib.nia"), "pub fun dependency() {}\n").unwrap();
+        std::fs::write(repository.join("src/root.nia"), "pub fun dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
         format!(
@@ -7970,7 +7970,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     fn commit_upstream_change(repository: &Path, contents: &str) {
         use std::process::Command;
 
-        std::fs::write(repository.join("src/lib.nia"), contents).unwrap();
+        std::fs::write(repository.join("src/root.nia"), contents).unwrap();
         for args in [&["add", "src"][..], &["commit", "-qm", "change"][..]] {
             let output = Command::new("git")
                 .args(args)
@@ -8087,7 +8087,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             );
             let entries = [
                 ("nia.toml", manifest.as_bytes()),
-                ("src/lib.nia", &[value][..]),
+                ("src/root.nia", &[value][..]),
             ];
             let mut archive = Vec::new();
             archive.extend_from_slice(b"NIAPKG\0\0");
@@ -8219,7 +8219,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 .as_str(),
             "1.1.0"
         );
-        assert_eq!(std::fs::read(package.join("src/lib.nia")).unwrap(), [2]);
+        assert_eq!(std::fs::read(package.join("src/root.nia")).unwrap(), [2]);
         assert!(
             std::fs::read_dir(root.join(".nia/packages"))
                 .unwrap()
@@ -8249,7 +8249,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             );
             let entries = [
                 ("nia.toml", manifest.as_bytes()),
-                ("src/lib.nia", b"x".as_slice()),
+                ("src/root.nia", b"x".as_slice()),
             ];
             let mut archive = Vec::new();
             archive.extend_from_slice(b"NIAPKG\0\0");
@@ -8457,7 +8457,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             );
             let entries = [
                 ("nia.toml", manifest.as_bytes()),
-                ("src/lib.nia", b"pub fun value() -> i32 = 1;".as_slice()),
+                ("src/root.nia", b"pub fun value() -> i32 = 1;".as_slice()),
             ];
             let mut archive = Vec::new();
             archive.extend_from_slice(b"NIAPKG\0\0");
@@ -8735,7 +8735,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        std::fs::write(repository.join("src/lib.nia"), "pub fun dependency() {}\n").unwrap();
+        std::fs::write(repository.join("src/root.nia"), "pub fun dependency() {}\n").unwrap();
         git(&["add", "nia.toml", "src"]);
         git(&["commit", "-qm", "fixture"]);
         let repository_url = format!(
@@ -8886,7 +8886,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
         fs::write(
-            dependency.join("src/lib.nia"),
+            dependency.join("src/root.nia"),
             "pub fun value() -> i32 = 1;\n",
         )
         .unwrap();
@@ -8919,7 +8919,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         PackageGraph::resolve_with_policy(&consumer, PackageGraphOptions::default(), locked)
             .unwrap();
         fs::write(
-            dependency.join("src/lib.nia"),
+            dependency.join("src/root.nia"),
             "pub fun value() -> i32 = 2;\n",
         )
         .unwrap();
@@ -9328,8 +9328,8 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ));
         std::fs::create_dir_all(&root).unwrap();
         for manifest in [
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"lib.nia\"\n[source]\nroots = [\"src\"]\n",
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/lib.nia\"\n[source]\nroots = [\"src\"]\nexclude = [\"src/lib.nia\"]\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"root.nia\"\n[source]\nroots = [\"src\"]\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/root.nia\"\n[source]\nroots = [\"src\"]\nexclude = [\"src/root.nia\"]\n",
         ] {
             std::fs::write(root.join("nia.toml"), manifest).unwrap();
             let error = PackageManifest::read(&root).unwrap_err();
@@ -9355,10 +9355,10 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::create_dir_all(root.join("src")).unwrap();
         let outside = root.with_extension("outside.nia");
         std::fs::write(&outside, "pub const value: u8 = 1;").unwrap();
-        symlink(&outside, root.join("src/lib.nia")).unwrap();
+        symlink(&outside, root.join("src/root.nia")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/lib.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/root.nia\"\n",
         )
         .unwrap();
 
@@ -9377,11 +9377,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let root = lock_test_root("linked-library-directory");
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("real")).unwrap();
-        std::fs::write(root.join("real/lib.nia"), "pub const value: u8 = 1;").unwrap();
+        std::fs::write(root.join("real/root.nia"), "pub const value: u8 = 1;").unwrap();
         symlink(root.join("real"), root.join("src/linked")).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/linked/lib.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/linked/root.nia\"\n",
         )
         .unwrap();
 
@@ -9397,7 +9397,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let root = lock_test_root("junctioned-library-directory");
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("real")).unwrap();
-        std::fs::write(root.join("real/lib.nia"), "pub const value: u8 = 1;").unwrap();
+        std::fs::write(root.join("real/root.nia"), "pub const value: u8 = 1;").unwrap();
         let link = root.join("src").join("linked");
         let output = std::process::Command::new("powershell")
             .args([
@@ -9416,7 +9416,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert!(output.status.success(), "{output:?}");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/linked/lib.nia\"\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/linked/root.nia\"\n",
         )
         .unwrap();
 
