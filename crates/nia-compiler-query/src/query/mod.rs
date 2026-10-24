@@ -448,8 +448,7 @@ impl CompilerDatabase {
         if graph.current_package_root(def_id.module_id) == graph.std_package_root() {
             return Ok(PackageId::standard_library());
         }
-        if graph.current_package_root(def_id.module_id)
-            == graph.package_root(&nia_symbol::known::RUNTIME)
+        if graph.current_package_root(def_id.module_id) == graph.runtime_package_root()
             && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
         {
             return Ok(runtime.package().clone());

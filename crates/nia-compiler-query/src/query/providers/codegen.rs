@@ -10,7 +10,7 @@ fn symbol_package_identities(
     graph: &nia_imports::ModuleGraphSnapshot,
 ) -> QueryResult<HashMap<ModuleId, String>> {
     let runtime = db.context().loader_facts().runtime();
-    let runtime_root = graph.package_root(&nia_symbol::known::RUNTIME);
+    let runtime_root = graph.runtime_package_root();
     let entry_root = graph.current_package_root(graph.entry());
     let current_package = db.context().current_package();
     let mut identities = HashMap::new();

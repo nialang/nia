@@ -34,18 +34,13 @@ pub const ROOT_MODULE_MAP_NAME: &str = "root";
 pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
 /// Reserved module-map name for the standard library.
 pub const STD_MODULE_MAP_NAME: &str = "std";
-/// Reserved, private module-map name for toolchain runtime resources.
-pub const RUNTIME_MODULE_MAP_NAME: &str = "runtime";
 /// Dependency name through which the runtime reaches the program it starts.
 /// It is visible only inside the runtime's module tree.
 pub const PROGRAM_MODULE_MAP_NAME: &str = "program";
 
 /// Names that cannot be inserted as ordinary package roots.
-pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
-    ROOT_MODULE_MAP_NAME,
-    BUILTIN_MODULE_MAP_NAME,
-    RUNTIME_MODULE_MAP_NAME,
-];
+pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] =
+    &[ROOT_MODULE_MAP_NAME, BUILTIN_MODULE_MAP_NAME];
 
 /// Failure produced while mutating a module graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,7 +77,6 @@ fn reserved_module_root_symbol(name: &str) -> Option<SymbolId> {
         ROOT_MODULE_MAP_NAME => None,
         BUILTIN_MODULE_MAP_NAME => Some(known::BUILTIN),
         STD_MODULE_MAP_NAME => Some(known::STD),
-        RUNTIME_MODULE_MAP_NAME => Some(known::RUNTIME),
         _ => None,
     }
 }
@@ -90,11 +84,6 @@ fn reserved_module_root_symbol(name: &str) -> Option<SymbolId> {
 /// Reports whether a symbol denotes the standard-library root.
 pub fn is_std_module_root(symbol: SymbolId) -> bool {
     symbol == known::STD
-}
-
-/// Reports whether a symbol denotes the private toolchain runtime root.
-pub fn is_runtime_module_root(symbol: SymbolId) -> bool {
-    symbol == known::RUNTIME
 }
 
 /// Reports whether a symbol denotes the builtin root.
@@ -307,7 +296,7 @@ impl ModuleMap {
             );
             return Some((module_root_symbol_from_text(&key), path));
         }
-        if self.has_scope(source) && ![known::STD, known::RUNTIME].contains(&name) {
+        if self.has_scope(source) && name != known::STD {
             return None;
         }
         self.entries.get(&name).map(|path| (name, path))
@@ -378,23 +367,6 @@ impl ModulePath {
     /// Reports whether this path belongs to the program's own module tree.
     pub fn is_program_tree(&self) -> bool {
         self.package == known::PROGRAM_TREE
-    }
-
-    /// Reports whether this path belongs to the private toolchain runtime.
-    pub fn is_runtime_package(&self) -> bool {
-        is_runtime_module_root(self.package)
-    }
-
-    /// Reports whether this path is the toolchain-owned runtime start module.
-    ///
-    /// The loader mounts this private implementation node below the runtime
-    /// package so startup can consume runtime-facing contracts.
-    pub fn is_runtime_start_module(&self) -> bool {
-        self.is_runtime_package()
-            && self
-                .segments
-                .first()
-                .is_some_and(|segment| *segment == known::START)
     }
 }
 
@@ -699,12 +671,20 @@ impl ModuleGraph {
         self.intern_package_root(&known::STD, path)
     }
 
-    /// Interns the private toolchain runtime package root.
+    /// Interns the injected runtime's package root.
+    ///
+    /// Its tree identity is not an identifier, so user source cannot name it;
+    /// the runtime reaches its own modules through `root::`.
     pub fn intern_runtime_package_root(
         &mut self,
         path: SourcePath,
     ) -> nia_ice::IceResult<ModuleId> {
-        self.intern_package_root(&known::RUNTIME, path)
+        self.intern_package_root(&known::RUNTIME_TREE, path)
+    }
+
+    /// Returns the injected runtime's package root, if a runtime is injected.
+    pub fn runtime_package_root(&self) -> Option<ModuleId> {
+        self.package_root(&known::RUNTIME_TREE)
     }
 
     /// Marks an interned package facade active and returns its root.
@@ -747,15 +727,6 @@ impl ModuleGraph {
         current_module: ModuleId,
         name: SymbolId,
     ) -> Option<ModuleId> {
-        if is_runtime_module_root(name) {
-            // Runtime resources are injected by the loader and are never
-            // addressable from user source. Their own children still resolve
-            // through the normal graph rules.
-            return self
-                .get(current_module)
-                .filter(|node| node.module_path.is_runtime_package())
-                .and_then(|_| self.package_root(&name));
-        }
         self.get(current_module)
             .and_then(|node| node.children.get(&name).copied())
             .or_else(|| {
@@ -1204,17 +1175,10 @@ pub trait ModuleGraphLookup {
             ModuleRootSegment::Current => Some(current_module),
             ModuleRootSegment::Parent => self.parent_module(current_module),
             ModuleRootSegment::Root => self.current_package_root_module(current_module),
-            ModuleRootSegment::Named(name) => {
-                if is_runtime_module_root(name) {
-                    return self
-                        .module_path(current_module)
-                        .filter(|path| path.is_runtime_package())
-                        .and_then(|_| self.package_root_module(&name));
-                }
-                self.child_declaration(current_module, &name)
-                    .map(|(target, _)| target)
-                    .or_else(|| self.package_root_module(&name))
-            }
+            ModuleRootSegment::Named(name) => self
+                .child_declaration(current_module, &name)
+                .map(|(target, _)| target)
+                .or_else(|| self.package_root_module(&name)),
         }
     }
 }
@@ -1856,18 +1820,13 @@ mod tests {
         assert!(!ModulePath::root("entry").is_program_tree());
         assert!(root.is_package_root());
         assert!(root.is_program_tree());
-        assert!(!root.is_runtime_start_module());
         assert_eq!(root.parent(), None);
 
         let child = root.child(known::START);
         assert!(!child.is_package_root());
         assert_eq!(child.parent(), Some(root.clone()));
-        assert!(!child.is_runtime_start_module());
-
-        let runtime_start = ModulePath::root("runtime").child(known::START);
-        assert!(runtime_start.is_runtime_package());
-        assert!(runtime_start.is_runtime_start_module());
-        assert!(!ModulePath::root("std").is_runtime_start_module());
+        // `runtime` is an ordinary name; the injected runtime tree has none.
+        assert_ne!(ModulePath::root("runtime").package, known::RUNTIME_TREE);
     }
 
     #[test]

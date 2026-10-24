@@ -721,7 +721,6 @@ fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> 
             && context
                 .package_roots_with_used_paths
                 .contains(&node.module_path.package))
-        || node.module_path.is_runtime_start_module()
 }
 
 fn should_process_used_module_paths(context: &LoaderContext, node: &ModuleNode) -> bool {

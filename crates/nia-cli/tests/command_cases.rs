@@ -184,7 +184,7 @@ fn run_option_errors(source: &Path) {
         command(["-O9", "check"], source),
         &["unknown optimization level `-O9`", "-Oz"],
     );
-    for reserved in ["root", "builtin", "runtime"] {
+    for reserved in ["root", "builtin"] {
         let mut process = support::nia_command();
         let output = process
             .arg("check")
@@ -197,6 +197,20 @@ fn run_option_errors(source: &Path) {
             &[&format!("`{reserved}` is a compiler-reserved module root")],
         );
     }
+    // The injected runtime has no source name, so `runtime` is an ordinary
+    // package name.
+    let mut process = support::nia_command();
+    let output = process
+        .arg("check")
+        .arg(source)
+        .arg("-M")
+        .arg(format!("runtime={}", source.display()))
+        .output_timeout_in_session("run module-map runtime name case");
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("compiler-reserved"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {

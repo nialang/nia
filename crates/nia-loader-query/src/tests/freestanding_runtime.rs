@@ -145,7 +145,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_runtime_start() {
     );
     let runtime_root = program
         .graph
-        .package_root(&sym("runtime"))
+        .runtime_package_root()
         .expect("runtime package root");
     let runtime = program
         .graph

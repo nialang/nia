@@ -1159,7 +1159,6 @@ impl<'a> ValueResolver<'a> {
 
     fn root_module_for_segment(&self, segment: PathSegment<'_>) -> Option<ModuleId> {
         if let PathSegmentKind::Name(name) = segment.kind
-            && !nia_imports::is_runtime_module_root(name)
             && let Some(scope) = self.using_scope
             && scope.shadows_module_namespace(&name, segment.span)
         {

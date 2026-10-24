@@ -221,10 +221,9 @@ pub(super) fn resolve_namespace_path(
         ));
     };
     let shadowed = path_segment_name(first).is_some_and(|name| {
-        !nia_imports::is_runtime_module_root(name)
-            && context
-                .lexical_namespaces
-                .is_some_and(|names| names.contains(&name))
+        context
+            .lexical_namespaces
+            .is_some_and(|names| names.contains(&name))
     });
     let mut namespace = if !shadowed
         && let Some(module_id) = root_module_for_segment(graph, current.module_id, first)

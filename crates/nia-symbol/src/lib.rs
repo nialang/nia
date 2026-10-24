@@ -220,7 +220,9 @@ pub mod known {
     known_symbol!(BUILTIN, "builtin");
     known_symbol!(PLACE_MODULE, "place");
     known_symbol!(STD, "std");
-    known_symbol!(RUNTIME, "runtime");
+    /// Package identity of the injected runtime's module tree. Like
+    /// [`PROGRAM_TREE`] it is not an identifier, so no source path can name it.
+    pub const RUNTIME_TREE: SymbolId = SymbolId::from_stable_hash(stable_hash("<runtime>"));
     known_symbol!(NAKED, "naked");
     known_symbol!(TRACK_CALLER, "trackCaller");
     known_symbol!(LINK_NAME, "linkName");
@@ -395,7 +397,7 @@ pub mod known {
         (BUILTIN, "builtin"),
         (PLACE_MODULE, "place"),
         (STD, "std"),
-        (RUNTIME, "runtime"),
+        (RUNTIME_TREE, "<runtime>"),
         (NAKED, "naked"),
         (TRACK_CALLER, "trackCaller"),
         (MAIN, "main"),
