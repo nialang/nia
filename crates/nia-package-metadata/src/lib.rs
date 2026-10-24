@@ -367,6 +367,35 @@ pub struct PackageDependency {
     pub scope: DependencyScope,
 }
 
+/// Whether a declared artifact is an ordinary executable or a test suite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ArtifactKind {
+    /// `[[executable]]`: built by step `<name>`, run by step `run-<name>`.
+    Executable,
+    /// `[[test]]`: a test suite run by step `<name>` and by step `test`.
+    Test,
+}
+
+/// Runtime an executable or test suite links, as `nia.toml` spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ArtifactRuntime {
+    /// The toolchain's freestanding startup, the default.
+    Freestanding,
+    /// No startup code; the program supplies its own entry symbol.
+    Bare,
+}
+
+/// One `[[executable]]` or `[[test]]` entry of a package manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestArtifact {
+    pub kind: ArtifactKind,
+    /// Stable artifact name, also the name of the step that builds it.
+    pub name: String,
+    /// Root module file, relative to the package root.
+    pub path: String,
+    pub runtime: ArtifactRuntime,
+}
+
 /// Declarative local package manifest used to name and select package content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageManifest {
@@ -376,6 +405,8 @@ pub struct PackageManifest {
     pub protocol_epoch: Option<u32>,
     /// Module file exported by this package, when it defines a library entry.
     pub library_path: Option<String>,
+    /// Executables and test suites, in declaration order.
+    pub artifacts: Vec<ManifestArtifact>,
     /// Source selection rules.
     pub source: PackageSourceSelection,
     /// Dependencies selected for this package.
@@ -2478,6 +2509,11 @@ impl PackageGraph {
             if let Some(library_path) = &manifest.library_path {
                 validate_library_entry(&canonical, library_path).map_err(in_node)?;
             }
+            if is_root {
+                for artifact in &manifest.artifacts {
+                    validate_library_entry(&canonical, &artifact.path).map_err(in_node)?;
+                }
+            }
             let source = package_source_identity_with_selection(
                 &canonical,
                 manifest.package.clone(),
@@ -2696,6 +2732,74 @@ fn write_fingerprint_field(encoded: &mut Vec<u8>, value: &[u8]) {
     encoded.extend_from_slice(value);
 }
 
+/// Step names the build derives from the manifest; an artifact cannot take one.
+const RESERVED_STEP_NAMES: [&str; 2] = ["all", "test"];
+
+fn manifest_artifacts(
+    executables: Vec<RawArtifact>,
+    tests: Vec<RawArtifact>,
+    selection: &PackageSourceSelection,
+) -> io::Result<Vec<ManifestArtifact>> {
+    let invalid = |message: String| io::Error::new(io::ErrorKind::InvalidData, message);
+    let mut artifacts = Vec::new();
+    let mut names = BTreeSet::new();
+    for (kind, table, entries) in [
+        (ArtifactKind::Executable, "executable", executables),
+        (ArtifactKind::Test, "test", tests),
+    ] {
+        for raw in entries {
+            let name = raw.name;
+            if !is_stable_artifact_name(&name) {
+                return Err(invalid(format!(
+                    "[[{table}]] name `{name}` must be letters, digits, `-`, `_`, or `.`"
+                )));
+            }
+            if RESERVED_STEP_NAMES.contains(&name.as_str()) || name.starts_with("run-") {
+                return Err(invalid(format!(
+                    "[[{table}]] name `{name}` is reserved for a derived step"
+                )));
+            }
+            if !names.insert(name.clone()) {
+                return Err(invalid(format!(
+                    "artifact name `{name}` is declared more than once"
+                )));
+            }
+            let path = validate_selection_path(&raw.path)
+                .map_err(|error| invalid(format!("[[{table}]] `{name}` path: {error}")))?;
+            if !is_source_selected(&path, selection) {
+                return Err(invalid(format!(
+                    "[[{table}]] `{name}` path `{path}` must be included by source roots and not excluded"
+                )));
+            }
+            let runtime = match raw.runtime.as_deref() {
+                None | Some("freestanding") => ArtifactRuntime::Freestanding,
+                Some("bare") => ArtifactRuntime::Bare,
+                Some(other) => {
+                    return Err(invalid(format!(
+                        "[[{table}]] `{name}` runtime `{other}` must be `freestanding` or `bare`"
+                    )));
+                }
+            };
+            artifacts.push(ManifestArtifact {
+                kind,
+                name,
+                path,
+                runtime,
+            });
+        }
+    }
+    Ok(artifacts)
+}
+
+// Matches the build plan's stable node names.
+fn is_stable_artifact_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
 fn validate_library_entry(root: &Path, library_path: &str) -> io::Result<()> {
     let mut components = Path::new(library_path)
         .components()
@@ -2733,24 +2837,25 @@ fn validate_library_entry(root: &Path, library_path: &str) -> io::Result<()> {
     Ok(())
 }
 
+fn is_source_selected(path: &str, selection: &PackageSourceSelection) -> bool {
+    let within = |prefix: &str| {
+        path == prefix
+            || path
+                .strip_prefix(prefix)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    };
+    selection
+        .source_roots
+        .iter()
+        .any(|root| root == "." || within(root))
+        && !selection.excludes.iter().any(|exclude| within(exclude))
+}
+
 fn validate_library_selection(
     library_path: &str,
     selection: &PackageSourceSelection,
 ) -> io::Result<()> {
-    let selected = selection.source_roots.iter().any(|root| {
-        root == "."
-            || library_path == root
-            || library_path
-                .strip_prefix(root)
-                .is_some_and(|suffix| suffix.starts_with('/'))
-    });
-    let excluded = selection.excludes.iter().any(|exclude| {
-        library_path == exclude
-            || library_path
-                .strip_prefix(exclude)
-                .is_some_and(|suffix| suffix.starts_with('/'))
-    });
-    if !selected || excluded {
+    if !is_source_selected(library_path, selection) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "package library path must be included by source roots and not excluded",
@@ -2770,6 +2875,7 @@ impl PackageManifest {
             },
             protocol_epoch: None,
             library_path: None,
+            artifacts: Vec::new(),
             source: PackageSourceSelection::default(),
             dependencies: Vec::new(),
         }
@@ -2868,6 +2974,7 @@ impl PackageManifest {
         if let Some(library_path) = &manifest.library_path {
             validate_library_selection(library_path, &manifest.source)?;
         }
+        manifest.artifacts = manifest_artifacts(raw.executables, raw.tests, &manifest.source)?;
         let mut dependencies = Vec::new();
         for (scope, declarations) in [
             (DependencyScope::Build, raw.build_dependencies),
@@ -2911,6 +3018,7 @@ impl PackageManifest {
         if manifest.source.source_roots.len() > MAX_MANIFEST_ENTRIES
             || manifest.source.excludes.len() > MAX_MANIFEST_ENTRIES
             || dependencies.len() > MAX_MANIFEST_ENTRIES
+            || manifest.artifacts.len() > MAX_MANIFEST_ENTRIES
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -3518,6 +3626,19 @@ struct RawPackageManifest {
     dependencies: BTreeMap<String, RawDependency>,
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default, rename = "executable")]
+    executables: Vec<RawArtifact>,
+    #[serde(default, rename = "test")]
+    tests: Vec<RawArtifact>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawArtifact {
+    name: String,
+    path: String,
+    #[serde(default)]
+    runtime: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -7752,6 +7873,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     package: package(),
                     protocol_epoch: None,
                     library_path: None,
+                    artifacts: Vec::new(),
                     source: PackageSourceSelection::default(),
                     dependencies: vec![PackageDependency {
                         name: "json".into(),
@@ -9230,6 +9352,128 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
             assert!(error.to_string().contains("included by source roots"));
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_manifest_reads_executables_and_tests_in_declaration_order() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-artifacts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n\
+             [[executable]]\nname = \"tool\"\npath = \"src/main.nia\"\n\
+             [[executable]]\nname = \"boot\"\npath = \"src/boot.nia\"\nruntime = \"bare\"\n\
+             [[test]]\nname = \"unit\"\npath = \"tests/./unit.nia\"\n",
+        )
+        .unwrap();
+
+        let manifest = PackageManifest::read(&root).unwrap();
+        assert_eq!(
+            manifest.artifacts,
+            [
+                ManifestArtifact {
+                    kind: ArtifactKind::Executable,
+                    name: "tool".into(),
+                    path: "src/main.nia".into(),
+                    runtime: ArtifactRuntime::Freestanding,
+                },
+                ManifestArtifact {
+                    kind: ArtifactKind::Executable,
+                    name: "boot".into(),
+                    path: "src/boot.nia".into(),
+                    runtime: ArtifactRuntime::Bare,
+                },
+                ManifestArtifact {
+                    kind: ArtifactKind::Test,
+                    name: "unit".into(),
+                    path: "tests/unit.nia".into(),
+                    runtime: ArtifactRuntime::Freestanding,
+                },
+            ]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_manifest_rejects_invalid_artifacts() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-manifest-invalid-artifacts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let package = "[package]\nname = \"root\"\nversion = \"1.0.0\"\n";
+        for (artifacts, expected) in [
+            (
+                "[[executable]]\nname = \"a b\"\npath = \"a.nia\"\n",
+                "must be letters",
+            ),
+            (
+                "[[executable]]\nname = \"test\"\npath = \"a.nia\"\n",
+                "reserved",
+            ),
+            ("[[test]]\nname = \"all\"\npath = \"a.nia\"\n", "reserved"),
+            (
+                "[[executable]]\nname = \"run-a\"\npath = \"a.nia\"\n",
+                "reserved",
+            ),
+            (
+                "[[executable]]\nname = \"a\"\npath = \"a.nia\"\n[[test]]\nname = \"a\"\npath = \"b.nia\"\n",
+                "declared more than once",
+            ),
+            (
+                "[[test]]\nname = \"a\"\npath = \"../a.nia\"\n",
+                "normalized relative",
+            ),
+            (
+                "[[executable]]\nname = \"a\"\npath = \"a.nia\"\nruntime = \"hosted\"\n",
+                "must be `freestanding` or `bare`",
+            ),
+            ("[[executable]]\nname = \"a\"\n", "missing field `path`"),
+            (
+                "[source]\nroots = [\"src\"]\n[[executable]]\nname = \"a\"\npath = \"a.nia\"\n",
+                "included by source roots",
+            ),
+        ] {
+            std::fs::write(root.join("nia.toml"), format!("{package}{artifacts}")).unwrap();
+            let error = PackageManifest::read(&root).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{artifacts}");
+            assert!(error.to_string().contains(expected), "{artifacts}: {error}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_graph_requires_root_artifact_files() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-graph-artifact-files-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n",
+        )
+        .unwrap();
+        assert!(PackageGraph::resolve(&root).is_err());
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.nia"), "").unwrap();
+        PackageGraph::resolve(&root).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
