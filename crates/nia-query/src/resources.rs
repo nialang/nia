@@ -402,12 +402,93 @@ fn cgroup_v2_ancestors<'a>(mount: &'a Path, leaf: &'a Path) -> impl Iterator<Ite
         .take_while(move |path| path.starts_with(mount))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn system_memory_bytes() -> Option<usize> {
+    windows_memory_status()
+        .map(|status| status.ullTotalPhys)
+        .and_then(|bytes| usize::try_from(bytes).ok())
+}
+
+#[cfg(windows)]
+fn system_available_memory_bytes() -> Option<usize> {
+    windows_memory_status()
+        .map(|status| status.ullAvailPhys)
+        .and_then(|bytes| usize::try_from(bytes).ok())
+}
+
+#[cfg(windows)]
+fn windows_memory_status() -> Option<windows_sys::Win32::System::SystemInformation::MEMORYSTATUSEX>
+{
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX {
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+        dwMemoryLoad: 0,
+        ullTotalPhys: 0,
+        ullAvailPhys: 0,
+        ullTotalPageFile: 0,
+        ullAvailPageFile: 0,
+        ullTotalVirtual: 0,
+        ullAvailVirtual: 0,
+        ullAvailExtendedVirtual: 0,
+    };
+    // SAFETY: `status` is a writable MEMORYSTATUSEX whose `dwLength` names its
+    // size, as the API requires; the call retains no pointer.
+    (unsafe { GlobalMemoryStatusEx(&mut status) } != 0).then_some(status)
+}
+
+#[cfg(target_os = "macos")]
+fn system_memory_bytes() -> Option<usize> {
+    macos_sysctl_u64(c"hw.memsize").and_then(|bytes| usize::try_from(bytes).ok())
+}
+
+// Free, purgeable, and speculative pages are reusable without paging; the
+// kernel exports each as a `vm.page_*_count` sysctl.
+#[cfg(target_os = "macos")]
+fn system_available_memory_bytes() -> Option<usize> {
+    let page_size = macos_sysctl_u64(c"hw.pagesize")?;
+    let pages = [
+        c"vm.page_free_count",
+        c"vm.page_purgeable_count",
+        c"vm.page_speculative_count",
+    ]
+    .into_iter()
+    .map(macos_sysctl_u64)
+    .sum::<Option<u64>>()?;
+    usize::try_from(pages.checked_mul(page_size)?).ok()
+}
+
+// Reads an integer sysctl of either width; the kernel reports its size.
+#[cfg(target_os = "macos")]
+fn macos_sysctl_u64(name: &std::ffi::CStr) -> Option<u64> {
+    let mut value: u64 = 0;
+    let mut len = size_of::<u64>();
+    // SAFETY: `name` is NUL-terminated, `value` is writable for `len` bytes,
+    // and no new value is written.
+    let status = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            (&raw mut value).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    match (status, len) {
+        (0, 8) => Some(value),
+        // A 32-bit sysctl fills the low-addressed bytes of the buffer.
+        (0, 4) => Some(u64::from(u32::from_ne_bytes(
+            value.to_ne_bytes()[..4].try_into().ok()?,
+        ))),
+        _ => None,
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn system_memory_bytes() -> Option<usize> {
     None
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn system_available_memory_bytes() -> Option<usize> {
     None
 }
@@ -512,6 +593,15 @@ mod tests {
         assert_eq!(budget.state.lock().active, 1);
         drop(inner);
         assert_eq!(budget.state.lock().active, 0);
+    }
+
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[test]
+    fn host_memory_is_observable_and_bounded_by_its_total() {
+        let total = effective_memory_limit_bytes().expect("host memory total");
+        let available = effective_available_memory_bytes().expect("host available memory");
+        assert!(total > 0);
+        assert!(available <= total, "{available} > {total}");
     }
 
     #[cfg(target_os = "linux")]

@@ -1581,10 +1581,12 @@ name = "nia-query"
 version = "0.3.0-dev"
 dependencies = [
  "jobserver",
+ "libc",
  "nia-hash",
  "nia-ice",
  "nia-timing",
  "parking_lot",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

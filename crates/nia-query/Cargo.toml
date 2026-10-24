@@ -12,5 +12,11 @@ nia-hash.workspace = true
 nia-ice.workspace = true
 nia-timing.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
 [lib]
 path = "src/lib.rs"

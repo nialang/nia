@@ -1169,7 +1169,16 @@ fn process_is_alive(pid: u32, expected_start_time: u64) -> Option<bool> {
     Some(expected_start_time == 0 || expected_start_time == actual_start)
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+fn process_is_alive(pid: u32, expected_start_time: u64) -> Option<bool> {
+    match macos_process_start_time(pid) {
+        Ok(start_time) => Some(expected_start_time == 0 || start_time == expected_start_time),
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Some(false),
+        Err(_) => None,
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn process_is_alive(_pid: u32, _expected_start_time: u64) -> Option<bool> {
     None
 }
@@ -1215,7 +1224,36 @@ fn process_start_time(pid: u32) -> Option<u64> {
     timed.then_some(((creation.high as u64) << 32) | creation.low as u64)
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+fn process_start_time(pid: u32) -> Option<u64> {
+    macos_process_start_time(pid).ok()
+}
+
+// The BSD start time in microseconds identifies a process across PID reuse.
+#[cfg(target_os = "macos")]
+fn macos_process_start_time(pid: u32) -> io::Result<u64> {
+    let pid = libc::c_int::try_from(pid).map_err(|_| io::Error::from_raw_os_error(libc::ESRCH))?;
+    // SAFETY: `proc_bsdinfo` is plain integers and byte arrays.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is writable for `size` bytes, as the flavor requires.
+    let written =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    if written != size {
+        let error = io::Error::last_os_error();
+        return Err(if written == 0 && error.raw_os_error() == Some(0) {
+            io::Error::from_raw_os_error(libc::ESRCH)
+        } else {
+            error
+        });
+    }
+    Ok(info
+        .pbi_start_tvsec
+        .saturating_mul(1_000_000)
+        .saturating_add(info.pbi_start_tvusec))
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 fn process_start_time(_pid: u32) -> Option<u64> {
     None
 }
@@ -1230,6 +1268,19 @@ mod tests {
 
     fn very_large_memory_limit() -> usize {
         usize::try_from(32u64 * 1024 * 1024 * 1024).unwrap_or(usize::MAX)
+    }
+
+    // Stale-permit reclaim needs a process identity on every maintained host.
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
+    #[test]
+    fn current_process_identity_is_alive_and_a_changed_start_time_is_not() {
+        let pid = std::process::id();
+        let start_time = process_start_time(pid).expect("own process start time");
+        assert_eq!(process_is_alive(pid, start_time), Some(true));
+        assert_eq!(
+            process_is_alive(pid, start_time.wrapping_add(1)),
+            Some(false)
+        );
     }
 
     #[test]
