@@ -329,11 +329,7 @@ pub(super) fn cache_key(
     } else {
         hash_field(&mut hasher, b"build-script", b"absent");
     }
-    hash_field(
-        &mut hasher,
-        b"package-graph",
-        &invocation.package_source_fingerprint,
-    );
+    hash_build_closure(&mut hasher, &invocation.package_graph_report);
     hash_field(&mut hasher, b"tree", b"std-source-tree");
     hash_directory(
         &mut hasher,
@@ -354,6 +350,63 @@ pub(super) fn cache_key(
     ]);
     hasher.update(&BUILD_PROTOCOL.to_le_bytes());
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// The runner compiles `build.nia` and the libraries of the root's build
+/// dependencies, transitively; ordinary and development dependencies and the
+/// root's own sources never enter it, so editing them must not rebuild it.
+/// Each closure package contributes its node identity and source fingerprint.
+fn hash_build_closure(
+    hasher: &mut blake3::Hasher,
+    report: &nia_package_metadata::PackageGraphReport,
+) {
+    use nia_package_metadata::DependencyScope;
+    let mut closure = std::collections::BTreeSet::new();
+    let mut pending = report
+        .declared
+        .iter()
+        .filter(|edge| {
+            edge.owner_root.is_empty() && edge.dependency.scope == DependencyScope::Build
+        })
+        .filter_map(|edge| edge.resolved_root.clone())
+        .collect::<Vec<_>>();
+    while let Some(root) = pending.pop() {
+        if !closure.insert(root.clone()) {
+            continue;
+        }
+        pending.extend(
+            report
+                .declared
+                .iter()
+                .filter(|edge| {
+                    edge.owner_root == root && edge.dependency.scope != DependencyScope::Development
+                })
+                .filter_map(|edge| edge.resolved_root.clone()),
+        );
+    }
+    hash_field(
+        hasher,
+        b"build-closure",
+        &(closure.len() as u64).to_le_bytes(),
+    );
+    for root in &closure {
+        hash_field(hasher, b"package", root.as_bytes());
+        match report.resolved.iter().find(|node| &node.root == root) {
+            Some(node) => {
+                hash_field(
+                    hasher,
+                    b"identity",
+                    node.manifest.package.canonical_text().as_bytes(),
+                );
+                match &node.manifest.library_path {
+                    Some(path) => hash_field(hasher, b"library", path.as_bytes()),
+                    None => hash_field(hasher, b"library", b""),
+                }
+                hash_field(hasher, b"sources", &node.source_fingerprint);
+            }
+            None => hash_field(hasher, b"identity", b"unresolved"),
+        }
+    }
 }
 
 fn hash_file(
@@ -863,9 +916,13 @@ mod tests {
     }
 
     #[test]
-    fn resolved_package_graph_is_part_of_runner_cache_identity() {
+    fn only_the_build_dependency_closure_is_part_of_runner_cache_identity() {
+        use nia_package_metadata::{
+            DependencyScope, DependencySource, PackageDependency, PackageDependencyReport,
+            PackageGraphNode, PackageManifest,
+        };
         let root = std::env::temp_dir().join(format!(
-            "nia-runner-cache-package-graph-{}",
+            "nia-runner-cache-build-closure-{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&root);
@@ -874,11 +931,51 @@ mod tests {
             path: "runner.nia".into(),
             source: "using std;".into(),
         };
-        let first = cache_key(&invocation, &runner).unwrap();
-        invocation.package_source_fingerprint = [1; 32];
-        let changed_dependency_graph = cache_key(&invocation, &runner).unwrap();
+        let node = |name: &str, fingerprint: u8| PackageGraphNode {
+            manifest: PackageManifest::implicit(name),
+            root: name.to_string(),
+            source_fingerprint: [fingerprint; 32],
+        };
+        let edge = |owner: &str, name: &str, scope| PackageDependencyReport {
+            owner_root: owner.to_string(),
+            dependency: PackageDependency {
+                name: name.to_string(),
+                source: DependencySource::Path(name.to_string()),
+                scope,
+            },
+            resolved_root: Some(name.to_string()),
+            source_root: None,
+        };
+        // tool (build) -> helper (runtime of tool); lib (runtime of root).
+        invocation.package_graph_report.resolved = vec![
+            node("", 1),
+            node("tool", 2),
+            node("helper", 3),
+            node("lib", 4),
+        ];
+        invocation.package_graph_report.declared = vec![
+            edge("", "tool", DependencyScope::Build),
+            edge("tool", "helper", DependencyScope::Runtime),
+            edge("", "lib", DependencyScope::Runtime),
+        ];
+        let key = |invocation: &BuildInvocation| cache_key(invocation, &runner).unwrap();
+        let baseline = key(&invocation);
 
-        assert_ne!(first, changed_dependency_graph);
+        invocation.package_source_fingerprint = [9; 32];
+        invocation.package_graph_report.resolved[0].source_fingerprint = [9; 32];
+        invocation.package_graph_report.resolved[3].source_fingerprint = [9; 32];
+        assert_eq!(
+            key(&invocation),
+            baseline,
+            "root and runtime sources stay out"
+        );
+
+        invocation.package_graph_report.resolved[2].source_fingerprint = [9; 32];
+        assert_ne!(
+            key(&invocation),
+            baseline,
+            "a transitive build input changes it"
+        );
         let _ = fs::remove_dir_all(root);
     }
 
