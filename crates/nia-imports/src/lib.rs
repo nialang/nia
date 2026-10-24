@@ -380,11 +380,6 @@ impl ModulePath {
         self.package == known::PROGRAM_TREE
     }
 
-    /// Reports whether this path belongs to the standard library.
-    pub fn is_std_package(&self) -> bool {
-        is_std_module_root(self.package)
-    }
-
     /// Reports whether this path belongs to the private toolchain runtime.
     pub fn is_runtime_package(&self) -> bool {
         is_runtime_module_root(self.package)
@@ -1464,10 +1459,6 @@ pub fn visibility_allows(
                 return false;
             };
             defining.package == accessing.package
-                // The injected runtime is a toolchain-owned consumer of the
-                // selected std facade. This privilege is graph-identity based,
-                // so user source cannot obtain it by spelling `runtime`.
-                || (accessing.is_runtime_package() && defining.is_std_package())
         }
         Visibility::PublicSuper => {
             is_descendant_or_self(graph, accessing_module, defining_module)
@@ -1865,7 +1856,6 @@ mod tests {
         assert!(!ModulePath::root("entry").is_program_tree());
         assert!(root.is_package_root());
         assert!(root.is_program_tree());
-        assert!(!root.is_std_package());
         assert!(!root.is_runtime_start_module());
         assert_eq!(root.parent(), None);
 

@@ -1,5 +1,4 @@
 using root::main::callUserMain;
-using std::os;
 using std::process;
 
 // The Mach-O LC_MAIN ABI passes argc, argv, and envp to the runtime entry.
@@ -7,9 +6,9 @@ using std::process;
 // reaches this symbol with a malformed value.
 pub extern fun niaDarwinStart(argc: i32, argv: &&u8, envp: &&u8) () {
     if argc < 0 {
-        os::exit(127);
+        process::exit(process::ExitCode(127));
     }
     let init = process::Init::init(argc as usize, argv, envp);
-    os::exit(callUserMain(init).0);
+    process::exit(callUserMain(init));
     loop {}
 }

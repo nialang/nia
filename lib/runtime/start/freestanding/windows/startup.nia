@@ -1,6 +1,5 @@
 using root::start::freestanding::windows::arguments::{measureEnvironment, parseArguments, parseEnvironment};
 using root::main::callUserMain;
-using std::os;
 using std::process;
 
 // CreateProcessW bounds the command line to 32767 UTF-16 units. Each unit
@@ -37,7 +36,7 @@ extern fun niaWindowsStart() () {
     };
 
     let init = process::Init::init(argc, &argumentPointers[0], envp);
-    os::exit(callUserMain(init).0);
+    process::exit(callUserMain(init));
     loop {}
 }
 
@@ -56,7 +55,7 @@ fun copyEnvironment(environment: &u16) &&u8 {
     let total = pointerBytes + byteCapacity;
     let base = VirtualAlloc(0, total, memCommitReserve, pageReadWrite);
     if base == 0 {
-        os::exit(127);
+        process::exit(process::ExitCode(127));
     }
     let pointers = &mut (base as &mut &u8)[0..pointerCount];
     let bytes = &mut ((base + pointerBytes) as &mut u8)[0..byteCapacity];

@@ -55,3 +55,4 @@ pub using types::{
     Term,
     TermKind,
 };
+pub using exit_code::exit;

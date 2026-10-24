@@ -147,3 +147,8 @@ extend mem::Error : builtin::IntoError[ExitCode] {
         }
     }
 }
+
+// Ends the process with `code`. Startup calls this with `main`'s result.
+pub fun exit(code: ExitCode) () {
+    root::os::exit(code.0);
+}

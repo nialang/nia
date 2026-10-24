@@ -3,7 +3,6 @@
 using root::main::callUserMain;
 using root::start::freestanding::linux::relocate::relocate;
 using std::math;
-using std::os;
 using std::process;
 
 // `header` and `dynamic` locate this image for static-pie self-relocation,
@@ -15,28 +14,28 @@ extern fun niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
     let argvAddress = match startupAddress(stack, wordSize) {
         ?address => address,
         null => {
-            os::exit(127);
+            process::exit(process::ExitCode(127));
             0
         },
     };
     let envWordCount = match argc.checkedAdd(2) {
         ?count => count,
         null => {
-            os::exit(127);
+            process::exit(process::ExitCode(127));
             0
         },
     };
     let envOffset = match wordSize.checkedMul(envWordCount) {
         ?offset => offset,
         null => {
-            os::exit(127);
+            process::exit(process::ExitCode(127));
             0
         },
     };
     let envAddress = match startupAddress(stack, envOffset) {
         ?address => address,
         null => {
-            os::exit(127);
+            process::exit(process::ExitCode(127));
             0
         },
     };
@@ -44,7 +43,7 @@ extern fun niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
     let envp = envAddress as &&u8;
     let init = process::Init::init(argc, argv, envp);
     let exit = callUserMain(init);
-    os::exit(exit.0);
+    process::exit(exit);
     loop {}
 }
 
