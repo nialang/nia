@@ -523,80 +523,76 @@ pub fun build(b: &mut build::Build) build::Error!() {{
     // it again when another selection becomes active; compare the active plan
     // through the public inspection above, and preserve this warm product too.
     let plan_file = std::fs::read(root.join(".nia-build/build-plan.bin")).unwrap();
-    for sample in 0..3 {
-        for (step, mode, jobs) in [
-            ("first", "none", "1"),
-            ("first", "plain", "1"),
-            ("first", "json", "1"),
-            ("all", "none", "1"),
-            ("all", "plain", "1"),
-            ("all", "json", "1"),
-            ("all", "none", "2"),
-            ("all", "plain", "2"),
-            ("all", "json", "2"),
-        ] {
-            let started = std::time::Instant::now();
-            let output = support::nia_command()
-                .args([
-                    "build",
-                    step,
-                    "--progress",
-                    mode,
-                    "--print-plan",
-                    "-vvv",
-                    "-j",
-                    jobs,
-                    "--root",
-                ])
-                .arg(&root)
-                .output_timeout_in_session("long parallel progress acceptance sample");
+    // One pass over every selection, renderer, and parallelism; the samples
+    // are compared with the dry-run plans, not with each other.
+    for (step, mode, jobs) in [
+        ("first", "none", "1"),
+        ("first", "plain", "1"),
+        ("first", "json", "1"),
+        ("all", "none", "1"),
+        ("all", "plain", "1"),
+        ("all", "json", "1"),
+        ("all", "none", "2"),
+        ("all", "plain", "2"),
+        ("all", "json", "2"),
+    ] {
+        let output = support::nia_command()
+            .args([
+                "build",
+                step,
+                "--progress",
+                mode,
+                "--print-plan",
+                "-vvv",
+                "-j",
+                jobs,
+                "--root",
+            ])
+            .arg(&root)
+            .output_timeout_in_session("long parallel progress acceptance sample");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&plans[&(step, mode == "json")]),
+        );
+        assert!(!output.stderr.contains(&0x1b));
+        if step == "all" {
+            assert_eq!(
+                std::fs::read(root.join(".nia-build/result.txt")).unwrap(),
+                b"result\n"
+            );
+        }
+        assert_eq!(
+            std::fs::read(root.join(".nia-build/build-plan.bin")).unwrap(),
+            plan_file
+        );
+        if mode == "none" {
+            assert!(output.stderr.is_empty());
+        } else if mode == "json" {
+            let records = parse_json_lines(&output.stderr);
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record["event"] == "action-finished")
+                    .count(),
+                if step == "all" { 3 } else { 1 }
+            );
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|record| record["event"] == "action-finished"
+                        && record["outcome"] == "executed")
+                    .count(),
+                if step == "all" { 2 } else { 1 }
+            );
             assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert_eq!(
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&plans[&(step, mode == "json")]),
-            );
-            assert!(!output.stderr.contains(&0x1b));
-            if step == "all" {
-                assert_eq!(
-                    std::fs::read(root.join(".nia-build/result.txt")).unwrap(),
-                    b"result\n"
-                );
-            }
-            assert_eq!(
-                std::fs::read(root.join(".nia-build/build-plan.bin")).unwrap(),
-                plan_file
-            );
-            if mode == "none" {
-                assert!(output.stderr.is_empty());
-            } else if mode == "json" {
-                let records = parse_json_lines(&output.stderr);
-                assert_eq!(
-                    records
-                        .iter()
-                        .filter(|record| record["event"] == "action-finished")
-                        .count(),
-                    if step == "all" { 3 } else { 1 }
-                );
-                assert_eq!(
-                    records
-                        .iter()
-                        .filter(|record| record["event"] == "action-finished"
-                            && record["outcome"] == "executed")
-                        .count(),
-                    if step == "all" { 2 } else { 1 }
-                );
-                assert!(records.iter().any(
+                records.iter().any(
                     |record| record["event"] == "resource-usage-changed" && record["used"] == 0
-                ));
-            }
-            eprintln!(
-                "long progress sample={sample}, step={step}, mode={mode}, jobs={jobs}: {}ms, stderr={} bytes",
-                started.elapsed().as_millis(),
-                output.stderr.len()
+                )
             );
         }
     }
