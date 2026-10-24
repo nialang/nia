@@ -298,7 +298,6 @@ impl LoaderDatabase {
         let cached_provider_demands = frontend_cache
             .as_ref()
             .zip(provider_demand_plan_key)
-            .filter(|_| !request.include_test_modules)
             .and_then(|(cache, key)| {
                 let identity = frontend_cache::ProviderDemandPlanIdentity {
                     key,
@@ -834,8 +833,6 @@ pub struct LoadRequest {
     pub verify_frontend_cache: bool,
     /// Optional resolved toolchain supplying std modules and identity.
     pub toolchain: Option<Arc<ToolchainLayout>>,
-    /// Whether development dependencies selected by package discovery are enabled.
-    pub include_test_modules: bool,
 }
 
 impl LoadRequest {
@@ -858,7 +855,6 @@ impl LoadRequest {
             frontend_cache_dir: None,
             verify_frontend_cache: false,
             toolchain: None,
-            include_test_modules: false,
         }
     }
 
@@ -889,15 +885,6 @@ impl LoadRequest {
     /// Selects whether test-only source participates in compilation.
     pub fn with_compilation_mode(mut self, mode: CompilationMode) -> Self {
         self.compilation_mode = mode;
-        self
-    }
-
-    /// Selects the dependency scopes already resolved by package discovery.
-    pub fn with_package_graph_options(
-        mut self,
-        options: nia_package_metadata::PackageGraphOptions,
-    ) -> Self {
-        self.include_test_modules = options.include_development;
         self
     }
 

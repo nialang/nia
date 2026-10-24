@@ -7,7 +7,7 @@ use nia_compiler_query::TimingMode;
 use nia_imports::ModuleMap;
 use nia_linker::LinkOptions;
 use nia_opt::NiaOptimizationLevel;
-use nia_package_metadata::{PackageGraphOptions, PackageId};
+use nia_package_metadata::PackageId;
 use nia_source::SourcePath;
 use nia_target_config::{BuildProfile, CompilationMode};
 use nia_toolchain::RuntimeSpec;
@@ -32,8 +32,6 @@ pub struct CheckRequest {
     pub profile: BuildProfile,
     /// Whether test-only source participates in compilation.
     pub compilation_mode: CompilationMode,
-    /// Dependency classes selected by package discovery for this invocation.
-    pub package_graph_options: PackageGraphOptions,
 }
 
 impl CheckRequest {
@@ -53,7 +51,6 @@ impl CheckRequest {
             runtime: RuntimeSpec::Bare,
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
-            package_graph_options: PackageGraphOptions::default(),
         }
     }
 
@@ -97,12 +94,6 @@ impl CheckRequest {
     /// Selects whether test-only source participates in compilation.
     pub fn with_compilation_mode(mut self, mode: CompilationMode) -> Self {
         self.compilation_mode = mode;
-        self
-    }
-
-    /// Selects the dependency classes already resolved by package discovery.
-    pub fn with_package_graph_options(mut self, options: PackageGraphOptions) -> Self {
-        self.package_graph_options = options;
         self
     }
 }

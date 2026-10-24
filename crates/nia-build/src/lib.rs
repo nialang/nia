@@ -880,9 +880,6 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     if selected.len() > 1 {
         nia_package_metadata::PackageGraph::resolve_members_with_policy(
             &selected,
-            nia_package_metadata::PackageGraphOptions {
-                include_development: request.test_mode,
-            },
             request.lock_policy,
         )
         .map_err(|error| BuildError::ResolvePackageGraph {
@@ -1428,11 +1425,6 @@ pub fn render_build_explanation_with_observations(
     let graph = &invocation.package_graph_report;
     let _ = writeln!(
         output,
-        "  package graph selection: development={}",
-        graph.options.include_development
-    );
-    let _ = writeln!(
-        output,
         "  package graph: declared_dependencies={}, resolved_dependencies={}, selected_packages={}",
         graph.declared.len(),
         graph
@@ -1944,9 +1936,6 @@ pub fn render_build_explanation_json_with_observations(
         "package_root": invocation.package_root.to_string_lossy(),
         "package_graph_fingerprint": hex_fingerprint(&invocation.package_source_fingerprint),
         "package_graph": {
-            "selection": {
-                "development": invocation.package_graph_report.options.include_development,
-            },
             "declared": dependencies,
             "resolved_count": invocation.package_graph_report.resolved.len(),
             "resolved_dependency_count": invocation
@@ -2613,17 +2602,12 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
-    let package_graph = nia_package_metadata::PackageGraph::resolve_with_policy(
-        &package_root,
-        nia_package_metadata::PackageGraphOptions {
-            include_development: request.test_mode,
-        },
-        request.lock_policy,
-    )
-    .map_err(|error| BuildError::ResolvePackageGraph {
-        path: package_root.clone(),
-        error,
-    })?;
+    let package_graph =
+        nia_package_metadata::PackageGraph::resolve_with_policy(&package_root, request.lock_policy)
+            .map_err(|error| BuildError::ResolvePackageGraph {
+                path: package_root.clone(),
+                error,
+            })?;
     let build_script = package_root.join("build.nia");
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
@@ -2800,7 +2784,6 @@ fn compile_build_runner(
     })?;
     let check = CheckRequest::new(runner.path.clone())
         .with_module_map(module_map)
-        .with_package_graph_options(invocation.package_graph_report.options)
         .with_profile(invocation.profile)
         .with_compilation_mode(invocation.compilation_mode)
         .with_optimization(BUILD_RUNNER_OPTIMIZATION)
@@ -2997,7 +2980,6 @@ pub(crate) fn manifest_module_roots(
             DependencyScope::Runtime => scopes.contains(&DependencyScope::Runtime),
             DependencyScope::Development => {
                 scopes.contains(&DependencyScope::Development)
-                    && report.options.include_development
                     && compilation_mode == CompilationMode::Test
             }
         };
@@ -3132,8 +3114,7 @@ fn validate_manifest_dependency_references(
         match dependency.dependency.scope {
             DependencyScope::Runtime => {}
             DependencyScope::Development
-                if invocation.compilation_mode == CompilationMode::Test
-                    && invocation.package_graph_report.options.include_development => {}
+                if invocation.compilation_mode == CompilationMode::Test => {}
             DependencyScope::Development => {
                 return Err(format!(
                     "`{name}` is a development dependency and is unavailable outside test mode"
@@ -4203,7 +4184,6 @@ mod tests {
                 .with_profile(plan.profile)
                 .with_compilation_mode(plan.compilation_mode)
                 .with_optimization(BUILD_RUNNER_OPTIMIZATION)
-                .with_package_graph_options(plan.package_graph_report.options)
                 .with_runtime(
                     nia_toolchain::RuntimeSpec::freestanding(&toolchain, &target)
                         .expect("Darwin runtime"),
@@ -4721,9 +4701,7 @@ version = \"1.0.0\"
 
     #[test]
     fn manifest_dependency_references_enforce_declaration_and_scope() {
-        use nia_package_metadata::{
-            DependencyScope, PackageDependency, PackageDependencyReport, PackageGraphOptions,
-        };
+        use nia_package_metadata::{DependencyScope, PackageDependency, PackageDependencyReport};
 
         let root = temp_root("manifest_dependency_reference_validation");
         let runtime = root.join("runtime");
@@ -4798,9 +4776,6 @@ version = \"1.0.0\"
         );
 
         invocation.compilation_mode = CompilationMode::Test;
-        invocation.package_graph_report.options = PackageGraphOptions {
-            include_development: true,
-        };
         invocation.package_graph_report.declared[2].resolved_root = Some("development".into());
         assert!(
             validate_manifest_dependency_references(&[package("development")], &invocation).is_ok()
@@ -5060,7 +5035,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     fn build_explanation_distinguishes_dependency_resolution_loading_and_use() {
         use nia_package_metadata::{
             DependencyScope, PackageDependency, PackageDependencyReport, PackageGraphNode,
-            PackageGraphOptions, PackageGraphReport, PackageManifest,
+            PackageGraphReport, PackageManifest,
         };
 
         let root = temp_root("build_explanation_dependency_usage");
@@ -5094,9 +5069,6 @@ pub fun build(b: &mut build::Build) build::Error!() {
             source_fingerprint: [0; 32],
         };
         invocation.package_graph_report = PackageGraphReport {
-            options: PackageGraphOptions {
-                include_development: false,
-            },
             resolved: vec![
                 graph_node("root", ""),
                 graph_node("runtime", "runtime"),

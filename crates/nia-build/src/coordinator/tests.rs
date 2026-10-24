@@ -62,7 +62,6 @@ fn test_invocation() -> BuildInvocation {
         package_root,
         package_source_fingerprint: [0; 32],
         package_graph_report: nia_package_metadata::PackageGraphReport {
-            options: nia_package_metadata::PackageGraphOptions::default(),
             resolved: Vec::new(),
             declared: Vec::new(),
         },
@@ -288,7 +287,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
 
 #[test]
 fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
-    use nia_package_metadata::{DependencyScope, PackageGraph, PackageGraphOptions};
+    use nia_package_metadata::{DependencyScope, PackageGraph};
 
     let root = std::env::temp_dir().join(format!(
         "nia-build-package-selection-{}-{}",
@@ -315,11 +314,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
     std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
 
     let compile_request = |test_mode: bool| {
-        let options = PackageGraphOptions {
-            include_development: test_mode,
-        };
-        let graph =
-            PackageGraph::resolve_with_options(&root, options).expect("resolve package graph");
+        let graph = PackageGraph::resolve(&root).expect("resolve package graph");
         let root_package = PackageKey::root();
         let module_key = ModuleKey::new(root_package.clone(), "app").unwrap();
         let mut packages = vec![PlanPackage {

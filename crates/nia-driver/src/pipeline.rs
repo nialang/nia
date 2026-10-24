@@ -258,7 +258,6 @@ impl Driver {
             profile: request.profile,
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
-            package_graph_options: request.package_graph_options,
         };
         let mut loader_guard = self
             .loader
@@ -273,7 +272,6 @@ impl Driver {
                     .with_target(key.target)
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
-                    .with_package_graph_options(key.package_graph_options)
                     .with_runtime(key.runtime.clone())
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())

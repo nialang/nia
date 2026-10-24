@@ -131,13 +131,11 @@ pub(crate) fn package_dependency_selection(
 }
 
 fn dependency_scope_selected(invocation: &BuildInvocation, scope: DependencyScope) -> bool {
-    let options = invocation.package_graph_report.options;
     match scope {
         DependencyScope::Build => false,
         DependencyScope::Runtime => true,
         DependencyScope::Development => {
-            options.include_development
-                && invocation.compilation_mode == nia_target_config::CompilationMode::Test
+            invocation.compilation_mode == nia_target_config::CompilationMode::Test
         }
     }
 }

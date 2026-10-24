@@ -367,21 +367,6 @@ pub struct PackageDependency {
     pub scope: DependencyScope,
 }
 
-/// Dependency scope policy for constructing a package graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct PackageGraphOptions {
-    pub include_development: bool,
-}
-
-impl PackageGraphOptions {
-    fn includes(self, scope: DependencyScope) -> bool {
-        match scope {
-            DependencyScope::Build | DependencyScope::Runtime => true,
-            DependencyScope::Development => self.include_development,
-        }
-    }
-}
-
 /// Declarative local package manifest used to name and select package content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageManifest {
@@ -435,8 +420,6 @@ pub struct PackageGraphNode {
 /// A bounded package graph assembled from local manifests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageGraph {
-    /// Dependency-scope policy used to produce this graph.
-    pub options: PackageGraphOptions,
     pub nodes: Vec<PackageGraphNode>,
     /// Declared edges and their actual resolver-selected targets.
     pub dependencies: Vec<PackageDependencyReport>,
@@ -445,16 +428,14 @@ pub struct PackageGraph {
 /// A stable summary of package-graph selection decisions.
 ///
 /// The package graph is intentionally resolved without loading source
-/// modules. This report lets callers explain which dependency scopes were
-/// eligible and which package roots were actually selected.
+/// modules. This report lets callers explain which package roots were
+/// actually selected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageGraphReport {
-    /// Dependency scopes enabled while resolving the graph.
-    pub options: PackageGraphOptions,
     /// Package nodes selected by the resolver, in canonical root order.
     pub resolved: Vec<PackageGraphNode>,
-    /// Declared dependencies from every resolved package, including scopes
-    /// that were not selected by `options`.
+    /// Declared dependencies from every resolved package, including the
+    /// development dependencies of non-root packages, which are not resolved.
     pub declared: Vec<PackageDependencyReport>,
 }
 
@@ -972,7 +953,7 @@ fn parse_blake3_lock_digest(value: &str) -> io::Result<[u8; 32]> {
 /// How resolution may change `nia.lock` and the package cache.
 ///
 /// The policy never changes which packages are selected, so it is not part of
-/// [`PackageGraphOptions`] or the graph fingerprint.
+/// the graph fingerprint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LockPolicy {
     /// Fail instead of adding, changing, or removing a `nia.lock` entry.
@@ -1853,18 +1834,20 @@ impl PackageFetcher {
                     .member_packages()
                     .ok()?
                     .into_iter()
-                    .map(|member| member.root),
+                    .map(|member| (member.root, true)),
             );
             if raw.package.is_some() {
-                pending.push(state_root.to_path_buf());
+                pending.push((state_root.to_path_buf(), true));
             }
         } else {
-            pending.push(state_root.to_path_buf());
+            pending.push((state_root.to_path_buf(), true));
         }
         let mut seen = BTreeSet::new();
-        while let Some(root) = pending.pop() {
+        while let Some((root, is_root)) = pending.pop() {
             let root = canonical_real_directory(&root).ok()?;
-            if !seen.insert(root.clone()) {
+            // A workspace member can also be another member's dependency;
+            // visit it once in each role.
+            if !seen.insert((root.clone(), is_root)) {
                 continue;
             }
             if seen.len() > 1024
@@ -1874,6 +1857,10 @@ impl PackageFetcher {
             }
             let manifest = PackageManifest::read(&root).ok()?;
             for dependency in &manifest.dependencies {
+                // The resolver locks only root development dependencies.
+                if dependency.scope == DependencyScope::Development && !is_root {
+                    continue;
+                }
                 match &dependency.source {
                     DependencySource::Path(path) => {
                         let owner = manifest.package.canonical_text();
@@ -1887,7 +1874,7 @@ impl PackageFetcher {
                                 } if locked_owner == &owner && locked_path == path
                             )
                         })?;
-                        pending.push(root.join(path));
+                        pending.push((root.join(path), false));
                         reachable
                             .insert((entry.name.clone(), entry.source.reachability_identity()?));
                     }
@@ -1907,10 +1894,11 @@ impl PackageFetcher {
                                     },
                                 )
                         })?;
-                        pending.push(
+                        pending.push((
                             self.cache_root
                                 .join(entry.source.source_fingerprint()?.get(7..)?),
-                        );
+                            false,
+                        ));
                         reachable.insert((
                             dependency.name.clone(),
                             format!("git\0{source}\0{selector}"),
@@ -1932,10 +1920,11 @@ impl PackageFetcher {
                                                 && locked_package == &package.name
                                         )
                         })?;
-                        pending.push(
+                        pending.push((
                             self.cache_root
                                 .join(entry.source.source_fingerprint()?.get(7..)?),
-                        );
+                            false,
+                        ));
                         reachable
                             .insert((entry.name.clone(), entry.source.reachability_identity()?));
                     }
@@ -2072,9 +2061,6 @@ fn update_lock_inner(
         let refresh_names = names.iter().cloned().collect::<BTreeSet<_>>();
         let graph = PackageGraph::resolve_for_update(
             roots,
-            PackageGraphOptions {
-                include_development: true,
-            },
             registries,
             refresh_names,
             registry_fetch.clone(),
@@ -2291,41 +2277,25 @@ fn hex_digest(bytes: &[u8; 32]) -> String {
 }
 
 impl PackageGraph {
-    /// Discovers the root package and selected dependency classes.
-    pub fn resolve(root: &Path, include_development: bool) -> io::Result<Self> {
-        Self::resolve_with_options(
-            root,
-            PackageGraphOptions {
-                include_development,
-            },
-        )
-    }
-
-    /// Discovers a package graph under an explicit dependency-scope policy.
-    pub fn resolve_with_options(root: &Path, options: PackageGraphOptions) -> io::Result<Self> {
-        Self::resolve_with_policy(root, options, LockPolicy::default())
+    /// Discovers the root package and its dependency graph.
+    pub fn resolve(root: &Path) -> io::Result<Self> {
+        Self::resolve_with_policy(root, LockPolicy::default())
     }
 
     /// Discovers a package graph, changing `nia.lock` only as `policy` allows.
-    pub fn resolve_with_policy(
-        root: &Path,
-        options: PackageGraphOptions,
-        policy: LockPolicy,
-    ) -> io::Result<Self> {
+    pub fn resolve_with_policy(root: &Path, policy: LockPolicy) -> io::Result<Self> {
         let registries = read_registry_endpoints(root)?;
-        Self::resolve_with_policy_and_registries(root, options, policy, registries)
+        Self::resolve_with_policy_and_registries(root, policy, registries)
     }
 
     /// Resolves a package graph with explicit registry endpoint configuration.
     pub fn resolve_with_policy_and_registries(
         root: &Path,
-        options: PackageGraphOptions,
         policy: LockPolicy,
         registries: BTreeMap<String, RegistryEndpoint>,
     ) -> io::Result<Self> {
         Self::resolve_with_registry_overrides(
             root,
-            options,
             policy,
             RegistryResolution {
                 registries,
@@ -2344,7 +2314,6 @@ impl PackageGraph {
     /// caller starts work for any individual member.
     pub fn resolve_members_with_policy(
         members: &[WorkspaceMember],
-        options: PackageGraphOptions,
         policy: LockPolicy,
     ) -> io::Result<Self> {
         let Some(first) = members.first() else {
@@ -2385,7 +2354,6 @@ impl PackageGraph {
         let registries = read_registry_endpoints(&first.root)?;
         Self::resolve_roots_with_registry_overrides(
             roots,
-            options,
             policy,
             RegistryResolution {
                 registries,
@@ -2400,7 +2368,6 @@ impl PackageGraph {
 
     fn resolve_for_update(
         roots: Vec<(PathBuf, String)>,
-        options: PackageGraphOptions,
         registries: BTreeMap<String, RegistryEndpoint>,
         refresh_names: BTreeSet<String>,
         registry_fetch: Option<RegistryFetch>,
@@ -2408,7 +2375,6 @@ impl PackageGraph {
     ) -> io::Result<Self> {
         Self::resolve_roots_with_registry_overrides(
             roots,
-            options,
             LockPolicy::default(),
             RegistryResolution {
                 registries,
@@ -2423,13 +2389,11 @@ impl PackageGraph {
 
     fn resolve_with_registry_overrides(
         root: &Path,
-        options: PackageGraphOptions,
         policy: LockPolicy,
         resolution: RegistryResolution,
     ) -> io::Result<Self> {
         Self::resolve_roots_with_registry_overrides(
             vec![(root.to_path_buf(), String::new())],
-            options,
             policy,
             resolution,
         )
@@ -2437,7 +2401,6 @@ impl PackageGraph {
 
     fn resolve_roots_with_registry_overrides(
         roots: Vec<(PathBuf, String)>,
-        options: PackageGraphOptions,
         policy: LockPolicy,
         resolution: RegistryResolution,
     ) -> io::Result<Self> {
@@ -2532,7 +2495,9 @@ impl PackageGraph {
                 } else {
                     format!("{logical_root}/{}", dependency.name)
                 };
-                if !options.includes(dependency.scope) {
+                // Development dependencies serve a package's own tests, and only
+                // a root package's tests are ever built.
+                if dependency.scope == DependencyScope::Development && !is_root {
                     let source_root = match &dependency.source {
                         DependencySource::Path(path) => {
                             canonical_real_directory(&canonical.join(path)).ok()
@@ -2619,7 +2584,6 @@ impl PackageGraph {
             drop(next_fetcher);
             return Self::resolve_roots_with_registry_overrides(
                 roots,
-                options,
                 policy,
                 RegistryResolution {
                     overrides,
@@ -2631,7 +2595,6 @@ impl PackageGraph {
         fetcher.prune_unreachable()?;
         fetcher.finish()?;
         Ok(Self {
-            options,
             nodes,
             dependencies,
         })
@@ -2642,7 +2605,6 @@ impl PackageGraph {
         let mut encoded = Vec::new();
         encoded.extend_from_slice(PACKAGE_GRAPH_DOMAIN.as_str().as_bytes());
         encoded.extend_from_slice(b"\0\x01");
-        encoded.push(u8::from(self.options.include_development));
         for node in &self.nodes {
             write_fingerprint_field(&mut encoded, node.root.as_bytes());
             write_fingerprint_field(
@@ -2723,7 +2685,6 @@ impl PackageGraph {
     /// Returns the resolver's actual dependency selection decisions.
     pub fn report(&self) -> PackageGraphReport {
         PackageGraphReport {
-            options: self.options,
             resolved: self.nodes.clone(),
             declared: self.dependencies.clone(),
         }
@@ -7124,12 +7085,8 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .member_packages()
             .unwrap();
 
-        let graph = PackageGraph::resolve_members_with_policy(
-            &members,
-            PackageGraphOptions::default(),
-            LockPolicy::default(),
-        )
-        .unwrap();
+        let graph =
+            PackageGraph::resolve_members_with_policy(&members, LockPolicy::default()).unwrap();
 
         assert_eq!(
             graph
@@ -7143,12 +7100,8 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             name: "outsider".into(),
             root: root.clone(),
         };
-        let error = PackageGraph::resolve_members_with_policy(
-            &[outsider],
-            PackageGraphOptions::default(),
-            LockPolicy::default(),
-        )
-        .unwrap_err();
+        let error = PackageGraph::resolve_members_with_policy(&[outsider], LockPolicy::default())
+            .unwrap_err();
         assert!(error.to_string().contains("not a member of this workspace"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -7536,7 +7489,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         cache.write_archive(&digest, &archive).unwrap();
         let graph = PackageGraph::resolve_with_policy(
             &consumer,
-            PackageGraphOptions::default(),
             LockPolicy {
                 locked: false,
                 offline: true,
@@ -7569,11 +7521,10 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         }));
         fs::remove_file(consumer.join(".nia/registry/indexes/nia/index.toml")).unwrap();
         let lock_bytes = fs::read(consumer.join("nia.lock")).unwrap();
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(fs::read(consumer.join("nia.lock")).unwrap(), lock_bytes);
         let locked_graph = PackageGraph::resolve_with_policy_and_registries(
             &consumer,
-            PackageGraphOptions::default(),
             LockPolicy {
                 locked: true,
                 offline: false,
@@ -7604,7 +7555,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert!(
             PackageGraph::resolve_with_policy_and_registries(
                 &consumer,
-                PackageGraphOptions::default(),
                 LockPolicy {
                     locked: true,
                     offline: false,
@@ -7618,7 +7568,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"app\"\nversion = \"0.0.0\"\n",
         )
         .unwrap();
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert!(
             PackageLock::read(&consumer.join("nia.lock"))
                 .unwrap()
@@ -7718,7 +7668,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .unwrap();
             let graph = PackageGraph::resolve_with_policy(
                 &consumer,
-                PackageGraphOptions::default(),
                 LockPolicy {
                     locked: false,
                     offline: true,
@@ -7734,7 +7683,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         let graph = PackageGraph::resolve_with_policy(
             &consumer,
-            PackageGraphOptions::default(),
             LockPolicy {
                 locked: false,
                 offline: true,
@@ -7773,7 +7721,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::write(manifest_path, manifest).unwrap();
         let error = PackageGraph::resolve_with_policy(
             &consumer,
-            PackageGraphOptions::default(),
             LockPolicy {
                 locked: false,
                 offline: true,
@@ -7800,7 +7747,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     #[test]
     fn registry_requirements_are_part_of_the_canonical_graph_fingerprint() {
         let graph = |package_name: &str, requirement: &str| PackageGraph {
-            options: PackageGraphOptions::default(),
             nodes: vec![PackageGraphNode {
                 manifest: PackageManifest {
                     package: package(),
@@ -8040,14 +7986,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             ),
         )
         .unwrap();
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         let first_rev = locked_rev(&consumer, "first");
         let second_rev = locked_rev(&consumer, "second");
         commit_upstream_change(&upstream.join("first"), "pub fun changed() {}\n");
         commit_upstream_change(&upstream.join("second"), "pub fun changed() {}\n");
 
         // An ordinary resolve keeps the locked commits.
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(locked_rev(&consumer, "first"), first_rev);
 
         // Updating one name leaves the other entry alone.
@@ -8351,7 +8297,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         .unwrap();
         PackageGraph::resolve_with_policy(
             &root,
-            PackageGraphOptions::default(),
             LockPolicy {
                 locked: true,
                 offline: false,
@@ -8562,20 +8507,19 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             locked: true,
             offline: false,
         };
-        let options = PackageGraphOptions::default();
 
         // A dependency missing from the lock cannot be added.
         manifest(&format!("first = {{ git = \"{first}\" }}\n"));
-        let error = PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap_err();
+        let error = PackageGraph::resolve_with_policy(&consumer, locked).unwrap_err();
         assert!(error.to_string().contains("--locked"), "{error}");
         assert!(!consumer.join("nia.lock").exists());
 
         // A matching lock resolves from cache but cannot fetch a missing checkout.
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         let lock = std::fs::read(consumer.join("nia.lock")).unwrap();
-        PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap();
+        PackageGraph::resolve_with_policy(&consumer, locked).unwrap();
         std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
-        let error = PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap_err();
+        let error = PackageGraph::resolve_with_policy(&consumer, locked).unwrap_err();
         assert!(error.to_string().contains("--locked"), "{error}");
         assert_eq!(std::fs::read(consumer.join("nia.lock")).unwrap(), lock);
 
@@ -8583,9 +8527,9 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         manifest(&format!(
             "first = {{ git = \"{first}\" }}\nsecond = {{ git = \"{second}\" }}\n"
         ));
-        assert!(PackageGraph::resolve_with_policy(&consumer, options, locked).is_err());
+        assert!(PackageGraph::resolve_with_policy(&consumer, locked).is_err());
         manifest("");
-        let error = PackageGraph::resolve_with_policy(&consumer, options, locked).unwrap_err();
+        let error = PackageGraph::resolve_with_policy(&consumer, locked).unwrap_err();
         assert!(error.to_string().contains("--locked"), "{error}");
         assert_eq!(std::fs::read(consumer.join("nia.lock")).unwrap(), lock);
         std::fs::remove_dir_all(root).unwrap();
@@ -8608,15 +8552,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             locked: false,
             offline: true,
         };
-        let options = PackageGraphOptions::default();
 
-        let error = PackageGraph::resolve_with_policy(&consumer, options, offline).unwrap_err();
+        let error = PackageGraph::resolve_with_policy(&consumer, offline).unwrap_err();
         assert!(error.to_string().contains("--offline"), "{error}");
 
-        PackageGraph::resolve(&consumer, false).unwrap();
-        PackageGraph::resolve_with_policy(&consumer, options, offline).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
+        PackageGraph::resolve_with_policy(&consumer, offline).unwrap();
         std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
-        let error = PackageGraph::resolve_with_policy(&consumer, options, offline).unwrap_err();
+        let error = PackageGraph::resolve_with_policy(&consumer, offline).unwrap_err();
         assert!(error.to_string().contains("--offline"), "{error}");
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -8656,21 +8599,21 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         manifest(&format!(
             "first = {{ git = \"{first}\" }}\nsecond = {{ git = \"{second}\" }}\n"
         ));
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(locked_names(&consumer), ["first", "second"]);
 
         manifest(&format!("first = {{ git = \"{first}\" }}\n"));
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(locked_names(&consumer), ["first"]);
 
         manifest("");
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert!(locked_names(&consumer).is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn package_graph_keeps_development_entries_outside_test_builds() {
+    fn package_graph_locks_root_development_dependencies() {
         let root = lock_test_root("dev");
         let fixtures = local_git_package(&root.join("upstream"), "fixtures");
         let consumer = root.join("consumer");
@@ -8682,10 +8625,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             ),
         )
         .unwrap();
-        PackageGraph::resolve(&consumer, true).unwrap();
-        assert_eq!(locked_names(&consumer), ["fixtures"]);
-
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(locked_names(&consumer), ["fixtures"]);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -8715,11 +8655,11 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[workspace]\nmembers = [\"left\", \"right\"]\n",
         )
         .unwrap();
-        PackageGraph::resolve(&workspace.join("left"), false).unwrap();
-        PackageGraph::resolve(&workspace.join("right"), false).unwrap();
+        PackageGraph::resolve(&workspace.join("left")).unwrap();
+        PackageGraph::resolve(&workspace.join("right")).unwrap();
         assert_eq!(locked_names(&workspace), ["leftdep", "rightdep"]);
 
-        PackageGraph::resolve(&workspace.join("left"), false).unwrap();
+        PackageGraph::resolve(&workspace.join("left")).unwrap();
         assert_eq!(locked_names(&workspace), ["leftdep", "rightdep"]);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -8775,7 +8715,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
 
-        let graph = PackageGraph::resolve(&consumer, false).unwrap();
+        let graph = PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert!(
             graph
@@ -8824,7 +8764,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        let graph = PackageGraph::resolve(&root, false).unwrap();
+        let graph = PackageGraph::resolve(&root).unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert!(
             graph
@@ -8834,7 +8774,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         let first_fingerprint = graph.fingerprint();
         std::fs::write(dep.join("src.nia"), "changed").unwrap();
-        let changed = PackageGraph::resolve(&root, false).unwrap();
+        let changed = PackageGraph::resolve(&root).unwrap();
         assert_ne!(first_fingerprint, changed.fingerprint());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -8854,7 +8794,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n[dependencies]\nroot = { path = \"..\" }\n",
         )
         .unwrap();
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert!(error.to_string().contains("dependency cycle"));
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -8868,7 +8808,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
         )
         .unwrap();
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         let message = error.to_string();
         assert!(message.contains("dependency `mathlib`"), "{message}");
@@ -8885,7 +8825,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\nmathlib = { path = \"vendor/mathlib\" }\n",
         )
         .unwrap();
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
         let message = error.to_string();
         assert!(message.contains("dependency `mathlib`"), "{message}");
@@ -8916,7 +8856,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
 
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         let lock_path = consumer.join("nia.lock");
         let first_lock = fs::read(&lock_path).unwrap();
         let lock = PackageLock::read(&lock_path).unwrap();
@@ -8941,19 +8881,15 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             locked: true,
             offline: true,
         };
-        PackageGraph::resolve_with_policy(&consumer, PackageGraphOptions::default(), locked)
-            .unwrap();
+        PackageGraph::resolve_with_policy(&consumer, locked).unwrap();
         fs::write(
             dependency.join("src/root.nia"),
             "pub fun value() -> i32 = 2;\n",
         )
         .unwrap();
-        assert!(
-            PackageGraph::resolve_with_policy(&consumer, PackageGraphOptions::default(), locked)
-                .is_err()
-        );
+        assert!(PackageGraph::resolve_with_policy(&consumer, locked).is_err());
         assert_eq!(fs::read(&lock_path).unwrap(), first_lock);
-        PackageGraph::resolve(&consumer, false).unwrap();
+        PackageGraph::resolve(&consumer).unwrap();
         assert_ne!(fs::read(&lock_path).unwrap(), first_lock);
         fs::remove_dir_all(root).unwrap();
     }
@@ -8981,7 +8917,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         .unwrap();
         symlink(&outside, &link).unwrap();
 
-        assert!(PackageGraph::resolve(&consumer, false).is_err());
+        assert!(PackageGraph::resolve(&consumer).is_err());
         assert!(!consumer.join("nia.lock").exists());
         fs::remove_file(link).unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -9003,7 +8939,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         .unwrap();
         symlink(&actual, &linked).unwrap();
 
-        assert!(PackageGraph::resolve(&linked, false).is_err());
+        assert!(PackageGraph::resolve(&linked).is_err());
         assert!(!actual.join("nia.lock").exists());
         fs::remove_file(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -9036,7 +8972,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .unwrap();
         assert!(output.status.success(), "{output:?}");
 
-        assert!(PackageGraph::resolve(&consumer, false).is_err());
+        assert!(PackageGraph::resolve(&consumer).is_err());
         assert!(!consumer.join("nia.lock").exists());
         fs::remove_dir(link).unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -9062,7 +8998,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             .unwrap();
         assert!(output.status.success(), "{output:?}");
 
-        assert!(PackageGraph::resolve(&linked, false).is_err());
+        assert!(PackageGraph::resolve(&linked).is_err());
         assert!(!actual.join("nia.lock").exists());
         fs::remove_dir(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -9089,7 +9025,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             "[package]\nname = \"regex\"\nversion = \"1.0.0\"\nunknown = 1\n",
         )
         .unwrap();
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(
             error.to_string().contains("dependency `json/regex`"),
@@ -9119,53 +9055,46 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             )
             .unwrap();
         }
-        let ordinary = PackageGraph::resolve(&root, false).unwrap();
-        assert_eq!(ordinary.nodes.len(), 3);
-        let tests = PackageGraph::resolve(&root, true).unwrap();
-        assert_eq!(tests.nodes.len(), 4);
-        assert!(tests.nodes.iter().any(|node| node.root == "development"));
+        let graph = PackageGraph::resolve(&root).unwrap();
+        assert_eq!(graph.nodes.len(), 4);
+        assert!(graph.nodes.iter().any(|node| node.root == "development"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn graph_report_preserves_filtered_dependency_decisions() {
+    fn only_root_packages_resolve_their_development_dependencies() {
         let root = std::env::temp_dir().join(format!("nia-report-{}", std::process::id()));
-        let development = root.join("development");
-        std::fs::create_dir_all(&development).unwrap();
+        let dependency = root.join("dependency");
+        let tooling = root.join("tooling");
+        std::fs::create_dir_all(&dependency).unwrap();
+        std::fs::create_dir_all(&tooling).unwrap();
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dependencies]\ndependency = { path = \"dependency\" }\n",
         )
         .unwrap();
         std::fs::write(
-            development.join("nia.toml"),
-            "[package]\nname = \"development\"\nversion = \"1.0.0\"\n",
+            dependency.join("nia.toml"),
+            "[package]\nname = \"dependency\"\nversion = \"1.0.0\"\n[dev-dependencies]\ntooling = { path = \"../tooling\" }\n",
         )
         .unwrap();
-        let graph = PackageGraph::resolve(&root, false).unwrap();
-        let report = graph.report();
-        assert_eq!(report.resolved.len(), 1);
-        assert_eq!(report.declared.len(), 1);
-        assert_eq!(
-            report.declared[0].dependency.scope,
-            DependencyScope::Development
-        );
-        assert_eq!(report.declared[0].resolved_root, None);
-        assert_eq!(
-            report.declared[0].source_root,
-            Some(development.canonicalize().unwrap())
-        );
-        let selected = PackageGraph::resolve_with_options(
-            &root,
-            PackageGraphOptions {
-                include_development: true,
-            },
+        std::fs::write(
+            tooling.join("nia.toml"),
+            "[package]\nname = \"tooling\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        assert_eq!(
-            selected.report().declared[0].resolved_root.as_deref(),
-            Some("development")
-        );
+        let report = PackageGraph::resolve(&root).unwrap().report();
+        assert_eq!(report.resolved.len(), 2);
+        // A dependency's tests are never built, so its dev-dependency stays a
+        // declared, unresolved edge.
+        let edge = report
+            .declared
+            .iter()
+            .find(|edge| edge.dependency.name == "tooling")
+            .unwrap();
+        assert_eq!(edge.dependency.scope, DependencyScope::Development);
+        assert_eq!(edge.resolved_root, None);
+        assert_eq!(edge.source_root, Some(tooling.canonicalize().unwrap()));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -9192,45 +9121,22 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
 
-        let graph =
-            PackageGraph::resolve_with_options(&root, PackageGraphOptions::default()).unwrap();
-        assert_eq!(
-            graph.nodes.len(),
-            2,
-            "one physical checkout is one graph node"
-        );
+        let graph = PackageGraph::resolve(&root).unwrap();
+        // One checkout reached under two names is two logical package roots.
+        assert_eq!(graph.nodes.len(), 3);
         let report = graph.report();
         let runtime = report
             .declared
             .iter()
             .find(|edge| edge.dependency.name == "runtime")
             .unwrap();
-        let optional = report
+        let development = report
             .declared
             .iter()
             .find(|edge| edge.dependency.name == "development")
             .unwrap();
-        let shared_root = graph
-            .nodes
-            .iter()
-            .find(|node| !node.root.is_empty())
-            .unwrap()
-            .root
-            .clone();
-        assert_eq!(runtime.resolved_root, Some(shared_root));
-        assert_eq!(optional.resolved_root, None);
-        assert_eq!(runtime.source_root, optional.source_root);
-
-        let selected = PackageGraph::resolve_with_options(
-            &root,
-            PackageGraphOptions {
-                include_development: true,
-            },
-        )
-        .unwrap();
-        assert!(selected.nodes.iter().any(|node| node.root == "runtime"));
-        assert!(selected.nodes.iter().any(|node| node.root == "development"));
-        let selected_edges = selected.report().declared;
+        assert_eq!(runtime.source_root, development.source_root);
+        let selected_edges = report.declared;
         assert_eq!(
             selected_edges
                 .iter()
@@ -9245,43 +9151,6 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 .and_then(|edge| edge.resolved_root.as_deref()),
             Some("development")
         );
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn package_graph_fingerprint_includes_selection_policy() {
-        let root = std::env::temp_dir().join(format!(
-            "nia-graph-policy-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
-            root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
-        )
-        .unwrap();
-        std::fs::create_dir_all(root.join("development")).unwrap();
-        std::fs::write(
-            root.join("development/nia.toml"),
-            "[package]\nname = \"development\"\nversion = \"1.0.0\"\n",
-        )
-        .unwrap();
-
-        let ordinary =
-            PackageGraph::resolve_with_options(&root, PackageGraphOptions::default()).unwrap();
-        let selected = PackageGraph::resolve_with_options(
-            &root,
-            PackageGraphOptions {
-                include_development: true,
-            },
-        )
-        .unwrap();
-        assert_ne!(ordinary.fingerprint(), selected.fingerprint());
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -9304,14 +9173,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         .unwrap();
         std::fs::write(root.join("src/first.nia"), "pub const value: u8 = 1;").unwrap();
         std::fs::write(root.join("src/second.nia"), "pub const value: u8 = 1;").unwrap();
-        let first = PackageGraph::resolve(&root, false).unwrap().fingerprint();
+        let first = PackageGraph::resolve(&root).unwrap().fingerprint();
 
         std::fs::write(
             root.join("nia.toml"),
             "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[library]\npath = \"src/second.nia\"\n[source]\nroots = [\"src\"]\n",
         )
         .unwrap();
-        let second = PackageGraph::resolve(&root, false).unwrap().fingerprint();
+        let second = PackageGraph::resolve(&root).unwrap().fingerprint();
 
         assert_ne!(first, second);
         std::fs::remove_dir_all(root).unwrap();
@@ -9387,7 +9256,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
 
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert!(error.to_string().contains("must be a regular file"));
 
         std::fs::remove_dir_all(root).unwrap();
@@ -9410,7 +9279,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
 
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert!(error.to_string().contains("must use real directories"));
 
         std::fs::remove_dir_all(root).unwrap();
@@ -9445,7 +9314,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         )
         .unwrap();
 
-        let error = PackageGraph::resolve(&root, false).unwrap_err();
+        let error = PackageGraph::resolve(&root).unwrap_err();
         assert!(error.to_string().contains("must use real directories"));
 
         std::fs::remove_dir(link).unwrap();
