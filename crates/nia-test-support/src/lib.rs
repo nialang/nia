@@ -192,8 +192,40 @@ pub fn nia_command_with_resource_root(
 }
 
 /// A `nia` invocation using this checkout's resources.
+///
+/// Builds share one compiler-cache root, so the build runner and the standard
+/// library are compiled once per compiler binary rather than once per test
+/// package. Each package keeps its own configure, action, and suite caches.
 pub fn nia_command(program: impl AsRef<OsStr>) -> Command {
-    nia_command_with_resource_root(program, workspace_root().join("lib"))
+    let mut command = nia_command_with_resource_root(&program, workspace_root().join("lib"));
+    command.env(
+        SHARED_ARTIFACT_CACHE_ENV,
+        shared_artifact_cache_root(program.as_ref()),
+    );
+    command
+}
+
+// Mirrors `nia_build::TEST_SHARED_ARTIFACT_CACHE_ENV`; the compiler under test
+// is a binary dependency, so its constant is not importable here.
+const SHARED_ARTIFACT_CACHE_ENV: &str = "NIA_TEST_SHARED_ARTIFACT_CACHE";
+
+// Cache records name the compiler version, not its build, so the root is keyed
+// by the executable's size and modification time: rebuilding `nia` starts a
+// fresh root instead of reusing objects an older build produced.
+fn shared_artifact_cache_root(program: &OsStr) -> PathBuf {
+    let program = Path::new(program);
+    let stamp = fs::metadata(program)
+        .ok()
+        .and_then(|metadata| {
+            let modified = metadata
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?;
+            Some(format!("{}-{}", metadata.len(), modified.as_nanos()))
+        })
+        .unwrap_or_else(|| "unknown".to_owned());
+    workspace_temp_root("nia_test_artifact_caches").join(stamp)
 }
 
 /// Creates a process/thread-unique temporary directory for one test.
@@ -917,12 +949,16 @@ fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn resource_slot_root() -> PathBuf {
+    workspace_temp_root("nia_test_resource_slots")
+}
+
+// One temporary directory per checkout, so concurrent checkouts never share
+// permits or caches.
+fn workspace_temp_root(kind: &str) -> PathBuf {
     let workspace = env!("CARGO_MANIFEST_DIR")
         .replace(['/', '\\'], "_")
         .replace(':', "_");
-    std::env::temp_dir()
-        .join("nia_test_resource_slots")
-        .join(workspace)
+    std::env::temp_dir().join(kind).join(workspace)
 }
 
 fn acquire_process_slots(

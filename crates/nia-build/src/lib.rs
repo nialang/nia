@@ -388,6 +388,11 @@ pub struct BuildInvocation {
     pub build_dir: PathBuf,
     /// Invocation-local persistent action-cache directory.
     pub cache_dir: PathBuf,
+    /// Root of the content-addressed compiler caches: the build runner and
+    /// compiled objects, archives, and links. These records are keyed by
+    /// content and toolchain alone, so packages may share one root; it is
+    /// `cache_dir` unless the test harness names a shared one.
+    pub artifact_cache_dir: PathBuf,
     /// Directory containing the generated host runner.
     pub runner_dir: PathBuf,
     /// Path to the generated runner executable.
@@ -2646,9 +2651,12 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
     let transient_name = next_build_invocation_name();
+    let cache_dir = package_root.join(".nia-cache");
+    let artifact_cache_dir = shared_artifact_cache_dir().unwrap_or_else(|| cache_dir.clone());
     Ok(BuildInvocation {
         toolchain: request.toolchain,
-        cache_dir: package_root.join(".nia-cache"),
+        cache_dir,
+        artifact_cache_dir,
         runner_executable: runner_dir.join(format!("nia-build-runner-{transient_name}")),
         runner_config: build_dir.join(format!(".build-runner-{transient_name}.config")),
         plan_draft: build_dir.join(format!(".build-plan-{transient_name}.draft")),
@@ -2677,6 +2685,18 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         profile: request.profile,
         link_time_optimization: request.link_time_optimization,
     })
+}
+
+/// Names a compiler-cache root shared by every build in one test run, so each
+/// test package does not compile the same runner and standard library again.
+/// Only `nia-test-support` sets it; it is not a user-facing option.
+pub const TEST_SHARED_ARTIFACT_CACHE_ENV: &str = "NIA_TEST_SHARED_ARTIFACT_CACHE";
+
+fn shared_artifact_cache_dir() -> Option<PathBuf> {
+    env::var_os(TEST_SHARED_ARTIFACT_CACHE_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
 }
 
 static BUILD_INVOCATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -2965,7 +2985,7 @@ fn focus_program_diagnostics(diagnostics: &mut Vec<ProgramDiagnostic>, runner: &
 
 fn build_runner_driver_config(invocation: &BuildInvocation) -> DriverConfig {
     DriverConfig {
-        artifact_cache_dir: Some(invocation.cache_dir.clone()),
+        artifact_cache_dir: Some(invocation.artifact_cache_dir.clone()),
         ..DriverConfig::new(Arc::clone(&invocation.toolchain))
     }
     .with_artifact_target(*invocation.toolchain.host_target())
@@ -4303,6 +4323,28 @@ mod tests {
         .expect("build invocation");
 
         assert_eq!(invocation.max_parallel_actions, Some(limit));
+    }
+
+    // `nia-test-support` spells the variable itself; keep the names equal.
+    #[test]
+    fn shared_artifact_cache_override_is_absolute_and_package_caches_stay_local() {
+        assert_eq!(
+            TEST_SHARED_ARTIFACT_CACHE_ENV,
+            "NIA_TEST_SHARED_ARTIFACT_CACHE"
+        );
+        let root = temp_root("shared_artifact_cache_override");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("build invocation");
+        assert_eq!(
+            invocation.cache_dir,
+            invocation.package_root.join(".nia-cache")
+        );
+        match shared_artifact_cache_dir() {
+            Some(shared) => assert_eq!(invocation.artifact_cache_dir, shared),
+            None => assert_eq!(invocation.artifact_cache_dir, invocation.cache_dir),
+        }
     }
 
     #[test]

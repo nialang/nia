@@ -61,7 +61,7 @@ impl DriverActionExecutor {
             drivers.entry(*target).or_insert_with(|| {
                 Arc::new(Driver::with_config(
                     DriverConfig {
-                        artifact_cache_dir: Some(invocation.cache_dir.clone()),
+                        artifact_cache_dir: Some(invocation.artifact_cache_dir.clone()),
                         ..DriverConfig::new(Arc::clone(&invocation.toolchain))
                     }
                     .with_artifact_target(*target),
@@ -249,7 +249,7 @@ impl DriverActionExecutor {
         // lets concurrent suites replace each other's active loader entry.
         let driver = Driver::with_config(
             DriverConfig {
-                artifact_cache_dir: Some(self.invocation.cache_dir.clone()),
+                artifact_cache_dir: Some(self.invocation.artifact_cache_dir.clone()),
                 ..DriverConfig::new(Arc::clone(&self.invocation.toolchain))
             }
             .with_artifact_target(*target),

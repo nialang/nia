@@ -292,6 +292,7 @@ mod tests {
             manifest_artifacts: Vec::new(),
             build_dir: PathBuf::from("/workspace/package/.nia-build"),
             cache_dir: PathBuf::from("/workspace/package/.nia-cache"),
+            artifact_cache_dir: PathBuf::from("/workspace/package/.nia-cache"),
             runner_dir: PathBuf::from("/workspace/package/.nia-build/runner"),
             runner_executable: PathBuf::from("/workspace/package/.nia-build/runner/runner"),
             runner_config: PathBuf::from("/workspace/package/.nia-build/.runner.config"),

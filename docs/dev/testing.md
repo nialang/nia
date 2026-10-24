@@ -143,13 +143,19 @@ subprocess go through `nia-test-support` instead of spawning bare commands:
   never return an unowned `PathBuf` under the system temporary directory.
 
 Compiler and build work share a cross-process memory budget derived from the
-effective CPU and memory limits (cgroup limits in containers and rental hosts,
-the VM's resources under WSL, system resources on bare hosts). There are no
-per-machine test profiles or private environment switches; if memory cannot be
-detected, compiler-heavy tests run serially. The accounting details are
-documented in `crates/nia-test-support/src/lib.rs`. Set
-`NIA_TEST_RESOURCE_TRACE=1` to print permit waits and per-command peaks when
-tuning a new host.
+effective CPU and memory limits: cgroup limits in containers and rental hosts,
+the VM's resources under WSL, and system memory on bare Linux, Windows, and
+macOS hosts. There are no per-machine test profiles or private environment
+switches; a host whose memory cannot be read runs compiler and runtime work
+one at a time. The accounting details are documented in
+`crates/nia-test-support/src/lib.rs`. Set `NIA_TEST_RESOURCE_TRACE=1` to print
+pool sizes, permit waits, and per-command peaks when tuning a new host.
+
+`nia build` commands from the harness share one compiler-cache root per `nia`
+binary, under the system temporary directory, so the build runner and the
+standard library are compiled once per test run rather than once per test
+package. Configure, action, and suite caches stay in each package's
+`.nia-cache/`, so tests of cache behavior see only their own records.
 
 Tests use the same public compiler, build, and LLVM contracts as production;
 the harness bounds resources but does not change production semantics.

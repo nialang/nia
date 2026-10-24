@@ -35,7 +35,7 @@ const RUNNER_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
 /// Canonical private cache record for a generated build runner.
 fn cache_path(invocation: &BuildInvocation, key: &str) -> PathBuf {
     invocation
-        .cache_dir
+        .artifact_cache_dir
         .join("runner")
         .join(formats::RUNNER_CACHE.path_component)
         .join(format!("{key}.cache"))
@@ -62,7 +62,7 @@ pub(super) fn restore_executable(
 ) -> io::Result<bool> {
     let cached = cache_path(invocation, key);
     if let Err(error) = validate_cache_namespace(
-        &invocation.cache_dir,
+        &invocation.artifact_cache_dir,
         cached.parent().expect("runner cache executable parent"),
     ) {
         if error.kind() == io::ErrorKind::NotFound {
@@ -129,7 +129,7 @@ pub(super) fn publish_executable(
     record.extend_from_slice(&executable);
     let path = cache_path(invocation, key);
     ensure_cache_directory(
-        &invocation.cache_dir,
+        &invocation.artifact_cache_dir,
         path.parent().expect("runner cache parent"),
     )?;
     let _lock = acquire_mutation_lock(invocation, &path, observer)?;
@@ -144,10 +144,10 @@ fn acquire_mutation_lock(
     let mut builder = QueryFingerprintBuilder::new(RUNNER_CACHE_MUTATION_LOCK_DOMAIN);
     builder.write_bytes(path.as_os_str().as_encoded_bytes());
     let lock_root = invocation
-        .cache_dir
+        .artifact_cache_dir
         .join("coordination")
         .join("runner-cache");
-    ensure_cache_directory(&invocation.cache_dir, &lock_root)?;
+    ensure_cache_directory(&invocation.artifact_cache_dir, &lock_root)?;
     let [first, second] = builder.finish().parts();
     let lock = lock_root.join(format!("{first:016x}{second:016x}.lock"));
     ScopedFileLock::acquire_interruptible_observed(
@@ -584,6 +584,7 @@ mod tests {
             manifest_artifacts: Vec::new(),
             build_dir: package_root.join(".nia-build"),
             cache_dir: package_root.join(".nia-cache"),
+            artifact_cache_dir: package_root.join(".nia-cache"),
             runner_dir: package_root.join(".nia-build/runner"),
             runner_executable: package_root.join(".nia-build/runner/runner"),
             runner_config: package_root.join(".nia-build/runner/config"),
