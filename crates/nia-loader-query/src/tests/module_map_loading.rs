@@ -154,7 +154,12 @@ fn query_loader_injects_std_from_explicit_toolchain_layout() {
         .expect("std module");
     assert_eq!(
         normalized_test_path(std_module.path.as_str()),
-        normalized_test_path(test_toolchain_layout().std_module().to_string_lossy())
+        normalized_test_path(
+            test_toolchain_layout()
+                .std_package()
+                .root_file()
+                .to_string_lossy()
+        )
     );
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_not_loaded(&program, "lib/std/build.nia");

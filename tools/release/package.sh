@@ -57,7 +57,7 @@ lld_name=ld.lld
 lld="${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}/bin/${lld_name}"
 resource_root="${repo_root}/lib"
 for required in "${binary}" "${lld}" "${resource_root}/toolchain.meta" \
-    "${resource_root}/std/root.nia" "${resource_root}/runtime/start.nia"; do
+    "${resource_root}/std/nia.toml" "${resource_root}/runtime/nia.toml"; do
     if [[ ! -f "${required}" || ! -r "${required}" ]]; then
         printf 'release input is missing: %s\n' "${required}" >&2
         exit 1

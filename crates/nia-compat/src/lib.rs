@@ -535,6 +535,18 @@ pub fn toolchain_manifest() -> String {
     manifest
 }
 
+/// Names of the source packages shipped under the resource root, each in a
+/// directory of its own name.
+pub const TOOLCHAIN_PACKAGES: [&str; 2] = ["std", "runtime"];
+
+/// Renders the `nia.toml` of a toolchain source package for this compiler
+/// build. Its version is the compiler version, so a release bumps one number.
+pub fn toolchain_package_manifest(name: &str) -> String {
+    format!(
+        "[package]\nnamespace = \"nia\"\nname = \"{name}\"\nversion = \"{COMPILER_VERSION}\"\n\n[library]\npath = \"root.nia\"\n"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -626,5 +638,20 @@ mod tests {
             toolchain_manifest(),
             "run `cargo run -p nia-compat -- write lib/toolchain.meta`"
         );
+    }
+
+    #[test]
+    fn checked_in_toolchain_package_manifests_carry_the_compiler_version() {
+        let resources = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../lib");
+        for name in super::TOOLCHAIN_PACKAGES {
+            let path = resources.join(name).join("nia.toml");
+            let checked_in = fs::read_to_string(&path).expect("read toolchain package manifest");
+            assert_eq!(
+                checked_in,
+                super::toolchain_package_manifest(name),
+                "{} must match the compiler version",
+                path.display()
+            );
+        }
     }
 }

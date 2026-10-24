@@ -679,8 +679,8 @@ mod tests {
     fn runtime_export_module_and_definition_partition_the_cache_namespace() {
         let target = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
         let namespace = |module, definition| {
-            let runtime = RuntimeSpec::source_from_package_root(
-                "runtime/root.nia",
+            let runtime = RuntimeSpec::source_from_package(
+                &nia_toolchain::ToolchainPackage::new("runtime", "runtime", "root.nia"),
                 &target,
                 [nia_toolchain::RuntimeExport::new(module, definition)],
             )
@@ -815,8 +815,11 @@ extend Value {
             baseline,
             FrontendCacheNamespace::new(
                 &target,
-                RuntimeSpec::freestanding_from_package_root("runtime/root.nia", &target)
-                    .expect("test runtime"),
+                RuntimeSpec::freestanding_from_package(
+                    &nia_toolchain::ToolchainPackage::new("runtime", "runtime", "root.nia"),
+                    &target,
+                )
+                .expect("test runtime"),
             )
         );
         assert_ne!(

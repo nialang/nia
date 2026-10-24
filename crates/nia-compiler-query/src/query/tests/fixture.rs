@@ -313,8 +313,8 @@ pub(super) fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedMod
 }
 
 pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
-    RuntimeSpec::source_from_package_root(
-        "runtime/root.nia",
+    RuntimeSpec::source_from_package(
+        &nia_toolchain::ToolchainPackage::new("runtime", "runtime", "root.nia"),
         &TargetConfig::host().expect("tests run on a maintained host"),
         [],
     )

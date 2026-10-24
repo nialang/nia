@@ -552,6 +552,13 @@ mod tests {
             nia_compat::toolchain_manifest(),
         )
         .unwrap();
+        for name in nia_compat::TOOLCHAIN_PACKAGES {
+            fs::write(
+                resources.join(name).join("nia.toml"),
+                nia_compat::toolchain_package_manifest(name),
+            )
+            .unwrap();
+        }
         fs::write(resources.join("std/root.nia"), "").unwrap();
         fs::write(
             resources.join("runtime/root.nia"),

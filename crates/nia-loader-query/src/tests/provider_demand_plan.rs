@@ -14,6 +14,12 @@ fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
         &resources.join("toolchain.meta"),
         include_str!("../../../../lib/toolchain.meta"),
     );
+    for name in nia_compat::TOOLCHAIN_PACKAGES {
+        write(
+            &resources.join(name).join("nia.toml"),
+            &nia_compat::toolchain_package_manifest(name),
+        );
+    }
     write(&resources.join("std/root.nia"), "pub module unicode;");
     write(
         &resources.join("runtime/root.nia"),
@@ -152,9 +158,8 @@ fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
         .expect("restored runtime module-body demand");
     let expected = second_toolchain
         .freestanding_runtime_package()
-        .parent()
-        .expect("runtime package directory")
-        .join("start.nia");
+        .root_file()
+        .with_file_name("start.nia");
     assert_eq!(
         normalized_test_path(restored.source_path.as_str()),
         normalized_test_path(expected.to_string_lossy())

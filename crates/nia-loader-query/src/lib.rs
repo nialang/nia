@@ -1016,9 +1016,10 @@ fn effective_module_map(
     let Some(toolchain) = toolchain else {
         return module_map;
     };
+    let std = toolchain.std_package();
     let std_path = SourcePath::with_identity(
-        toolchain.std_module().to_string_lossy().into_owned(),
-        "toolchain:/std/root.nia",
+        std.root_file().to_string_lossy().into_owned(),
+        std.root_identity(),
     );
     module_map.with_default_std(std_path)
 }

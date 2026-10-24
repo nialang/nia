@@ -18,8 +18,6 @@ use std::{fmt, fs, io, io::Read, path::PathBuf};
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.compatibility-identity");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
-/// Stable package identity owned by the compiler-provided startup runtime.
-pub const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/root.nia";
 
 /// Canonical symbol namespace used by the compiler-provided startup runtime.
 ///
@@ -228,52 +226,40 @@ impl RuntimeSpec {
         toolchain: &ToolchainLayout,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
-        Self::freestanding_from_package_root(toolchain.freestanding_runtime_package(), target)
+        Self::freestanding_from_package(toolchain.freestanding_runtime_package(), target)
     }
 
-    /// Builds a freestanding runtime from an already validated start module.
+    /// Builds a freestanding runtime from an already validated package.
     ///
     /// Toolchain consumers should normally use [`Self::freestanding`]. This
     /// constructor lets in-memory compiler fixtures preserve the same runtime
     /// identity and target validation without constructing a second mode flag.
-    pub fn freestanding_from_package_root(
-        package_root: impl Into<PathBuf>,
+    pub fn freestanding_from_package(
+        package: &ToolchainPackage,
         target: &TargetConfig,
     ) -> Result<Self, RuntimeSpecError> {
         // Native entry points call their startup helper by symbol name, so the
         // helper is rooted explicitly rather than through a code operand.
         let startup = match target.os() {
-            Os::Linux => Some((
-                "toolchain:/runtime/start/freestanding/linux/startup.nia".to_string(),
-                "niaStartStack",
-            )),
-            Os::Windows => Some((
-                "toolchain:/runtime/start/freestanding/windows/startup.nia".to_string(),
-                "niaWindowsStart",
-            )),
-            Os::Macos => Some((
-                "toolchain:/runtime/start/freestanding/macos/startup.nia".to_string(),
-                "niaDarwinStart",
-            )),
+            Os::Linux => ("start/freestanding/linux/startup.nia", "niaStartStack"),
+            Os::Windows => ("start/freestanding/windows/startup.nia", "niaWindowsStart"),
+            Os::Macos => ("start/freestanding/macos/startup.nia", "niaDarwinStart"),
         };
-        let mut required_exports = startup
-            .into_iter()
-            .map(|(module, definition)| RuntimeExport::new(module, definition))
-            .collect::<Vec<_>>();
+        let mut required_exports = vec![RuntimeExport::new(package.identity(startup.0), startup.1)];
         if (target.os(), target.arch()) == (Os::Windows, Arch::X86_64) {
             required_exports.push(RuntimeExport::new(
-                "toolchain:/runtime/builtins/windows/x86_64.nia",
+                package.identity("builtins/windows/x86_64.nia"),
                 "__chkstk",
             ));
         }
-        Self::source_from_package_root(package_root, target, required_exports)
+        Self::source_from_package(package, target, required_exports)
     }
 
     /// Builds a source runtime with an explicit native export contract.
     /// Alternate runtime implementations can omit exports supplied only by
     /// the installed platform runtime.
-    pub fn source_from_package_root(
-        package_root: impl Into<PathBuf>,
+    pub fn source_from_package(
+        package: &ToolchainPackage,
         target: &TargetConfig,
         required_exports: impl IntoIterator<Item = RuntimeExport>,
     ) -> Result<Self, RuntimeSpecError> {
@@ -291,8 +277,8 @@ impl RuntimeSpec {
             ("_start", "_start")
         };
         Ok(Self::Source(Box::new(SourceRuntimeSpec {
-            package_root: package_root.into(),
-            package_root_identity: RUNTIME_PACKAGE_IDENTITY.to_string(),
+            package_root: package.root_file(),
+            package_root_identity: package.root_identity(),
             package: nia_package_metadata::PackageId {
                 namespace: "nia".to_string(),
                 name: "runtime".to_string(),
@@ -301,10 +287,10 @@ impl RuntimeSpec {
                     .expect("runtime package identity is valid SemVer"),
             },
             entry_point: RuntimeEntryPoint {
-                module_identity: format!(
-                    "toolchain:/runtime/start/freestanding/{}/{implementation}.nia",
+                module_identity: package.identity(&format!(
+                    "start/freestanding/{}/{implementation}.nia",
                     target.os().name()
-                ),
+                )),
                 definition_name: definition_name.to_string(),
                 linker_symbol: linker_symbol.to_string(),
             },
@@ -376,16 +362,63 @@ impl fmt::Display for RuntimeSpecError {
 
 impl std::error::Error for RuntimeSpecError {}
 
+/// A source package shipped under the resource root.
+///
+/// It is an ordinary package: its `nia.toml` names the root file through
+/// `[library].path`. Its sources are identified below `toolchain:/<name>/`, so
+/// identities survive relocating the installation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolchainPackage {
+    name: String,
+    directory: PathBuf,
+    library_path: String,
+}
+
+impl ToolchainPackage {
+    /// Describes a package from its directory and manifest library path.
+    pub fn new(
+        name: impl Into<String>,
+        directory: impl Into<PathBuf>,
+        library_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            directory: directory.into(),
+            library_path: library_path.into(),
+        }
+    }
+
+    /// Package name, also the directory name below the resource root.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Physical root file of the package's module tree.
+    pub fn root_file(&self) -> PathBuf {
+        self.directory.join(&self.library_path)
+    }
+
+    /// Relocation-independent identity of a package-relative source path.
+    pub fn identity(&self, relative: &str) -> String {
+        format!("toolchain:/{}/{relative}", self.name)
+    }
+
+    /// Relocation-independent identity of the root file.
+    pub fn root_identity(&self) -> String {
+        self.identity(&self.library_path)
+    }
+}
+
 /// Runtime source modules shipped in the resolved resource bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeResources {
-    freestanding_package_root: PathBuf,
+    freestanding: ToolchainPackage,
 }
 
 impl RuntimeResources {
     /// Returns the private source package implementing freestanding startup.
-    pub fn freestanding_package_root(&self) -> &std::path::Path {
-        &self.freestanding_package_root
+    pub fn freestanding_package(&self) -> &ToolchainPackage {
+        &self.freestanding
     }
 }
 
@@ -394,7 +427,7 @@ impl RuntimeResources {
 pub struct ToolchainLayout {
     compiler_executable: PathBuf,
     resource_root: PathBuf,
-    std_module: PathBuf,
+    std: ToolchainPackage,
     identity: ToolchainIdentity,
     host_target: TargetConfig,
     artifact_target: TargetConfig,
@@ -452,13 +485,9 @@ impl ToolchainLayout {
         let identity = parse_manifest(&manifest_path, &manifest)?;
         validate_identity(&manifest_path, &identity)?;
 
-        let std_module = resource_root.join("std/root.nia");
-        validate_file(&std_module, ResourceRole::StandardLibrary)?;
-        let freestanding_package_root = resource_root.join("runtime/root.nia");
-        validate_file(
-            &freestanding_package_root,
-            ResourceRole::FreestandingRuntime,
-        )?;
+        let std = read_toolchain_package(&resource_root, "std", ResourceRole::StandardLibrary)?;
+        let freestanding =
+            read_toolchain_package(&resource_root, "runtime", ResourceRole::FreestandingRuntime)?;
         let bundled_lld = match resource_root
             .parent()
             .map(|prefix| prefix.join(bundled_lld_path()))
@@ -471,13 +500,11 @@ impl ToolchainLayout {
         Ok(Self {
             compiler_executable: request.compiler_executable,
             resource_root,
-            std_module,
+            std,
             identity,
             host_target,
             artifact_target: request.artifact_target.unwrap_or(host_target),
-            runtime: RuntimeResources {
-                freestanding_package_root,
-            },
+            runtime: RuntimeResources { freestanding },
             bundled_lld,
         })
     }
@@ -492,17 +519,17 @@ impl ToolchainLayout {
         &self.resource_root
     }
 
-    /// Returns the validated standard-library root module.
-    pub fn std_module(&self) -> &std::path::Path {
-        &self.std_module
+    /// Returns the validated standard-library package.
+    pub fn std_package(&self) -> &ToolchainPackage {
+        &self.std
     }
 
     /// Returns the validated private source package for freestanding startup.
     ///
     /// Runtime startup is a private toolchain source package, not a module
     /// owned by the standard library.
-    pub fn freestanding_runtime_package(&self) -> &std::path::Path {
-        self.runtime.freestanding_package_root()
+    pub fn freestanding_runtime_package(&self) -> &ToolchainPackage {
+        self.runtime.freestanding_package()
     }
 
     /// Returns the manifest compatibility identity.
@@ -698,8 +725,8 @@ impl fmt::Display for ResourceRole {
         f.write_str(match self {
             Self::CompilerExecutable => "compiler executable",
             Self::ResourceRoot => "toolchain resource root",
-            Self::StandardLibrary => "standard-library root module",
-            Self::FreestandingRuntime => "freestanding runtime module",
+            Self::StandardLibrary => "standard-library package",
+            Self::FreestandingRuntime => "freestanding runtime package",
             Self::BundledLinker => "bundled LLD linker",
             Self::ImportDescription => "system import description",
         })
@@ -792,6 +819,15 @@ pub enum ToolchainLayoutError {
         /// Resource path.
         path: PathBuf,
     },
+    /// A shipped source package's manifest is unreadable or names another package.
+    InvalidPackage {
+        /// Package being validated.
+        role: ResourceRole,
+        /// Manifest path.
+        path: PathBuf,
+        /// Description of the problem.
+        message: String,
+    },
 }
 
 impl fmt::Display for ToolchainLayoutError {
@@ -852,6 +888,11 @@ impl fmt::Display for ToolchainLayoutError {
             Self::NotFile { role, path } => {
                 write!(f, "{role} `{}` is not a file", path.display())
             }
+            Self::InvalidPackage {
+                role,
+                path,
+                message,
+            } => write!(f, "invalid {role} manifest `{}`: {message}", path.display()),
         }
     }
 }
@@ -889,6 +930,46 @@ fn validate_file(path: &std::path::Path, role: ResourceRole) -> Result<(), Toolc
         });
     }
     Ok(())
+}
+
+/// Reads a shipped package's manifest and validates its root file.
+///
+/// The manifest must name the package `nia/<name>` at this compiler's version
+/// and declare a `[library].path`; nothing about the root file name is assumed.
+fn read_toolchain_package(
+    resource_root: &std::path::Path,
+    name: &str,
+    role: ResourceRole,
+) -> Result<ToolchainPackage, ToolchainLayoutError> {
+    let directory = resource_root.join(name);
+    let manifest_path = directory.join("nia.toml");
+    validate_file(&manifest_path, role)?;
+    let invalid = |message: String| ToolchainLayoutError::InvalidPackage {
+        role,
+        path: manifest_path.clone(),
+        message,
+    };
+    let manifest = nia_package_metadata::PackageManifest::read_standalone(&directory)
+        .map_err(|error| invalid(error.to_string()))?;
+    let package = &manifest.package;
+    if package.namespace != "nia" || package.name != name {
+        return Err(invalid(format!(
+            "package must be `nia/{name}`, found `{}/{}`",
+            package.namespace, package.name
+        )));
+    }
+    if package.version.to_string() != COMPILER_VERSION {
+        return Err(invalid(format!(
+            "package version must be the compiler version `{COMPILER_VERSION}`, found `{}`",
+            package.version
+        )));
+    }
+    let library_path = manifest
+        .library_path
+        .ok_or_else(|| invalid("package must declare `[library].path`".to_string()))?;
+    let package = ToolchainPackage::new(name, directory, library_path);
+    validate_file(&package.root_file(), role)?;
+    Ok(package)
 }
 
 fn validate_optional_file(
@@ -1070,6 +1151,13 @@ mod tests {
             nia_compat::toolchain_manifest(),
         )
         .expect("write manifest");
+        for name in nia_compat::TOOLCHAIN_PACKAGES {
+            fs::write(
+                resources.join(name).join("nia.toml"),
+                nia_compat::toolchain_package_manifest(name),
+            )
+            .expect("write package manifest");
+        }
         fs::write(resources.join("std/root.nia"), "pub module start;").expect("write std root");
         fs::write(
             resources.join("runtime/root.nia"),
@@ -1163,7 +1251,7 @@ mod tests {
         assert_eq!(relocated.identity(), installed.identity());
         assert_ne!(relocated.resource_root(), installed.resource_root());
         assert_eq!(
-            relocated.std_module(),
+            relocated.std_package().root_file(),
             relocated.resource_root().join("std/root.nia")
         );
     }
@@ -1186,7 +1274,10 @@ mod tests {
             let runtime = RuntimeSpec::freestanding(&layout, &target).expect("runtime target");
             let source = runtime.source().expect("source runtime");
 
-            assert_eq!(source.package_root_identity(), RUNTIME_PACKAGE_IDENTITY);
+            assert_eq!(
+                source.package_root_identity(),
+                "toolchain:/runtime/root.nia"
+            );
             assert_eq!(
                 source.package().canonical_text(),
                 runtime_symbol_package_identity()
@@ -1264,8 +1355,8 @@ mod tests {
         assert_eq!(unsupported.name, "aarch64-pc-windows-msvc");
 
         let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
-        let runtime =
-            RuntimeSpec::freestanding_from_package_root("runtime/root.nia", &target).unwrap();
+        let package = ToolchainPackage::new("runtime", "runtime", "root.nia");
+        let runtime = RuntimeSpec::freestanding_from_package(&package, &target).unwrap();
         let different = TargetConfig::parse("x86-unknown-linux").unwrap();
         assert!(matches!(
             runtime.validate_for_target(&different),
@@ -1303,6 +1394,57 @@ mod tests {
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect_err("missing manifest");
         assert!(error.to_string().contains("resource manifest"), "{error}");
+    }
+
+    #[test]
+    fn toolchain_packages_are_rooted_where_their_manifest_says() {
+        let root = temp_dir("package_manifests");
+        let executable = write_layout(&root);
+        let manifest = root.join("lib/std/nia.toml");
+
+        // The root file is whatever `[library].path` names.
+        fs::rename(root.join("lib/std/root.nia"), root.join("lib/std/core.nia"))
+            .expect("rename std root");
+        fs::write(
+            &manifest,
+            nia_compat::toolchain_package_manifest("std").replace("root.nia", "core.nia"),
+        )
+        .expect("point std at its new root");
+        let layout = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
+            .expect("layout");
+        assert_eq!(
+            layout.std_package().root_file(),
+            layout.resource_root().join("std/core.nia")
+        );
+        assert_eq!(
+            layout.std_package().root_identity(),
+            "toolchain:/std/core.nia"
+        );
+
+        for (contents, expected) in [
+            (
+                nia_compat::toolchain_package_manifest("other"),
+                "must be `nia/std`",
+            ),
+            (
+                nia_compat::toolchain_package_manifest("std").replace(COMPILER_VERSION, "0.0.1"),
+                "compiler version",
+            ),
+            (
+                "[package]\nnamespace = \"nia\"\nname = \"std\"\nversion = \"0.0.0\"\n"
+                    .replace("0.0.0", COMPILER_VERSION),
+                "`[library].path`",
+            ),
+        ] {
+            fs::write(&manifest, contents).expect("write manifest");
+            let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
+                .expect_err("invalid std manifest");
+            assert!(
+                matches!(error, ToolchainLayoutError::InvalidPackage { .. }),
+                "{error}"
+            );
+            assert!(error.to_string().contains(expected), "{error}");
+        }
     }
 
     #[test]

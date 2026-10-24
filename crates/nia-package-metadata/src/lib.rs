@@ -2815,6 +2815,29 @@ impl PackageManifest {
     /// Reads a bounded `nia.toml` package manifest.
     pub fn read(root: &Path) -> io::Result<Self> {
         let (raw, workspace) = read_package_manifest(root)?;
+        Self::from_raw(root, raw, workspace)
+    }
+
+    /// Reads a package manifest that belongs to no workspace.
+    ///
+    /// Toolchain packages are shipped beside the compiler, so a workspace that
+    /// happens to contain the installation must not claim them.
+    pub fn read_standalone(root: &Path) -> io::Result<Self> {
+        let raw = read_raw_manifest(root)?;
+        if raw.workspace.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a standalone package manifest cannot declare `[workspace]`",
+            ));
+        }
+        Self::from_raw(root, raw, None)
+    }
+
+    fn from_raw(
+        root: &Path,
+        raw: RawPackageManifest,
+        workspace: Option<WorkspaceManifest>,
+    ) -> io::Result<Self> {
         let raw_package = raw.package.ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,

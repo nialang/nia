@@ -3,6 +3,8 @@
 This directory is the toolchain resource tree. `std/` is the standard library
 that every program can import as `std`. `runtime/` is a private package that
 provides process startup and is linked in only when a program uses Nia startup.
+Both are ordinary packages: each `nia.toml` names its root file through
+`[library].path` and carries the compiler version.
 `imports/` describes the system libraries the library itself calls, so no
 platform SDK is needed to link them. `toolchain.meta` records the compiler
 version and resource protocol this tree belongs to.
