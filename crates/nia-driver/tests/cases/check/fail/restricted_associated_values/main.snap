@@ -14,9 +14,9 @@ related: 92..127 the restricted associated value is declared here
 
 path: fail/restricted_associated_values/main.nia
 code: E0201
-summary: associated value `PACKAGE_LIMIT` is restricted to its package
+summary: associated value `PACKAGE_LIMIT` is restricted to its module tree
 label: 189..202 Primary Source associated value `PACKAGE_LIMIT` is not visible from this module
-help: make the associated value public or use it from the defining package
+help: make the associated value public or use it from inside its module tree
 related: 142..178 the restricted associated value is declared here
 
 report:
@@ -36,12 +36,12 @@ error[E0201]: associated value `PARENT_LIMIT` is restricted to its parent module
 help: make the associated value public or move this use into its permitted scope
 related: fail/restricted_associated_values/dep/model.nia:5:16: the restricted associated value is declared here
 
-error[E0201]: associated value `PACKAGE_LIMIT` is restricted to its package
+error[E0201]: associated value `PACKAGE_LIMIT` is restricted to its module tree
    --> fail/restricted_associated_values/main.nia:12:19
    |
 12 |     model::Value::PACKAGE_LIMIT
    |                   ^^^^^^^^^^^^^ associated value `PACKAGE_LIMIT` is not visible from this module
-help: make the associated value public or use it from the defining package
+help: make the associated value public or use it from inside its module tree
 related: fail/restricted_associated_values/dep/model.nia:6:15: the restricted associated value is declared here
 
 summary: 3 errors, 0 warnings

@@ -228,3 +228,68 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(fail_fast_stdout.contains("alpha-ran"), "{fail_fast_stdout}");
     assert!(!fail_fast_stdout.contains("beta-ran"), "{fail_fast_stdout}");
 }
+
+#[test]
+fn executables_reach_their_own_library_as_a_separate_tree() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("own-library-tree");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n[library]\npath = \"src/lib.nia\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.nia"),
+        "pub fun answer() i32 { 42 }\npub(root) fun hidden() i32 { 7 }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let app = b.addModule(build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia"))).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init(&"app", app)).?;
+    let emit = b.addEmitExecutableStep(&"app", exe).?;
+    _ = b.addRunExecutableStep(&"run", build::RunOptions::init(exe)).?;
+    b.setDefaultStep(emit).?;
+    !()
+}
+"#,
+    )
+    .unwrap();
+    let main = |call: &str| {
+        format!(
+            "using std::process;\nusing hello;\n\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    if {call} != 42 {{\n        return process::ExitCode(1)!;\n    }}\n    !()\n}}\n"
+        )
+    };
+    let build = |step: &[&str]| {
+        support::nia_command()
+            .current_dir(&root)
+            .arg("build")
+            .args(step)
+            .arg("-q")
+            .output_timeout_in_session("build own-library package")
+    };
+
+    // The executable opens its package's library by the package name.
+    fs::write(root.join("src/main.nia"), main("hello::answer()")).unwrap();
+    let run = build(&["run"]);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    // The library is its own module tree, so `pub(root)` stays inside it.
+    fs::write(root.join("src/main.nia"), main("hello::hidden()")).unwrap();
+    let hidden = build(&[]);
+    assert!(!hidden.status.success());
+    let stderr = String::from_utf8_lossy(&hidden.stderr);
+    assert!(
+        stderr.contains("`hello::hidden` is restricted to its module tree"),
+        "{stderr}"
+    );
+}

@@ -856,9 +856,9 @@ fn qualified_visibility_diagnostic(
             format!("make the {kind} public or move this use into its permitted scope"),
         ),
         Visibility::PublicRoot => (
-            format!("{kind} `{name}` is restricted to its package"),
+            format!("{kind} `{name}` is restricted to its module tree"),
             format!("{kind} `{name}` is not visible from this module"),
-            format!("make the {kind} public or use it from the defining package"),
+            format!("make the {kind} public or use it from inside its module tree"),
         ),
         Visibility::Public => (
             format!("{kind} `{name}` is not visible from this module"),

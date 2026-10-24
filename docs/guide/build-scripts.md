@@ -55,7 +55,7 @@ fixtures = { path = "tests/fixtures" }
 | `package.namespace` | identity namespace; defaults to `local` |
 | `package.version` | required strict SemVer identity, or explicitly inherited from `workspace.package.version` |
 | `package.protocol-epoch` | rejects compilers from another release line when set |
-| `library.path` | the file that other packages open with `using <dependency>;` |
+| `library.path` | the file that dependent packages open with `using <dependency>;` and the package's own artifacts open with `using <package-name>;` |
 | `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |
 
 A package's files always leave out `.git`, `.nia`, `.nia-build`, `.nia-cache`,
@@ -79,6 +79,12 @@ The library entry is an ordinary module, not an entry file, so its child
 modules live in a directory named after it: with `path = "src/lib.nia"`,
 `pub module util;` loads `src/lib/util.nia`. Each dependency resolves its own dependencies from its own manifest, so two
 packages can use one name for different packages.
+
+A package's own artifacts and tests open its library the same way, by the
+package name: in package `hello`, `using hello;` opens `[library].path`. The
+library and each executable are separate module trees, so an executable sees
+only the library's `pub` items and `pub(root)` stays inside the library. A
+dependency cannot also use the package's own name.
 
 ### Dependency sources
 

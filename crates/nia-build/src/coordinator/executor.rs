@@ -9,7 +9,9 @@ use super::*;
 use crate::action_cache::CompilerCheckCacheIdentityInput;
 use crate::lock::{LockWaitEvent, LockWaitObserver};
 use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
-use crate::{PlanPackageSource, add_manifest_module_roots, insert_module_root};
+use crate::{
+    PlanPackageSource, add_manifest_module_roots, add_own_library_module_root, insert_module_root,
+};
 use nia_package_metadata::DependencyScope;
 use std::io::{Seek as _, SeekFrom};
 
@@ -1259,6 +1261,12 @@ impl DriverActionExecutor {
                 &self.invocation.package_graph_report,
                 &[DependencyScope::Runtime, DependencyScope::Development],
                 self.invocation.compilation_mode,
+            )
+            .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
+            add_own_library_module_root(
+                &mut module_map,
+                &self.invocation.package_graph_report,
+                &self.invocation.package_root,
             )
             .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
         }

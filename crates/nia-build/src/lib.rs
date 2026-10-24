@@ -3053,6 +3053,47 @@ pub(crate) fn add_manifest_module_roots(
     Ok(())
 }
 
+/// Lets the root package's artifacts open the package's own library by the
+/// package name, the way a dependent package would. The library is its own
+/// module tree: an executable that imports it sees only the library's `pub`
+/// surface, never its `pub(root)` items.
+pub(crate) fn add_own_library_module_root(
+    module_map: &mut ModuleMap,
+    report: &nia_package_metadata::PackageGraphReport,
+    package_root: &Path,
+) -> io::Result<()> {
+    if !package_root.join("nia.toml").is_file() {
+        return Ok(());
+    }
+    let manifest = nia_package_metadata::PackageManifest::read(package_root)?;
+    let Some(library_path) = manifest.library_path else {
+        return Ok(());
+    };
+    let name = &manifest.package.name;
+    if report
+        .declared
+        .iter()
+        .any(|edge| edge.owner_root.is_empty() && edge.dependency.name == *name)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "dependency `{name}` has the same name as the package; the package's own library already uses it"
+            ),
+        ));
+    }
+    let path = SourcePath::with_identity(
+        package_root
+            .join(&library_path)
+            .to_string_lossy()
+            .into_owned(),
+        format!("build-package:root:/{library_path}"),
+    );
+    module_map
+        .insert_scoped(&package_module_scope(""), name, path)
+        .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))
+}
+
 pub(crate) fn insert_module_root(
     module_map: &mut ModuleMap,
     name: &str,
@@ -4474,6 +4515,77 @@ mod tests {
                 .contains(&package_root.to_string_lossy().to_string())
         );
         assert!(!runner.source.contains("quote\\\"slash"));
+    }
+
+    #[test]
+    fn own_library_is_bound_by_package_name_and_rejects_a_same_named_dependency() {
+        let root = normalize_host_path(
+            temp_root("own_library_binding")
+                .canonicalize()
+                .expect("canonicalize temp root"),
+        );
+        std::fs::create_dir_all(root.join("src")).expect("create sources");
+        std::fs::write(root.join("src/lib.nia"), "").expect("write library");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/lib.nia\"\n",
+        )
+        .expect("write manifest");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("resolve build invocation");
+        let mut module_map = ModuleMap::new();
+        add_manifest_module_roots(
+            &mut module_map,
+            &invocation.package_graph_report,
+            &[DependencyScope::Runtime],
+            CompilationMode::Normal,
+        )
+        .expect("add manifest roots");
+        add_own_library_module_root(
+            &mut module_map,
+            &invocation.package_graph_report,
+            &invocation.package_root,
+        )
+        .expect("bind own library");
+        let main = SourcePath::with_identity(
+            root.join("src/main.nia").to_string_lossy(),
+            "build-package:root:/src/main.nia",
+        );
+        assert_eq!(
+            module_map
+                .for_source(&main)
+                .get("hello")
+                .map(|path| path.identity_ref().normalized_path().to_owned()),
+            Some("build-package:root:/src/lib.nia".to_owned())
+        );
+
+        std::fs::create_dir_all(root.join("vendor/hello")).expect("create dependency");
+        std::fs::write(
+            root.join("vendor/hello/nia.toml"),
+            "[package]\nversion = \"1.0.0\"\nname = \"other\"\n",
+        )
+        .expect("write dependency manifest");
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/lib.nia\"\n[dependencies]\nhello = { path = \"vendor/hello\" }\n",
+        )
+        .expect("rewrite manifest");
+        let invocation =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
+                .expect("resolve build invocation");
+        let error = add_own_library_module_root(
+            &mut ModuleMap::new(),
+            &invocation.package_graph_report,
+            &invocation.package_root,
+        )
+        .expect_err("dependency shadows the package name");
+        assert!(
+            error.to_string().contains("same name as the package"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]

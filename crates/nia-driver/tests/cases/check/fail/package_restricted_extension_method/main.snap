@@ -1,62 +1,62 @@
 path: fail/package_restricted_extension_method/main.nia
 code: E0201
-summary: method `package_make` is restricted to its package
+summary: method `package_make` is restricted to its module tree
 label: 49..75 Primary Source this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: 131..194 the restricted method is declared here
 
 path: fail/package_restricted_extension_method/main.nia
 code: E0201
-summary: method `package_score` is restricted to its package
+summary: method `package_score` is restricted to its module tree
 label: 124..143 Primary Source this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: 210..268 the restricted method is declared here
 
 path: fail/package_restricted_extension_method/main.nia
 code: E0201
-summary: method `package_make` is restricted to its package
+summary: method `package_make` is restricted to its module tree
 label: 209..235 Primary Source this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: 131..194 the restricted method is declared here
 
 path: fail/package_restricted_extension_method/main.nia
 code: E0201
-summary: method `package_score` is restricted to its package
+summary: method `package_score` is restricted to its module tree
 label: 279..306 Primary Source this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: 210..268 the restricted method is declared here
 
 report:
-error[E0201]: method `package_make` is restricted to its package
+error[E0201]: method `package_make` is restricted to its module tree
   --> fail/package_restricted_extension_method/main.nia:4:5
   |
 4 |     model::Value::package_make(41)
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: fail/package_restricted_extension_method/dep/model.nia:10:15: the restricted method is declared here
 
-error[E0201]: method `package_score` is restricted to its package
+error[E0201]: method `package_score` is restricted to its module tree
   --> fail/package_restricted_extension_method/main.nia:8:5
   |
 8 |     value.package_score()
   |     ^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: fail/package_restricted_extension_method/dep/model.nia:14:15: the restricted method is declared here
 
-error[E0201]: method `package_make` is restricted to its package
+error[E0201]: method `package_make` is restricted to its module tree
    --> fail/package_restricted_extension_method/main.nia:12:41
    |
 12 |     let make: &fun(i32) model::Value = &model::Value::package_make;
    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: fail/package_restricted_extension_method/dep/model.nia:10:15: the restricted method is declared here
 
-error[E0201]: method `package_score` is restricted to its package
+error[E0201]: method `package_score` is restricted to its module tree
    --> fail/package_restricted_extension_method/main.nia:13:43
    |
 13 |     let score: &fun(&model::Value) i32 = &model::Value::package_score;
    |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
-help: make the method public or use it from the defining package
+help: make the method public or use it from inside its module tree
 related: fail/package_restricted_extension_method/dep/model.nia:14:15: the restricted method is declared here
 
 summary: 4 errors, 0 warnings

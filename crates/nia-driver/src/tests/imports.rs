@@ -3632,7 +3632,8 @@ fun main() i32 {
         .diagnostics
         .iter()
         .find(|diagnostic| {
-            diagnostic.diagnostic.summary == "method `package_score` is restricted to its package"
+            diagnostic.diagnostic.summary
+                == "method `package_score` is restricted to its module tree"
         })
         .expect("package-restricted extension method diagnostic");
     assert!(
@@ -3801,7 +3802,7 @@ fun main() usize {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("associated value `LIMIT` is restricted to its package")),
+            .contains("associated value `LIMIT` is restricted to its module tree")),
         "{:?}",
         program.diagnostics
     );

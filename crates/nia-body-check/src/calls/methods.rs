@@ -765,8 +765,8 @@ impl<'a> BodyChecker<'a> {
                 "make the method public or move this use into its permitted scope".to_string(),
             ),
             Visibility::PublicRoot => (
-                format!("method `{name}` is restricted to its package"),
-                "make the method public or use it from the defining package".to_string(),
+                format!("method `{name}` is restricted to its module tree"),
+                "make the method public or use it from inside its module tree".to_string(),
             ),
             Visibility::Public => (
                 format!("method `{name}` is not visible from this module"),
