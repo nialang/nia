@@ -33,6 +33,7 @@ serde_json.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+nia-alloc.workspace = true
 nia-span.workspace = true
 nia-test-support.workspace = true
 nia-git = { workspace = true, features = ["test-support"] }

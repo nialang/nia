@@ -18,8 +18,6 @@
 //! optimization report use stderr. A malformed invocation exits with status 2,
 //! a failed command with status 1. Compiler failures reach this boundary as
 //! structured diagnostics rather than unwinding through the CLI.
-#[cfg(feature = "perf-alloc")]
-use std::alloc::System;
 use std::{
     env, fmt, fs, io,
     io::{IsTerminal, Write},
@@ -43,14 +41,10 @@ use cli::{
 };
 use help::{HelpStyle, error_help_text, help_command, help_text};
 
-#[cfg(feature = "perf-alloc")]
-#[global_allocator]
-static GLOBAL_ALLOCATOR: nia_timing::CountingAllocator<System> =
-    nia_timing::CountingAllocator::new(System);
+nia_alloc::global_allocator!();
 
 fn main() -> ExitCode {
-    #[cfg(feature = "perf-alloc")]
-    nia_timing::register_allocation_instrumentation();
+    nia_alloc::register_counting();
     let args = match collect_args() {
         Ok(args) => args,
         Err(error) => {

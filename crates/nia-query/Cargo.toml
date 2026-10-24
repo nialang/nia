@@ -18,5 +18,8 @@ windows-sys.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 libc.workspace = true
 
+[dev-dependencies]
+nia-alloc.workspace = true
+
 [lib]
 path = "src/lib.rs"

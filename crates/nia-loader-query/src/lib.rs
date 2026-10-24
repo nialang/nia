@@ -1036,3 +1036,8 @@ impl LoaderContext {
         )
     }
 }
+
+// Tests compile Nia in-process on many threads; they run on the allocator
+// the `nia` binary uses.
+#[cfg(test)]
+nia_alloc::global_allocator!();

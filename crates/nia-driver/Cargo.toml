@@ -38,6 +38,7 @@ nia-timing.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+nia-alloc.workspace = true
 nia-test-support.workspace = true
 nia-ast.workspace = true
 nia-backend-ir.workspace = true

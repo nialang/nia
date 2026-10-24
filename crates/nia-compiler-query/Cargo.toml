@@ -70,4 +70,5 @@ windows-sys.workspace = true
 path = "src/lib.rs"
 
 [dev-dependencies]
+nia-alloc.workspace = true
 nia-mangle.workspace = true

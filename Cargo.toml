@@ -14,6 +14,7 @@ members = [
     "crates/nia-diagnostic",
     "crates/nia-ice",
     "crates/nia-timing",
+    "crates/nia-alloc",
     "crates/nia-test-support",
     "crates/nia-hash",
     "crates/nia-symbol",
@@ -86,6 +87,8 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 jobserver = "0.1.35"
 parking_lot = "0.12.5"
+# The process allocator of every binary that compiles Nia; see crates/nia-alloc.
+mimalloc = { version = "=0.1.52", default-features = false }
 libc = "0.2.186"
 hashbrown = { version = "0.17.1", default-features = false }
 regex = "1.13.1"
@@ -118,6 +121,7 @@ nia-ids = { path = "crates/nia-ids" }
 nia-diagnostic = { path = "crates/nia-diagnostic" }
 nia-ice = { path = "crates/nia-ice" }
 nia-timing = { path = "crates/nia-timing" }
+nia-alloc = { path = "crates/nia-alloc" }
 nia-test-support = { path = "crates/nia-test-support" }
 nia-hash = { path = "crates/nia-hash" }
 nia-symbol = { path = "crates/nia-symbol" }

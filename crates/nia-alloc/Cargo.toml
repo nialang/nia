@@ -1,0 +1,18 @@
+[package]
+name = "nia-alloc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+# Wraps the allocator in `nia_timing::CountingAllocator` for the allocation
+# counters that `--timings=detail` and the performance baselines report.
+counting = ["dep:nia-timing"]
+
+[dependencies]
+mimalloc.workspace = true
+nia-timing = { workspace = true, optional = true }
+
+[lib]
+path = "src/lib.rs"

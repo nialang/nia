@@ -6,12 +6,13 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-perf-alloc = []
+perf-alloc = ["nia-alloc/counting"]
 default = ["llvm-dynamic"]
 llvm-dynamic = ["nia-build/llvm-dynamic", "nia-driver/llvm-dynamic"]
 llvm-static = ["nia-build/llvm-static", "nia-driver/llvm-static"]
 
 [dependencies]
+nia-alloc.workspace = true
 nia-target.workspace = true
 nia-build = { workspace = true, default-features = false }
 nia-compat.workspace = true

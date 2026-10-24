@@ -5345,3 +5345,8 @@ pub fun build(b: &mut build::Build) build::Error!() {
         root
     }
 }
+
+// Tests compile Nia in-process on many threads; they run on the allocator
+// the `nia` binary uses.
+#[cfg(test)]
+nia_alloc::global_allocator!();
