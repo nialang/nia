@@ -210,6 +210,11 @@ extend PlanEncoder {
         })
     }
 
+    // Object and static-archive artifacts are always ordinary compilations.
+    fun writeCompilationMode(&mut self, test: bool) Error!() {
+        self.writeU8(if test { 1 } else { 0 })
+    }
+
     fun writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
         self.writeU8(match resourceClass {
             .Conservative => 0,
@@ -264,7 +269,8 @@ extend PlanEncoder {
         self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(0).?;
         self.writeBuildPath(target.outputName.text()).?;
-        self.writeRuntime(target.runtime)
+        self.writeRuntime(target.runtime).?;
+        self.writeCompilationMode(target.test)
     }
 
     fun writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {
@@ -273,7 +279,8 @@ extend PlanEncoder {
         self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(1).?;
         self.writeBuildPath(target.outputName.text()).?;
-        self.writeU8(0)
+        self.writeU8(0).?;
+        self.writeCompilationMode(false)
     }
 
     fun writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module]) Error!() {
@@ -282,7 +289,8 @@ extend PlanEncoder {
         self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(2).?;
         self.writeBuildPath(target.outputName.text()).?;
-        self.writeU8(0)
+        self.writeU8(0).?;
+        self.writeCompilationMode(false)
     }
 
     fun writeAction(
@@ -313,7 +321,8 @@ extend PlanEncoder {
                 self.writeU8(0).?;
                 self.writeRootNodeKey(moduleRecord.name.text()).?;
                 self.writeTarget(targets[target.targetIndex].view()).?;
-                self.writeU8(1)
+                self.writeU8(1).?;
+                self.writeCompilationMode(target.test)
             },
             .EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];

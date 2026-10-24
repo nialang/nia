@@ -49,14 +49,15 @@ use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
 use nia_package_metadata::DependencyScope;
 use nia_query::{QueryFingerprintBytesWriter, QuerySession};
 use nia_target::TargetConfig;
-use nia_target_config::{BuildProfile, CompilationMode};
+use nia_target_config::BuildProfile;
 
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandAction, CommandArgument,
-    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, CommandStdin, EnvironmentInput,
-    LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode, OutputRecoveryError, PackageKey,
-    PlanAction, PlanArtifact, PlanArtifactKind, PlanModule, Runtime, StepKey,
+    CommandCachePolicy, CommandEnvironmentPolicy, CommandProgram, CommandStdin, CompilationMode,
+    EnvironmentInput, LogicalPath, LogicalPathRoot, ModuleKey, OptimizationMode,
+    OutputRecoveryError, PackageKey, PlanAction, PlanArtifact, PlanArtifactKind, PlanModule,
+    Runtime, StepKey,
     action_cache::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
@@ -84,14 +85,18 @@ const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 const EXTERNAL_WAIT_POLL: Duration = Duration::from_millis(10);
 
-pub(crate) fn package_dependency_selection(
+/// Dependency classes through which the root package declares each plan
+/// package. Whether a package is visible depends on the compilation mode of
+/// the artifact being built, so selection is decided per action by
+/// [`package_dependency_selected`].
+pub(crate) fn package_dependency_classes(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
-) -> BTreeMap<PackageKey, bool> {
+) -> BTreeMap<PackageKey, BTreeSet<DependencyScope>> {
     plan.packages()
         .iter()
         .filter(|package| package.key != *plan.root_package())
-        .map(|package| {
+        .filter_map(|package| {
             let declared = invocation
                 .package_graph_report
                 .declared
@@ -116,28 +121,27 @@ pub(crate) fn package_dependency_selection(
                                 .map(|dependency| dependency.dependency.scope)
                                 .collect::<BTreeSet<_>>()
                         })
-                });
-            let selected = classes
-                .filter(|classes| !classes.is_empty())
-                .map(|classes| {
-                    classes
-                        .iter()
-                        .any(|scope| dependency_scope_selected(invocation, *scope))
                 })
-                .unwrap_or(true);
-            (package.key.clone(), selected)
+                .filter(|classes| !classes.is_empty())?;
+            Some((package.key.clone(), classes))
         })
         .collect()
 }
 
-fn dependency_scope_selected(invocation: &BuildInvocation, scope: DependencyScope) -> bool {
-    match scope {
-        DependencyScope::Build => false,
-        DependencyScope::Runtime => true,
-        DependencyScope::Development => {
-            invocation.compilation_mode == nia_target_config::CompilationMode::Test
-        }
-    }
+/// Whether a compilation in `mode` may read `package`. A package the root
+/// manifest does not declare is a local package and always visible.
+pub(crate) fn package_dependency_selected(
+    classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
+    package: &PackageKey,
+    mode: CompilationMode,
+) -> bool {
+    classes.get(package).is_none_or(|classes| {
+        classes.iter().any(|scope| match scope {
+            DependencyScope::Build => false,
+            DependencyScope::Runtime => true,
+            DependencyScope::Development => mode == CompilationMode::Test,
+        })
+    })
 }
 
 /// Deterministic visible result of executing a selected plan closure.

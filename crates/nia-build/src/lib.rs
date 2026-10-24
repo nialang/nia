@@ -37,7 +37,7 @@ use nia_imports::ModuleMap;
 use nia_package_metadata::DependencyScope;
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_source::{SourceIdentity, SourcePath};
-use nia_target_config::{BuildProfile, CompilationMode};
+use nia_target_config::BuildProfile;
 use nia_timing::{TimingFormat, TimingOptions};
 
 const RUNNER_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
@@ -437,8 +437,6 @@ pub struct BuildInvocation {
     pub profile: BuildProfile,
     /// Cross-module optimization inherited from the request.
     pub link_time_optimization: LinkTimeOptimization,
-    /// Conditional-compilation mode inherited from the selected workflow.
-    pub compilation_mode: CompilationMode,
 }
 
 pub(crate) fn package_source_root(
@@ -1561,7 +1559,7 @@ fn build_explanation_closure_packages(
     invocation: &BuildInvocation,
     preview: &ExecutionReport,
 ) -> BTreeSet<PackageKey> {
-    let package_dependency_selection = coordinator::package_dependency_selection(plan, invocation);
+    let package_dependency_classes = coordinator::package_dependency_classes(plan, invocation);
     let actions = plan
         .actions()
         .iter()
@@ -1596,11 +1594,12 @@ fn build_explanation_closure_packages(
             continue;
         };
         match &action.kind {
-            ActionKind::CompilerCheck { module, .. } => include_build_explanation_modules(
+            ActionKind::CompilerCheck { module, mode, .. } => include_build_explanation_modules(
                 module,
+                *mode,
                 &modules,
                 &modules_by_source,
-                &package_dependency_selection,
+                &package_dependency_classes,
                 &mut visited_modules,
                 &mut packages,
             ),
@@ -1614,7 +1613,7 @@ fn build_explanation_closure_packages(
                     &artifacts,
                     &modules,
                     &modules_by_source,
-                    &package_dependency_selection,
+                    &package_dependency_classes,
                     &mut visited_modules,
                     &mut packages,
                 );
@@ -1624,7 +1623,7 @@ fn build_explanation_closure_packages(
                         &artifacts,
                         &modules,
                         &modules_by_source,
-                        &package_dependency_selection,
+                        &package_dependency_classes,
                         &mut visited_modules,
                         &mut packages,
                     );
@@ -1656,7 +1655,7 @@ fn build_explanation_closure_packages(
                     &artifacts,
                     &modules,
                     &modules_by_source,
-                    &package_dependency_selection,
+                    &package_dependency_classes,
                     &mut visited_modules,
                     &mut packages,
                 );
@@ -1672,7 +1671,7 @@ fn include_build_explanation_artifact(
     artifacts: &BTreeMap<ArtifactKey, &PlanArtifact>,
     modules: &BTreeMap<ModuleKey, &PlanModule>,
     modules_by_source: &BTreeMap<LogicalPath, Vec<ModuleKey>>,
-    package_dependency_selection: &BTreeMap<PackageKey, bool>,
+    package_dependency_classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
     visited_modules: &mut BTreeSet<ModuleKey>,
     packages: &mut BTreeSet<PackageKey>,
 ) {
@@ -1680,9 +1679,10 @@ fn include_build_explanation_artifact(
     if let Some(artifact) = artifacts.get(artifact_key) {
         include_build_explanation_modules(
             &artifact.root_module,
+            artifact.mode,
             modules,
             modules_by_source,
-            package_dependency_selection,
+            package_dependency_classes,
             visited_modules,
             packages,
         );
@@ -1691,9 +1691,10 @@ fn include_build_explanation_artifact(
 
 fn include_build_explanation_modules(
     module_key: &ModuleKey,
+    mode: CompilationMode,
     modules: &BTreeMap<ModuleKey, &PlanModule>,
     modules_by_source: &BTreeMap<LogicalPath, Vec<ModuleKey>>,
-    package_dependency_selection: &BTreeMap<PackageKey, bool>,
+    package_dependency_classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
     visited_modules: &mut BTreeSet<ModuleKey>,
     packages: &mut BTreeSet<PackageKey>,
 ) {
@@ -1708,10 +1709,11 @@ fn include_build_explanation_modules(
         packages.insert(module.key.package().clone());
         for import in &module.imports {
             let selected = match import.path.root() {
-                LogicalPathRoot::Package(package) => package_dependency_selection
-                    .get(package)
-                    .copied()
-                    .unwrap_or(true),
+                LogicalPathRoot::Package(package) => coordinator::package_dependency_selected(
+                    package_dependency_classes,
+                    package,
+                    mode,
+                ),
                 _ => true,
             };
             if !selected {
@@ -1837,6 +1839,7 @@ fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
                 "kind": artifact_kind_name(&artifact.kind),
                 "output": logical_path_json(&artifact.output),
                 "runtime": runtime_name(artifact.runtime),
+                "mode": compilation_mode_name(artifact.mode),
             })
         })
         .collect::<Vec<_>>();
@@ -2154,12 +2157,14 @@ fn action_json_value(plan: &BuildPlan, action: &PlanAction) -> serde_json::Value
             module,
             target,
             runtime,
+            mode,
         } => base(
             "compiler-check",
             serde_json::json!({
                 "module": format!("{}::{}", module.package().as_str(), module.name()),
                 "target": target.name(),
                 "runtime": runtime_name(*runtime),
+                "mode": compilation_mode_name(*mode),
             }),
         ),
         ActionKind::CompilerEmit {
@@ -2424,6 +2429,13 @@ fn runtime_name(value: Runtime) -> &'static str {
     }
 }
 
+fn compilation_mode_name(value: CompilationMode) -> &'static str {
+    match value {
+        CompilationMode::Normal => "normal",
+        CompilationMode::Test => "test",
+    }
+}
+
 fn artifact_kind_name(value: &PlanArtifactKind) -> &'static str {
     match value {
         PlanArtifactKind::Executable => "executable",
@@ -2612,11 +2624,6 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
     let transient_name = next_build_invocation_name();
-    let compilation_mode = if request.test_mode {
-        CompilationMode::Test
-    } else {
-        CompilationMode::Normal
-    };
     Ok(BuildInvocation {
         toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
@@ -2648,7 +2655,6 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         optimization: request.optimization,
         profile: request.profile,
         link_time_optimization: request.link_time_optimization,
-        compilation_mode,
     })
 }
 
@@ -2785,7 +2791,6 @@ fn compile_build_runner(
     let check = CheckRequest::new(runner.path.clone())
         .with_module_map(module_map)
         .with_profile(invocation.profile)
-        .with_compilation_mode(invocation.compilation_mode)
         .with_optimization(BUILD_RUNNER_OPTIMIZATION)
         .with_timings(invocation.timings);
     let runtime = nia_toolchain::RuntimeSpec::freestanding(
@@ -3112,14 +3117,9 @@ fn validate_manifest_dependency_references(
             return Err(format!("`{name}` is not declared in the root nia.toml"));
         };
         match dependency.dependency.scope {
-            DependencyScope::Runtime => {}
-            DependencyScope::Development
-                if invocation.compilation_mode == CompilationMode::Test => {}
-            DependencyScope::Development => {
-                return Err(format!(
-                    "`{name}` is a development dependency and is unavailable outside test mode"
-                ));
-            }
+            // Only test artifacts see a development dependency; the
+            // coordinator hides it from ordinary compilations.
+            DependencyScope::Runtime | DependencyScope::Development => {}
             DependencyScope::Build => {
                 return Err(format!(
                     "`{name}` is build-only; build.nia can import it directly without addDependency"
@@ -4182,7 +4182,6 @@ mod tests {
             let request = CheckRequest::new(runner.path.clone())
                 .with_module_map(module_map)
                 .with_profile(plan.profile)
-                .with_compilation_mode(plan.compilation_mode)
                 .with_optimization(BUILD_RUNNER_OPTIMIZATION)
                 .with_runtime(
                     nia_toolchain::RuntimeSpec::freestanding(&toolchain, &target)
@@ -4288,7 +4287,6 @@ mod tests {
             .expect("test invocation");
 
             assert_eq!(invocation.profile, profile);
-            assert_eq!(invocation.compilation_mode, CompilationMode::Test);
             assert_eq!(invocation.step, BuildStepSelection::Tests);
         }
     }
@@ -4743,7 +4741,7 @@ version = \"1.0.0\"
                 source: nia_package_metadata::DependencySource::Path(name.to_string()),
                 scope,
             },
-            resolved_root: (scope != DependencyScope::Development).then(|| name.to_string()),
+            resolved_root: Some(name.to_string()),
             source_root: Some(
                 root.join(name)
                     .canonicalize()
@@ -4770,15 +4768,14 @@ version = \"1.0.0\"
                 .contains("build-only")
         );
         assert!(
-            validate_manifest_dependency_references(&[package("development")], &invocation)
-                .unwrap_err()
-                .contains("development dependency")
+            validate_manifest_dependency_references(&[package("development")], &invocation).is_ok()
         );
 
-        invocation.compilation_mode = CompilationMode::Test;
-        invocation.package_graph_report.declared[2].resolved_root = Some("development".into());
+        invocation.package_graph_report.declared[2].resolved_root = None;
         assert!(
-            validate_manifest_dependency_references(&[package("development")], &invocation).is_ok()
+            validate_manifest_dependency_references(&[package("development")], &invocation)
+                .unwrap_err()
+                .contains("not present")
         );
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
@@ -5148,6 +5145,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
                     module: root_module,
                     target,
                     runtime: Runtime::Freestanding,
+                    mode: CompilationMode::Normal,
                 },
             }],
             steps: vec![PlanStep {

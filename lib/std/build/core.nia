@@ -391,6 +391,7 @@ extend Build {
         compileName.append(self.allocator, &".compile")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget())).?;
+        self.executables.asMutSlice()[executable.index()].test = true;
         _ = self.addEmitExecutableStep(compileName.text(), executable).?;
         self.addTestExecutableStep(name, .init(executable))
     }

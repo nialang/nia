@@ -930,8 +930,9 @@ targets is checked once per target.
 
 `@[debug]` and `@[release]` keep an item or statement only in the matching
 build profile; the default profile is `debug`. An item may carry at most one
-profile attribute. `@[test]` keeps code only when compiling tests, in either
-profile. Profile and test selection is independent of target facts,
+profile attribute. `@[test]` keeps code only in a test compilation, in either
+profile; a test suite artifact is compiled that way, ordinary artifacts are
+not. Profile and test selection is independent of target facts,
 optimization level, and runtime.
 
 #### Caller Location

@@ -188,6 +188,9 @@ pub(super) fn canonicalize_artifacts(
                 module: artifact.root_module.clone(),
             });
         }
+        if artifact.mode == CompilationMode::Test && artifact.kind != PlanArtifactKind::Executable {
+            return Err(PlanError::NonExecutableTest(artifact.key.clone()));
+        }
     }
     Ok(())
 }

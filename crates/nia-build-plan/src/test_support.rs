@@ -60,6 +60,7 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
                 module: module_a.clone(),
                 target: target(),
                 runtime: Runtime::Freestanding,
+                mode: CompilationMode::Normal,
             },
         },
         PlanAction {
@@ -103,6 +104,7 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
             kind: PlanArtifactKind::Executable,
             output: LogicalPath::new(LogicalPathRoot::Build, "app").unwrap(),
             runtime: Runtime::Freestanding,
+            mode: CompilationMode::Normal,
         }],
         actions,
         steps,
@@ -125,6 +127,7 @@ pub(crate) fn static_archive_link_draft() -> BuildPlanDraft {
             kind: PlanArtifactKind::StaticArchive,
             output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
             runtime: Runtime::Bare,
+            mode: CompilationMode::Normal,
         });
         value.actions.push(PlanAction {
             key: action_key(&format!("emit-{}", artifact.name())),
@@ -200,6 +203,7 @@ pub(crate) fn generated_source_draft(
                     module,
                     target: target(),
                     runtime: Runtime::Freestanding,
+                    mode: CompilationMode::Normal,
                 },
             },
         ],

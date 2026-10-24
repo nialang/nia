@@ -340,6 +340,9 @@ pub struct ExecutableTarget {
     targetIndex: usize,
     staticArchives: collections::ArrayList[StaticArchiveHandle],
     runtime: Runtime,
+    // A test executable is compiled with `@[test]` source and the root
+    // package's development dependencies; only `addTestSuite` sets it.
+    test: bool,
 }
 
 pub struct ObjectOptions {

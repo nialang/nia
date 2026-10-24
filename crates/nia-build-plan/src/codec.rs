@@ -364,6 +364,13 @@ impl Writer {
         });
     }
 
+    fn mode(&mut self, value: CompilationMode) {
+        self.u8(match value {
+            CompilationMode::Normal => 0,
+            CompilationMode::Test => 1,
+        });
+    }
+
     fn module(&mut self, module: &PlanModule) -> Result<(), PlanCodecError> {
         self.module_key(&module.key)?;
         self.logical_path(&module.root_source)?;
@@ -386,6 +393,7 @@ impl Writer {
         });
         self.logical_path(&artifact.output)?;
         self.runtime(artifact.runtime);
+        self.mode(artifact.mode);
         Ok(())
     }
 
@@ -396,11 +404,13 @@ impl Writer {
                 module,
                 target,
                 runtime,
+                mode,
             } => {
                 self.u8(0);
                 self.module_key(module)?;
                 self.target(target)?;
                 self.runtime(*runtime);
+                self.mode(*mode);
             }
             ActionKind::CompilerEmit {
                 artifact,
@@ -751,6 +761,20 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn mode(&mut self) -> Result<CompilationMode, PlanCodecError> {
+        let offset = self.offset;
+        let tag = self.u8()?;
+        match tag {
+            0 => Ok(CompilationMode::Normal),
+            1 => Ok(CompilationMode::Test),
+            _ => Err(PlanCodecError::InvalidTag {
+                kind: "compilation mode",
+                tag,
+                offset,
+            }),
+        }
+    }
+
     fn module(&mut self) -> Result<PlanModule, PlanCodecError> {
         Ok(PlanModule {
             key: self.module_key()?,
@@ -787,6 +811,7 @@ impl<'a> Reader<'a> {
             kind,
             output: self.logical_path()?,
             runtime: self.runtime()?,
+            mode: self.mode()?,
         })
     }
 
@@ -799,6 +824,7 @@ impl<'a> Reader<'a> {
                 module: self.module_key()?,
                 target: self.target()?,
                 runtime: self.runtime()?,
+                mode: self.mode()?,
             },
             1 => ActionKind::CompilerEmit {
                 artifact: self.artifact_key()?,
@@ -1203,12 +1229,19 @@ mod tests {
     #[test]
     fn typed_action_variants_round_trip() {
         let mut value = draft(false);
+        value.artifacts[0].mode = CompilationMode::Test;
+        for action in &mut value.actions {
+            if let ActionKind::CompilerCheck { mode, .. } = &mut action.kind {
+                *mode = CompilationMode::Test;
+            }
+        }
         value.artifacts.push(PlanArtifact {
             key: ArtifactKey::new(PackageKey::root(), "objects").unwrap(),
             root_module: ModuleKey::new(PackageKey::root(), "a").unwrap(),
             kind: PlanArtifactKind::ObjectSet,
             output: LogicalPath::new(LogicalPathRoot::Build, "objects/app").unwrap(),
             runtime: Runtime::Bare,
+            mode: CompilationMode::Normal,
         });
         value.artifacts.push(PlanArtifact {
             key: ArtifactKey::new(PackageKey::root(), "archive").unwrap(),
@@ -1216,6 +1249,7 @@ mod tests {
             kind: PlanArtifactKind::StaticArchive,
             output: LogicalPath::new(LogicalPathRoot::Build, "lib/libarchive.a").unwrap(),
             runtime: Runtime::Bare,
+            mode: CompilationMode::Normal,
         });
         let package = PackageKey::root();
         value.actions.extend([

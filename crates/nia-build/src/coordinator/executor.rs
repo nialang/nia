@@ -23,7 +23,7 @@ pub(super) struct DriverActionExecutor {
     plan: Arc<BuildPlan>,
     invocation: Arc<BuildInvocation>,
     drivers: Arc<BTreeMap<TargetConfig, Arc<Driver>>>,
-    package_dependency_selection: Arc<BTreeMap<PackageKey, bool>>,
+    package_dependency_classes: Arc<BTreeMap<PackageKey, BTreeSet<DependencyScope>>>,
     process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
     progress: Option<ProgressSession>,
 }
@@ -68,12 +68,12 @@ impl DriverActionExecutor {
                 ))
             });
         }
-        let package_dependency_selection = super::package_dependency_selection(&plan, &invocation);
+        let package_dependency_classes = super::package_dependency_classes(&plan, &invocation);
         Self {
             plan,
             invocation,
             drivers: Arc::new(drivers),
-            package_dependency_selection: Arc::new(package_dependency_selection),
+            package_dependency_classes: Arc::new(package_dependency_classes),
             process_output_writer,
             progress,
         }
@@ -110,8 +110,9 @@ impl DriverActionExecutor {
                 module,
                 target,
                 runtime,
+                mode,
             } => {
-                return self.execute_compiler_check(action, module, target, *runtime);
+                return self.execute_compiler_check(action, module, target, *runtime, *mode);
             }
             ActionKind::CompilerEmit {
                 artifact,
@@ -237,8 +238,13 @@ impl DriverActionExecutor {
         let program_path = self.resolve_path(action, program)?;
         let tool = read_external_identity_file(action, &program_path, "read test executable")?;
         let target = self.plan.host_target();
-        let request =
-            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
+        let request = self.check_request(
+            action,
+            &artifact.root_module,
+            target,
+            artifact.runtime,
+            artifact.mode,
+        )?;
         // A suite owns its source closure. Sharing the target's mutable driver
         // lets concurrent suites replace each other's active loader entry.
         let driver = Driver::with_config(
@@ -267,7 +273,7 @@ impl DriverActionExecutor {
         append_test_suite_action_identity(&mut encoded, action, command, artifact);
         append_test_suite_bytes(&mut encoded, target.name().as_bytes());
         encoded.push(profile_tag(self.invocation.profile));
-        encoded.push(compilation_mode_tag(self.invocation.compilation_mode));
+        encoded.push(compilation_mode_tag(artifact.mode));
         encoded.push(optimization_tag(module.optimization));
         encoded.push(runtime_tag(artifact.runtime));
         encoded.push(link_time_optimization_tag(
@@ -283,7 +289,9 @@ impl DriverActionExecutor {
             module
                 .imports
                 .iter()
-                .filter(|import| self.package_dependency_selected(import.path.root()))
+                .filter(|import| {
+                    self.package_dependency_selected(import.path.root(), artifact.mode)
+                })
                 .map(|import| &import.path),
         );
         package_paths.extend(command.inputs.iter());
@@ -626,6 +634,7 @@ impl DriverActionExecutor {
         module_key: &ModuleKey,
         target: &TargetConfig,
         runtime: Runtime,
+        mode: CompilationMode,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
             inconsistent(
@@ -633,7 +642,7 @@ impl DriverActionExecutor {
                 format!("module `{}`", module_key.name()),
             )
         })?;
-        let request = self.check_request(action, module_key, target, runtime)?;
+        let request = self.check_request(action, module_key, target, runtime, mode)?;
         let driver = self.driver(action, target)?;
         // The cheap manifest is sufficient for lookup. A successful check may
         // discover a different provider closure, so only its returned manifest
@@ -661,7 +670,7 @@ impl DriverActionExecutor {
             packages: self.plan.packages(),
             target,
             profile: self.invocation.profile,
-            compilation_mode: self.invocation.compilation_mode,
+            compilation_mode: mode,
             runtime,
             manifest: &precheck_manifest,
             toolchain: self.invocation.toolchain.identity(),
@@ -703,7 +712,7 @@ impl DriverActionExecutor {
                 packages: self.plan.packages(),
                 target,
                 profile: self.invocation.profile,
-                compilation_mode: self.invocation.compilation_mode,
+                compilation_mode: mode,
                 runtime,
                 manifest: &checked.source_manifest,
                 toolchain: self.invocation.toolchain.identity(),
@@ -743,8 +752,13 @@ impl DriverActionExecutor {
                 format!("module `{}`", artifact.root_module.name()),
             )
         })?;
-        let request =
-            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
+        let request = self.check_request(
+            action,
+            &artifact.root_module,
+            target,
+            artifact.runtime,
+            artifact.mode,
+        )?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let mut cache_link_inputs = Vec::with_capacity(static_archives.len());
@@ -839,7 +853,7 @@ impl DriverActionExecutor {
                 packages: self.plan.packages(),
                 target,
                 profile: self.invocation.profile,
-                compilation_mode: self.invocation.compilation_mode,
+                compilation_mode: artifact.mode,
                 runtime: artifact.runtime,
                 manifest: &precheck_manifest,
                 toolchain: self.invocation.toolchain.identity(),
@@ -918,7 +932,7 @@ impl DriverActionExecutor {
             packages: self.plan.packages(),
             target,
             profile: self.invocation.profile,
-            compilation_mode: self.invocation.compilation_mode,
+            compilation_mode: artifact.mode,
             runtime: artifact.runtime,
             manifest: &linked.source_manifest,
             toolchain: self.invocation.toolchain.identity(),
@@ -949,8 +963,13 @@ impl DriverActionExecutor {
                 format!("module `{}`", artifact.root_module.name()),
             )
         })?;
-        let request =
-            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
+        let request = self.check_request(
+            action,
+            &artifact.root_module,
+            target,
+            artifact.runtime,
+            artifact.mode,
+        )?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let emit_activity = self
@@ -1001,8 +1020,13 @@ impl DriverActionExecutor {
                 format!("module `{}`", artifact.root_module.name()),
             )
         })?;
-        let request =
-            self.check_request(action, &artifact.root_module, target, artifact.runtime)?;
+        let request = self.check_request(
+            action,
+            &artifact.root_module,
+            target,
+            artifact.runtime,
+            artifact.mode,
+        )?;
         let output = self.resolve_path(action, &artifact.output)?;
         let driver = self.driver(action, target)?;
         let emitted = driver
@@ -1246,6 +1270,7 @@ impl DriverActionExecutor {
         module_key: &ModuleKey,
         target: &TargetConfig,
         runtime: Runtime,
+        mode: CompilationMode,
     ) -> Result<CheckRequest, CoordinatorError> {
         let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
             inconsistent(
@@ -1260,7 +1285,7 @@ impl DriverActionExecutor {
                 &mut module_map,
                 &self.invocation.package_graph_report,
                 &[DependencyScope::Runtime, DependencyScope::Development],
-                self.invocation.compilation_mode,
+                mode,
             )
             .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
             add_own_library_module_root(
@@ -1271,7 +1296,7 @@ impl DriverActionExecutor {
             .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
         }
         for import in &module.imports {
-            if !self.package_dependency_selected(import.path.root()) {
+            if !self.package_dependency_selected(import.path.root(), mode) {
                 continue;
             }
             let path = self.resolve_source_path(action, &import.path)?;
@@ -1314,22 +1339,16 @@ impl DriverActionExecutor {
             .with_module_map(module_map)
             .with_optimization(optimization(module.optimization))
             .with_profile(self.invocation.profile)
-            .with_compilation_mode(self.invocation.compilation_mode)
+            .with_compilation_mode(source_compilation_mode(mode))
             .with_timings(self.invocation.timings)
             .with_runtime(runtime))
     }
 
-    fn package_dependency_selected(&self, root: &LogicalPathRoot) -> bool {
+    fn package_dependency_selected(&self, root: &LogicalPathRoot, mode: CompilationMode) -> bool {
         let LogicalPathRoot::Package(package_key) = root else {
             return true;
         };
-        if package_key == self.plan.root_package() {
-            return true;
-        }
-        self.package_dependency_selection
-            .get(package_key)
-            .copied()
-            .unwrap_or(true)
+        super::package_dependency_selected(&self.package_dependency_classes, package_key, mode)
     }
 
     fn artifact(

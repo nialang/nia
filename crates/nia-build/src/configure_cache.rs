@@ -74,7 +74,6 @@ pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     encoded.push(link_time_optimization_tag(
         invocation.link_time_optimization,
     ));
-    encoded.push(compilation_mode_tag(invocation.compilation_mode));
     match &invocation.step {
         crate::BuildStepSelection::Default => encoded.push(0),
         crate::BuildStepSelection::Tests => encoded.push(1),
@@ -108,13 +107,6 @@ fn profile_tag(profile: nia_target_config::BuildProfile) -> u8 {
     match profile {
         nia_target_config::BuildProfile::Debug => 0,
         nia_target_config::BuildProfile::Release => 1,
-    }
-}
-
-fn compilation_mode_tag(mode: nia_target_config::CompilationMode) -> u8 {
-    match mode {
-        nia_target_config::CompilationMode::Normal => 0,
-        nia_target_config::CompilationMode::Test => 1,
     }
 }
 

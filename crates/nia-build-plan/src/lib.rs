@@ -287,6 +287,19 @@ pub enum Runtime {
     Freestanding,
 }
 
+/// Whether a compilation includes test-only source.
+///
+/// It belongs to the compiled artifact, not to the invocation: one plan holds
+/// ordinary executables and test executables side by side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CompilationMode {
+    /// Ordinary compilation.
+    Normal,
+    /// Test compilation: `@[test]` source is kept and the root package's
+    /// development dependencies are visible.
+    Test,
+}
+
 /// Named module import and its logical source path.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ModuleImport {
@@ -410,6 +423,8 @@ pub struct PlanArtifact {
     pub output: LogicalPath,
     /// Runtime model linked into the product.
     pub runtime: Runtime,
+    /// Whether the product is compiled with test-only source.
+    pub mode: CompilationMode,
 }
 
 /// How an external command locates its program.
@@ -506,6 +521,8 @@ pub enum ActionKind {
         target: TargetConfig,
         /// Runtime model used by the compiler.
         runtime: Runtime,
+        /// Compilation mode of the artifact being checked.
+        mode: CompilationMode,
     },
     /// Compile and link one declared artifact.
     CompilerEmit {
@@ -744,6 +761,8 @@ pub enum PlanError {
         /// Stable rejection reason.
         reason: &'static str,
     },
+    /// A test-mode artifact is not an executable; only executables run tests.
+    NonExecutableTest(ArtifactKey),
     /// An action uses an artifact in an unsupported role.
     InvalidArtifactUse {
         /// Rejected action.
@@ -888,6 +907,11 @@ impl fmt::Display for PlanError {
                 f,
                 "action `{}` has an invalid external command: {reason}",
                 display_node_key(action)
+            ),
+            Self::NonExecutableTest(artifact) => write!(
+                f,
+                "artifact `{}` is compiled as a test but is not an executable",
+                display_node_key(artifact)
             ),
             Self::InvalidArtifactUse {
                 action,
@@ -1593,6 +1617,22 @@ mod tests {
                 reason: "only file artifacts can be installed",
                 ..
             }) if artifact.name() == "app"
+        ));
+    }
+
+    #[test]
+    fn freeze_accepts_test_executables_and_rejects_other_test_artifacts() {
+        let mut value = draft(false);
+        value.artifacts[0].mode = CompilationMode::Test;
+        let plan = BuildPlan::freeze(value).unwrap();
+        assert_eq!(plan.artifacts()[0].mode, CompilationMode::Test);
+
+        let mut value = draft(false);
+        value.artifacts[0].mode = CompilationMode::Test;
+        value.artifacts[0].kind = PlanArtifactKind::StaticArchive;
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::NonExecutableTest(artifact)) if artifact.name() == "app"
         ));
     }
 

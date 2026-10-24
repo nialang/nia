@@ -279,7 +279,6 @@ mod tests {
             optimization: OptimizationMode::Oz,
             profile: nia_target_config::BuildProfile::Debug,
             link_time_optimization: nia_driver::LinkTimeOptimization::Off,
-            compilation_mode: nia_target_config::CompilationMode::Normal,
         }
     }
 

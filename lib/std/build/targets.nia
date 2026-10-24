@@ -31,7 +31,7 @@ extend ExecutableTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) ExecutableTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding, test: false }
     }
 
     pub(root) fun initialize(

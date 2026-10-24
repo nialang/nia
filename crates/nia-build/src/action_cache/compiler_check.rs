@@ -19,7 +19,7 @@ use nia_driver::{SourceInputContent, SourceInputManifest};
 use nia_imports::StableModuleKey;
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
-use nia_target_config::{BuildProfile, CompilationMode};
+use nia_target_config::BuildProfile;
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
@@ -30,7 +30,7 @@ use super::{
     write_bytes, write_fingerprint, write_text,
 };
 use crate::{
-    ActionKey, OptimizationMode, PlanModule, PlanPackage, Runtime,
+    ActionKey, CompilationMode, OptimizationMode, PlanModule, PlanPackage, Runtime,
     lock::{LockWaitObserver, ScopedFileLock},
 };
 use nia_target::TargetConfig;

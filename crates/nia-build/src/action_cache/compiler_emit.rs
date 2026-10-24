@@ -159,7 +159,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) packages: &'a [PlanPackage],
     pub(crate) target: &'a TargetConfig,
     pub(crate) profile: BuildProfile,
-    pub(crate) compilation_mode: nia_target_config::CompilationMode,
+    pub(crate) compilation_mode: crate::CompilationMode,
     pub(crate) runtime: crate::Runtime,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
@@ -894,6 +894,7 @@ mod tests {
             kind: crate::PlanArtifactKind::Executable,
             output: crate::LogicalPath::new(crate::LogicalPathRoot::Build, "app").unwrap(),
             runtime: crate::Runtime::Freestanding,
+            mode: crate::CompilationMode::Normal,
         }
     }
 

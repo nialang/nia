@@ -89,6 +89,13 @@ pub(super) fn optimization(mode: OptimizationMode) -> NiaOptimizationLevel {
     }
 }
 
+pub(crate) fn source_compilation_mode(mode: CompilationMode) -> nia_target_config::CompilationMode {
+    match mode {
+        CompilationMode::Normal => nia_target_config::CompilationMode::Normal,
+        CompilationMode::Test => nia_target_config::CompilationMode::Test,
+    }
+}
+
 pub(super) fn runtime_spec(
     runtime: Runtime,
     toolchain: &nia_toolchain::ToolchainLayout,

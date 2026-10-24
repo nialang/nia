@@ -76,7 +76,6 @@ fn test_invocation() -> BuildInvocation {
         optimization: OptimizationMode::O0,
         profile: nia_target_config::BuildProfile::Debug,
         link_time_optimization: nia_driver::LinkTimeOptimization::Off,
-        compilation_mode: nia_target_config::CompilationMode::Normal,
     }
 }
 
@@ -225,6 +224,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
                     module: module.clone(),
                     target: target(),
                     runtime: Runtime::Freestanding,
+                    mode: CompilationMode::Normal,
                 },
             },
             PlanAction {
@@ -260,6 +260,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
             &module,
             &action_target,
             Runtime::Freestanding,
+            CompilationMode::Normal,
         )
         .expect("construct compiler check request");
     let generated = request
@@ -313,7 +314,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
     std::fs::create_dir_all(&root).expect("create package root");
     std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
 
-    let compile_request = |test_mode: bool| {
+    let compile_request = |mode: CompilationMode| {
         let graph = PackageGraph::resolve(&root).expect("resolve package graph");
         let root_package = PackageKey::root();
         let module_key = ModuleKey::new(root_package.clone(), "app").unwrap();
@@ -356,6 +357,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
                     module: module_key.clone(),
                     target: target(),
                     runtime: Runtime::Bare,
+                    mode,
                 },
             }],
             steps: Vec::new(),
@@ -366,18 +368,19 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         let mut invocation = test_invocation();
         invocation.package_root = root.clone();
         invocation.package_graph_report = graph.report();
-        invocation.compilation_mode = if test_mode {
-            nia_target_config::CompilationMode::Test
-        } else {
-            nia_target_config::CompilationMode::Normal
-        };
         let executor = DriverActionExecutor::new(plan.clone(), invocation);
         executor
-            .check_request(&plan.actions()[0], &module_key, &target(), Runtime::Bare)
+            .check_request(
+                &plan.actions()[0],
+                &module_key,
+                &target(),
+                Runtime::Bare,
+                mode,
+            )
             .expect("construct selected check request")
     };
 
-    let ordinary = compile_request(false);
+    let ordinary = compile_request(CompilationMode::Normal);
     let root_source = nia_source::SourcePath::with_identity(
         root.join("src/main.nia").to_string_lossy(),
         "build-package:root:/src/main.nia",
@@ -397,7 +400,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         );
     }
 
-    let selected = compile_request(true);
+    let selected = compile_request(CompilationMode::Test);
     for included in ["corelib", "development"] {
         assert!(
             selected.module_map.get(included).is_none()
@@ -1238,6 +1241,7 @@ fn compiler_check_plan_with_runtime(
                 module,
                 target: artifact,
                 runtime,
+                mode: CompilationMode::Normal,
             },
         }],
         steps: vec![PlanStep {
@@ -1319,6 +1323,7 @@ fn compiler_emit_plan_kind(
             key: artifact_key.clone(),
             root_module: module,
             kind,
+            mode: CompilationMode::Normal,
             output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
             runtime,
         }],
@@ -1369,6 +1374,7 @@ fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
             kind: PlanArtifactKind::Executable,
             output: LogicalPath::new(LogicalPathRoot::Build, "bin/app").unwrap(),
             runtime: Runtime::Freestanding,
+            mode: CompilationMode::Normal,
         }],
         actions: vec![
             PlanAction {
@@ -1454,6 +1460,7 @@ fn mixed_generated_source_emit_plan(
                 kind: PlanArtifactKind::Executable,
                 output: LogicalPath::new(LogicalPathRoot::Build, "bin/generated").unwrap(),
                 runtime: Runtime::Freestanding,
+                mode: CompilationMode::Normal,
             },
             PlanArtifact {
                 key: stable_artifact.clone(),
@@ -1461,6 +1468,7 @@ fn mixed_generated_source_emit_plan(
                 kind: PlanArtifactKind::Executable,
                 output: LogicalPath::new(LogicalPathRoot::Build, "bin/stable").unwrap(),
                 runtime: Runtime::Freestanding,
+                mode: CompilationMode::Normal,
             },
         ],
         actions: vec![

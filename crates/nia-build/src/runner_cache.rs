@@ -346,7 +346,6 @@ pub(super) fn cache_key(
     );
     hasher.update(&[
         profile_tag(invocation.profile),
-        compilation_mode_tag(invocation.compilation_mode),
         link_time_optimization_tag(invocation.link_time_optimization),
     ]);
     hasher.update(&BUILD_PROTOCOL.to_le_bytes());
@@ -522,19 +521,12 @@ fn link_time_optimization_tag(policy: nia_driver::LinkTimeOptimization) -> u8 {
     }
 }
 
-fn compilation_mode_tag(mode: nia_target_config::CompilationMode) -> u8 {
-    match mode {
-        nia_target_config::CompilationMode::Normal => 0,
-        nia_target_config::CompilationMode::Test => 1,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{BuildRunnerSource, BuildStepSelection, OptimizationMode};
     use nia_driver::TimingMode;
-    use nia_target_config::{BuildProfile, CompilationMode};
+    use nia_target_config::BuildProfile;
     use nia_timing::TimingFormat;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt as _;
@@ -603,7 +595,6 @@ mod tests {
             optimization: OptimizationMode::O0,
             profile: BuildProfile::Debug,
             link_time_optimization: nia_driver::LinkTimeOptimization::Off,
-            compilation_mode: CompilationMode::Normal,
         }
     }
 
@@ -647,11 +638,6 @@ mod tests {
         assert_ne!(unoptimized, release_profile);
 
         invocation.profile = BuildProfile::Debug;
-        invocation.compilation_mode = CompilationMode::Test;
-        let test_mode = cache_key(&invocation, &runner).unwrap();
-        assert_ne!(unoptimized, test_mode);
-
-        invocation.compilation_mode = CompilationMode::Normal;
         invocation.link_time_optimization = nia_driver::LinkTimeOptimization::Thin;
         let thin_lto = cache_key(&invocation, &runner).unwrap();
         assert_ne!(unoptimized, thin_lto);

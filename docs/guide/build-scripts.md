@@ -68,7 +68,7 @@ A dependency's scope is the table it appears in:
 | --- | --- |
 | `[build-dependencies]` | `build.nia` only |
 | `[dependencies]` | package artifacts and their tests |
-| `[dev-dependencies]` | test builds (`nia test`) only |
+| `[dev-dependencies]` | test suites only |
 
 A dependency name is local to the package that declares it and must be unique
 across its three tables. Artifact sources and `build.nia` open a dependency
@@ -306,8 +306,9 @@ a `[library].path` needs nothing in the script; see
 [Package manifest](#package-manifest). Use `addDependency` when the script
 needs a handle to a dependency package itself, for example to import a file
 other than its library entry or to pass one of its files to a command. It
-takes the dependency name from `[dependencies]`, or from `[dev-dependencies]`
-in test builds, so path and Git dependencies use the same API. Build
+takes the dependency name from `[dependencies]` or `[dev-dependencies]`, so
+path and Git dependencies use the same API; only test suites can compile a
+development dependency's sources. Build
 dependencies are rejected because `build.nia` already imports them directly:
 
 ```toml
@@ -551,8 +552,11 @@ pub fun build(b: &mut build::Build) build::Error!() {
 ## Tests
 
 `addTestSuite(name, module)` builds `module` as an executable for the host
-target and registers it as a test suite. `nia test` builds and runs every
-suite. A suite passes when its executable exits with status 0, and it runs
+target and registers it as a test suite. The suite is a test compilation:
+`@[test]` items are kept and development dependencies are visible, in the
+suite's whole module tree. Other artifacts in the same build, including one
+built from the same module, are ordinary compilations. `nia test` builds and
+runs every suite. A suite passes when its executable exits with status 0, and it runs
 with the package root as its working directory. A suite that passed is not run
 again until its executable or inputs change. A suite is also a step, so
 `nia build <name>` runs one suite.

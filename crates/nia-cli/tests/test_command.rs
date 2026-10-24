@@ -316,6 +316,96 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
 }
 
+// Test-ness belongs to the artifact: `nia build <suite>` compiles the suite
+// with `@[test]` source and development dependencies, while an ordinary
+// executable in the same plan sees neither.
+#[test]
+fn test_suites_are_test_compilations_under_nia_build() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("test-suite-artifact-mode");
+    fs::create_dir_all(workspace.join("src")).expect("create source directory");
+    fs::create_dir_all(workspace.join("checks")).expect("create dev dependency directory");
+    fs::write(
+        workspace.join("nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[dev-dependencies]\nchecks = { path = \"checks\" }\n",
+    )
+    .expect("write manifest");
+    fs::write(
+        workspace.join("checks/nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"checks\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .expect("write dev dependency manifest");
+    fs::write(
+        workspace.join("checks/root.nia"),
+        "pub fun expected() i32 { 7 }\n",
+    )
+    .expect("write dev dependency source");
+    fs::write(
+        workspace.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let appModule = b.addModule(build::ModuleOptions::init(
+        &"app", fs::PathView::init(&"src/main.nia"),
+    )).?;
+    let app = b.addExecutable(build::ExecutableOptions::init(&"app", appModule)).?;
+    let emit = b.addEmitExecutableStep(&"app", app).?;
+    _ = b.addTestSuite(&"unit", appModule).?;
+    b.setDefaultStep(emit)
+}
+"#,
+    )
+    .expect("write build script");
+    fs::write(
+        workspace.join("src/main.nia"),
+        r#"using std::process;
+
+@[test]
+using checks;
+
+@[test]
+fun check() process::ExitCode!() {
+    if checks::expected() != 7 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+
+// Without the test code, the ordinary executable reports 3.
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    @[test]
+    return check();
+    process::ExitCode(3)!
+}
+"#,
+    )
+    .expect("write source");
+
+    let build = |step: &str| {
+        support::nia_command()
+            .args(["build", step, "--root"])
+            .arg(&workspace)
+            .output_timeout_in_session("build one step of a package with a test suite")
+    };
+    let app = build("app");
+    assert!(
+        app.status.success(),
+        "{}",
+        String::from_utf8_lossy(&app.stderr)
+    );
+    let app = Command::new(workspace.join(".nia-build/app"))
+        .output_timeout_in_session("run the ordinary executable");
+    assert_eq!(app.status.code(), Some(3));
+    let unit = build("unit");
+    assert!(
+        unit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&unit.stderr)
+    );
+}
+
 fn test_command(workspace: &std::path::Path) -> Command {
     let command_directory = workspace
         .parent()
