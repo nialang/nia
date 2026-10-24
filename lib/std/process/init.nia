@@ -22,3 +22,8 @@ extend Init {
         self.env
     }
 }
+
+// Ends the process with `code`. Startup calls this with `main`'s result.
+pub fun exit(code: types::ExitCode) () {
+    root::os::exit(code.0);
+}
