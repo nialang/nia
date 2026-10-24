@@ -748,19 +748,19 @@ fn run_build_case(name: &str) {
                 &output,
                 "text",
             );
-            for (workflow, format) in [("build", "json"), ("test", "text"), ("test", "json")] {
-                // Test selection has neither a named build step nor a required
-                // default. Definition/graph validation applies to both modes.
-                if workflow == "test"
-                    && matches!(contract.as_str(), "unknown-step" | "missing-default")
-                {
+            for (list, format) in [(false, "json"), (true, "text"), (true, "json")] {
+                // Listing selects no step, so it needs neither a known step
+                // nor a default. Definition/graph validation applies to both.
+                if list && matches!(contract.as_str(), "unknown-step" | "missing-default") {
                     continue;
                 }
                 let mut command = support::nia_command();
                 command
-                    .arg(workflow)
+                    .arg("build")
                     .arg(format!("--diagnostics-format={format}"));
-                if workflow == "build" && step != "default" {
+                if list {
+                    command.arg("--list");
+                } else if step != "default" {
                     command.arg(&step);
                 }
                 let output = command

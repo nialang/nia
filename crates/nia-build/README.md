@@ -116,12 +116,14 @@ checkouts whose edge was filtered from the selected graph. Build plans encode
 manifest dependencies by declared alias and local source trees by relative
 path, so the host resolves each package instance without guessing from a path.
 When the coordinator constructs a compiler request, it filters module-map roots
-by dependency class:
+by dependency class and by the compilation mode of the artifact or check being
+compiled; a test suite's executable is compiled in test mode, every other
+artifact in normal mode:
 
 | Dependency scope | Visible to artifact compilation |
 | --- | --- |
 | Runtime | Always |
-| Development | In test mode |
+| Development | To test-mode compilations |
 | Build | To the host build runner |
 
 Generated build roots and package roots not declared in `nia.toml` keep
@@ -278,7 +280,8 @@ Generated runners use content-addressed
 identity are registered in `nia-compat`; there is no runner-local schema
 version. The key includes the generated runner source, build-script bytes,
 standard-library source tree, toolchain identity, host target, runner profile,
-test mode, link-time policy, and build protocol. Artifact optimization is
+link-time policy, and build protocol. The runner is always a normal-mode
+compilation. Artifact optimization is
 transported through the private runner configuration but is excluded from the
 key, because the runner is always compiled at O0. A hit verifies and atomically
 restores the runner executable; malformed or corrupted records are retired as

@@ -53,7 +53,7 @@ extend Build {
         defaultOptimization: OptimizationMode,
         protocolEpoch: u32,
         requestedStep: ?&[char],
-        testMode: bool,
+        listSteps: bool,
     ) BuildInitAttempt {
         let ownerId = if allocateBuildOwnerId() is ?value { value } else { 0 };
         let build: Build = .{
@@ -69,7 +69,8 @@ extend Build {
             hasRequestedStep: false,
             defaultStep: null,
             selectedStep: null,
-            testMode: testMode,
+            listSteps: listSteps,
+            testStep: null,
             planValidated: false,
             steps: .init(),
             pendingStep: .initAggregate(0),

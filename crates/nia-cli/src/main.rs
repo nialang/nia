@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Command-line ownership for compiler inspection, checking, emission, and builds.
 //!
-//! The commands are `build` and `test`, which run a package's `build.nia`
-//! through `nia-build`, `check`, which validates without code generation, and
+//! The commands are `build`, which runs a package's `build.nia` through
+//! `nia-build`, `update`, `check`, which validates without code generation, and
 //! `emit`, which writes one product selected by `--tokens`, `--ast`,
 //! `--checked`, `--backend`, `--llvm`, `--obj`, or `--exe`.
 //!
@@ -277,6 +277,8 @@ fn run_cli(cli: Cli) -> ExitCode {
             print_plan,
             print_cache,
             print_observations,
+            list,
+            keep_going,
         } => {
             let mut request = package_request(toolchain, &package, &settings);
             if let Some(step) = step {
@@ -289,20 +291,9 @@ fn run_cli(cli: Cli) -> ExitCode {
                 .with_print_plan(print_plan)
                 .with_print_cache(print_cache)
                 .with_print_observations(print_observations)
+                .with_list(list)
+                .with_keep_going(keep_going)
                 .with_output_json(machine_output(&package, diagnostics_format));
-            run_package_request(request, diagnostics_format)
-        }
-        CliCommand::Test {
-            package,
-            filter,
-            list,
-            fail_fast,
-        } => {
-            let mut request = package_request(toolchain, &package, &settings).with_test_mode(true);
-            if let Some(filter) = filter {
-                request = request.with_test_filter(filter);
-            }
-            let request = request.with_test_list(list).with_test_fail_fast(fail_fast);
             run_package_request(request, diagnostics_format)
         }
         CliCommand::Update { root, names } => run_update(root, &names, diagnostics_format),
@@ -430,7 +421,7 @@ fn machine_output(package: &PackageOptions, format: DiagnosticsFormat) -> bool {
     format == DiagnosticsFormat::Json || package.progress == ProgressMode::Json
 }
 
-/// The request options `nia build` and `nia test` share.
+/// The package options of `nia build`.
 fn package_request(
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
     package: &PackageOptions,
@@ -544,7 +535,6 @@ fn run_update(root: Option<PathBuf>, names: &[String], format: DiagnosticsFormat
 fn resolve_output_policy(cli: &mut Cli) -> Result<(), CliError> {
     let (progress, help) = match &cli.command {
         CliCommand::Build { package, .. } => (package.progress, HelpTopic::Build),
-        CliCommand::Test { package, .. } => (package.progress, HelpTopic::Test),
         _ => return Ok(()),
     };
     match progress {

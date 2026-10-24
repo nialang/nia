@@ -808,8 +808,6 @@ pub enum PlanError {
         /// Producing action absent from the closure.
         producer: Box<ActionKey>,
     },
-    /// A nonempty plan has neither a default nor an explicitly selected step.
-    MissingDefaultStep,
 }
 
 impl fmt::Display for PlanError {
@@ -964,9 +962,6 @@ impl fmt::Display for PlanError {
                 display_logical_path(path),
                 display_node_key(producer.as_ref())
             ),
-            Self::MissingDefaultStep => {
-                f.write_str("non-empty build plan has no default or selected step")
-            }
         }
     }
 }
@@ -1473,12 +1468,14 @@ mod tests {
         assert!(BuildPlan::freeze(value).is_ok());
     }
 
+    // A listing plan selects nothing; the runner reports a missing default
+    // only when the invocation asked for one.
     #[test]
-    fn nonempty_plan_requires_a_default_or_explicit_selection() {
+    fn plan_may_have_neither_a_default_nor_a_selection() {
         let mut value = draft(false);
         value.default_step = None;
         value.selected_step = None;
-        assert_eq!(BuildPlan::freeze(value), Err(PlanError::MissingDefaultStep));
+        assert!(BuildPlan::freeze(value).is_ok());
     }
 
     #[test]

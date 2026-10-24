@@ -432,7 +432,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let mut requestedStepText = string::String::init();
     defer requestedStepText.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
-    let mut testMode = false;
+    let mut listSteps = false;
     let requestedStep: ?&[char] = match config.byte().reportAndExit(init).? {
         0 => null,
         1 => ?readText(
@@ -442,7 +442,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             build::ErrorSubject::RequestedStep,
         ).reportAndExit(init).?,
         2 => {
-            testMode = true;
+            listSteps = true;
             null
         },
         _ => {
@@ -472,7 +472,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         defaultOptimization,
         __NIA_BUILD_PROTOCOL_EPOCH__u32,
         requestedStep,
-        testMode,
+        listSteps,
     );
     let mut api = initialization.finish().reportAndExit(init).?;
     defer api.deinit().reportAndExit(init).?;

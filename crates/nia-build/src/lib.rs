@@ -10,8 +10,10 @@
 //!
 //! Text diagnostics forward child-process output live. JSON mode disables live
 //! forwarding and keeps bounded captured output in structured failure notes.
-//! Aggregate test failures retain each suite's exit or timeout reason and its
-//! captured streams, prefixed with the suite name. Windows process cleanup
+//! A failed action stops the build unless `--keep-going` lets independent
+//! actions finish; failures are then reported together, and a failed test
+//! suite keeps its exit or timeout reason and captured streams, prefixed with
+//! the suite name. Windows process cleanup
 //! produces no terminal output.
 
 use std::{
@@ -123,14 +125,10 @@ pub struct BuildRequest {
     pub profile: BuildProfile,
     /// Cross-module optimization used for final executable products.
     pub link_time_optimization: LinkTimeOptimization,
-    /// Select test executable actions instead of the declared default step.
-    pub test_mode: bool,
-    /// Optional substring filter applied to test step names.
-    pub test_filter: Option<String>,
-    /// List matching test steps without executing them.
-    pub test_list: bool,
-    /// Stop scheduling later test actions after the first failure.
-    pub test_fail_fast: bool,
+    /// List the plan's steps instead of running one.
+    pub list: bool,
+    /// Keep running actions that do not depend on a failed one.
+    pub keep_going: bool,
     /// Freeze and validate the plan without executing coordinator actions.
     pub dry_run: bool,
     /// Print the selected graph and cache explanation after configuration.
@@ -167,10 +165,8 @@ impl BuildRequest {
             optimization: OptimizationMode::O0,
             profile: BuildProfile::Debug,
             link_time_optimization: LinkTimeOptimization::Off,
-            test_mode: false,
-            test_filter: None,
-            test_list: false,
-            test_fail_fast: false,
+            list: false,
+            keep_going: false,
             dry_run: false,
             explain: false,
             print_plan: false,
@@ -249,27 +245,15 @@ impl BuildRequest {
         self
     }
 
-    /// Selects the test action set for this invocation.
-    pub fn with_test_mode(mut self, enabled: bool) -> Self {
-        self.test_mode = enabled;
+    /// Lists the plan's steps without executing actions.
+    pub fn with_list(mut self, enabled: bool) -> Self {
+        self.list = enabled;
         self
     }
 
-    /// Restricts test mode to steps whose stable name contains `filter`.
-    pub fn with_test_filter(mut self, filter: impl Into<String>) -> Self {
-        self.test_filter = Some(filter.into());
-        self
-    }
-
-    /// Lists matching test steps without executing actions.
-    pub fn with_test_list(mut self, enabled: bool) -> Self {
-        self.test_list = enabled;
-        self
-    }
-
-    /// Stops test execution at the first failing action.
-    pub fn with_test_fail_fast(mut self, enabled: bool) -> Self {
-        self.test_fail_fast = enabled;
+    /// Keeps running independent actions after one fails.
+    pub fn with_keep_going(mut self, enabled: bool) -> Self {
+        self.keep_going = enabled;
         self
     }
 
@@ -343,10 +327,8 @@ impl fmt::Debug for BuildRequest {
             .field("optimization", &self.optimization)
             .field("profile", &self.profile)
             .field("link_time_optimization", &self.link_time_optimization)
-            .field("test_mode", &self.test_mode)
-            .field("test_filter", &self.test_filter)
-            .field("test_list", &self.test_list)
-            .field("test_fail_fast", &self.test_fail_fast)
+            .field("list", &self.list)
+            .field("keep_going", &self.keep_going)
             .field("dry_run", &self.dry_run)
             .field("explain", &self.explain)
             .field("print_plan", &self.print_plan)
@@ -372,10 +354,8 @@ impl PartialEq for BuildRequest {
             && self.optimization == other.optimization
             && self.profile == other.profile
             && self.link_time_optimization == other.link_time_optimization
-            && self.test_mode == other.test_mode
-            && self.test_filter == other.test_filter
-            && self.test_list == other.test_list
-            && self.test_fail_fast == other.test_fail_fast
+            && self.list == other.list
+            && self.keep_going == other.keep_going
             && self.dry_run == other.dry_run
             && self.explain == other.explain
             && self.print_plan == other.print_plan
@@ -417,12 +397,8 @@ pub struct BuildInvocation {
     pub plan_path: PathBuf,
     /// Selected build-step policy.
     pub step: BuildStepSelection,
-    /// Optional test step-name filter.
-    pub test_filter: Option<String>,
-    /// Whether this invocation only lists test steps.
-    pub test_list: bool,
-    /// Whether test execution stops at the first failing action.
-    pub test_fail_fast: bool,
+    /// Whether independent actions keep running after one fails.
+    pub keep_going: bool,
     /// Live child output policy inherited from the request.
     pub forward_output: bool,
     /// Timing policy inherited from the request.
@@ -487,10 +463,10 @@ fn normalize_host_path(path: PathBuf) -> PathBuf {
 pub enum BuildStepSelection {
     /// Use the plan's declared default step.
     Default,
-    /// Select all steps whose action is a test executable.
-    Tests,
     /// Use the named step after semantic validation.
     Named(String),
+    /// Select nothing and list the plan's steps.
+    List,
 }
 
 /// Source text and logical path used to compile the generated runner.
@@ -892,7 +868,7 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
         member_request.packages.clear();
         member_request.workspace_all = false;
         if let Err(error) = run_build_single(member_request) {
-            if !request.test_mode || request.test_fail_fast {
+            if !request.keep_going {
                 return Err(error);
             }
             first_error.get_or_insert(error);
@@ -1219,9 +1195,11 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         );
                     }
                 }
-                if invocation.test_list {
-                    for name in test_step_names(&plan, invocation.test_filter.as_deref()) {
-                        println!("{name}");
+                if invocation.step == BuildStepSelection::List {
+                    if output_json {
+                        print!("{}", render_step_list_json(&plan));
+                    } else {
+                        print!("{}", render_step_list(&plan));
                     }
                     return Ok(());
                 }
@@ -1298,22 +1276,53 @@ fn progress_phase<T, E>(
     }
 }
 
-fn test_step_names(plan: &BuildPlan, filter: Option<&str>) -> Vec<String> {
-    let mut names = plan
+/// One `name kind` line per step, in canonical order, marking the default.
+fn render_step_list(plan: &BuildPlan) -> String {
+    use std::fmt::Write as _;
+    let width = plan
         .steps()
         .iter()
-        .filter(|step| {
-            let is_test = plan
-                .actions()
-                .iter()
-                .find(|action| action.key == step.action)
-                .is_some_and(|action| action.kind.is_test());
-            is_test && filter.is_none_or(|filter| step.key.name().contains(filter))
+        .map(|step| step.key.name().len())
+        .max()
+        .unwrap_or(0);
+    let mut output = String::new();
+    for step in plan.steps() {
+        let _ = write!(
+            output,
+            "{:width$}  {}",
+            step.key.name(),
+            step_kind_name(plan, step)
+        );
+        if plan.default_step() == Some(&step.key) {
+            output.push_str(" (default)");
+        }
+        output.push('\n');
+    }
+    output
+}
+
+fn render_step_list_json(plan: &BuildPlan) -> String {
+    let steps = plan
+        .steps()
+        .iter()
+        .map(|step| {
+            serde_json::json!({
+                "name": step.key.name(),
+                "kind": step_kind_name(plan, step),
+                "default": plan.default_step() == Some(&step.key),
+            })
         })
-        .map(|step| step.key.name().to_string())
         .collect::<Vec<_>>();
-    names.sort();
-    names
+    format!(
+        "{}\n",
+        serde_json::json!({ "kind": "steps", "steps": steps })
+    )
+}
+
+fn step_kind_name(plan: &BuildPlan, step: &PlanStep) -> &'static str {
+    plan.actions()
+        .binary_search_by(|action| action.key.cmp(&step.action))
+        .map_or("unknown", |index| action_kind_name(&plan.actions()[index]))
 }
 
 /// Renders a deterministic human-readable summary of a frozen build plan.
@@ -2637,17 +2646,15 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         package_source_fingerprint: package_graph.fingerprint(),
         package_graph_report: package_graph.report(),
         build_script,
-        step: if request.test_mode {
-            BuildStepSelection::Tests
+        step: if request.list {
+            BuildStepSelection::List
         } else {
             request
                 .step
                 .map(BuildStepSelection::Named)
                 .unwrap_or(BuildStepSelection::Default)
         },
-        test_filter: request.test_filter,
-        test_list: request.test_list,
-        test_fail_fast: request.test_fail_fast,
+        keep_going: request.keep_going,
         forward_output: request.forward_output,
         timings: request.timings,
         timing_format: request.timing_format,
@@ -4273,8 +4280,8 @@ mod tests {
     }
 
     #[test]
-    fn test_selection_is_independent_of_the_build_profile() {
-        let root = temp_root("test_selection_is_independent_of_the_build_profile");
+    fn listing_overrides_the_step_and_keeps_the_profile() {
+        let root = temp_root("listing_overrides_the_step_and_keeps_the_profile");
         std::fs::write(root.join("build.nia"), "").expect("write build script");
 
         for profile in [BuildProfile::Debug, BuildProfile::Release] {
@@ -4282,12 +4289,13 @@ mod tests {
                 BuildRequest::new(test_toolchain_layout())
                     .with_root(&root)
                     .with_profile(profile)
-                    .with_test_mode(true),
+                    .with_step("test")
+                    .with_list(true),
             )
-            .expect("test invocation");
+            .expect("listing invocation");
 
             assert_eq!(invocation.profile, profile);
-            assert_eq!(invocation.step, BuildStepSelection::Tests);
+            assert_eq!(invocation.step, BuildStepSelection::List);
         }
     }
 

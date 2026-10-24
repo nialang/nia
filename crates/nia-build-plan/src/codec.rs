@@ -1038,10 +1038,12 @@ mod tests {
         );
         assert!(!invalid_tag.to_string().contains("InvalidTag"));
 
-        let semantic = PlanCodecError::Semantic(Box::new(PlanError::MissingDefaultStep));
+        let semantic = PlanCodecError::Semantic(Box::new(PlanError::NonExecutableTest(
+            ArtifactKey::new(PackageKey::root(), "archive").unwrap(),
+        )));
         assert_eq!(
             semantic.to_string(),
-            "build plan is semantically invalid: non-empty build plan has no default or selected step"
+            "build plan is semantically invalid: artifact `root::archive` is compiled as a test but is not an executable"
         );
     }
 

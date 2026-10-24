@@ -1,9 +1,9 @@
 # Build Scripts
 
 A package describes what it builds in a `build.nia` file at its root. This
-guide covers the `std::build` API that the script uses and the `nia build` and
-`nia test` commands that run it. [Getting started](getting-started.md) shows a
-minimal package.
+guide covers the `std::build` API that the script uses and the `nia build`
+command that runs it. [Getting started](getting-started.md) shows a minimal
+package.
 
 ## How A Build Runs
 
@@ -188,7 +188,7 @@ dependency scope, are removed on the next build. Commit `nia.lock` and ignore
 reports revision changes separately from version changes. `nia update <name>
 ...` refreshes only those dependencies. It resolves every package that shares
 the lock file, so running it from one workspace member updates the whole
-workspace. `nia build` and `nia test` accept `--locked`,
+workspace. `nia build` accepts `--locked`,
 which fails instead of adding, changing, or removing a lock entry, and
 `--offline`, which uses cached Git checkouts, registry indexes, and registry
 archives only.
@@ -228,16 +228,16 @@ under the workspace directory must be listed as a member or explicitly
 excluded; an excluded package builds independently. A nested workspace
 cannot also be a member of its parent workspace.
 
-Running `nia build` or `nia test` inside a member selects that package. Running
+Running `nia build` inside a member selects that package. Running
 from the workspace root selects `default-members`, or all members when that
 field is omitted. `--workspace` selects every member, and repeatable
 `-p`/`--package <name>` selects named members. Workspace members share the
 root `nia.lock` and `.nia/packages` cache while keeping their build outputs
 package-local.
 
-Workspace tests run selected members in manifest order and continue after a
-member fails, reporting an unsuccessful result after the remaining members
-finish. `nia test --fail-fast` stops after the first failing member.
+Selected members build in manifest order, and the first failing member stops
+the build. With `--keep-going`, the remaining members still build and the
+build fails after they finish.
 
 ## The Build Function
 
@@ -388,6 +388,8 @@ automatically.
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a
 script that has no default step can still be used with an explicit step name.
+`nia build --list` prints every step with the kind of work it does, marking
+the default, without running any.
 
 Paths written with `build::BuildPathView::init(path)` are relative to
 `.nia-build/`. A module or import whose root is a generated file depends on
@@ -555,21 +557,21 @@ pub fun build(b: &mut build::Build) build::Error!() {
 target and registers it as a test suite. The suite is a test compilation:
 `@[test]` items are kept and development dependencies are visible, in the
 suite's whole module tree. Other artifacts in the same build, including one
-built from the same module, are ordinary compilations. `nia test` builds and
-runs every suite. A suite passes when its executable exits with status 0, and it runs
-with the package root as its working directory. A suite that passed is not run
-again until its executable or inputs change. A suite is also a step, so
-`nia build <name>` runs one suite.
+built from the same module, are ordinary compilations. A suite passes when its
+executable exits with status 0, and it runs with the package root as its
+working directory. A suite that passed is not run again until its executable
+or inputs change.
+
+A suite is a step named after it, and the first suite also declares a `test`
+step that depends on every suite, so a script cannot name its own step `test`.
+Tests run through `nia build`:
 
 | Command | Effect |
 | --- | --- |
-| `nia test` | runs every suite |
-| `nia test --list` | prints suite names without running them |
-| `nia test --filter <text>` | runs suites whose names contain the text |
-| `nia test --fail-fast` | stops after the first failing suite |
-
-`nia test` takes the same `-q`, `-v`, and `--progress` options as `nia build`;
-see [Progress output](#progress-output).
+| `nia build test` | runs every suite, stopping at the first failure |
+| `nia build test --keep-going` | runs every suite and reports all failures |
+| `nia build <suite>` | runs one suite |
+| `nia build --list` | lists the steps, suites included, without running them |
 
 A suite is one program, so it may import any number of test modules. Inside
 it, `std::test` provides assertions that return `test::Error!()` and a runner:
@@ -701,6 +703,8 @@ named, after the steps it depends on.
 | `--print-plan` | prints the frozen graph: modules, artifacts, actions, and steps |
 | `--print-cache` | prints configure and action cache hits and misses |
 | `--print-observations` | prints the facts recorded by probes |
+| `--list` | prints every step and its kind without running any |
+| `-k, --keep-going` | after a failure, keeps running the actions that do not depend on it |
 | `-j, --jobs <count>` | limits concurrent actions |
 | `--target <name>` | sets the artifact target |
 | `-O<level>`, `--release` | sets the default optimization level |
@@ -713,9 +717,9 @@ products, and command results) are kept in `.nia-cache/`.
 
 ### Progress output
 
-`nia build` and `nia test` report progress on stderr. The products you ask for
+`nia build` reports progress on stderr. The products you ask for
 (`--print-plan`, `--print-cache`, `--print-observations`, `--explain`,
-`nia test --list`) go to stdout, as does the standard output of external
+`--list`) go to stdout, as does the standard output of external
 commands and test suites in text modes. A failed command's report names its
 exit status; it repeats the command's last output only with
 `--diagnostics-format=json`, where that output was captured instead of shown.
@@ -733,7 +737,7 @@ Each action the selected steps need is counted once, and ends with one outcome:
 The build finishes with a summary such as
 `Finished 3 actions in 982ms (1 cached, 1 executed, 1 no-work)`, with failed
 and cancelled counts added when there are any. A `--dry-run` or
-`nia test --list` ends with `Configured build in ... (N selected actions)`.
+`--list` ends with `Configured build in ... (N selected actions)`.
 
 A run step, or any external command that declares no outputs, gets the
 terminal instead: the summary of what finished so far comes before it,

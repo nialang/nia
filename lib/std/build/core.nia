@@ -372,7 +372,9 @@ extend Build {
 
     // A suite is one host executable whose root module may import any number of
     // test modules. The executable and test action are registered together;
-    // source organization remains an ordinary Nia module concern.
+    // source organization remains an ordinary Nia module concern. The suite's
+    // step has the suite's name, and the `test` step depends on every suite;
+    // the first suite declares it, so a script cannot declare its own `test`.
     pub fun addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
         let mut compileName = string::String::fromSlice(self.allocator, name)
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
@@ -393,7 +395,16 @@ extend Build {
         let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget())).?;
         self.executables.asMutSlice()[executable.index()].test = true;
         _ = self.addEmitExecutableStep(compileName.text(), executable).?;
-        self.addTestExecutableStep(name, .init(executable))
+        let suite = self.addTestExecutableStep(name, .init(executable)).?;
+        let all = if self.testStep is ?step {
+            step
+        } else {
+            let step = self.addAggregateStep(&"test").?;
+            self.testStep = ?step;
+            step
+        };
+        self.dependOn(all, suite).?;
+        !suite
     }
 
     fun addRunStepRecord(
@@ -994,15 +1005,8 @@ extend Build {
                 self.reportUnknownStep(step).?;
                 return .UnknownStep!;
             }
-        } else if self.testMode {
-            let mut index: usize = 0;
-            while index < self.steps.len() {
-                if self.steps.asSlice()[index].kind is (.TestExecutable) {
-                    self.selectedStep = ?.init(self.ownerId, index);
-                    break;
-                }
-                index += 1;
-            }
+        } else if self.listSteps {
+            // Listing runs nothing.
         } else if self.defaultStep is ?handle {
             self.selectedStep = ?handle;
         } else if self.steps.len() != 0 {

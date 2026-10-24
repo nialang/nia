@@ -148,7 +148,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 
 #[test]
-fn workspace_test_selection_continues_by_default_and_honors_fail_fast() {
+fn workspace_test_steps_stop_at_a_failure_unless_kept_going() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = nia_test_support::test_dir("workspace-test-selection");
     fs::write(
@@ -189,7 +189,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     let run = |options: &[&str]| {
         support::nia_command()
             .current_dir(&root)
-            .arg("test")
+            .args(["build", "test"])
             .args(options)
             .output_timeout_in_session("run selected workspace test suites")
     };
@@ -210,7 +210,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         beta_source.replace("beta-ran", "beta-workspace-ran"),
     )
     .unwrap();
-    let all = run(&["--workspace"]);
+    let all = run(&["--workspace", "--keep-going"]);
     assert_eq!(all.status.code(), Some(1));
     let all_stdout = String::from_utf8_lossy(&all.stdout);
     assert!(all_stdout.contains("alpha-ran"), "{all_stdout}");
@@ -222,7 +222,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         beta_source.replace("beta-workspace-ran", "beta-failfast-ran"),
     )
     .unwrap();
-    let fail_fast = run(&["--workspace", "--fail-fast"]);
+    let fail_fast = run(&["--workspace"]);
     assert_eq!(fail_fast.status.code(), Some(1));
     let fail_fast_stdout = String::from_utf8_lossy(&fail_fast.stdout);
     assert!(fail_fast_stdout.contains("alpha-ran"), "{fail_fast_stdout}");

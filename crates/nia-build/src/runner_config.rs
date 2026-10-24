@@ -38,7 +38,7 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
         BuildStepSelection::Default => payload.push(0),
-        BuildStepSelection::Tests => payload.push(2),
+        BuildStepSelection::List => payload.push(2),
         BuildStepSelection::Named(step) => {
             payload.push(1);
             write_text(&mut payload, "requested step", step)?;
@@ -150,7 +150,7 @@ mod tests {
         optimization: u32,
         plan_draft: String,
         step: Option<String>,
-        test_mode: bool,
+        list: bool,
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -189,16 +189,16 @@ mod tests {
         let decoded = decode(&encode(&invocation).expect("encode default selection"))
             .expect("decode default selection");
         assert_eq!(decoded.step, None);
-        assert!(!decoded.test_mode);
+        assert!(!decoded.list);
     }
 
     #[test]
-    fn test_selection_is_an_explicit_protocol_value() {
-        let invocation = invocation(BuildStepSelection::Tests);
-        let decoded = decode(&encode(&invocation).expect("encode test selection"))
-            .expect("decode test selection");
+    fn listing_is_an_explicit_protocol_value() {
+        let invocation = invocation(BuildStepSelection::List);
+        let decoded =
+            decode(&encode(&invocation).expect("encode listing")).expect("decode listing");
         assert_eq!(decoded.step, None);
-        assert!(decoded.test_mode);
+        assert!(decoded.list);
     }
 
     #[test]
@@ -269,9 +269,7 @@ mod tests {
             plan_draft: PathBuf::from("/workspace/package/.nia-build/.plan.draft"),
             plan_path: PathBuf::from("/workspace/package/.nia-build/build-plan.bin"),
             step,
-            test_filter: None,
-            test_list: false,
-            test_fail_fast: false,
+            keep_going: false,
             forward_output: true,
             timings: nia_driver::TimingMode::Off,
             timing_format: nia_timing::TimingFormat::Text,
@@ -333,7 +331,7 @@ mod tests {
             return Err(DecodeError::Tag);
         }
         let plan_draft = cursor.text()?;
-        let (step, test_mode) = match cursor.byte()? {
+        let (step, list) = match cursor.byte()? {
             0 => (None, false),
             1 => (Some(cursor.text()?), false),
             2 => (None, true),
@@ -353,7 +351,7 @@ mod tests {
             optimization,
             plan_draft,
             step,
-            test_mode,
+            list,
         })
     }
 

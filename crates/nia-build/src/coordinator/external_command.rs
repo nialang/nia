@@ -906,8 +906,9 @@ mod tests {
                     assert!(display.contains(marker), "{display}");
                 }
                 let error = match context {
-                    "suite" => CoordinatorError::TestFailures(vec![TestFailure {
+                    "suite" => CoordinatorError::Failures(vec![ActionFailure {
                         action,
+                        test: true,
                         error: Box::new(error),
                     }]),
                     "cleanup" => CoordinatorError::StagedOutput {

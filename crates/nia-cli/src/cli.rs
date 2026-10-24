@@ -15,14 +15,13 @@ use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
 use crate::args::{self, EmitKind, Occurrence, OptionId, ScanError, Scanned, Scope};
 
 /// Process exit status for a malformed invocation, as distinct from a failed
-/// check, build, or test.
+/// check or build.
 pub(crate) const USAGE_EXIT_CODE: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HelpTopic {
     Main,
     Build,
-    Test,
     Update,
     Check,
     Emit,
@@ -34,7 +33,6 @@ impl HelpTopic {
         match self {
             Self::Main => Scope::GLOBAL,
             Self::Build => Scope::BUILD,
-            Self::Test => Scope::TEST,
             Self::Update => Scope::UPDATE,
             Self::Check => Scope::CHECK,
             Self::Emit => Scope::EMIT_ANY,
@@ -87,7 +85,7 @@ impl Cli {
     }
 }
 
-/// Options shared by `nia build` and `nia test`.
+/// Package selection and progress options of `nia build`.
 #[derive(Debug)]
 pub(crate) struct PackageOptions {
     pub(crate) root: Option<PathBuf>,
@@ -112,12 +110,8 @@ pub(crate) enum CliCommand {
         print_plan: bool,
         print_cache: bool,
         print_observations: bool,
-    },
-    Test {
-        package: PackageOptions,
-        filter: Option<String>,
         list: bool,
-        fail_fast: bool,
+        keep_going: bool,
     },
     Update {
         root: Option<PathBuf>,
@@ -239,7 +233,6 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
     let topic = match command {
         "help" => return help_topic(rest).map(CliAction::Help),
         "build" => HelpTopic::Build,
-        "test" => HelpTopic::Test,
         "update" => HelpTopic::Update,
         "check" => HelpTopic::Check,
         "emit" => HelpTopic::Emit,
@@ -265,7 +258,6 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
     let global = GlobalOptions::from_scanned(&scanned, topic)?;
     let command = match topic {
         HelpTopic::Build => parse_build(&scanned)?,
-        HelpTopic::Test => parse_test(&scanned)?,
         HelpTopic::Update => parse_update(&scanned),
         HelpTopic::Check => parse_check(&scanned)?,
         HelpTopic::Emit => {
@@ -338,7 +330,6 @@ fn topic_name(topic: HelpTopic) -> String {
     match topic {
         HelpTopic::Main => "`nia`".to_string(),
         HelpTopic::Build => "`nia build`".to_string(),
-        HelpTopic::Test => "`nia test`".to_string(),
         HelpTopic::Update => "`nia update`".to_string(),
         HelpTopic::Check => "`nia check`".to_string(),
         HelpTopic::Emit => "`nia emit`".to_string(),
@@ -354,7 +345,6 @@ fn owner_of(option: &str) -> Option<String> {
     let mut owners = Vec::new();
     for (scope, name) in [
         (Scope::BUILD, "`nia build`".to_string()),
-        (Scope::TEST, "`nia test`".to_string()),
         (Scope::CHECK, "`nia check`".to_string()),
     ] {
         if spec.scope.contains(scope) {
@@ -410,7 +400,6 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
     match words.as_slice() {
         [] => Ok(HelpTopic::Main),
         ["build"] => Ok(HelpTopic::Build),
-        ["test"] => Ok(HelpTopic::Test),
         ["update"] => Ok(HelpTopic::Update),
         ["check"] => Ok(HelpTopic::Check),
         ["emit"] => Ok(HelpTopic::Emit),
@@ -430,7 +419,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
                 )),
             },
         },
-        [command @ ("build" | "test" | "check"), extra, ..] => {
+        [command @ ("build" | "check"), extra, ..] => {
             let topic = help_topic(&[(*command).to_string()])?;
             Err(unknown(extra, topic))
         }
@@ -637,25 +626,8 @@ fn parse_build(scanned: &Scanned) -> CliResult<CliCommand> {
         print_plan: scanned.has(OptionId::PrintPlan),
         print_cache: scanned.has(OptionId::PrintCache),
         print_observations: scanned.has(OptionId::PrintObservations),
-    })
-}
-
-fn parse_test(scanned: &Scanned) -> CliResult<CliCommand> {
-    let topic = HelpTopic::Test;
-    let package = parse_package_options(scanned, topic)?;
-    if let Some(extra) = scanned.positionals.first() {
-        return Err(CliError::new(
-            format!("unexpected argument `{extra}` for `nia test`"),
-            topic,
-        ));
-    }
-    Ok(CliCommand::Test {
-        package,
-        filter: scanned
-            .last(OptionId::Filter)
-            .map(|occurrence| value(occurrence).to_string()),
         list: scanned.has(OptionId::List),
-        fail_fast: scanned.has(OptionId::FailFast),
+        keep_going: scanned.has(OptionId::KeepGoing),
     })
 }
 
@@ -1012,23 +984,24 @@ mod tests {
 
     fn package(cli: &Cli) -> &PackageOptions {
         match &cli.command {
-            CliCommand::Build { package, .. } | CliCommand::Test { package, .. } => package,
-            command => panic!("expected build or test, got {command:?}"),
+            CliCommand::Build { package, .. } => package,
+            command => panic!("expected build, got {command:?}"),
         }
     }
 
     #[test]
     fn global_options_never_take_another_options_value() {
         for args in [
-            &["test", "--filter", "-O"][..],
-            &["-O3", "test", "--filter", "-O"],
-            &["test", "--filter=-O"],
+            &["build", "--root", "-O"][..],
+            &["-O3", "build", "--root", "-O"],
+            &["build", "--root=-O"],
         ] {
             let cli = run(args);
-            let CliCommand::Test { filter, .. } = &cli.command else {
-                panic!("expected test");
-            };
-            assert_eq!(filter.as_deref(), Some("-O"), "{args:?}");
+            assert_eq!(
+                package(&cli).root.as_deref(),
+                Some(std::path::Path::new("-O")),
+                "{args:?}"
+            );
         }
         let cli = run(&["check", "--cache-dir", "-h", "main.nia"]);
         assert!(matches!(
@@ -1082,7 +1055,7 @@ mod tests {
         let cli = run(&["build"]);
         assert_eq!(cli.profile, BuildProfile::Debug);
         assert_eq!(cli.optimization, NiaOptimizationLevel::O0);
-        let cli = run(&["test", "--release"]);
+        let cli = run(&["build", "--release"]);
         assert_eq!(cli.profile, BuildProfile::Release);
         assert_eq!(cli.optimization, NiaOptimizationLevel::O2);
         let cli = run(&["--release", "-O0", "build"]);
@@ -1108,8 +1081,8 @@ mod tests {
     }
 
     #[test]
-    fn build_and_test_share_package_options() {
-        for command in ["build", "test"] {
+    fn build_package_options_accept_every_jobs_spelling() {
+        for command in ["build"] {
             for jobs in [
                 &["-j3"][..],
                 &["-j", "3"],
@@ -1158,7 +1131,7 @@ mod tests {
         assert_eq!(package(&cli).packages, ["core", "cli"]);
         assert!(!package(&cli).workspace_all);
 
-        let cli = run(&["test", "--workspace"]);
+        let cli = run(&["build", "--workspace"]);
         assert!(package(&cli).workspace_all);
         assert!(package(&cli).packages.is_empty());
 
@@ -1167,7 +1140,7 @@ mod tests {
                 &["build", "--workspace", "-p", "core"],
                 "cannot be combined",
             ),
-            (&["test", "--package="], "cannot be empty"),
+            (&["build", "--package="], "cannot be empty"),
         ]);
     }
 
@@ -1201,28 +1174,36 @@ mod tests {
             (&["build", "."], "must be passed with `--root`"),
             (&["build", "a", "b"], "unexpected argument `b`"),
             (&["build", "--lto=fat"], "expected `off`, `thin`, or `full`"),
-            (&["test", "--lto=thin"], "belongs to `nia build`"),
+            (&["check", "--lto=thin", "a.nia"], "belongs to `nia build`"),
         ]);
     }
 
     #[test]
-    fn test_options_are_typed() {
-        let cli = run(&[
-            "test",
-            "--root",
-            "tests",
-            "--filter",
-            "parser",
-            "--list",
-            "--fail-fast",
-        ]);
+    fn list_and_keep_going_are_build_options() {
+        let cli = run(&["build", "--list"]);
         assert!(matches!(
             &cli.command,
-            CliCommand::Test { filter: Some(filter), list: true, fail_fast: true, package, .. }
-                if filter == "parser"
-                    && package.root.as_deref() == Some(std::path::Path::new("tests"))
+            CliCommand::Build {
+                list: true,
+                keep_going: false,
+                step: None,
+                ..
+            }
         ));
-        assert_errors(&[(&["test", "extra"], "unexpected argument `extra`")]);
+        for flag in ["-k", "--keep-going"] {
+            let cli = run(&["build", "test", flag]);
+            assert!(matches!(
+                &cli.command,
+                CliCommand::Build { keep_going: true, step: Some(step), .. } if step == "test"
+            ));
+        }
+        assert_errors(&[
+            (&["test"], "unknown command `test`"),
+            (
+                &["check", "--keep-going", "a.nia"],
+                "belongs to `nia build`",
+            ),
+        ]);
     }
 
     #[test]
@@ -1385,7 +1366,6 @@ mod tests {
             (&["-h"], HelpTopic::Main),
             (&["-O2", "--help"], HelpTopic::Main),
             (&["build", "-h"], HelpTopic::Build),
-            (&["help", "test"], HelpTopic::Test),
             (
                 &["emit", "--exe", "--help"],
                 HelpTopic::EmitKind(EmitKind::Exe),

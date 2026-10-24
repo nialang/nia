@@ -18,7 +18,7 @@
 //! exposed on `PATH`.
 //!
 //! Package inputs are compiled from source for the selected target, profile,
-//! and normal or test mode. Object and executable results may be reused
+//! and the artifact's normal or test compilation mode. Object and executable results may be reused
 //! through private, compiler-version-specific caches, but they are not a
 //! library interchange format.
 

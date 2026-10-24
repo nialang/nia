@@ -76,31 +76,18 @@ pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     ));
     match &invocation.step {
         crate::BuildStepSelection::Default => encoded.push(0),
-        crate::BuildStepSelection::Tests => encoded.push(1),
+        crate::BuildStepSelection::List => encoded.push(1),
         crate::BuildStepSelection::Named(name) => {
             encoded.push(2);
             write_identity_field(&mut encoded, name.as_bytes());
         }
     }
-    write_optional_identity_field(&mut encoded, invocation.test_filter.as_deref());
-    encoded.push(u8::from(invocation.test_list));
-    encoded.push(u8::from(invocation.test_fail_fast));
     blake3::hash(&encoded).to_hex().to_string()
 }
 
 fn write_identity_field(encoded: &mut Vec<u8>, value: &[u8]) {
     encoded.extend_from_slice(&(value.len() as u64).to_le_bytes());
     encoded.extend_from_slice(value);
-}
-
-fn write_optional_identity_field(encoded: &mut Vec<u8>, value: Option<&str>) {
-    match value {
-        Some(value) => {
-            encoded.push(1);
-            write_identity_field(encoded, value.as_bytes());
-        }
-        None => encoded.push(0),
-    }
 }
 
 fn profile_tag(profile: nia_target_config::BuildProfile) -> u8 {

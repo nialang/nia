@@ -101,7 +101,7 @@ target/release/nia --resource-root "$PWD/lib" check examples/hello.nia --runtime
 ```
 
 [Getting started](docs/guide/getting-started.md) walks through a first package
-and the `nia build`, `nia test`, `nia check`, and `nia emit` commands. Run
+and the `nia build`, `nia check`, and `nia emit` commands. Run
 `nia help <command>` for a command's options, or `nia help emit --exe` for one
 emit kind.
 

@@ -226,9 +226,6 @@ pub(super) fn canonicalize_steps(
 
 pub(super) fn validate_step_selection(draft: &BuildPlanDraft) -> Result<(), PlanError> {
     let keys: BTreeSet<_> = draft.steps.iter().map(|step| &step.key).collect();
-    if !draft.steps.is_empty() && draft.default_step.is_none() && draft.selected_step.is_none() {
-        return Err(PlanError::MissingDefaultStep);
-    }
     for (owner, selected) in [
         ("default", &draft.default_step),
         ("selected", &draft.selected_step),

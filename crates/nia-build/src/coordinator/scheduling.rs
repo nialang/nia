@@ -19,11 +19,10 @@ pub fn preview_build_plan(
             .map(|_| ActionOutcome::Succeeded(None))
             .collect())
     };
-    if matches!(invocation.step, BuildStepSelection::Tests) {
-        execute_test_closure(plan, invocation.test_filter.as_deref(), preview)
-    } else {
-        execute_selected_closure(plan, preview)
+    if matches!(invocation.step, BuildStepSelection::List) {
+        return Ok(ExecutionReport::default());
     }
+    execute_selected_closure(plan, invocation.keep_going, preview)
 }
 
 /// Validates invocation targets, recovers interrupted output transactions, and
@@ -64,40 +63,22 @@ pub fn execute_build_plan_with_progress(
         action_resource_capacity(&session, invocation.max_parallel_actions) as u64,
     );
     let mut wave = 0usize;
-    if matches!(&invocation.step, BuildStepSelection::Tests) {
-        execute_test_closure_with_progress(
-            plan,
-            invocation.test_filter.as_deref(),
-            progress,
-            |actions| {
-                let current_wave = wave;
-                wave += 1;
-                execute_action_batch(
-                    &executor,
-                    (&session, &budget),
-                    invocation,
-                    actions,
-                    invocation.test_fail_fast,
-                    progress,
-                    current_wave,
-                )
-            },
-        )
-    } else {
-        execute_selected_closure_with_progress(plan, progress, |actions| {
-            let current_wave = wave;
-            wave += 1;
-            execute_action_batch(
-                &executor,
-                (&session, &budget),
-                invocation,
-                actions,
-                true,
-                progress,
-                current_wave,
-            )
-        })
+    if matches!(invocation.step, BuildStepSelection::List) {
+        return Ok(ExecutionReport::default());
     }
+    execute_selected_closure_with_progress(plan, invocation.keep_going, progress, |actions| {
+        let current_wave = wave;
+        wave += 1;
+        execute_action_batch(
+            &executor,
+            (&session, &budget),
+            invocation,
+            actions,
+            !invocation.keep_going,
+            progress,
+            current_wave,
+        )
+    })
 }
 
 fn execute_action_batch(
@@ -153,37 +134,6 @@ fn execute_action_batch(
         wave,
     )
     .map_err(CoordinatorError::Internal)
-}
-
-pub(super) fn execute_test_closure(
-    plan: &BuildPlan,
-    filter: Option<&str>,
-    execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
-) -> Result<ExecutionReport, CoordinatorError> {
-    execute_test_closure_with_progress(plan, filter, None, execute_batch)
-}
-
-fn execute_test_closure_with_progress(
-    plan: &BuildPlan,
-    filter: Option<&str>,
-    progress: Option<&ProgressSession>,
-    mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
-) -> Result<ExecutionReport, CoordinatorError> {
-    let roots = plan
-        .steps()
-        .iter()
-        .filter(|step| {
-            plan.actions()
-                .iter()
-                .find(|action| action.key == step.action)
-                .is_some_and(|action| {
-                    action.kind.is_test()
-                        && filter.is_none_or(|filter| step.key.name().contains(filter))
-                })
-        })
-        .map(|step| &step.key)
-        .collect::<Vec<_>>();
-    execute_roots_closure(plan, roots, progress, &mut execute_batch)
 }
 
 #[cfg(test)]
@@ -424,40 +374,25 @@ fn emit_finished(
 
 pub(super) fn execute_selected_closure(
     plan: &BuildPlan,
+    keep_going: bool,
     execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
-    execute_selected_closure_with_progress(plan, None, execute_batch)
+    execute_selected_closure_with_progress(plan, keep_going, None, execute_batch)
 }
 
+// Without `keep_going`, the wave holding the first failure is the last one.
+// With it, a failed step's dependents never become ready and every
+// independent action still runs; the failures are reported together.
 fn execute_selected_closure_with_progress(
     plan: &BuildPlan,
+    keep_going: bool,
     progress: Option<&ProgressSession>,
     mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
     let Some(selected) = plan.selected_step().or_else(|| plan.default_step()) else {
-        return Ok(ExecutionReport {
-            steps: Vec::new(),
-            actions: Vec::new(),
-            action_cache: Vec::new(),
-        });
+        return Ok(ExecutionReport::default());
     };
-
-    execute_roots_closure(plan, vec![selected], progress, &mut execute_batch)
-}
-
-fn execute_roots_closure(
-    plan: &BuildPlan,
-    roots: Vec<&StepKey>,
-    progress: Option<&ProgressSession>,
-    execute_batch: &mut impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
-) -> Result<ExecutionReport, CoordinatorError> {
-    if roots.is_empty() {
-        return Ok(ExecutionReport {
-            steps: Vec::new(),
-            actions: Vec::new(),
-            action_cache: Vec::new(),
-        });
-    }
+    let roots = [selected];
     let steps = plan.steps();
     // Discover only the selected step's transitive dependency closure. An
     // iterative walk avoids coupling valid plan depth to the process stack.
@@ -534,7 +469,8 @@ fn execute_roots_closure(
         actions: Vec::new(),
         action_cache: Vec::new(),
     };
-    let mut test_failures = Vec::new();
+    let mut failures = Vec::new();
+    let mut failed_actions = BTreeSet::new();
 
     while !ready.is_empty() {
         let wave = std::mem::take(&mut ready);
@@ -598,41 +534,41 @@ fn execute_roots_closure(
                     }
                 }
                 ActionOutcome::Cancelled => cancelled = true,
-                ActionOutcome::Failed(error) if action.kind.is_test() => {
-                    test_failures.push(TestFailure {
+                ActionOutcome::Failed(error) => {
+                    failed_actions.insert(action.key.clone());
+                    failures.push(ActionFailure {
                         action: action.key.clone(),
+                        test: action.kind.is_test(),
                         error: Box::new(error),
                     });
                 }
-                ActionOutcome::Failed(error) => {
-                    finish_waits(
-                        progress,
-                        &mut dependency_waits,
-                        crate::progress::ProgressWaitKind::Dependency,
-                    );
-                    return Err(error);
-                }
             }
         }
-        if cancelled {
+        if cancelled || (!keep_going && !failures.is_empty()) {
             finish_waits(
                 progress,
                 &mut dependency_waits,
                 crate::progress::ProgressWaitKind::Dependency,
             );
-            if !test_failures.is_empty() {
-                return Err(CoordinatorError::TestFailures(test_failures));
+            if failures.is_empty() {
+                return Err(inconsistent(
+                    "coordinator action batch",
+                    "failure cause for cancelled actions".to_string(),
+                ));
             }
-            return Err(inconsistent(
-                "coordinator action batch",
-                "failure cause for cancelled actions".to_string(),
-            ));
+            return Err(CoordinatorError::from_failures(failures));
         }
-        report
-            .actions
-            .extend(wave_actions.iter().map(|action| action.key.clone()));
+        report.actions.extend(
+            wave_actions
+                .iter()
+                .filter(|action| !failed_actions.contains(&action.key))
+                .map(|action| action.key.clone()),
+        );
         for index in wave {
             let step = &steps[index];
+            if failed_actions.contains(&step.action) {
+                continue;
+            }
             report.steps.push(step.key.clone());
             for &dependent in &dependents[index] {
                 indegree[dependent] = indegree[dependent].checked_sub(1).ok_or_else(|| {
@@ -660,6 +596,14 @@ fn execute_roots_closure(
         }
     }
 
+    if !failures.is_empty() {
+        finish_waits(
+            progress,
+            &mut dependency_waits,
+            crate::progress::ProgressWaitKind::Dependency,
+        );
+        return Err(CoordinatorError::from_failures(failures));
+    }
     if report.steps.len() != closure.len() {
         finish_waits(
             progress,
@@ -671,11 +615,7 @@ fn execute_roots_closure(
             "acyclic dependency order".to_string(),
         ));
     }
-    if test_failures.is_empty() {
-        Ok(report)
-    } else {
-        Err(CoordinatorError::TestFailures(test_failures))
-    }
+    Ok(report)
 }
 
 fn finish_wait(

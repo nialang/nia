@@ -70,10 +70,10 @@ fn unavailable_inputs_preserve_operational_identity_in_both_formats() {
         &["emit", "--llvm"],
         &["emit", "--obj"],
         &["build"],
-        &["test"],
+        &["build", "--list"],
     ] {
         for format in ["text", "json"] {
-            let workflow = matches!(args[0], "build" | "test");
+            let workflow = args[0] == "build";
             let mut command = support::nia_command();
             command
                 .args(args)
@@ -108,7 +108,12 @@ fn unavailable_inputs_preserve_operational_identity_in_both_formats() {
 #[test]
 fn missing_toolchain_preserves_operational_identity_across_commands() {
     let root = temp_dir("missing_toolchain_reports");
-    for args in [&["check"][..], &["emit", "--llvm"], &["build"], &["test"]] {
+    for args in [
+        &["check"][..],
+        &["emit", "--llvm"],
+        &["build"],
+        &["build", "--list"],
+    ] {
         for format in ["text", "json"] {
             let mut command = Command::new(env!("CARGO_BIN_EXE_nia"));
             command
@@ -116,7 +121,7 @@ fn missing_toolchain_preserves_operational_identity_across_commands() {
                 .arg(root.join("absent-resources"))
                 .args(args)
                 .arg(format!("--diagnostics-format={format}"));
-            if matches!(args[0], "build" | "test") {
+            if args[0] == "build" {
                 command.arg("--root").arg(&*root);
             } else {
                 command.arg(root.join("absent.nia"));
@@ -217,10 +222,10 @@ fn runner_failure_preserves_captured_output_across_workflows() {
 "#,
     )
     .expect("failing runner source");
-    for workflow in ["build", "test"] {
+    for workflow in [&["build"][..], &["build", "--list"]] {
         for format in ["text", "json"] {
             let output = support::nia_command()
-                .arg(workflow)
+                .args(workflow)
                 .arg("--root")
                 .arg(&*root)
                 .arg(format!("--diagnostics-format={format}"))
@@ -452,11 +457,11 @@ pub fun build(b: &mut build::Build) build::Error!() {
     .expect("mock archive tool");
     std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755))
         .expect("executable tool");
-    for workflow in ["build", "test"] {
+    for workflow in [&["build"][..], &["build", "suite"]] {
         for format in ["text", "json"] {
             let output = support::nia_command()
                 .env("NIA_AR", &tool)
-                .arg(workflow)
+                .args(workflow)
                 .arg("--root")
                 .arg(&*root)
                 .args(["--jobs", "1"])
@@ -545,11 +550,11 @@ pub fun build(b: &mut build::Build) build::Error!() {
         "@echo off\r\necho archive-stdout\r\necho archive-stderr 1>&2\r\nexit /b 7\r\n",
     )
     .expect("mock archive tool");
-    for workflow in ["build", "test"] {
+    for workflow in [&["build"][..], &["build", "suite"]] {
         for format in ["text", "json"] {
             let output = support::nia_command()
                 .env("NIA_AR", &tool)
-                .arg(workflow)
+                .args(workflow)
                 .arg("--root")
                 .arg(&*root)
                 .args(["--jobs", "1"])

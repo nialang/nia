@@ -80,14 +80,14 @@ pub fun build(b: &mut build::Build) build::Error!() {
         vec!["emit", "--llvm"],
         vec!["emit", "--obj"],
         vec!["build"],
-        vec!["test"],
+        vec!["build", "--list"],
     ] {
         for format in ["text", "json"] {
             let mut command = support::nia_command();
             command
                 .args(&args)
                 .arg(format!("--diagnostics-format={format}"));
-            if matches!(args[0], "build" | "test") {
+            if args[0] == "build" {
                 command.arg("--root").arg(&*root);
             } else {
                 command.arg(&main);
@@ -99,7 +99,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             assert!(output.stdout.is_empty(), "{args:?} {format}");
             assert!(!stderr.contains('\x1b'), "{stderr}");
             if format == "json" {
-                let source = if matches!(args[0], "build" | "test") {
+                let source = if args[0] == "build" {
                     &build_dependency
                 } else {
                     &dependency
@@ -357,22 +357,22 @@ fn build_preserves_text_json_diagnostic_contract() {
     let root = temp_dir("build_preserves_text_json_diagnostic_contract");
     std::fs::write(root.join("build.nia"), "fun main(\n").expect("write invalid build script");
 
-    for command in ["build", "test"] {
+    for command in [&["build"][..], &["build", "--list"]] {
         for format in ["text", "json"] {
             let output = support::nia_command()
-                .arg(command)
+                .args(command)
                 .arg(format!("--diagnostics-format={format}"))
                 .arg("--root")
                 .arg(&*root)
                 .output_timeout_for_build("run nia workflow with diagnostics");
-            assert_eq!(output.status.code(), Some(1), "{command} {format}");
-            assert!(output.stdout.is_empty(), "{command} {format}");
+            assert_eq!(output.status.code(), Some(1), "{command:?} {format}");
+            assert!(output.stdout.is_empty(), "{command:?} {format}");
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(!stderr.contains('\x1b'), "{command} {format}: {stderr}");
+            assert!(!stderr.contains('\x1b'), "{command:?} {format}: {stderr}");
             if format == "json" {
                 assert_source_error_json(&stderr, "E0101", &root.join("build.nia"));
             } else {
-                assert!(stderr.contains("error[E0101]"), "{command} {stderr}");
+                assert!(stderr.contains("error[E0101]"), "{command:?} {stderr}");
             }
         }
     }
@@ -775,20 +775,8 @@ fn help_and_version_use_nia_command_name() {
     assert!(!build_stdout.contains("build runner"), "{build_stdout}");
     assert!(!build_stdout.contains(".nia-cache/"), "{build_stdout}");
 
-    let test_help = support::nia_command()
-        .arg("help")
-        .arg("test")
-        .output_timeout_for_runtime("run nia help test");
-    assert!(
-        test_help.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&test_help.stderr)
-    );
-    let test_stdout = String::from_utf8_lossy(&test_help.stdout);
-    assert!(
-        test_stdout.contains("--debug, --release, --profile <debug|release>"),
-        "{test_stdout}"
-    );
+    assert!(build_stdout.contains("--keep-going"), "{build_stdout}");
+    assert!(build_stdout.contains("--list"), "{build_stdout}");
 
     let emit_help = support::nia_command()
         .arg("help")
@@ -926,7 +914,8 @@ fn usage_errors_exit_with_status_two_before_reading_sources() {
             vec!["emit", "--exe", missing, "--bogus"],
             "unknown `nia emit --exe` option `--bogus`",
         ),
-        (vec!["test", "--root"], "missing value after `--root`"),
+        (vec!["build", "--root"], "missing value after `--root`"),
+        (vec!["test"], "unknown command `test`"),
         (
             vec!["--diagnostics-format", "json", "check", missing, "--bogus"],
             "\"code\":\"E0105\"",

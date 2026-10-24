@@ -21,8 +21,7 @@ use scheduling::ActionCancellation;
 pub(crate) use scheduling::execute_build_plan_with_progress;
 #[cfg(test)]
 use scheduling::{
-    ActionOutcome, action_resource_capacity, execute_selected_closure, execute_test_closure,
-    run_action_tasks,
+    ActionOutcome, action_resource_capacity, execute_selected_closure, run_action_tasks,
 };
 pub use scheduling::{execute_build_plan, preview_build_plan};
 
@@ -145,7 +144,7 @@ pub(crate) fn package_dependency_selected(
 }
 
 /// Deterministic visible result of executing a selected plan closure.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExecutionReport {
     /// Steps selected and completed in canonical order.
     pub steps: Vec<StepKey>,
@@ -194,11 +193,13 @@ pub struct ExternalCommandError {
     pub failure: ExternalCommandFailure,
 }
 
-/// One failed test action retained for deterministic suite-level reporting.
+/// One failed action retained for deterministic reporting of every failure.
 #[derive(Debug)]
-pub struct TestFailure {
-    /// Stable test action identity.
+pub struct ActionFailure {
+    /// Stable action identity.
     pub action: ActionKey,
+    /// Whether the action runs a test suite.
+    pub test: bool,
     /// Underlying process or execution failure.
     pub error: Box<CoordinatorError>,
 }
@@ -293,8 +294,8 @@ pub enum CoordinatorError {
         /// Cancelled action.
         action: ActionKey,
     },
-    /// One or more independent test executables failed.
-    TestFailures(Vec<TestFailure>),
+    /// Independent actions failed: several, or at least one test suite.
+    Failures(Vec<ActionFailure>),
     /// Frozen-plan and invocation targets differ.
     TargetMismatch(Box<TargetMismatch>),
     /// A frozen plan contains an unresolved internal reference.
@@ -418,8 +419,8 @@ impl fmt::Display for CoordinatorError {
                 action.name(),
                 action.package().as_str()
             ),
-            Self::TestFailures(failures) => {
-                writeln!(f, "{} test suite(s) failed:", failures.len())?;
+            Self::Failures(failures) => {
+                writeln!(f, "{}:", failures_summary(failures))?;
                 for failure in failures {
                     writeln!(f, "\n{}: {}", failure.action.name(), failure.error)?;
                 }
@@ -563,6 +564,29 @@ impl fmt::Display for CoordinatorError {
 }
 
 impl std::error::Error for CoordinatorError {}
+
+impl CoordinatorError {
+    /// A lone ordinary failure keeps its own error, so its diagnostics are
+    /// reported as they are without `--keep-going`. A failed suite is always
+    /// reported as a suite.
+    pub(crate) fn from_failures(mut failures: Vec<ActionFailure>) -> Self {
+        if let [failure] = failures.as_slice()
+            && !failure.test
+        {
+            return *failures.remove(0).error;
+        }
+        Self::Failures(failures)
+    }
+}
+
+/// `N test suite(s) failed` when only suites failed, otherwise counts actions.
+pub(crate) fn failures_summary(failures: &[ActionFailure]) -> String {
+    if failures.iter().all(|failure| failure.test) {
+        format!("{} test suite(s) failed", failures.len())
+    } else {
+        format!("{} build action(s) failed", failures.len())
+    }
+}
 
 #[cfg(test)]
 mod tests;

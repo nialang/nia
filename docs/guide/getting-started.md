@@ -187,7 +187,6 @@ pub fun main(init: process::Init) process::ExitCode!() {
 | Command | What it does |
 | --- | --- |
 | `nia build [step]` | Runs `build.nia`, then the named step, or the default step when none is named. |
-| `nia test` | Builds and runs every registered test suite. |
 | `nia update [name ...]` | Refreshes Git revisions and registry versions in `nia.lock`. |
 | `nia check <path>` | Type-checks a source file or package directory without producing output. |
 | `nia emit --<kind> <path>` | Prints or writes one compiler output. |
@@ -199,19 +198,19 @@ From anywhere inside the package:
 nia build            # default step: writes .nia-build/hello
 nia build run        # builds, then runs the executable
 nia build --dry-run  # configures and validates the plan without running it
-nia test             # builds and runs the "unit" suite
-nia test --list      # lists suites without running them
+nia build test       # builds and runs every test suite
+nia build --list     # lists the steps without running them
 ```
 
-`nia build` and `nia test` search upward from the current directory for
+`nia build` searches upward from the current directory for
 `build.nia`; `--root <dir>` starts the search elsewhere. Outputs are written
 under `.nia-build/` in the package root, and reusable results are kept in
 `.nia-cache/`. A test suite passes
 when its executable exits with status 0; a suite that passed is not rerun until
-its inputs change. `--filter <text>` selects suites by name and `--fail-fast`
-stops after the first failure.
+its inputs change. `nia build <suite>` runs one suite, and `--keep-going` runs
+the remaining suites after one fails.
 
-Both commands report progress on stderr: a status line and a final summary by
+The build reports progress on stderr: a status line and a final summary by
 default, `-q` to silence it, and `-v` through `-vvv` for more detail. See
 [Progress output](build-scripts.md#progress-output).
 
@@ -231,7 +230,7 @@ print intermediate forms, `--obj` to write object files, and `--exe` to write
 an executable. `-M <name>=<path>` maps an extra package name to a source file
 or to a package directory's `[library].path`, so `using name;` can find it; a
 build script declares its
-packages instead, so `nia build` and `nia test` do not accept `-M`.
+packages instead, so `nia build` does not accept `-M`.
 
 Global options apply to every command and may come before or after it:
 `-O0` through `-O3`, `-Os`, `-Oz` (`-O` means `-O2`), `--debug` / `--release`,

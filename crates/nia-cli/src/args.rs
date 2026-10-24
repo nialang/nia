@@ -38,7 +38,6 @@ pub(crate) struct Scope(u16);
 impl Scope {
     pub(crate) const GLOBAL: Self = Self(1);
     pub(crate) const BUILD: Self = Self(1 << 1);
-    pub(crate) const TEST: Self = Self(1 << 2);
     pub(crate) const CHECK: Self = Self(1 << 3);
     /// `emit --tokens` and `emit --ast`.
     pub(crate) const EMIT_INSPECT: Self = Self(1 << 4);
@@ -155,9 +154,8 @@ pub(crate) enum OptionId {
     PrintPlan,
     PrintCache,
     PrintObservations,
-    Filter,
     List,
-    FailFast,
+    KeepGoing,
     Runtime,
     OptReport,
     CacheDir,
@@ -186,7 +184,6 @@ pub(crate) struct OptionSpec {
     pub(crate) about: &'static str,
 }
 
-const BUILD_TEST: Scope = Scope::BUILD.or(Scope::TEST);
 /// Emit kinds that run the compiler past parsing.
 const EMIT_COMPILED: Scope = Scope::EMIT_CHECKED
     .or(Scope::EMIT_CODEGEN)
@@ -259,7 +256,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Root,
         names: &["--root"],
         arity: Arity::Value,
-        scope: BUILD_TEST.or(Scope::UPDATE),
+        scope: Scope::BUILD.or(Scope::UPDATE),
         usage: "--root <dir>",
         about: "start package discovery here instead of the current directory",
     },
@@ -267,7 +264,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Package,
         names: &["-p", "--package"],
         arity: Arity::Value,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "-p, --package <name>",
         about: "select a workspace member; may be repeated",
     },
@@ -275,7 +272,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Workspace,
         names: &["--workspace"],
         arity: Arity::Flag,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "--workspace",
         about: "select every workspace member",
     },
@@ -283,7 +280,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Locked,
         names: &["--locked"],
         arity: Arity::Flag,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "--locked",
         about: "fail instead of changing nia.lock",
     },
@@ -291,39 +288,31 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Offline,
         names: &["--offline"],
         arity: Arity::Flag,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "--offline",
         about: "use cached Git and registry dependencies without fetching",
-    },
-    OptionSpec {
-        id: OptionId::Filter,
-        names: &["--filter"],
-        arity: Arity::Value,
-        scope: Scope::TEST,
-        usage: "--filter <text>",
-        about: "select suites whose names contain this text",
     },
     OptionSpec {
         id: OptionId::List,
         names: &["--list"],
         arity: Arity::Flag,
-        scope: Scope::TEST,
+        scope: Scope::BUILD,
         usage: "--list",
-        about: "list selected suites without running them",
+        about: "list the package's steps and their kinds without running any",
     },
     OptionSpec {
-        id: OptionId::FailFast,
-        names: &["--fail-fast"],
+        id: OptionId::KeepGoing,
+        names: &["-k", "--keep-going"],
         arity: Arity::Flag,
-        scope: Scope::TEST,
-        usage: "--fail-fast",
-        about: "stop after the first failed suite",
+        scope: Scope::BUILD,
+        usage: "-k, --keep-going",
+        about: "keep running actions that do not depend on a failed one",
     },
     OptionSpec {
         id: OptionId::Jobs,
         names: &["-j", "--jobs"],
         arity: Arity::Value,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "-j, --jobs <count>",
         about: "limit concurrent build actions",
     },
@@ -371,7 +360,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Quiet,
         names: &["-q", "--quiet"],
         arity: Arity::Flag,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "-q, --quiet",
         about: "suppress build progress output",
     },
@@ -379,7 +368,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Verbose,
         names: &["-v", "--verbose"],
         arity: Arity::Flag,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "-v, -vv, -vvv, --verbose",
         about: "show action, scheduler, and cache detail; repeat for more",
     },
@@ -387,7 +376,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Progress,
         names: &["--progress"],
         arity: Arity::Value,
-        scope: BUILD_TEST,
+        scope: Scope::BUILD,
         usage: "--progress <auto|plain|json|none>",
         about: "select progress transport",
     },
@@ -840,9 +829,9 @@ mod tests {
 
     #[test]
     fn values_follow_their_option_even_when_they_start_with_a_dash() {
-        let scanned = scan(&args(&["--filter", "-O", "-j", "-3"]), Scope::TEST).unwrap();
+        let scanned = scan(&args(&["--root", "-O", "-j", "-3"]), Scope::BUILD).unwrap();
         assert_eq!(
-            scanned.last(OptionId::Filter).unwrap().value.as_deref(),
+            scanned.last(OptionId::Root).unwrap().value.as_deref(),
             Some("-O")
         );
         assert_eq!(
@@ -930,9 +919,9 @@ mod tests {
             }
         );
         assert_eq!(
-            scan(&args(&["--filter", "x"]), Scope::BUILD).unwrap_err(),
+            scan(&args(&["--list"]), Scope::CHECK).unwrap_err(),
             ScanError::OutOfScope {
-                option: "--filter".to_string()
+                option: "--list".to_string()
             }
         );
     }

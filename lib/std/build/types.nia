@@ -407,7 +407,10 @@ pub struct Build {
     hasRequestedStep: bool,
     defaultStep: ?StepHandle,
     selectedStep: ?StepHandle,
-    testMode: bool,
+    // `--list` selects no step, so a package without a default can be listed.
+    listSteps: bool,
+    // The `test` step, declared with the first suite.
+    testStep: ?StepHandle,
     planValidated: bool,
     steps: collections::ArrayList[Step],
     pendingStep: Step,

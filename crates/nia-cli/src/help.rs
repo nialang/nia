@@ -68,7 +68,6 @@ pub(crate) fn help_command(topic: HelpTopic) -> String {
     match topic {
         HelpTopic::Main => "nia help".to_string(),
         HelpTopic::Build => "nia help build".to_string(),
-        HelpTopic::Test => "nia help test".to_string(),
         HelpTopic::Update => "nia help update".to_string(),
         HelpTopic::Check => "nia help check".to_string(),
         HelpTopic::Emit => "nia help emit".to_string(),
@@ -113,7 +112,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             usage: &["nia <command> [options]", "nia help [command]"],
             commands: &[
                 ("build [step]", "build the current package"),
-                ("test", "run package tests"),
                 (
                     "update [name ...]",
                     "refresh Git revisions and registry versions in nia.lock",
@@ -127,23 +125,18 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Build => HelpDoc {
             title: "nia build",
             about: "Build a package with its build.nia script.",
-            usage: &["nia build [step] [--root <dir>] [-p <name> ... | --workspace] [options]"],
+            usage: &[
+                "nia build [step] [--root <dir>] [-p <name> ... | --workspace] [options]",
+                "nia build --list",
+            ],
             commands: &[],
             examples: &[
                 "nia build",
-                "nia build check",
+                "nia build test",
+                "nia build test --keep-going",
                 "nia build install --root tools/example",
                 "nia build --workspace",
             ],
-        },
-        HelpTopic::Test => HelpDoc {
-            title: "nia test",
-            about: "Build and run package test suites.",
-            usage: &[
-                "nia test [--root <dir>] [-p <name> ... | --workspace] [--filter <text>] [--list] [--fail-fast] [options]",
-            ],
-            commands: &[],
-            examples: &["nia test", "nia test --filter parser", "nia test --list"],
         },
         HelpTopic::Update => HelpDoc {
             title: "nia update",
@@ -302,7 +295,6 @@ mod tests {
         let mut topics = vec![
             HelpTopic::Main,
             HelpTopic::Build,
-            HelpTopic::Test,
             HelpTopic::Update,
             HelpTopic::Check,
             HelpTopic::Emit,

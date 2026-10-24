@@ -66,9 +66,7 @@ fn test_invocation() -> BuildInvocation {
             declared: Vec::new(),
         },
         step: crate::BuildStepSelection::Default,
-        test_filter: None,
-        test_list: false,
-        test_fail_fast: false,
+        keep_going: false,
         forward_output: true,
         timings: nia_driver::TimingMode::Off,
         timing_format: nia_timing::TimingFormat::Text,
@@ -115,7 +113,7 @@ fn aggregate_plan(
     .unwrap()
 }
 
-fn registered_test_plan() -> BuildPlan {
+fn registered_test_plan(selected: &str) -> BuildPlan {
     let package = PackageKey::root();
     let test_kind = || {
         ActionKind::TestExecutable(CommandAction {
@@ -156,7 +154,15 @@ fn registered_test_plan() -> BuildPlan {
                 kind: test_kind(),
             },
             PlanAction {
+                key: action("after-alpha"),
+                kind: ActionKind::Aggregate,
+            },
+            PlanAction {
                 key: action("default"),
+                kind: ActionKind::Aggregate,
+            },
+            PlanAction {
+                key: action("test"),
                 kind: ActionKind::Aggregate,
             },
         ],
@@ -177,13 +183,23 @@ fn registered_test_plan() -> BuildPlan {
                 dependencies: vec![step("shared")],
             },
             PlanStep {
+                key: step("after-alpha"),
+                action: action("after-alpha"),
+                dependencies: vec![step("alpha")],
+            },
+            PlanStep {
                 key: step("default"),
                 action: action("default"),
                 dependencies: Vec::new(),
             },
+            PlanStep {
+                key: step("test"),
+                action: action("test"),
+                dependencies: vec![step("after-alpha"), step("beta")],
+            },
         ],
         default_step: Some(step("default")),
-        selected_step: None,
+        selected_step: Some(step(selected)),
     })
     .unwrap()
 }
@@ -432,7 +448,7 @@ fn selected_closure_is_iterative_deterministic_and_excludes_unselected_steps() {
     let mut observed = Vec::new();
     let mut waves = Vec::new();
 
-    let report = execute_selected_closure(&plan, |items| {
+    let report = execute_selected_closure(&plan, false, |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
         waves.push(
             items
@@ -462,42 +478,60 @@ fn selected_closure_is_iterative_deterministic_and_excludes_unselected_steps() {
     );
 }
 
+fn fail_suites(items: &[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError> {
+    Ok(items
+        .iter()
+        .map(|item| {
+            if item.kind.is_test() {
+                ActionOutcome::Failed(CoordinatorError::UnsupportedAction {
+                    action: item.key.clone(),
+                    kind: "forced-test-failure",
+                })
+            } else {
+                ActionOutcome::Succeeded(None)
+            }
+        })
+        .collect())
+}
+
 #[test]
-fn test_closure_aggregates_failures_in_stable_suite_order() {
-    let plan = registered_test_plan();
+fn keep_going_reports_every_failure_and_skips_their_dependents() {
+    let plan = registered_test_plan("test");
     let mut observed = Vec::new();
-    let error = execute_test_closure(&plan, None, |items| {
+    let error = execute_selected_closure(&plan, true, |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
-        Ok(items
-            .iter()
-            .map(|item| {
-                if item.kind.is_test() {
-                    ActionOutcome::Failed(CoordinatorError::UnsupportedAction {
-                        action: item.key.clone(),
-                        kind: "forced-test-failure",
-                    })
-                } else {
-                    ActionOutcome::Succeeded(None)
-                }
-            })
-            .collect())
+        fail_suites(items)
     })
     .unwrap_err();
 
     assert_eq!(observed, ["shared", "alpha", "beta"]);
     assert!(matches!(
         error,
-        CoordinatorError::TestFailures(failures)
+        CoordinatorError::Failures(failures)
             if failures.iter().map(|failure| failure.action.name()).collect::<Vec<_>>()
                 == ["alpha", "beta"]
     ));
 }
 
 #[test]
-fn test_closure_filter_selects_suite_and_shared_dependencies() {
-    let plan = registered_test_plan();
+fn without_keep_going_the_failing_wave_is_the_last() {
+    let plan = registered_test_plan("test");
     let mut observed = Vec::new();
-    execute_test_closure(&plan, Some("alpha"), |items| {
+    let error = execute_selected_closure(&plan, false, |items| {
+        observed.extend(items.iter().map(|item| item.key.name().to_string()));
+        fail_suites(items)
+    })
+    .unwrap_err();
+
+    assert_eq!(observed, ["shared", "alpha", "beta"]);
+    assert!(matches!(error, CoordinatorError::Failures(failures) if failures.len() == 2));
+}
+
+#[test]
+fn a_selected_suite_runs_with_only_its_own_dependencies() {
+    let plan = registered_test_plan("alpha");
+    let mut observed = Vec::new();
+    execute_selected_closure(&plan, false, |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
         Ok(items
             .iter()
@@ -522,7 +556,7 @@ fn shared_action_executes_once_across_multiple_steps() {
     );
     let mut observed = Vec::new();
 
-    let report = execute_selected_closure(&plan, |items| {
+    let report = execute_selected_closure(&plan, false, |items| {
         observed.extend(items.iter().map(|item| item.key.name().to_string()));
         Ok(items
             .iter()
@@ -547,7 +581,7 @@ fn action_failure_stops_dependents_and_retains_action_context() {
         "second",
     );
 
-    let error = execute_selected_closure(&plan, |items| {
+    let error = execute_selected_closure(&plan, false, |items| {
         Ok(items
             .iter()
             .map(|item| ActionOutcome::Failed(unsupported(item, "test-failure")))
@@ -602,7 +636,7 @@ fn concurrent_completion_order_does_not_change_visible_order() {
         ],
         "final",
     );
-    let sequential = execute_selected_closure(&plan, |items| {
+    let sequential = execute_selected_closure(&plan, false, |items| {
         Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
@@ -611,7 +645,7 @@ fn concurrent_completion_order_does_not_change_visible_order() {
     .unwrap();
     let completion_order = Arc::new(Mutex::new(Vec::new()));
 
-    let concurrent = execute_selected_closure(&plan, |items| {
+    let concurrent = execute_selected_closure(&plan, false, |items| {
         let barrier = Arc::new(Barrier::new(items.len()));
         Ok(std::thread::scope(|scope| {
             items
@@ -748,7 +782,7 @@ fn progress_resource_generation_increases_across_waves() {
 
 #[test]
 fn progress_description_uses_typed_kind_and_bounds_paths_without_command_secrets() {
-    let plan = registered_test_plan();
+    let plan = registered_test_plan("test");
     let mut action = plan
         .actions()
         .iter()
@@ -837,7 +871,7 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
         selected_step: Some(step("final")),
     })
     .unwrap();
-    let expected = execute_selected_closure(&plan, |items| {
+    let expected = execute_selected_closure(&plan, false, |items| {
         Ok(items
             .iter()
             .map(|_| ActionOutcome::Succeeded(None))
@@ -848,7 +882,7 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
     for iteration in 0..32usize {
         let session = QuerySession::new().expect("create query session");
         let limit = std::num::NonZeroUsize::new(if iteration % 4 == 0 { 1 } else { 4 });
-        let report = execute_selected_closure(&plan, |items| {
+        let report = execute_selected_closure(&plan, false, |items| {
             let tasks = items
                 .iter()
                 .enumerate()
@@ -892,7 +926,7 @@ fn failure_waits_for_active_wave_and_never_dispatches_dependents() {
     let active_settled = Arc::new(AtomicBool::new(false));
     let mut dispatched = Vec::new();
 
-    let error = execute_selected_closure(&plan, |items| {
+    let error = execute_selected_closure(&plan, false, |items| {
         dispatched.push(
             items
                 .iter()
@@ -953,7 +987,7 @@ fn empty_plan_executes_nothing() {
     })
     .unwrap();
 
-    let report = execute_selected_closure(&plan, |_| unreachable!()).unwrap();
+    let report = execute_selected_closure(&plan, false, |_| unreachable!()).unwrap();
     assert!(report.steps.is_empty());
     assert!(report.actions.is_empty());
 }
@@ -1019,10 +1053,10 @@ fn explicit_uncacheable_action_has_no_legacy_execution_fallback() {
 #[test]
 fn invocation_target_mismatch_is_rejected_before_actions() {
     for role in ["host", "artifact"] {
-        for test_mode in [false, true] {
+        for list in [false, true] {
             let mut invocation = test_invocation();
-            if test_mode {
-                invocation.step = crate::BuildStepSelection::Tests;
+            if list {
+                invocation.step = crate::BuildStepSelection::List;
             }
             let mut host = *invocation.toolchain.host_target();
             let mut artifact = *invocation.toolchain.artifact_target();

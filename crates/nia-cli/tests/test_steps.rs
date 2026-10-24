@@ -7,7 +7,7 @@ use nia_test_support::CommandExt;
 use nia_test_support::TestWorkload;
 
 #[test]
-fn test_command_lists_filters_and_reports_registered_suites() {
+fn test_steps_are_listed_selected_and_reported_together() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let workspace = nia_test_support::test_dir("test-command-suites");
     fs::create_dir_all(workspace.join("tests")).expect("create test source directory");
@@ -160,9 +160,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     )
     .expect("write second failing suite");
 
-    let listed = test_command(&workspace)
+    let listed = build_command(&workspace)
         .arg("--list")
-        .output_timeout_in_session("list registered Nia test suites");
+        .output_timeout_in_session("list the package's steps");
     assert!(
         listed.status.success(),
         "{}",
@@ -171,12 +171,18 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(listed.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&listed.stdout),
-        "fail\nfail-second\npass\n"
+        "fail                 test-executable\n\
+         fail-second          test-executable\n\
+         fail-second.compile  compiler-emit\n\
+         fail.compile         compiler-emit\n\
+         pass                 test-executable\n\
+         pass.compile         compiler-emit\n\
+         test                 aggregate\n"
     );
 
-    let passing = test_command(&workspace)
-        .args(["--filter", "pass"])
-        .output_timeout_in_session("run filtered Nia test suite");
+    let passing = build_command(&workspace)
+        .arg("pass")
+        .output_timeout_in_session("run one Nia test suite");
     assert!(
         passing.status.success(),
         "{}",
@@ -184,7 +190,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
     assert_eq!(passing.status.code(), Some(0));
 
-    let all = test_command(&workspace).output_timeout_in_session("run all Nia test suites");
+    let all = build_command(&workspace)
+        .args(["test", "--keep-going"])
+        .output_timeout_in_session("run all Nia test suites");
     assert!(!all.status.success());
     assert_eq!(all.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&all.stderr);
@@ -194,8 +202,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert!(all.stdout.is_empty());
     assert!(stderr.contains("failed-suite-output"), "{stderr}");
 
-    let json = test_command(&workspace)
-        .arg("--diagnostics-format=json")
+    let json = build_command(&workspace)
+        .args(["test", "--keep-going", "--diagnostics-format=json"])
         .output_timeout_in_session("report failed suites as JSON");
     assert_eq!(json.status.code(), Some(1));
     assert!(json.stdout.is_empty());
@@ -234,8 +242,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
         "{report}"
     );
 
-    let fail_fast = test_command(&workspace)
-        .args(["--fail-fast", "--jobs", "1"])
+    // Without `--keep-going`, actions after the first failure are cancelled.
+    let fail_fast = build_command(&workspace)
+        .args(["test", "--jobs", "1"])
         .output_timeout_in_session("stop after first failing Nia test suite");
     assert!(!fail_fast.status.success());
     assert_eq!(fail_fast.status.code(), Some(1));
@@ -306,7 +315,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
 
     let test = support::nia_command()
-        .args(["test", "--root"])
+        .args(["build", "foo-tests", "--root"])
         .arg(&workspace)
         .output_timeout_in_session("test executable with shared package imports");
     assert!(
@@ -406,7 +415,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
 }
 
-fn test_command(workspace: &std::path::Path) -> Command {
+fn build_command(workspace: &std::path::Path) -> Command {
     let command_directory = workspace
         .parent()
         .expect("temporary workspace has a parent");
@@ -416,7 +425,7 @@ fn test_command(workspace: &std::path::Path) -> Command {
     let mut command = support::nia_command();
     command
         .current_dir(command_directory)
-        .arg("test")
+        .arg("build")
         .arg("--root")
         .arg(relative_root);
     command
@@ -466,7 +475,11 @@ pub fun main(init: process::Init) process::ExitCode!() {{
     };
     fs::write(workspace.join("tests/alpha.nia"), suite("alpha-ran", 0)).unwrap();
     fs::write(workspace.join("tests/beta.nia"), suite("beta-ran", 0)).unwrap();
-    let run = || test_command(&workspace).output_timeout_in_session("run incremental suites");
+    let run = || {
+        build_command(&workspace)
+            .arg("test")
+            .output_timeout_in_session("run incremental suites")
+    };
     let cold = run();
     assert!(
         cold.status.success(),

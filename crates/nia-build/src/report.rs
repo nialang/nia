@@ -15,7 +15,7 @@ use nia_diagnostic::{
 };
 
 use crate::{
-    BuildError, CoordinatorError, ExternalCommandError, ExternalCommandFailure, TestFailure,
+    ActionFailure, BuildError, CoordinatorError, ExternalCommandError, ExternalCommandFailure,
 };
 
 /// Formats a path for a diagnostic. Canonicalized Windows paths carry a
@@ -259,6 +259,16 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
 }
 
 fn coordinator_diagnostics(error: &CoordinatorError) -> Vec<Diagnostic> {
+    if let CoordinatorError::Failures(failures) = error {
+        // Compiler failures keep their source diagnostics after the summary.
+        let mut diagnostics = vec![coordinator_diagnostic(error)];
+        for failure in failures {
+            if matches!(failure.error.as_ref(), CoordinatorError::Driver { .. }) {
+                diagnostics.extend(coordinator_diagnostics(&failure.error));
+            }
+        }
+        return diagnostics;
+    }
     if let CoordinatorError::Driver { error, .. } = error {
         return match error.as_ref() {
             nia_driver::DriverError::CheckDiagnostics(program) => program
@@ -297,20 +307,19 @@ fn coordinator_diagnostic(error: &CoordinatorError) -> Diagnostic {
         )
         .note("the action was stopped after another action failed")
         .finish(),
-        CoordinatorError::TestFailures(failures) => {
-            let mut diagnostic = Diagnostic::user_error(
-                codes::BUILD_ACTION,
-                format!("{} test suite(s) failed", failures.len()),
-            )
-            .note(test_failure_note(failures))
-            .finish();
+        CoordinatorError::Failures(failures) => {
+            let mut diagnostic =
+                Diagnostic::user_error(codes::BUILD_ACTION, crate::failures_summary(failures))
+                    .note(failure_note(failures))
+                    .finish();
             for failure in failures {
                 if let CoordinatorError::ExternalCommand(details) = failure.error.as_ref() {
                     let child = external_command_diagnostic(details);
+                    let owner = if failure.test { "test suite" } else { "action" };
                     for note in child.notes.iter() {
                         diagnostic
                             .notes
-                            .push(format!("test suite `{}`: {note}", failure.action.name()));
+                            .push(format!("{owner} `{}`: {note}", failure.action.name()));
                     }
                 }
             }
@@ -628,7 +637,7 @@ fn plan_handoff_diagnostic<T: std::fmt::Display>(path: &Path, error: &T) -> Vec<
     ]
 }
 
-fn test_failure_note(failures: &[TestFailure]) -> String {
+fn failure_note(failures: &[ActionFailure]) -> String {
     failures
         .iter()
         .map(|failure| {
@@ -913,8 +922,9 @@ pub(crate) mod tests {
             .into_iter()
             .map(|name| {
                 let action = crate::ActionKey::new(crate::PackageKey::root(), name).unwrap();
-                TestFailure {
+                ActionFailure {
                     action: action.clone(),
+                    test: true,
                     error: Box::new(CoordinatorError::ExternalCommand(Box::new(
                         ExternalCommandError {
                             action,
@@ -931,7 +941,7 @@ pub(crate) mod tests {
                 }
             })
             .collect();
-        let diagnostic = coordinator_diagnostic(&CoordinatorError::TestFailures(failures));
+        let diagnostic = coordinator_diagnostic(&CoordinatorError::Failures(failures));
         assert_eq!(diagnostic.summary, "2 test suite(s) failed");
         assert!(diagnostic.labels.is_empty());
         for name in ["first", "second"] {
