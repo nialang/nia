@@ -376,9 +376,18 @@ extend Build {
     // step has the suite's name, and the `test` step depends on every suite;
     // the first suite declares it, so a script cannot declare its own `test`.
     pub fun addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
+        self.addTestSuiteWithRuntime(name, rootModule, .Freestanding)
+    }
+
+    fun addTestSuiteWithRuntime(
+        &mut self,
+        name: &[char],
+        rootModule: ModuleHandle,
+        runtime: types::Runtime,
+    ) Error!StepHandle {
         let mut compileName = string::String::fromSlice(self.allocator, name)
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let result = self.addOwnedTestSuite(name, rootModule, &mut compileName);
+        let result = self.addOwnedTestSuite(name, rootModule, runtime, &mut compileName);
         let cleanup = compileName.deinit(self.allocator)
             .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
         result.cleanupAfter(cleanup)
@@ -388,11 +397,14 @@ extend Build {
         &mut self,
         name: &[char],
         rootModule: ModuleHandle,
+        runtime: types::Runtime,
         compileName: &mut string::String,
     ) Error!StepHandle {
         compileName.append(self.allocator, &".compile")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget())).?;
+        let executable = self.addExecutable(
+            ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget()).withRuntime(runtime),
+        ).?;
         self.executables.asMutSlice()[executable.index()].test = true;
         _ = self.addEmitExecutableStep(compileName.text(), executable).?;
         let suite = self.addTestExecutableStep(name, .init(executable)).?;
@@ -1244,6 +1256,88 @@ extend Build {
 
     pub fun reportError(&mut self, error: Error) Error!() {
         reportBuildError(error)
+    }
+
+    // An `[[executable]]` from nia.toml: an emit step named after it and a
+    // `run-<name>` step. Only the build runner calls this, before build.nia.
+    pub fun declareManifestExecutable(
+        &mut self,
+        name: &[char],
+        rootSource: fs::PathView,
+        runtime: types::Runtime,
+    ) Error!() {
+        let rootModule = self.addModule(ModuleOptions::init(name, rootSource)).?;
+        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).withRuntime(runtime)).?;
+        let emit = self.addEmitExecutableStep(name, executable).?;
+        let mut runName = string::String::fromSlice(self.allocator, &"run-")
+            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
+        let result = self.declareManifestRun(&mut runName, name, executable);
+        let cleanup = runName.deinit(self.allocator)
+            .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
+        result.cleanupAfter(cleanup).?;
+        self.addToAllStep(emit)
+    }
+
+    fun declareManifestRun(
+        &mut self,
+        runName: &mut string::String,
+        name: &[char],
+        executable: ExecutableHandle,
+    ) Error!() {
+        runName.append(self.allocator, name)
+            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
+        _ = self.addRunExecutableStep(runName.text(), RunOptions::init(executable)).?;
+        !()
+    }
+
+    // A `[[test]]` from nia.toml: a suite like `addTestSuite`.
+    pub fun declareManifestTest(
+        &mut self,
+        name: &[char],
+        rootSource: fs::PathView,
+        runtime: types::Runtime,
+    ) Error!() {
+        let rootModule = self.addModule(ModuleOptions::init(name, rootSource)).?;
+        let suite = self.addTestSuiteWithRuntime(name, rootModule, runtime).?;
+        self.addToAllStep(suite)
+    }
+
+    // `all` builds every manifest executable and runs every suite; it is the
+    // default step until build.nia chooses another.
+    fun addToAllStep(&mut self, step: StepHandle) Error!() {
+        let all = if self.allStep is ?existing {
+            existing
+        } else {
+            let created = self.addAggregateStep(&"all").?;
+            self.allStep = ?created;
+            self.defaultStep = ?created;
+            created
+        };
+        self.dependOn(all, step)
+    }
+
+    // The handle of an artifact nia.toml declares, for use in build.nia.
+    pub fun executable(&self, name: &[char]) Error!ExecutableHandle {
+        let mut index: usize = 0;
+        while index < self.executables.len() {
+            if self.executables.asSlice()[index].name.equals(name) {
+                return !ExecutableHandle::init(self.ownerId, index);
+            }
+            index += 1;
+        }
+        .Invalid { operation: Operation::Validate, subject: Subject::Executables }!
+    }
+
+    // The handle of a declared step, such as `test`, `all`, or `run-<name>`.
+    pub fun step(&self, name: &[char]) Error!StepHandle {
+        let mut index: usize = 0;
+        while index < self.steps.len() {
+            if self.steps.asSlice()[index].name.equals(name) {
+                return !StepHandle::init(self.ownerId, index);
+            }
+            index += 1;
+        }
+        .Invalid { operation: Operation::Validate, subject: Subject::Steps }!
     }
 
     fun findStep(&self, name: &[char]) ?Step {

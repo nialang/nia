@@ -295,6 +295,37 @@ fun readOptimization(cursor: &mut ConfigCursor) build::Error!build::Optimization
     }
 }
 
+// One `[[executable]]` or `[[test]]` record: kind, name, root path, runtime.
+fun declareManifestArtifact(
+    api: &mut build::Build,
+    cursor: &mut ConfigCursor,
+    allocator: &mut mem::Allocator,
+) build::Error!() {
+    let kind = cursor.byte().?;
+    let mut name = string::String::init();
+    defer name.deinit(allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).?;
+    let mut path = fs::Path::init();
+    defer path.deinit(allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).?;
+    let nameText = readText(cursor, allocator, &mut name, build::ErrorSubject::RunnerConfiguration).?;
+    let pathView = readPath(cursor, allocator, &mut path, build::ErrorSubject::RunnerConfiguration).?;
+    let runtime = match cursor.byte().? {
+        0 => build::Runtime::Bare,
+        1 => build::Runtime::Freestanding,
+        _ => return build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }!,
+    };
+    match kind {
+        0 => api.declareManifestExecutable(nameText, pathView, runtime),
+        1 => api.declareManifestTest(nameText, pathView, runtime),
+        _ => build::Error::Invalid {
+            operation: build::ErrorOperation::Validate,
+            subject: build::ErrorSubject::RunnerConfiguration,
+        }!,
+    }
+}
+
 fun configPathArg(
     init: process::Init,
     allocator: &mut mem::Allocator,
@@ -452,6 +483,18 @@ pub fun main(init: process::Init) process::ExitCode!() {
             }.intoError()!;
         },
     };
+    // Manifest artifacts stay in the configuration bytes until `Build` exists;
+    // the second pass declares them.
+    let artifactCount = config.u32().reportAndExit(init).? as usize;
+    let artifactsStart = config.position;
+    let mut skipped: usize = 0;
+    while skipped < artifactCount {
+        _ = config.byte().reportAndExit(init).?;
+        _ = config.textBytes().reportAndExit(init).?;
+        _ = config.textBytes().reportAndExit(init).?;
+        _ = config.byte().reportAndExit(init).?;
+        skipped += 1;
+    }
     if config.remaining() != 0 {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
@@ -477,6 +520,29 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let mut api = initialization.finish().reportAndExit(init).?;
     defer api.deinit().reportAndExit(init).?;
     api.attachEnvironment(init.env());
+
+    let mut artifacts = ConfigCursor::init(payload);
+    artifacts.position = artifactsStart;
+    let mut declared: usize = 0;
+    while declared < artifactCount {
+        match declareManifestArtifact(&mut api, &mut artifacts, &mut allocator) {
+            !ok => {
+                _ = ok;
+            },
+            error! => {
+                match api.reportError(error) {
+                    !reported => {
+                        _ = reported;
+                    },
+                    reportError! => {
+                        return reportError.intoError()!;
+                    },
+                }
+                return error.intoError()!;
+            },
+        }
+        declared += 1;
+    }
 
     match buildScript::build(&mut api) {
         !ok => {

@@ -381,6 +381,9 @@ pub struct BuildInvocation {
     pub package_graph_report: nia_package_metadata::PackageGraphReport,
     /// Physical path to the package's `build.nia` source.
     pub build_script: PathBuf,
+    /// Executables and test suites the root manifest declares, which the
+    /// runner declares before it runs `build.nia`.
+    pub manifest_artifacts: Vec<nia_package_metadata::ManifestArtifact>,
     /// Invocation-local build output directory.
     pub build_dir: PathBuf,
     /// Invocation-local persistent action-cache directory.
@@ -2630,6 +2633,16 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
                 error,
             })?;
     let build_script = package_root.join("build.nia");
+    let manifest_artifacts = if package_root.join("nia.toml").is_file() {
+        nia_package_metadata::PackageManifest::read(&package_root)
+            .map_err(|error| BuildError::ResolvePackageGraph {
+                path: package_root.clone(),
+                error,
+            })?
+            .artifacts
+    } else {
+        Vec::new()
+    };
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
     let transient_name = next_build_invocation_name();
@@ -2646,6 +2659,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         package_source_fingerprint: package_graph.fingerprint(),
         package_graph_report: package_graph.report(),
         build_script,
+        manifest_artifacts,
         step: if request.list {
             BuildStepSelection::List
         } else {
@@ -2772,6 +2786,15 @@ fn compile_build_runner(
     let driver = time_build_stage(invocation.timings, "build_runner_create_driver", || {
         Driver::with_config(build_runner_driver_config(invocation))
     });
+    if !invocation.build_script.is_file() {
+        driver
+            .set_source(EMPTY_BUILD_SCRIPT_PATH, EMPTY_BUILD_SCRIPT)
+            .map_err(|error| BuildError::CompileRunner {
+                path: runner.path.clone(),
+                source: runner.source.clone(),
+                error: Box::new(error),
+            })?;
+    }
     time_build_stage(invocation.timings, "build_runner_set_source", || {
         driver
             .set_source(runner.path.clone(), runner.source.clone())
@@ -2959,13 +2982,7 @@ fn build_runner_module_map(
 ) -> Result<ModuleMap, BuildRunnerModuleMapError> {
     let mut module_map = ModuleMap::new();
     module_map
-        .insert(
-            "buildScript",
-            SourcePath::with_identity(
-                invocation.build_script.to_string_lossy().into_owned(),
-                "build-package:root:/build.nia",
-            ),
-        )
+        .insert("buildScript", build_script_source_path(invocation))
         .map_err(|error| BuildRunnerModuleMapError::InvalidRoot {
             name: "buildScript".to_owned(),
             reason: error,
@@ -2979,6 +2996,23 @@ fn build_runner_module_map(
     .map_err(BuildRunnerModuleMapError::Manifest)?;
     Ok(module_map)
 }
+
+/// `build.nia`, or, when the package has none, the toolchain's empty script.
+fn build_script_source_path(invocation: &BuildInvocation) -> SourcePath {
+    if invocation.build_script.is_file() {
+        SourcePath::with_identity(
+            invocation.build_script.to_string_lossy().into_owned(),
+            "build-package:root:/build.nia",
+        )
+    } else {
+        SourcePath::with_identity(EMPTY_BUILD_SCRIPT_PATH, EMPTY_BUILD_SCRIPT_PATH)
+    }
+}
+
+// Declares nothing beyond the manifest artifacts the runner adds first.
+const EMPTY_BUILD_SCRIPT_PATH: &str = "build-package:build-runner:/empty-build.nia";
+const EMPTY_BUILD_SCRIPT: &str = "using std::build;\n\n\
+pub fun build(b: &mut build::Build) build::Error!() {\n    _ = b;\n    !()\n}\n";
 
 pub(crate) fn manifest_module_roots(
     report: &nia_package_metadata::PackageGraphReport,
@@ -3573,16 +3607,8 @@ fn run_and_cleanup_build_runner_draft(
 fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
     let mut cursor = start.to_path_buf();
     loop {
-        if cursor.join("build.nia").is_file() {
+        if cursor.join("build.nia").is_file() || cursor.join("nia.toml").is_file() {
             return Ok(cursor);
-        }
-        // A package root is a hard discovery boundary. Do not accidentally
-        // run a parent package's build script for a child package that has no
-        // build script of its own.
-        if cursor.join("nia.toml").is_file() {
-            return Err(BuildError::MissingBuildScript {
-                start: start.to_path_buf(),
-            });
         }
         if !cursor.pop() {
             return Err(BuildError::MissingBuildScript {
@@ -4311,8 +4337,8 @@ mod tests {
     }
 
     #[test]
-    fn package_root_stops_build_script_search_at_child_package() {
-        let root = temp_root("package_root_stops_build_script_search_at_child_package");
+    fn a_child_manifest_is_its_own_package_root() {
+        let root = temp_root("a_child_manifest_is_its_own_package_root");
         let child = root.join("vendor").join("tool");
         std::fs::create_dir_all(&child).expect("create child package");
         std::fs::write(root.join("build.nia"), "").expect("write parent build script");
@@ -4325,11 +4351,12 @@ version = \"1.0.0\"
         )
         .expect("write child package manifest");
 
-        let error =
+        let invocation =
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&child))
-                .expect_err("child package must not inherit parent build script");
+                .expect("child manifest roots its own package");
 
-        assert!(matches!(error, BuildError::MissingBuildScript { start } if start == child));
+        assert_eq!(invocation.package_root, child);
+        assert!(!invocation.build_script.is_file());
     }
 
     #[test]

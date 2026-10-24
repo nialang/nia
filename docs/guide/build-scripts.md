@@ -7,7 +7,9 @@ package.
 
 ## How A Build Runs
 
-`build.nia` is an ordinary Nia program. `nia build` compiles it for the host,
+A package declares its executables and test suites in `nia.toml`; see
+[Manifest artifacts](#manifest-artifacts). `build.nia` is optional and adds
+whatever the manifest cannot say. It is an ordinary Nia program. `nia build` compiles it for the host,
 runs it, and the script declares modules, artifacts, commands, generated files,
 tests, and named steps through `std::build`. These calls only record a build
 graph. Nothing is compiled, run, or written while the script executes.
@@ -27,9 +29,10 @@ reuses the recorded graph without running the script again.
 ## Package Manifest
 
 Before compiling `build.nia`, Nia reads the package's `nia.toml` and resolves
-its dependencies. The manifest defines package identity and dependency inputs;
-the script still owns the build graph. A root package without `nia.toml` builds
-as a package with no dependencies, but every dependency must have one.
+its dependencies. The manifest defines package identity, dependency inputs,
+and the executables and test suites the package builds. A root package with
+only `build.nia` builds as a package with no dependencies, but every
+dependency must have a `nia.toml`.
 
 ```toml
 [package]
@@ -57,6 +60,7 @@ fixtures = { path = "tests/fixtures" }
 | `package.protocol-epoch` | rejects compilers from another release line when set |
 | `library.path` | the file that dependent packages open with `using <dependency>;` and the package's own artifacts open with `using <package-name>;` |
 | `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |
+| `[[executable]]`, `[[test]]` | artifacts built without a script; see [Manifest artifacts](#manifest-artifacts) |
 
 A package's files always leave out `.git`, `.nia`, `.nia-build`, `.nia-cache`,
 and `nia.lock`, and leave out `build/`, `dist/`, and `target/` directly under
@@ -238,6 +242,35 @@ package-local.
 Selected members build in manifest order, and the first failing member stops
 the build. With `--keep-going`, the remaining members still build and the
 build fails after they finish.
+
+## Manifest Artifacts
+
+```toml
+[[executable]]
+name = "planner"
+path = "src/main.nia"
+
+[[test]]
+name = "unit"
+path = "tests/main.nia"
+runtime = "freestanding"
+```
+
+| Key | Meaning |
+| --- | --- |
+| `name` | artifact and step name; unique across both tables |
+| `path` | the artifact's root module file, relative to the package root |
+| `runtime` | `freestanding` (default) or `bare` |
+
+Each `[[executable]]` becomes an emit step `<name>` and a run step
+`run-<name>`; each `[[test]]` becomes a suite, as `addTestSuite` makes. `all`
+depends on every emit step and suite and is the default step. `all`, `test`,
+and names starting with `run-` are reserved for these derived steps.
+
+The manifest artifacts are declared before `build.nia` runs, so the script can
+extend them: `b.executable(name)` returns an artifact's handle, and
+`b.step(name)` returns a step's handle, such as `test` or `run-planner`.
+`setDefaultStep` replaces `all` as the default.
 
 ## The Build Function
 

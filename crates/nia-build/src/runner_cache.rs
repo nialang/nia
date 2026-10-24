@@ -324,7 +324,11 @@ pub(super) fn cache_key(
         RUNNER_CACHE_DOMAIN.as_str().as_bytes(),
     );
     hash_field(&mut hasher, b"runner-source", runner.source.as_bytes());
-    hash_file(&mut hasher, &invocation.build_script, runner)?;
+    if invocation.build_script.is_file() {
+        hash_file(&mut hasher, &invocation.build_script, runner)?;
+    } else {
+        hash_field(&mut hasher, b"build-script", b"absent");
+    }
     hash_field(
         &mut hasher,
         b"package-graph",
@@ -577,6 +581,7 @@ mod tests {
                 declared: Vec::new(),
             },
             build_script,
+            manifest_artifacts: Vec::new(),
             build_dir: package_root.join(".nia-build"),
             cache_dir: package_root.join(".nia-cache"),
             runner_dir: package_root.join(".nia-build/runner"),

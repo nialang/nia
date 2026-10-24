@@ -10,6 +10,8 @@ use std::path::Path;
 use nia_compat::formats::RUNNER_CONFIG;
 use nia_target::{SUPPORTED_TARGETS, TargetConfig};
 
+use nia_package_metadata::{ArtifactKind, ArtifactRuntime};
+
 use crate::{BuildError, BuildInvocation, BuildStepSelection, OptimizationMode};
 
 pub(crate) const RUNNER_CONFIG_MAX_BYTES: usize = 1024 * 1024;
@@ -43,6 +45,19 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
             payload.push(1);
             write_text(&mut payload, "requested step", step)?;
         }
+    }
+    write_u32(&mut payload, invocation.manifest_artifacts.len() as u32);
+    for artifact in &invocation.manifest_artifacts {
+        payload.push(match artifact.kind {
+            ArtifactKind::Executable => 0,
+            ArtifactKind::Test => 1,
+        });
+        write_text(&mut payload, "artifact name", &artifact.name)?;
+        write_text(&mut payload, "artifact path", &artifact.path)?;
+        payload.push(match artifact.runtime {
+            ArtifactRuntime::Bare => 0,
+            ArtifactRuntime::Freestanding => 1,
+        });
     }
 
     if payload.len() > RUNNER_CONFIG_MAX_BYTES - 24 || payload.len() > u32::MAX as usize {
@@ -151,6 +166,7 @@ mod tests {
         plan_draft: String,
         step: Option<String>,
         list: bool,
+        artifacts: Vec<(u8, String, String, u8)>,
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -167,9 +183,21 @@ mod tests {
 
     #[test]
     fn round_trip_preserves_typed_runner_configuration() {
-        let invocation = invocation(BuildStepSelection::Named("install".to_string()));
+        let mut invocation = invocation(BuildStepSelection::Named("install".to_string()));
+        invocation
+            .manifest_artifacts
+            .push(nia_package_metadata::ManifestArtifact {
+                kind: ArtifactKind::Test,
+                name: "unit".into(),
+                path: "tests/unit.nia".into(),
+                runtime: ArtifactRuntime::Bare,
+            });
         let decoded = decode(&encode(&invocation).expect("encode runner configuration"))
             .expect("decode runner configuration");
+        assert_eq!(
+            decoded.artifacts,
+            [(1, "unit".to_string(), "tests/unit.nia".to_string(), 0)]
+        );
 
         assert_eq!(decoded.package_root, "/workspace/package");
         assert_eq!(decoded.build_dir, "/workspace/package/.nia-build");
@@ -261,6 +289,7 @@ mod tests {
                 declared: Vec::new(),
             },
             build_script: PathBuf::from("/workspace/package/build.nia"),
+            manifest_artifacts: Vec::new(),
             build_dir: PathBuf::from("/workspace/package/.nia-build"),
             cache_dir: PathBuf::from("/workspace/package/.nia-cache"),
             runner_dir: PathBuf::from("/workspace/package/.nia-build/runner"),
@@ -337,6 +366,17 @@ mod tests {
             2 => (None, true),
             _ => return Err(DecodeError::Tag),
         };
+        let mut artifacts = Vec::new();
+        for _ in 0..cursor.u32()? {
+            let kind = cursor.byte()?;
+            let name = cursor.text()?;
+            let path = cursor.text()?;
+            let runtime = cursor.byte()?;
+            if kind > 1 || runtime > 1 {
+                return Err(DecodeError::Tag);
+            }
+            artifacts.push((kind, name, path, runtime));
+        }
         if cursor.position != payload.len() {
             return Err(DecodeError::Trailing);
         }
@@ -352,6 +392,7 @@ mod tests {
             plan_draft,
             step,
             list,
+            artifacts,
         })
     }
 

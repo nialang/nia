@@ -411,6 +411,8 @@ pub struct Build {
     listSteps: bool,
     // The `test` step, declared with the first suite.
     testStep: ?StepHandle,
+    // The `all` step, declared with the first manifest artifact.
+    allStep: ?StepHandle,
     planValidated: bool,
     steps: collections::ArrayList[Step],
     pendingStep: Step,

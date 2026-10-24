@@ -415,6 +415,90 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
 }
 
+// A package with only nia.toml: each artifact is a step, `all` is the default,
+// and `test` runs the suites. build.nia may still extend the manifest graph.
+#[test]
+fn manifest_artifacts_build_without_a_build_script() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("manifest-artifacts");
+    fs::create_dir_all(workspace.join("src")).expect("create source directory");
+    fs::create_dir_all(workspace.join("tests")).expect("create test directory");
+    fs::write(
+        workspace.join("nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"root\"\n\
+         [[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n\
+         [[test]]\nname = \"unit\"\npath = \"tests/unit.nia\"\n",
+    )
+    .expect("write manifest");
+    let program = |status: u8| {
+        format!(
+            "using std::process;\n\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    process::ExitCode({status})!\n}}\n"
+        )
+    };
+    fs::write(workspace.join("src/main.nia"), program(4)).expect("write app");
+    fs::write(workspace.join("tests/unit.nia"), program(0)).expect("write suite");
+
+    let listed = build_command(&workspace)
+        .arg("--list")
+        .output_timeout_in_session("list manifest-derived steps");
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&listed.stdout),
+        "all           aggregate (default)\n\
+         app           compiler-emit\n\
+         run-app       external-command\n\
+         test          aggregate\n\
+         unit          test-executable\n\
+         unit.compile  compiler-emit\n"
+    );
+
+    let all = build_command(&workspace).output_timeout_in_session("build every manifest artifact");
+    assert!(
+        all.status.success(),
+        "{}",
+        String::from_utf8_lossy(&all.stderr)
+    );
+    let app = Command::new(workspace.join(".nia-build/app"))
+        .output_timeout_in_session("run the manifest executable");
+    assert_eq!(app.status.code(), Some(4));
+
+    let run = build_command(&workspace)
+        .arg("run-app")
+        .output_timeout_in_session("run the manifest executable through its step");
+    assert_eq!(
+        run.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    fs::write(
+        workspace.join("build.nia"),
+        r#"using std::build;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let app = b.executable(&"app").?;
+    let check = b.addCheckExecutableStep(&"check", app).?;
+    b.dependOn(b.step(&"test").?, check).?;
+    !()
+}
+"#,
+    )
+    .expect("write extending build script");
+    let tested = build_command(&workspace)
+        .args(["test", "--print-plan"])
+        .output_timeout_in_session("run suites after the script's check");
+    assert!(
+        tested.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tested.stderr)
+    );
+}
+
 fn build_command(workspace: &std::path::Path) -> Command {
     let command_directory = workspace
         .parent()

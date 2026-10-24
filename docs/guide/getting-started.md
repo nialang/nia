@@ -102,54 +102,43 @@ executable.
 
 ## A first package
 
-A package is a directory with a `build.nia` script and, usually, a `nia.toml`
-manifest that names it and declares its dependencies. A typical layout:
+A package is a directory with a `nia.toml` manifest that names it, declares
+its dependencies, and lists what it builds. A typical layout:
 
 ```text
 hello/
 ├── nia.toml
-├── build.nia
 ├── src/
 │   └── main.nia
 └── tests/
     └── main.nia
 ```
 
-`nia.toml` names the package:
+`nia.toml` names the package and declares an executable and a test suite:
 
 ```toml
 [package]
 name = "hello"
 version = "0.1.0"
+
+[[executable]]
+name = "hello"
+path = "src/main.nia"
+
+[[test]]
+name = "unit"
+path = "tests/main.nia"
 ```
 
 Dependencies go in `[dependencies]`, for example
 `json = { git = "https://example.com/json.git", tag = "v1.0.0" }`; see
 [Package manifest](build-scripts.md#package-manifest).
 
-`src/main.nia` holds the hello-world program above. `build.nia` declares what
-the package builds:
-
-```nia
-using std::build;
-using std::fs;
-
-pub fun build(b: &mut build::Build) build::Error!() {
-    let app = b.addModule(
-        build::ModuleOptions::init(&"hello", fs::PathView::init(&"src/main.nia")),
-    ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init(&"hello", app)).?;
-    let emit = b.addEmitExecutableStep(&"build", exe).?;
-    _ = b.addRunExecutableStep(&"run", build::RunOptions::init(exe)).?;
-    b.setDefaultStep(emit).?;
-
-    let tests = b.addModule(
-        build::ModuleOptions::init(&"tests", fs::PathView::init(&"tests/main.nia")),
-    ).?;
-    _ = b.addTestSuite(&"unit", tests).?;
-    !()
-}
-```
+`src/main.nia` holds the hello-world program above. Each entry becomes a step
+named after it, an executable also gets a `run-<name>` step, and `all`, the
+default, builds every executable and runs every suite. A package that needs
+generated files, commands, probes, or custom steps adds a `build.nia`; see
+[Build scripts](build-scripts.md).
 
 `tests/main.nia` is an ordinary program that runs test cases with `std::test`
 and exits with a failure status when one fails:
@@ -186,7 +175,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
 | Command | What it does |
 | --- | --- |
-| `nia build [step]` | Runs `build.nia`, then the named step, or the default step when none is named. |
+| `nia build [step]` | Runs the named step, or the default step when none is named. |
 | `nia update [name ...]` | Refreshes Git revisions and registry versions in `nia.lock`. |
 | `nia check <path>` | Type-checks a source file or package directory without producing output. |
 | `nia emit --<kind> <path>` | Prints or writes one compiler output. |
@@ -195,15 +184,15 @@ pub fun main(init: process::Init) process::ExitCode!() {
 From anywhere inside the package:
 
 ```sh
-nia build            # default step: writes .nia-build/hello
-nia build run        # builds, then runs the executable
+nia build            # default step `all`: builds hello and runs the suites
+nia build run-hello  # builds, then runs the executable
 nia build --dry-run  # configures and validates the plan without running it
 nia build test       # builds and runs every test suite
 nia build --list     # lists the steps without running them
 ```
 
-`nia build` searches upward from the current directory for
-`build.nia`; `--root <dir>` starts the search elsewhere. Outputs are written
+`nia build` searches upward from the current directory for the package's
+`nia.toml` or `build.nia`; `--root <dir>` starts the search elsewhere. Outputs are written
 under `.nia-build/` in the package root, and reusable results are kept in
 `.nia-cache/`. A test suite passes
 when its executable exits with status 0; a suite that passed is not rerun until

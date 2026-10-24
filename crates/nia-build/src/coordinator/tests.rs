@@ -52,6 +52,7 @@ fn test_invocation() -> BuildInvocation {
     BuildInvocation {
         toolchain,
         build_script: package_root.join("build.nia"),
+        manifest_artifacts: Vec::new(),
         cache_dir: package_root.join(".nia-cache"),
         runner_dir: build_dir.join("runner"),
         runner_executable: build_dir.join("runner/nia-build-runner"),

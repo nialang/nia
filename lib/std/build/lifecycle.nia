@@ -71,6 +71,7 @@ extend Build {
             selectedStep: null,
             listSteps: listSteps,
             testStep: null,
+            allStep: null,
             planValidated: false,
             steps: .init(),
             pendingStep: .initAggregate(0),
