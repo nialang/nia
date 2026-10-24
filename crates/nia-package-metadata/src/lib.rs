@@ -32,7 +32,7 @@ use std::{
 };
 
 use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
-use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH, toolchain};
+use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH as NIA_PROTOCOL_EPOCH};
 use nia_git::checkout_source;
 use nia_query::FingerprintDomain;
 use registry::{
@@ -270,17 +270,19 @@ impl PackageId {
         )
     }
 
-    /// Returns the canonical identity of the toolchain standard library.
-    pub fn standard_library() -> Self {
+    /// Returns the canonical identity of a package shipped with the toolchain.
+    ///
+    /// The protocol epoch is part of the version, so linkage owned by one
+    /// release line never matches another.
+    pub fn toolchain(name: &str) -> Self {
         Self {
             namespace: "nia".into(),
-            name: "std".into(),
+            name: name.into(),
             version: PackageVersion::parse(&format!(
-                "{}+std{}",
-                COMPILER_VERSION,
-                toolchain::STANDARD_LIBRARY
+                "{COMPILER_VERSION}+{name}{}",
+                NIA_PROTOCOL_EPOCH
             ))
-            .expect("compiler standard library identity is valid SemVer"),
+            .expect("toolchain package identity is valid SemVer"),
         }
     }
 }
@@ -5578,7 +5580,7 @@ mod tests {
             assert!(PackageVersion::parse(version).is_err(), "{version:?}");
         }
 
-        assert!(Version::parse(PackageId::standard_library().version.as_str()).is_ok());
+        assert!(Version::parse(PackageId::toolchain("std").version.as_str()).is_ok());
 
         let first = PackageVersion::parse("1.2.3+one").unwrap();
         let second = PackageVersion::parse("1.2.3+two").unwrap();

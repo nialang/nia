@@ -19,22 +19,6 @@ const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.compatibility-identity");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 
-/// Canonical symbol namespace used by the compiler-provided startup runtime.
-///
-/// This is derived from the same release identity used to construct
-/// [`SourceRuntimeSpec::package`], so backend ownership checks cannot drift
-/// when the compiler release changes.
-pub fn runtime_symbol_package_identity() -> String {
-    nia_package_metadata::PackageId {
-        namespace: "nia".to_string(),
-        name: "runtime".to_string(),
-        version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH)
-            .parse()
-            .expect("runtime package identity is valid SemVer"),
-    }
-    .canonical_text()
-}
-
 /// File name of the versioned compatibility manifest under a resource root.
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 
@@ -89,15 +73,6 @@ impl ToolchainIdentity {
         builder.write_u64(u64::from(self.protocol_epoch));
         ToolchainIdentityFingerprint(builder.finish())
     }
-}
-
-/// Runtime dependency made visible to a private runtime source package.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RuntimeDependency {
-    /// The package containing the user-selected entry module.
-    EntryPackage,
-    /// The standard-library package selected for this compilation.
-    StandardLibrary,
 }
 
 /// External entry point selected from a runtime source package.
@@ -155,28 +130,15 @@ impl RuntimeExport {
 /// Validated private source package implementing executable startup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceRuntimeSpec {
-    package_root: PathBuf,
-    package_root_identity: String,
-    package: nia_package_metadata::PackageId,
+    package: ToolchainPackage,
     entry_point: RuntimeEntryPoint,
     required_exports: Vec<RuntimeExport>,
     target: TargetConfig,
-    dependencies: Vec<RuntimeDependency>,
 }
 
 impl SourceRuntimeSpec {
-    /// Validated physical root of the private runtime source package.
-    pub fn package_root(&self) -> &std::path::Path {
-        &self.package_root
-    }
-
-    /// Stable identity of the private runtime package facade.
-    pub fn package_root_identity(&self) -> &str {
-        &self.package_root_identity
-    }
-
-    /// Stable package identity owning source and cached native startup units.
-    pub fn package(&self) -> &nia_package_metadata::PackageId {
+    /// The runtime source package.
+    pub fn package(&self) -> &ToolchainPackage {
         &self.package
     }
 
@@ -193,11 +155,6 @@ impl SourceRuntimeSpec {
     /// Target configuration for which this runtime was selected.
     pub fn target(&self) -> &TargetConfig {
         &self.target
-    }
-
-    /// Explicit package bindings visible to runtime source.
-    pub fn dependencies(&self) -> &[RuntimeDependency] {
-        &self.dependencies
     }
 }
 
@@ -277,15 +234,7 @@ impl RuntimeSpec {
             ("_start", "_start")
         };
         Ok(Self::Source(Box::new(SourceRuntimeSpec {
-            package_root: package.root_file(),
-            package_root_identity: package.root_identity(),
-            package: nia_package_metadata::PackageId {
-                namespace: "nia".to_string(),
-                name: "runtime".to_string(),
-                version: format!("{}+runtime{}", COMPILER_VERSION, PROTOCOL_EPOCH)
-                    .parse()
-                    .expect("runtime package identity is valid SemVer"),
-            },
+            package: package.clone(),
             entry_point: RuntimeEntryPoint {
                 module_identity: package.identity(&format!(
                     "start/freestanding/{}/{implementation}.nia",
@@ -296,10 +245,6 @@ impl RuntimeSpec {
             },
             required_exports: required_exports.into_iter().collect(),
             target: *target,
-            dependencies: vec![
-                RuntimeDependency::EntryPackage,
-                RuntimeDependency::StandardLibrary,
-            ],
         })))
     }
 
@@ -313,14 +258,6 @@ impl RuntimeSpec {
                 runtime: runtime.target,
                 request: *target,
             });
-        }
-        if runtime.dependencies.as_slice()
-            != [
-                RuntimeDependency::EntryPackage,
-                RuntimeDependency::StandardLibrary,
-            ]
-        {
-            return Err(RuntimeSpecError::InvalidDependencies);
         }
         Ok(())
     }
@@ -336,8 +273,6 @@ pub enum RuntimeSpecError {
         runtime: TargetConfig,
         request: TargetConfig,
     },
-    /// The runtime package dependency contract is not supported.
-    InvalidDependencies,
 }
 
 impl fmt::Display for RuntimeSpecError {
@@ -350,12 +285,6 @@ impl fmt::Display for RuntimeSpecError {
                 f,
                 "runtime target `{runtime}` does not match request target `{request}`"
             ),
-            Self::InvalidDependencies => {
-                write!(
-                    f,
-                    "runtime dependencies must contain exactly the entry package"
-                )
-            }
         }
     }
 }
@@ -388,9 +317,9 @@ impl ToolchainPackage {
         }
     }
 
-    /// Package name, also the directory name below the resource root.
-    pub fn name(&self) -> &str {
-        &self.name
+    /// Canonical package identity owning the package's linkage.
+    pub fn id(&self) -> nia_package_metadata::PackageId {
+        nia_package_metadata::PackageId::toolchain(&self.name)
     }
 
     /// Physical root file of the package's module tree.
@@ -407,18 +336,11 @@ impl ToolchainPackage {
     pub fn root_identity(&self) -> String {
         self.identity(&self.library_path)
     }
-}
 
-/// Runtime source modules shipped in the resolved resource bundle.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeResources {
-    freestanding: ToolchainPackage,
-}
-
-impl RuntimeResources {
-    /// Returns the private source package implementing freestanding startup.
-    pub fn freestanding_package(&self) -> &ToolchainPackage {
-        &self.freestanding
+    /// Relocation-independent identity of the package directory, which
+    /// scopes the package's dependency names.
+    pub fn directory_identity(&self) -> String {
+        format!("toolchain:/{}", self.name)
     }
 }
 
@@ -431,7 +353,7 @@ pub struct ToolchainLayout {
     identity: ToolchainIdentity,
     host_target: TargetConfig,
     artifact_target: TargetConfig,
-    runtime: RuntimeResources,
+    runtime: ToolchainPackage,
     bundled_lld: Option<PathBuf>,
 }
 
@@ -486,7 +408,7 @@ impl ToolchainLayout {
         validate_identity(&manifest_path, &identity)?;
 
         let std = read_toolchain_package(&resource_root, "std", ResourceRole::StandardLibrary)?;
-        let freestanding =
+        let runtime =
             read_toolchain_package(&resource_root, "runtime", ResourceRole::FreestandingRuntime)?;
         let bundled_lld = match resource_root
             .parent()
@@ -504,7 +426,7 @@ impl ToolchainLayout {
             identity,
             host_target,
             artifact_target: request.artifact_target.unwrap_or(host_target),
-            runtime: RuntimeResources { freestanding },
+            runtime,
             bundled_lld,
         })
     }
@@ -529,7 +451,7 @@ impl ToolchainLayout {
     /// Runtime startup is a private toolchain source package, not a module
     /// owned by the standard library.
     pub fn freestanding_runtime_package(&self) -> &ToolchainPackage {
-        self.runtime.freestanding_package()
+        &self.runtime
     }
 
     /// Returns the manifest compatibility identity.
@@ -545,11 +467,6 @@ impl ToolchainLayout {
     /// Returns the independently selected target for produced artifacts.
     pub const fn artifact_target(&self) -> &TargetConfig {
         &self.artifact_target
-    }
-
-    /// Returns validated runtime resource paths.
-    pub const fn runtime(&self) -> &RuntimeResources {
-        &self.runtime
     }
 
     /// Returns the bundled LLD executable when the resource tree provides one.
@@ -1274,19 +1191,18 @@ mod tests {
             let runtime = RuntimeSpec::freestanding(&layout, &target).expect("runtime target");
             let source = runtime.source().expect("source runtime");
 
+            let package = source.package();
+            assert_eq!(package.root_identity(), "toolchain:/runtime/root.nia");
+            assert_eq!(package.directory_identity(), "toolchain:/runtime");
             assert_eq!(
-                source.package_root_identity(),
-                "toolchain:/runtime/root.nia"
-            );
-            assert_eq!(
-                source.package().canonical_text(),
-                runtime_symbol_package_identity()
+                package.id(),
+                nia_package_metadata::PackageId::toolchain("runtime")
             );
             let expected_runtime_root = root
                 .join("lib/runtime/root.nia")
                 .canonicalize()
                 .unwrap_or_else(|_| root.join("lib/runtime/root.nia"));
-            assert_eq!(source.package_root(), expected_runtime_root);
+            assert_eq!(package.root_file(), expected_runtime_root);
             assert_eq!(
                 source.entry_point().module_identity(),
                 format!(
@@ -1337,13 +1253,6 @@ mod tests {
                     )]
                 );
             }
-            assert_eq!(
-                source.dependencies(),
-                [
-                    RuntimeDependency::EntryPackage,
-                    RuntimeDependency::StandardLibrary
-                ]
-            );
             assert_eq!(source.target(), &target);
             assert_eq!(runtime.validate_for_target(&target), Ok(()));
         }

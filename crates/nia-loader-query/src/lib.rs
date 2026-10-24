@@ -57,19 +57,11 @@ use std::{collections::HashSet, path::PathBuf, sync::Arc};
 /// Returns the physical and relocation-independent identity of the selected
 /// private runtime source package.
 pub(crate) fn runtime_package_root_path(runtime: &SourceRuntimeSpec) -> SourcePath {
+    let package = runtime.package();
     SourcePath::with_identity(
-        runtime.package_root().to_string_lossy().into_owned(),
-        runtime.package_root_identity(),
+        package.root_file().to_string_lossy().into_owned(),
+        package.root_identity(),
     )
-}
-
-/// Logical directory that scopes the runtime's private dependencies.
-fn runtime_package_directory(runtime: &SourceRuntimeSpec) -> nia_source::SourceIdentity {
-    let root = runtime.package_root_identity();
-    let directory = root
-        .rsplit_once('/')
-        .map_or(root, |(directory, _)| directory);
-    nia_source::SourceIdentity::new(directory)
 }
 
 fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
@@ -1008,9 +1000,10 @@ fn effective_module_map(
     toolchain: Option<&ToolchainLayout>,
 ) -> ModuleMap {
     let module_map = match runtime.source() {
-        Some(runtime) => {
-            module_map.with_runtime_program(&runtime_package_directory(runtime), entry_path.clone())
-        }
+        Some(runtime) => module_map.with_runtime_program(
+            &nia_source::SourceIdentity::new(runtime.package().directory_identity()),
+            entry_path.clone(),
+        ),
         None => module_map,
     };
     let Some(toolchain) = toolchain else {

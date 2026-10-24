@@ -16,11 +16,11 @@ fn symbol_package_identities(
     let mut identities = HashMap::new();
     for module in graph.modules() {
         let package = if graph.current_package_root(module.id) == graph.std_package_root() {
-            nia_package_metadata::PackageId::standard_library().canonical_text()
+            nia_package_metadata::PackageId::toolchain("std").canonical_text()
         } else if graph.current_package_root(module.id) == runtime_root
             && let nia_toolchain::RuntimeSpec::Source(runtime) = &runtime
         {
-            runtime.package().canonical_text()
+            runtime.package().id().canonical_text()
         } else if graph.current_package_root(module.id) == entry_root
             && let Some(current_package) = &current_package
         {

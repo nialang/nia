@@ -474,7 +474,7 @@ impl FrontendCacheNamespace {
             RuntimeSpec::Bare => builder.write_u8(0),
             RuntimeSpec::Source(runtime) => {
                 builder.write_u8(1);
-                builder.write_str(runtime.package_root_identity());
+                builder.write_str(&runtime.package().root_identity());
                 builder.write_str(runtime.entry_point().module_identity());
                 builder.write_str(runtime.entry_point().definition_name());
                 builder.write_str(runtime.entry_point().linker_symbol());
@@ -482,13 +482,6 @@ impl FrontendCacheNamespace {
                 for export in runtime.required_exports() {
                     builder.write_str(export.module_identity());
                     builder.write_str(export.definition_name());
-                }
-                builder.write_u64(runtime.dependencies().len() as u64);
-                for dependency in runtime.dependencies() {
-                    builder.write_u8(match dependency {
-                        nia_toolchain::RuntimeDependency::EntryPackage => 0,
-                        nia_toolchain::RuntimeDependency::StandardLibrary => 1,
-                    });
                 }
             }
         }

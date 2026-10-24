@@ -666,11 +666,6 @@ impl ModuleGraph {
         self.package_root(&known::STD)
     }
 
-    /// Interns and returns the standard-library package root.
-    pub fn intern_std_package_root(&mut self, path: SourcePath) -> nia_ice::IceResult<ModuleId> {
-        self.intern_package_root(&known::STD, path)
-    }
-
     /// Interns the injected runtime's package root.
     ///
     /// Its tree identity is not an identifier, so user source cannot name it;

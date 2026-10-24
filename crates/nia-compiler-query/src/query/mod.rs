@@ -446,12 +446,12 @@ impl CompilerDatabase {
             return Ok(current_package.clone());
         }
         if graph.current_package_root(def_id.module_id) == graph.std_package_root() {
-            return Ok(PackageId::standard_library());
+            return Ok(PackageId::toolchain("std"));
         }
         if graph.current_package_root(def_id.module_id) == graph.runtime_package_root()
             && let RuntimeSpec::Source(runtime) = self.db.get(CompilerRuntimeQuery)?.as_ref()
         {
-            return Ok(runtime.package().clone());
+            return Ok(runtime.package().id());
         }
         // Any remaining source root is owned by the current package.
         Ok(current_package.clone())

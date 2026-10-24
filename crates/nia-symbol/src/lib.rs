@@ -233,13 +233,9 @@ pub mod known {
     known_symbol!(TEST, "test");
 
     known_symbol!(MAIN, "main");
-    known_symbol!(START_ENTRY, "_start");
     known_symbol!(START, "start");
     known_symbol!(TRUE, "true");
     known_symbol!(FALSE, "false");
-    known_symbol!(FREESTANDING, "freestanding");
-    known_symbol!(LINUX, "linux");
-    known_symbol!(X86_64, "x86_64");
 
     known_symbol!(BOOL, "bool");
     known_symbol!(CHAR, "char");
@@ -401,13 +397,9 @@ pub mod known {
         (NAKED, "naked"),
         (TRACK_CALLER, "trackCaller"),
         (MAIN, "main"),
-        (START_ENTRY, "_start"),
         (START, "start"),
         (TRUE, "true"),
         (FALSE, "false"),
-        (FREESTANDING, "freestanding"),
-        (LINUX, "linux"),
-        (X86_64, "x86_64"),
         (BOOL, "bool"),
         (CHAR, "char"),
         (NEVER, "never"),

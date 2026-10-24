@@ -274,10 +274,6 @@ pub mod abi {
 
 /// Versions coupling the compiler to installed resources and build runners.
 pub mod toolchain {
-    /// Installed toolchain resource protocol epoch.
-    pub const RESOURCE_LAYOUT: u32 = super::PROTOCOL_EPOCH;
-    /// Standard-library protocol epoch.
-    pub const STANDARD_LIBRARY: u32 = super::PROTOCOL_EPOCH;
     /// Protocol epoch shared with compiled build runners.
     pub const BUILD_PROTOCOL: u32 = super::PROTOCOL_EPOCH;
 }
