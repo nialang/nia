@@ -19,7 +19,7 @@ const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.compatibility-identity");
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 /// Stable package identity owned by the compiler-provided startup runtime.
-pub const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/pkg.nia";
+pub const RUNTIME_PACKAGE_IDENTITY: &str = "toolchain:/runtime/root.nia";
 
 /// Canonical symbol namespace used by the compiler-provided startup runtime.
 ///
@@ -452,9 +452,9 @@ impl ToolchainLayout {
         let identity = parse_manifest(&manifest_path, &manifest)?;
         validate_identity(&manifest_path, &identity)?;
 
-        let std_module = resource_root.join("std/pkg.nia");
+        let std_module = resource_root.join("std/root.nia");
         validate_file(&std_module, ResourceRole::StandardLibrary)?;
-        let freestanding_package_root = resource_root.join("runtime/pkg.nia");
+        let freestanding_package_root = resource_root.join("runtime/root.nia");
         validate_file(
             &freestanding_package_root,
             ResourceRole::FreestandingRuntime,
@@ -1070,9 +1070,12 @@ mod tests {
             nia_compat::toolchain_manifest(),
         )
         .expect("write manifest");
-        fs::write(resources.join("std/pkg.nia"), "pub module start;").expect("write std root");
-        fs::write(resources.join("runtime/pkg.nia"), "pub(root) module start;")
-            .expect("write runtime root");
+        fs::write(resources.join("std/root.nia"), "pub module start;").expect("write std root");
+        fs::write(
+            resources.join("runtime/root.nia"),
+            "pub(root) module start;",
+        )
+        .expect("write runtime root");
         fs::write(resources.join("runtime/start.nia"), "").expect("write runtime");
         executable
     }
@@ -1161,7 +1164,7 @@ mod tests {
         assert_ne!(relocated.resource_root(), installed.resource_root());
         assert_eq!(
             relocated.std_module(),
-            relocated.resource_root().join("std/pkg.nia")
+            relocated.resource_root().join("std/root.nia")
         );
     }
 
@@ -1189,9 +1192,9 @@ mod tests {
                 runtime_symbol_package_identity()
             );
             let expected_runtime_root = root
-                .join("lib/runtime/pkg.nia")
+                .join("lib/runtime/root.nia")
                 .canonicalize()
-                .unwrap_or_else(|_| root.join("lib/runtime/pkg.nia"));
+                .unwrap_or_else(|_| root.join("lib/runtime/root.nia"));
             assert_eq!(source.package_root(), expected_runtime_root);
             assert_eq!(
                 source.entry_point().module_identity(),
@@ -1262,7 +1265,7 @@ mod tests {
 
         let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let runtime =
-            RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &target).unwrap();
+            RuntimeSpec::freestanding_from_package_root("runtime/root.nia", &target).unwrap();
         let different = TargetConfig::parse("x86-unknown-linux").unwrap();
         assert!(matches!(
             runtime.validate_for_target(&different),

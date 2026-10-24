@@ -552,8 +552,12 @@ mod tests {
             nia_compat::toolchain_manifest(),
         )
         .unwrap();
-        fs::write(resources.join("std/pkg.nia"), "").unwrap();
-        fs::write(resources.join("runtime/pkg.nia"), "pub(root) module start;").unwrap();
+        fs::write(resources.join("std/root.nia"), "").unwrap();
+        fs::write(
+            resources.join("runtime/root.nia"),
+            "pub(root) module start;",
+        )
+        .unwrap();
         fs::write(resources.join("runtime/start.nia"), "").unwrap();
         let toolchain = Arc::new(
             nia_toolchain::ToolchainLayout::resolve(
@@ -603,7 +607,7 @@ mod tests {
             std::env::temp_dir().join(format!("nia-runner-cache-key-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let invocation = invocation(&root);
-        let std_root = invocation.toolchain.resource_root().join("std/pkg.nia");
+        let std_root = invocation.toolchain.resource_root().join("std/root.nia");
         fs::write(&std_root, b"pub fun first() () {}").unwrap();
         let runner = BuildRunnerSource {
             path: "runner.nia".into(),

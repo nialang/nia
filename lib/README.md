@@ -9,7 +9,7 @@ version and resource protocol this tree belongs to.
 
 ## Modules
 
-Each module below is a public facade declared in `std/pkg.nia`. Common types
+Each module below is a public facade declared in `std/root.nia`. Common types
 are also re-exported at the root: `std::String`, `std::ArrayList`,
 `std::HashMap`, `std::Path`, `std::PathView`, `std::CString`,
 `std::CStringView`, `std::Atomic`, `std::SourceLocation`.

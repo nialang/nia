@@ -22,7 +22,7 @@ $binary = Join-Path $repoRoot 'target\x86_64-pc-windows-msvc\release\nia.exe'
 $lld = Join-Path $llvmPrefix 'bin\ld.lld.exe'
 $resourceRoot = Join-Path $repoRoot 'lib'
 if (-not (Test-Path $llvmPrefix -PathType Container)) { throw "release input is missing: $llvmPrefix" }
-foreach ($required in @($binary, $lld, (Join-Path $resourceRoot 'toolchain.meta'), (Join-Path $resourceRoot 'std\pkg.nia'), (Join-Path $resourceRoot 'runtime\start.nia'))) {
+foreach ($required in @($binary, $lld, (Join-Path $resourceRoot 'toolchain.meta'), (Join-Path $resourceRoot 'std\root.nia'), (Join-Path $resourceRoot 'runtime\start.nia'))) {
     if (-not (Test-Path $required -PathType Leaf)) { throw "release input is missing: $required" }
 }
 

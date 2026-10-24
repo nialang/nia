@@ -379,26 +379,33 @@ pub(super) fn resolve_cached_source_path(
     }
 
     // Cache identities are logical and stable, while source roots may move.
-    // Prefer the longest matching logical root when rebuilding physical paths.
+    // A tree root's modules live in the root file's directory, so rebuild a
+    // physical path below the longest matching root directory.
     let remapped = source_roots
         .iter()
         .filter_map(|root| {
             let root_identity = root.identity();
-            let (logical_root, physical_root) =
-                if let Some(prefix) = root_identity.normalized_path().strip_suffix("/pkg.nia") {
-                    (prefix, root.as_str().strip_suffix("/pkg.nia")?)
-                } else if root_identity.normalized_path() == "pkg.nia" {
-                    ("", root.as_str().strip_suffix("pkg.nia")?)
-                } else {
-                    (
-                        root_identity.normalized_path().strip_suffix(".nia")?,
-                        root.as_str().strip_suffix(".nia")?,
-                    )
-                };
-            let suffix = logical.strip_prefix(logical_root)?.strip_prefix('/')?;
+            let logical_root = root_identity
+                .normalized_path()
+                .rsplit_once('/')
+                .map_or("", |(directory, _)| directory);
+            let physical_root = root
+                .as_str()
+                .rsplit_once('/')
+                .map_or("", |(directory, _)| directory);
+            let suffix = if logical_root.is_empty() {
+                logical
+            } else {
+                logical.strip_prefix(logical_root)?.strip_prefix('/')?
+            };
+            let physical = if physical_root.is_empty() {
+                suffix.to_owned()
+            } else {
+                format!("{physical_root}/{suffix}")
+            };
             Some((
                 logical_root.len(),
-                SourcePath::with_identity(format!("{physical_root}/{suffix}"), logical),
+                SourcePath::with_identity(physical, logical),
             ))
         })
         .max_by_key(|(prefix_len, _)| *prefix_len)

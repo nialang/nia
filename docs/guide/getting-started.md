@@ -215,8 +215,10 @@ Both commands report progress on stderr: a status line and a final summary by
 default, `-q` to silence it, and `-v` through `-vvv` for more detail. See
 [Progress output](build-scripts.md#progress-output).
 
-`nia check` and `nia emit` take a source file or a directory. A directory must
-contain `main.nia` (an executable entry) or `pkg.nia` (a library package):
+`nia check` and `nia emit` take a source file or a directory. A directory names
+its `main.nia`, or, for a library package, the `[library].path` of its
+`nia.toml`. Either file roots a module tree, and its child modules sit beside
+it:
 
 ```sh
 nia check src --runtime freestanding
@@ -227,7 +229,8 @@ nia emit --exe src/main.nia -o hello
 `emit` accepts `--tokens`, `--ast`, `--checked`, `--backend`, and `--llvm` to
 print intermediate forms, `--obj` to write object files, and `--exe` to write
 an executable. `-M <name>=<path>` maps an extra package name to a source file
-or directory, so `using name;` can find it; a build script declares its
+or to a package directory's `[library].path`, so `using name;` can find it; a
+build script declares its
 packages instead, so `nia build` and `nia test` do not accept `-M`.
 
 Global options apply to every command and may come before or after it:

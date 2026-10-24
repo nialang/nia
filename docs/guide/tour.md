@@ -762,7 +762,8 @@ extend Rect {
 area=12
 ```
 
-Children of the entry file sit next to it; children of `geometry.nia` live in
+Children of a module-tree root, such as the entry file or a library's
+`[library].path`, sit next to it; children of `geometry.nia` live in
 `geometry/`. Items are private to their module by default. `pub` exports an
 item, `pub(super)` exposes it to the parent module, and `pub(root)` to the whole
 module tree. `pub module` makes a child module part of the public surface, and

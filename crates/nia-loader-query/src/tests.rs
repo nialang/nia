@@ -202,7 +202,6 @@ fn test_loader_context(
 ) -> LoaderContext {
     LoaderContext {
         entry_path: entry_path.clone(),
-        package_root: None,
         module_map: effective_module_map(
             module_map,
             &entry_path,
@@ -476,6 +475,9 @@ fn public_surface_facts_cache_identity(file: &SourceFile) -> PublicSurfaceFactsC
 }
 
 fn write(path: &Path, source: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create source directory");
+    }
     fs::write(path, source).expect("write source");
 }
 

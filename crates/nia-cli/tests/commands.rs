@@ -50,11 +50,13 @@ fn assert_source_error_json(stderr: &str, code: &str, source: &std::path::Path) 
 #[test]
 fn dependency_errors_preserve_identity_across_command_formats() {
     let root = temp_dir("dependency_error_formats");
-    let dependency = root.join("dep.nia");
-    let build_dependency = root.join("build/dep.nia");
-    let main = root.join("main.nia");
+    // `build.nia` and `src/main.nia` each root a tree, so each one's `dep`
+    // sits beside it.
+    let dependency = root.join("src/dep.nia");
+    let build_dependency = root.join("dep.nia");
+    let main = root.join("src/main.nia");
+    std::fs::create_dir(root.join("src")).expect("source directory");
     std::fs::write(&dependency, "pub fun value() i32 { missing }\n").expect("invalid dependency");
-    std::fs::create_dir(root.join("build")).expect("build script module directory");
     std::fs::copy(&dependency, &build_dependency).expect("build script dependency");
     std::fs::write(&main, "module dep; pub fun main() i32 { dep::value() }\n")
         .expect("entry source");

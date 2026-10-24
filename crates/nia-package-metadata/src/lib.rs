@@ -3173,9 +3173,7 @@ impl WorkspaceManifest {
                 return Self::read(root).map(Some);
             }
             if package_root.is_none()
-                && (has_manifest
-                    || regular_file_exists(&root.join("build.nia"), "build script")?
-                    || regular_file_exists(&root.join("pkg.nia"), "package script")?)
+                && (has_manifest || regular_file_exists(&root.join("build.nia"), "build script")?)
             {
                 package_root = Some(root);
             }

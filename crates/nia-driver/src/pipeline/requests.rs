@@ -17,8 +17,6 @@ use nia_toolchain::RuntimeSpec;
 pub struct CheckRequest {
     /// Entry source path.
     pub entry_path: SourcePath,
-    /// Optional package root source path shared by the entry module.
-    pub package_root: Option<SourcePath>,
     /// Canonical identity used for current-package linkage when publishing
     /// reusable native objects.
     pub current_package: Option<PackageId>,
@@ -48,7 +46,6 @@ impl CheckRequest {
     pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
             entry_path,
-            package_root: None,
             current_package: None,
             module_map: ModuleMap::default(),
             optimization: NiaOptimizationLevel::default(),
@@ -58,12 +55,6 @@ impl CheckRequest {
             compilation_mode: CompilationMode::default(),
             package_graph_options: PackageGraphOptions::default(),
         }
-    }
-
-    /// Selects a separate `pkg.nia` package root for this entry.
-    pub fn with_package_root(mut self, package_root: SourcePath) -> Self {
-        self.package_root = Some(package_root);
-        self
     }
 
     /// Binds current-source linkage to the package identity that will own the

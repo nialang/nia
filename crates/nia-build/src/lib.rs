@@ -85,7 +85,7 @@ pub use configure_observation::{
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
-pub use nia_package_metadata::{LockPolicy, LockUpdate, LockUpdateKind};
+pub use nia_package_metadata::{LockPolicy, LockUpdate, LockUpdateKind, PackageManifest};
 pub use output_recovery::OutputRecoveryError;
 pub use process_output::{ProcessOutputStream, ProcessOutputWriter};
 pub use progress::{
@@ -3591,7 +3591,7 @@ fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
         // A package root is a hard discovery boundary. Do not accidentally
         // run a parent package's build script for a child package that has no
         // build script of its own.
-        if cursor.join("pkg.nia").is_file() || cursor.join("nia.toml").is_file() {
+        if cursor.join("nia.toml").is_file() {
             return Err(BuildError::MissingBuildScript {
                 start: start.to_path_buf(),
             });
@@ -4330,7 +4330,14 @@ mod tests {
         let child = root.join("vendor").join("tool");
         std::fs::create_dir_all(&child).expect("create child package");
         std::fs::write(root.join("build.nia"), "").expect("write parent build script");
-        std::fs::write(child.join("pkg.nia"), "").expect("write child package root");
+        std::fs::write(
+            child.join("nia.toml"),
+            "[package]
+name = \"tool\"
+version = \"1.0.0\"
+",
+        )
+        .expect("write child package manifest");
 
         let error =
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&child))

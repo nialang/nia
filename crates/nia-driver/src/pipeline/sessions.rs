@@ -15,7 +15,6 @@ use nia_toolchain::RuntimeSpec;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct LoaderKey {
     pub(super) entry_path: SourcePath,
-    pub(super) package_root: Option<SourcePath>,
     pub(super) module_map: ModuleMap,
     pub(super) target: TargetConfig,
     pub(super) profile: BuildProfile,

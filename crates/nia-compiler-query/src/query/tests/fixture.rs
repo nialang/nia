@@ -153,7 +153,7 @@ impl LoadedProgramFixture {
 
     pub(super) fn add_freestanding_runtime(&mut self, source: &str) -> ModuleId {
         let runtime_root_path =
-            SourcePath::with_identity("runtime/pkg.nia", "toolchain:/runtime/pkg.nia");
+            SourcePath::with_identity("runtime/root.nia", "toolchain:/runtime/root.nia");
         let runtime_root = self
             .graph
             .intern_runtime_package_root(runtime_root_path.clone())
@@ -314,7 +314,7 @@ pub(super) fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedMod
 
 pub(super) fn test_freestanding_runtime() -> RuntimeSpec {
     RuntimeSpec::source_from_package_root(
-        "runtime/pkg.nia",
+        "runtime/root.nia",
         &TargetConfig::host().expect("tests run on a maintained host"),
         [],
     )

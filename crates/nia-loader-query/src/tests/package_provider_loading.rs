@@ -48,7 +48,7 @@ extend[Unit] [Unit] where Unit: Sized {
 fn query_loader_loads_trait_provider_declared_in_package_root() {
     let root = temp_dir("query_loader_loads_trait_provider_declared_in_package_root");
     let main_path = root.join("main.nia");
-    let pkg_root = root.join("dep.nia");
+    let pkg_root = root.join("dep/lib.nia");
     write(
         &main_path,
         "using dep::types; fun main(value: types::Widget) () { _ = value; }",
@@ -88,7 +88,7 @@ extend types::Widget : Len {
 fn query_loader_processes_imports_owned_by_trait_provider() {
     let root = temp_dir("query_loader_processes_imports_owned_by_trait_provider");
     let main_path = root.join("main.nia");
-    let pkg_root = root.join("dep.nia");
+    let pkg_root = root.join("dep/lib.nia");
     write(&main_path, "fun main() () {}");
     fs::create_dir_all(root.join("dep")).expect("create dependency package");
     write(
@@ -145,7 +145,7 @@ extend types::Widget : Len {
 fn query_loader_loads_builtin_trait_provider_from_a_non_std_package() {
     let root = temp_dir("query_loader_loads_builtin_trait_provider_from_a_non_std_package");
     let main_path = root.join("main.nia");
-    let pkg_root = root.join("pkg.nia");
+    let pkg_root = root.join("lib.nia");
     write(
         &main_path,
         r#"
@@ -195,8 +195,8 @@ extend types::Widget : Len {
 fn query_loader_does_not_search_a_third_package_for_trait_implementations() {
     let root = temp_dir("query_loader_does_not_search_a_third_package_for_trait_implementations");
     let main_path = root.join("main.nia");
-    let dep_root = root.join("dep.nia");
-    let extra_root = root.join("extra.nia");
+    let dep_root = root.join("dep/lib.nia");
+    let extra_root = root.join("extra/lib.nia");
     write(
         &main_path,
         r#"
@@ -295,7 +295,7 @@ initialization.finish()
 fn query_loader_loads_package_private_provider_for_custom_reexported_type() {
     let root = temp_dir("query_loader_loads_package_private_provider_for_custom_reexported_type");
     let main_path = root.join("main.nia");
-    let pkg_root = root.join("pkg.nia");
+    let pkg_root = root.join("lib.nia");
     let main_source = r#"
 using dep::facade;
 

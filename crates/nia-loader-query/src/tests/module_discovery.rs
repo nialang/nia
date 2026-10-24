@@ -20,76 +20,58 @@ fn query_loader_loads_declared_modules_once() {
 }
 
 #[test]
-fn query_loader_keeps_package_root_separate_from_entry_module() {
-    let root = temp_dir("query_loader_keeps_package_root_separate_from_entry_module");
+fn query_loader_roots_the_tree_at_the_entry_file_whatever_lies_beside_it() {
+    let root = temp_dir("query_loader_roots_the_tree_at_the_entry_file");
     let main = root.join("main.nia");
-    let package = root.join("pkg.nia");
-    write(&package, "pub module config;");
+    // A file named like the removed package-root convention is ordinary.
+    write(&root.join("pkg.nia"), "pub module unrelated;");
     write(&root.join("config.nia"), "pub const answer: i32 = 42;");
     write(
         &main,
-        "using root::config; fun main() i32 { config::answer }",
+        "module config; using root::config; fun main() i32 { config::answer }",
     );
 
-    let program = super::load_program_request(
-        test_request(main.to_string_lossy().into_owned())
-            .with_package_root(SourcePath::new(package.to_string_lossy())),
-    )
-    .expect("package-root program load");
+    let program = load_program(main.to_string_lossy().into_owned());
 
     assert_no_error_diagnostics(&program);
     let entry = program.graph.entry();
-    let package_root = program
-        .graph
-        .current_package_root(entry)
-        .expect("entry package root");
-    assert_ne!(entry, package_root);
-    assert_eq!(
-        program.graph.get(entry).expect("entry module").path,
-        SourcePath::new(main.to_string_lossy())
-    );
-    assert_eq!(
-        program.graph.get(package_root).expect("package root").path,
-        SourcePath::new(package.to_string_lossy())
+    assert_eq!(program.graph.current_package_root(entry), Some(entry));
+    assert!(
+        program
+            .graph
+            .modules()
+            .all(|module| !module.path.as_str().ends_with("pkg.nia")),
+        "pkg.nia must not join the program tree"
     );
 }
 
 #[test]
-fn query_loader_discovers_package_relative_qualified_expression_paths() {
-    let root = temp_dir("query_loader_discovers_package_relative_qualified_expression_paths");
+fn query_loader_discovers_root_qualified_expression_paths() {
+    let root = temp_dir("query_loader_discovers_root_qualified_expression_paths");
     let main = root.join("main.nia");
-    let package = root.join("pkg.nia");
-    write(&package, "pub module config;");
     write(&root.join("config.nia"), "pub const answer: i32 = 42;");
-    write(&main, "fun main() i32 { root::config::answer }");
+    write(
+        &main,
+        "module config; fun main() i32 { root::config::answer }",
+    );
 
-    let program = super::load_program_request(
-        test_request(main.to_string_lossy().into_owned())
-            .with_package_root(SourcePath::new(package.to_string_lossy())),
-    )
-    .expect("package-root program load");
+    let program = load_program(main.to_string_lossy().into_owned());
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, root.join("config.nia").to_string_lossy().as_ref());
 }
 
 #[test]
-fn query_loader_discovers_package_relative_qualified_type_paths() {
-    let root = temp_dir("query_loader_discovers_package_relative_qualified_type_paths");
+fn query_loader_discovers_root_qualified_type_paths() {
+    let root = temp_dir("query_loader_discovers_root_qualified_type_paths");
     let main = root.join("main.nia");
-    let package = root.join("pkg.nia");
-    write(&package, "pub module config;");
     write(&root.join("config.nia"), "pub struct Config {}");
     write(
         &main,
-        "fun consume(value: root::config::Config) () { _ = value; }",
+        "module config; fun consume(value: root::config::Config) () { _ = value; }",
     );
 
-    let program = super::load_program_request(
-        test_request(main.to_string_lossy().into_owned())
-            .with_package_root(SourcePath::new(package.to_string_lossy())),
-    )
-    .expect("package-root program load");
+    let program = load_program(main.to_string_lossy().into_owned());
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, root.join("config.nia").to_string_lossy().as_ref());

@@ -199,19 +199,11 @@ fn build_module_graph(
         }
         None => {
             let source_table = db.context().sources.source_table();
-            let mut graph = match &db.context().package_root {
-                Some(package_root) => ModuleGraph::with_package_root_and_source_table(
-                    db.context().entry_path.clone(),
-                    package_root.clone(),
-                    std::sync::Arc::new(db.context().symbols.clone()),
-                    source_table,
-                ),
-                None => ModuleGraph::with_source_table(
-                    db.context().entry_path.clone(),
-                    std::sync::Arc::new(db.context().symbols.clone()),
-                    source_table,
-                ),
-            }?;
+            let mut graph = ModuleGraph::with_source_table(
+                db.context().entry_path.clone(),
+                std::sync::Arc::new(db.context().symbols.clone()),
+                source_table,
+            )?;
             inject_entry_runtime(db, &mut graph)?;
             (
                 graph,

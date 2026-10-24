@@ -75,10 +75,10 @@ across its three tables. Artifact sources and `build.nia` open a dependency
 under that name, `using regex;`, without declaring it again in the script. The
 name resolves to the dependency's `[library].path`, so a package that other
 packages import must declare one; the file must lie inside its source roots.
-The library entry is an ordinary module, not an entry file, so its child
-modules live in a directory named after it: with `path = "src/lib.nia"`,
-`pub module util;` loads `src/lib/util.nia`. Each dependency resolves its own dependencies from its own manifest, so two
-packages can use one name for different packages.
+The library entry roots its own module tree, so its child modules sit beside
+it: with `path = "src/lib.nia"`, `pub module util;` loads `src/util.nia`. Each
+dependency resolves its own dependencies from its own manifest, so two packages
+can use one name for different packages.
 
 A package's own artifacts and tests open its library the same way, by the
 package name: in package `hello`, `using hello;` opens `[library].path`. The

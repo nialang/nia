@@ -4,15 +4,15 @@ use super::*;
 fn query_loader_uses_package_module_map() {
     let root = temp_dir("query_loader_uses_package_module_map");
     write(&root.join("main.nia"), "using std::io;");
-    write(&root.join("std.nia"), "");
+    write(&root.join("std/root.nia"), "");
     fs::create_dir_all(root.join("std")).expect("create std dir");
-    write(&root.join("std.nia"), "pub module io;");
+    write(&root.join("std/root.nia"), "pub module io;");
     write(&root.join("std/io.nia"), "pub fun value() i32 { 1 }");
     let mut module_map = ModuleMap::new();
     module_map
         .insert(
             "std",
-            SourcePath::new(root.join("std.nia").to_string_lossy()),
+            SourcePath::new(root.join("std/root.nia").to_string_lossy()),
         )
         .expect("insert module map entry");
 

@@ -755,8 +755,8 @@ mod tests {
     #[test]
     fn normalized_source_paths_share_equal_physical_and_logical_text() {
         let path = SourcePath::with_normalized_identity_unchecked(
-            "toolchain:/std/pkg.nia",
-            "toolchain:/std/pkg.nia",
+            "toolchain:/std/root.nia",
+            "toolchain:/std/root.nia",
         );
 
         assert_eq!(path.as_str(), path.identity_ref().normalized_path());
@@ -778,10 +778,13 @@ mod tests {
     #[test]
     fn source_path_normalization_handles_windows_extended_drive_paths() {
         assert_eq!(
-            normalize_path(r"\\?\C:\Users\nia\lib\std\pkg.nia"),
-            "C:/Users/nia/lib/std/pkg.nia"
+            normalize_path(r"\\?\C:\Users\nia\lib\std\root.nia"),
+            "C:/Users/nia/lib/std/root.nia"
         );
-        assert_eq!(normalize_path(r"C:\work\..\lib\pkg.nia"), "C:/lib/pkg.nia");
+        assert_eq!(
+            normalize_path(r"C:\work\..\lib\root.nia"),
+            "C:/lib/root.nia"
+        );
     }
 
     #[test]
@@ -879,7 +882,8 @@ mod tests {
     #[test]
     fn source_table_interns_child_derivations_and_preserves_relocation() {
         let table = SourceTable::new();
-        let root = SourcePath::with_identity("/opt/nia/lib/std/pkg.nia", "toolchain:/std/pkg.nia");
+        let root =
+            SourcePath::with_identity("/opt/nia/lib/std/root.nia", "toolchain:/std/root.nia");
         let root_id = table.id_for_path(&root).expect("root id");
 
         let first = table
@@ -914,7 +918,7 @@ mod tests {
                 .path_for_id(nested)
                 .expect("nested child path")
                 .as_str(),
-            "/opt/nia/lib/std/pkg/collections.nia"
+            "/opt/nia/lib/std/root/collections.nia"
         );
     }
 

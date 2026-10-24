@@ -253,7 +253,6 @@ impl Driver {
     fn loader_database(&self, request: &CheckRequest) -> nia_query::QueryResult<LoaderDatabase> {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
-            package_root: request.package_root.clone(),
             module_map: request.module_map.clone(),
             target: self.config.artifact_target,
             profile: request.profile,
@@ -268,7 +267,7 @@ impl Driver {
         let database = match &*loader_guard {
             Some(loader) if loader.key == key => loader.database.clone(),
             _ => {
-                let mut load_request = LoadRequest::from_source_path(key.entry_path.clone())
+                let load_request = LoadRequest::from_source_path(key.entry_path.clone())
                     .with_module_map(key.module_map.clone())
                     .with_sources(self.sources.clone())
                     .with_target(key.target)
@@ -279,9 +278,6 @@ impl Driver {
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);
-                if let Some(package_root) = &key.package_root {
-                    load_request = load_request.with_package_root(package_root.clone());
-                }
                 let database = LoaderDatabase::new(load_request)?;
                 *loader_guard = Some(SessionLoader {
                     key,

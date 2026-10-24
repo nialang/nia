@@ -23,7 +23,7 @@ fn qualified_callable_visibility_matrix() {
             fs::create_dir_all(package.join("api")).expect("package modules");
             let entry = root.join("main.nia");
             let package_entry = if external {
-                root.join("dep.nia")
+                root.join("dep/lib.nia")
             } else {
                 entry.clone()
             };

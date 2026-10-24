@@ -40,6 +40,9 @@ pub(super) fn temp_dir(name: &str) -> PathBuf {
 }
 
 pub(super) fn write(path: &Path, source: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create source directory");
+    }
     fs::write(path, source).expect("write source file");
 }
 

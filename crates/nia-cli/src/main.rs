@@ -28,7 +28,7 @@ use std::{
     sync::Arc,
 };
 
-use nia_driver::{NiaOptimizationLevel, RuntimeSpec, SourcePath};
+use nia_driver::{NiaOptimizationLevel, RuntimeSpec};
 use nia_timing::TimingFormat;
 
 mod args;
@@ -361,7 +361,6 @@ struct CompileSettings {
 struct SourceEntry {
     path: String,
     source: String,
-    package_root: Option<SourcePath>,
 }
 
 impl SourceEntry {
@@ -370,7 +369,7 @@ impl SourceEntry {
         settings: &CompileSettings,
         runtime: RuntimeSpec,
     ) -> nia_driver::CheckRequest {
-        check_request(&self.path, self.package_root.as_ref())
+        nia_driver::CheckRequest::new(&self.path)
             .with_module_map(settings.module_map.clone())
             .with_optimization(settings.optimization)
             .with_profile(settings.profile)
@@ -408,12 +407,7 @@ impl SourceEntry {
 fn load_entry(path: &str, format: DiagnosticsFormat) -> Option<SourceEntry> {
     let loaded = resolve_source_entry(path).and_then(|path| {
         let source = read_source(&path)?;
-        let package_root = discover_package_root(&path)?;
-        Ok(SourceEntry {
-            path,
-            source,
-            package_root,
-        })
+        Ok(SourceEntry { path, source })
     });
     match loaded {
         Ok(entry) => Some(entry),
@@ -620,10 +614,10 @@ fn read_source(path: &str) -> Result<String, String> {
     Ok(source)
 }
 
-/// Resolves a file-or-package argument used by checking and emission.
+/// Resolves a file-or-directory argument used by checking and emission.
 ///
-/// A package directory prefers its executable entry (`main.nia`) and falls
-/// back to the package root (`pkg.nia`) for library-only packages.
+/// A directory names its executable entry, `main.nia`. A library has no entry
+/// file of its own: check it through the file its manifest names.
 fn resolve_source_entry(path: &str) -> Result<String, String> {
     let candidate = Path::new(path);
     match fs::metadata(candidate) {
@@ -633,12 +627,11 @@ fn resolve_source_entry(path: &str) -> Result<String, String> {
             if main.is_file() {
                 return Ok(main.to_string_lossy().into_owned());
             }
-            let package = candidate.join("pkg.nia");
-            if package.is_file() {
-                return Ok(package.to_string_lossy().into_owned());
+            if let Some(library) = manifest_library_entry(candidate)? {
+                return Ok(library);
             }
             Err(format!(
-                "source directory `{path}` contains neither `main.nia` nor `pkg.nia`"
+                "source directory `{path}` has no `main.nia` and no `nia.toml` with a `[library]` path"
             ))
         }
         Ok(_) => Err(format!(
@@ -649,74 +642,38 @@ fn resolve_source_entry(path: &str) -> Result<String, String> {
     }
 }
 
-/// Finds the nearest conventional package root for a source entry.
-fn discover_package_root(path: &str) -> Result<Option<SourcePath>, String> {
-    let source = Path::new(path);
-    if source.file_name().is_some_and(|name| name == "pkg.nia") {
+/// Returns the library entry a package directory's `nia.toml` declares.
+fn manifest_library_entry(directory: &Path) -> Result<Option<String>, String> {
+    if !directory.join("nia.toml").is_file() {
         return Ok(None);
     }
-    let mut directory = source
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    loop {
-        let candidate = directory.join("pkg.nia");
-        match fs::metadata(&candidate) {
-            Ok(metadata) if metadata.is_file() => {
-                return Ok(Some(SourcePath::new(
-                    candidate.to_string_lossy().into_owned(),
-                )));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "cannot inspect package root `{}`: {error}",
-                    candidate.display()
-                ));
-            }
-        }
-        if !directory.pop() {
-            return Ok(None);
-        }
-    }
+    let manifest = nia_build::PackageManifest::read(directory).map_err(|error| {
+        format!(
+            "cannot read `{}`: {error}",
+            directory.join("nia.toml").display()
+        )
+    })?;
+    Ok(manifest
+        .library_path
+        .map(|path| directory.join(path).to_string_lossy().into_owned()))
 }
 
-/// Resolves the user-facing package mapping shorthand.
-///
-/// A directory is a package only when it owns the conventional `pkg.nia`
-/// source root. Explicit source files remain accepted during the package-root
-/// migration so installed resources and generated packages can move together.
-fn resolve_package_root_path(path: &str) -> Result<PathBuf, String> {
+/// Resolves an `-M name=path` target to the root file of the mapped tree:
+/// the file itself, or the `[library]` path of a package directory.
+fn resolve_module_map_source(path: &str) -> Result<String, String> {
     let candidate = Path::new(path);
     match fs::metadata(candidate) {
-        Ok(metadata) if metadata.is_dir() => {
-            let package_root = candidate.join("pkg.nia");
-            if package_root.is_file() {
-                Ok(package_root)
-            } else {
-                Err(format!(
-                    "module map package directory `{path}` does not contain `pkg.nia`"
-                ))
-            }
-        }
-        Ok(metadata) if metadata.is_file() => Ok(candidate.to_path_buf()),
+        Ok(metadata) if metadata.is_dir() => manifest_library_entry(candidate)?.ok_or_else(|| {
+            format!("module map directory `{path}` has no `nia.toml` with a `[library]` path")
+        }),
+        Ok(metadata) if metadata.is_file() => Ok(path.to_string()),
         Ok(_) => Err(format!(
-            "module map package path `{path}` is neither a file nor a directory"
+            "module map path `{path}` is neither a file nor a directory"
         )),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            // Preserve useful loader diagnostics for paths that will be
-            // generated before compilation, while applying directory syntax.
-            if candidate.extension().is_none() {
-                Ok(candidate.join("pkg.nia"))
-            } else {
-                Ok(candidate.to_path_buf())
-            }
-        }
-        Err(error) => Err(format!(
-            "cannot inspect module map package `{path}`: {error}"
-        )),
+        // A path that does not exist yet keeps its spelling, so the loader
+        // reports it with the importing source.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path.to_string()),
+        Err(error) => Err(format!("cannot inspect module map path `{path}`: {error}")),
     }
 }
 
@@ -762,14 +719,6 @@ fn report_artifact_warnings(
         DiagnosticsFormat::Json => nia_driver::render_artifact_warnings_json(diagnostics),
     };
     write_diagnostic_report(&rendered, format);
-}
-
-fn check_request(path: &str, package_root: Option<&SourcePath>) -> nia_driver::CheckRequest {
-    let mut request = nia_driver::CheckRequest::new(path);
-    if let Some(package_root) = package_root {
-        request = request.with_package_root(package_root.clone());
-    }
-    request
 }
 
 fn checked_program_from_output(
@@ -1104,131 +1053,59 @@ fn print_optimization_report(report: &str) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn module_map_directory_resolves_package_root() {
-        let directory = nia_test_support::test_dir("module-map-package-root");
-        let package_root = directory.join("pkg.nia");
-        fs::write(&package_root, "").expect("write package root");
+    fn write_library_package(root: &Path) -> PathBuf {
+        fs::create_dir_all(root.join("src")).expect("create sources");
+        fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"math\"\nversion = \"1.0.0\"\n[library]\npath = \"src/math.nia\"\n",
+        )
+        .expect("write manifest");
+        let library = root.join("src/math.nia");
+        fs::write(&library, "").expect("write library");
+        library
+    }
 
+    #[test]
+    fn source_directory_prefers_main_then_manifest_library() {
+        let root = nia_test_support::test_dir("source-directory-entry");
+        let library = write_library_package(&root);
         assert_eq!(
-            resolve_package_root_path(directory.to_string_lossy().as_ref())
-                .expect("resolve package directory"),
-            package_root
+            resolve_source_entry(root.to_string_lossy().as_ref()).expect("library entry"),
+            library.to_string_lossy()
+        );
+        let main = root.join("main.nia");
+        fs::write(&main, "").expect("write main");
+        assert_eq!(
+            resolve_source_entry(root.to_string_lossy().as_ref()).expect("main entry"),
+            main.to_string_lossy()
         );
     }
 
     #[test]
-    fn module_map_directory_requires_package_root() {
-        let directory = nia_test_support::test_dir("module-map-missing-package-root");
-
-        let error = resolve_package_root_path(directory.to_string_lossy().as_ref())
-            .expect_err("directory without pkg.nia must fail");
-
-        assert!(error.contains("does not contain `pkg.nia`"), "{error}");
-    }
-
-    #[test]
-    fn unresolved_module_map_directory_uses_package_root_convention() {
-        assert_eq!(
-            resolve_package_root_path("vendor/math").expect("resolve directory spelling"),
-            PathBuf::from("vendor/math/pkg.nia")
-        );
-        assert_eq!(
-            resolve_package_root_path("vendor/math.nia").expect("preserve source spelling"),
-            PathBuf::from("vendor/math.nia")
-        );
-    }
-
-    #[test]
-    fn discover_package_root_uses_nearest_ancestor() {
-        let root = nia_test_support::test_dir("discover-package-root-nearest");
-        let package_root = root.join("pkg.nia");
-        let nested = root.join("src/nested");
-        fs::create_dir_all(&nested).expect("create nested source directory");
-        fs::write(&package_root, "").expect("write package root");
-        let entry = nested.join("main.nia");
-
-        assert_eq!(
-            discover_package_root(entry.to_string_lossy().as_ref()).expect("discover package root"),
-            Some(SourcePath::new(package_root.to_string_lossy()))
-        );
-    }
-
-    #[test]
-    fn discover_package_root_prefers_nested_package() {
-        let root = nia_test_support::test_dir("discover-package-root-nested");
-        let nested = root.join("vendor/math");
-        fs::create_dir_all(&nested).expect("create nested package directory");
-        fs::write(root.join("pkg.nia"), "").expect("write outer package root");
-        let nested_package = nested.join("pkg.nia");
-        fs::write(&nested_package, "").expect("write nested package root");
-        let entry = nested.join("main.nia");
-
-        assert_eq!(
-            discover_package_root(entry.to_string_lossy().as_ref())
-                .expect("discover nested package root"),
-            Some(SourcePath::new(nested_package.to_string_lossy()))
-        );
-    }
-
-    #[test]
-    fn discover_package_root_does_not_self_attach_pkg_module() {
-        let root = nia_test_support::test_dir("discover-package-root-self");
-        let package_root = root.join("pkg.nia");
-        fs::write(&package_root, "").expect("write package root");
-
-        assert_eq!(
-            discover_package_root(package_root.to_string_lossy().as_ref())
-                .expect("discover package root"),
-            None
-        );
-    }
-
-    #[test]
-    fn discover_package_root_keeps_standalone_sources_without_root() {
-        let root = nia_test_support::test_dir("discover-package-root-standalone");
-        let source = root.join("main.nia");
-        fs::create_dir_all(&root).expect("create standalone source directory");
-
-        assert_eq!(
-            discover_package_root(source.to_string_lossy().as_ref())
-                .expect("discover standalone package root"),
-            None
-        );
-    }
-
-    #[test]
-    fn source_directory_prefers_main_entry() {
-        let root = nia_test_support::test_dir("source-directory-prefers-main");
-        fs::write(root.join("pkg.nia"), "").expect("write package root");
-        fs::write(root.join("main.nia"), "").expect("write main entry");
-
-        assert_eq!(
-            resolve_source_entry(root.to_string_lossy().as_ref()).expect("resolve source entry"),
-            root.join("main.nia").to_string_lossy()
-        );
-    }
-
-    #[test]
-    fn source_directory_falls_back_to_package_root() {
-        let root = nia_test_support::test_dir("source-directory-package-root-fallback");
-        fs::write(root.join("pkg.nia"), "").expect("write package root");
-
-        assert_eq!(
-            resolve_source_entry(root.to_string_lossy().as_ref()).expect("resolve source entry"),
-            root.join("pkg.nia").to_string_lossy()
-        );
-    }
-
-    #[test]
-    fn source_directory_requires_an_entry_file() {
-        let root = nia_test_support::test_dir("source-directory-missing-entry");
+    fn source_directory_without_an_entry_is_an_error() {
+        let root = nia_test_support::test_dir("source-directory-without-entry");
+        // A file named like the old package root carries no meaning.
+        fs::write(root.join("pkg.nia"), "").expect("write unrelated file");
         let error = resolve_source_entry(root.to_string_lossy().as_ref())
-            .expect_err("empty source directory must fail");
+            .expect_err("directory without an entry");
+        assert!(error.contains("no `main.nia`"), "{error}");
+    }
 
-        assert!(
-            error.contains("neither `main.nia` nor `pkg.nia`"),
-            "{error}"
+    #[test]
+    fn module_map_directory_names_its_manifest_library() {
+        let root = nia_test_support::test_dir("module-map-directory");
+        let library = write_library_package(&root);
+        assert_eq!(
+            resolve_module_map_source(root.to_string_lossy().as_ref()).expect("library"),
+            library.to_string_lossy()
+        );
+        let empty = nia_test_support::test_dir("module-map-directory-without-library");
+        let error = resolve_module_map_source(empty.to_string_lossy().as_ref())
+            .expect_err("directory without a library");
+        assert!(error.contains("`[library]` path"), "{error}");
+        assert_eq!(
+            resolve_module_map_source("vendor/math.nia").expect("future file"),
+            "vendor/math.nia"
         );
     }
 

@@ -183,7 +183,7 @@ using root::missing; fun main() {}"#,
 #[test]
 fn package_root_names_current_mapped_package() {
     let root = temp_dir("package_root_names_current_mapped_package");
-    let dep_root = root.join("dep.nia");
+    let dep_root = root.join("dep/lib.nia");
     write(
         &root.join("main.nia"),
         r#"
@@ -194,8 +194,8 @@ fun main() i32 {
 }
 "#,
     );
-    write(&dep_root, "pub module api; pub module helper;");
     fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(&dep_root, "pub module api; pub module helper;");
     write(
         &root.join("dep/api.nia"),
         r#"
@@ -222,7 +222,7 @@ pub fun answer() i32 {
 #[test]
 fn mapped_package_cannot_reach_back_into_the_program() {
     let root = temp_dir("mapped_package_cannot_reach_back_into_the_program");
-    let dep_root = root.join("dep.nia");
+    let dep_root = root.join("dep/lib.nia");
     write(
         &root.join("main.nia"),
         r#"
@@ -235,8 +235,8 @@ fun main() i32 {
 }
 "#,
     );
-    write(&dep_root, "pub module api; pub fun main_value() i32 { 7 }");
     fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(&dep_root, "pub module api; pub fun main_value() i32 { 7 }");
     // Dependencies point away from the program: `root` is the dependency's
     // own root, and neither `entry` nor `program` names the program.
     for (body, expected) in [
@@ -1894,11 +1894,11 @@ fun need[T](value: T) i32 where T: Show[Output = i32] { value.show() }
 fun main(value: Widget) i32 { need(value) }
 "#,
     );
+    fs::create_dir_all(root.join("dep")).unwrap();
     write(
-        &root.join("dep.nia"),
+        &root.join("dep/lib.nia"),
         "pub module api; module impls; pub using api::{Widget, Show};",
     );
-    fs::create_dir_all(root.join("dep")).unwrap();
     write(
         &root.join("dep/api.nia"),
         r#"
@@ -1926,7 +1926,7 @@ extend Alias : ShowAlias {
     module_map
         .insert(
             "dep",
-            SourcePath::new(root.join("dep.nia").to_string_lossy()),
+            SourcePath::new(root.join("dep/lib.nia").to_string_lossy()),
         )
         .unwrap();
     let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
@@ -1945,7 +1945,10 @@ fun need[T](value: T) i32 where T: Show { value.show() }
 fun main(value: Widget) i32 { need(value) }
 "#,
     );
-    write(&root.join("dep.nia"), "pub module api; module providers;");
+    write(
+        &root.join("dep/lib.nia"),
+        "pub module api; module providers;",
+    );
     write(
         &root.join("dep/api.nia"),
         r#"
@@ -1964,7 +1967,7 @@ pub type TraitAlias = Show;
         module_map
             .insert(
                 "dep",
-                SourcePath::new(root.join("dep.nia").to_string_lossy()),
+                SourcePath::new(root.join("dep/lib.nia").to_string_lossy()),
             )
             .expect("mount dependency package");
         let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
@@ -3324,7 +3327,7 @@ pub(super) fun score() i32 {
 #[test]
 fn using_can_import_pub_package_items_inside_package() {
     let root = temp_dir("using_can_import_pub_package_items_inside_package");
-    let dep_root = root.join("dep.nia");
+    let dep_root = root.join("dep/lib.nia");
     write(
         &root.join("main.nia"),
         r#"
@@ -3559,7 +3562,7 @@ fun main() () {
 #[test]
 fn pub_package_extension_methods_are_visible_only_inside_package() {
     let root = temp_dir("pub_package_extension_methods_are_visible_only_inside_package");
-    let dep_root = root.join("dep.nia");
+    let dep_root = root.join("dep/lib.nia");
     write(
         &root.join("main.nia"),
         r#"
@@ -3654,7 +3657,7 @@ fun main() i32 {
 #[test]
 fn pub_package_trait_witnesses_are_visible_inside_package() {
     let root = temp_dir("pub_package_trait_witnesses_are_visible_inside_package");
-    let dep_root = root.join("dep.nia");
+    let dep_root = root.join("dep/lib.nia");
     write(
         &root.join("main.nia"),
         r#"
@@ -3737,7 +3740,7 @@ fun main() i32 {
 #[test]
 fn pub_package_extension_associated_values_are_visible_only_inside_package() {
     let root = temp_dir("pub_package_extension_associated_values_are_visible_only_inside_package");
-    let dep_root = root.join("dep.nia");
+    let dep_root = root.join("dep/lib.nia");
     write(
         &root.join("main.nia"),
         r#"

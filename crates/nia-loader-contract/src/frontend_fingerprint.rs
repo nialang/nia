@@ -396,33 +396,10 @@ impl FrontendProviderDemandPlanCacheKey {
         module_map: FrontendModuleMapFingerprint,
         package_root_used_paths: bool,
     ) -> Self {
-        Self::new_with_package_root(namespace, entry, module_map, None, package_root_used_paths)
-    }
-
-    /// Derives the key while including the selected package-root identity.
-    ///
-    /// The package root is part of loader graph identity even though it is not
-    /// represented by a user module-map entry. Keeping it in this key prevents
-    /// provider-demand plans from crossing package boundaries in a shared
-    /// frontend cache.
-    pub fn new_with_package_root(
-        namespace: FrontendCacheNamespace,
-        entry: &SourceIdentity,
-        module_map: FrontendModuleMapFingerprint,
-        package_root: Option<&SourceIdentity>,
-        package_root_used_paths: bool,
-    ) -> Self {
         let mut builder = QueryFingerprintBuilder::new(PROVIDER_DEMAND_PLAN_CACHE_KEY_DOMAIN);
         builder.write_fingerprint(QueryFingerprint::from_parts(namespace.parts()));
         builder.write_str(entry.normalized_path());
         builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
-        match package_root {
-            Some(package_root) => {
-                builder.write_u8(1);
-                builder.write_str(package_root.normalized_path());
-            }
-            None => builder.write_u8(0),
-        }
         builder.write_u8(u8::from(package_root_used_paths));
         Self(builder.finish())
     }
@@ -608,25 +585,6 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
     FrontendModuleMapFingerprint(builder.finish())
 }
 
-/// Fingerprints a module map together with an optional package-root identity.
-///
-/// A package root is loader context rather than a user-visible module-map
-/// entry, but it changes `root` resolution and therefore all frontend products
-/// derived from that context.
-pub fn frontend_module_map_fingerprint_with_package_root(
-    module_map: &ModuleMap,
-    package_root: Option<&SourceIdentity>,
-) -> FrontendModuleMapFingerprint {
-    let Some(package_root) = package_root else {
-        return frontend_module_map_fingerprint(module_map);
-    };
-    let base = frontend_module_map_fingerprint(module_map);
-    let mut builder = QueryFingerprintBuilder::new(MODULE_MAP_DOMAIN);
-    builder.write_fingerprint(QueryFingerprint::from_parts(base.parts()));
-    builder.write_str(package_root.normalized_path());
-    FrontendModuleMapFingerprint(builder.finish())
-}
-
 /// Fingerprints lossless syntax by its exact source text.
 ///
 /// The lossless tree is a pure function of its text, so the text is the
@@ -722,7 +680,7 @@ mod tests {
         let target = TargetConfig::parse("x86_64-pc-windows-msvc").unwrap();
         let namespace = |module, definition| {
             let runtime = RuntimeSpec::source_from_package_root(
-                "runtime/pkg.nia",
+                "runtime/root.nia",
                 &target,
                 [nia_toolchain::RuntimeExport::new(module, definition)],
             )
@@ -857,7 +815,7 @@ extend Value {
             baseline,
             FrontendCacheNamespace::new(
                 &target,
-                RuntimeSpec::freestanding_from_package_root("runtime/pkg.nia", &target)
+                RuntimeSpec::freestanding_from_package_root("runtime/root.nia", &target)
                     .expect("test runtime"),
             )
         );
@@ -992,7 +950,6 @@ extend Value {
             .expect("insert module map entry");
         let module_map = frontend_module_map_fingerprint(&module_map);
         let key = FrontendProviderDemandPlanCacheKey::new(namespace, &entry, module_map, false);
-        let package_root = SourceIdentity::new("pkg/pkg.nia");
 
         assert_ne!(
             key,
@@ -1001,32 +958,6 @@ extend Value {
         assert_ne!(
             key,
             FrontendProviderDemandPlanCacheKey::new(namespace, &entry, module_map, true)
-        );
-        assert_ne!(
-            key,
-            FrontendProviderDemandPlanCacheKey::new_with_package_root(
-                namespace,
-                &entry,
-                module_map,
-                Some(&package_root),
-                false,
-            )
-        );
-        assert_ne!(
-            FrontendProviderDemandPlanCacheKey::new_with_package_root(
-                namespace,
-                &entry,
-                module_map,
-                Some(&SourceIdentity::new("pkg/other.nia")),
-                false,
-            ),
-            FrontendProviderDemandPlanCacheKey::new_with_package_root(
-                namespace,
-                &entry,
-                module_map,
-                Some(&package_root),
-                false,
-            )
         );
         assert_eq!(
             key,

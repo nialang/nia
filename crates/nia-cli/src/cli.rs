@@ -976,8 +976,8 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
     if path.is_empty() {
         return Err(format!("module map `{name}` has empty path"));
     }
-    let path = crate::resolve_package_root_path(path)?;
-    map.try_insert(name, SourcePath::new(path.to_string_lossy().into_owned()))
+    let path = crate::resolve_module_map_source(path)?;
+    map.try_insert(name, SourcePath::new(path))
 }
 
 #[cfg(test)]

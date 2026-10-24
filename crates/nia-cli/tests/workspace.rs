@@ -239,9 +239,15 @@ fn executables_reach_their_own_library_as_a_separate_tree() {
         "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n[library]\npath = \"src/lib.nia\"\n",
     )
     .unwrap();
+    // The library roots its own tree, so its child sits beside it.
     fs::write(
         root.join("src/lib.nia"),
-        "pub fun answer() i32 { 42 }\npub(root) fun hidden() i32 { 7 }\n",
+        "module util;\n\npub fun answer() i32 { root::util::value() }\npub(root) fun hidden() i32 { 7 }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/util.nia"),
+        "pub(root) fun value() i32 { 42 }\n",
     )
     .unwrap();
     fs::write(
