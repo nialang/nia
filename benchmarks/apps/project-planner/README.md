@@ -9,7 +9,7 @@ Build and run it from this directory:
 
 ```sh
 nia build
-./.nia-build/project-planner data/reference.plan
+./build/out/project-planner data/reference.plan
 ```
 
 The input grammar is intentionally plain text. Each record has the form

@@ -2634,9 +2634,11 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
 
     // Canonicalize package_root for consistent path handling (especially on Windows
     // where canonicalize produces extended-length paths).
-    let package_root = normalize_host_path(package_root.canonicalize().map_err(|error| BuildError::ResolvePackageGraph {
-        path: package_root.clone(),
-        error: error.into(),
+    let package_root = normalize_host_path(package_root.canonicalize().map_err(|error| {
+        BuildError::ResolvePackageGraph {
+            path: package_root.clone(),
+            error: error.into(),
+        }
     })?);
 
     let package_graph =
@@ -2658,12 +2660,11 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     };
 
     // Discover the workspace state root: this is where build/ is shared across workspace members.
-    let state_root = workspace_state_root(&package_root).map_err(|error| {
-        BuildError::ResolvePackageGraph {
+    let state_root =
+        workspace_state_root(&package_root).map_err(|error| BuildError::ResolvePackageGraph {
             path: package_root.clone(),
             error,
-        }
-    })?;
+        })?;
 
     // Compute the member-specific output directory within the shared build root.
     let member_relative = package_root
@@ -3681,13 +3682,15 @@ fn time_build_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -
 /// If the package belongs to a workspace, returns the workspace root.
 /// Otherwise returns the package root itself.
 fn workspace_state_root(package_root: &Path) -> io::Result<PathBuf> {
-    let canonical_package_root = package_root
-        .canonicalize()
-        .map_err(|error| io::Error::new(error.kind(), format!("canonicalize package root: {error}")))?;
+    let canonical_package_root = package_root.canonicalize().map_err(|error| {
+        io::Error::new(error.kind(), format!("canonicalize package root: {error}"))
+    })?;
 
-    Ok(nia_package_metadata::WorkspaceManifest::discover_for_package(&canonical_package_root)?
-        .map(|workspace| normalize_host_path(workspace.root))
-        .unwrap_or_else(|| normalize_host_path(canonical_package_root)))
+    Ok(
+        nia_package_metadata::WorkspaceManifest::discover_for_package(&canonical_package_root)?
+            .map(|workspace| normalize_host_path(workspace.root))
+            .unwrap_or_else(|| normalize_host_path(canonical_package_root)),
+    )
 }
 
 #[cfg(test)]
@@ -3959,14 +3962,21 @@ mod tests {
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&child))
                 .expect("build invocation");
 
-        let canonical_root = normalize_host_path(root.canonicalize().expect("canonicalize test root"));
+        let canonical_root =
+            normalize_host_path(root.canonicalize().expect("canonicalize test root"));
         assert_eq!(plan.package_root, canonical_root);
         assert_eq!(plan.build_script, plan.package_root.join("build.nia"));
         assert!(plan.toolchain.compiler_executable().is_file());
         assert!(plan.toolchain.resource_root().is_dir());
         assert_eq!(plan.build_dir, plan.package_root.join("build").join("out"));
-        assert_eq!(plan.cache_dir, plan.package_root.join("build").join("cache"));
-        assert_eq!(plan.runner_dir, plan.package_root.join("build").join("out").join("runner"));
+        assert_eq!(
+            plan.cache_dir,
+            plan.package_root.join("build").join("cache")
+        );
+        assert_eq!(
+            plan.runner_dir,
+            plan.package_root.join("build").join("out").join("runner")
+        );
         assert_eq!(
             plan.runner_executable.parent(),
             Some(plan.runner_dir.as_path())
@@ -3996,7 +4006,10 @@ mod tests {
         );
         assert_eq!(
             plan.plan_path,
-            plan.package_root.join("build").join("out").join("build-plan.bin")
+            plan.package_root
+                .join("build")
+                .join("out")
+                .join("build-plan.bin")
         );
         assert_eq!(plan.step, BuildStepSelection::Default);
         assert_eq!(plan.optimization, OptimizationMode::O0);
@@ -4957,7 +4970,7 @@ version = \"1.0.0\"
     }
 
     #[test]
-    #[ignore]  // TODO: investigate SSH fixture symlink loop on Windows (exit code 40)
+    #[ignore] // TODO: investigate SSH fixture symlink loop on Windows (exit code 40)
     fn workspace_ssh_build_dependency_fetches_locks_and_runs_build_script() {
         let _environment = SSH_ENVIRONMENT_LOCK
             .lock()

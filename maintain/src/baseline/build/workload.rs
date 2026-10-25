@@ -194,7 +194,7 @@ fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
         // by the measured compiler and must start absent for every repetition.
         if matches!(
             entry.file_name().to_str(),
-            Some("build")  // Contains build/out and build/cache
+            Some("build") // Contains build/out and build/cache
         ) {
             continue;
         }

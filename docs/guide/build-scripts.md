@@ -62,9 +62,9 @@ fixtures = { path = "tests/fixtures" }
 | `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |
 | `[[executable]]`, `[[test]]` | artifacts built without a script; see [Manifest artifacts](#manifest-artifacts) |
 
-A package's files always leave out `.git`, `.nia`, `.nia-build`, `.nia-cache`,
-and `nia.lock`, and leave out `build/`, `dist/`, and `target/` directly under
-the package root. Name one of those three in `source.roots` to include it.
+A package's files always leave out `.git`, `.nia`, and `nia.lock`, and leave out
+`build/`, `dist/`, and `target/` directly under the package root. Name one of
+those three in `source.roots` to include it.
 
 A dependency's scope is the table it appears in:
 
@@ -317,7 +317,7 @@ A module is a root source file plus the names it can import.
 | --- | --- |
 | `ModuleOptions::init(name, path)` | a file in the root package |
 | `ModuleOptions::fromPackage(name, package, path)` | a file in another package selected with `addDependency` or declared with `addPackage` |
-| `ModuleOptions::fromBuild(name, buildPath)` | a generated file under `.nia-build/` |
+| `ModuleOptions::fromBuild(name, buildPath)` | a generated file under `build/out/` |
 
 `withOptimization(build::OptimizationMode::O2)` fixes the optimization level
 for one module (`O0`, `O1`, `O2`, `O3`, `Os`, `Oz`). Other modules use the
@@ -330,7 +330,7 @@ level selected on the command line (`-O2`, `--release`, and so on).
 | --- | --- |
 | `ModuleImport::init(name, path)` | a file in the root package |
 | `ModuleImport::fromPackage(name, package, path)` | a file in another package |
-| `ModuleImport::fromBuild(name, buildPath)` | a generated file under `.nia-build/` |
+| `ModuleImport::fromBuild(name, buildPath)` | a generated file under `build/out/` |
 
 The same import list can be passed to several modules, for example an
 application and its tests. Each module still declares its own imports.
@@ -405,14 +405,14 @@ Steps are the units that `nia build <step>` runs. Each step has a unique name.
 
 | Call | The step |
 | --- | --- |
-| `addEmitExecutableStep(name, exe)` | builds the executable into `.nia-build/` |
+| `addEmitExecutableStep(name, exe)` | builds the executable into `build/out/` |
 | `addEmitObjectStep(name, object)` | writes the object files |
 | `addEmitStaticArchiveStep(name, archive)` | writes the static archive |
 | `addCheckExecutableStep(name, exe)` | type-checks the executable without producing it |
 | `addRunExecutableStep(name, RunOptions)` | builds and runs an executable |
-| `addInstallExecutableStep(name, exe, buildPath)` | copies the executable to a path under `.nia-build/` |
-| `addInstallStaticArchiveStep(name, archive, buildPath)` | copies the archive to a path under `.nia-build/` |
-| `addGeneratedFileStep(name, buildPath, bytes)` | writes a file with fixed contents under `.nia-build/` |
+| `addInstallExecutableStep(name, exe, buildPath)` | copies the executable to a path under `build/out/` |
+| `addInstallStaticArchiveStep(name, archive, buildPath)` | copies the archive to a path under `build/out/` |
+| `addGeneratedFileStep(name, buildPath, bytes)` | writes a file with fixed contents under `build/out/` |
 | `addExternalCommandStep(name, ExternalCommandOptions)` | runs a program |
 | `addAggregateStep(name)` | does nothing itself; groups dependencies |
 | `addTestSuite(name, module)` | builds and runs a test executable; see [Tests](#tests) |
@@ -428,7 +428,7 @@ script that has no default step can still be used with an explicit step name.
 the default, without running any.
 
 Paths written with `build::BuildPathView::init(path)` are relative to
-`.nia-build/`. A module or import whose root is a generated file depends on
+`build/out/`. A module or import whose root is a generated file depends on
 the step that writes it, so it needs no explicit `dependOn`.
 
 This script combines a second package, a generated module, several steps, and
@@ -513,7 +513,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ```
 
 `nia build run` prints `hello world 49 1.0`, and `nia build` leaves
-`.nia-build/app` and `.nia-build/dist/app`.
+`build/out/app` and `build/out/dist/app`.
 
 ## External Commands
 
@@ -533,8 +533,8 @@ writes:
 | --- | --- | --- |
 | `CommandArgument::literal(text)` | the text | none |
 | `CommandArgument::packageInput(package, path)` | a file path | the file is an input |
-| `CommandArgument::buildInput(buildPath)` | a path under `.nia-build/` | the file is an input; its producer runs first |
-| `CommandArgument::buildOutput(buildPath)` | a path under `.nia-build/` | the command must write it |
+| `CommandArgument::buildInput(buildPath)` | a path under `build/out/` | the file is an input; its producer runs first |
+| `CommandArgument::buildOutput(buildPath)` | a path under `build/out/` | the command must write it |
 | `CommandArgument::artifactInput(exe)` | the executable's path | the executable is built first |
 | `CommandArgument::objectInput(object)` | the object output path | the objects are built first |
 | `CommandArgument::staticArchiveInput(archive)` | the archive's path | the archive is built first |
@@ -746,10 +746,10 @@ named, after the steps it depends on.
 | `-O<level>`, `--release` | sets the default optimization level |
 | `--lto <off\|thin\|full>` | selects link-time optimization for executables |
 
-Outputs go to `.nia-build/` in the package root: emitted artifacts under their
+Outputs go to `build/out/` in the package root: emitted artifacts under their
 output names, plus installed and generated files at the paths the script gave.
 Reusable results (the compiled script, recorded configurations, compiler
-products, and command results) are kept in `.nia-cache/`.
+products, and command results) are kept in `build/cache/`.
 
 ### Progress output
 
@@ -764,7 +764,7 @@ Each action the selected steps need is counted once, and ends with one outcome:
 
 | Outcome | Meaning |
 | --- | --- |
-| cached | the result was reused from `.nia-cache/` |
+| cached | the result was reused from `build/cache/` |
 | executed | the action ran |
 | no-work | the step has nothing of its own to do, such as an aggregate |
 | failed | the action failed |

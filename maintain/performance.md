@@ -258,7 +258,7 @@ warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
 artifacts, and failed-action behavior.
 
 A project-cold build starts a fresh process in a copied workspace where both
-`.nia-build` and `.nia-cache` were absent before process creation. The report
+`build/out` and `build/cache` were absent before process creation. The report
 records those preconditions for every state. Runner-only clean acceptance also
 requires a runner-cache miss, zero native-object and link-result reuse hits,
 and not-found misses for every emitted LLVM unit and the link result. This

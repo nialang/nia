@@ -244,8 +244,7 @@ mod tests {
         fs::write(source.join("nested/input.nia"), b"fun main() () {}")
             .expect("write ordinary fixture input");
         fs::write(source.join(".fixture-config"), b"kept").expect("write ordinary fixture dotfile");
-        fs::write(source.join("build/cache/stale"), b"cache")
-            .expect("write cached fixture state");
+        fs::write(source.join("build/cache/stale"), b"cache").expect("write cached fixture state");
         fs::write(source.join("build/out/output"), b"build").expect("write build fixture state");
 
         copy_case_tree(&source, &destination);

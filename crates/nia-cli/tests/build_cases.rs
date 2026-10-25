@@ -1514,7 +1514,11 @@ fn assert_configured_build_success(
         Some("tool")
     );
     assert!(workspace.join(".nia/build/out/custom-app").is_file());
-    assert!(workspace.join(".nia/build/out/install/custom-app").is_file());
+    assert!(
+        workspace
+            .join(".nia/build/out/install/custom-app")
+            .is_file()
+    );
     assert!(!workspace.join(".nia/build/out/app").exists());
     assert!(workspace.join(".nia/build/out/custom-worker").is_file());
     assert!(workspace.join(".nia/build/out/custom-host-tool").is_file());
@@ -1534,8 +1538,16 @@ fn assert_configured_build_success(
             .unwrap()
             .starts_with(b"!<arch>\n")
     );
-    assert!(workspace.join(".nia/build/out/generated/helper.nia").is_file());
-    assert!(workspace.join(".nia/build/out/generated/worker.nia").is_file());
+    assert!(
+        workspace
+            .join(".nia/build/out/generated/helper.nia")
+            .is_file()
+    );
+    assert!(
+        workspace
+            .join(".nia/build/out/generated/worker.nia")
+            .is_file()
+    );
     assert!(!workspace.join(".nia/build/out/worker").exists());
     let transformed = std::fs::read(workspace.join(".nia/build/out/transformed.txt")).unwrap();
     assert_eq!(

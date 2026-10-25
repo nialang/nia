@@ -193,8 +193,8 @@ nia build --list     # lists the steps without running them
 
 `nia build` searches upward from the current directory for the package's
 `nia.toml` or `build.nia`; `--root <dir>` starts the search elsewhere. Outputs are written
-under `.nia-build/` in the package root, and reusable results are kept in
-`.nia-cache/`. A test suite passes
+under `build/out/` in the package root, and reusable results are kept in
+`build/cache/`. A test suite passes
 when its executable exits with status 0; a suite that passed is not rerun until
 its inputs change. `nia build <suite>` runs one suite, and `--keep-going` runs
 the remaining suites after one fails.

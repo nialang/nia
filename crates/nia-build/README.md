@@ -276,7 +276,7 @@ ordinary correctness path.
 ### Runner cache
 
 Generated runners use content-addressed
-`.nia-cache/runner/protocol/<key>.cache` records. The namespace and payload
+`build/cache/runner/protocol/<key>.cache` records. The namespace and payload
 identity are registered in `nia-compat`; there is no runner-local schema
 version. The key includes the generated runner source, build-script bytes,
 standard-library source tree, toolchain identity, host target, runner profile,

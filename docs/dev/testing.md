@@ -155,7 +155,7 @@ pool sizes, permit waits, and per-command peaks when tuning a new host.
 binary, under the system temporary directory, so the build runner and the
 standard library are compiled once per test run rather than once per test
 package. Configure, action, and suite caches stay in each package's
-`.nia-cache/`, so tests of cache behavior see only their own records.
+`build/cache/`, so tests of cache behavior see only their own records.
 
 Tests use the same public compiler, build, and LLVM contracts as production;
 the harness bounds resources but does not change production semantics.

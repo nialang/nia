@@ -244,6 +244,10 @@ fn oversized_environment_executes_without_publishing_command_cache() {
                 .unwrap()
                 .contains("large environment")
         );
-        assert!(!root.join(".nia/build/cache/actions/external-commands").exists());
+        assert!(
+            !root
+                .join(".nia/build/cache/actions/external-commands")
+                .exists()
+        );
     }
 }
