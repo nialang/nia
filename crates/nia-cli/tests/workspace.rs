@@ -299,4 +299,22 @@ pub fun build(b: &mut build::Build) build::Error!() {
         stderr.contains("`hello::hidden` is restricted to its module tree"),
         "{stderr}"
     );
+
+    // A file belongs to one tree: the executable reuses the library's child
+    // through the package instead of declaring a second copy of it.
+    fs::write(
+        root.join("src/main.nia"),
+        format!("module util;\n{}", main("hello::answer()")),
+    )
+    .unwrap();
+    let claimed = build(&[]);
+    assert!(!claimed.status.success());
+    let stderr = String::from_utf8_lossy(&claimed.stderr);
+    assert!(
+        stderr.matches("belongs to two module trees").count() == 1
+            && stderr.contains("src/main.nia:1:1")
+            && stderr.contains("the other module tree declares it here")
+            && stderr.contains("reach the module with `using hello::util;`"),
+        "{stderr}"
+    );
 }

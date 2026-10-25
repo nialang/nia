@@ -2172,6 +2172,10 @@ declared child module's name starts at that child, in any module including a
 package's root: after `module util;`, `util::Point` and `self::util::Point` are
 the same type. A child declaration shadows a package of the same name.
 
+A source file belongs to exactly one module tree. Two trees that declare a
+child mapping to the same file are an error; one tree keeps the declaration and
+the other reaches the module through the keeping tree's package name.
+
 ### Using
 
 `using` brings a module, item, or enum variant into scope. At top level it is

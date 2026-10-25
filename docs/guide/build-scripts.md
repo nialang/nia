@@ -87,8 +87,11 @@ can use one name for different packages.
 A package's own artifacts and tests open its library the same way, by the
 package name: in package `hello`, `using hello;` opens `[library].path`. The
 library and each executable are separate module trees, so an executable sees
-only the library's `pub` items and `pub(root)` stays inside the library. A
-dependency cannot also use the package's own name.
+only the library's `pub` items and `pub(root)` stays inside the library. When
+`src/root.nia` and `src/main.nia` share a directory, a `module util;` in both
+would load `src/util.nia` into two trees, which is an error: the library
+declares it and the executable writes `using hello::util;`. A dependency cannot
+also use the package's own name.
 
 ### Dependency sources
 

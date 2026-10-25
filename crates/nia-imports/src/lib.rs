@@ -935,6 +935,30 @@ impl ModuleGraph {
             process_declared_children,
             module_path,
         } = child;
+        if let Some(conflict) = self.module_claiming_source(&child_path, &module_path) {
+            let diagnostic = self.source_claimed_twice_diagnostic(
+                conflict,
+                parent_id,
+                &child_path,
+                &module_path,
+                span,
+            );
+            // Recovery: the declaration names the module that owns the file,
+            // so its paths still resolve and the conflict is reported once.
+            let parent = self.get_mut(parent_id).ok_or_else(|| {
+                Ice::new(format!(
+                    "unknown parent module {parent_id:?} while recording a module declaration"
+                ))
+            })?;
+            parent.children.entry(name).or_insert(conflict);
+            parent.declarations.push(ModuleDeclaration {
+                name,
+                visibility,
+                target: conflict,
+                span,
+            });
+            return Err(diagnostic.into());
+        }
         let child_id = self.intern_module(
             child_path.clone(),
             module_path,
@@ -1035,6 +1059,132 @@ impl ModuleGraph {
             process_declared_children,
         });
         Ok(id)
+    }
+
+    /// Returns the module that already owns `path` under another module path.
+    ///
+    /// Modules are interned by source identity, so a file that two parents
+    /// declare would otherwise become one module whose `root::` is whichever
+    /// tree reached it first.
+    fn module_claiming_source(
+        &self,
+        path: &SourcePath,
+        module_path: &ModulePath,
+    ) -> Option<ModuleId> {
+        let stable_key = StableModuleKey::from_source_identity(path.identity());
+        let id = self.by_stable_key.get(&stable_key).copied()?;
+        (self.get(id)?.module_path != *module_path).then_some(id)
+    }
+
+    fn source_claimed_twice_diagnostic(
+        &self,
+        existing: ModuleId,
+        parent_id: ModuleId,
+        path: &SourcePath,
+        module_path: &ModulePath,
+        span: Span,
+    ) -> Diagnostic {
+        let Some(existing_node) = self.get(existing) else {
+            return Ice::new(format!(
+                "unknown module claims `{}` a second time",
+                path.as_str()
+            ))
+            .into();
+        };
+        let new_claim = (parent_id, span, module_path);
+        let first_claim = existing_node.parent.and_then(|parent| {
+            let declaration = self
+                .get(parent)?
+                .declarations
+                .iter()
+                .find(|declaration| declaration.target == existing)?;
+            Some((parent, declaration.span, &existing_node.module_path))
+        });
+        // The tree another tree can name keeps the file; the report sits on
+        // the other declaration whatever order the trees were loaded in.
+        let (remove, keep, shared) = match first_claim {
+            Some(first) => {
+                if let Some(shared) = self.module_path_seen_from(new_claim.0, first.2) {
+                    (new_claim, Some(first), Some(shared))
+                } else if let Some(shared) = self.module_path_seen_from(first.0, new_claim.2) {
+                    (first, Some(new_claim), Some(shared))
+                } else {
+                    (new_claim, Some(first), None)
+                }
+            }
+            None => (new_claim, None, None),
+        };
+        let Some(remove_file) = self.get(remove.0).map(|node| node.path.as_str().to_owned()) else {
+            return Ice::new(format!(
+                "unknown module claims `{}` a second time",
+                path.as_str()
+            ))
+            .into();
+        };
+        let mut diagnostic = Diagnostic::user_error(
+            codes::LOAD,
+            format!(
+                "source file `{}` belongs to two module trees",
+                path.as_str()
+            ),
+        )
+        .in_source(remove_file)
+        .primary(remove.1, "this declaration loads it into a second tree");
+        if let Some((keep_parent, keep_span, _)) = keep
+            && let Some(keep_node) = self.get(keep_parent)
+        {
+            diagnostic = diagnostic.related_at(
+                keep_node.path.as_str(),
+                keep_span,
+                "the other module tree declares it here",
+            );
+        }
+        diagnostic = diagnostic.note("a source file belongs to exactly one module tree");
+        let help = match shared {
+            Some(shared) => {
+                format!("remove this declaration and reach the module with `using {shared};`")
+            }
+            None => {
+                "declare the file in one module tree and reach it from the other through `using`"
+                    .to_owned()
+            }
+        };
+        diagnostic.help(help).finish()
+    }
+
+    /// Spells `target` as written from `from`: the package name `from` or one
+    /// of its ancestors binds to the target's tree, then the child segments.
+    fn module_path_seen_from(&self, from: ModuleId, target: &ModulePath) -> Option<String> {
+        let target_root = self.package_root(&target.package)?;
+        let mut current = Some(from);
+        let mut package = None;
+        while let Some(module) = current {
+            if let Some(aliases) = self.module_package_aliases.get(&module) {
+                package = aliases
+                    .iter()
+                    .find_map(|(alias, root)| (*root == target_root).then_some(*alias));
+                break;
+            }
+            current = self.get(module)?.parent;
+        }
+        // Without scoped aliases, package roots are named by their identity.
+        let package = match (package, current) {
+            (Some(alias), _) => alias,
+            (None, None)
+                if target.package != known::PROGRAM_TREE
+                    && target.package != known::RUNTIME_TREE =>
+            {
+                target.package
+            }
+            _ => return None,
+        };
+        Some(
+            std::iter::once(package)
+                .chain(target.segments.iter().copied())
+                .map(|symbol| self.module_symbol_text(symbol))
+                .collect::<Vec<_>>()
+                .join("::"),
+        )
     }
 
     /// Resolves a module symbol through the graph's symbol provider.
@@ -1627,6 +1777,82 @@ mod tests {
                 .declared_child_source_path(graph.get(library).expect("library"), known::START)
                 .as_str(),
             "vendor/math/src/start.nia"
+        );
+    }
+
+    #[test]
+    fn a_source_file_belongs_to_one_module_tree() {
+        struct HelloText;
+        impl SymbolText for HelloText {
+            fn symbol_text(&self, symbol: SymbolId) -> Option<Arc<str>> {
+                (symbol == module_root_symbol_from_text("hello"))
+                    .then(|| Arc::from("hello"))
+                    .or_else(|| KnownSymbolText.symbol_text(symbol))
+            }
+        }
+        let mut graph =
+            ModuleGraph::with_symbol_text(SourcePath::new("src/main.nia"), Arc::new(HelloText))
+                .expect("module graph");
+        let entry = graph.entry();
+        let package = module_root_symbol_from_text("hello");
+        let library = graph
+            .intern_package_root(&package, SourcePath::new("src/root.nia"))
+            .expect("library root");
+        let shared = graph
+            .intern_declared_child(library, &known::START, Visibility::Public, Span::new(0, 6))
+            .expect("library child");
+
+        let error = graph
+            .intern_declared_child(entry, &known::START, Visibility::Private, Span::new(9, 15))
+            .expect_err("a second tree cannot claim the file");
+        let ModuleGraphError::Diagnostic(diagnostic) = error else {
+            panic!("expected a user diagnostic, got {error:?}");
+        };
+        assert_eq!(
+            diagnostic.summary,
+            "source file `src/start.nia` belongs to two module trees"
+        );
+        assert_eq!(diagnostic.source_path.as_deref(), Some("src/main.nia"));
+        assert_eq!(diagnostic.primary_span(), Some(Span::new(9, 15)));
+        assert_eq!(diagnostic.related.len(), 1);
+        assert_eq!(
+            diagnostic.related[0].source_path.as_deref(),
+            Some("src/root.nia")
+        );
+        assert_eq!(diagnostic.related[0].span, Span::new(0, 6));
+        assert_eq!(
+            *diagnostic.help,
+            ["remove this declaration and reach the module with `using hello::start;`"]
+        );
+        // The file stays the library's module; the rejected declaration
+        // names it so later paths through it do not report again.
+        assert_eq!(graph.module_id_for_path("src/start.nia"), Some(shared));
+        assert_eq!(
+            graph.get(entry).expect("entry").children.get(&known::START),
+            Some(&shared)
+        );
+        assert_eq!(
+            graph.get(shared).expect("shared").module_path.package,
+            package
+        );
+
+        // Inside one tree, the same name under the same parent stays a
+        // duplicate declaration.
+        let duplicate = graph
+            .intern_declared_child(
+                library,
+                &known::START,
+                Visibility::Public,
+                Span::new(20, 26),
+            )
+            .expect_err("duplicate declaration");
+        let ModuleGraphError::Diagnostic(duplicate) = duplicate else {
+            panic!("expected a user diagnostic, got {duplicate:?}");
+        };
+        assert!(
+            duplicate
+                .summary
+                .starts_with("duplicate module declaration")
         );
     }
 
