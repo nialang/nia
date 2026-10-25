@@ -87,7 +87,9 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 parking_lot = "0.12.5"
 # The process allocator of every binary that compiles Nia; see crates/nia-alloc.
-mimalloc = { version = "=0.1.52", default-features = false }
+# `no_thp`: transparent huge pages back each touched arena region with 2 MiB
+# pages, which raised a compile's peak RSS by a third on Linux.
+mimalloc ={ version = "=0.1.52", default-features = false, features = ["no_thp"] }
 libc = "0.2.186"
 hashbrown = { version = "0.17.1", default-features = false }
 regex = "1.13.1"

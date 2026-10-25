@@ -6,7 +6,9 @@
 //! harnesses run several compilations in one process. The Windows process heap
 //! serializes all of them on one lock, so adding threads made compilation
 //! slower; glibc and macOS allocators contend less but still share arenas.
-//! mimalloc keeps a heap per thread on every host.
+//! mimalloc keeps a heap per thread on every host. It is built with `no_thp`:
+//! on Linux, transparent huge pages back each touched arena region with 2 MiB
+//! pages, and checking a small program peaked at 350 MiB instead of 266.
 //!
 //! A binary installs it with [`global_allocator!`] at its crate root, and so do
 //! the test targets that compile Nia in-process, so tests measure the
