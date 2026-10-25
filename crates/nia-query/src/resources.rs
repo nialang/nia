@@ -441,15 +441,17 @@ fn system_memory_bytes() -> Option<usize> {
     macos_sysctl_u64(c"hw.memsize").and_then(|bytes| usize::try_from(bytes).ok())
 }
 
-// Free, purgeable, and speculative pages are reusable without paging; the
-// kernel exports each as a `vm.page_*_count` sysctl.
+// The kernel keeps few pages free and holds most reusable memory as file
+// cache, so free pages alone read near zero on an idle host. Reusable without
+// paging anything out are the free pages, purgeable memory, and the pageable
+// file-backed pages; the kernel exports each as a `vm.page_*_count` sysctl.
 #[cfg(target_os = "macos")]
 fn system_available_memory_bytes() -> Option<usize> {
     let page_size = macos_sysctl_u64(c"hw.pagesize")?;
     let pages = [
         c"vm.page_free_count",
         c"vm.page_purgeable_count",
-        c"vm.page_speculative_count",
+        c"vm.page_pageable_external_count",
     ]
     .into_iter()
     .map(macos_sysctl_u64)
