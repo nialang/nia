@@ -2637,7 +2637,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     let package_root = normalize_host_path(package_root.canonicalize().map_err(|error| {
         BuildError::ResolvePackageGraph {
             path: package_root.clone(),
-            error: error.into(),
+            error,
         }
     })?);
 
