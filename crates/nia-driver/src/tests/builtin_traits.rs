@@ -1018,6 +1018,7 @@ fn len_trait_import_without_method_call_is_unused() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 
 fun main() usize {
     0usize

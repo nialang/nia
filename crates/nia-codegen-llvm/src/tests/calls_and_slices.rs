@@ -405,6 +405,8 @@ fn emits_slice_len_ptr_and_indexing() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 fun first(xs: & [i32]) i32 {
     xs[0]
 }
@@ -562,6 +564,8 @@ fn emits_zero_length_array_slice_without_indexing_empty_storage() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 fun main() usize {
     let mut bytes: [u8; 0] = [];
     let mut slice = &mut bytes[..];

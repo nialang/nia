@@ -39,8 +39,8 @@ pub fun build(b: &mut build::Build) build::Error!() {
         )
         .unwrap();
     }
-    let app_output = root.join("packages/app/build/out/selected.txt");
-    let core_output = root.join("packages/core/build/out/selected.txt");
+    let app_output = root.join("build/out/packages/app/selected.txt");
+    let core_output = root.join("build/out/packages/core/selected.txt");
     let run = |directory: &std::path::Path, options: &[&str]| {
         let output = support::nia_command()
             .current_dir(directory)

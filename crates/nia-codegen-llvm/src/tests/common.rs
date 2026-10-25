@@ -410,6 +410,8 @@ fun main() i32 {
             files: &[(
                 "main.nia",
                 r#"
+using std::builtin::Len;
+
 fun sum(xs: & [i32]) i32 {
     let mut out = 0;
     let mut i = 0usize;

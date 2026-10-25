@@ -288,6 +288,8 @@ fn ordinary_array_len_calls_emit_required_cross_partition_global_declarations() 
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 static blob0: [u8; 4] = [0u8; 4];
 static blob1: [u8; 4] = [1u8; 4];
 static blob2: [u8; 4] = [2u8; 4];

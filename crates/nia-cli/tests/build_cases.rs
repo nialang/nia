@@ -858,10 +858,9 @@ fn assert_configured_build_success(
     let stderr = String::from_utf8_lossy(&output.stderr);
     for expected in [
         format!("root={}\n", reported_workspace.display()),
-        format!("build={}\n", reported_workspace.join("build/out").display()),
         format!(
             "cache={}\n",
-            reported_workspace.join("build/cache").display()
+            reported_workspace.join("build").join("cache").display()
         ),
         format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia")),
         "run=roadmap\n".to_string(),
@@ -872,6 +871,16 @@ fn assert_configured_build_success(
             "missing {expected:?} in {stdout}"
         );
     }
+    let expected_build = format!(
+        "build={}",
+        reported_workspace.join("build").join("out").display()
+    );
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.trim_end_matches(['\\', '/']) == expected_build),
+        "missing {expected_build:?} in {stdout}"
+    );
     let compatibility = format!("\"protocol_epoch\":{}", nia_compat::PROTOCOL_EPOCH);
     let json_lines = stderr
         .lines()

@@ -541,6 +541,8 @@ fn emits_const_generic_function_and_nominal_array_instances() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 struct Buffer[T, N: usize] {
     data: [T; N],
 }
@@ -796,6 +798,8 @@ fn emits_runtime_storage_for_static_string_values() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 static bytes = b"paw\0";
 static text = "nia";
 

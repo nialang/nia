@@ -2730,14 +2730,12 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     // Compute the member-specific output directory within the shared build root.
     let member_relative = package_root
         .strip_prefix(&state_root)
-        .unwrap_or(Path::new("."))
-        .to_string_lossy()
-        .replace('\\', "/");
+        .unwrap_or(Path::new("."));
     let build_root = state_root.join("build");
-    let member_out = if member_relative == "." {
+    let member_out = if member_relative == Path::new(".") {
         build_root.join("out")
     } else {
-        build_root.join("out").join(&member_relative)
+        build_root.join("out").join(member_relative)
     };
 
     let build_dir = member_out;
@@ -3324,8 +3322,15 @@ fn run_build_runner(
         || prepare_runner_configuration(invocation),
     )?;
     let mut command = Command::new(runner_executable);
+    let runner_working_directory =
+        workspace_state_root(&invocation.package_root).map_err(|error| BuildError::RunRunner {
+            path: runner_executable.to_path_buf(),
+            error,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        })?;
     command
-        .current_dir(&invocation.package_root)
+        .current_dir(runner_working_directory)
         .arg("--config")
         .arg(&invocation.runner_config)
         .stdout(Stdio::piped())

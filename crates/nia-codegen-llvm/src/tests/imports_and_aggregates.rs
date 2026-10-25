@@ -266,6 +266,8 @@ fn emits_imported_struct_array_field_expression_edges() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 module defs;
 using root::defs;
 
@@ -695,6 +697,8 @@ fn emits_imported_array_length_size_builtin() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::Len;
+
 module defs;
 using root::defs;
 

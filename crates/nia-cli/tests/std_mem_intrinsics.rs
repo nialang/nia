@@ -235,6 +235,8 @@ fn emit_exe_cross_module_slice_pointee_extension_receiver_passes_slice_value() {
     std::fs::write(
         &helper,
         r#"
+using std::builtin::Len;
+
 pub struct SliceIter[T]
 where T: Sized
 {
