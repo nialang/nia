@@ -1065,7 +1065,10 @@ mod tests {
             error.code.as_str(),
             nia_diagnostic::codes::INVALID_BACKEND_IR.as_str()
         );
-        assert_eq!(error.category, nia_diagnostic::DiagnosticCategory::Internal);
+        assert_eq!(
+            error.category(),
+            nia_diagnostic::DiagnosticCategory::Internal
+        );
         assert!(error.summary.contains("uninitialized byte"));
     }
 

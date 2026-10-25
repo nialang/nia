@@ -3,6 +3,7 @@ use super::ResolvedFunctionSignature;
 use super::builtins::{BuiltinCallArguments, BuiltinCallTypeArgs};
 use super::generic_args::GenericSubstitutions;
 use super::std_builtin_function;
+use crate::calls::args::CallTarget;
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
 use nia_defs::WherePredicateSignature;
@@ -473,7 +474,13 @@ impl<'a> BodyChecker<'a> {
         }
         if signature.generics.is_empty() {
             let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
-            self.check_direct_call_args(span, args, &params, signature.is_variadic);
+            self.check_direct_call_args(
+                span,
+                CallTarget::function(resolved.def_id),
+                args,
+                &params,
+                signature.is_variadic,
+            );
             self.record_resolved_node_call(
                 span,
                 &expr.node_key,
@@ -685,7 +692,7 @@ impl<'a> BodyChecker<'a> {
         // The typed body retains the generic parameter; backend instantiation
         // later selects the concrete function item or closure entry.
         if let Some((params, return_type)) = self.static_callable_bound(callee_ty) {
-            self.check_direct_call_args(span, args, &params, false);
+            self.check_direct_call_args(span, CallTarget::Value, args, &params, false);
             self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::FunctionPointer);
             return return_type;
         }
@@ -700,7 +707,13 @@ impl<'a> BodyChecker<'a> {
                 is_variadic,
                 ..
             } => {
-                self.check_direct_call_args(span, args, &params, is_variadic);
+                self.check_direct_call_args(
+                    span,
+                    CallTarget::function(def_id),
+                    args,
+                    &params,
+                    is_variadic,
+                );
                 let call = if type_args.is_empty() && const_args.is_empty() {
                     ResolvedCall::Function(def_id)
                 } else {
@@ -720,7 +733,7 @@ impl<'a> BodyChecker<'a> {
                 is_variadic,
                 ..
             } => {
-                self.check_direct_call_args(span, args, &params, is_variadic);
+                self.check_direct_call_args(span, CallTarget::Value, args, &params, is_variadic);
                 self.reject_const_operation(
                     span,
                     "indirect function calls are not available during const evaluation",
@@ -733,7 +746,7 @@ impl<'a> BodyChecker<'a> {
                 return_type,
                 ..
             } => {
-                self.check_direct_call_args(span, args, &params, false);
+                self.check_direct_call_args(span, CallTarget::Value, args, &params, false);
                 self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Closure);
                 return_type
             }
@@ -742,7 +755,7 @@ impl<'a> BodyChecker<'a> {
                 return_type,
                 ..
             } => {
-                self.check_direct_call_args(span, args, &params, false);
+                self.check_direct_call_args(span, CallTarget::Value, args, &params, false);
                 self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Callable);
                 return_type
             }
@@ -1009,6 +1022,7 @@ impl<'a> BodyChecker<'a> {
         );
         self.check_instantiated_generic_function_call_args(
             span,
+            def_id,
             signature,
             args,
             &substitutions.types,
@@ -1075,6 +1089,7 @@ impl<'a> BodyChecker<'a> {
 
         self.check_instantiated_generic_function_call_args(
             span,
+            def_id,
             signature,
             args,
             &substitutions.types,
@@ -2444,6 +2459,7 @@ impl<'a> BodyChecker<'a> {
     fn check_instantiated_generic_function_call_args(
         &mut self,
         span: Span,
+        callee: GlobalDefId,
         signature: &FunctionSignature,
         args: &[Expr],
         substitutions: &SymbolMap<InternedTyId>,
@@ -2465,11 +2481,12 @@ impl<'a> BodyChecker<'a> {
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
                 let actual = self.check_expr_with_expected(arg, Some(expected));
-                self.expect_expr_type(
+                self.expect_call_arg_type(
+                    CallTarget::function(callee),
+                    index,
                     arg,
                     expected,
                     actual,
-                    &format!("call argument {}", index + 1),
                 );
             }
         }

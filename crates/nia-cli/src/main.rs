@@ -200,7 +200,7 @@ fn render_cli_invocation_error(
 }
 
 fn render_cli_boundary_error(
-    code: nia_diagnostic::codes::DiagnosticCodeDef,
+    code: &'static nia_diagnostic::codes::DiagnosticCodeDef,
     message: &str,
     format: DiagnosticsFormat,
 ) -> String {
@@ -404,7 +404,7 @@ fn load_entry(path: &str, format: DiagnosticsFormat) -> Option<SourceEntry> {
 }
 
 fn report_boundary_error(
-    code: nia_diagnostic::codes::DiagnosticCodeDef,
+    code: &'static nia_diagnostic::codes::DiagnosticCodeDef,
     message: &str,
     format: DiagnosticsFormat,
 ) {

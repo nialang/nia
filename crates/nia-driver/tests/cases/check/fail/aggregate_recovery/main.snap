@@ -10,6 +10,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 102..106 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 9..19 parameter `value` of `need` is declared here
 
 path: fail/aggregate_recovery/main.nia
 code: E0201
@@ -23,6 +24,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 196..200 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 9..19 parameter `value` of `need` is declared here
 
 path: fail/aggregate_recovery/main.nia
 code: E0202
@@ -35,6 +37,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 331..335 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 9..19 parameter `value` of `need` is declared here
 
 path: fail/aggregate_recovery/main.nia
 code: E0201
@@ -54,6 +57,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 464..468 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 9..19 parameter `value` of `need` is declared here
 
 path: fail/aggregate_recovery/main.nia
 code: E0301
@@ -61,6 +65,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 507..511 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 9..19 parameter `value` of `need` is declared here
 
 report:
 error[E0201]: unknown type `Missing`
@@ -77,6 +82,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
   |                                          ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/aggregate_recovery/main.nia:1:10: parameter `value` of `need` is declared here
 
 error[E0201]: unknown type `Missing`
   --> fail/aggregate_recovery/main.nia:9:16
@@ -92,6 +98,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
   |                                          ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/aggregate_recovery/main.nia:1:10: parameter `value` of `need` is declared here
 
 error[E0202]: expected type generic argument
    --> fail/aggregate_recovery/main.nia:15:24
@@ -106,6 +113,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                                                  ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/aggregate_recovery/main.nia:1:10: parameter `value` of `need` is declared here
 
 error[E0201]: unknown type `Missing`
    --> fail/aggregate_recovery/main.nia:19:20
@@ -128,6 +136,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                           ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/aggregate_recovery/main.nia:1:10: parameter `value` of `need` is declared here
 
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/aggregate_recovery/main.nia:22:36
@@ -136,5 +145,6 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                                    ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/aggregate_recovery/main.nia:1:10: parameter `value` of `need` is declared here
 
 summary: 10 errors, 0 warnings

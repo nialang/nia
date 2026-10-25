@@ -11,6 +11,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 393..397 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0301
@@ -30,6 +31,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 431..435 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0301
@@ -49,6 +51,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 474..478 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0201
@@ -63,6 +66,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 551..555 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0201
@@ -77,6 +81,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 588..592 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0201
@@ -91,6 +96,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 618..622 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0301
@@ -109,6 +115,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 690..694 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 path: fail/failed_callable_arguments/main.nia
 code: E0301
@@ -127,6 +134,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 749..753 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 314..324 parameter `value` of `need` is declared here
 
 report:
 error[E0301]: unknown associated function `missing`
@@ -144,6 +152,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                                  ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0301]: ambiguous method `make`
    --> fail/failed_callable_arguments/main.nia:19:5
@@ -165,6 +174,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                               ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0301]: ambiguous method `make`
    --> fail/failed_callable_arguments/main.nia:20:5
@@ -186,6 +196,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                                    ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0201]: method `hidden` is private
    --> fail/failed_callable_arguments/main.nia:24:5
@@ -202,6 +213,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                             ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0201]: method `hidden_method` is private
    --> fail/failed_callable_arguments/main.nia:25:5
@@ -218,6 +230,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                              ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0201]: unknown method `missing`
    --> fail/failed_callable_arguments/main.nia:26:5
@@ -234,6 +247,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                       ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0301]: ambiguous trait method `rank`
    --> fail/failed_callable_arguments/main.nia:30:5
@@ -254,6 +268,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                     ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 error[E0301]: ambiguous dynamic trait method `rank`
    --> fail/failed_callable_arguments/main.nia:34:5
@@ -274,5 +289,6 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
    |                     ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
 summary: 16 errors, 0 warnings

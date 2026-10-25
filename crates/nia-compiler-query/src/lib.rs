@@ -347,10 +347,7 @@ pub(crate) fn module_diagnostics(
     diagnostics
         .iter()
         .cloned()
-        .map(|diagnostic| ProgramDiagnostic {
-            path: path.clone(),
-            diagnostic,
-        })
+        .map(|diagnostic| ProgramDiagnostic::filed(path, diagnostic))
         .collect()
 }
 

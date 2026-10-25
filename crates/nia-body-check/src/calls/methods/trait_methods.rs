@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::calls::args::CallTarget;
 
 impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn check_trait_method_call_with_receiver_ty(
@@ -114,7 +115,13 @@ impl<'a> BodyChecker<'a> {
                 })
                 .collect();
         }
-        self.check_direct_call_args(call.span, call.args, &params, false);
+        self.check_direct_call_args(
+            call.span,
+            CallTarget::method(candidate.method_id),
+            call.args,
+            &params,
+            false,
+        );
         let trait_args = candidate
             .trait_args
             .iter()
@@ -300,7 +307,13 @@ impl<'a> BodyChecker<'a> {
                 self.normalize_dynamic_trait_object_projection(candidate, ty)
             })
             .collect();
-        self.check_direct_call_args(call.span, call.args, &params, false);
+        self.check_direct_call_args(
+            call.span,
+            CallTarget::method(candidate.method_id),
+            call.args,
+            &params,
+            false,
+        );
         let return_type = self.substitute_generics_and_consts_with_self(
             candidate.signature.return_type,
             &substitutions,

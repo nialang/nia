@@ -163,7 +163,7 @@ fun main() i32 {
     );
     assert!(
         codegen.diagnostics.iter().all(|diagnostic| {
-            diagnostic.diagnostic.category != nia_diagnostic::DiagnosticCategory::Internal
+            diagnostic.diagnostic.category() != nia_diagnostic::DiagnosticCategory::Internal
         }),
         "frontend capture errors must not degrade into backend diagnostics: {:?}",
         codegen.diagnostics
@@ -200,7 +200,7 @@ fun main() i32 { Box { value: 2 }.run() }
     );
     assert!(
         codegen.diagnostics.iter().all(|diagnostic| {
-            diagnostic.diagnostic.category != nia_diagnostic::DiagnosticCategory::Internal
+            diagnostic.diagnostic.category() != nia_diagnostic::DiagnosticCategory::Internal
         }),
         "frontend receiver errors must not degrade into backend diagnostics: {:?}",
         codegen.diagnostics

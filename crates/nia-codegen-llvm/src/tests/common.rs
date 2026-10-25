@@ -68,11 +68,11 @@ pub(super) fn local_name(text: &str) -> LocalName {
 
 pub(super) fn has_internal_diagnostic(
     diagnostics: &[Diagnostic],
-    code: codes::DiagnosticCodeDef,
+    code: &'static codes::DiagnosticCodeDef,
     text: &str,
 ) -> bool {
     diagnostics.iter().any(|diagnostic| {
-        diagnostic.category == DiagnosticCategory::Internal
+        diagnostic.category() == DiagnosticCategory::Internal
             && diagnostic.code.as_str() == code.as_str()
             && diagnostic.summary.contains(text)
             && diagnostic.primary_span().is_some()

@@ -215,6 +215,7 @@ pub(crate) fn write_function_signature(
     }
     write_bool(encoded, signature.has_body);
     write_span(encoded, signature.span);
+    write_span(encoded, signature.return_span);
     Ok(())
 }
 
@@ -267,6 +268,7 @@ pub(crate) fn read_function_signature(
         attributes,
         has_body: read_bool(cursor)?,
         span: read_span(cursor, source_len)?,
+        return_span: read_span(cursor, source_len)?,
     })
 }
 

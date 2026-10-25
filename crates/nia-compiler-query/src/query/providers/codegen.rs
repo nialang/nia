@@ -848,7 +848,7 @@ struct DiagnosticRoot {
 struct DiagnosticGate {
     function_spans: Vec<nia_span::Span>,
     roots: HashSet<DiagnosticRoot>,
-    seen_error_sites: HashSet<(String, nia_span::Span)>,
+    seen_error_sites: HashSet<(String, String, nia_span::Span)>,
     suppressed_downstream: usize,
 }
 
@@ -888,10 +888,13 @@ impl DiagnosticGate {
         bundle: &[Diagnostic],
     ) {
         for diagnostic in bundle {
+            // Function scopes belong to this module; a diagnostic filed in
+            // another source has none here.
             let function_scope = diagnostic
                 .primary_span()
+                .filter(|_| diagnostic.source_path.is_none())
                 .and_then(|span| self.function_scope(span));
-            if diagnostic.severity == nia_diagnostic::Severity::Error
+            if diagnostic.severity() == nia_diagnostic::Severity::Error
                 && self.roots.iter().any(|root| {
                     suppresses_downstream(root.code, diagnostic.code.as_str())
                         && (root.scope.is_none() || root.scope == function_scope)
@@ -901,29 +904,34 @@ impl DiagnosticGate {
                 self.suppressed_downstream += 1;
                 continue;
             }
-            if diagnostic.severity == nia_diagnostic::Severity::Error
+            if diagnostic.severity() == nia_diagnostic::Severity::Error
                 && let Some(span) = diagnostic.primary_span()
-                && !self
-                    .seen_error_sites
-                    .insert((diagnostic.code.as_str().to_string(), span))
+                && !self.seen_error_sites.insert((
+                    diagnostic
+                        .source_path
+                        .clone()
+                        .unwrap_or_else(|| path.as_str().to_owned()),
+                    diagnostic.code.as_str().to_string(),
+                    span,
+                ))
             {
                 continue;
             }
-            if diagnostic.severity == nia_diagnostic::Severity::Error
+            if diagnostic.severity() == nia_diagnostic::Severity::Error
                 && let Some(span) = diagnostic.primary_span()
                 && let Some(code) = known_root_code(diagnostic.code.as_str())
             {
                 self.roots.insert(DiagnosticRoot {
                     code,
-                    source_path: path.as_str().to_owned(),
+                    source_path: diagnostic
+                        .source_path
+                        .clone()
+                        .unwrap_or_else(|| path.as_str().to_owned()),
                     scope: function_scope,
                     span,
                 });
             }
-            diagnostics.push(ProgramDiagnostic {
-                path: path.clone(),
-                diagnostic: diagnostic.clone(),
-            });
+            diagnostics.push(ProgramDiagnostic::filed(path, diagnostic.clone()));
         }
     }
 }
@@ -1264,7 +1272,7 @@ mod tests {
         assert!(suppresses_downstream("E0201", "E0301"));
         assert!(!suppresses_downstream("E0201", "E0304"));
         assert!(!suppresses_downstream("E0301", "E0201"));
-        assert_eq!(diagnostics[1].diagnostic.severity, Severity::Error);
+        assert_eq!(diagnostics[1].diagnostic.severity(), Severity::Error);
     }
 
     #[test]

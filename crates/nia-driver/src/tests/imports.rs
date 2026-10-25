@@ -3877,7 +3877,7 @@ fn missing_child_module_reports_the_declaration_once() {
         program
             .diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.diagnostic.category
+            .all(|diagnostic| diagnostic.diagnostic.category()
                 == nia_diagnostic::DiagnosticCategory::User
                 && !diagnostic
                     .diagnostic

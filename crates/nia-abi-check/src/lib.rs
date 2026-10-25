@@ -1285,6 +1285,7 @@ extern struct Header[N: usize] {
                 attributes: Vec::new(),
                 has_body: false,
                 span: Span::default(),
+                return_span: Span::default(),
             },
         );
         let mut foreign_structs = HashMap::new();

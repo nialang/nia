@@ -86,6 +86,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         ],
         has_body: true,
         span,
+        return_span: span,
     };
     let field = item_signatures::FieldSignature {
         def_id: DefId(11),

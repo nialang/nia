@@ -594,7 +594,7 @@ fn append_output_note(diagnostic: &mut Diagnostic, stream: &str, bytes: &[u8]) {
 }
 
 fn io_diagnostic(
-    code: nia_diagnostic::codes::DiagnosticCodeDef,
+    code: &'static nia_diagnostic::codes::DiagnosticCodeDef,
     summary: &str,
     error: &std::io::Error,
     help: &str,

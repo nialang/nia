@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::calls::args::CallTarget;
 use nia_symbol::ToSymbolId;
 
 struct DynamicTraitMethodSearch<'a> {
@@ -1791,7 +1792,13 @@ impl<'a> BodyChecker<'a> {
             &candidate.target_const_substitutions,
             call.span,
         );
-        self.check_direct_call_args(call.span, call.args, &params, false);
+        self.check_direct_call_args(
+            call.span,
+            CallTarget::method(candidate.method.def_id),
+            call.args,
+            &params,
+            false,
+        );
         true
     }
 

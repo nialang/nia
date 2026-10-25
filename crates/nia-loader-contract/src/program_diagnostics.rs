@@ -12,11 +12,22 @@ pub struct ProgramDiagnostic {
 }
 
 impl ProgramDiagnostic {
+    /// Files a diagnostic produced while checking the module at `module_path`.
+    /// A diagnostic that names another source file is filed there instead, so
+    /// every later consumer sees one path that owns all of its spans.
+    pub fn filed(module_path: &SourcePath, mut diagnostic: Diagnostic) -> Self {
+        let path = match diagnostic.source_path.take() {
+            Some(path) => SourcePath::new(path),
+            None => module_path.clone(),
+        };
+        Self { path, diagnostic }
+    }
+
     pub fn is_error(&self) -> bool {
-        self.diagnostic.severity == Severity::Error
+        self.diagnostic.severity() == Severity::Error
     }
     pub fn is_warning(&self) -> bool {
-        self.diagnostic.severity == Severity::Warning
+        self.diagnostic.severity() == Severity::Warning
     }
 }
 

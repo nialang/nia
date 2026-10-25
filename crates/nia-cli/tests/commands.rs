@@ -117,6 +117,93 @@ pub fun build(b: &mut build::Build) build::Error!() {
     }
 }
 
+// A call's argument mismatch names the parameter that set the expectation, in
+// the callee's file. When the caller is toolchain code, as with the runtime's
+// call to `main`, the report is filed at the user's declaration instead.
+#[test]
+fn call_mismatches_name_the_callee_declaration() {
+    let root = temp_dir("call_mismatches_name_the_callee_declaration");
+    std::fs::write(
+        root.join("main.nia"),
+        "module util;\n\nfun main() i32 {\n    util::take(true)\n}\n",
+    )
+    .expect("write caller");
+    std::fs::write(
+        root.join("util.nia"),
+        "pub fun take(value: i32) i32 {\n    value\n}\n",
+    )
+    .expect("write callee");
+    let output = support::nia_command()
+        .args(["--diagnostics-format=json", "check"])
+        .arg(root.join("main.nia"))
+        .output_timeout_for_compiler("check a cross-module argument mismatch");
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stderr).expect("JSON diagnostic report");
+    let diagnostic = &report["diagnostics"][0];
+    assert_eq!(diagnostic["code"], "E0301", "{report}");
+    assert!(diagnostic["path"].as_str().unwrap().ends_with("main.nia"));
+    let related = &diagnostic["related"][0];
+    assert!(
+        related["path"].as_str().unwrap().ends_with("util.nia"),
+        "{report}"
+    );
+    assert_eq!(
+        related["message"],
+        "parameter `value` of `take` is declared here"
+    );
+
+    std::fs::create_dir_all(root.join("app/src")).expect("create package");
+    std::fs::write(
+        root.join("app/nia.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(
+        root.join("app/src/main.nia"),
+        "pub fun main(count: i32) i32 {\n    count\n}\n",
+    )
+    .expect("write wrong main");
+    let output = support::nia_command()
+        .args(["--diagnostics-format=json", "build", "--root"])
+        .arg(root.join("app"))
+        .output_timeout_for_build("build a package whose main has the wrong signature");
+    assert_eq!(output.status.code(), Some(1));
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stderr).expect("JSON diagnostic report");
+    let diagnostics = report["diagnostics"].as_array().expect("diagnostics");
+    assert_eq!(diagnostics.len(), 2, "{report}");
+    for (diagnostic, label, related) in [
+        (
+            &diagnostics[0],
+            "declare this parameter as `Init`",
+            "main is called here with `Init`",
+        ),
+        (
+            &diagnostics[1],
+            "change this return type",
+            "the result of `main` is matched here",
+        ),
+    ] {
+        assert!(
+            diagnostic["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("src/main.nia"),
+            "{report}"
+        );
+        assert_eq!(diagnostic["labels"][0]["message"], label, "{report}");
+        let context = &diagnostic["related"][0];
+        assert!(
+            context["path"]
+                .as_str()
+                .unwrap()
+                .ends_with("runtime/main.nia"),
+            "{report}"
+        );
+        assert_eq!(context["message"], related, "{report}");
+    }
+}
+
 #[test]
 fn repository_nia_uses_the_exit_conversion_boundary() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

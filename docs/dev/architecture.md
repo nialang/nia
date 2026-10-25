@@ -302,6 +302,15 @@ Diagnostics. Providers collect diagnostics in phase order and suppress a
 derived report only when a published root has a matching cause identity or
 applicable source-span evidence. Independent errors stay visible.
 
+A diagnostic is filed under the source of the module whose check produced it,
+unless it names another file as its own `source_path`; its labels then index
+that file, and filing, deduplication, and the stable bundle treat it as that
+file's. Body checking uses this for calls. An argument mismatch adds the
+callee's parameter as a related location, in whatever file declares it. When
+the standard library or a runtime calls user code, a mismatch with the user's
+parameter or return type is reported at that declaration, with the toolchain
+call as context, so a wrong `main` signature is reported at the user's `main`.
+
 Internal errors. Broken compiler invariants are reported as structured internal
 compiler errors (`nia-ice`) that propagate to the CLI boundary instead of
 unwinding through it.

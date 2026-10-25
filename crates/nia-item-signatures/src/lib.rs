@@ -362,6 +362,9 @@ pub struct FunctionSignature {
     pub has_body: bool,
     /// Declaration source span.
     pub span: Span,
+    /// Span of the written return type, or of the declaration when the
+    /// return type is the implicit unit.
+    pub return_span: Span,
 }
 
 /// Declaration-order generic parameter metadata.

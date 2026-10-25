@@ -1052,7 +1052,7 @@ fn rejects_external_collisions_with_compiler_owned_symbols() {
             diagnostic.summary == "external symbol `duplicate_definition` is defined more than once"
         })
         .expect("duplicate definition diagnostic");
-    assert_eq!(duplicate.category, DiagnosticCategory::User);
+    assert_eq!(duplicate.category(), DiagnosticCategory::User);
     assert_eq!(duplicate.related.len(), 1);
     assert!(output.diagnostics.iter().all(|diagnostic| {
         !diagnostic.summary.contains("repeatable_function")

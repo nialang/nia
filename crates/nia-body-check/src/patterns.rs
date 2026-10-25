@@ -126,12 +126,14 @@ impl<'a> BodyChecker<'a> {
         let target_ty = self.check_expr(&if_pattern.target);
         let mut coverage = PatternCoverage::default();
         let mut result_ty = expected;
+        let reported = self.diagnostics.len();
         self.check_pattern(
             &if_pattern.pattern,
             target_ty,
             Some(&mut coverage),
             "if pattern",
         );
+        self.relocate_call_result_mismatches(&if_pattern.target, reported);
         let then_ty = self.check_block_with_expected(&if_pattern.then_branch, result_ty);
         if let Some(expected) = result_ty {
             self.expect_block_tail_type(

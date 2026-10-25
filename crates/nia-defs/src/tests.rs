@@ -109,28 +109,28 @@ enum E { A, A }
     assert_eq!(collection.diagnostics.len(), 4);
     assert!(collection.diagnostics.iter().any(|diagnostic| {
         diagnostic.code.as_str() == "E0101"
-            && diagnostic.category == DiagnosticCategory::User
+            && diagnostic.category() == DiagnosticCategory::User
             && diagnostic
                 .primary_message()
                 .is_some_and(|message| message.contains("duplicate type definition"))
     }));
     assert!(collection.diagnostics.iter().any(|diagnostic| {
         diagnostic.code.as_str() == "E0101"
-            && diagnostic.category == DiagnosticCategory::User
+            && diagnostic.category() == DiagnosticCategory::User
             && diagnostic
                 .primary_message()
                 .is_some_and(|message| message.contains("duplicate value definition"))
     }));
     assert!(collection.diagnostics.iter().any(|diagnostic| {
         diagnostic.code.as_str() == "E0101"
-            && diagnostic.category == DiagnosticCategory::User
+            && diagnostic.category() == DiagnosticCategory::User
             && diagnostic
                 .primary_message()
                 .is_some_and(|message| message.contains("duplicate struct field"))
     }));
     assert!(collection.diagnostics.iter().any(|diagnostic| {
         diagnostic.code.as_str() == "E0101"
-            && diagnostic.category == DiagnosticCategory::User
+            && diagnostic.category() == DiagnosticCategory::User
             && diagnostic
                 .primary_message()
                 .is_some_and(|message| message.contains("duplicate enum variant"))
@@ -162,7 +162,7 @@ fun get[U, U](self) T { self.value }
         .iter()
         .filter(|diagnostic| {
             diagnostic.code.as_str() == "E0101"
-                && diagnostic.category == DiagnosticCategory::User
+                && diagnostic.category() == DiagnosticCategory::User
                 && diagnostic
                     .primary_message()
                     .is_some_and(|message| message.contains("duplicate generic parameter"))

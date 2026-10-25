@@ -15,7 +15,7 @@ use nia_span::Span;
 use crate::{
     DebugField, Diagnostic, DiagnosticCause, DiagnosticCode, DiagnosticLabel, DiagnosticSuggestion,
     LabelStyle, MAX_DIAGNOSTIC_SUGGESTIONS, MAX_SUGGESTION_EDITS, RelatedDiagnostic, SpanSource,
-    SuggestionApplicability, SuggestionEdit, codes,
+    SuggestionApplicability, SuggestionEdit,
 };
 
 const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
@@ -25,10 +25,6 @@ const MAX_INITIAL_SEQUENCE_CAPACITY: usize = 4_096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Errors raised while encoding a stable diagnostic bundle.
 pub enum StableDiagnosticBundleError {
-    /// The diagnostic code is not registered.
-    UnregisteredCode,
-    /// Severity or category disagrees with the registry.
-    InconsistentCode,
     /// A span lies outside the supplied source length.
     InvalidSpan,
     /// The encoded bundle exceeds the bounded format limit.
@@ -38,8 +34,6 @@ pub enum StableDiagnosticBundleError {
 impl fmt::Display for StableDiagnosticBundleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::UnregisteredCode => "stable diagnostics require a registered code",
-            Self::InconsistentCode => "diagnostic severity or category does not match its code",
             Self::InvalidSpan => "diagnostic span is outside its source",
             Self::TooLarge => "stable diagnostic bundle exceeds its size limit",
         })
@@ -56,22 +50,19 @@ pub fn encode_stable_diagnostic_bundle(
     let mut encoded = STABLE_DIAGNOSTIC_BUNDLE.magic.to_vec();
     write_len(&mut encoded, diagnostics.len())?;
     for diagnostic in diagnostics {
-        let code = codes::ALL
-            .iter()
-            .find(|code| code.code == diagnostic.code.as_str())
-            .copied()
-            .ok_or(StableDiagnosticBundleError::UnregisteredCode)?;
-        if !diagnostic.code.is_registered() {
-            return Err(StableDiagnosticBundleError::UnregisteredCode);
-        }
-        if diagnostic.severity != code.severity || diagnostic.category != code.category {
-            return Err(StableDiagnosticBundleError::InconsistentCode);
-        }
-        write_string(&mut encoded, code.code)?;
+        write_string(&mut encoded, diagnostic.code.as_str())?;
         write_string(&mut encoded, &diagnostic.summary)?;
+        write_optional_string(&mut encoded, diagnostic.source_path.as_deref())?;
+        // Spans of a diagnostic reported in another file index that file,
+        // which this bundle does not own; they are bounded like related spans.
+        let owned_source = diagnostic.source_path.is_none();
         write_len(&mut encoded, diagnostic.labels.len())?;
         for label in diagnostic.labels.iter() {
-            write_span(&mut encoded, label.span, source_len)?;
+            if owned_source {
+                write_span(&mut encoded, label.span, source_len)?;
+            } else {
+                write_related_span(&mut encoded, label.span)?;
+            }
             write_u8(
                 &mut encoded,
                 match label.span_source {
@@ -106,7 +97,11 @@ pub fn encode_stable_diagnostic_bundle(
             }
             write_len(&mut encoded, suggestion.edits.len())?;
             for edit in suggestion.edits.iter() {
-                write_span(&mut encoded, edit.span, source_len)?;
+                if owned_source {
+                    write_span(&mut encoded, edit.span, source_len)?;
+                } else {
+                    write_related_span(&mut encoded, edit.span)?;
+                }
                 write_string(&mut encoded, &edit.replacement)?;
             }
         }
@@ -154,12 +149,21 @@ pub fn decode_stable_diagnostic_bundle(
     let mut diagnostics = decode_vec(diagnostics_len);
     for _ in 0..diagnostics_len {
         let code_text = read_string(&mut cursor)?;
-        let code = codes::ALL.iter().find(|code| code.code == code_text)?;
+        let code = DiagnosticCode::from_text(&code_text)?;
         let summary = read_string(&mut cursor)?;
+        let source_path = read_optional_string(&mut cursor)?;
+        let owned_source = source_path.is_none();
+        let read_owned_span = |cursor: &mut Cursor<&[u8]>| {
+            if owned_source {
+                read_span(cursor, source_len)
+            } else {
+                read_related_span(cursor)
+            }
+        };
         let labels_len = read_len(&mut cursor)?;
         let mut labels = decode_vec(labels_len);
         for _ in 0..labels_len {
-            let span = read_span(&mut cursor, source_len)?;
+            let span = read_owned_span(&mut cursor)?;
             let span_source = match read_u8(&mut cursor)? {
                 0 => SpanSource::Source,
                 1 => SpanSource::Fallback,
@@ -195,7 +199,7 @@ pub fn decode_stable_diagnostic_bundle(
             let mut edits = decode_vec(edits_len);
             for _ in 0..edits_len {
                 edits.push(SuggestionEdit {
-                    span: read_span(&mut cursor, source_len)?,
+                    span: read_owned_span(&mut cursor)?,
                     replacement: read_string(&mut cursor)?,
                 });
             }
@@ -237,10 +241,9 @@ pub fn decode_stable_diagnostic_bundle(
             });
         }
         diagnostics.push(Diagnostic {
-            severity: code.severity,
-            category: code.category,
-            code: DiagnosticCode::registered(*code),
+            code,
             summary,
+            source_path,
             labels: Box::new(labels),
             notes: Box::new(notes),
             help: Box::new(help),
@@ -439,6 +442,7 @@ fn read_u8(cursor: &mut Cursor<&[u8]>) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codes;
 
     #[test]
     fn stable_bundle_roundtrips_complete_diagnostics() {

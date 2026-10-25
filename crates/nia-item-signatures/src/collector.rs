@@ -894,6 +894,10 @@ impl<'a> SignatureCollector<'a> {
             attributes: Vec::new(),
             has_body: function.body.is_some(),
             span: function.span,
+            return_span: function
+                .return_type
+                .as_ref()
+                .map_or(function.span, |ty| ty.span),
         }
     }
 

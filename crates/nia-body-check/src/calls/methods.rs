@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::calls::args::CallTarget;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_defs::VisibleExtensionMethod;
 use nia_diagnostic::{Diagnostic, codes};
@@ -684,7 +685,13 @@ impl<'a> BodyChecker<'a> {
             );
         });
         self.profile_stage("body_check.profile.method.check_args", |this| {
-            this.check_direct_call_args(call.span, call.args, &params, false);
+            this.check_direct_call_args(
+                call.span,
+                CallTarget::method(method_id),
+                call.args,
+                &params,
+                false,
+            );
         });
         let Some((instance_args, const_instance_args)) =
             self.profile_stage("body_check.profile.method.instance_args", |this| {

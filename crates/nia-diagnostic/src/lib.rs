@@ -32,112 +32,112 @@ pub mod codes {
     use super::{DiagnosticCategory, DiagnosticCode, Severity};
 
     /// Explicit internal compiler error.
-    pub const ICE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const ICE: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0001",
         DiagnosticStage::Compiler,
         "ice",
         "compiler panic or explicit internal compiler error",
     );
     /// Internal name/value resolution invariant failure.
-    pub const INTERNAL_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const INTERNAL_RESOLUTION: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0100",
         DiagnosticStage::Resolution,
         "internal-resolution",
         "resolver invariant failure",
     );
     /// Internal item-signature definition-node failure.
-    pub const ITEM_SIGNATURE_DEF_NODE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const ITEM_SIGNATURE_DEF_NODE: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0101",
         DiagnosticStage::ItemSignature,
         "item-signature-def-node",
         "item signature definition node invariant failure",
     );
     /// Internal item-signature definition-map failure.
-    pub const ITEM_SIGNATURE_DEF_MAP: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const ITEM_SIGNATURE_DEF_MAP: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0102",
         DiagnosticStage::ItemSignature,
         "item-signature-def-map",
         "item signature definition map invariant failure",
     );
     /// Internal item-signature definition-kind failure.
-    pub const ITEM_SIGNATURE_DEF_KIND: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const ITEM_SIGNATURE_DEF_KIND: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0103",
         DiagnosticStage::ItemSignature,
         "item-signature-def-kind",
         "item signature definition kind invariant failure",
     );
     /// Internal lowered item-signature type failure.
-    pub const ITEM_SIGNATURE_LOWERED_TYPE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const ITEM_SIGNATURE_LOWERED_TYPE: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0104",
         DiagnosticStage::ItemSignature,
         "item-signature-lowered-type",
         "item signature lowered type invariant failure",
     );
     /// Internal local-resolver scope-stack failure.
-    pub const LOCAL_RESOLVER_SCOPE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const LOCAL_RESOLVER_SCOPE: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0105",
         DiagnosticStage::LocalResolution,
         "local-resolver-scope",
         "local resolver scope stack invariant failure",
     );
     /// Internal method-resolution invariant failure.
-    pub const METHOD_RESOLUTION_INVARIANT: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const METHOD_RESOLUTION_INVARIANT: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0106",
         DiagnosticStage::TypeCheck,
         "method-resolution-invariant",
         "method resolution invariant failure",
     );
     /// Internal module-graph lookup failure.
-    pub const MODULE_GRAPH_LOOKUP: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const MODULE_GRAPH_LOOKUP: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0107",
         DiagnosticStage::Load,
         "module-graph-lookup",
         "module graph lookup invariant failure",
     );
     /// Internal module-graph recording failure.
-    pub const MODULE_GRAPH_RECORDING: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const MODULE_GRAPH_RECORDING: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0108",
         DiagnosticStage::Load,
         "module-graph-recording",
         "module graph recording invariant failure",
     );
     /// Internal module-graph child lookup failure.
-    pub const MODULE_GRAPH_CHILD: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const MODULE_GRAPH_CHILD: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0109",
         DiagnosticStage::Load,
         "module-graph-child",
         "module graph child invariant failure",
     );
     /// Internal query-engine failure.
-    pub const QUERY_ENGINE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const QUERY_ENGINE: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0110",
         DiagnosticStage::Compiler,
         "query-engine",
         "query engine invariant failure",
     );
     /// Internal LLVM API failure.
-    pub const INTERNAL_LLVM_API: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const INTERNAL_LLVM_API: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0200",
         DiagnosticStage::Llvm,
         "llvm-api",
         "LLVM API returned an unexpected failure",
     );
     /// Invalid function IR product.
-    pub const INVALID_FUNCTION_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const INVALID_FUNCTION_IR: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0201",
         DiagnosticStage::FunctionIr,
         "invalid-function-ir",
         "function IR invariant failure",
     );
     /// Invalid backend IR product.
-    pub const INVALID_BACKEND_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const INVALID_BACKEND_IR: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0300",
         DiagnosticStage::BackendIr,
         "invalid-backend-ir",
         "backend IR invariant failure",
     );
     /// Invalid body IR product.
-    pub const INVALID_BODY_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
+    pub const INVALID_BODY_IR: &DiagnosticCodeDef = &DiagnosticCodeDef::internal(
         "I0301",
         DiagnosticStage::BodyIr,
         "invalid-body-ir",
@@ -145,147 +145,147 @@ pub mod codes {
     );
 
     /// User parse failure.
-    pub const PARSE: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const PARSE: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0101",
         DiagnosticStage::Parse,
         "parse",
         "source could not be parsed into valid Nia syntax",
     );
     /// User module-load or import failure.
-    pub const LOAD: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const LOAD: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0102",
         DiagnosticStage::Load,
         "load",
         "module loading or import graph failed",
     );
     /// Invalid target configuration.
-    pub const TARGET_CONFIG: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const TARGET_CONFIG: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0103",
         DiagnosticStage::TargetConfig,
         "target-config",
         "target configuration is invalid",
     );
     /// Toolchain installation or resource resolution failure.
-    pub const TOOLCHAIN: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const TOOLCHAIN: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0104",
         DiagnosticStage::Compiler,
         "toolchain",
         "the Nia toolchain could not be resolved or loaded",
     );
     /// Invalid command-line invocation.
-    pub const CLI_USAGE: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const CLI_USAGE: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0105",
         DiagnosticStage::Compiler,
         "cli-usage",
         "the Nia compiler command-line invocation is invalid",
     );
     /// Name or item resolution failure.
-    pub const NAME_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const NAME_RESOLUTION: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0201",
         DiagnosticStage::Resolution,
         "name-resolution",
         "name or item resolution failed",
     );
     /// Type normalization failure.
-    pub const TYPE_NORMALIZATION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const TYPE_NORMALIZATION: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0202",
         DiagnosticStage::TypeNormalization,
         "type-normalization",
         "type normalization failed",
     );
     /// Item signature collection failure.
-    pub const ITEM_SIGNATURE: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const ITEM_SIGNATURE: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0203",
         DiagnosticStage::ItemSignature,
         "item-signature",
         "item signature collection failed",
     );
     /// Expression, statement, or body type-check failure.
-    pub const TYPE_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const TYPE_CHECK: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0301",
         DiagnosticStage::TypeCheck,
         "type-check",
         "expression, statement, or body type checking failed",
     );
     /// Local binding resolution failure.
-    pub const LOCAL_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const LOCAL_RESOLUTION: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0302",
         DiagnosticStage::LocalResolution,
         "local-resolution",
         "local binding resolution failed",
     );
     /// Trait-object object-safety rule failure.
-    pub const OBJECT_SAFETY: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const OBJECT_SAFETY: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0303",
         DiagnosticStage::TypeCheck,
         "object-safety",
         "a trait cannot be used as a trait object under its object-safety rules",
     );
     /// Invalid atomic operation code supplied to an atomic RMW builtin.
-    pub const INVALID_ATOMIC_OPERATION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const INVALID_ATOMIC_OPERATION: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0304",
         DiagnosticStage::TypeCheck,
         "invalid-atomic-operation",
         "an atomic read-modify-write operation code is invalid",
     );
     /// Compile-time evaluation failure.
-    pub const CONST: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const CONST: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0401",
         DiagnosticStage::Const,
         "const",
         "const evaluation failed",
     );
     /// Static initializer or layout validation failure.
-    pub const STATIC_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const STATIC_CHECK: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0501",
         DiagnosticStage::StaticCheck,
         "static-check",
         "static layout, ABI, or initializer check failed",
     );
     /// LLVM code-generation failure.
-    pub const LLVM_CODEGEN: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const LLVM_CODEGEN: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0601",
         DiagnosticStage::Llvm,
         "llvm-codegen",
         "LLVM code generation failed",
     );
     /// External linker or archive tool failure.
-    pub const LINKER: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const LINKER: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0701",
         DiagnosticStage::Linker,
         "linker",
         "external linker or archive tool failed",
     );
     /// Artifact output or temporary-file I/O failure.
-    pub const ARTIFACT_IO: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const ARTIFACT_IO: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0702",
         DiagnosticStage::Compiler,
         "artifact-io",
         "compiler could not read or write an artifact",
     );
     /// Build runner bootstrap or execution failure.
-    pub const BUILD_RUNNER: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const BUILD_RUNNER: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0703",
         DiagnosticStage::Compiler,
         "build-runner",
         "the generated build runner could not be compiled or executed",
     );
     /// Frozen build-plan handoff or validation failure.
-    pub const BUILD_PLAN: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const BUILD_PLAN: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0704",
         DiagnosticStage::Compiler,
         "build-plan",
         "the build plan could not be prepared, read, or published",
     );
     /// Build action orchestration or external-command failure.
-    pub const BUILD_ACTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const BUILD_ACTION: &DiagnosticCodeDef = &DiagnosticCodeDef::user(
         "E0705",
         DiagnosticStage::Compiler,
         "build-action",
         "a build action could not be executed or published",
     );
     /// Unused import warning.
-    pub const UNUSED_IMPORT: DiagnosticCodeDef = DiagnosticCodeDef::user_warning(
+    pub const UNUSED_IMPORT: &DiagnosticCodeDef = &DiagnosticCodeDef::user_warning(
         "W0201",
         DiagnosticStage::Load,
         "unused-import",
@@ -293,7 +293,7 @@ pub mod codes {
     );
 
     /// All registered diagnostic codes in stable registry order.
-    pub const ALL: &[DiagnosticCodeDef] = &[
+    pub const ALL: &[&DiagnosticCodeDef] = &[
         ICE,
         INTERNAL_RESOLUTION,
         ITEM_SIGNATURE_DEF_NODE,
@@ -445,8 +445,8 @@ pub mod codes {
         Linker,
     }
 
-    impl From<DiagnosticCodeDef> for DiagnosticCode {
-        fn from(value: DiagnosticCodeDef) -> Self {
+    impl From<&'static DiagnosticCodeDef> for DiagnosticCode {
+        fn from(value: &'static DiagnosticCodeDef) -> Self {
             Self::registered(value)
         }
     }
@@ -455,14 +455,16 @@ pub mod codes {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Structured diagnostic payload emitted by compiler stages.
 pub struct Diagnostic {
-    /// Report severity.
-    pub severity: Severity,
-    /// User-facing or internal category.
-    pub category: DiagnosticCategory,
-    /// Stable diagnostic code.
+    /// Stable diagnostic code, which also fixes the severity and category.
     pub code: DiagnosticCode,
     /// Primary summary shown to users.
     pub summary: String,
+    /// Source file that owns the labels and suggestions, when it is not the
+    /// file of the module that produced the diagnostic. A check of one module
+    /// can find that the mistake is in another, such as a declaration whose
+    /// signature a toolchain call cannot satisfy; the diagnostic is then
+    /// reported, sorted, and deduplicated as that file's.
+    pub source_path: Option<String>,
     /// Source and generated labels.
     pub labels: Box<Vec<DiagnosticLabel>>,
     /// Additional explanatory notes.
@@ -511,8 +513,7 @@ pub enum DiagnosticCategory {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Stable diagnostic code, optionally marked as registry-backed.
 pub struct DiagnosticCode {
-    code: String,
-    registered: bool,
+    def: &'static codes::DiagnosticCodeDef,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -663,7 +664,7 @@ impl DiagnosticSink {
     }
 
     fn validate_emit_contract(&self, diagnostic: &Diagnostic) -> nia_ice::IceResult<()> {
-        if diagnostic.category == DiagnosticCategory::User
+        if diagnostic.category() == DiagnosticCategory::User
             && !self.config.allow_user_fallback_spans
             && diagnostic
                 .labels
@@ -819,13 +820,15 @@ pub trait DiagnosticReportItem {
 }
 
 impl Diagnostic {
-    fn build(code: codes::DiagnosticCodeDef, summary: impl Into<String>) -> DiagnosticBuilder {
+    fn build(
+        code: &'static codes::DiagnosticCodeDef,
+        summary: impl Into<String>,
+    ) -> DiagnosticBuilder {
         DiagnosticBuilder {
             diagnostic: Diagnostic {
-                severity: code.severity,
-                category: code.category,
                 code: code.into(),
                 summary: summary.into(),
+                source_path: None,
                 labels: Box::new(Vec::new()),
                 notes: Box::new(Vec::new()),
                 help: Box::new(Vec::new()),
@@ -839,7 +842,7 @@ impl Diagnostic {
 
     /// Starts a user-facing error diagnostic builder.
     pub fn user_error(
-        code: codes::DiagnosticCodeDef,
+        code: &'static codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
         if code.category != DiagnosticCategory::User || code.severity != Severity::Error {
@@ -853,7 +856,7 @@ impl Diagnostic {
 
     /// Starts a user-facing warning diagnostic builder.
     pub fn user_warning(
-        code: codes::DiagnosticCodeDef,
+        code: &'static codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
         if code.category != DiagnosticCategory::User || code.severity != Severity::Warning {
@@ -865,31 +868,9 @@ impl Diagnostic {
         Self::build(code, summary)
     }
 
-    #[cfg(test)]
-    fn user_error_unregistered_for_test(
-        code: impl Into<String>,
-        summary: impl Into<String>,
-    ) -> DiagnosticBuilder {
-        DiagnosticBuilder {
-            diagnostic: Diagnostic {
-                severity: Severity::Error,
-                category: DiagnosticCategory::User,
-                code: DiagnosticCode::unregistered_for_test(code),
-                summary: summary.into(),
-                labels: Box::new(Vec::new()),
-                notes: Box::new(Vec::new()),
-                help: Box::new(Vec::new()),
-                suggestions: Box::new(Vec::new()),
-                related: Box::new(Vec::new()),
-                cause: None,
-                debug: Box::new(Vec::new()),
-            },
-        }
-    }
-
     /// Creates a user error with one primary source label.
     pub fn user_error_at(
-        code: codes::DiagnosticCodeDef,
+        code: &'static codes::DiagnosticCodeDef,
         span: Span,
         summary: impl Into<String>,
     ) -> Diagnostic {
@@ -901,7 +882,7 @@ impl Diagnostic {
 
     /// Creates a user warning with one primary source label.
     pub fn user_warning_at(
-        code: codes::DiagnosticCodeDef,
+        code: &'static codes::DiagnosticCodeDef,
         span: Span,
         summary: impl Into<String>,
     ) -> Diagnostic {
@@ -913,7 +894,7 @@ impl Diagnostic {
 
     /// Starts an internal compiler error diagnostic builder.
     pub fn internal_error(
-        code: codes::DiagnosticCodeDef,
+        code: &'static codes::DiagnosticCodeDef,
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
         assert_eq!(code.category, DiagnosticCategory::Internal);
@@ -922,7 +903,7 @@ impl Diagnostic {
 
     /// Creates an internal error with one primary source label.
     pub fn internal_error_at(
-        code: codes::DiagnosticCodeDef,
+        code: &'static codes::DiagnosticCodeDef,
         span: Span,
         summary: impl Into<String>,
     ) -> Diagnostic {
@@ -979,14 +960,19 @@ impl Diagnostic {
             .or_else(|| self.labels.first())
     }
 
+    /// Report severity, fixed by the code.
+    pub fn severity(&self) -> Severity {
+        self.code.def().severity
+    }
+
+    /// User-facing or internal category, fixed by the code.
+    pub fn category(&self) -> DiagnosticCategory {
+        self.code.def().category
+    }
+
     /// Returns the provenance of the selected primary label.
     pub fn primary_span_source(&self) -> Option<SpanSource> {
         self.primary_label().map(|label| label.span_source)
-    }
-
-    /// Reports whether the diagnostic uses an unregistered code.
-    pub fn uses_unregistered_code(&self) -> bool {
-        !self.code.is_registered()
     }
 }
 
@@ -1095,6 +1081,13 @@ impl DiagnosticBuilder {
                 }]),
             });
         }
+        self
+    }
+
+    /// Reports the diagnostic in another module's source file; its labels and
+    /// suggestions then index that file.
+    pub fn in_source(mut self, source_path: impl Into<String>) -> Self {
+        self.diagnostic.source_path = Some(source_path.into());
         self
     }
 
@@ -1264,11 +1257,11 @@ pub fn build_diagnostic_report_with_downstream<T: DiagnosticReportItem>(
 
     let error_count = selected
         .iter()
-        .filter(|entry| entry.report_diagnostic().severity == Severity::Error)
+        .filter(|entry| entry.report_diagnostic().severity() == Severity::Error)
         .count();
     let warning_count = selected
         .iter()
-        .filter(|entry| entry.report_diagnostic().severity == Severity::Warning)
+        .filter(|entry| entry.report_diagnostic().severity() == Severity::Warning)
         .count();
 
     DiagnosticReport {
@@ -1298,11 +1291,6 @@ fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Orderin
     span_source_rank(left_diagnostic)
         .cmp(&span_source_rank(right_diagnostic))
         .then_with(|| {
-            left_diagnostic
-                .uses_unregistered_code()
-                .cmp(&right_diagnostic.uses_unregistered_code())
-        })
-        .then_with(|| {
             diagnostic_priority(left_diagnostic).cmp(&diagnostic_priority(right_diagnostic))
         })
         .then_with(|| left.report_path().cmp(&right.report_path()))
@@ -1330,11 +1318,11 @@ fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Orderin
 }
 
 fn diagnostic_priority(diagnostic: &Diagnostic) -> (u8, u8) {
-    let category = match diagnostic.category {
+    let category = match diagnostic.category() {
         DiagnosticCategory::Internal => 0,
         DiagnosticCategory::User => 1,
     };
-    let severity = match diagnostic.severity {
+    let severity = match diagnostic.severity() {
         Severity::Error => 0,
         Severity::Warning => 1,
     };
@@ -1366,36 +1354,34 @@ impl<'a> DiagnosticDedupeKey<'a> {
 }
 
 impl DiagnosticCode {
-    #[cfg(test)]
-    fn unregistered_for_test(code: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            registered: false,
-        }
+    /// Returns the handle of a registered code. Every code is registered: the
+    /// registry is the only way to name one.
+    pub const fn registered(def: &'static codes::DiagnosticCodeDef) -> Self {
+        Self { def }
     }
 
-    /// Creates a code handle backed by the registered code definition.
-    pub fn registered(code: codes::DiagnosticCodeDef) -> Self {
-        Self {
-            code: code.code.to_string(),
-            registered: true,
-        }
+    /// Returns the registered code text, as `nia-diagnostic` reads it back.
+    pub fn from_text(code: &str) -> Option<Self> {
+        codes::ALL
+            .iter()
+            .find(|registered| registered.code == code)
+            .map(|def| Self { def: *def })
     }
 
     /// Returns the stable code text.
-    pub fn as_str(&self) -> &str {
-        &self.code
+    pub fn as_str(&self) -> &'static str {
+        self.def.code
     }
 
-    /// Reports whether this handle came from the registry.
-    pub fn is_registered(&self) -> bool {
-        self.registered
+    /// Returns the registry entry.
+    pub fn def(&self) -> &'static codes::DiagnosticCodeDef {
+        self.def
     }
 }
 
 impl fmt::Display for DiagnosticCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.code)
+        f.write_str(self.def.code)
     }
 }
 
@@ -1454,13 +1440,15 @@ pub fn render_diagnostic_with_sources<'a>(
     sources: &'a HashMap<String, String>,
 ) -> String {
     let mut output = String::new();
-    let category = match diagnostic.category {
+    let category = match diagnostic.category() {
         DiagnosticCategory::User => "",
         DiagnosticCategory::Internal => " internal",
     };
     output.push_str(&format!(
         "{}{category}[{}]: {}\n",
-        diagnostic.severity, diagnostic.code, diagnostic.summary
+        diagnostic.severity(),
+        diagnostic.code,
+        diagnostic.summary
     ));
 
     if diagnostic.labels.is_empty() {
@@ -1541,7 +1529,7 @@ pub fn render_diagnostic_with_sources<'a>(
             ));
         }
     }
-    if diagnostic.category == DiagnosticCategory::Internal {
+    if diagnostic.category() == DiagnosticCategory::Internal {
         for field in diagnostic.debug.iter() {
             output.push_str(&format!("debug: {} = {}\n", field.key, field.value));
         }
@@ -1583,7 +1571,7 @@ pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
     push_json_string_field(
         &mut output,
         "severity",
-        match diagnostic.severity {
+        match diagnostic.severity() {
             Severity::Error => "error",
             Severity::Warning => "warning",
         },
@@ -1592,7 +1580,7 @@ pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
     push_json_string_field(
         &mut output,
         "category",
-        match diagnostic.category {
+        match diagnostic.category() {
             DiagnosticCategory::User => "user",
             DiagnosticCategory::Internal => "internal",
         },
@@ -1681,7 +1669,7 @@ pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
         output.push('}');
     }
     output.push(']');
-    if diagnostic.category == DiagnosticCategory::Internal {
+    if diagnostic.category() == DiagnosticCategory::Internal {
         output.push_str(",\"debug\":[");
         for (index, field) in diagnostic.debug.iter().enumerate() {
             if index != 0 {
@@ -2225,7 +2213,7 @@ mod tests {
 
         let diagnostic = Diagnostic::from(ice);
 
-        assert_eq!(diagnostic.category, DiagnosticCategory::Internal);
+        assert_eq!(diagnostic.category(), DiagnosticCategory::Internal);
         assert_eq!(diagnostic.code.as_str(), "I0001");
         assert!(diagnostic.summary.contains("broken query invariant"));
         assert!(
@@ -2526,6 +2514,23 @@ mod tests {
         }
     }
 
+    // `Result<_, Diagnostic>` is everywhere; a diagnostic stays small enough
+    // to return by value. Its severity and category are the code's, not copies.
+    #[test]
+    fn diagnostics_stay_small_and_derive_severity_from_their_code() {
+        assert!(std::mem::size_of::<Diagnostic>() <= 112);
+        let warning = Diagnostic::user_warning(codes::UNUSED_IMPORT, "unused").finish();
+        assert_eq!(warning.severity(), Severity::Warning);
+        assert_eq!(warning.category(), DiagnosticCategory::User);
+        let internal = Diagnostic::internal_error(codes::ICE, "ice").finish();
+        assert_eq!(internal.category(), DiagnosticCategory::Internal);
+        assert_eq!(
+            DiagnosticCode::from_text("E0301").map(|code| code.as_str()),
+            Some("E0301")
+        );
+        assert_eq!(DiagnosticCode::from_text("E9999"), None);
+    }
+
     #[test]
     fn registered_codes_are_unique_and_well_formed() {
         let mut seen = Vec::new();
@@ -2552,15 +2557,6 @@ mod tests {
             );
             seen.push(code.code);
         }
-    }
-
-    #[test]
-    fn diagnostics_remember_whether_code_is_registered() {
-        let registered = Diagnostic::user_error(codes::PARSE, "registered").finish();
-        let raw = Diagnostic::user_error_unregistered_for_test("E9999", "raw").finish();
-
-        assert!(!registered.uses_unregistered_code());
-        assert!(raw.uses_unregistered_code());
     }
 
     #[test]

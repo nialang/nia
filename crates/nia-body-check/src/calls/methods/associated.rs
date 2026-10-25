@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::calls::args::CallTarget;
 
 struct TraitAssociatedFunctionCall<'b> {
     expr: &'b Expr,
@@ -272,7 +273,16 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect();
-        self.check_direct_call_args(span, value_args, &params, false);
+        self.check_direct_call_args(
+            span,
+            CallTarget::Declared {
+                callee: method_id,
+                first_param: usize::from(is_receiver_method),
+            },
+            value_args,
+            &params,
+            false,
+        );
         let Some((instance_args, instance_const_args)) = self
             .complete_instance_args_and_const_args_for_def(
                 span,
@@ -446,7 +456,13 @@ impl<'a> BodyChecker<'a> {
                 })
                 .collect();
         }
-        self.check_direct_call_args(expr.span, args, &params, false);
+        self.check_direct_call_args(
+            expr.span,
+            CallTarget::function(candidate.method_id),
+            args,
+            &params,
+            false,
+        );
         let trait_args = candidate
             .trait_args
             .iter()

@@ -31,7 +31,7 @@ impl<'a> BodyChecker<'a> {
         // A rejected initializer cannot produce a valid static-data product.
         if self.is_error_recovery_ty(ty)
             || self.diagnostics.iter().any(|diagnostic| {
-                diagnostic.severity == nia_diagnostic::Severity::Error
+                diagnostic.severity() == nia_diagnostic::Severity::Error
                     && diagnostic.primary_span().is_some_and(|span| {
                         expr.span.start <= span.start && span.end <= expr.span.end
                     })

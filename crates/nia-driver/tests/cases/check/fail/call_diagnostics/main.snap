@@ -11,6 +11,7 @@ summary: type mismatch in call argument 1: expected i32, got bool
 label: 120..124 Primary Source type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 8..17 parameter `left` of `add` is declared here
 
 path: fail/call_diagnostics/main.nia
 code: E0301
@@ -31,6 +32,7 @@ summary: type mismatch in call argument 2: expected i32, got bool
 label: 186..190 Primary Source type mismatch in call argument 2: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 19..29 parameter `right` of `add` is declared here
 
 path: fail/call_diagnostics/main.nia
 code: E0301
@@ -57,6 +59,7 @@ summary: type mismatch in call argument 2: expected i32, got bool
 label: 234..238 Primary Source type mismatch in call argument 2: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: 78..86 parameter `right` of `pair` is declared here
 
 report:
 error[E0301]: argument count mismatch: expected 2, got 1
@@ -74,6 +77,7 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
   |         ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/call_diagnostics/main.nia:1:9: parameter `left` of `add` is declared here
 
 error[E0301]: callee is not callable
    --> fail/call_diagnostics/main.nia:10:5
@@ -97,6 +101,7 @@ error[E0301]: type mismatch in call argument 2: expected i32, got bool
    |                  ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/call_diagnostics/main.nia:1:20: parameter `right` of `add` is declared here
 
 error[E0301]: argument count mismatch: expected 2, got 1
    --> fail/call_diagnostics/main.nia:12:5
@@ -127,6 +132,7 @@ error[E0301]: type mismatch in call argument 2: expected i32, got bool
    |                        ^^^^
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+related: fail/call_diagnostics/main.nia:5:22: parameter `right` of `pair` is declared here
 
 summary: 9 errors, 0 warnings
 note: not shown: 2 caused by the errors above

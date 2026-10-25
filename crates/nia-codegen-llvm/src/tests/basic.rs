@@ -1018,7 +1018,7 @@ fun divrem(value: u128, by: u128) u128 {
     ] {
         assert!(
             output.diagnostics.iter().any(|diagnostic| {
-                diagnostic.category == nia_diagnostic::DiagnosticCategory::User
+                diagnostic.category() == nia_diagnostic::DiagnosticCategory::User
                     && diagnostic.code.as_str() == codes::LLVM_CODEGEN.as_str()
                     && diagnostic.summary.contains(expected)
                     && diagnostic
