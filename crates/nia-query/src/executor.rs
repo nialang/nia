@@ -2,95 +2,31 @@
 //! Shared worker executor, nested execution budget, and ordered task batches.
 //!
 //! Workers may help their awaited batch while blocked, but a process-wide
-//! execution budget bounds active work across nested query sessions and
-//! independent databases. Batch results are restored to submission order
-//! before exposure.
+//! execution budget, one permit per host CPU, bounds active work across
+//! nested query sessions and independent databases. Batch results are
+//! restored to submission order before exposure.
 
 use super::*;
 
 impl QueryExecutionBudget {
-    pub(super) fn from_environment(parallelism: usize) -> nia_ice::IceResult<Self> {
-        // SAFETY: the process launcher owns the jobserver environment contract. We validate that
-        // inherited Unix descriptors are pipes, and the process-wide OnceLock below ensures Nia
-        // opens them only once instead of creating competing clients for the same raw descriptors.
-        let inherited = unsafe { jobserver::Client::from_env_ext(true) };
-        let client = match inherited.client {
-            Ok(client) => client,
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    jobserver::FromEnvErrorKind::NoEnvVar
-                        | jobserver::FromEnvErrorKind::NoJobserver
-                ) =>
-            {
-                jobserver::Client::new(parallelism.saturating_sub(1)).map_err(|error| {
-                    nia_ice::Ice::new(format!("failed to create query jobserver: {error}"))
-                })?
-            }
-            Err(error) => {
-                return Err(nia_ice::Ice::new(format!(
-                    "failed to inherit query jobserver: {error}"
-                )));
-            }
-        };
-        Self::from_client(client)
+    pub(super) fn new(capacity: NonZeroUsize) -> Self {
+        Self {
+            shared: Arc::new(QueryExecutionBudgetShared {
+                capacity: capacity.get(),
+                state: Mutex::new(QueryExecutionBudgetState {
+                    waiting: 0,
+                    active: 0,
+                    failure: None,
+                }),
+                ready: Condvar::new(),
+                peak_active: AtomicUsize::new(0),
+            }),
+        }
     }
 
     #[cfg(test)]
-    pub(super) fn owned(parallelism: usize) -> Self {
-        let client = jobserver::Client::new(parallelism.saturating_sub(1))
-            .unwrap_or_else(|error| panic!("Nia ICE: failed to create query jobserver: {error}"));
-        Self::from_client(client).unwrap_or_else(|ice| panic!("{ice}"))
-    }
-
-    fn from_client(client: jobserver::Client) -> nia_ice::IceResult<Self> {
-        let shared = Arc::new(QueryExecutionBudgetShared {
-            state: Mutex::new(QueryExecutionBudgetState {
-                implicit_available: true,
-                waiting: 0,
-                pending_requests: 0,
-                active: 0,
-                deliveries: VecDeque::new(),
-                failure: None,
-            }),
-            ready: Condvar::new(),
-            peak_active: AtomicUsize::new(0),
-        });
-        let callback_shared = Arc::clone(&shared);
-        let helper = client
-            .into_helper_thread(move |delivery| {
-                let delivery = delivery.map_err(|error| error.to_string());
-                let mut state = callback_shared.state.lock();
-                let Some(pending_requests) = state.pending_requests.checked_sub(1) else {
-                    state.failure = Some(nia_ice::Ice::new(
-                        "query execution budget received an unrequested token",
-                    ));
-                    drop(state);
-                    callback_shared.ready.notify_all();
-                    return;
-                };
-                state.pending_requests = pending_requests;
-                match delivery {
-                    Ok(token) if state.waiting > 0 => {
-                        state.deliveries.push_back(Ok(token));
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        state.failure = Some(nia_ice::Ice::new(format!(
-                            "failed to acquire query jobserver token: {error}"
-                        )));
-                    }
-                }
-                drop(state);
-                callback_shared.ready.notify_all();
-            })
-            .map_err(|error| {
-                nia_ice::Ice::new(format!("failed to start query jobserver helper: {error}"))
-            })?;
-        Ok(Self {
-            shared,
-            helper: Mutex::new(helper),
-        })
+    pub(super) fn owned(capacity: usize) -> Self {
+        Self::new(NonZeroUsize::new(capacity).expect("test budget capacity must be non-zero"))
     }
 
     pub(super) fn acquire(&self) -> nia_ice::IceResult<QueryExecutionPermit> {
@@ -108,63 +44,26 @@ impl QueryExecutionBudget {
     ) -> nia_ice::IceResult<Option<QueryExecutionPermit>> {
         let mut state = self.shared.state.lock();
         state.waiting += 1;
-        loop {
+        let permit = loop {
             if let Some(ice) = state.failure.clone() {
-                state.waiting = state.waiting.saturating_sub(1);
-                return Err(ice);
+                break Err(ice);
             }
-            // Outstanding jobserver requests stay valid after an abandoned
-            // wait: a later waiter consumes the delivery, and the helper
-            // releases it when nobody is waiting.
             if abandon() {
-                state.waiting -= 1;
-                return Ok(None);
+                break Ok(None);
             }
-            // A jobserver contributes one implicit slot plus its explicit tokens. Deliveries are
-            // assigned before the implicit slot so an already-issued request cannot be stranded
-            // while later waiters repeatedly take the process-local slot.
-            if let Some(delivery) = state.deliveries.pop_front() {
-                state.waiting -= 1;
-                let token = match delivery {
-                    Ok(token) => token,
-                    Err(error) => {
-                        drop(state);
-                        return Err(nia_ice::Ice::new(format!(
-                            "failed to acquire query jobserver token: {error}"
-                        )));
-                    }
-                };
+            if state.active < self.shared.capacity {
                 state.active += 1;
-                self.shared.record_active(state.active);
-                drop(state);
-                return Ok(Some(QueryExecutionPermit {
+                self.shared
+                    .peak_active
+                    .fetch_max(state.active, Ordering::Relaxed);
+                break Ok(Some(QueryExecutionPermit {
                     shared: Arc::clone(&self.shared),
-                    implicit: false,
-                    token: Some(token),
                 }));
-            }
-            if state.implicit_available {
-                state.implicit_available = false;
-                state.waiting -= 1;
-                state.active += 1;
-                self.shared.record_active(state.active);
-                return Ok(Some(QueryExecutionPermit {
-                    shared: Arc::clone(&self.shared),
-                    implicit: true,
-                    token: None,
-                }));
-            }
-            let represented_waiters = state.pending_requests + state.deliveries.len();
-            let requests = state.waiting.saturating_sub(represented_waiters);
-            state.pending_requests += requests;
-            if requests > 0 {
-                let helper = self.helper.lock();
-                for _ in 0..requests {
-                    helper.request_token();
-                }
             }
             self.shared.ready.wait(&mut state);
-        }
+        };
+        state.waiting -= 1;
+        permit
     }
 
     fn notify_waiters(&self) {
@@ -182,29 +81,18 @@ impl QueryExecutionBudget {
     }
 }
 
-impl QueryExecutionBudgetShared {
-    fn record_active(&self, active: usize) {
-        self.peak_active.fetch_max(active, Ordering::Relaxed);
-    }
-}
-
 impl Drop for QueryExecutionPermit {
     fn drop(&mut self) {
         let mut state = self.shared.state.lock();
-        let Some(active) = state.active.checked_sub(1) else {
-            state.failure = Some(nia_ice::Ice::new(
-                "query execution budget permit count underflow",
-            ));
-            drop(state);
-            self.shared.ready.notify_all();
-            return;
-        };
-        state.active = active;
-        if self.implicit {
-            state.implicit_available = true;
+        match state.active.checked_sub(1) {
+            Some(active) => state.active = active,
+            None => {
+                state.failure = Some(nia_ice::Ice::new(
+                    "query execution budget permit count underflow",
+                ));
+            }
         }
         drop(state);
-        drop(self.token.take());
         self.shared.ready.notify_all();
     }
 }

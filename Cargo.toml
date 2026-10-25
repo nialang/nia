@@ -85,7 +85,6 @@ authors = ["softfault <givenyoung46@gmail.com>"]
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
-jobserver = "0.1.35"
 parking_lot = "0.12.5"
 # The process allocator of every binary that compiles Nia; see crates/nia-alloc.
 mimalloc = { version = "=0.1.52", default-features = false }

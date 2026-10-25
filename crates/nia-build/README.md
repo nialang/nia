@@ -198,7 +198,7 @@ before action selection or output preparation. Mismatch reports identify the
 role and show the invocation target as expected and the plan target as found.
 
 The coordinator executes deterministic readiness waves through `QuerySession`,
-so build actions share the process jobserver and compiler resource budgets.
+so build actions share the process CPU and compiler resource budgets.
 `Cpu` and `Io` actions reserve one action slot; `Conservative` actions reserve
 the complete action capacity. `--jobs` can reduce ready-action parallelism but
 does not create a separate executor or replace LLVM memory backpressure.

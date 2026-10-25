@@ -9,8 +9,10 @@ use super::*;
 impl QuerySession {
     /// Creates a session with process-budgeted executor parallelism.
     pub fn new() -> nia_ice::IceResult<Self> {
-        let parallelism = default_query_parallelism();
-        Self::with_execution_budget_result(parallelism, process_query_execution_budget(parallelism))
+        Self::from_execution_budget(
+            default_query_parallelism(),
+            process_query_execution_budget(),
+        )
     }
 
     #[cfg(test)]
@@ -33,13 +35,6 @@ impl QuerySession {
     ) -> Self {
         Self::from_execution_budget(parallelism, execution_budget)
             .unwrap_or_else(|ice| panic!("failed to create query session: {ice}"))
-    }
-
-    fn with_execution_budget_result(
-        parallelism: usize,
-        execution_budget: nia_ice::IceResult<Arc<QueryExecutionBudget>>,
-    ) -> nia_ice::IceResult<Self> {
-        Self::from_execution_budget(parallelism, execution_budget?)
     }
 
     pub(super) fn from_execution_budget(

@@ -6,7 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-jobserver.workspace = true
 parking_lot.workspace = true
 nia-hash.workspace = true
 nia-ice.workspace = true

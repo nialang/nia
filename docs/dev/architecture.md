@@ -221,8 +221,10 @@ they do not implement cache invalidation independently. A query asking for
 itself is caught on the requesting thread, and a process-wide wait-for graph
 reports cross-thread cycles before a thread blocks.
 
-Parallel work draws CPU tokens from a jobserver, inherited from the launching
-process when one is present. LLVM work additionally holds a process-wide memory
+Parallel work holds one of the process's CPU permits, one for each CPU the
+process may use (affinity masks and Linux cgroup quotas included). The budget
+belongs to the process: a parent build tool's jobserver does not throttle it.
+LLVM work additionally holds a process-wide memory
 permit. At most four LLVM lanes run at once; the cap is further limited by the
 available CPUs and by half the observable memory limit (system or cgroup)
 divided by a 512 MiB per-lane cost. When no memory limit is observable, one

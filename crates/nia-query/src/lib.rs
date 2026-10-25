@@ -16,8 +16,9 @@
 //! a query asking for itself, and a process-wide wait-for graph catches
 //! cross-thread waits that would otherwise deadlock.
 //!
-//! Parallel work draws CPU tokens from a jobserver, inherited from the
-//! launching process when one is present. LLVM work additionally holds a
+//! Parallel work holds one of the process's CPU permits, one per CPU the
+//! process may use. The budget is the process's own: a parent build tool's
+//! jobserver does not throttle it. LLVM work additionally holds a
 //! process-wide memory permit: at most four lanes run at once, further capped
 //! by the available CPUs and by half the observable system or cgroup memory
 //! limit at 512 MiB per lane, with one lane when no limit is observable. A
@@ -254,28 +255,23 @@ struct QueryExecutorActivityGuard {
 
 struct QueryExecutionBudget {
     shared: Arc<QueryExecutionBudgetShared>,
-    helper: Mutex<jobserver::HelperThread>,
 }
 
 struct QueryExecutionBudgetShared {
+    capacity: usize,
     state: Mutex<QueryExecutionBudgetState>,
     ready: Condvar,
     peak_active: AtomicUsize,
 }
 
 struct QueryExecutionBudgetState {
-    implicit_available: bool,
     waiting: usize,
-    pending_requests: usize,
     active: usize,
-    deliveries: VecDeque<Result<jobserver::Acquired, String>>,
     failure: Option<nia_ice::Ice>,
 }
 
 struct QueryExecutionPermit {
     shared: Arc<QueryExecutionBudgetShared>,
-    implicit: bool,
-    token: Option<jobserver::Acquired>,
 }
 
 struct QueryExecutionBudgetStackGuard {
@@ -923,13 +919,14 @@ fn default_query_parallelism() -> usize {
         .clamp(1, DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM)
 }
 
-fn process_query_execution_budget(
-    parallelism: usize,
-) -> nia_ice::IceResult<Arc<QueryExecutionBudget>> {
-    static BUDGET: OnceLock<nia_ice::IceResult<Arc<QueryExecutionBudget>>> = OnceLock::new();
-    BUDGET
-        .get_or_init(|| QueryExecutionBudget::from_environment(parallelism).map(Arc::new))
-        .clone()
+// One permit per CPU the process may use; `available_parallelism` already
+// honors affinity masks and Linux cgroup CPU quotas.
+fn process_query_execution_budget() -> Arc<QueryExecutionBudget> {
+    static BUDGET: OnceLock<Arc<QueryExecutionBudget>> = OnceLock::new();
+    Arc::clone(BUDGET.get_or_init(|| {
+        let cpus = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+        Arc::new(QueryExecutionBudget::new(cpus))
+    }))
 }
 
 #[cfg(test)]
