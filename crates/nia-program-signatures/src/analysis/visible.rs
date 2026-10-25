@@ -152,6 +152,7 @@ pub fn visible_extensions_for_module(
         nominal_extension_providers,
         visible_modules,
         trait_witness_modules,
+        ..
     } = input;
     let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
     let computed_visible_modules;
@@ -302,16 +303,16 @@ pub fn visible_trait_impls_for_module(
         graph,
         using_scope,
         using_scopes,
-        public_surfaces,
+        public_surfaces: _,
         defs,
         normalizations,
         visible_type_signatures,
         trait_impls,
         nominal_extension_providers,
         visible_modules,
+        trait_witness_modules,
         ..
     } = input;
-    let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
     let computed_visible_modules;
     let visible_modules = if let Some(visible_modules) = visible_modules {
         visible_modules
@@ -330,20 +331,10 @@ pub fn visible_trait_impls_for_module(
         computed_visible_modules = declared_module_closure(&visibility_context);
         &computed_visible_modules
     };
-    let witness_modules = visible_modules;
+    let witness_modules = trait_witness_modules.unwrap_or(visible_modules);
     let trait_impls = trait_impls
         .iter()
-        .filter(|impl_signature| {
-            witness_modules.contains(&impl_signature.module_id)
-                && trait_id_is_visible(
-                    module_id,
-                    witness_modules,
-                    impl_signature.trait_id,
-                    graph,
-                    public_surfaces,
-                    &mut resolver_cache,
-                )
-        })
+        .filter(|impl_signature| witness_modules.contains(&impl_signature.module_id))
         .cloned()
         .collect::<Vec<_>>();
     let trait_impl_index =

@@ -928,6 +928,8 @@ fn ordinary_user_len_impl_runs_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
+
 struct Window {
     start: usize,
     end: usize,

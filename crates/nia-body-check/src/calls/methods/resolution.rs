@@ -493,15 +493,15 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         let target_type_name = self.provider_target_type_name(receiver_ty);
-        if let Some(contract) = nia_symbol::PredeclaredSourceTrait::for_method(method_name) {
+        if method_name == nia_symbol::known::LEN {
             self.record_provider_demand(crate::ProviderDemand {
                 source_path: self.source_path.clone(),
                 request: crate::ProviderRequest::TraitImpl {
                     target_type_name,
                     target_package: self.provider_target_package(receiver_ty),
                     target_module_segments: self.provider_target_module_segments(receiver_ty),
-                    trait_name: contract.name,
-                    trait_package: Some(contract.package),
+                    trait_name: nia_symbol::known::LEN_TYPE,
+                    trait_package: Some(nia_symbol::known::STD),
                     trait_type_argument_names: Vec::new(),
                 },
             });

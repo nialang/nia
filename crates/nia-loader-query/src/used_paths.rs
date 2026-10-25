@@ -180,19 +180,6 @@ impl QualifiedPathModuleCollector<'_> {
     }
 
     fn collect_type_path(&mut self, segments: &[nia_ast::TypePathSegment]) {
-        // Predeclared source contracts are visible by name in every module.
-        if segments.len() == 1
-            && let PathSegmentKind::Name(name) = segments[0].kind
-            && let Some(contract) = nia_symbol::PredeclaredSourceTrait::from_symbol(name)
-        {
-            self.packages.push(contract.package);
-            self.paths.push(UsedModulePath::Package {
-                package: contract.package,
-                segments: contract.module_path.to_vec(),
-                include_declared_children: false,
-                processing: UsedModulePathProcessing::Always,
-            });
-        }
         let Some((root, segments)) = type_qualified_segments(segments) else {
             return;
         };

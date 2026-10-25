@@ -1,8 +1,8 @@
 use super::*;
 
 #[test]
-fn query_loader_loads_len_prelude_provider_on_demand() {
-    let root = temp_dir("query_loader_loads_len_prelude_provider_on_demand");
+fn query_loader_loads_len_trait_provider_on_explicit_demand() {
+    let root = temp_dir("query_loader_loads_len_trait_provider_on_explicit_demand");
     let main_path = root.join("main.nia");
     write(
         &main_path,
@@ -28,12 +28,14 @@ fun main(values: &[u8]) usize {
 }
 
 #[test]
-fn query_loader_resolves_unqualified_len_in_impl_without_loading_other_builtins() {
-    let root = temp_dir("query_loader_resolves_unqualified_len_in_impl");
+fn query_loader_loads_len_impl_from_explicit_trait_import() {
+    let root = temp_dir("query_loader_loads_len_impl_from_explicit_trait_import");
     let main_path = root.join("main.nia");
     write(
         &main_path,
         r#"
+using std::builtin::Len;
+
 struct Window {}
 extend Window : Len {
     const fun len(&self) usize { 0usize }
@@ -49,6 +51,26 @@ fun main() () {}
     assert_module_loaded(&program, "lib/std/builtin/place.nia");
     assert_module_not_loaded(&program, "lib/std/builtin/atomic.nia");
     assert_module_not_loaded(&program, "lib/std/iter/range.nia");
+}
+
+#[test]
+fn query_loader_does_not_predeclare_len_without_an_import() {
+    let root = temp_dir("query_loader_does_not_predeclare_len_without_an_import");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+struct Window {}
+extend Window : Len {
+    const fun len(&self) usize { 0usize }
+}
+fun main() () {}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_module_not_loaded(&program, "lib/std/builtin.nia");
 }
 
 #[test]

@@ -291,12 +291,14 @@ const pointer_bytes: usize = target::pointerWidth / 8;
 
 ## Built-In Methods
 
-These methods exist on structural types without an import. A visible user
-method with the same name takes priority.
+The structural methods below exist without an import, except `len()`, which
+is provided by the ordinary `std::builtin::Len` trait and must be brought into
+scope with `using std::builtin::Len;`. A visible user method with the same
+name takes priority.
 
 | Method | Receiver | Result |
 | --- | --- | --- |
-| `len()` | array, array pointer, slice | element count, from the `Len` trait |
+| `len()` | array, array pointer, slice | element count, from `Len` |
 | `start()` | `a..b`, `a..=b`, `a..` | the start bound |
 | `end()` | `a..b`, `a..=b`, `..b`, `..=b` | the end bound |
 | `ptr()` | `&[T]` or `&mut [T]` | `&T` to the first element |
@@ -307,6 +309,8 @@ An array pointer reaches `ptr()` through the array-to-slice conversion, so
 error. An empty slice has a data pointer, but dereferencing it is invalid.
 
 ```nia
+using std::builtin::Len;
+
 fun first_bytes(data: &mut [u8]) usize {
     let read: &u8 = data.ptr();
     let mut view = data;

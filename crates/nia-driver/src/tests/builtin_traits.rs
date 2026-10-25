@@ -955,6 +955,8 @@ fn ordinary_len_trait_constrains_array_and_slice_length() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
+
 fun len_of[T](value: T) usize
 where T: Len {
     value.len()
@@ -977,6 +979,8 @@ fn imported_generic_len_bound_uses_the_demand_loaded_source_trait() {
     write(
         &root.join("api.nia"),
         r#"
+using std::builtin::Len;
+
 pub fun lenOf[T](value: T) usize
 where T: Len {
     value.len()
@@ -1279,6 +1283,8 @@ struct Window {
     hi: usize,
 }
 
+using std::builtin::Len;
+
 extend Window : Len {
     const fun len(& self) usize {
         self.hi - self.lo
@@ -1308,6 +1314,8 @@ fn ordinary_len_trait_validates_method_signatures() {
         &root.join("main.nia"),
         r#"
 struct BadLen {}
+
+using std::builtin::Len;
 
 extend BadLen : Len {
     const fun len(self) i32 {

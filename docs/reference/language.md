@@ -1373,6 +1373,8 @@ The operand is evaluated once, conversion happens only on the error path, and
 nothing is allocated.
 
 ```nia
+using std::builtin::Len;
+
 struct ParseError {
     code: i32,
 }

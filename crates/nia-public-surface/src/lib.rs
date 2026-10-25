@@ -18,9 +18,8 @@ use std::{borrow::Borrow, collections::HashMap};
 
 use nia_defs::{
     DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PathSegmentKind,
-    PublicItem, PublicNamespace, PublicSource, PublicSurfaceLookup, PublicSurfaces,
-    UnresolvedUsingReason, UsingEntry, UsingGroupItem, UsingName, UsingPathSegment, UsingSelector,
-    Visibility,
+    PublicItem, PublicNamespace, PublicSource, PublicSurfaces, UnresolvedUsingReason, UsingEntry,
+    UsingGroupItem, UsingName, UsingPathSegment, UsingSelector, Visibility,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
@@ -513,16 +512,6 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
             (defs.module_id, defs)
         })
         .collect::<HashMap<_, _>>();
-    let predeclared_traits = nia_symbol::PredeclaredSourceTrait::ALL
-        .iter()
-        .filter_map(|contract| {
-            let mut module = graph.package_root(&contract.package)?;
-            for segment in contract.module_path {
-                module = *graph.get(module)?.children.get(segment)?;
-            }
-            Some((contract.name, surfaces.public_type(module, &contract.name)?))
-        })
-        .collect::<Vec<_>>();
     let mut using_scopes: HashMap<ModuleId, ModuleUsingScope> = HashMap::new();
     // Public surfaces are already closed over re-exports. Resolve each local
     // using declaration against that immutable snapshot, recording aliases in
@@ -626,16 +615,6 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                     }
                 }
             }
-        }
-        for (name, item) in &predeclared_traits {
-            scope.types.entry(*name).or_insert_with(|| UsingEntry {
-                target_module: item.target_module,
-                target_def_id: item.target_def_id,
-                namespace: PublicNamespace::Type,
-                directive_span: Span::default(),
-                name_span: item.name_span,
-                parent_enum: None,
-            });
         }
         using_scopes.insert(defs.module_id, scope);
     }

@@ -302,6 +302,7 @@ binding, so constants are matched through a path such as `Color::Red`.
 ## Arrays, Slices, And Strings
 
 ```nia
+using std::builtin::Len;
 using std::io;
 using std::process;
 
@@ -367,6 +368,7 @@ all=15 partial=9 filled=14 text=5 bytes=4 third=?
 ## Optionals And Errors
 
 ```nia
+using std::builtin::Len;
 using std::io;
 using std::process;
 
@@ -448,6 +450,7 @@ Patterns take these values apart: `?x` and `null` for optionals, `!x` and
 ## Defer And Explicit Allocation
 
 ```nia
+using std::builtin::Len;
 using std::io;
 using std::mem;
 using std::process;
