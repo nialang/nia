@@ -108,6 +108,52 @@ fun classify(value: i32) i32 {
 }
 
 #[test]
+fn query_loader_loads_children_a_module_map_root_names_by_bare_path() {
+    let root = temp_dir("query_loader_loads_children_a_module_map_root_names_by_bare_path");
+    write(&root.join("main.nia"), "fun main() i32 { dep::answer() }");
+    write(
+        &root.join("dep.nia"),
+        "module util;\n\npub fun answer() i32 { util::value() }\n",
+    );
+    write(&root.join("util.nia"), "pub fun value() i32 { 42 }");
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep.nia").to_string_lossy()),
+        )
+        .expect("insert module map entry");
+
+    let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "util.nia");
+}
+
+#[test]
+fn query_loader_prefers_a_declared_child_over_a_same_named_package() {
+    let root = temp_dir("query_loader_prefers_a_declared_child_over_a_same_named_package");
+    write(
+        &root.join("main.nia"),
+        "module dep;\n\nfun main() i32 { dep::value() }\n",
+    );
+    write(&root.join("dep.nia"), "pub fun value() i32 { 1 }");
+    write(&root.join("package/dep.nia"), "pub fun value() i32 { 2 }");
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("package/dep.nia").to_string_lossy()),
+        )
+        .expect("insert module map entry");
+
+    let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+
+    assert_no_error_diagnostics(&program);
+    assert_module_not_loaded(&program, "package/dep.nia");
+}
+
+#[test]
 fn query_loader_discovers_module_map_root_in_const_generic_parameter_type() {
     let root = temp_dir("query_loader_discovers_module_map_root_in_const_generic_parameter_type");
     write(

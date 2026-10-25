@@ -114,17 +114,26 @@ impl QualifiedPathModuleCollector<'_> {
                 .push(alias.with_appended_segments_with_processing_mode(rest, false, processing));
             return;
         }
-        if !self.local_module_names.contains(first) && self.module_map.contains_root(*first) {
+        let processing = if processing == UsedModulePathProcessing::IfSelectedItem {
+            UsedModulePathProcessing::Always
+        } else {
+            processing
+        };
+        // A declared child shadows a package of the same name, and its bare
+        // path means the same as `self::`.
+        if self.local_module_names.contains(first) {
+            self.paths.push(UsedModulePath::Local {
+                segments,
+                include_declared_children: false,
+                processing,
+            });
+        } else if self.module_map.contains_root(*first) {
             self.packages.push(*first);
             self.paths.push(UsedModulePath::Package {
                 package: *first,
                 segments: rest.to_vec(),
                 include_declared_children: false,
-                processing: if processing == UsedModulePathProcessing::IfSelectedItem {
-                    UsedModulePathProcessing::Always
-                } else {
-                    processing
-                },
+                processing,
             });
         }
     }

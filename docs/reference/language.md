@@ -2167,7 +2167,10 @@ Paths separate segments with `::`. These roots are reserved:
 | `self` | the current module |
 | `super` | the parent module |
 
-Other package names are supplied by the toolchain.
+Other package names are supplied by the toolchain. A path that starts with a
+declared child module's name starts at that child, in any module including a
+package's root: after `module util;`, `util::Point` and `self::util::Point` are
+the same type. A child declaration shadows a package of the same name.
 
 ### Using
 
