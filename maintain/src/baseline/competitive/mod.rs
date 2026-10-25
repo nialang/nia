@@ -199,7 +199,7 @@ fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
 fn is_project_product_directory(name: &OsStr) -> bool {
     matches!(
         name.to_str(),
-        Some(".nia-build" | ".nia-cache" | ".zig-cache" | "zig-out" | "target")
+        Some("build" | ".zig-cache" | "zig-out" | "target")
     )
 }
 
@@ -1062,12 +1062,12 @@ mod tests {
         .unwrap();
         let before = source_snapshot(project, "generated:test").unwrap();
 
-        fs::create_dir_all(project.join(".nia-build")).unwrap();
-        fs::create_dir_all(project.join(".nia-cache")).unwrap();
+        fs::create_dir_all(project.join("build/out")).unwrap();
+        fs::create_dir_all(project.join("build/cache")).unwrap();
         fs::create_dir_all(project.join("target")).unwrap();
         fs::create_dir_all(project.join(".zig-cache")).unwrap();
         fs::create_dir_all(project.join("zig-out")).unwrap();
-        fs::write(project.join(".nia-build/app"), "product").unwrap();
+        fs::write(project.join("build/out/app"), "product").unwrap();
         fs::write(project.join("target/app"), "product").unwrap();
         fs::write(
             project.join("src/leaf.nia"),

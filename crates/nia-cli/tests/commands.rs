@@ -860,7 +860,7 @@ fn help_and_version_use_nia_command_name() {
     assert!(build_stdout.contains("build.nia"), "{build_stdout}");
     assert!(!build_stdout.contains("std::build"), "{build_stdout}");
     assert!(!build_stdout.contains("build runner"), "{build_stdout}");
-    assert!(!build_stdout.contains(".nia-cache/"), "{build_stdout}");
+    assert!(!build_stdout.contains(".nia/build/cache/"), "{build_stdout}");
 
     assert!(build_stdout.contains("--keep-going"), "{build_stdout}");
     assert!(build_stdout.contains("--list"), "{build_stdout}");

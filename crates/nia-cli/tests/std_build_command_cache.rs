@@ -128,7 +128,7 @@ fn declared_command_policies_restore_outputs_and_invalidate_inputs_and_tools() {
         let root = test_dir(policy);
         command_fixture(&root, policy, true);
         assert_eq!(cache_outcome(&root, Some("inherited")), "Miss(NotFound)");
-        let result = root.join(".nia-build/result.txt");
+        let result = root.join(".nia/build/out/result.txt");
         let expected = fs::read(&result).expect("cold output");
         assert!(String::from_utf8_lossy(&expected).contains("override"));
         fs::remove_file(&result).expect("remove output before restore");
@@ -191,7 +191,7 @@ fn full_environment_command_cache_distinguishes_absent_empty_and_changed_values(
             "Miss(Invalidated([Environment]))"
         );
         assert_eq!(cache_outcome(&root, Some(value)), "Hit");
-        let result = root.join(".nia-build/result.txt");
+        let result = root.join(".nia/build/out/result.txt");
         let expected = format!("{value}\nfirst\n");
         assert_eq!(
             fs::read_to_string(&result).unwrap().replace("\r\n", "\n"),
@@ -224,7 +224,7 @@ fn full_environment_command_cache_rejects_explicit_overrides() {
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("invalid"), "{stderr}");
-        assert!(!root.join(".nia-build/result.txt").exists());
+        assert!(!root.join(".nia/build/out/result.txt").exists());
     }
 }
 
@@ -240,10 +240,10 @@ fn oversized_environment_executes_without_publishing_command_cache() {
         }
         assert_eq!(command_cache_outcome(command), "Miss(Uncacheable)");
         assert!(
-            fs::read_to_string(root.join(".nia-build/result.txt"))
+            fs::read_to_string(root.join(".nia/build/out/result.txt"))
                 .unwrap()
                 .contains("large environment")
         );
-        assert!(!root.join(".nia-cache/actions/external-commands").exists());
+        assert!(!root.join(".nia/build/cache/actions/external-commands").exists());
     }
 }

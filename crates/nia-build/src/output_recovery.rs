@@ -1017,8 +1017,8 @@ mod tests {
             std::process::id(),
             JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        let cache_dir = root.join(".nia-cache");
-        let build_dir = root.join(".nia-build");
+        let cache_dir = root.join(".nia/build/cache");
+        let build_dir = root.join(".nia/build/out");
         let outputs = output_specs
             .iter()
             .map(|(path, _)| {
@@ -1537,8 +1537,8 @@ mod tests {
             std::process::id(),
             JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        let cache_dir = root.join(".nia-cache");
-        let build_dir = root.join(".nia-build");
+        let cache_dir = root.join(".nia/build/cache");
+        let build_dir = root.join(".nia/build/out");
         let journals = journal_root(&build_dir);
         fs::create_dir_all(&journals).expect("create journal root");
         let current = ProcessIdentity::current();
@@ -1568,8 +1568,8 @@ mod tests {
             std::process::id(),
             JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        let cache_dir = root.join(".nia-cache");
-        let build_dir = root.join(".nia-build");
+        let cache_dir = root.join(".nia/build/cache");
+        let build_dir = root.join(".nia/build/out");
         let journals = journal_root(&build_dir);
         fs::create_dir_all(&journals).expect("create journal root");
         for index in 0..=MAX_JOURNAL_ENTRIES {
@@ -1724,8 +1724,8 @@ mod tests {
             std::process::id(),
             JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        let cache_dir = root.join(".nia-cache");
-        let build_dir = root.join(".nia-build");
+        let cache_dir = root.join(".nia/build/cache");
+        let build_dir = root.join(".nia/build/out");
         let journals = journal_root(&build_dir);
         fs::create_dir_all(&journals).unwrap();
         let entry = journals.join(".nia-output-1-1-0.tmp");

@@ -48,13 +48,13 @@ fn test_invocation() -> BuildInvocation {
         "nia-build-coordinator-test-{}-{test_run_id}-{sequence}",
         std::process::id(),
     ));
-    let build_dir = package_root.join(".nia-build");
+    let build_dir = package_root.join(".nia/build/out");
     BuildInvocation {
         toolchain,
         build_script: package_root.join("build.nia"),
         manifest_artifacts: Vec::new(),
-        cache_dir: package_root.join(".nia-cache"),
-        artifact_cache_dir: package_root.join(".nia-cache"),
+        cache_dir: package_root.join(".nia/build/cache"),
+        artifact_cache_dir: package_root.join(".nia/build/cache"),
         runner_dir: build_dir.join("runner"),
         runner_executable: build_dir.join("runner/nia-build-runner"),
         runner_config: build_dir.join("build-runner.config"),

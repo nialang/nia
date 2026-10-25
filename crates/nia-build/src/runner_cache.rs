@@ -554,7 +554,7 @@ fn collect_files(
                     error,
                 }),
             })?;
-        if file_type.is_dir() && entry.file_name() != ".nia-cache" {
+        if file_type.is_dir() && entry.file_name() != "cache" {
             collect_files(&path, files, runner, depth + 1, total_entries)?;
         } else if file_type.is_file() {
             files.push(path);
@@ -635,14 +635,14 @@ mod tests {
             },
             build_script,
             manifest_artifacts: Vec::new(),
-            build_dir: package_root.join(".nia-build"),
-            cache_dir: package_root.join(".nia-cache"),
-            artifact_cache_dir: package_root.join(".nia-cache"),
-            runner_dir: package_root.join(".nia-build/runner"),
-            runner_executable: package_root.join(".nia-build/runner/runner"),
-            runner_config: package_root.join(".nia-build/runner/config"),
-            plan_draft: package_root.join(".nia-build/plan.draft"),
-            plan_path: package_root.join(".nia-build/plan"),
+            build_dir: package_root.join(".nia/build/out"),
+            cache_dir: package_root.join(".nia/build/cache"),
+            artifact_cache_dir: package_root.join(".nia/build/cache"),
+            runner_dir: package_root.join(".nia/build/out/runner"),
+            runner_executable: package_root.join(".nia/build/out/runner/runner"),
+            runner_config: package_root.join(".nia/build/out/runner/config"),
+            plan_draft: package_root.join(".nia/build/out/plan.draft"),
+            plan_path: package_root.join(".nia/build/out/plan"),
             step: BuildStepSelection::Default,
             keep_going: false,
             forward_output: true,

@@ -41,8 +41,8 @@ fn run_state(
     expect_success: bool,
 ) -> MaintainResult<BuildResult> {
     let initial_products = InitialProductState {
-        build_directory_existed: path_exists(&workspace.join(".nia-build"))?,
-        cache_directory_existed: path_exists(&workspace.join(".nia-cache"))?,
+        build_directory_existed: path_exists(&workspace.join("build/out"))?,
+        cache_directory_existed: path_exists(&workspace.join("build/cache"))?,
     };
     let command = build_command(nia, resource_root, workspace, step);
     let output = run_bounded(&command, workspace, timeout_seconds)?;
@@ -136,8 +136,8 @@ fn compare_representative_artifacts(
     clean_state: &str,
     source_app_modules: &[&str],
 ) -> MaintainResult<ArtifactEquivalence> {
-    let incremental = incremental.join(".nia-build");
-    let clean = clean.join(".nia-build");
+    let incremental = incremental.join("build/out");
+    let clean = clean.join("build/out");
     let comparisons = vec![
         ArtifactComparison {
             name: "source-app".to_owned(),
@@ -194,7 +194,7 @@ fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
         // by the measured compiler and must start absent for every repetition.
         if matches!(
             entry.file_name().to_str(),
-            Some(".nia-build" | ".nia-cache")
+            Some("build")  // Contains build/out and build/cache
         ) {
             continue;
         }
@@ -241,7 +241,7 @@ fn collect_action_entries(root: &Path, entries: &mut Vec<PathBuf>) -> MaintainRe
 /// Corrupts every persisted action entry in a workload workspace.
 pub fn corrupt_action_cache(workspace: &Path) -> MaintainResult<usize> {
     let mut entries = Vec::new();
-    collect_action_entries(&workspace.join(".nia-cache/actions"), &mut entries)?;
+    collect_action_entries(&workspace.join("build/cache/actions"), &mut entries)?;
     entries.sort();
     if entries.is_empty() {
         return Err("build workload produced no action-cache entries to corrupt".to_owned());
@@ -435,12 +435,12 @@ mod tests {
         let source = directory.path().join("source");
         let destination = directory.path().join("destination");
         fs::create_dir_all(source.join("src")).unwrap();
-        fs::create_dir_all(source.join(".nia-build")).unwrap();
-        fs::create_dir_all(source.join(".nia-cache")).unwrap();
+        fs::create_dir_all(source.join("build/out")).unwrap();
+        fs::create_dir_all(source.join("build/cache")).unwrap();
         fs::write(source.join("build.nia"), "source").unwrap();
         fs::write(source.join("src/main.nia"), "source").unwrap();
-        fs::write(source.join(".nia-build/output"), "generated").unwrap();
-        fs::write(source.join(".nia-cache/entry"), "cached").unwrap();
+        fs::write(source.join("build/out/output"), "generated").unwrap();
+        fs::write(source.join("build/cache/entry"), "cached").unwrap();
 
         copy_tree(&source, &destination).unwrap();
 
@@ -452,7 +452,7 @@ mod tests {
             fs::read_to_string(destination.join("src/main.nia")).unwrap(),
             "source"
         );
-        assert!(!destination.join(".nia-build").exists());
-        assert!(!destination.join(".nia-cache").exists());
+        assert!(!destination.join("build/out").exists());
+        assert!(!destination.join("build/cache").exists());
     }
 }

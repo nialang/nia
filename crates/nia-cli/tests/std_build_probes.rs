@@ -181,7 +181,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         cache["entries"][0]["outcome"]["publication"],
         "not_attempted"
     );
-    assert!(!root.join(".nia-build/app").exists());
+    assert!(!root.join(".nia/build/out/app").exists());
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn git_state_probe_reuses_and_invalidates_when_repository_state_changes() {
         "[package]\nname = \"probe\"\nversion = \"0.1.0\"\n[source]\nroots = [\"src\"]\n",
     )
     .expect("write package manifest");
-    std::fs::write(root.join(".gitignore"), ".nia-build\n.nia-cache\n").expect("write gitignore");
+    std::fs::write(root.join(".gitignore"), "build/out\nbuild/cache\n").expect("write gitignore");
     std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n")
         .expect("write package source");
     std::fs::write(

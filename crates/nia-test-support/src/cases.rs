@@ -212,7 +212,7 @@ pub fn copy_case_tree(source: &Path, destination: &Path) {
 }
 
 fn is_generated_case_state(name: &OsStr) -> bool {
-    name == OsStr::new(".nia-build") || name == OsStr::new(".nia-cache")
+    name == OsStr::new(".nia") || name == OsStr::new("build")
 }
 
 /// Validates a fixture-relative path with no absolute or parent components.
@@ -238,20 +238,20 @@ mod tests {
         let root = crate::test_dir("copy-case-tree-generated-state");
         let source = root.join("source");
         let destination = root.join("destination");
-        fs::create_dir_all(source.join("nested/.nia-cache")).expect("create nested cache state");
-        fs::create_dir_all(source.join(".nia-build")).expect("create build state");
+        fs::create_dir_all(source.join("nested/src")).expect("create nested src");
+        fs::create_dir_all(source.join("build/cache")).expect("create build cache");
+        fs::create_dir_all(source.join("build/out")).expect("create build out");
         fs::write(source.join("nested/input.nia"), b"fun main() () {}")
             .expect("write ordinary fixture input");
         fs::write(source.join(".fixture-config"), b"kept").expect("write ordinary fixture dotfile");
-        fs::write(source.join("nested/.nia-cache/stale"), b"cache")
+        fs::write(source.join("build/cache/stale"), b"cache")
             .expect("write cached fixture state");
-        fs::write(source.join(".nia-build/output"), b"build").expect("write build fixture state");
+        fs::write(source.join("build/out/output"), b"build").expect("write build fixture state");
 
         copy_case_tree(&source, &destination);
 
         assert!(destination.join("nested/input.nia").is_file());
         assert!(destination.join(".fixture-config").is_file());
-        assert!(!destination.join("nested/.nia-cache").exists());
-        assert!(!destination.join(".nia-build").exists());
+        assert!(!destination.join("build").exists());
     }
 }

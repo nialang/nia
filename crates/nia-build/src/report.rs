@@ -21,7 +21,7 @@ use crate::{
 /// Formats a path for a diagnostic. Canonicalized Windows paths carry a
 /// verbatim `\\?\` prefix that users never typed; this module is the one place
 /// build errors are presented, so the prefix is dropped here.
-fn shown(path: &Path) -> String {
+pub(crate) fn shown(path: &Path) -> String {
     let text = path.display().to_string();
     if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
         return format!(r"\\{share}");
@@ -623,7 +623,7 @@ fn io_plan_diagnostic(operation: &str, path: &Path, error: &std::io::Error) -> V
                 "failed to {operation} at `{}`: {error}",
                 shown(path)
             ))
-            .help("remove stale .nia-build files if necessary and check permissions")
+            .help("remove stale build files if necessary and check permissions")
             .finish(),
     ]
 }
@@ -632,7 +632,7 @@ fn plan_handoff_diagnostic<T: std::fmt::Display>(path: &Path, error: &T) -> Vec<
     vec![
         Diagnostic::user_error(codes::BUILD_PLAN, "could not complete build handoff")
             .note(format!("path `{}`: {error}", shown(path)))
-            .help("remove stale .nia-build files if necessary and check permissions")
+            .help("remove stale build files if necessary and check permissions")
             .finish(),
     ]
 }
@@ -774,7 +774,7 @@ pub(crate) mod tests {
     #[test]
     fn directory_failures_keep_their_resource_role() {
         let cache = BuildError::CreateCacheDirectory {
-            path: std::path::PathBuf::from("/tmp/project/.nia-cache"),
+            path: std::path::PathBuf::from("/tmp/project/build/cache"),
             error: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
         };
         let runner = BuildError::CreateRunnerDirectory {
@@ -976,7 +976,7 @@ pub(crate) mod tests {
             .status()
             .expect("run test runner");
         let error = BuildError::RunnerFailed {
-            path: std::path::PathBuf::from(".nia-build/runner"),
+            path: std::path::PathBuf::from(".nia/build/out/runner"),
             status,
             stdout: b"runner-out".to_vec(),
             stderr: b"runner-err".to_vec(),
@@ -998,7 +998,7 @@ pub(crate) mod tests {
             .status()
             .expect("run test runner");
         let error = BuildError::RunnerFailed {
-            path: std::path::PathBuf::from(".nia-build/runner"),
+            path: std::path::PathBuf::from(".nia/build/out/runner"),
             status,
             stdout: b"stdout-tail".to_vec(),
             stderr: b"stderr-tail".to_vec(),

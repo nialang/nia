@@ -200,8 +200,8 @@ mod tests {
         );
 
         assert_eq!(decoded.package_root, "/workspace/package");
-        assert_eq!(decoded.build_dir, "/workspace/package/.nia-build");
-        assert_eq!(decoded.cache_dir, "/workspace/package/.nia-cache");
+        assert_eq!(decoded.build_dir, "/workspace/package/build/out");
+        assert_eq!(decoded.cache_dir, "/workspace/package/build/cache");
         assert_eq!(decoded.host_target, *invocation.toolchain.host_target());
         assert_eq!(
             decoded.artifact_target,
@@ -290,14 +290,14 @@ mod tests {
             },
             build_script: PathBuf::from("/workspace/package/build.nia"),
             manifest_artifacts: Vec::new(),
-            build_dir: PathBuf::from("/workspace/package/.nia-build"),
-            cache_dir: PathBuf::from("/workspace/package/.nia-cache"),
-            artifact_cache_dir: PathBuf::from("/workspace/package/.nia-cache"),
-            runner_dir: PathBuf::from("/workspace/package/.nia-build/runner"),
-            runner_executable: PathBuf::from("/workspace/package/.nia-build/runner/runner"),
-            runner_config: PathBuf::from("/workspace/package/.nia-build/.runner.config"),
-            plan_draft: PathBuf::from("/workspace/package/.nia-build/.plan.draft"),
-            plan_path: PathBuf::from("/workspace/package/.nia-build/build-plan.bin"),
+            build_dir: PathBuf::from("/workspace/package/build/out"),
+            cache_dir: PathBuf::from("/workspace/package/build/cache"),
+            artifact_cache_dir: PathBuf::from("/workspace/package/build/cache"),
+            runner_dir: PathBuf::from("/workspace/package/build/out/runner"),
+            runner_executable: PathBuf::from("/workspace/package/build/out/runner/runner"),
+            runner_config: PathBuf::from("/workspace/package/build/out/.runner.config"),
+            plan_draft: PathBuf::from("/workspace/package/build/out/.plan.draft"),
+            plan_path: PathBuf::from("/workspace/package/build/out/build-plan.bin"),
             step,
             keep_going: false,
             forward_output: true,

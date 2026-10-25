@@ -580,9 +580,9 @@ pub(super) fn output_path(
     if workload.is_build() {
         return match language {
             Language::Nia => workspace.join(match workload {
-                Workload::Synthetic100ModulesBuild => ".nia-build/synthetic",
-                Workload::ProjectPlannerBuild => ".nia-build/project-planner",
-                _ => ".nia-build/hello",
+                Workload::Synthetic100ModulesBuild => "build/out/synthetic",
+                Workload::ProjectPlannerBuild => "build/out/project-planner",
+                _ => "build/out/hello",
             }),
             Language::Rust => workspace.join(match (workload.is_synthetic_build(), profile) {
                 (true, Profile::Development) => "target/debug/competitive-synthetic",
@@ -613,7 +613,7 @@ pub(super) fn project_product_paths(
         return vec![workspace.join("project-cache")];
     }
     match language {
-        Language::Nia => vec![workspace.join(".nia-build"), workspace.join(".nia-cache")],
+        Language::Nia => vec![workspace.join("build/out"), workspace.join("build/cache")],
         Language::Rust => vec![workspace.join("target")],
         Language::Zig => vec![workspace.join(".zig-cache"), workspace.join("zig-out")],
     }
@@ -762,7 +762,7 @@ mod tests {
                 Profile::Development,
                 OutputKind::Executable,
             ),
-            Path::new("/workspace/.nia-build/project-planner")
+            Path::new("/workspace/build/out/project-planner")
         );
         assert_eq!(
             workload.expected_output(Language::Nia, SampleState::Clean),

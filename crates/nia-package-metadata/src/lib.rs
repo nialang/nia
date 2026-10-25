@@ -4319,7 +4319,7 @@ fn fingerprint_source_file(mut file: File) -> io::Result<(u64, [u8; 32])> {
 /// the identity must cover because they are compiled. A selected source root
 /// is never itself checked, so `roots = ["build"]` still selects that tree.
 fn excluded_source_entry(relative: &Path) -> bool {
-    static EXCLUDED_ANYWHERE: &[&str] = &[".git", ".nia", ".nia-build", ".nia-cache", "nia.lock"];
+    static EXCLUDED_ANYWHERE: &[&str] = &[".git", ".nia", "nia.lock"];
     static EXCLUDED_AT_ROOT: &[&str] = &["target", "build", "dist"];
     let Some(name) = relative.file_name().map(|name| name.to_string_lossy()) else {
         return false;
@@ -6286,15 +6286,15 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ));
         std::fs::create_dir_all(root.join("src/nested")).unwrap();
         std::fs::create_dir_all(root.join("target")).unwrap();
-        std::fs::create_dir_all(root.join(".nia-cache")).unwrap();
+        std::fs::create_dir_all(root.join("build/cache")).unwrap();
         std::fs::write(root.join("src/main.nia"), "main").unwrap();
         std::fs::write(root.join("src/nested/root.nia"), "lib").unwrap();
         std::fs::write(root.join("target/generated"), "one").unwrap();
-        std::fs::write(root.join(".nia-cache/old"), "one").unwrap();
+        std::fs::write(root.join("build/cache/old"), "one").unwrap();
         let package = package();
         let first = package_source_identity(&root, package.clone()).unwrap();
         std::fs::write(root.join("target/generated"), "two").unwrap();
-        std::fs::write(root.join(".nia-cache/old"), "two").unwrap();
+        std::fs::write(root.join("build/cache/old"), "two").unwrap();
         let second = package_source_identity(&root, package.clone()).unwrap();
         assert_eq!(first.source_fingerprint, second.source_fingerprint);
         assert_eq!(first.files, second.files);

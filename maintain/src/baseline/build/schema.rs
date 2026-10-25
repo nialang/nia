@@ -62,9 +62,9 @@ pub struct ArtifactEquivalence {
 #[derive(Debug, Clone, Serialize)]
 /// Project-local compilation products observed before one build process starts.
 pub struct InitialProductState {
-    /// Whether `.nia-build` existed before the measured process.
+    /// Whether `build/out` existed before the measured process.
     pub build_directory_existed: bool,
-    /// Whether `.nia-cache` existed before the measured process.
+    /// Whether `build/cache` existed before the measured process.
     pub cache_directory_existed: bool,
 }
 

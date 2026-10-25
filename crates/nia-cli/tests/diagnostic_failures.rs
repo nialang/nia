@@ -371,7 +371,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let written = std::fs::read_to_string(root.join(".nia-build/pathext.txt"))
+    let written = std::fs::read_to_string(root.join(".nia/build/out/pathext.txt"))
         .expect("cached command output");
     assert_eq!(written.trim(), "pathext");
 }
