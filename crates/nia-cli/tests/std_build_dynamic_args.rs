@@ -78,7 +78,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let plan = nia_build::read_build_plan(&root.join(".nia/build/out/build-plan.bin"))
+    let plan = nia_build::read_build_plan(&root.join("build/out/build-plan.bin"))
         .expect("decode dynamic argument build plan");
     let arguments = plan
         .actions()
@@ -103,7 +103,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             "argument-31".to_string()
         ))
     );
-    let executable = root.join(".nia/build/out/many-imports");
+    let executable = root.join("build/out/many-imports");
     assert_eq!(
         Command::new(&executable)
             .status_timeout("run many-import executable")

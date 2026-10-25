@@ -108,7 +108,7 @@ credential, proxy, and lockfile contract is in
 registry and lockfile formats are specified in
 [`nia-package-metadata`](../nia-package-metadata/README.md).
 Every selected source is recorded in `nia.lock`, and fetched trees are kept
-below the ignored `.nia/packages` directory and checked against their recorded
+below the ignored `build/packages` directory and checked against their recorded
 content hash before reuse.
 
 Resolution records each dependency's logical graph root and checkout, including

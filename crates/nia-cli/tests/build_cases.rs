@@ -293,8 +293,8 @@ pub fun build(b: &mut build::Build) build::Error!() {
     }
     for name in ["first.txt", "second.txt", "build-plan.bin"] {
         assert_eq!(
-            std::fs::read(off_root.join(".nia/build/out").join(name)).unwrap(),
-            std::fs::read(on_root.join(".nia/build/out").join(name)).unwrap(),
+            std::fs::read(off_root.join("build/out").join(name)).unwrap(),
+            std::fs::read(on_root.join("build/out").join(name)).unwrap(),
             "different {name}"
         );
     }
@@ -395,7 +395,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
     // A successful lookup is not a successful action if restoring the output fails.
     for root in [&off_root, &on_root] {
-        let output = root.join(".nia/build/out/first.txt");
+        let output = root.join("build/out/first.txt");
         std::fs::remove_file(&output).unwrap();
         std::fs::create_dir(&output).unwrap();
     }
@@ -458,7 +458,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
                     .all(|record| record["kind"] != "build-progress")
             );
         }
-        assert!(root.join(".nia/build/out/first.txt").is_dir());
+        assert!(root.join("build/out/first.txt").is_dir());
     }
 }
 
@@ -522,7 +522,7 @@ pub fun build(b: &mut build::Build) build::Error!() {{
     // This file is the configure-runner product. Cache reuse need not publish
     // it again when another selection becomes active; compare the active plan
     // through the public inspection above, and preserve this warm product too.
-    let plan_file = std::fs::read(root.join(".nia/build/out/build-plan.bin")).unwrap();
+    let plan_file = std::fs::read(root.join("build/out/build-plan.bin")).unwrap();
     // One pass over every selection, renderer, and parallelism; the samples
     // are compared with the dry-run plans, not with each other.
     for (step, mode, jobs) in [
@@ -562,12 +562,12 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         assert!(!output.stderr.contains(&0x1b));
         if step == "all" {
             assert_eq!(
-                std::fs::read(root.join(".nia/build/out/result.txt")).unwrap(),
+                std::fs::read(root.join("build/out/result.txt")).unwrap(),
                 b"result\n"
             );
         }
         assert_eq!(
-            std::fs::read(root.join(".nia/build/out/build-plan.bin")).unwrap(),
+            std::fs::read(root.join("build/out/build-plan.bin")).unwrap(),
             plan_file
         );
         if mode == "none" {
@@ -805,7 +805,7 @@ fn run_build_case(name: &str) {
 }
 
 fn assert_module_optimization_inheritance(workspace: &Path) {
-    let plan = nia_build::read_build_plan(&workspace.join(".nia/build/out/build-plan.bin"))
+    let plan = nia_build::read_build_plan(&workspace.join("build/out/build-plan.bin"))
         .expect("decode optimization build plan");
     assert_eq!(plan.modules().len(), 2);
     assert_eq!(plan.modules()[0].key.name(), "app");
@@ -858,13 +858,10 @@ fn assert_configured_build_success(
     let stderr = String::from_utf8_lossy(&output.stderr);
     for expected in [
         format!("root={}\n", reported_workspace.display()),
-        format!(
-            "build={}\n",
-            reported_workspace.join(".nia/build/out").display()
-        ),
+        format!("build={}\n", reported_workspace.join("build/out").display()),
         format!(
             "cache={}\n",
-            reported_workspace.join(".nia/build/cache").display()
+            reported_workspace.join("build/cache").display()
         ),
         format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia")),
         "run=roadmap\n".to_string(),
@@ -927,10 +924,10 @@ fn assert_configured_build_success(
         !stderr.lines().any(|line| line.starts_with("error:")),
         "{stderr}"
     );
-    assert!(workspace.join(".nia/build/out/runner").is_dir());
-    assert!(workspace.join(".nia/build/cache").is_dir());
+    assert!(workspace.join("build/out/runner").is_dir());
+    assert!(workspace.join("build/cache").is_dir());
     assert_no_transient_runner_files(workspace);
-    let plan_path = workspace.join(".nia/build/out/build-plan.bin");
+    let plan_path = workspace.join("build/out/build-plan.bin");
     let plan = nia_build::read_build_plan(&plan_path).expect("decode published build plan");
     assert_eq!(
         plan.protocol_epoch(),
@@ -1513,50 +1510,38 @@ fn assert_configured_build_success(
         plan.selected_step().map(nia_build::StepKey::name),
         Some("tool")
     );
-    assert!(workspace.join(".nia/build/out/custom-app").is_file());
+    assert!(workspace.join("build/out/custom-app").is_file());
+    assert!(workspace.join("build/out/install/custom-app").is_file());
+    assert!(!workspace.join("build/out/app").exists());
+    assert!(workspace.join("build/out/custom-worker").is_file());
+    assert!(workspace.join("build/out/custom-host-tool").is_file());
+    assert!(workspace.join("build/out/custom-objects").is_dir());
     assert!(
-        workspace
-            .join(".nia/build/out/install/custom-app")
-            .is_file()
-    );
-    assert!(!workspace.join(".nia/build/out/app").exists());
-    assert!(workspace.join(".nia/build/out/custom-worker").is_file());
-    assert!(workspace.join(".nia/build/out/custom-host-tool").is_file());
-    assert!(workspace.join(".nia/build/out/custom-objects").is_dir());
-    assert!(
-        std::fs::read_dir(workspace.join(".nia/build/out/custom-objects"))
+        std::fs::read_dir(workspace.join("build/out/custom-objects"))
             .unwrap()
             .any(|entry| entry.unwrap().path().is_file())
     );
     assert!(
-        std::fs::read(workspace.join(".nia/build/out/libconfigured.a"))
+        std::fs::read(workspace.join("build/out/libconfigured.a"))
             .unwrap()
             .starts_with(b"!<arch>\n")
     );
     assert!(
-        std::fs::read(workspace.join(".nia/build/out/install/libconfigured.a"))
+        std::fs::read(workspace.join("build/out/install/libconfigured.a"))
             .unwrap()
             .starts_with(b"!<arch>\n")
     );
-    assert!(
-        workspace
-            .join(".nia/build/out/generated/helper.nia")
-            .is_file()
-    );
-    assert!(
-        workspace
-            .join(".nia/build/out/generated/worker.nia")
-            .is_file()
-    );
-    assert!(!workspace.join(".nia/build/out/worker").exists());
-    let transformed = std::fs::read(workspace.join(".nia/build/out/transformed.txt")).unwrap();
+    assert!(workspace.join("build/out/generated/helper.nia").is_file());
+    assert!(workspace.join("build/out/generated/worker.nia").is_file());
+    assert!(!workspace.join("build/out/worker").exists());
+    let transformed = std::fs::read(workspace.join("build/out/transformed.txt")).unwrap();
     assert_eq!(
         transformed
             .strip_suffix(b"\r\n")
             .or_else(|| transformed.strip_suffix(b"\n")),
         Some(&b"EXTERNAL ROADMAP"[..])
     );
-    let metadata = std::fs::read(workspace.join(".nia/build/out/transformed.meta")).unwrap();
+    let metadata = std::fs::read(workspace.join("build/out/transformed.meta")).unwrap();
     assert_eq!(
         metadata
             .strip_suffix(b"\r\n")
@@ -1564,7 +1549,7 @@ fn assert_configured_build_success(
         Some(&b"source=tool-input"[..])
     );
     assert!(
-        std::fs::read_dir(workspace.join(".nia/build/out"))
+        std::fs::read_dir(workspace.join("build/out"))
             .unwrap()
             .all(|entry| !entry
                 .unwrap()
@@ -1573,14 +1558,14 @@ fn assert_configured_build_success(
                 .starts_with(".nia-command-"))
     );
     assert_eq!(
-        Command::new(workspace.join(".nia/build/out/custom-app"))
+        Command::new(workspace.join("build/out/custom-app"))
             .arg("roadmap")
             .status_timeout("run configured build target")
             .code(),
         Some(0)
     );
     assert_eq!(
-        Command::new(workspace.join(".nia/build/out/install/custom-app"))
+        Command::new(workspace.join("build/out/install/custom-app"))
             .arg("roadmap")
             .status_timeout("run installed configured build target")
             .code(),
@@ -1590,7 +1575,7 @@ fn assert_configured_build_success(
     {
         use std::os::unix::fs::PermissionsExt;
         assert_ne!(
-            std::fs::metadata(workspace.join(".nia/build/out/install/custom-app"))
+            std::fs::metadata(workspace.join("build/out/install/custom-app"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -1599,13 +1584,13 @@ fn assert_configured_build_success(
         );
     }
     assert_eq!(
-        Command::new(workspace.join(".nia/build/out/custom-worker"))
+        Command::new(workspace.join("build/out/custom-worker"))
             .status_timeout("run configured worker artifact")
             .code(),
         Some(0)
     );
     assert_eq!(
-        Command::new(workspace.join(".nia/build/out/custom-host-tool"))
+        Command::new(workspace.join("build/out/custom-host-tool"))
             .arg("roadmap")
             .status_timeout("run configured host tool artifact")
             .code(),
@@ -1652,13 +1637,13 @@ fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::pro
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(output.status.code(), Some(0));
-    assert!(workspace.join(".nia/build/out/build-plan.bin").is_file());
+    assert!(workspace.join("build/out/build-plan.bin").is_file());
     assert_no_transient_runner_files(workspace);
     match contract {
         "step-order" => assert!(output.stdout.is_empty()),
         "executable-dependency" => {
             assert!(output.stdout.is_empty());
-            assert!(workspace.join(".nia/build/out/app").is_file());
+            assert!(workspace.join("build/out/app").is_file());
         }
         _ => panic!("unknown dependency-success contract {contract:?}"),
     }
@@ -1675,7 +1660,7 @@ fn assert_runner_error(
     assert!(!output.status.success());
     assert_eq!(output.status.code(), Some(1));
     assert_no_transient_runner_files(workspace);
-    assert!(!workspace.join(".nia/build/out/build-plan.bin").exists());
+    assert!(!workspace.join("build/out/build-plan.bin").exists());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.stdout.is_empty(), "{stderr}");
     assert!(!stderr.contains('\x1b'), "{stderr}");
@@ -1733,7 +1718,7 @@ fn assert_runner_error(
 }
 
 fn assert_no_transient_runner_files(workspace: &Path) {
-    let build_dir = workspace.join(".nia/build/out");
+    let build_dir = workspace.join("build/out");
     if build_dir.is_dir() {
         assert!(std::fs::read_dir(&build_dir).unwrap().all(|entry| {
             let name = entry.unwrap().file_name();

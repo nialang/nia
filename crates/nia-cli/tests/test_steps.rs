@@ -404,7 +404,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         "{}",
         String::from_utf8_lossy(&app.stderr)
     );
-    let app = Command::new(workspace.join(".nia/build/out/app"))
+    let app = Command::new(workspace.join("build/out/app"))
         .output_timeout_in_session("run the ordinary executable");
     assert_eq!(app.status.code(), Some(3));
     let unit = build("unit");
@@ -462,7 +462,7 @@ fn manifest_artifacts_build_without_a_build_script() {
         "{}",
         String::from_utf8_lossy(&all.stderr)
     );
-    let app = Command::new(workspace.join(".nia/build/out/app"))
+    let app = Command::new(workspace.join("build/out/app"))
         .output_timeout_in_session("run the manifest executable");
     assert_eq!(app.status.code(), Some(4));
 

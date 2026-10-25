@@ -48,13 +48,13 @@ fn test_invocation() -> BuildInvocation {
         "nia-build-coordinator-test-{}-{test_run_id}-{sequence}",
         std::process::id(),
     ));
-    let build_dir = package_root.join(".nia/build/out");
+    let build_dir = package_root.join("build/out");
     BuildInvocation {
         toolchain,
         build_script: package_root.join("build.nia"),
         manifest_artifacts: Vec::new(),
-        cache_dir: package_root.join(".nia/build/cache"),
-        artifact_cache_dir: package_root.join(".nia/build/cache"),
+        cache_dir: package_root.join("build/cache"),
+        artifact_cache_dir: package_root.join("build/cache"),
         runner_dir: build_dir.join("runner"),
         runner_executable: build_dir.join("runner/nia-build-runner"),
         runner_config: build_dir.join("build-runner.config"),
@@ -317,7 +317,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
             .as_nanos()
     ));
     let dependency_scopes = [
-        ("build", DependencyScope::Build),
+        ("build-dependency", DependencyScope::Build),
         ("corelib", DependencyScope::Runtime),
         ("development", DependencyScope::Development),
     ];
@@ -330,7 +330,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         .expect("write dependency manifest");
     }
     std::fs::create_dir_all(&root).expect("create package root");
-    std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
+    std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build-dependency\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
 
     let compile_request = |mode: CompilationMode| {
         let graph = PackageGraph::resolve(&root).expect("resolve package graph");

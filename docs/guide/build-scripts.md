@@ -178,13 +178,13 @@ requiring package, its requirement, and its dependency chain. A package can be
 requested from only one registry within a graph.
 
 Archives are checked against the digest in the registry index before they are
-unpacked and are cached under `.nia/packages` only after the whole tree
+unpacked and are cached under `build/packages` only after the whole tree
 validates.
 
 The first build records each Git dependency's commit and content hash, and each
 registry dependency's selected version, archive digest, and content hash, in
 `nia.lock` next to the root `nia.toml` (the workspace root in a workspace).
-Git checkouts and verified registry packages are cached under `.nia/packages`
+Git checkouts and verified registry packages are cached under `build/packages`
 beside it. Later builds reuse the locked source and reject cached content that
 no longer matches its recorded hash.
 Entries that no manifest in the package or workspace still reaches, in any
@@ -200,6 +200,13 @@ which fails instead of adding, changing, or removing a lock entry, and
 `--offline`, which uses cached Git checkouts, registry indexes, and registry
 archives only.
 CI builds should pass `--locked`.
+
+`nia clean` removes the selected package's `build/out/` and `build/cache/`
+directories while keeping `build/packages/` and `build/packages.lock/` for
+dependency reuse. `nia clean --migrate` moves legacy `.nia-build/`,
+`.nia-cache/`, and `.nia/` package state into the current `build/` layout and
+fails if a destination already exists. `nia clean --legacy` removes those
+known legacy entries without touching current build state or unrelated files.
 
 ## Workspaces
 
@@ -239,7 +246,7 @@ Running `nia build` inside a member selects that package. Running
 from the workspace root selects `default-members`, or all members when that
 field is omitted. `--workspace` selects every member, and repeatable
 `-p`/`--package <name>` selects named members. Workspace members share the
-root `nia.lock` and `.nia/packages` cache while keeping their build outputs
+root `nia.lock` and `build/packages` cache while keeping their build outputs
 package-local.
 
 Selected members build in manifest order, and the first failing member stops

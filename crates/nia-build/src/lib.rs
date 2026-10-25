@@ -4838,7 +4838,7 @@ version = \"1.0.0\"
 
         let root = temp_root("manifest_dependency_reference_validation");
         let runtime = root.join("runtime");
-        let build = root.join("build");
+        let build = root.join("build-dependency");
         let development = root.join("development");
         for path in [&runtime, &build, &development] {
             std::fs::create_dir_all(path).expect("create dependency");
@@ -4846,7 +4846,7 @@ version = \"1.0.0\"
         std::fs::write(root.join("build.nia"), "").expect("write build script");
         std::fs::write(
             root.join("nia.toml"),
-            "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[dependencies]\nruntime = { path = \"runtime\" }\n[build-dependencies]\nbuild = { path = \"build\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
+            "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[dependencies]\nruntime = { path = \"runtime\" }\n[build-dependencies]\nbuild = { path = \"build-dependency\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n",
         )
         .expect("write manifest");
         for (path, name) in [
@@ -5054,8 +5054,8 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 result.expect("build with SSH dependency");
                 assert!(consumer.join(".nia-build/generated.txt").is_file());
                 assert!(!consumer.join("nia.lock").exists());
-                assert!(!consumer.join(".nia/packages").exists());
-                assert!(workspace.join(".nia/packages").is_dir());
+                assert!(!consumer.join("build/packages").exists());
+                assert!(workspace.join("build/packages").is_dir());
                 let lock = nia_package_metadata::PackageLock::read(&workspace.join("nia.lock"))
                     .expect("read generated lockfile");
                 assert!(lock.package.iter().any(|entry| entry.name == "sshdep"));

@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fmt,
-    fs::File,
+    fs::{self, File},
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
     str::FromStr,
@@ -52,6 +52,14 @@ pub use registry::{
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
 /// Maximum accepted stable metadata payload size.
 pub const MAX_STABLE_METADATA_BYTES: usize = 64 * 1024 * 1024;
+/// Current workspace-local cache directory for fetched package trees.
+pub const BUILD_PACKAGES_DIR: &str = "build/packages";
+/// Current workspace-local lock used while updating fetched package trees.
+pub const BUILD_PACKAGES_LOCK: &str = "build/packages.lock";
+/// Legacy package cache directory retained only for migration and cleanup.
+pub const LEGACY_PACKAGES_DIR: &str = ".nia/packages";
+/// Legacy package transaction lock retained only for migration and cleanup.
+pub const LEGACY_PACKAGES_LOCK: &str = ".nia/packages.lock";
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_SOURCE_FILES: usize = MAX_ITEMS;
@@ -1064,7 +1072,7 @@ impl PackageFetcher {
         let lock_path = state_root.join("nia.lock");
         let lock = PackageLock::read(&lock_path)?;
         Ok(Self {
-            cache_root: state_root.join(".nia/packages"),
+            cache_root: state_root.join(BUILD_PACKAGES_DIR),
             original: lock.package.clone(),
             lock,
             lock_path,
@@ -2065,7 +2073,7 @@ fn update_lock_inner(
         )
     })?;
     let state_root = workspace_state_root(manifest_root)?;
-    let transaction_lock_path = state_root.join(".nia/packages.lock");
+    let transaction_lock_path = state_root.join(BUILD_PACKAGES_LOCK);
     let transaction_lock = open_package_state_lock(&transaction_lock_path)?;
     transaction_lock.lock()?;
     let lock_path = state_root.join("nia.lock");
@@ -3223,7 +3231,7 @@ impl WorkspaceManifest {
                     })?;
                     let relative = relative.to_string_lossy().replace('\\', "/");
                     let relative = if relative.is_empty() { "." } else { &relative };
-                    if Path::new(relative).starts_with(".nia")
+                    if is_workspace_state_path(relative)
                         || workspace_path_excluded(relative, &workspace.exclude)
                     {
                         return Ok(None);
@@ -3302,6 +3310,146 @@ impl WorkspaceManifest {
             });
         }
         Ok(members)
+    }
+}
+
+/// Returns the root that owns a package's shared lock and fetched package cache.
+pub fn package_state_root(package_root: &Path) -> io::Result<PathBuf> {
+    workspace_state_root(package_root)
+}
+
+/// Result of migrating legacy package state into the current build layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PackageStateMigration {
+    /// Whether `.nia/packages` was moved to `build/packages`.
+    pub packages_moved: bool,
+    /// Whether `.nia/packages.lock` was moved to `build/packages.lock`.
+    pub lock_moved: bool,
+}
+
+/// Moves package state from the pre-unification layout into `build/`.
+///
+/// The operation refuses to merge two existing trees. A successful migration
+/// can therefore be retried safely, and a partially populated destination is
+/// never silently overwritten.
+pub fn migrate_legacy_package_state(package_root: &Path) -> io::Result<PackageStateMigration> {
+    let state_root = workspace_state_root(package_root)?;
+    let legacy_packages = state_root.join(LEGACY_PACKAGES_DIR);
+    let current_packages = state_root.join(BUILD_PACKAGES_DIR);
+    let legacy_lock = state_root.join(LEGACY_PACKAGES_LOCK);
+    let current_lock = state_root.join(BUILD_PACKAGES_LOCK);
+    let packages_present = validate_legacy_move(&legacy_packages, &current_packages, true)?;
+    let lock_present = validate_legacy_move(&legacy_lock, &current_lock, false)?;
+    if let Some(parent) = current_packages.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let packages_moved = packages_present;
+    if packages_moved {
+        fs::rename(&legacy_packages, &current_packages)?;
+    }
+    let lock_moved = if lock_present {
+        match fs::rename(&legacy_lock, &current_lock) {
+            Ok(()) => true,
+            Err(error) => {
+                if packages_moved {
+                    fs::rename(&current_packages, &legacy_packages)?;
+                }
+                return Err(error);
+            }
+        }
+    } else {
+        false
+    };
+    remove_empty_directory(&state_root.join(".nia"))?;
+    Ok(PackageStateMigration {
+        packages_moved,
+        lock_moved,
+    })
+}
+
+/// Checks package-state migration sources and destinations without changing them.
+pub fn validate_legacy_package_state_migration(package_root: &Path) -> io::Result<()> {
+    let state_root = workspace_state_root(package_root)?;
+    validate_legacy_move(
+        &state_root.join(LEGACY_PACKAGES_DIR),
+        &state_root.join(BUILD_PACKAGES_DIR),
+        true,
+    )?;
+    validate_legacy_move(
+        &state_root.join(LEGACY_PACKAGES_LOCK),
+        &state_root.join(BUILD_PACKAGES_LOCK),
+        false,
+    )?;
+    Ok(())
+}
+
+/// Removes known legacy package state without touching current build state.
+///
+/// Legacy roots are removed only after their known entries are gone. This
+/// preserves unrelated user files if an old `.nia` directory was repurposed.
+pub fn remove_legacy_package_state(package_root: &Path) -> io::Result<()> {
+    let state_root = workspace_state_root(package_root)?;
+    remove_legacy_path(&state_root.join(LEGACY_PACKAGES_DIR))?;
+    remove_legacy_path(&state_root.join(LEGACY_PACKAGES_LOCK))?;
+    remove_empty_directory(&state_root.join(".nia"))
+}
+
+fn validate_legacy_move(source: &Path, destination: &Path, directory: bool) -> io::Result<bool> {
+    let metadata = match fs::symlink_metadata(source) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if metadata.file_type().is_symlink()
+        || (directory && !metadata.is_dir())
+        || (!directory && !metadata.is_file())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "legacy package state has the wrong kind: {}",
+                display_path(source)
+            ),
+        ));
+    }
+    if fs::symlink_metadata(destination).is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "cannot migrate `{}` because `{}` already exists",
+                display_path(source),
+                display_path(destination)
+            ),
+        ));
+    }
+    Ok(true)
+}
+
+fn remove_legacy_path(path: &Path) -> io::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        fs::remove_file(path)
+    } else {
+        fs::remove_dir_all(path)
+    }
+}
+
+fn remove_empty_directory(path: &Path) -> io::Result<()> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -3605,6 +3753,11 @@ fn workspace_path_excluded(path: &str, patterns: &[String]) -> bool {
             })
         })
     })
+}
+
+fn is_workspace_state_path(path: &str) -> bool {
+    let path = Path::new(path);
+    path.starts_with(".nia") || path.starts_with("build")
 }
 
 #[derive(Deserialize)]
@@ -5862,6 +6015,69 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn package_state_migration_moves_legacy_paths_and_is_idempotent() {
+        let root = lock_test_root("package-state-migration");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".nia/packages/pkg")).unwrap();
+        fs::write(root.join(".nia/packages/pkg/file"), b"cached").unwrap();
+        fs::write(root.join(".nia/packages.lock"), b"lock").unwrap();
+
+        let result = migrate_legacy_package_state(&root).unwrap();
+        assert_eq!(
+            result,
+            PackageStateMigration {
+                packages_moved: true,
+                lock_moved: true
+            }
+        );
+        assert_eq!(
+            fs::read(root.join("build/packages/pkg/file")).unwrap(),
+            b"cached"
+        );
+        assert_eq!(fs::read(root.join("build/packages.lock")).unwrap(), b"lock");
+        assert!(!root.join(".nia").exists());
+        assert_eq!(
+            migrate_legacy_package_state(&root).unwrap(),
+            PackageStateMigration::default()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_state_migration_preflights_collisions_before_moving_anything() {
+        let root = lock_test_root("package-state-migration-collision");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".nia/packages")).unwrap();
+        fs::write(root.join(".nia/packages/legacy"), b"legacy").unwrap();
+        fs::create_dir_all(root.join("build")).unwrap();
+        fs::write(root.join("build/packages.lock"), b"current").unwrap();
+        fs::write(root.join(".nia/packages.lock"), b"legacy lock").unwrap();
+
+        let error = migrate_legacy_package_state(&root).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(root.join(".nia/packages/legacy").is_file());
+        assert_eq!(
+            fs::read(root.join(".nia/packages.lock")).unwrap(),
+            b"legacy lock"
+        );
+        assert_eq!(
+            fs::read(root.join("build/packages.lock")).unwrap(),
+            b"current"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn package_state_lock_rejects_linked_directories_and_files() {
@@ -6972,7 +7188,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert!(WorkspaceManifest::discover_for_package(&linked).is_err());
         assert!(update_lock(&linked, &[]).is_err());
         assert!(!actual.join("nia.lock").exists());
-        assert!(!actual.join(".nia/packages.lock").exists());
+        assert!(!actual.join("build/packages.lock").exists());
 
         fs::remove_file(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -7002,7 +7218,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert!(WorkspaceManifest::discover_for_package(&linked).is_err());
         assert!(update_lock(&linked, &[]).is_err());
         assert!(!actual.join("nia.lock").exists());
-        assert!(!actual.join(".nia/packages.lock").exists());
+        assert!(!actual.join("build/packages.lock").exists());
 
         fs::remove_dir(linked).unwrap();
         fs::remove_dir_all(root).unwrap();
@@ -7099,7 +7315,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         assert_eq!(
             fetcher.cache_root,
-            root.canonicalize().unwrap().join(".nia/packages")
+            root.canonicalize().unwrap().join("build/packages")
         );
         let cached = fetcher.cache_root.join("cached");
         fs::create_dir_all(&cached).unwrap();
@@ -7666,7 +7882,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             _ => panic!("expected registry lock entry"),
         };
         let cached_package = consumer
-            .join(".nia/packages")
+            .join("build/packages")
             .join(&source_fingerprint[7..]);
         fs::write(
             cached_package.join("src/root.nia"),
@@ -8222,7 +8438,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             let state = state.clone();
             let archives = archives.clone();
             let lock_probe = lock_probe.clone();
-            let lock_path = root.join(".nia/packages.lock");
+            let lock_path = root.join("build/packages.lock");
             Arc::new(move |url: &str| {
                 if url == "https://packages.example.test/index.toml" {
                     let mut probe = lock_probe.lock().unwrap();
@@ -8303,7 +8519,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         assert_eq!(version, "1.1.0");
         assert_ne!(fingerprint, &first_fingerprint);
         assert_eq!(archive_digest, &format!("blake3:{}", hex_digest(&digest_2)));
-        let package = root.join(".nia/packages").join(&fingerprint[7..]);
+        let package = root.join("build/packages").join(&fingerprint[7..]);
         assert_eq!(
             PackageManifest::read(&package)
                 .unwrap()
@@ -8314,7 +8530,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         );
         assert_eq!(std::fs::read(package.join("src/root.nia")).unwrap(), [2]);
         assert!(
-            std::fs::read_dir(root.join(".nia/packages"))
+            std::fs::read_dir(root.join("build/packages"))
                 .unwrap()
                 .all(|entry| !entry
                     .unwrap()
@@ -8640,7 +8856,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         PackageGraph::resolve(&consumer).unwrap();
         let lock = std::fs::read(consumer.join("nia.lock")).unwrap();
         PackageGraph::resolve_with_policy(&consumer, locked).unwrap();
-        std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
+        std::fs::remove_dir_all(consumer.join("build/packages")).unwrap();
         let error = PackageGraph::resolve_with_policy(&consumer, locked).unwrap_err();
         assert!(error.to_string().contains("--locked"), "{error}");
         assert_eq!(std::fs::read(consumer.join("nia.lock")).unwrap(), lock);
@@ -8680,7 +8896,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
         PackageGraph::resolve(&consumer).unwrap();
         PackageGraph::resolve_with_policy(&consumer, offline).unwrap();
-        std::fs::remove_dir_all(consumer.join(".nia/packages")).unwrap();
+        std::fs::remove_dir_all(consumer.join("build/packages")).unwrap();
         let error = PackageGraph::resolve_with_policy(&consumer, offline).unwrap_err();
         assert!(error.to_string().contains("--offline"), "{error}");
         std::fs::remove_dir_all(root).unwrap();
@@ -8845,7 +9061,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 .iter()
                 .any(|node| node.manifest.package.name == "dep")
         );
-        let dependency_cache = consumer.join(".nia/packages");
+        let dependency_cache = consumer.join("build/packages");
         assert!(dependency_cache.is_dir());
         assert!(
             std::fs::read_dir(dependency_cache)
@@ -9159,13 +9375,13 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     #[test]
     fn dependency_scopes_require_explicit_development_selection() {
         let root = std::env::temp_dir().join(format!("nia-scopes-{}", std::process::id()));
-        let build = root.join("build");
+        let build = root.join("build-dependency");
         let runtime = root.join("runtime");
         let development = root.join("development");
         std::fs::create_dir_all(&build).unwrap();
         std::fs::create_dir_all(&runtime).unwrap();
         std::fs::create_dir_all(&development).unwrap();
-        std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[build-dependencies]\nbuild = { path = \"build\" }\n[dependencies]\nruntime = { path = \"runtime\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").unwrap();
+        std::fs::write(root.join("nia.toml"), "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[build-dependencies]\nbuild = { path = \"build-dependency\" }\n[dependencies]\nruntime = { path = \"runtime\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").unwrap();
         for (dir, name) in [
             (&build, "build"),
             (&runtime, "runtime"),

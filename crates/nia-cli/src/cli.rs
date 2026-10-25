@@ -23,6 +23,7 @@ pub(crate) enum HelpTopic {
     Main,
     Build,
     Update,
+    Clean,
     Check,
     Emit,
     EmitKind(EmitKind),
@@ -34,6 +35,7 @@ impl HelpTopic {
             Self::Main => Scope::GLOBAL,
             Self::Build => Scope::BUILD,
             Self::Update => Scope::UPDATE,
+            Self::Clean => Scope::CLEAN,
             Self::Check => Scope::CHECK,
             Self::Emit => Scope::EMIT_ANY,
             Self::EmitKind(kind) => kind.scope(),
@@ -116,6 +118,11 @@ pub(crate) enum CliCommand {
     Update {
         root: Option<PathBuf>,
         names: Vec<String>,
+    },
+    Clean {
+        root: Option<PathBuf>,
+        migrate: bool,
+        legacy: bool,
     },
     Check {
         path: String,
@@ -234,6 +241,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
         "help" => return help_topic(rest).map(CliAction::Help),
         "build" => HelpTopic::Build,
         "update" => HelpTopic::Update,
+        "clean" => HelpTopic::Clean,
         "check" => HelpTopic::Check,
         "emit" => HelpTopic::Emit,
         _ => {
@@ -259,6 +267,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
     let command = match topic {
         HelpTopic::Build => parse_build(&scanned)?,
         HelpTopic::Update => parse_update(&scanned),
+        HelpTopic::Clean => parse_clean(&scanned)?,
         HelpTopic::Check => parse_check(&scanned)?,
         HelpTopic::Emit => {
             if rest.is_empty() {
@@ -331,6 +340,7 @@ fn topic_name(topic: HelpTopic) -> String {
         HelpTopic::Main => "`nia`".to_string(),
         HelpTopic::Build => "`nia build`".to_string(),
         HelpTopic::Update => "`nia update`".to_string(),
+        HelpTopic::Clean => "`nia clean`".to_string(),
         HelpTopic::Check => "`nia check`".to_string(),
         HelpTopic::Emit => "`nia emit`".to_string(),
         HelpTopic::EmitKind(kind) => format!("`nia emit {}`", kind.flag()),
@@ -345,6 +355,7 @@ fn owner_of(option: &str) -> Option<String> {
     let mut owners = Vec::new();
     for (scope, name) in [
         (Scope::BUILD, "`nia build`".to_string()),
+        (Scope::CLEAN, "`nia clean`".to_string()),
         (Scope::CHECK, "`nia check`".to_string()),
     ] {
         if spec.scope.contains(scope) {
@@ -401,6 +412,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
         [] => Ok(HelpTopic::Main),
         ["build"] => Ok(HelpTopic::Build),
         ["update"] => Ok(HelpTopic::Update),
+        ["clean"] => Ok(HelpTopic::Clean),
         ["check"] => Ok(HelpTopic::Check),
         ["emit"] => Ok(HelpTopic::Emit),
         ["emit", target] => match EmitKind::from_flag(target) {
@@ -419,7 +431,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
                 )),
             },
         },
-        [command @ ("build" | "check"), extra, ..] => {
+        [command @ ("build" | "check" | "clean"), extra, ..] => {
             let topic = help_topic(&[(*command).to_string()])?;
             Err(unknown(extra, topic))
         }
@@ -638,6 +650,28 @@ fn parse_update(scanned: &Scanned) -> CliCommand {
             .map(|occurrence| PathBuf::from(value(occurrence))),
         names: scanned.positionals.clone(),
     }
+}
+
+fn parse_clean(scanned: &Scanned) -> CliResult<CliCommand> {
+    if scanned.has(OptionId::Migrate) && scanned.has(OptionId::Legacy) {
+        return Err(CliError::new(
+            "`--migrate` and `--legacy` cannot be combined",
+            HelpTopic::Clean,
+        ));
+    }
+    if let Some(argument) = scanned.positionals.first() {
+        return Err(CliError::new(
+            format!("unexpected argument `{argument}` for `nia clean`"),
+            HelpTopic::Clean,
+        ));
+    }
+    Ok(CliCommand::Clean {
+        root: scanned
+            .last(OptionId::Root)
+            .map(|occurrence| PathBuf::from(value(occurrence))),
+        migrate: scanned.has(OptionId::Migrate),
+        legacy: scanned.has(OptionId::Legacy),
+    })
 }
 
 fn single_path(scanned: &Scanned, topic: HelpTopic) -> CliResult<String> {
@@ -1226,6 +1260,36 @@ mod tests {
     }
 
     #[test]
+    fn clean_modes_are_typed_and_mutually_exclusive() {
+        assert!(matches!(
+            run(&["clean"]).command,
+            CliCommand::Clean {
+                migrate: false,
+                legacy: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            run(&["clean", "--root", "workspace", "--migrate"]).command,
+            CliCommand::Clean { root: Some(root), migrate: true, legacy: false }
+                if root == std::path::Path::new("workspace")
+        ));
+        assert!(matches!(
+            run(&["clean", "--legacy"]).command,
+            CliCommand::Clean {
+                migrate: false,
+                legacy: true,
+                ..
+            }
+        ));
+        assert_errors(&[
+            (&["clean", "--migrate", "--legacy"], "cannot be combined"),
+            (&["clean", "unexpected"], "unexpected argument"),
+            (&["build", "--migrate"], "belongs to `nia clean`"),
+        ]);
+    }
+
+    #[test]
     fn diagnostics_format_accepts_both_forms_and_the_last_wins() {
         for args in [
             &["--diagnostics-format=json", "check", "x"][..],
@@ -1366,6 +1430,7 @@ mod tests {
             (&["-h"], HelpTopic::Main),
             (&["-O2", "--help"], HelpTopic::Main),
             (&["build", "-h"], HelpTopic::Build),
+            (&["clean", "-h"], HelpTopic::Clean),
             (
                 &["emit", "--exe", "--help"],
                 HelpTopic::EmitKind(EmitKind::Exe),

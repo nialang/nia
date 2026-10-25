@@ -48,6 +48,7 @@ impl Scope {
     pub(crate) const EMIT_OBJ: Self = Self(1 << 7);
     pub(crate) const EMIT_EXE: Self = Self(1 << 8);
     pub(crate) const UPDATE: Self = Self(1 << 9);
+    pub(crate) const CLEAN: Self = Self(1 << 10);
     /// Every emit kind, used before the kind is known.
     pub(crate) const EMIT_ANY: Self = Self::EMIT_INSPECT
         .or(Self::EMIT_CHECKED)
@@ -169,6 +170,8 @@ pub(crate) enum OptionId {
     LibraryPath,
     Library,
     Rpath,
+    Migrate,
+    Legacy,
 }
 
 /// One accepted option and its help row.
@@ -256,7 +259,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Root,
         names: &["--root"],
         arity: Arity::Value,
-        scope: Scope::BUILD.or(Scope::UPDATE),
+        scope: Scope::BUILD.or(Scope::UPDATE).or(Scope::CLEAN),
         usage: "--root <dir>",
         about: "start package discovery here instead of the current directory",
     },
@@ -595,6 +598,22 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         scope: Scope::GLOBAL,
         usage: "-V, --version",
         about: "show the compiler version",
+    },
+    OptionSpec {
+        id: OptionId::Migrate,
+        names: &["--migrate"],
+        arity: Arity::Flag,
+        scope: Scope::CLEAN,
+        usage: "--migrate",
+        about: "move legacy build and package state into build/",
+    },
+    OptionSpec {
+        id: OptionId::Legacy,
+        names: &["--legacy"],
+        arity: Arity::Flag,
+        scope: Scope::CLEAN,
+        usage: "--legacy",
+        about: "remove known legacy build and package state",
     },
 ];
 

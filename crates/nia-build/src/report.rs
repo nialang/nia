@@ -976,7 +976,7 @@ pub(crate) mod tests {
             .status()
             .expect("run test runner");
         let error = BuildError::RunnerFailed {
-            path: std::path::PathBuf::from(".nia/build/out/runner"),
+            path: std::path::PathBuf::from("build/out/runner"),
             status,
             stdout: b"runner-out".to_vec(),
             stderr: b"runner-err".to_vec(),
@@ -998,7 +998,7 @@ pub(crate) mod tests {
             .status()
             .expect("run test runner");
         let error = BuildError::RunnerFailed {
-            path: std::path::PathBuf::from(".nia/build/out/runner"),
+            path: std::path::PathBuf::from("build/out/runner"),
             status,
             stdout: b"stdout-tail".to_vec(),
             stderr: b"stderr-tail".to_vec(),

@@ -181,7 +181,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         cache["entries"][0]["outcome"]["publication"],
         "not_attempted"
     );
-    assert!(!root.join(".nia/build/out/app").exists());
+    assert!(!root.join("build/out/app").exists());
 }
 
 #[test]

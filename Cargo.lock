@@ -837,6 +837,7 @@ dependencies = [
  "nia-driver",
  "nia-linker",
  "nia-loader-query",
+ "nia-package-metadata",
  "nia-source",
  "nia-target",
  "nia-target-config",

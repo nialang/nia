@@ -118,7 +118,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg(&build_workspace)
             .output_timeout_in_session("build from relocated installed toolchain"),
     );
-    assert!(build_workspace.join(".nia/build/out/custom-app").is_file());
+    assert!(build_workspace.join("build/out/custom-app").is_file());
 }
 
 fn timing_counter(timings: &str, name: &str) -> u64 {
