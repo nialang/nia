@@ -988,7 +988,12 @@ fn acquire_process_slots(
                         _owner: owner,
                     });
                     if acquired.len() == requested {
-                        if memory_pressure_allows(minimum_available_memory) {
+                        // Waiting frees memory only when other holders of
+                        // this pool can finish; with none, the pressure is
+                        // outside the test run and waiting never ends.
+                        if memory_pressure_allows(minimum_available_memory)
+                            || !other_slots_held(root, capacity, &acquired)
+                        {
                             if resource_trace_enabled()
                                 && start.elapsed() >= Duration::from_millis(100)
                             {
@@ -1024,6 +1029,13 @@ fn acquire_process_slots(
         thread::sleep(delay + process_backoff_jitter());
         delay = (delay * 2).min(Duration::from_millis(250));
     }
+}
+
+fn other_slots_held(root: &Path, capacity: usize, acquired: &[ProcessSlot]) -> bool {
+    (0..capacity)
+        .map(|index| root.join(index.to_string()))
+        .filter(|slot| acquired.iter().all(|held| held.path != *slot))
+        .any(|slot| slot.exists())
 }
 
 fn minimum_available_memory(memory_limit: usize, workload_memory_bytes: usize) -> usize {
@@ -1594,6 +1606,38 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("independent pool should acquire the released process slot");
         waiter.join().expect("process slot waiter");
+    }
+
+    // A host whose reading never reaches the gate's minimum must still make
+    // progress: memory pressure only waits while another holder can finish.
+    #[test]
+    fn memory_gate_admits_a_lone_holder_under_outside_pressure() {
+        let root = test_slot_root("memory-gate-lone-holder");
+        let start = Instant::now();
+        let slots = acquire_process_slots(&root, 2, 1, Some(usize::MAX))
+            .expect("a lone holder is admitted");
+        assert!(start.elapsed() < Duration::from_secs(5));
+        assert_eq!(slots.len(), 1);
+
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+        let waiter_root = root.to_path_buf();
+        let waiter = std::thread::spawn(move || {
+            let slots = acquire_process_slots(&waiter_root, 2, 1, Some(usize::MAX))
+                .expect("second holder after release");
+            acquired_tx.send(()).expect("report second holder");
+            release_process_slots(slots);
+        });
+        assert!(
+            acquired_rx
+                .recv_timeout(Duration::from_millis(200))
+                .is_err(),
+            "memory pressure admitted a second holder while one was running"
+        );
+        release_process_slots(slots);
+        acquired_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the waiter is admitted once it is alone");
+        waiter.join().expect("memory gate waiter");
     }
 
     #[cfg(unix)]
