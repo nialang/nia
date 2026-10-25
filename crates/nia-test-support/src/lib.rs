@@ -867,9 +867,7 @@ struct ProcessSlot {
 
 impl Drop for ResourceReservation<'_> {
     fn drop(&mut self) {
-        for slot in self.slots.drain(..) {
-            let _ = fs::remove_dir_all(slot.path);
-        }
+        release_process_slots(std::mem::take(&mut self.slots));
         self.pool.release(self.reserved_slots);
     }
 }
@@ -978,6 +976,7 @@ fn acquire_process_slots(
                 Ok(()) => {
                     let owner = match write_process_owner(&slot) {
                         Ok(owner) => owner,
+                        Err(error) if slot_is_being_removed(&error) => continue,
                         Err(error) => {
                             let _ = fs::remove_dir_all(&slot);
                             release_process_slots(acquired);
@@ -1008,6 +1007,7 @@ fn acquire_process_slots(
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     reclaim_stale_process_slot(&slot);
                 }
+                Err(error) if slot_is_being_removed(&error) => {}
                 Err(error) => {
                     release_process_slots(acquired);
                     return Err(error);
@@ -1039,8 +1039,27 @@ fn memory_pressure_allows(minimum_available_memory: Option<usize>) -> bool {
 
 fn release_process_slots(slots: Vec<ProcessSlot>) {
     for slot in slots {
-        let _ = fs::remove_dir_all(slot.path);
+        slot.release();
     }
+}
+
+impl ProcessSlot {
+    fn release(self) {
+        // Close the owner first: Windows keeps a directory whose files are
+        // still open pending deletion, which prolongs the window in which
+        // other processes cannot create the slot.
+        drop(self._owner);
+        let _ = fs::remove_dir_all(self.path);
+    }
+}
+
+/// Reports a slot that another process is deleting.
+///
+/// Windows refuses to create a directory, or a file inside one, while that
+/// directory is pending deletion, and reports it as access denied rather than
+/// as an existing entry. The slot is busy, not broken, so the scan moves on.
+fn slot_is_being_removed(error: &io::Error) -> bool {
+    cfg!(windows) && error.kind() == io::ErrorKind::PermissionDenied
 }
 
 fn process_backoff_jitter() -> Duration {
