@@ -7,6 +7,7 @@ fn payload_enum_construction_and_matching_are_const_evaluable() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 enum Event {
     Closed,
     Data(usize),
@@ -157,6 +158,7 @@ fn const_match_nominal_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -186,6 +188,7 @@ fn nominal_const_array_elements_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -211,6 +214,7 @@ fn nominal_const_array_slices_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -237,6 +241,7 @@ fn nominal_const_array_repeat_elements_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -262,6 +267,7 @@ fn generic_const_function_infers_type_arg_from_nested_call_return_type() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -290,6 +296,7 @@ fn generic_const_function_infers_type_arg_from_nested_optional_call_return_type(
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -328,6 +335,7 @@ fn generic_const_function_infers_type_arg_from_try_payload_return_type() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -359,6 +367,7 @@ fn generic_const_function_infers_type_arg_from_error_try_payload_return_type() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -394,6 +403,7 @@ fn generic_const_function_infers_type_arg_from_integer_field() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -421,6 +431,7 @@ fn generic_const_function_infers_type_arg_from_bound_struct() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -448,6 +459,7 @@ fn generic_const_function_infers_type_arg_from_optional_constructor() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -483,6 +495,7 @@ fn generic_const_function_infers_type_arg_from_error_success_constructor_context
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: usize!T) usize!T {
     value
 }
@@ -518,6 +531,7 @@ fn generic_const_function_infers_type_arg_from_error_payload_constructor_context
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T!usize) T!usize {
     value
 }
@@ -552,6 +566,7 @@ fn generic_const_function_infers_type_arg_from_typed_aggregate_literals() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Config {
     widths: [usize; 3],
 }
@@ -581,6 +596,7 @@ fn imported_generic_const_function_infers_type_arg_from_typed_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module identity;
 using root::identity;
 
@@ -612,6 +628,7 @@ fn generic_const_function_reports_uninferred_type_args() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun zero[T]() usize {
     0
 }
@@ -642,6 +659,7 @@ fn generic_const_function_substitutes_type_args_for_layout_builtins() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Pair {
     a: u8,
     b: i32,
@@ -672,6 +690,7 @@ fn imported_generic_const_function_substitutes_type_args_for_layout_builtins() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module layout;
 using root::layout;
 
@@ -951,6 +970,7 @@ pub const pair_size: usize = std::builtin::size[Pair]();
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module config;
 using root::config;
 
@@ -983,6 +1003,7 @@ pub struct Packet {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module config;
 using root::config;
 
@@ -1005,6 +1026,7 @@ fn function_body_const_call_substitutes_type_args_for_layout_builtins() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Pair {
     a: u8,
     b: i32,

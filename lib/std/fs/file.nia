@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Filesystem operations on paths, files, and directories.
 //
 // Syscall paths encode into `os::maxPathBytes` caller-stack storage. Scalar

@@ -1,6 +1,7 @@
 using root::hash::traits;
 using root::math;
 using root::slice;
+using root::builtin::Len;
 
 using traits::Hasher;
 

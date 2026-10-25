@@ -285,6 +285,7 @@ fn const_functions_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width(base: usize) usize {
     let extra: usize = 2;
     return base + extra;
@@ -324,6 +325,7 @@ fn const_function_if_expression_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width(use_wide: bool) usize {
     if use_wide {
         let word: usize = 8;
@@ -354,6 +356,7 @@ fn const_function_if_branch_return_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun word_bytes(bits: usize) usize {
     if bits == 64 {
         return 8;
@@ -382,6 +385,7 @@ fn const_function_return_expression_propagates_nested_return() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width(use_wide: bool) usize {
     return if use_wide {
         return 8;
@@ -409,6 +413,7 @@ fn const_function_match_expression_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun word_bytes(bits: usize) usize {
     match bits {
         16 => 2,
@@ -438,6 +443,7 @@ fn const_tuple_patterns_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun select(value: (usize, (bool, usize))) usize {
     match value {
         (0, (false, _)) => 1,
@@ -465,6 +471,7 @@ fn const_function_match_ranges_and_return_arms_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun bucket(value: usize) usize {
     match value {
         0..4 => return 4,
@@ -492,6 +499,7 @@ fn const_function_if_pattern_optional_payload_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun unwrap(value: ?usize) usize {
     match value {
         ?payload => {
@@ -523,6 +531,7 @@ fn const_function_if_pattern_error_payload_drives_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun unwrap(value: usize!usize) usize {
     match value {
         !payload => {
@@ -579,6 +588,7 @@ fn imported_const_functions_are_ordinary_const_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module config;
 using root::config;
 
@@ -609,6 +619,7 @@ fn const_function_is_available_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width(value: usize) usize {
     value * 2
 }
@@ -632,6 +643,7 @@ fn const_receiver_method_is_available_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Width {
     value: usize,
 }
@@ -661,6 +673,7 @@ fn const_associated_function_is_available_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Width {
     value: usize,
 }
@@ -690,6 +703,7 @@ fn generic_const_methods_infer_extension_target_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Box[T] {
     value: T,
 }
@@ -839,6 +853,7 @@ fn imported_const_functions_and_methods_work_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module widths;
 using root::widths;
 
@@ -910,6 +925,7 @@ fn const_struct_values_drive_field_access() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Point {
     x: usize,
     y: usize,
@@ -935,6 +951,7 @@ fn function_local_const_struct_values_drive_field_access() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Point {
     x: usize,
     y: usize,
@@ -959,6 +976,7 @@ fn const_array_values_drive_index_access() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const widths: [usize; 3] = [2, 4, 8];
 const width: usize = widths[1];
 
@@ -979,6 +997,7 @@ fn function_local_nominal_const_array_index_drives_field_access() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Config { width: usize }
 
 fun main() i32 {
@@ -1000,6 +1019,7 @@ fn const_struct_array_fields_are_ordinary_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Config {
     widths: [usize; 3],
 }
@@ -1024,6 +1044,7 @@ fn const_functions_accept_array_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun pick(widths: [usize; 3], index: usize) usize {
     widths[index]
 }
@@ -1048,6 +1069,7 @@ fn const_array_slices_are_ordinary_const_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun pair_sum(values: [usize; 2]) usize {
     values[0] + values[1]
 }
@@ -1076,6 +1098,7 @@ fn const_function_try_propagates_optional_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun add_one(value: ?usize) ?usize {
     let unwrapped: usize = value.?;
     if unwrapped == 7 {
@@ -1121,6 +1144,7 @@ fn const_function_try_propagates_error_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun add_one(value: usize!usize) usize!usize {
     !(value.? + 1)
 }
@@ -1161,6 +1185,7 @@ fn const_function_try_converts_errors_through_const_into_error() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 enum SourceError: i32 {
     Failed = 1,
     _,
@@ -1216,6 +1241,7 @@ fn const_function_try_instantiates_generic_into_error_witness() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct SourceError[T] {
     value: T,
 }

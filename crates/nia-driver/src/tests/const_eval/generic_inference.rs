@@ -7,6 +7,7 @@ fn generic_const_function_explicit_type_args_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -30,6 +31,7 @@ fn generic_const_function_infers_type_arg_from_suffixed_literal() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -53,6 +55,7 @@ fn generic_const_function_infers_type_arg_from_integer_binary_expr() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -76,6 +79,7 @@ fn generic_const_function_infers_type_arg_from_bool_binary_expr() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -107,6 +111,7 @@ fn generic_const_function_infers_type_arg_from_bool_literal_and_not() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -140,6 +145,7 @@ fn generic_const_function_infers_type_arg_from_integer_negation() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -171,6 +177,7 @@ fn generic_const_function_infers_type_arg_from_if_expression() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -198,6 +205,7 @@ fn generic_const_function_infers_type_arg_from_contextual_if_expression() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: ?T) ?T {
     value
 }
@@ -236,6 +244,7 @@ fn generic_const_function_infers_type_arg_from_if_block_tail_local() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -265,6 +274,7 @@ fn generic_const_function_infers_type_arg_from_match_expression() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -348,6 +358,7 @@ fn generic_const_function_infers_type_arg_from_if_pattern_optional_payload() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -379,6 +390,7 @@ fn generic_const_function_infers_type_arg_from_if_pattern_error_payloads() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -410,6 +422,7 @@ fn generic_const_function_infers_type_arg_from_array_literal() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun second[T](values: [T; 2]) T {
     values[1]
 }
@@ -433,6 +446,7 @@ fn generic_const_function_infers_type_arg_from_array_repeat_literal() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun first[T](values: [T; 2]) T {
     values[0]
 }
@@ -456,6 +470,7 @@ fn generic_const_function_rejects_non_integer_array_repeat_count() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun first[T](values: T) usize {
     values.len()
 }
@@ -481,6 +496,7 @@ fn generic_const_function_infers_type_arg_from_contextual_array_literal() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun first_some[T](values: [?T; 2]) T {
     match values[0] {
         ?payload => {
@@ -514,6 +530,7 @@ fn generic_const_function_infers_type_arg_from_struct_literal() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Pair[T] {
     left: T,
     right: T,
@@ -542,6 +559,7 @@ fn generic_const_function_infers_type_arg_from_contextual_struct_literal() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Slot[T] {
     primary: ?T,
     fallback: ?T,
@@ -580,6 +598,7 @@ fn generic_const_function_infers_type_arg_from_struct_field() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Point {
     x: usize,
     y: usize,
@@ -620,6 +639,7 @@ pub const point: Point = Point{x: 4, y: 8};
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module config;
 using root::config;
 
@@ -646,6 +666,7 @@ fn generic_const_function_substitutes_struct_field_types_in_body() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Pair[T] {
     left: T,
     right: T,
@@ -678,6 +699,7 @@ fn generic_const_function_infers_type_arg_from_typed_const_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -702,6 +724,7 @@ fn generic_const_function_infers_type_arg_from_inferred_const_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -726,6 +749,7 @@ fn generic_const_function_infers_type_arg_from_local_inferred_const_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -749,6 +773,7 @@ fn function_body_const_call_infers_generic_from_local_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -772,6 +797,7 @@ fn function_body_const_call_infers_generic_from_nominal_field() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -806,6 +832,7 @@ pub const fun id[T](value: T) T {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module helpers;
 using root::helpers;
 
@@ -843,6 +870,7 @@ pub const fun word_bytes() usize {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module helpers;
 using root::helpers;
 
@@ -870,6 +898,7 @@ pub const width = 4usize;
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module config;
 using root::config;
 

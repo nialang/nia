@@ -42,6 +42,7 @@ fn user_struct_fields_are_ordinary_const_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Target { pointer_width: usize }
 struct Config { target: Target }
 const builtin = Config { target: Target { pointer_width: 64usize } };
@@ -92,6 +93,7 @@ fn builtin_functions_require_explicit_std_builtin_path_or_using() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 using std::builtin::{align, embed, offset, size};
 
 struct Pair {
@@ -307,6 +309,7 @@ fn layout_builtins_are_const_values_for_concrete_types() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Pair {
     a: u8,
     b: i32,
@@ -334,6 +337,7 @@ fn embed_reads_bytes_relative_to_source_file() {
     write(
         &root.join("src/main.nia"),
         r#"
+using std::builtin::Len;
 const payload = std::builtin::embed("assets/payload.bin");
 
 const fun score(bytes: [u8; 3]) usize {
@@ -363,6 +367,7 @@ fn embed_reports_missing_file() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const payload = std::builtin::embed("missing.bin");
 
 fun main() i32 {
@@ -389,6 +394,7 @@ fn embed_is_rejected_in_runtime_body() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 fun main() i32 {
     let payload = std::builtin::embed("payload.bin");
     payload.len() as i32
@@ -413,6 +419,7 @@ fn unicode_scalar_conversion_evaluates_at_const() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 using std::unicode;
 
 const scalar: ?char = unicode::fromScalarValue(0x03bb);

@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Command configuration and spawn attempts.
 //
 // `Command::spawn` returns a `SpawnAttempt` owner. `finish` tries every argv,

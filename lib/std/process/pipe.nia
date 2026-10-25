@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::io;
 using root::os;
 using root::process::types;

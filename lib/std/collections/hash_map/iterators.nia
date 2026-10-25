@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::collections::hash_map::context;
 using root::collections::hash_map::entries;
 using root::collections::hash_map::map;

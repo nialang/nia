@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Buffered readers and writers over filesystem and standard handles.
 //
 // `FileReader` and `FileWriter` borrow their `File` owner and resolve its live

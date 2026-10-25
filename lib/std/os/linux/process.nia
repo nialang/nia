@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Linux process spawn, wait, and termination.
 //
 // Spawn setup keeps all four pipe pairs in one resource transaction. Every

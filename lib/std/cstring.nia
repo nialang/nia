@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::collections;
 using root::builtin;
 using root::fmt;

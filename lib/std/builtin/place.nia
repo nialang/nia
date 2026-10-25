@@ -58,5 +58,17 @@ extend[T] [T] : Len {
     }
 }
 
+extend[T] &[T] : Len {
+    const fun len(&self) usize {
+        sliceLen(self)
+    }
+}
+
+extend[T] &mut [T] : Len {
+    const fun len(&self) usize {
+        sliceLen(self)
+    }
+}
+
 @[builtin("sliceLen")]
 const fun sliceLen[T](value: &[T]) usize;

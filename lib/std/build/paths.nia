@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Lexical paths rooted in a build invocation.
 //
 // Build paths are relative to `.nia-build/`; package paths use the same

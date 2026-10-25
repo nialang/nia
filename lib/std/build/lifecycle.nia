@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Build construction and complete graph teardown.
 //
 // Initialization returns an attempt so partially owned state remains reachable

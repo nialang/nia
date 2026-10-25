@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Owned Unicode scalar text.
 //
 // `String` owns allocator-backed `char` storage; slices and iterators borrow it.

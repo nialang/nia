@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::option;
 using root::os::windows::bindings::{
     invalidHandle, maxPathUnits,

@@ -422,6 +422,13 @@ fn builtin_place_traits_allow_constrained_generic_deref_index_and_slice() {
     write(
         &root.join("main.nia"),
         r##"
+using std::builtin::Len;
+
+fun length[T](value: &[T]) usize
+where &[T]: Len {
+    value.len()
+}
+
 fun read_ptr[P](ptr: P) [P as Deref]::Target
 where P: Deref {
     ptr.*
@@ -465,7 +472,7 @@ fun main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
     write_index_i32[&mut [i32]](rw, 0, y);
     let mut a = slice[& [i32]](ro);
     let mut b = sliceMut[&mut [i32]](rw);
-    a.len() as i32 + b.len() as i32 + x + y
+    length(a) as i32 + length(b) as i32 + x + y
 }
 "##,
     );
@@ -480,14 +487,21 @@ fn len_and_inherent_pointer_methods_model_arrays_and_slices() {
     write(
         &root.join("main.nia"),
         r##"
+using std::builtin::Len;
+
+fun length[T](value: &[T]) usize
+where &[T]: Len {
+    value.len()
+}
+
 fun main(slice: & [usize], sliceMut: &mut [usize]) usize {
     let mut array: [i32; 4] = [1, 2, 3, 4];
     let mut literal_ptr = (&b"nia\0").ptr();
     let mut read_ptr = slice.ptr();
     let mut write_ptr = sliceMut.ptrMut();
     array.len()
-        + slice.len()
-        + sliceMut.len()
+        + length(slice)
+        + length(sliceMut)
         + read_ptr.*
         + write_ptr.*
         + literal_ptr[0] as usize
@@ -864,6 +878,8 @@ fn builtin_slice_traits_allow_user_container_impls() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
+
 struct Cell {}
 
 static mut backing: [i32; 3] = [1, 2, 3];
@@ -881,9 +897,14 @@ where T: Slice[..] {
     & value[..]
 }
 
+fun length[T](value: &[T]) usize
+where &[T]: Len {
+    value.len()
+}
+
 fun main(cell: Cell) i32 {
     let mut part = take(cell);
-    part.len() as i32
+    length(part) as i32
 }
 "#,
     );
@@ -974,6 +995,48 @@ fun main(slice: & [usize]) usize {
 }
 
 #[test]
+fn len_trait_method_import_counts_as_used() {
+    let root = temp_dir("len_trait_method_import_counts_as_used");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::builtin::Len;
+
+fun main(values: &[i32]) usize {
+    values.len()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn len_trait_import_without_method_call_is_unused() {
+    let root = temp_dir("len_trait_import_without_method_call_is_unused");
+    write(
+        &root.join("main.nia"),
+        r#"
+
+fun main() usize {
+    0usize
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.diagnostic.summary == "unused import `Len`" }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn imported_generic_len_bound_uses_the_demand_loaded_source_trait() {
     let root = temp_dir("imported_generic_len_bound_uses_the_demand_loaded_source_trait");
     write(
@@ -990,6 +1053,7 @@ where T: Len {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module api;
 using root::api;
 
@@ -1135,10 +1199,17 @@ fn builtin_slice_ranges_infer_usize_bounds() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
+
+fun length[T](value: &[T]) usize
+where &[T]: Len {
+    value.len()
+}
+
 fun main() i32 {
     let mut items: [i32; 4] = [1, 2, 3, 4];
     let mut part = & items[0..2];
-    part.len() as i32
+    length(part) as i32
 }
 "#,
     );
@@ -1153,6 +1224,8 @@ fn builtin_slice_ranges_require_usize_bounds() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
+
 fun main() i32 {
     let mut items: [i32; 4] = [1, 2, 3, 4];
     let mut end: i32 = 2;

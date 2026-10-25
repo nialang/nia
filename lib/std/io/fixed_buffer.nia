@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::io::traits;
 using root::math;
 using root::slice;

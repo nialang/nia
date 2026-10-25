@@ -1,3 +1,4 @@
+using root::builtin::Len;
 pub(root) module executable;
 pub(root) module stdio;
 

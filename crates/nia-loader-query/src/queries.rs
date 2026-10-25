@@ -2,7 +2,9 @@ use crate::LoaderContext;
 use crate::facade_facts::ModuleFacadeFacts;
 use crate::graph::ModuleGraphQuery;
 use crate::provider_facts::ProviderDemandsQuery;
-use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
+use crate::used_paths::{
+    ModuleDeclarations, UsedModulePath, UsedModulePathProcessing, collect_used_modules,
+};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
     StableModuleKey, resolve_module_declarations_from_active_item_tree_with_symbols,
@@ -243,11 +245,15 @@ impl QueryKey<LoaderContext> for ModuleUnusedImportsFactQuery {
             return Ok(Vec::new());
         }
         let declarations = db.get(module_declarations_query(db, &node.path)?)?;
-        Ok(unused_imports(
+        let parsed = db.get(parsed_module_query_for_id(db, self.0)?)?;
+        let method_calls = method_call_names(&parsed.semantic.active_item_tree);
+        unused_imports(
+            db,
             &graph.semantic,
             node.id,
             &declarations.semantic,
-        ))
+            &method_calls,
+        )
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -256,39 +262,171 @@ impl QueryKey<LoaderContext> for ModuleUnusedImportsFactQuery {
 }
 
 fn unused_imports(
+    db: &QueryDb<LoaderContext>,
     graph: &nia_imports::ModuleGraph,
     module_id: nia_imports::ModuleId,
     declarations: &ModuleDeclarations,
-) -> Vec<UnusedUsingImport> {
-    declarations
-        .explicit_imports
-        .iter()
-        .filter(|import| {
-            !declarations.used_import_aliases.contains(&import.alias)
-                && !import_target_is_semantic(graph, module_id, &import.path)
-        })
-        .map(|import| UnusedUsingImport {
+    method_calls: &std::collections::HashSet<nia_symbol::SymbolId>,
+) -> QueryResult<Vec<UnusedUsingImport>> {
+    let mut unused = Vec::new();
+    for import in &declarations.explicit_imports {
+        if declarations.used_import_aliases.contains(&import.alias)
+            || import_target_is_semantic(db, graph, module_id, &import.path)?
+            || import_trait_method_is_called(db, graph, module_id, import, method_calls)?
+        {
+            continue;
+        }
+        unused.push(UnusedUsingImport {
             name: import.alias,
             name_span: import.name_span,
-        })
-        .collect()
+        });
+    }
+    Ok(unused)
+}
+
+fn method_call_names(
+    item_tree: &ActiveModuleItemTree,
+) -> std::collections::HashSet<nia_symbol::SymbolId> {
+    struct MethodCalls(std::collections::HashSet<nia_symbol::SymbolId>);
+
+    impl<'ast> nia_ast_walk::Visitor<'ast> for MethodCalls {
+        fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+            if let nia_ast::ExprKind::Call { callee, .. } = &expr.kind
+                && let nia_ast::ExprKind::Field { name, .. } = callee.kind
+            {
+                self.0.insert(name);
+            }
+            nia_ast_walk::walk_expr(self, expr);
+        }
+    }
+
+    let mut calls = MethodCalls(std::collections::HashSet::new());
+    for item in item_tree.to_module().items.iter() {
+        nia_ast_walk::Visitor::visit_item(&mut calls, item);
+    }
+    calls.0
+}
+
+fn import_trait_method_is_called(
+    db: &QueryDb<LoaderContext>,
+    graph: &nia_imports::ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    import: &crate::used_paths::ExplicitUsingImport,
+    method_calls: &std::collections::HashSet<nia_symbol::SymbolId>,
+) -> QueryResult<bool> {
+    if method_calls.is_empty() {
+        return Ok(false);
+    }
+    let Some(name) = import.path.last_segment_name() else {
+        return Ok(false);
+    };
+    let Some(facade_path) = used_path_prefix(&import.path) else {
+        return Ok(false);
+    };
+    let Some(facade_id) = import_target_module(graph, current_module, &facade_path) else {
+        return Ok(false);
+    };
+    let Some(facade) = graph.get(facade_id) else {
+        return Ok(false);
+    };
+    let facts = db.get(module_facade_facts_query(db, &facade.path)?)?;
+    for source in facts.reexport_source_paths(&name) {
+        let Some(source_module) = import_target_module(graph, facade_id, source) else {
+            continue;
+        };
+        let Some(provider) = graph.get(source_module) else {
+            continue;
+        };
+        let summary = db.get(provider_summary_query(db, &provider.path)?)?;
+        if summary.trait_impl_index_names().contains(&import.alias)
+            && method_calls
+                .iter()
+                .any(|method| summary.method_index_names().contains(method))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn import_target_is_semantic(
+    db: &QueryDb<LoaderContext>,
     graph: &nia_imports::ModuleGraph,
     current_module: nia_imports::ModuleId,
     path: &UsedModulePath,
-) -> bool {
-    let Some(module_id) = import_target_module(graph, current_module, path) else {
-        return false;
-    };
-    graph
-        .get(module_id)
-        .is_some_and(|module| module.semantic_selected)
-        || matches!(
+) -> QueryResult<bool> {
+    if let Some(module_id) = import_target_module(graph, current_module, path)
+        && module_is_semantic_or_provider_dependency(graph, current_module, module_id)
+    {
+        return Ok(true);
+    }
+    let Some(name) = path.last_segment_name() else {
+        return Ok(matches!(
             path,
             UsedModulePath::Package { segments, .. } if segments.is_empty()
-        )
+        ));
+    };
+    let Some(facade_path) = used_path_prefix(path) else {
+        return Ok(false);
+    };
+    let Some(facade_id) = import_target_module(graph, current_module, &facade_path) else {
+        return Ok(false);
+    };
+    let Some(facade) = graph.get(facade_id) else {
+        return Ok(false);
+    };
+    let facts = db.get(module_facade_facts_query(db, &facade.path)?)?;
+    for source in facts.reexport_source_paths(&name) {
+        if let Some(source_module) = import_target_module(graph, facade_id, source)
+            && module_is_semantic_or_provider_dependency(graph, current_module, source_module)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn used_path_prefix(path: &UsedModulePath) -> Option<UsedModulePath> {
+    let segments = path.segments();
+    (!segments.is_empty()).then(|| {
+        let prefix = segments[..segments.len() - 1].to_vec();
+        match path {
+            UsedModulePath::Package { package, .. } => UsedModulePath::Package {
+                package: *package,
+                segments: prefix,
+                include_declared_children: false,
+                processing: UsedModulePathProcessing::Never,
+            },
+            UsedModulePath::Root { .. } => UsedModulePath::Root {
+                segments: prefix,
+                include_declared_children: false,
+                processing: UsedModulePathProcessing::Never,
+            },
+            UsedModulePath::ParentRelative { .. } => UsedModulePath::ParentRelative {
+                segments: prefix,
+                include_declared_children: false,
+                processing: UsedModulePathProcessing::Never,
+            },
+            UsedModulePath::Local { .. } => UsedModulePath::Local {
+                segments: prefix,
+                include_declared_children: false,
+                processing: UsedModulePathProcessing::Never,
+            },
+        }
+    })
+}
+
+fn module_is_semantic_or_provider_dependency(
+    graph: &nia_imports::ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    module_id: nia_imports::ModuleId,
+) -> bool {
+    graph.get(module_id).is_some_and(|module| {
+        module.semantic_selected
+            || graph
+                .get(current_module)
+                .is_some_and(|importer| importer.provider_dependencies.contains(&module_id))
+    })
 }
 
 fn import_target_module(

@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Bounded observations made while the host runner configures a build plan.
 
 using root::collections;

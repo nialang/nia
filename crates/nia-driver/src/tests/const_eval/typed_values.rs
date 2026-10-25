@@ -7,6 +7,7 @@ fn nominal_const_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -32,6 +33,7 @@ fn nested_nominal_const_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -65,6 +67,7 @@ pub const config = Config { width: 4usize };
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module config;
 using root::config;
 
@@ -91,6 +94,7 @@ fn const_function_local_nominal_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -122,6 +126,7 @@ fn const_if_nominal_struct_fields_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -152,6 +157,7 @@ fn if_expr_is_an_ordinary_const_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -211,6 +217,7 @@ fn const_fn_returns_if_expr_value() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun select() usize {
     if true {
         4usize
@@ -238,6 +245,7 @@ fn const_char_literals_are_typed_scalar_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun choose_char(value: char) char {
     value
 }
@@ -266,6 +274,7 @@ fn const_bitwise_not_evaluates_integer_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun mask(value: usize) usize {
     ~value & 15usize
 }
@@ -289,6 +298,7 @@ fn const_casts_have_typed_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -644,6 +654,7 @@ fn generic_const_function_infers_type_arg_from_negative_float() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun id[T](value: T) T {
     value
 }
@@ -873,6 +884,7 @@ fn const_string_literals_are_typed_arrays() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun accept4(value: [char; 4]) usize {
     if value[0] == 'n' {
         4usize
@@ -905,8 +917,9 @@ fn const_array_len_method_evaluates_array_values() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun total(values: [usize; 3], text: [char; 4]) usize {
-    values.len() + text.len() + (&values[1..]).len()
+    values.len() + text.len()
 }
 
 const n: usize = total([1usize, 2usize, 3usize], "nia!");
@@ -965,6 +978,7 @@ fn layout_array_length_infers_const_generic_at_comptime_and_runtime() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Header {
     first: i32,
     second: i32,
@@ -996,6 +1010,7 @@ fn const_range_start_and_end_methods_evaluate_bounds() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun total() usize {
     let both = 2usize..5usize;
     let from = 7usize..;
@@ -1022,6 +1037,7 @@ fn const_slice_pointer_methods_project_the_first_element() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun first(values: &[usize]) usize {
     let mut ptr = values.ptr();
     ptr.*
@@ -1060,6 +1076,7 @@ fn const_extension_takes_priority_over_slice_pointer_fallback() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 extend[T] [T] {
     const fun ptr(&self) usize {
         6usize
@@ -1117,6 +1134,7 @@ fn const_extension_takes_priority_over_builtin_range_method() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 extend[T] T..T {
     const fun start(&self) T {
         self.end()

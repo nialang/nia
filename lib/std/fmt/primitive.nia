@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::fmt::core;
 
 fun formatSignedSpec(

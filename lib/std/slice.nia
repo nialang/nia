@@ -10,6 +10,7 @@ using root::cmp;
 using root::iter;
 using root::iter::range;
 using root::math;
+using root::builtin::Len;
 
 pub struct SliceIter[T]
 where T: Sized

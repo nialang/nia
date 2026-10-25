@@ -7,6 +7,7 @@ fn const_function_rejects_assignment_to_immutable_local() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let i: usize = 2;
     i = 5;
@@ -93,6 +94,7 @@ fn const_function_rejects_array_assignment_shape_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let mut values: [usize; 2] = [1usize, 2usize];
     values = true;
@@ -120,6 +122,7 @@ fn const_function_rejects_array_assignment_length_mismatch() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let mut values: [usize; 2] = [1usize, 2usize];
     values = [1usize; 3usize];
@@ -332,6 +335,7 @@ fn const_function_mutates_struct_fields() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Point {
     x: usize,
     y: usize,
@@ -363,6 +367,7 @@ fn const_function_mutates_array_indexes() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let mut values: [usize; 4] = [1, 2, 3, 4];
     let mut i: usize = 0;
@@ -393,6 +398,7 @@ fn const_compound_assignment_evaluates_index_once() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let mut values: [usize; 2] = [4, 9];
     let mut calls = 0usize;
@@ -422,6 +428,7 @@ fn const_for_in_rejects_range_iter_method() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 using std::iter;
 
 const fun width() usize {
@@ -458,6 +465,7 @@ fn const_function_mutates_nested_aggregate_paths() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Pair {
     values: [usize; 2],
 }
@@ -497,6 +505,7 @@ fn const_function_rejects_field_assignment_to_immutable_root() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Point {
     x: usize,
 }
@@ -564,6 +573,7 @@ fn const_function_if_statement_flows_return_and_else_if() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width(bits: usize) usize {
     if bits == 16 {
         return 2;
@@ -592,6 +602,7 @@ fn const_function_for_in_arrays_require_iterator() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width(values: [usize; 4]) usize {
     let mut total: usize = 0;
     for value in values {
@@ -626,6 +637,7 @@ fn const_function_for_in_ranges_require_iterator() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let mut total: usize = 0;
     for value in 0usize..=5usize {
@@ -668,6 +680,7 @@ fn const_function_rejects_for_in_ranges_without_iterator() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     let mut total: usize = 0;
     for value in ..5usize {
@@ -702,6 +715,7 @@ fn const_function_for_in_executes_iterator_trait() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Counter {
     current: usize,
     end: usize,
@@ -761,6 +775,7 @@ fn const_function_for_in_executes_iterable_trait() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Counter {
     current: usize,
     end: usize,
@@ -829,6 +844,7 @@ fn imported_generic_const_iterable_executes_trait_witnesses() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 module pair;
 using root::pair;
 
@@ -1134,6 +1150,7 @@ fn const_mutable_receiver_writes_back_nested_place_once() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 struct Counter {
     value: usize,
 }
@@ -1180,6 +1197,7 @@ fn const_function_rejects_escaped_loop_control_flow() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     break;
 }
@@ -1210,6 +1228,7 @@ fn const_function_rejects_infinite_loop_statements() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 const fun width() usize {
     loop {
         continue;

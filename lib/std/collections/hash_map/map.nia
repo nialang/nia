@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Open-addressing hash map with allocator-explicit storage.
 //
 // Control bytes, keys, and values share one aligned storage block. Rehash

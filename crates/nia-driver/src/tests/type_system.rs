@@ -544,6 +544,7 @@ fn supports_structural_extension_methods() {
     write(
         &root.join("main.nia"),
         r#"
+using std::builtin::Len;
 type RawPtr[T] = &T;
 
 extend i32 {

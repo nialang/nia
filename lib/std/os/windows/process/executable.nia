@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Executable resolution for Windows spawning.
 //
 // `CreateProcessW` with no application name resolves the first command-line

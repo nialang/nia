@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::fs::convert;
 using root::os;
 using root::string;

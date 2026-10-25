@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::fs::types;
 using root::math;
 using root::mem;

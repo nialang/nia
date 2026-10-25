@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Buffered reader and writer adapters.
 //
 // Like every generic I/O adapter, these preserve the wrapped reader or

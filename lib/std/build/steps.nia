@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Owned payloads for build steps.
 //
 // Each payload retains only the data needed by its action. Fallible teardown

@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Formatter, format specs, and the `Format` trait.
 //
 // Radix methods reject values other than 2, 8, 10, and 16 before writing any

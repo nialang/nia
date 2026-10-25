@@ -1,5 +1,6 @@
 using root::hash::traits;
 using root::slice;
+using root::builtin::Len;
 
 using traits::{Hash, Hasher};
 

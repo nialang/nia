@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // Reverse-order release for Build-owned record lists.
 //
 // A list is deinitialized only after every element released successfully. If

@@ -1,3 +1,4 @@
+using root::builtin::Len;
 // External-command descriptors and their owned build-graph records.
 //
 // Public descriptors borrow caller data. ExternalCommandStep retains the

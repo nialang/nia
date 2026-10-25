@@ -1,3 +1,4 @@
+using root::builtin::Len;
 using root::os::windows::types::{
     maxPathBytes,
     Errno,

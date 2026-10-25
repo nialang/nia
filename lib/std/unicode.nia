@@ -1,6 +1,7 @@
 using root::iter;
 using root::iter::range;
 using root::math;
+using root::builtin::place::Len;
 
 pub struct Utf8Scalar {
     bytes: [u8; 4],
