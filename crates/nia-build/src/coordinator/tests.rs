@@ -1868,6 +1868,7 @@ fn compiler_check_cache_reuses_relocated_sources() {
 
     let mut relocated = test_invocation();
     relocated.cache_dir = first.cache_dir.clone();
+    relocated.artifact_cache_dir = first.artifact_cache_dir.clone();
     write_compiler_check_source(&relocated, "fun main() i32 { 0 }");
     let report = execute_build_plan(
         &compiler_check_plan(&relocated, OptimizationMode::O2),
@@ -2346,6 +2347,7 @@ fn compiler_emit_cache_reuses_relocated_dynamic_source_closure() {
 
     let mut relocated = test_invocation();
     relocated.cache_dir = first.cache_dir.clone();
+    relocated.artifact_cache_dir = first.artifact_cache_dir.clone();
     write_compiler_check_source(&relocated, &freestanding_source("!()"));
     let report = execute_build_plan(
         &compiler_emit_plan(
@@ -2808,6 +2810,7 @@ fn external_command_cache_reuses_relocated_logical_inputs_and_outputs() {
 
     let mut second = test_invocation();
     second.cache_dir = first.cache_dir.clone();
+    second.artifact_cache_dir = first.artifact_cache_dir.clone();
     fs::create_dir_all(&second.package_root).unwrap();
     fs::write(second.package_root.join("tool-input.txt"), b"relocated").unwrap();
     let second_plan = cacheable_command_plan(&second, "shared");
