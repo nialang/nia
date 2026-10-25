@@ -170,6 +170,60 @@ pub(super) fn canonicalize_modules(modules: &mut [PlanModule]) -> Result<(), Pla
     Ok(())
 }
 
+pub(super) fn validate_module_cycles(modules: &[PlanModule]) -> Result<(), PlanError> {
+    let module_by_root = modules
+        .iter()
+        .map(|module| (module.root_source.clone(), module.key.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let edges = modules
+        .iter()
+        .map(|module| {
+            let targets = module
+                .imports
+                .iter()
+                .filter_map(|import| module_by_root.get(&import.path).cloned())
+                .collect::<Vec<_>>();
+            (module.key.clone(), targets)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut state = BTreeMap::<ModuleKey, u8>::new();
+    let mut path = Vec::new();
+    for start in edges.keys() {
+        if state.get(start).copied().unwrap_or_default() != 0 {
+            continue;
+        }
+        state.insert(start.clone(), 1);
+        path.push(start.clone());
+        let mut frames = vec![(start.clone(), 0usize)];
+        while let Some((module, next_edge)) = frames.last_mut() {
+            let targets = &edges[module];
+            if *next_edge == targets.len() {
+                state.insert(module.clone(), 2);
+                frames.pop();
+                path.pop();
+                continue;
+            }
+            let target = targets[*next_edge].clone();
+            *next_edge += 1;
+            match state.get(&target).copied().unwrap_or_default() {
+                0 => {
+                    state.insert(target.clone(), 1);
+                    path.push(target.clone());
+                    frames.push((target, 0));
+                }
+                1 => {
+                    let start = path.iter().position(|key| key == &target).unwrap_or(0);
+                    let mut cycle = path[start..].to_vec();
+                    cycle.push(target);
+                    return Err(PlanError::ModuleCycle(cycle));
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn canonicalize_artifacts(
     artifacts: &mut [PlanArtifact],
     modules: &[PlanModule],
