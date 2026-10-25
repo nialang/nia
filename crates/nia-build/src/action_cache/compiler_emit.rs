@@ -41,7 +41,7 @@ use super::{
     write_text,
 };
 use crate::{
-    ActionKey, PlanArtifact, PlanModule, PlanPackage,
+    ActionKey, BuildConfiguration, PlanArtifact, PlanModule, PlanPackage,
     lock::{LockWaitObserver, ScopedFileLock},
 };
 use nia_target::TargetConfig;
@@ -166,6 +166,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) link_environment: ExecutableCacheEnvironment,
     pub(crate) link_inputs: &'a [CompilerEmitCacheLinkInput],
     pub(crate) link_time_optimization: LinkTimeOptimization,
+    pub(crate) configuration: BuildConfiguration,
 }
 
 impl CompilerEmitCacheIdentity {
@@ -180,9 +181,14 @@ impl CompilerEmitCacheIdentity {
             runtime: input.runtime,
             manifest: input.manifest,
             toolchain: input.toolchain,
+            configuration: input.configuration,
         })?;
         let output = logical_path_identity(&input.artifact.output);
-        let artifact = artifact_identity(input.artifact, input.link_time_optimization);
+        let artifact = artifact_identity(
+            input.artifact,
+            input.link_time_optimization,
+            input.configuration,
+        );
         let link_environment = input.link_environment.encode().to_vec();
         let link_inputs = link_inputs_identity(input.link_inputs);
         let components = EmitFingerprintComponents {
@@ -785,6 +791,7 @@ fn invalidations(
 fn artifact_identity(
     artifact: &PlanArtifact,
     link_time_optimization: LinkTimeOptimization,
+    configuration: BuildConfiguration,
 ) -> Vec<u8> {
     let mut encoded = Vec::new();
     write_text(&mut encoded, artifact.key.package().as_str());
@@ -804,6 +811,19 @@ fn artifact_identity(
         LinkTimeOptimization::Off => 0,
         LinkTimeOptimization::Thin => 1,
         LinkTimeOptimization::Full => 2,
+    });
+    encoded.push(match configuration.linkage {
+        crate::Linkage::Static => 0,
+        crate::Linkage::Dynamic => 1,
+    });
+    encoded.push(match configuration.panic {
+        crate::PanicStrategy::Abort => 0,
+        crate::PanicStrategy::Unwind => 1,
+    });
+    encoded.push(match configuration.debug_info {
+        crate::DebugInfo::None => 0,
+        crate::DebugInfo::LineTables => 1,
+        crate::DebugInfo::Full => 2,
     });
     encoded
 }
@@ -901,12 +921,22 @@ mod tests {
     #[test]
     fn executable_artifact_identity_includes_lto_policy() {
         let artifact = executable_artifact();
-        let off = artifact_identity(&artifact, LinkTimeOptimization::Off);
-        let thin = artifact_identity(&artifact, LinkTimeOptimization::Thin);
-        let full = artifact_identity(&artifact, LinkTimeOptimization::Full);
+        let config = BuildConfiguration::default();
+        let off = artifact_identity(&artifact, LinkTimeOptimization::Off, config);
+        let thin = artifact_identity(&artifact, LinkTimeOptimization::Thin, config);
+        let full = artifact_identity(&artifact, LinkTimeOptimization::Full, config);
         assert_ne!(off, thin);
         assert_ne!(thin, full);
         assert_ne!(off, full);
+        let debug = artifact_identity(
+            &artifact,
+            LinkTimeOptimization::Off,
+            BuildConfiguration {
+                debug_info: crate::DebugInfo::Full,
+                ..config
+            },
+        );
+        assert_ne!(off, debug);
     }
 
     #[test]

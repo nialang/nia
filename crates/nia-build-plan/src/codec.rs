@@ -129,6 +129,7 @@ impl BuildPlan {
         }
         writer.target(&self.host_target)?;
         writer.target(&self.artifact_target)?;
+        writer.configuration(self.configuration)?;
         writer.count(self.modules.len())?;
         for module in &self.modules {
             writer.module(module)?;
@@ -185,6 +186,7 @@ impl BuildPlan {
         })?;
         let host_target = reader.target()?;
         let artifact_target = reader.target()?;
+        let configuration = reader.configuration()?;
         let modules = reader.list(Reader::module)?;
         let artifacts = reader.list(Reader::artifact)?;
         let actions = reader.list(Reader::action)?;
@@ -196,7 +198,7 @@ impl BuildPlan {
                 offset: reader.offset,
             });
         }
-        BuildPlan::freeze(BuildPlanDraft {
+        let plan = BuildPlan::freeze(BuildPlanDraft {
             root_package,
             packages,
             host_target,
@@ -208,7 +210,9 @@ impl BuildPlan {
             default_step,
             selected_step,
         })
-        .map_err(|error| PlanCodecError::Semantic(Box::new(error)))
+        .map_err(|error| PlanCodecError::Semantic(Box::new(error)))?;
+        plan.with_configuration(configuration)
+            .map_err(|error| PlanCodecError::Semantic(Box::new(error)))
     }
 }
 
@@ -344,6 +348,33 @@ impl Writer {
     fn target(&mut self, target: &TargetConfig) -> Result<(), PlanCodecError> {
         // The canonical name is the complete target identity.
         self.string(&target.name())
+    }
+
+    fn configuration(&mut self, value: BuildConfiguration) -> Result<(), PlanCodecError> {
+        self.u8(match value.profile {
+            BuildProfile::Debug => 0,
+            BuildProfile::Release => 1,
+        });
+        self.optimization(value.optimization);
+        self.u8(match value.linkage {
+            Linkage::Static => 0,
+            Linkage::Dynamic => 1,
+        });
+        self.u8(match value.lto {
+            LinkTimeOptimization::Off => 0,
+            LinkTimeOptimization::Thin => 1,
+            LinkTimeOptimization::Full => 2,
+        });
+        self.u8(match value.panic {
+            PanicStrategy::Abort => 0,
+            PanicStrategy::Unwind => 1,
+        });
+        self.u8(match value.debug_info {
+            DebugInfo::None => 0,
+            DebugInfo::LineTables => 1,
+            DebugInfo::Full => 2,
+        });
+        Ok(())
     }
 
     fn optimization(&mut self, value: OptimizationMode) {
@@ -729,6 +760,80 @@ impl<'a> Reader<'a> {
         TargetConfig::parse(&name).map_err(|_| PlanCodecError::UnsupportedTarget { name, offset })
     }
 
+    fn configuration(&mut self) -> Result<BuildConfiguration, PlanCodecError> {
+        let profile_offset = self.offset;
+        let profile = match self.u8()? {
+            0 => BuildProfile::Debug,
+            1 => BuildProfile::Release,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "build profile",
+                    tag,
+                    offset: profile_offset,
+                });
+            }
+        };
+        let optimization = self.optimization()?;
+        let linkage_offset = self.offset;
+        let linkage = match self.u8()? {
+            0 => Linkage::Static,
+            1 => Linkage::Dynamic,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "linkage",
+                    tag,
+                    offset: linkage_offset,
+                });
+            }
+        };
+        let lto_offset = self.offset;
+        let lto = match self.u8()? {
+            0 => LinkTimeOptimization::Off,
+            1 => LinkTimeOptimization::Thin,
+            2 => LinkTimeOptimization::Full,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "link-time optimization",
+                    tag,
+                    offset: lto_offset,
+                });
+            }
+        };
+        let panic_offset = self.offset;
+        let panic = match self.u8()? {
+            0 => PanicStrategy::Abort,
+            1 => PanicStrategy::Unwind,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "panic strategy",
+                    tag,
+                    offset: panic_offset,
+                });
+            }
+        };
+        let debug_offset = self.offset;
+        let debug_info = match self.u8()? {
+            0 => DebugInfo::None,
+            1 => DebugInfo::LineTables,
+            2 => DebugInfo::Full,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "debug information",
+                    tag,
+                    offset: debug_offset,
+                });
+            }
+        };
+        Ok(BuildConfiguration {
+            profile,
+            optimization,
+            linkage,
+            lto,
+            panic,
+            debug_info,
+        })
+    }
+
     fn optimization(&mut self) -> Result<OptimizationMode, PlanCodecError> {
         let offset = self.offset;
         let tag = self.u8()?;
@@ -1068,6 +1173,7 @@ mod tests {
         }
         writer.target(&draft.host_target).unwrap();
         writer.target(&draft.artifact_target).unwrap();
+        writer.configuration(BuildConfiguration::default()).unwrap();
         writer.count(draft.modules.len()).unwrap();
         for module in &draft.modules {
             writer.module(module).unwrap();

@@ -287,6 +287,14 @@ key, because the runner is always compiled at O0. A hit verifies and atomically
 restores the runner executable; malformed or corrupted records are retired as
 misses.
 
+The frozen plan carries one typed configuration record alongside its target
+pair. It includes profile, optimization, linkage, final-link LTO, panic
+strategy, and debug information. The record is part of the plan bytes and
+compiler action identities; the coordinator rejects combinations without an
+executable owner, such as LTO on an object-only plan, before dispatch.
+Artifact runtime remains an artifact-owned field, so runtime changes retain
+their own action invalidation reason.
+
 ### Configuration cache
 
 The CLI freezes a new plan for each invocation; only a configure miss starts the

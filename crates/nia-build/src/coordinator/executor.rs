@@ -277,7 +277,7 @@ impl DriverActionExecutor {
         encoded.push(optimization_tag(module.optimization));
         encoded.push(runtime_tag(artifact.runtime));
         encoded.push(link_time_optimization_tag(
-            self.invocation.link_time_optimization,
+            self.configured_link_time_optimization(),
         ));
         let mut package_paths = vec![
             program,
@@ -674,6 +674,7 @@ impl DriverActionExecutor {
             runtime,
             manifest: &precheck_manifest,
             toolchain: self.invocation.toolchain.identity(),
+            configuration: self.plan.configuration(),
         });
         let miss_reason = match precheck_identity.as_ref() {
             None => ActionCacheMissReason::Uncacheable,
@@ -716,6 +717,7 @@ impl DriverActionExecutor {
                 runtime,
                 manifest: &checked.source_manifest,
                 toolchain: self.invocation.toolchain.identity(),
+                configuration: self.plan.configuration(),
             })
         else {
             return Ok(Some(ActionCacheOutcome::Miss(
@@ -859,7 +861,8 @@ impl DriverActionExecutor {
                 toolchain: self.invocation.toolchain.identity(),
                 link_environment: environment,
                 link_inputs: &cache_link_inputs,
-                link_time_optimization: self.invocation.link_time_optimization,
+                link_time_optimization: self.configured_link_time_optimization(),
+                configuration: self.plan.configuration(),
             })
         });
         let miss_reason = match precheck_identity.as_ref() {
@@ -899,7 +902,7 @@ impl DriverActionExecutor {
             .link_executable_with_source_manifest(
                 LinkExecutableRequest::new(request, output)
                     .with_link_options(link_options.clone())
-                    .with_link_time_optimization(self.invocation.link_time_optimization),
+                    .with_link_time_optimization(self.configured_link_time_optimization()),
             )
             .result;
         let link_success = linked.is_ok();
@@ -938,7 +941,8 @@ impl DriverActionExecutor {
             toolchain: self.invocation.toolchain.identity(),
             link_environment,
             link_inputs: &cache_link_inputs,
-            link_time_optimization: self.invocation.link_time_optimization,
+            link_time_optimization: self.configured_link_time_optimization(),
+            configuration: self.plan.configuration(),
         }) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
@@ -1338,7 +1342,7 @@ impl DriverActionExecutor {
         Ok(CheckRequest::from_source_path(entry)
             .with_module_map(module_map)
             .with_optimization(optimization(module.optimization))
-            .with_profile(self.invocation.profile)
+            .with_profile(self.plan.configuration().profile)
             .with_compilation_mode(source_compilation_mode(mode))
             .with_timings(self.invocation.timings)
             .with_runtime(runtime))
@@ -1362,6 +1366,14 @@ impl DriverActionExecutor {
                 format!("artifact `{}`", key.name()),
             )
         })
+    }
+
+    fn configured_link_time_optimization(&self) -> LinkTimeOptimization {
+        match self.plan.configuration().lto {
+            nia_build_plan::LinkTimeOptimization::Off => LinkTimeOptimization::Off,
+            nia_build_plan::LinkTimeOptimization::Thin => LinkTimeOptimization::Thin,
+            nia_build_plan::LinkTimeOptimization::Full => LinkTimeOptimization::Full,
+        }
     }
 
     fn driver(

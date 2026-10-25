@@ -33,7 +33,7 @@ use std::{
 use nia_compat::formats::RUNNER_CONFIG;
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, LinkExecutableRequest,
-    LinkTimeOptimization, ProgramDiagnostic, TimingMode,
+    LinkTimeOptimization as DriverLinkTimeOptimization, ProgramDiagnostic, TimingMode,
 };
 use nia_imports::ModuleMap;
 use nia_package_metadata::DependencyScope;
@@ -87,6 +87,7 @@ pub use configure_observation::{
 };
 pub use coordinator::*;
 pub use nia_build_plan::*;
+pub use nia_driver::LinkTimeOptimization;
 pub use nia_package_metadata::{LockPolicy, LockUpdate, LockUpdateKind, PackageManifest};
 pub use output_recovery::OutputRecoveryError;
 pub use process_output::{ProcessOutputStream, ProcessOutputWriter};
@@ -124,7 +125,7 @@ pub struct BuildRequest {
     /// Profile used for profile-conditional source selection.
     pub profile: BuildProfile,
     /// Cross-module optimization used for final executable products.
-    pub link_time_optimization: LinkTimeOptimization,
+    pub link_time_optimization: DriverLinkTimeOptimization,
     /// List the plan's steps instead of running one.
     pub list: bool,
     /// Keep running actions that do not depend on a failed one.
@@ -164,7 +165,7 @@ impl BuildRequest {
             max_parallel_actions: None,
             optimization: OptimizationMode::O0,
             profile: BuildProfile::Debug,
-            link_time_optimization: LinkTimeOptimization::Off,
+            link_time_optimization: DriverLinkTimeOptimization::Off,
             list: false,
             keep_going: false,
             dry_run: false,
@@ -234,7 +235,7 @@ impl BuildRequest {
     }
 
     /// Selects cross-module optimization for runners and executable actions.
-    pub fn with_link_time_optimization(mut self, policy: LinkTimeOptimization) -> Self {
+    pub fn with_link_time_optimization(mut self, policy: DriverLinkTimeOptimization) -> Self {
         self.link_time_optimization = policy;
         self
     }
@@ -420,7 +421,7 @@ pub struct BuildInvocation {
     /// Build profile inherited from the request.
     pub profile: BuildProfile,
     /// Cross-module optimization inherited from the request.
-    pub link_time_optimization: LinkTimeOptimization,
+    pub link_time_optimization: DriverLinkTimeOptimization,
 }
 
 pub(crate) fn package_source_root(
@@ -1345,6 +1346,17 @@ pub fn render_build_plan_summary(plan: &BuildPlan) -> String {
         "  artifact target: {}",
         plan.artifact_target().name()
     );
+    let configuration = plan.configuration();
+    let _ = writeln!(
+        output,
+        "  configuration: profile={}, optimization={}, linkage={}, lto={}, panic={}, debug-info={}",
+        profile_name(configuration.profile),
+        optimization_name(configuration.optimization),
+        linkage_name(configuration.linkage),
+        lto_name(configuration.lto),
+        panic_name(configuration.panic),
+        debug_info_name(configuration.debug_info),
+    );
     let _ = writeln!(output, "  packages: {}", plan.packages().len());
     let _ = writeln!(output, "  modules: {}", plan.modules().len());
     let _ = writeln!(output, "  artifacts: {}", plan.artifacts().len());
@@ -1891,6 +1903,7 @@ fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
             "host": plan.host_target().name(),
             "artifact": plan.artifact_target().name(),
         },
+        "configuration": configuration_json_value(plan.configuration()),
         "counts": {
             "packages": plan.packages().len(),
             "modules": plan.modules().len(),
@@ -2439,6 +2452,54 @@ fn optimization_name(value: OptimizationMode) -> &'static str {
     }
 }
 
+fn profile_name(value: BuildProfile) -> &'static str {
+    match value {
+        BuildProfile::Debug => "debug",
+        BuildProfile::Release => "release",
+    }
+}
+
+fn linkage_name(value: Linkage) -> &'static str {
+    match value {
+        Linkage::Static => "static",
+        Linkage::Dynamic => "dynamic",
+    }
+}
+
+fn lto_name(value: nia_build_plan::LinkTimeOptimization) -> &'static str {
+    match value {
+        nia_build_plan::LinkTimeOptimization::Off => "off",
+        nia_build_plan::LinkTimeOptimization::Thin => "thin",
+        nia_build_plan::LinkTimeOptimization::Full => "full",
+    }
+}
+
+fn panic_name(value: PanicStrategy) -> &'static str {
+    match value {
+        PanicStrategy::Abort => "abort",
+        PanicStrategy::Unwind => "unwind",
+    }
+}
+
+fn debug_info_name(value: DebugInfo) -> &'static str {
+    match value {
+        DebugInfo::None => "none",
+        DebugInfo::LineTables => "line-tables",
+        DebugInfo::Full => "full",
+    }
+}
+
+fn configuration_json_value(configuration: BuildConfiguration) -> serde_json::Value {
+    serde_json::json!({
+        "profile": profile_name(configuration.profile),
+        "optimization": optimization_name(configuration.optimization),
+        "linkage": linkage_name(configuration.linkage),
+        "lto": lto_name(configuration.lto),
+        "panic": panic_name(configuration.panic),
+        "debug_info": debug_info_name(configuration.debug_info),
+    })
+}
+
 fn runtime_name(value: Runtime) -> &'static str {
     match value {
         Runtime::Bare => "bare",
@@ -2902,7 +2963,7 @@ fn compile_build_runner(
         });
     }
     let output = match invocation.link_time_optimization {
-        LinkTimeOptimization::Off => {
+        DriverLinkTimeOptimization::Off => {
             let objects = time_build_stage(
                 invocation.timings,
                 "build_runner_emit_native_objects",
@@ -3283,6 +3344,33 @@ fn run_build_runner(
             });
             match draft {
                 Ok(mut draft) => {
+                    draft.plan = draft
+                        .plan
+                        .with_configuration(BuildConfiguration {
+                            profile: invocation.profile,
+                            optimization: invocation.optimization,
+                            linkage: Linkage::Static,
+                            lto: match invocation.link_time_optimization {
+                                DriverLinkTimeOptimization::Off => {
+                                    nia_build_plan::LinkTimeOptimization::Off
+                                }
+                                DriverLinkTimeOptimization::Thin => {
+                                    nia_build_plan::LinkTimeOptimization::Thin
+                                }
+                                DriverLinkTimeOptimization::Full => {
+                                    nia_build_plan::LinkTimeOptimization::Full
+                                }
+                            },
+                            panic: PanicStrategy::Abort,
+                            debug_info: DebugInfo::None,
+                        })
+                        .map_err(|error| BuildError::ReadPlanDraft {
+                            path: invocation.plan_draft.clone(),
+                            error: PlanHandoffError::Decode {
+                                path: invocation.plan_draft.clone(),
+                                error: PlanCodecError::Semantic(Box::new(error)),
+                            },
+                        })?;
                     let plan = draft.plan.clone();
                     let mut manifest = if draft.observations.is_empty() {
                         ConfigureManifest::new(ObservationPolicy::Disallow)

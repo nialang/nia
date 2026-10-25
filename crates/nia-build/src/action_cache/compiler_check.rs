@@ -30,7 +30,8 @@ use super::{
     write_bytes, write_fingerprint, write_text,
 };
 use crate::{
-    ActionKey, CompilationMode, OptimizationMode, PlanModule, PlanPackage, Runtime,
+    ActionKey, BuildConfiguration, CompilationMode, DebugInfo, Linkage, OptimizationMode,
+    PanicStrategy, PlanModule, PlanPackage, Runtime,
     lock::{LockWaitObserver, ScopedFileLock},
 };
 use nia_target::TargetConfig;
@@ -190,6 +191,7 @@ pub(crate) struct CompilerCheckCacheIdentityInput<'a> {
     pub(crate) runtime: Runtime,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
+    pub(crate) configuration: BuildConfiguration,
 }
 
 impl CompilerCheckCacheIdentity {
@@ -197,7 +199,7 @@ impl CompilerCheckCacheIdentity {
         let sources = source_records(input.manifest)?;
         let source_fingerprint =
             QueryFingerprint::from_parts(input.manifest.fingerprint()?.parts());
-        let module_identity = module_identity(input.module);
+        let module_identity = module_identity(input.module, input.configuration);
         let package_roots = package_roots_identity(
             input.packages,
             std::iter::once(&input.module.root_source)
@@ -815,7 +817,7 @@ pub(super) fn action_fingerprint(encoded: &[u8]) -> Option<QueryFingerprint> {
     Some(builder.finish())
 }
 
-fn module_identity(module: &PlanModule) -> Vec<u8> {
+fn module_identity(module: &PlanModule, configuration: BuildConfiguration) -> Vec<u8> {
     let mut encoded = Vec::new();
     write_text(&mut encoded, module.key.package().as_str());
     write_text(&mut encoded, module.key.name());
@@ -825,7 +827,41 @@ fn module_identity(module: &PlanModule) -> Vec<u8> {
         write_text(&mut encoded, &import.name);
         write_bytes(&mut encoded, &logical_path_identity(&import.path));
     }
+    write_configuration(&mut encoded, configuration);
     encoded
+}
+
+fn write_configuration(encoded: &mut Vec<u8>, configuration: BuildConfiguration) {
+    encoded.push(match configuration.profile {
+        nia_target_config::BuildProfile::Debug => 0,
+        nia_target_config::BuildProfile::Release => 1,
+    });
+    encoded.push(match configuration.optimization {
+        OptimizationMode::O0 => 0,
+        OptimizationMode::O1 => 1,
+        OptimizationMode::O2 => 2,
+        OptimizationMode::O3 => 3,
+        OptimizationMode::Os => 4,
+        OptimizationMode::Oz => 5,
+    });
+    encoded.push(match configuration.linkage {
+        Linkage::Static => 0,
+        Linkage::Dynamic => 1,
+    });
+    encoded.push(match configuration.lto {
+        nia_build_plan::LinkTimeOptimization::Off => 0,
+        nia_build_plan::LinkTimeOptimization::Thin => 1,
+        nia_build_plan::LinkTimeOptimization::Full => 2,
+    });
+    encoded.push(match configuration.panic {
+        PanicStrategy::Abort => 0,
+        PanicStrategy::Unwind => 1,
+    });
+    encoded.push(match configuration.debug_info {
+        DebugInfo::None => 0,
+        DebugInfo::LineTables => 1,
+        DebugInfo::Full => 2,
+    });
 }
 
 fn target_identity(target: &TargetConfig) -> Vec<u8> {
@@ -944,7 +980,7 @@ mod tests {
             fingerprint: nia_compiler_query::source_content_fingerprint("fun main() i32 { 0 }"),
             byte_len: 19,
         }];
-        let module_identity = module_identity(&module);
+        let module_identity = module_identity(&module, BuildConfiguration::default());
         let target_identity = target_identity(&target);
         let profile = profile_tag(BuildProfile::Debug);
         let compilation_mode = compilation_mode_tag(CompilationMode::Normal);
