@@ -50,6 +50,12 @@ linkage and CRT linkage are separate choices: `llvm-config --shared-mode` does
 not tell you which CRT a prefix uses. [`tools/llvm/build-static.ps1`](../../tools/llvm/README.md)
 builds a suitable pinned prefix.
 
+The same file links Rust binaries with `rust-lld`, which rustup installs with
+every MSVC toolchain, instead of `link.exe`. Cargo links test binaries in
+parallel, and `link.exe` needs about 1.7 GiB for each one that links LLVM;
+`rust-lld` needs about 650 MiB. The Windows SDK and CRT libraries still come
+from the Visual Studio environment through `LIB`.
+
 Set the LLVM prefix and its `bin` directory once at user scope so new
 PowerShell, Cargo, and IDE processes inherit them:
 

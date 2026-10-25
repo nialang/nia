@@ -7,3 +7,9 @@ maintain = "run --quiet --locked -p nia-maintain --"
 # Use --target x86_64-pc-windows-msvc to keep these flags off host build scripts.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+# Link with the LLD that rustup ships rather than `link.exe`. Cargo runs one
+# link per test binary in parallel, and each `link.exe` of an LLVM-linked test
+# peaks near 1.7 GiB, so a workspace build could run a 16 GiB host out of
+# memory; `rust-lld` peaks near 650 MiB and links in a fraction of the time.
+# Visual Studio still supplies the Windows SDK and CRT libraries through LIB.
+linker = "rust-lld"
