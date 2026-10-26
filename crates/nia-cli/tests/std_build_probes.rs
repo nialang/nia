@@ -242,7 +242,7 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         String::from_utf8_lossy(&warm.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&warm.stdout).contains("runner reused"),
+        String::from_utf8_lossy(&warm.stdout).contains("configure result: reused"),
         "{}",
         String::from_utf8_lossy(&warm.stdout)
     );
@@ -350,7 +350,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         String::from_utf8_lossy(&warm.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&warm.stdout).contains("runner reused"),
+        String::from_utf8_lossy(&warm.stdout).contains("configure result: reused"),
         "{}",
         String::from_utf8_lossy(&warm.stdout)
     );
@@ -432,7 +432,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         String::from_utf8_lossy(&warm.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&warm.stdout).contains("runner reused"),
+        String::from_utf8_lossy(&warm.stdout).contains("configure result: reused"),
         "{}",
         String::from_utf8_lossy(&warm.stdout)
     );
@@ -525,7 +525,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         String::from_utf8_lossy(&warm.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&warm.stdout).contains("runner reused"),
+        String::from_utf8_lossy(&warm.stdout).contains("configure result: reused"),
         "{}",
         String::from_utf8_lossy(&warm.stdout)
     );
@@ -620,7 +620,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     let first = run("run file presence probe build");
     let absent = presence_line(&first);
     let warm = run("reuse unchanged file presence observation");
-    assert!(warm.contains("runner reused"), "{warm}");
+    assert!(warm.contains("configure result: reused"), "{warm}");
 
     std::fs::create_dir(root.join("optional")).expect("create observed parent");
     std::fs::write(root.join("optional/input"), b"present").expect("create observed file");
@@ -631,7 +631,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     // Removal restores the absent fact, so the first configuration is valid again.
     std::fs::remove_file(root.join("optional/input")).expect("remove observed file");
     let removed = run("rerun file presence probe after removal");
-    assert!(removed.contains("runner reused"), "{removed}");
+    assert!(removed.contains("configure result: reused"), "{removed}");
     assert_eq!(presence_line(&removed), absent);
 }
 
