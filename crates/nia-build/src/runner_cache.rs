@@ -13,7 +13,8 @@ use nia_compat::{formats, toolchain::BUILD_PROTOCOL};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 use crate::{
-    BuildError, BuildInvocation, BuildRunnerSource, RunnerCacheMissReason, RunnerCacheStatus,
+    BuildError, BuildInvocation, BuildInvocationIdentity, BuildRunnerSource, RunnerCacheMissReason,
+    RunnerCacheStatus,
     action_cache::{ensure_cache_directory, open_cache_entry, validate_cache_namespace},
     lock::{LockWaitObserver, ScopedFileLock},
 };
@@ -351,15 +352,12 @@ pub(super) fn cache_key(
     for part in invocation.toolchain.identity().fingerprint().parts() {
         hasher.update(&part.to_le_bytes());
     }
+    let invocation_identity = BuildInvocationIdentity::from_invocation(invocation);
     hash_field(
         &mut hasher,
-        b"host-target",
-        invocation.toolchain.host_target().name().as_bytes(),
+        b"invocation-identity",
+        &invocation_identity.encode_runner(),
     );
-    hasher.update(&[
-        profile_tag(invocation.profile),
-        link_time_optimization_tag(invocation.link_time_optimization),
-    ]);
     hasher.update(&BUILD_PROTOCOL.to_le_bytes());
     Ok(hasher.finalize().to_hex().to_string())
 }
@@ -573,21 +571,6 @@ fn collect_files(
         }
     }
     Ok(())
-}
-
-fn profile_tag(profile: nia_target_config::BuildProfile) -> u8 {
-    match profile {
-        nia_target_config::BuildProfile::Debug => 0,
-        nia_target_config::BuildProfile::Release => 1,
-    }
-}
-
-fn link_time_optimization_tag(policy: nia_driver::LinkTimeOptimization) -> u8 {
-    match policy {
-        nia_driver::LinkTimeOptimization::Off => 0,
-        nia_driver::LinkTimeOptimization::Thin => 1,
-        nia_driver::LinkTimeOptimization::Full => 2,
-    }
 }
 
 #[cfg(test)]

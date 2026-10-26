@@ -53,36 +53,78 @@ pub struct ConfigureRecord {
     pub manifest: ConfigureManifest,
 }
 
-/// Builds the invocation portion of the configure identity from typed policy fields.
-/// Fields use length-prefixed UTF-8 values and explicit option tags, so display
-/// formatting and delimiter characters cannot change the identity contract.
-pub fn invocation_identity(invocation: &BuildInvocation) -> String {
-    let mut encoded = Vec::new();
-    encoded.extend_from_slice(INVOCATION_IDENTITY_DOMAIN.as_str().as_bytes());
-    encoded.extend_from_slice(b"\0\x01");
-    write_identity_field(&mut encoded, &invocation.package_source_fingerprint);
-    write_identity_field(
-        &mut encoded,
-        invocation.toolchain.host_target().name().as_bytes(),
-    );
-    write_identity_field(
-        &mut encoded,
-        invocation.toolchain.artifact_target().name().as_bytes(),
-    );
-    encoded.push(profile_tag(invocation.profile));
-    encoded.push(optimization_tag(invocation.optimization));
-    encoded.push(link_time_optimization_tag(
-        invocation.link_time_optimization,
-    ));
-    match &invocation.step {
-        crate::BuildStepSelection::Default => encoded.push(0),
-        crate::BuildStepSelection::List => encoded.push(1),
-        crate::BuildStepSelection::Named(name) => {
-            encoded.push(2);
-            write_identity_field(&mut encoded, name.as_bytes());
+/// Canonical identity of the policy inputs shared by configure and runner
+/// caches. Physical checkout paths and display formatting never participate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildInvocationIdentity {
+    package_source_fingerprint: [u8; 32],
+    host_target: String,
+    artifact_target: String,
+    profile: nia_target_config::BuildProfile,
+    optimization: nia_build_plan::OptimizationMode,
+    link_time_optimization: nia_driver::LinkTimeOptimization,
+    step: crate::BuildStepSelection,
+}
+
+impl BuildInvocationIdentity {
+    /// Captures the identity-bearing fields from a resolved invocation.
+    pub fn from_invocation(invocation: &BuildInvocation) -> Self {
+        Self {
+            package_source_fingerprint: invocation.package_source_fingerprint,
+            host_target: invocation.toolchain.host_target().name().to_string(),
+            artifact_target: invocation.toolchain.artifact_target().name().to_string(),
+            profile: invocation.profile,
+            optimization: invocation.optimization,
+            link_time_optimization: invocation.link_time_optimization,
+            step: invocation.step.clone(),
         }
     }
-    blake3::hash(&encoded).to_hex().to_string()
+
+    /// Encodes the identity under the registered protocol domain.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(INVOCATION_IDENTITY_DOMAIN.as_str().as_bytes());
+        encoded.extend_from_slice(b"\0\x01");
+        write_identity_field(&mut encoded, &self.package_source_fingerprint);
+        write_identity_field(&mut encoded, self.host_target.as_bytes());
+        write_identity_field(&mut encoded, self.artifact_target.as_bytes());
+        encoded.push(profile_tag(self.profile));
+        encoded.push(optimization_tag(self.optimization));
+        encoded.push(link_time_optimization_tag(self.link_time_optimization));
+        match &self.step {
+            crate::BuildStepSelection::Default => encoded.push(0),
+            crate::BuildStepSelection::List => encoded.push(1),
+            crate::BuildStepSelection::Named(name) => {
+                encoded.push(2);
+                write_identity_field(&mut encoded, name.as_bytes());
+            }
+        }
+        encoded
+    }
+
+    /// Returns the stable hexadecimal identity used by cache records.
+    pub fn key(&self) -> String {
+        blake3::hash(&self.encode()).to_hex().to_string()
+    }
+
+    /// Encodes only the policy inputs that affect generated runner code.
+    /// Artifact optimization and selected build steps belong to later plan
+    /// execution and must not invalidate the reusable host runner.
+    pub fn encode_runner(&self) -> Vec<u8> {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(nia_compat::identities::RUNNER_INVOCATION.name.as_bytes());
+        encoded.extend_from_slice(b"\0\x01");
+        write_identity_field(&mut encoded, &self.package_source_fingerprint);
+        write_identity_field(&mut encoded, self.host_target.as_bytes());
+        encoded.push(profile_tag(self.profile));
+        encoded.push(link_time_optimization_tag(self.link_time_optimization));
+        encoded
+    }
+}
+
+/// Builds the invocation portion of the configure identity from typed policy fields.
+pub fn invocation_identity(invocation: &BuildInvocation) -> String {
+    BuildInvocationIdentity::from_invocation(invocation).key()
 }
 
 fn write_identity_field(encoded: &mut Vec<u8>, value: &[u8]) {

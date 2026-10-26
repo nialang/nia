@@ -76,8 +76,9 @@ pub use action_cache::{
     ActionCacheInvalidation, ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport,
 };
 pub use configure_cache::{
-    ConfigureCache, ConfigureCacheCandidate, ConfigureCacheLookup, ConfigureCacheMissReason,
-    ConfigureCacheStatus, ConfigureIdentity, ConfigureRecord, invocation_identity, plan_identity,
+    BuildInvocationIdentity, ConfigureCache, ConfigureCacheCandidate, ConfigureCacheLookup,
+    ConfigureCacheMissReason, ConfigureCacheStatus, ConfigureIdentity, ConfigureRecord,
+    invocation_identity, plan_identity,
 };
 pub use configure_observation::{
     ConfigureManifest, ConfigureObservation, ObservationCodecError, ObservationError,

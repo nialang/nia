@@ -354,6 +354,9 @@ pub mod identities {
 
     /// Build invocation policy identity used by configure caching.
     pub const BUILD_INVOCATION: IdentityDomain = IdentityDomain::new("nia.build.invocation");
+    /// Host runner policy identity used by generated-runner caching.
+    pub const RUNNER_INVOCATION: IdentityDomain =
+        IdentityDomain::new("nia.build.runner-invocation");
     /// Generated-file action key identity.
     pub const GENERATED_FILE_ACTION: IdentityDomain =
         IdentityDomain::new("nia.build.generated-file-key");
@@ -373,6 +376,7 @@ pub mod identities {
     /// Every registered cross-crate identity domain.
     pub const ALL: &[IdentityDomain] = &[
         BUILD_INVOCATION,
+        RUNNER_INVOCATION,
         GENERATED_FILE_ACTION,
         COMPILER_CHECK_ACTION,
         EXTERNAL_COMMAND_ACTION,
