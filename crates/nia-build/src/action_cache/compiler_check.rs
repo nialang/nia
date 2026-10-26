@@ -24,14 +24,15 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE,
-    MAX_COMPILER_CACHE_ENTRY_BYTES, action_identity, ensure_cache_directory, fingerprint_text,
+    MAX_COMPILER_CACHE_ENTRY_BYTES, ensure_cache_directory, fingerprint_text,
     logical_path_identity, package_roots_identity, read_bounded_compiler_cache_entry, read_bytes,
-    read_fingerprint, read_u64, validate_cache_namespace, validate_compiler_cache_entry_size,
-    write_bytes, write_fingerprint, write_text,
+    read_fingerprint, read_u64, typed_action_identity, validate_cache_namespace,
+    validate_compiler_cache_entry_size, write_bytes, write_fingerprint, write_text,
 };
 use crate::{
-    ActionKey, ArtifactConfiguration, ArtifactLinkage, ArtifactLto, CompilationMode, DebugInfo,
-    OptimizationMode, PanicStrategy, PlanModule, PlanPackage, Runtime, SystemLibraryMode,
+    ActionKey, ActionKind, ArtifactConfiguration, ArtifactLinkage, ArtifactLto, CompilationMode,
+    DebugInfo, OptimizationMode, PanicStrategy, PlanModule, PlanPackage, Runtime,
+    SystemLibraryMode,
     lock::{LockWaitObserver, ScopedFileLock},
 };
 use nia_target::TargetConfig;
@@ -118,6 +119,7 @@ pub(super) struct FingerprintSet {
 }
 
 struct FingerprintSetInput<'a> {
+    action_identity: &'a [u8],
     module: &'a [u8],
     package_roots: &'a [u8],
     target: &'a [u8],
@@ -131,8 +133,8 @@ struct FingerprintSetInput<'a> {
 }
 
 impl FingerprintSet {
-    fn new(action: &ActionKey, input: FingerprintSetInput<'_>) -> Self {
-        let cache_key = action_key_fingerprint(action);
+    fn new(input: FingerprintSetInput<'_>) -> Self {
+        let cache_key = action_identity_fingerprint(input.action_identity);
         let components = FingerprintComponents {
             sources: input.sources,
             module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, input.module),
@@ -220,23 +222,31 @@ impl CompilerCheckCacheIdentity {
         let optimization = optimization_tag(input.module.optimization);
         let runtime = runtime_tag(input.runtime);
         let configuration = artifact_configuration_identity(input.configuration);
+        let action_identity = typed_action_identity(
+            input.action,
+            &ActionKind::CompilerCheck {
+                module: input.module.key.clone(),
+                target: input.target.clone(),
+                runtime: input.runtime,
+                mode: input.compilation_mode,
+                configuration: input.configuration.clone(),
+            },
+        );
         Some(Self {
-            fingerprints: FingerprintSet::new(
-                input.action,
-                FingerprintSetInput {
-                    module: &module_identity,
-                    package_roots: &package_roots,
-                    target: &target_identity,
-                    profile,
-                    compilation_mode,
-                    optimization,
-                    runtime,
-                    configuration: &configuration,
-                    sources: source_fingerprint,
-                    toolchain: ToolchainComponents::new(input.toolchain),
-                },
-            ),
-            action: action_identity(input.action),
+            fingerprints: FingerprintSet::new(FingerprintSetInput {
+                action_identity: &action_identity,
+                module: &module_identity,
+                package_roots: &package_roots,
+                target: &target_identity,
+                profile,
+                compilation_mode,
+                optimization,
+                runtime,
+                configuration: &configuration,
+                sources: source_fingerprint,
+                toolchain: ToolchainComponents::new(input.toolchain),
+            }),
+            action: action_identity,
             module: module_identity,
             package_roots,
             target: target_identity,
@@ -816,22 +826,31 @@ pub(super) fn source_records_fingerprint(sources: &[SourceRecord]) -> QueryFinge
     )
 }
 
-fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
+fn action_identity_fingerprint(identity: &[u8]) -> QueryFingerprint {
+    let mut cursor = Cursor::new(identity);
+    cursor.set_position((nia_compat::identities::ACTION_IDENTITY.name.len() + 2) as u64);
+    let prefix = [
+        nia_compat::identities::ACTION_IDENTITY.name.as_bytes(),
+        b"\0\x01",
+    ]
+    .concat();
+    if identity.get(..prefix.len()) != Some(prefix.as_slice()) {
+        let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_KEY_DOMAIN);
+        builder.write_bytes(identity);
+        return builder.finish();
+    }
+    if let Some(key) = read_bytes(&mut cursor, identity.len()) {
+        let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_KEY_DOMAIN);
+        builder.write_bytes(&key);
+        return builder.finish();
+    }
     let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_KEY_DOMAIN);
-    builder.write_str(action.package().as_str());
-    builder.write_str(action.name());
+    builder.write_bytes(identity);
     builder.finish()
 }
 
 pub(super) fn action_fingerprint(encoded: &[u8]) -> Option<QueryFingerprint> {
-    let mut cursor = Cursor::new(encoded);
-    let package = read_bytes(&mut cursor, encoded.len())?;
-    let name = read_bytes(&mut cursor, encoded.len())?;
-    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
-    let mut builder = QueryFingerprintBuilder::new(COMPILER_CHECK_KEY_DOMAIN);
-    builder.write_bytes(&package);
-    builder.write_bytes(&name);
-    Some(builder.finish())
+    Some(action_identity_fingerprint(encoded))
 }
 
 fn module_identity(module: &PlanModule) -> Vec<u8> {
@@ -1013,29 +1032,37 @@ mod tests {
         let profile = profile_tag(BuildProfile::Debug);
         let compilation_mode = compilation_mode_tag(CompilationMode::Normal);
         let package_roots = vec![0, 0, 0, 0, 0, 0, 0, 0];
-        let fingerprints = FingerprintSet::new(
+        let action_identity = typed_action_identity(
             &action,
-            FingerprintSetInput {
-                module: &module_identity,
-                package_roots: &package_roots,
-                target: &target_identity,
-                profile,
-                compilation_mode,
-                optimization: optimization_tag(module.optimization),
-                runtime: runtime_tag(Runtime::Bare),
-                configuration: &[],
-                sources: source_records_fingerprint(&sources),
-                toolchain: ToolchainComponents {
-                    compiler: fingerprint(1),
-                    resource_layout: fingerprint(2),
-                    standard_library: fingerprint(3),
-                    build_protocol: fingerprint(4),
-                },
+            &ActionKind::CompilerCheck {
+                module: module.key.clone(),
+                target: target.clone(),
+                runtime: Runtime::Bare,
+                mode: CompilationMode::Normal,
+                configuration: ArtifactConfiguration::default(),
             },
         );
+        let fingerprints = FingerprintSet::new(FingerprintSetInput {
+            action_identity: &action_identity,
+            module: &module_identity,
+            package_roots: &package_roots,
+            target: &target_identity,
+            profile,
+            compilation_mode,
+            optimization: optimization_tag(module.optimization),
+            runtime: runtime_tag(Runtime::Bare),
+            configuration: &[],
+            sources: source_records_fingerprint(&sources),
+            toolchain: ToolchainComponents {
+                compiler: fingerprint(1),
+                resource_layout: fingerprint(2),
+                standard_library: fingerprint(3),
+                build_protocol: fingerprint(4),
+            },
+        });
         CompilerCheckCacheIdentity {
             fingerprints,
-            action: action_identity(&action),
+            action: action_identity,
             module: module_identity,
             package_roots,
             target: target_identity,

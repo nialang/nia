@@ -60,7 +60,13 @@ fn stress_payload() -> Vec<u8> {
 
 fn identity(payload: &[u8]) -> GeneratedFileCacheIdentity {
     GeneratedFileCacheIdentity::with_toolchain_components(
-        &action(),
+        &typed_action_identity(
+            &action(),
+            &ActionKind::GeneratedFile {
+                output: output(),
+                contents: payload.to_vec(),
+            },
+        ),
         &output(),
         payload,
         toolchain(),

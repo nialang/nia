@@ -38,11 +38,11 @@ use super::{
     },
     ensure_cache_directory, fingerprint_text, logical_path_identity,
     read_bounded_compiler_cache_entry, read_bytes, read_fingerprint, read_u64,
-    validate_cache_namespace, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
-    write_text,
+    typed_action_identity, validate_cache_namespace, validate_compiler_cache_entry_size,
+    write_bytes, write_fingerprint, write_text,
 };
 use crate::{
-    ActionKey, PlanArtifact, PlanModule, PlanPackage,
+    ActionKey, ActionKind, PlanArtifact, PlanModule, PlanPackage,
     lock::{LockWaitObserver, ScopedFileLock},
 };
 use nia_target::TargetConfig;
@@ -187,6 +187,19 @@ impl CompilerEmitCacheIdentity {
         })?;
         let output = logical_path_identity(&input.artifact.output);
         let artifact = artifact_identity(input.artifact, input.link_time_optimization);
+        let action_identity = typed_action_identity(
+            input.action,
+            &ActionKind::CompilerEmit {
+                artifact: input.artifact.key.clone(),
+                target: input.target.clone(),
+                static_archives: input
+                    .link_inputs
+                    .iter()
+                    .map(|input| input.artifact.clone())
+                    .collect(),
+                configuration: input.configuration.clone(),
+            },
+        );
         let link_environment = input.link_environment.encode().to_vec();
         let link_inputs = link_inputs_identity(input.link_inputs);
         let components = EmitFingerprintComponents {
@@ -200,13 +213,16 @@ impl CompilerEmitCacheIdentity {
             link_inputs: bytes_fingerprint(COMPILER_EMIT_LINK_INPUTS_DOMAIN, &link_inputs),
         };
         let fingerprints = EmitFingerprintSet {
-            cache_key: compiler.fingerprints.cache_key,
-            fingerprint: combined_fingerprint(compiler.fingerprints.cache_key, components),
+            cache_key: action_fingerprint(&action_identity).expect("canonical action identity"),
+            fingerprint: combined_fingerprint(
+                action_fingerprint(&action_identity).expect("canonical action identity"),
+                components,
+            ),
             components,
         };
         Some(Self {
             fingerprints,
-            action: compiler.action,
+            action: action_identity,
             module: compiler.module,
             package_roots: compiler.package_roots,
             target: compiler.target,

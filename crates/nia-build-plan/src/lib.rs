@@ -162,30 +162,35 @@ define_node_key!(ArtifactKey);
 define_node_key!(ActionKey);
 define_node_key!(StepKey);
 
-/// Stable identity of an action key independent of the action's typed payload.
+/// Canonical identity of one action.
 ///
-/// Action-specific inputs such as compiler configuration, declared command
-/// inputs, and tool fingerprints remain components owned by their cache. This
-/// type owns only the package-qualified action identity shared by all action
-/// products.
+/// Identities carry the canonical typed action payload, including its kind,
+/// target, declared inputs and outputs, tool declaration, and environment.
+/// The typed form is the identity used by action caches.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ActionIdentity(ActionKey);
+pub struct ActionIdentity {
+    key: ActionKey,
+    typed_payload: Vec<u8>,
+}
 
 impl ActionIdentity {
-    /// Creates the identity for one validated action key.
-    pub fn new(key: ActionKey) -> Self {
-        Self(key)
+    /// Creates the canonical typed identity for one plan action.
+    pub fn from_plan_action(action: &PlanAction) -> Result<Self, PlanCodecError> {
+        Ok(Self {
+            key: action.key.clone(),
+            typed_payload: crate::codec::canonical_action_identity(action)?,
+        })
     }
 
     /// Returns the stable action key represented by this identity.
     pub fn key(&self) -> &ActionKey {
-        &self.0
+        &self.key
     }
 
     /// Returns the canonical length-prefixed package/name payload used by
     /// action cache records.
     pub fn encode(&self) -> Vec<u8> {
-        self.0.identity_bytes()
+        self.typed_payload.clone()
     }
 }
 
@@ -724,7 +729,13 @@ pub struct PlanAction {
 impl PlanAction {
     /// Returns the stable package-qualified identity shared by action caches.
     pub fn identity(&self) -> ActionIdentity {
-        ActionIdentity::new(self.key.clone())
+        ActionIdentity::from_plan_action(self)
+            .expect("validated plan action must have a canonical identity")
+    }
+
+    /// Encodes this action's canonical typed identity payload.
+    pub fn canonical_identity_payload(&self) -> Result<Vec<u8>, PlanCodecError> {
+        crate::codec::canonical_action_identity(self)
     }
 
     /// Returns the scheduler resource class implied by this action kind.
@@ -1312,11 +1323,7 @@ mod tests {
     fn action_identity_bytes_are_canonical_and_package_qualified() {
         let first = ActionKey::new(PackageKey::root(), "compile").unwrap();
         let second = ActionKey::new(PackageKey::new("tools").unwrap(), "compile").unwrap();
-        let identity = ActionIdentity::new(first.clone());
-
         assert_eq!(first.identity_bytes(), first.identity_bytes());
-        assert_eq!(identity.key(), &first);
-        assert_eq!(identity.encode(), first.identity_bytes());
         assert_ne!(first.identity_bytes(), second.identity_bytes());
         assert_eq!(
             first.identity_bytes(),
@@ -1328,6 +1335,40 @@ mod tests {
             ]
             .concat()
         );
+    }
+
+    #[test]
+    fn typed_action_identity_includes_kind_and_declared_contract() {
+        let package = PackageKey::root();
+        let key = ActionKey::new(package.clone(), "run").unwrap();
+        let output = LogicalPath::new(LogicalPathRoot::Build, "out.bin").unwrap();
+        let command = CommandAction {
+            resource_class: ActionResourceClass::Cpu,
+            environment_policy: CommandEnvironmentPolicy::Clear,
+            cache_policy: CommandCachePolicy::DeclaredInputs,
+            stdin: CommandStdin::Null,
+            program: CommandProgram::Search("tool".into()),
+            arguments: vec![CommandArgument::OutputPath(output.clone())],
+            working_directory: LogicalPath::new(LogicalPathRoot::Build, "").unwrap(),
+            environment: vec![EnvironmentInput {
+                name: "MODE".into(),
+                value: Some("debug".into()),
+            }],
+            inputs: Vec::new(),
+            outputs: vec![output],
+        };
+        let external = PlanAction {
+            key: key.clone(),
+            kind: ActionKind::ExternalCommand(command.clone()),
+        };
+        let test = PlanAction {
+            key,
+            kind: ActionKind::TestExecutable(command),
+        };
+        let external_identity = external.identity();
+        let test_identity = test.identity();
+        assert_ne!(external_identity.encode(), test_identity.encode());
+        assert_eq!(external_identity.encode(), external.identity().encode());
     }
     use super::*;
 

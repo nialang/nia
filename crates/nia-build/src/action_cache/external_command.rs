@@ -16,7 +16,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
-use nia_build_plan::{MAX_ITEMS, MAX_PLAN_BYTES};
+use nia_build_plan::{ActionKind, MAX_ITEMS, MAX_PLAN_BYTES};
 use nia_compat::formats::{EXTERNAL_COMMAND_CACHE, EXTERNAL_COMMAND_ENTRY};
 use nia_query::{
     FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
@@ -24,10 +24,10 @@ use nia_query::{
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
-    ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, action_identity,
-    encoded_field_fits, ensure_cache_directory, fingerprint_text, integer_component,
-    logical_path_identity, open_cache_entry, package_roots_identity, read_exact_or_corrupt,
-    read_stream_fingerprint, read_stream_u64, stream_has_trailing_byte, text_component,
+    ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, encoded_field_fits,
+    ensure_cache_directory, fingerprint_text, integer_component, logical_path_identity,
+    open_cache_entry, package_roots_identity, read_exact_or_corrupt, read_stream_fingerprint,
+    read_stream_u64, stream_has_trailing_byte, text_component, typed_action_identity,
     validate_cache_namespace, write_bytes, write_fingerprint,
 };
 #[cfg(test)]
@@ -232,6 +232,7 @@ impl ExternalCommandCacheIdentity {
     /// the command's own input list only names them.
     pub(crate) fn new(
         action: &ActionKey,
+        action_kind: &ActionKind,
         command: &CommandAction,
         inputs: &[(LogicalPath, ExternalCommandContentIdentity)],
         packages: &[PlanPackage],
@@ -248,7 +249,7 @@ impl ExternalCommandCacheIdentity {
             outputs,
             ..
         } = command;
-        let action_identity = action_identity(action);
+        let action_identity = typed_action_identity(action, action_kind);
         let command = command_identity(program, arguments, stdin);
         let tool = tool_identity(program, tool_contents);
         let environment = environment_identity(environment, environment_snapshot);

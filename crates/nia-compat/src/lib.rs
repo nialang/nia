@@ -412,6 +412,8 @@ pub mod identities {
     /// External-command action key identity.
     pub const EXTERNAL_COMMAND_ACTION: IdentityDomain =
         IdentityDomain::new("nia.build.external-command-key");
+    /// Canonical typed action identity shared by every plan action cache.
+    pub const ACTION_IDENTITY: IdentityDomain = IdentityDomain::new("nia.build.action-identity");
     /// Executable link-result cache key identity.
     pub const LINK_RESULT_CACHE_KEY: IdentityDomain =
         IdentityDomain::new("nia.link-result-cache-key");
@@ -434,6 +436,7 @@ pub mod identities {
         GENERATED_FILE_ACTION,
         COMPILER_CHECK_ACTION,
         EXTERNAL_COMMAND_ACTION,
+        ACTION_IDENTITY,
         LINK_RESULT_CACHE_KEY,
         ARCHIVE_RESULT_CACHE_KEY,
         EXTERNAL_COMMAND_TOOL,

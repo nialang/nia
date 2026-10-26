@@ -721,6 +721,7 @@ impl DriverActionExecutor {
             .collect::<Result<Vec<_>, _>>()?;
         ExternalCommandCacheIdentity::new(
             &action.key,
+            &action.kind,
             command,
             &inputs,
             self.plan.packages(),

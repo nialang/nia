@@ -14,7 +14,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use nia_build_plan::{ActionIdentity, MAX_PLAN_STRING_BYTES};
+use nia_build_plan::{ActionKind, MAX_PLAN_BYTES, MAX_PLAN_STRING_BYTES, PlanAction};
 use nia_compat::formats::{GENERATED_FILE_CACHE, GENERATED_FILE_ENTRY};
 use nia_query::{
     FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
@@ -403,12 +403,12 @@ struct GeneratedFileFingerprintSet {
 
 impl GeneratedFileFingerprintSet {
     fn new(
-        action: &ActionKey,
+        action_identity: &[u8],
         output: &LogicalPath,
         contents: &[u8],
         toolchain: GeneratedFileToolchainComponents,
     ) -> Self {
-        let cache_key = action_key_fingerprint(action);
+        let cache_key = action_identity_fingerprint(action_identity);
         let components = GeneratedFileFingerprintComponents {
             contents: contents_fingerprint(contents),
             output: output_fingerprint(&logical_path_identity(output)),
@@ -448,8 +448,15 @@ impl GeneratedFileCacheIdentity {
         contents: &[u8],
         toolchain: &ToolchainIdentity,
     ) -> Self {
-        Self::with_toolchain_components(
+        let action_identity = typed_action_identity(
             action,
+            &ActionKind::GeneratedFile {
+                output: output.clone(),
+                contents: contents.to_vec(),
+            },
+        );
+        Self::with_toolchain_components(
+            &action_identity,
             output,
             contents,
             GeneratedFileToolchainComponents::new(toolchain),
@@ -457,14 +464,19 @@ impl GeneratedFileCacheIdentity {
     }
 
     fn with_toolchain_components(
-        action: &ActionKey,
+        action_identity: &[u8],
         output: &LogicalPath,
         contents: &[u8],
         toolchain: GeneratedFileToolchainComponents,
     ) -> Self {
         Self {
-            fingerprints: GeneratedFileFingerprintSet::new(action, output, contents, toolchain),
-            action: action_identity(action),
+            fingerprints: GeneratedFileFingerprintSet::new(
+                action_identity,
+                output,
+                contents,
+                toolchain,
+            ),
+            action: action_identity.to_vec(),
             output: logical_path_identity(output),
             payload_len: contents.len(),
         }
@@ -997,14 +1009,15 @@ fn scan_generated_file_entry(
         Some(consumed) => consumed,
         None => return Ok(None),
     };
-    if action_len != u64::try_from(expected.action.len()).unwrap_or(u64::MAX)
+    if action_len > u64::try_from(MAX_PLAN_BYTES).unwrap_or(u64::MAX)
         || !encoded_field_fits(&mut consumed, action_len, metadata_len)
     {
         return Ok(None);
     }
-    let mut action = vec![0; expected.action.len()];
+    let action_len = usize::try_from(action_len)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "action identity is too large"))?;
+    let mut action = vec![0; action_len];
     if !read_exact_or_corrupt(&mut file, &mut action)?
-        || action != expected.action
         || action_fingerprint(&action) != Some(cache_key)
     {
         return Ok(None);
@@ -1219,26 +1232,41 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     })
 }
 
-pub(super) fn action_identity(action: &ActionKey) -> Vec<u8> {
-    ActionIdentity::new(action.clone()).encode()
+pub(super) fn typed_action_identity(action: &ActionKey, kind: &ActionKind) -> Vec<u8> {
+    PlanAction {
+        key: action.clone(),
+        kind: kind.clone(),
+    }
+    .identity()
+    .encode()
 }
 
-fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
+fn action_identity_fingerprint(identity: &[u8]) -> QueryFingerprint {
+    let mut cursor = Cursor::new(identity);
+    let prefix = nia_compat::identities::ACTION_IDENTITY.name.len() + 2;
+    let expected_prefix = [
+        nia_compat::identities::ACTION_IDENTITY.name.as_bytes(),
+        b"\0\x01",
+    ]
+    .concat();
+    if identity.get(..prefix) != Some(expected_prefix.as_slice()) {
+        let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_KEY_DOMAIN);
+        builder.write_bytes(identity);
+        return builder.finish();
+    }
+    cursor.set_position(prefix as u64);
+    if let Some(key) = read_bytes(&mut cursor, identity.len()) {
+        let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_KEY_DOMAIN);
+        builder.write_bytes(&key);
+        return builder.finish();
+    }
     let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_KEY_DOMAIN);
-    builder.write_str(action.package().as_str());
-    builder.write_str(action.name());
+    builder.write_bytes(identity);
     builder.finish()
 }
 
 fn action_fingerprint(identity: &[u8]) -> Option<QueryFingerprint> {
-    let mut cursor = Cursor::new(identity);
-    let package = read_bytes(&mut cursor, identity.len())?;
-    let name = read_bytes(&mut cursor, identity.len())?;
-    (usize::try_from(cursor.position()).ok()? == identity.len()).then_some(())?;
-    let mut builder = QueryFingerprintBuilder::new(GENERATED_FILE_KEY_DOMAIN);
-    builder.write_bytes(&package);
-    builder.write_bytes(&name);
-    Some(builder.finish())
+    Some(action_identity_fingerprint(identity))
 }
 
 fn contents_fingerprint(contents: &[u8]) -> QueryFingerprint {
@@ -1370,7 +1398,13 @@ mod tests {
         toolchain: GeneratedFileToolchainComponents,
     ) -> GeneratedFileCacheIdentity {
         GeneratedFileCacheIdentity::with_toolchain_components(
-            &action(),
+            &typed_action_identity(
+                &action(),
+                &ActionKind::GeneratedFile {
+                    output: output.clone(),
+                    contents: contents.to_vec(),
+                },
+            ),
             output,
             contents,
             toolchain,

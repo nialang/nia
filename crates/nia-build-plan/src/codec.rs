@@ -8,6 +8,7 @@ use super::*;
 use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
+use nia_compat::{IdentityEncoder, identities::ACTION_IDENTITY};
 
 pub const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_ITEMS: usize = 100_000;
@@ -440,7 +441,11 @@ impl Writer {
 
     fn action(&mut self, action: &PlanAction) -> Result<(), PlanCodecError> {
         self.action_key(&action.key)?;
-        match &action.kind {
+        self.action_kind(&action.kind)
+    }
+
+    fn action_kind(&mut self, kind: &ActionKind) -> Result<(), PlanCodecError> {
+        match kind {
             ActionKind::CompilerCheck {
                 module,
                 target,
@@ -484,10 +489,7 @@ impl Writer {
                     stdin,
                 } = command;
                 self.u8(
-                    if matches!(
-                        &action.kind,
-                        ActionKind::TestExecutable(CommandAction { .. })
-                    ) {
+                    if matches!(kind, ActionKind::TestExecutable(CommandAction { .. })) {
                         7
                     } else {
                         2
@@ -629,6 +631,22 @@ impl Writer {
             }
         }
     }
+}
+
+/// Encodes the one canonical typed action identity used by action caches.
+///
+/// The plan action encoding and this identity deliberately share
+/// `Writer::action_kind`; changing one therefore cannot silently create a
+/// second action-kind protocol. The outer registered identity domain keeps
+/// this payload separate from the persisted build-plan format.
+pub(crate) fn canonical_action_identity(action: &PlanAction) -> Result<Vec<u8>, PlanCodecError> {
+    let mut writer = Writer::new();
+    writer.action_kind(&action.kind)?;
+    let payload = writer.finish()?;
+    let mut encoder = IdentityEncoder::new(ACTION_IDENTITY);
+    encoder.write_bytes(&action.key.identity_bytes());
+    encoder.write_bytes(&payload);
+    Ok(encoder.finish())
 }
 
 struct Reader<'a> {
