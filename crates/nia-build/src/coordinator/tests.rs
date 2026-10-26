@@ -2678,7 +2678,11 @@ fn cacheable_command_plan_with_input_and_stdin(
         vec![
             CommandArgument::Literal("-c".to_string()),
             CommandArgument::Literal(
-                "if test -d \"$1\"; then printf '%s:DIRECTORY' \"$MODE\" > \"$2\"; else printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; fi; printf meta > \"$3\""
+                if mode == "executor-undeclared" {
+                    "if test -d \"$1\"; then printf '%s:DIRECTORY' \"$MODE\" > \"$2\"; else printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; fi; printf meta > \"$3\"; printf unexpected > unexpected.txt"
+                } else {
+                    "if test -d \"$1\"; then printf '%s:DIRECTORY' \"$MODE\" > \"$2\"; else printf '%s:' \"$MODE\" > \"$2\"; tr a-z A-Z < \"$1\" >> \"$2\"; fi; printf meta > \"$3\""
+                }
                     .to_string(),
             ),
             CommandArgument::Literal("nia-cached-tool".to_string()),
@@ -3780,44 +3784,16 @@ fn external_output_tail_discards_only_the_oldest_bytes() {
 fn cacheable_external_command_rejects_undeclared_output() {
     let invocation = test_invocation();
     fs::create_dir_all(&invocation.package_root).unwrap();
-    let mut action = external_action();
-    if let ActionKind::ExternalCommand(command) = &mut action.kind {
-        command.cache_policy = crate::CommandCachePolicy::DeclaredInputs;
-        command.outputs = vec![LogicalPath::new(LogicalPathRoot::Build, "declared.txt").unwrap()];
-    } else {
-        unreachable!("external action fixture");
-    }
-    let arguments = [
-        "-c".to_string(),
-        "printf unexpected > unexpected.txt".to_string(),
-    ];
-    let declared_output = invocation.package_root.join("declared.txt");
-    let error = execute_external_command(
-        &action,
-        ResolvedExternalCommand {
-            program: "sh",
-            arguments: &arguments,
-            working_directory: &invocation.package_root,
-            environment_policy: crate::CommandEnvironmentPolicy::Clear,
-            environment: &[],
-            stdin: None,
-        },
-        ExternalExecutionPolicy {
-            timeout: Duration::from_secs(5),
-            forward_output: false,
-            cancellation: None,
-            detect_undeclared_outputs: true,
-            declared_output_paths: std::slice::from_ref(&declared_output),
-        },
-    )
-    .unwrap_err();
+    fs::write(invocation.package_root.join("tool-input.txt"), b"source").unwrap();
+    let plan = cacheable_command_plan(&invocation, "executor-undeclared");
+    let error = execute_build_plan(&plan, &invocation).unwrap_err();
 
     assert!(matches!(
         error,
         CoordinatorError::ExternalCommand(details)
             if matches!(details.failure, ExternalCommandFailure::UndeclaredOutputs { .. })
     ));
-    assert!(!invocation.package_root.join("unexpected.txt").exists());
+    fs::remove_dir_all(&invocation.package_root).unwrap();
 }
 
 #[test]

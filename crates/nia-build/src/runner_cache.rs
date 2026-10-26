@@ -86,13 +86,17 @@ pub(super) fn restore_executable(
     let is_reparse = false;
     if !metadata.is_file() || metadata.file_type().is_symlink() || is_reparse {
         retire(&cached);
-        return Ok(RunnerCacheStatus::Miss(RunnerCacheMissReason::InvalidRecord));
+        return Ok(RunnerCacheStatus::Miss(
+            RunnerCacheMissReason::InvalidRecord,
+        ));
     }
     let length = metadata.len();
     let maximum = CACHE_HEADER_BYTES.saturating_add(MAX_RUNNER_BYTES) as u64;
     if length > maximum {
         retire(&cached);
-        return Ok(RunnerCacheStatus::Miss(RunnerCacheMissReason::InvalidRecord));
+        return Ok(RunnerCacheStatus::Miss(
+            RunnerCacheMissReason::InvalidRecord,
+        ));
     }
     let bytes = match read_bounded_file(&cached, CACHE_HEADER_BYTES + MAX_RUNNER_BYTES) {
         Ok(bytes) => bytes,
@@ -101,13 +105,17 @@ pub(super) fn restore_executable(
         }
         Err(error) if error.kind() == io::ErrorKind::InvalidData => {
             retire(&cached);
-            return Ok(RunnerCacheStatus::Miss(RunnerCacheMissReason::InvalidRecord));
+            return Ok(RunnerCacheStatus::Miss(
+                RunnerCacheMissReason::InvalidRecord,
+            ));
         }
         Err(error) => return Err(error),
     };
     let Some(executable) = decode_record(&bytes) else {
         retire(&cached);
-        return Ok(RunnerCacheStatus::Miss(RunnerCacheMissReason::InvalidRecord));
+        return Ok(RunnerCacheStatus::Miss(
+            RunnerCacheMissReason::InvalidRecord,
+        ));
     };
     crate::create_real_directory(
         invocation
@@ -769,13 +777,10 @@ mod tests {
         fs::remove_file(&cache).unwrap();
         fs::create_dir(&cache).unwrap();
 
-        assert!(
-            matches!(
-                restore_executable(&invocation, key, None)
-                    .expect("reject non-regular runner cache"),
-                RunnerCacheStatus::Miss(RunnerCacheMissReason::InvalidRecord)
-            )
-        );
+        assert!(matches!(
+            restore_executable(&invocation, key, None).expect("reject non-regular runner cache"),
+            RunnerCacheStatus::Miss(RunnerCacheMissReason::InvalidRecord)
+        ));
         assert!(cache.exists(), "directories are not removed as files");
         fs::remove_dir_all(root).unwrap();
     }

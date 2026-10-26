@@ -1322,7 +1322,11 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         println!(
                             "configure cache: {}; configure result: {}; runner cache: {}",
                             configure_candidate.clone(),
-                            if configure_reused { "reused" } else { "executed" },
+                            if configure_reused {
+                                "reused"
+                            } else {
+                                "executed"
+                            },
                             runner_cache_status_text(runner_cache_status),
                         );
                     }
@@ -3087,10 +3091,11 @@ fn compile_build_runner(
     let cache_key = time_build_stage(invocation.timings, "build_runner_compute_cache_key", || {
         runner_cache::cache_key(invocation, &runner)
     })?;
-    let runner_cache_status = time_build_stage(invocation.timings, "build_runner_restore_cache", || {
-        runner_cache::restore_executable(invocation, &cache_key, lock_observer.as_ref())
-            .unwrap_or(RunnerCacheStatus::Miss(RunnerCacheMissReason::ReadError))
-    });
+    let runner_cache_status =
+        time_build_stage(invocation.timings, "build_runner_restore_cache", || {
+            runner_cache::restore_executable(invocation, &cache_key, lock_observer.as_ref())
+                .unwrap_or(RunnerCacheStatus::Miss(RunnerCacheMissReason::ReadError))
+        });
     let restored = matches!(runner_cache_status, RunnerCacheStatus::Hit);
     if let Some(progress) = progress {
         progress.emit(ProgressEventKind::PhaseCacheDecision {

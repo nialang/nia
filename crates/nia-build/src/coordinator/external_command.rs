@@ -706,18 +706,17 @@ pub(super) fn execute_external_command_with_writer(
     match result {
         Ok((stdout, stderr)) => {
             if let Some(pre_state) = pre_execution_state {
-                if let Ok(undeclared) = detect_undeclared_outputs(
+                let undeclared = detect_undeclared_outputs(
                     request.working_directory,
                     &declared_outputs,
                     &pre_state,
-                ) {
-                    if !undeclared.is_empty() {
-                        return Err(error(ExternalCommandFailure::UndeclaredOutputs {
-                            paths: undeclared,
-                            stdout,
-                            stderr,
-                        }));
-                    }
+                )?;
+                if !undeclared.is_empty() {
+                    return Err(error(ExternalCommandFailure::UndeclaredOutputs {
+                        paths: undeclared,
+                        stdout,
+                        stderr,
+                    }));
                 }
             }
             Ok(())
@@ -1046,14 +1045,22 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("create output scan root");
         let declared = root.join("declared.txt");
+        let declared_directory = root.join("declared-directory");
         let unexpected = root.join("unexpected.txt");
         fs::write(&declared, b"before").expect("write declared file");
+        fs::create_dir_all(&declared_directory).expect("create declared directory");
         let before = collect_directory_state(&root).expect("capture output scan state");
         fs::write(&declared, b"after").expect("update declared file");
+        fs::write(declared_directory.join("nested.txt"), b"declared")
+            .expect("write nested declared file");
         fs::write(&unexpected, b"unexpected").expect("write undeclared file");
 
-        let undeclared = detect_undeclared_outputs(&root, &HashSet::from([declared]), &before)
-            .expect("scan output state");
+        let undeclared = detect_undeclared_outputs(
+            &root,
+            &HashSet::from([declared, declared_directory]),
+            &before,
+        )
+        .expect("scan output state");
         assert_eq!(undeclared, vec![unexpected]);
         let _ = fs::remove_dir_all(root);
     }
@@ -1126,7 +1133,10 @@ fn detect_undeclared_outputs(
 
     for (path, post_time) in &post_state.files {
         let absolute = working_directory.join(path);
-        if declared_outputs.contains(&absolute) {
+        if declared_outputs
+            .iter()
+            .any(|declared| absolute == *declared || absolute.starts_with(declared))
+        {
             continue;
         }
         match pre_state.files.get(path) {
