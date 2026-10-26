@@ -527,11 +527,14 @@ impl DriverActionExecutor {
                 &resolved_outputs,
             )?)
         };
+        let mut input_argument_indices = Vec::new();
         let resolved_arguments = arguments
             .iter()
-            .map(|argument| match argument {
+            .enumerate()
+            .map(|(index, argument)| match argument {
                 CommandArgument::Literal(value) => Ok(value.clone()),
                 CommandArgument::InputPath(path) => {
+                    input_argument_indices.push(index);
                     let (_, resolved) = resolved_inputs
                         .iter()
                         .find(|(input, _)| *input == path)
@@ -611,6 +614,7 @@ impl DriverActionExecutor {
                 request,
                 execution_policy,
                 &input_paths,
+                &input_argument_indices,
                 self.process_output_writer.clone(),
             )
         } else {

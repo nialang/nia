@@ -631,6 +631,27 @@ impl Drop for DeclaredInputIsolation {
     }
 }
 
+fn map_isolated_arguments(
+    isolation: &DeclaredInputIsolation,
+    arguments: &[String],
+    input_argument_indices: &[usize],
+) -> Vec<String> {
+    arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            if input_argument_indices.contains(&index) {
+                isolation
+                    .map_path(Path::new(argument))
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                argument.clone()
+            }
+        })
+        .collect()
+}
+
 fn copy_isolated_path(
     source: &Path,
     destination: &Path,
@@ -700,19 +721,11 @@ pub(super) fn execute_external_command_with_input_isolation(
     request: ResolvedExternalCommand<'_>,
     policy: ExternalExecutionPolicy,
     inputs: &[PathBuf],
+    input_argument_indices: &[usize],
     output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
 ) -> Result<(), CoordinatorError> {
     let isolation = DeclaredInputIsolation::create(action, request.working_directory, inputs)?;
-    let arguments = request
-        .arguments
-        .iter()
-        .map(|argument| {
-            isolation
-                .map_path(Path::new(argument))
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect::<Vec<_>>();
+    let arguments = map_isolated_arguments(&isolation, request.arguments, input_argument_indices);
     let stdin = request.stdin.map(|path| isolation.map_path(path));
     let working_directory = isolation.root.clone();
     execute_external_command_with_writer(
@@ -1336,6 +1349,32 @@ mod tests {
         assert_eq!(fs::read(&copied).unwrap(), b"declared");
         drop(isolation);
         assert!(!copied.exists(), "temporary input view must be cleaned up");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn input_isolation_maps_only_typed_input_arguments() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-build-input-isolation-arguments-{}-{}",
+            std::process::id(),
+            INPUT_ISOLATION_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).expect("create argument isolation root");
+        let source = root.join("input.txt");
+        fs::write(&source, b"declared").expect("write argument input");
+        let action = PlanAction {
+            key: ActionKey::new(PackageKey::root(), "isolation-arguments").unwrap(),
+            kind: ActionKind::Aggregate,
+        };
+        let isolation =
+            DeclaredInputIsolation::create(&action, &root, std::slice::from_ref(&source))
+                .expect("create argument isolation");
+        let arguments = vec![source.to_string_lossy().into_owned(); 2];
+        let mapped = map_isolated_arguments(&isolation, &arguments, &[1]);
+        assert_eq!(mapped[0], arguments[0]);
+        assert_ne!(mapped[1], arguments[1]);
+        assert_eq!(fs::read(&mapped[1]).unwrap(), b"declared");
+        drop(isolation);
         let _ = fs::remove_dir_all(root);
     }
 }
