@@ -525,6 +525,7 @@ impl DriverActionExecutor {
                 timeout: EXTERNAL_COMMAND_TIMEOUT,
                 forward_output: self.invocation.forward_output,
                 cancellation: Some(cancellation),
+                detect_undeclared_outputs: true,
             },
             self.process_output_writer.clone(),
         );

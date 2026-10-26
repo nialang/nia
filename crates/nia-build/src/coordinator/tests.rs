@@ -1224,6 +1224,7 @@ fn external_spawn_failure_reports_operation_and_program() {
             timeout: Duration::from_secs(5),
             forward_output: false,
             cancellation: None,
+            detect_undeclared_outputs: false,
         },
     )
     .unwrap_err();
@@ -3624,6 +3625,7 @@ fn execute_test_command(
             timeout,
             forward_output: false,
             cancellation: None,
+            detect_undeclared_outputs: false,
         },
     )
 }
@@ -3692,6 +3694,7 @@ fn external_command_clear_environment_keeps_only_declared_values() {
             timeout: Duration::from_secs(5),
             forward_output: false,
             cancellation: None,
+            detect_undeclared_outputs: false,
         },
     )
     .unwrap();
@@ -3815,6 +3818,7 @@ fn external_command_cancellation_terminates_owned_process_group() {
                 timeout: Duration::from_secs(30),
                 forward_output: false,
                 cancellation: Some(&cancellation),
+                detect_undeclared_outputs: false,
             },
         )
     });

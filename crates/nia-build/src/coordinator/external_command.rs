@@ -2,7 +2,9 @@
 //! Hermetic external-command identity, execution, and bounded diagnostics.
 
 use super::*;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
+use std::time::SystemTime;
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
@@ -524,6 +526,7 @@ pub(super) struct ExternalExecutionPolicy<'a> {
     pub(super) timeout: Duration,
     pub(super) forward_output: bool,
     pub(super) cancellation: Option<&'a ActionCancellation>,
+    pub(super) detect_undeclared_outputs: bool,
 }
 
 #[cfg(test)]
@@ -550,6 +553,26 @@ pub(super) fn execute_external_command_with_writer(
             failure,
         }))
     };
+
+    // Capture file state before execution for undeclared output detection
+    let (declared_outputs, pre_execution_state) = if policy.detect_undeclared_outputs {
+        let outputs = match &action.kind {
+            ActionKind::ExternalCommand(cmd) | ActionKind::TestExecutable(cmd) => &cmd.outputs,
+            _ => &Vec::new(),
+        };
+        let declared_outputs = outputs
+            .iter()
+            .map(|logical| {
+                // Resolve logical path to physical path
+                request.working_directory.join(logical.protocol_path())
+            })
+            .collect();
+        let pre_state = collect_directory_state(request.working_directory)?;
+        (declared_outputs, Some(pre_state))
+    } else {
+        (HashSet::new(), None)
+    };
+
     let mut command = Command::new(request.program);
     command
         .args(request.arguments)
@@ -679,14 +702,36 @@ pub(super) fn execute_external_command_with_writer(
             }
         }
     };
-    finish_external_command(
+    let result = finish_external_command(
         status,
         stdout_reader,
         stderr_reader,
         timed_out.then_some(policy.timeout),
         cancelled,
-    )
-    .map_err(error)
+    );
+
+    // Check for undeclared outputs after successful command execution
+    match result {
+        Ok((stdout, stderr)) => {
+            if let Some(pre_state) = pre_execution_state {
+                if let Ok(undeclared) = detect_undeclared_outputs(
+                    request.working_directory,
+                    &declared_outputs,
+                    &pre_state,
+                ) {
+                    if !undeclared.is_empty() {
+                        return Err(error(ExternalCommandFailure::UndeclaredOutputs {
+                            paths: undeclared,
+                            stdout,
+                            stderr,
+                        }));
+                    }
+                }
+            }
+            Ok(())
+        }
+        Err(failure) => Err(error(failure)),
+    }
 }
 
 fn finish_external_command(
@@ -695,7 +740,7 @@ fn finish_external_command(
     stderr_reader: thread::JoinHandle<StreamCapture>,
     timeout: Option<Duration>,
     cancelled: bool,
-) -> Result<(), ExternalCommandFailure> {
+) -> Result<(Vec<u8>, Vec<u8>), ExternalCommandFailure> {
     let output = join_captures(stdout_reader, stderr_reader);
     let stdout = output.stdout;
     let stderr = output.stderr;
@@ -741,7 +786,7 @@ fn finish_external_command(
             stderr,
         });
     }
-    Ok(())
+    Ok((stdout, stderr))
 }
 
 pub(super) fn display_external_command_error(
@@ -814,6 +859,24 @@ pub(super) fn display_external_command_error(
             stderr,
         } => {
             write!(f, "{}", nia_diagnostic::describe_exit_status(*status))?;
+            display_output_tails(f, stdout, stderr)
+        }
+        ExternalCommandFailure::UndeclaredOutputs {
+            paths,
+            stdout,
+            stderr,
+        } => {
+            write!(f, "wrote {} undeclared output(s): ", paths.len())?;
+            for (i, path) in paths.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "`{}`", path.display())?;
+                if i >= 4 && paths.len() > 5 {
+                    write!(f, ", ... and {} more", paths.len() - 5)?;
+                    break;
+                }
+            }
             display_output_tails(f, stdout, stderr)
         }
     }
@@ -946,7 +1009,7 @@ mod tests {
                 cancelled,
             );
             match (result, timeout, cancelled) {
-                (Ok(()), None, false) => {}
+                (Ok((_stdout, _stderr)), None, false) => {}
                 (
                     Err(ExternalCommandFailure::TimedOut {
                         timeout,
@@ -978,4 +1041,85 @@ mod tests {
             .expect_err("directory identity must be bounded");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
+}
+
+/// File modification time snapshot for undeclared-output detection.
+#[derive(Debug, Clone)]
+struct FileStateSnapshot {
+    files: HashMap<PathBuf, SystemTime>,
+}
+
+/// Recursively collects modification times of files under a directory.
+fn collect_directory_state(root: &Path) -> Result<FileStateSnapshot, CoordinatorError> {
+    let mut files = HashMap::new();
+    collect_directory_state_recursive(root, root, &mut files, 0)?;
+    Ok(FileStateSnapshot { files })
+}
+
+fn collect_directory_state_recursive(
+    root: &Path,
+    current: &Path,
+    files: &mut HashMap<PathBuf, SystemTime>,
+    depth: usize,
+) -> Result<(), CoordinatorError> {
+    if depth > MAX_EXTERNAL_DIRECTORY_DEPTH {
+        return Ok(());
+    }
+    let entries = match fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()), // Ignore inaccessible directories
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.is_file() {
+            if let Ok(modified) = metadata.modified() {
+                if let Ok(relative) = path.strip_prefix(root) {
+                    files.insert(relative.to_path_buf(), modified);
+                }
+            }
+        } else if metadata.is_dir() {
+            collect_directory_state_recursive(root, &path, files, depth + 1)?;
+        }
+    }
+    Ok(())
+}
+
+/// Detects files created or modified after command execution that were not
+/// declared in outputs.
+fn detect_undeclared_outputs(
+    working_directory: &Path,
+    declared_outputs: &HashSet<PathBuf>,
+    pre_state: &FileStateSnapshot,
+) -> Result<Vec<PathBuf>, CoordinatorError> {
+    let post_state = collect_directory_state(working_directory)?;
+    let mut undeclared = Vec::new();
+
+    for (path, post_time) in &post_state.files {
+        let absolute = working_directory.join(path);
+        if declared_outputs.contains(&absolute) {
+            continue;
+        }
+        match pre_state.files.get(path) {
+            Some(pre_time) if post_time > pre_time => {
+                // File was modified
+                undeclared.push(absolute);
+            }
+            None => {
+                // File was created
+                undeclared.push(absolute);
+            }
+            _ => {}
+        }
+    }
+
+    undeclared.sort();
+    Ok(undeclared)
 }

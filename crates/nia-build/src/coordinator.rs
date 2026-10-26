@@ -291,6 +291,15 @@ pub enum ExternalCommandFailure {
         /// Bounded captured standard-error tail.
         stderr: Vec<u8>,
     },
+    /// The command wrote undeclared outputs.
+    UndeclaredOutputs {
+        /// Files created or modified but not declared in outputs.
+        paths: Vec<PathBuf>,
+        /// Bounded captured standard-output tail.
+        stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
+        stderr: Vec<u8>,
+    },
 }
 
 /// Typed failure while validating, scheduling, executing, or publishing a plan.

@@ -561,10 +561,37 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
             append_output_note(&mut diagnostic, "stdout", stdout);
             append_output_note(&mut diagnostic, "stderr", stderr);
         }
+        ExternalCommandFailure::UndeclaredOutputs {
+            paths,
+            stdout,
+            stderr,
+        } => {
+            let reason = if paths.len() == 1 {
+                format!(
+                    "command wrote 1 undeclared output: `{}`",
+                    paths[0].display()
+                )
+            } else {
+                format!("command wrote {} undeclared outputs", paths.len())
+            };
+            diagnostic.notes.push(reason);
+            if paths.len() > 1 {
+                for path in paths.iter().take(10) {
+                    diagnostic.notes.push(format!("  `{}`", path.display()));
+                }
+                if paths.len() > 10 {
+                    diagnostic
+                        .notes
+                        .push(format!("  ... and {} more", paths.len() - 10));
+                }
+            }
+            append_output_note(&mut diagnostic, "stdout", stdout);
+            append_output_note(&mut diagnostic, "stderr", stderr);
+        }
     }
     diagnostic
         .help
-        .push("inspect the command output and fix the external build step".to_string());
+        .push("declare all outputs in the command action, or disable undeclared-output detection".to_string());
     diagnostic
 }
 
