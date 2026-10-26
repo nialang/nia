@@ -727,6 +727,11 @@ pub struct PlanAction {
 }
 
 impl PlanAction {
+    /// Returns the stable package-qualified identity shared by action caches.
+    pub fn identity(&self) -> ActionIdentity {
+        ActionIdentity::new(self.key.clone())
+    }
+
     /// Returns the scheduler resource class implied by this action kind.
     pub fn resource_class(&self) -> ActionResourceClass {
         match &self.kind {
