@@ -48,8 +48,8 @@ pub(root) enum ModuleSourceRoot: i32 {
     _
 }
 
-// A build-root path is a lexical path below `.nia-build/`; package, cache, and
-// toolchain files use their own path capabilities.
+// A build-root path is a lexical path below `build/out/`; package, cache, and
+// toolchain files use the unified `build/` state root.
 pub struct BuildPathView {
     path: &[char],
 }

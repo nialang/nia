@@ -1,6 +1,6 @@
 // Lexical paths rooted in a build invocation.
 //
-// Build paths are relative to `.nia-build/`; package paths use the same
+// Build paths are relative to `build/out/`; package paths use the same
 // component rules but may opt into the empty path for a package root.
 
 using root::error::CleanupAccumulator;
