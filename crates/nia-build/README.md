@@ -390,8 +390,10 @@ Cacheable external commands execute with a temporary working-directory view
 containing only declared inputs. Relative reads of undeclared files therefore
 fail in the command instead of silently becoming untracked cache inputs. The
 view rejects links and is bounded by depth, entry, and copied-byte limits.
-Declared outputs continue to use staged build paths. The coordinator also
-checks for undeclared writes inside the temporary view. This is not an
+Only typed input arguments and declared stdin are remapped into that view;
+literal arguments retain their exact text. Declared outputs continue to use
+staged build paths. The coordinator also checks for undeclared writes inside
+the temporary view. This is not an
 OS-level sandbox: absolute paths, paths outside the view, and child processes
 that deliberately escape the working directory are not intercepted. Commands
 requiring those behaviors must remain uncacheable until a platform sandbox

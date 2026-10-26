@@ -588,7 +588,9 @@ A cache policy is a promise that the typed arguments describe every file the
 command reads and writes. A cacheable command runs from a temporary working
 directory containing only its declared inputs, so a relative read of an
 undeclared file fails. Links and input trees beyond the depth, entry, or byte
-limits are rejected. Declared outputs still go to staged build paths. This is
+limits are rejected. Only `InputPath` arguments and declared stdin are mapped
+into that view; literal arguments keep their exact text. Declared outputs still
+go to staged build paths. This is
 not an OS-level sandbox: absolute paths and paths outside that working view are
 not intercepted, so commands requiring them must remain uncacheable. This step
 upper-cases a package file into the build directory and reruns only when
