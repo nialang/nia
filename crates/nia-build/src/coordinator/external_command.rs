@@ -659,6 +659,7 @@ fn copy_isolated_path(
                 bytes_copied,
             )?;
         }
+        fs::set_permissions(destination, metadata.permissions())?;
     } else if metadata.is_file() {
         *bytes_copied = bytes_copied
             .checked_add(metadata.len())
@@ -673,6 +674,7 @@ fn copy_isolated_path(
             fs::create_dir_all(parent)?;
         }
         fs::copy(source, destination)?;
+        fs::set_permissions(destination, metadata.permissions())?;
     } else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -1266,6 +1268,36 @@ mod tests {
         )
         .expect("scan output state");
         assert_eq!(undeclared, (vec![created, deleted, unexpected], 3));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_isolation_preserves_executable_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "nia-build-input-isolation-{}-{}",
+            std::process::id(),
+            INPUT_ISOLATION_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).expect("create isolation test root");
+        let source = root.join("tool");
+        fs::write(&source, b"#!/bin/sh\nexit 0\n").expect("write executable input");
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o755))
+            .expect("set executable input mode");
+        let action = PlanAction {
+            key: ActionKey::new(PackageKey::root(), "isolation-test").unwrap(),
+            kind: ActionKind::Aggregate,
+        };
+        let isolation = DeclaredInputIsolation::create(&action, &root, &[source.clone()])
+            .expect("create input isolation");
+        let copied = isolation.map_path(&source);
+        assert_ne!(
+            fs::metadata(copied).unwrap().permissions().mode() & 0o111,
+            0
+        );
+        drop(isolation);
         let _ = fs::remove_dir_all(root);
     }
 }
