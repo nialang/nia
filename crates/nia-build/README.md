@@ -125,6 +125,8 @@ artifact in normal mode:
 | Runtime | Always |
 | Development | To test-mode compilations |
 | Build | To the host build runner |
+| Optional | Only when an action explicitly imports the package |
+| Lazy | Available to runtime module resolution; source loading remains demand-driven |
 
 Generated build roots and package roots not declared in `nia.toml` keep
 their plan behavior unchanged. Source identity and manifest bounds are owned by

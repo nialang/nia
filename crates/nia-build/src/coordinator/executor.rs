@@ -1507,7 +1507,9 @@ mod package_manifest_import_tests {
         let runtime = root.join("runtime");
         let build = root.join("build");
         let development = root.join("development");
-        for package in [&runtime, &build, &development] {
+        let optional = root.join("optional");
+        let lazy = root.join("lazy");
+        for package in [&runtime, &build, &development, &optional, &lazy] {
             std::fs::create_dir_all(package.join("src")).unwrap();
             std::fs::write(
                 package.join("nia.toml"),
@@ -1537,13 +1539,15 @@ mod package_manifest_import_tests {
                 edge("runtime", DependencyScope::Runtime, &runtime),
                 edge("build", DependencyScope::Build, &build),
                 edge("development", DependencyScope::Development, &development),
+                edge("optional", DependencyScope::Optional, &optional),
+                edge("lazy", DependencyScope::Lazy, &lazy),
             ],
         };
 
         let source_scopes = [DependencyScope::Runtime, DependencyScope::Development];
         let ordinary =
             manifest_module_roots(&report, &source_scopes, CompilationMode::Normal).unwrap();
-        assert_eq!(ordinary.len(), 1);
+        assert_eq!(ordinary.len(), 2);
         assert_eq!(ordinary[0].0, "owner");
         assert_eq!(ordinary[0].1, "runtime");
         assert!(ordinary[0].2.as_str().ends_with("runtime/src/root.nia"));
@@ -1551,11 +1555,27 @@ mod package_manifest_import_tests {
             ordinary[0].2.identity().normalized_path(),
             "build-package:owner/runtime:/src/root.nia"
         );
+        assert!(ordinary.iter().any(|(_, name, _)| name == "lazy"));
+        assert!(!ordinary.iter().any(|(_, name, _)| name == "optional"));
 
         let tests = manifest_module_roots(&report, &source_scopes, CompilationMode::Test).unwrap();
-        assert_eq!(tests.len(), 2);
+        assert_eq!(tests.len(), 3);
         assert!(tests.iter().any(|(_, name, _)| name == "runtime"));
         assert!(tests.iter().any(|(_, name, _)| name == "development"));
+        assert!(tests.iter().any(|(_, name, _)| name == "lazy"));
+        let explicit_optional = manifest_module_roots(
+            &report,
+            &[DependencyScope::Optional],
+            CompilationMode::Normal,
+        )
+        .unwrap();
+        assert_eq!(
+            explicit_optional
+                .iter()
+                .map(|(_, name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["optional"]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -3301,7 +3301,12 @@ pub(crate) fn manifest_module_roots(
                 scopes.contains(&DependencyScope::Development)
                     && compilation_mode == CompilationMode::Test
             }
-            DependencyScope::Optional => scopes.contains(&DependencyScope::Runtime),
+            // Optional roots are injected only when the selected module
+            // explicitly imports the package. They are never preinstalled in
+            // the ordinary runtime root set.
+            DependencyScope::Optional => scopes.contains(&DependencyScope::Optional),
+            // Lazy roots remain visible to the loader, but source loading is
+            // still demand-driven by the module query.
             DependencyScope::Lazy => scopes.contains(&DependencyScope::Runtime),
         };
         let Some(logical_root) = edge.resolved_root.as_deref() else {

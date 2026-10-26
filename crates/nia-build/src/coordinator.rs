@@ -134,8 +134,8 @@ pub(crate) fn package_dependency_classes(
 /// - Build: visible only to build.nia (never to compiled artifacts)
 /// - Runtime: always visible to compiled artifacts
 /// - Development: visible only in Test mode
-/// - Optional: like Runtime, but not loaded unless explicitly referenced
-/// - Lazy: like Runtime, but loaded on first use (not at graph construction)
+/// - Optional: available only when an action explicitly imports the package
+/// - Lazy: available to the runtime module scope and loaded on first use
 pub(crate) fn package_dependency_selected(
     classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
     package: &PackageKey,

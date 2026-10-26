@@ -320,6 +320,8 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         ("build-dependency", DependencyScope::Build),
         ("corelib", DependencyScope::Runtime),
         ("development", DependencyScope::Development),
+        ("optional", DependencyScope::Optional),
+        ("lazy", DependencyScope::Lazy),
     ];
     for (name, _) in dependency_scopes {
         std::fs::create_dir_all(root.join(name)).expect("create dependency root");
@@ -330,7 +332,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         .expect("write dependency manifest");
     }
     std::fs::create_dir_all(&root).expect("create package root");
-    std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build-dependency\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n").expect("write root manifest");
+    std::fs::write(root.join("nia.toml"), "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[build-dependencies]\nbuild = { path = \"build-dependency\" }\n[dependencies]\ncorelib = { path = \"corelib\" }\n[dev-dependencies]\ndevelopment = { path = \"development\" }\n[optional-dependencies]\noptional = { path = \"optional\" }\n[lazy-dependencies]\nlazy = { path = \"lazy\" }\n").expect("write root manifest");
 
     let compile_request = |mode: CompilationMode| {
         let graph = PackageGraph::resolve(&root).expect("resolve package graph");
@@ -411,10 +413,20 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
             .get("corelib")
             .is_some()
     );
-    for filtered in ["build", "development"] {
+    for filtered in ["build", "development", "optional"] {
         assert!(
             ordinary.module_map.get(filtered).is_none(),
             "ordinary compile unexpectedly mapped {filtered} dependency"
+        );
+    }
+    for included in ["optional", "lazy"] {
+        assert!(
+            ordinary
+                .module_map
+                .for_source(&root_source)
+                .get(included)
+                .is_some(),
+            "ordinary compile did not map explicitly imported {included} dependency"
         );
     }
 
@@ -431,6 +443,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
         );
     }
     assert!(selected.module_map.get("build").is_none());
+    assert!(selected.module_map.get("optional").is_none());
     std::fs::remove_dir_all(root).expect("remove package-selection fixture");
 }
 
