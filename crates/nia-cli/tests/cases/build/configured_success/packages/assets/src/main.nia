@@ -1,6 +1,7 @@
 using assetHelper;
 using helper;
 using std::fmt;
+using std::fmt::template;  // For .print() extension method
 using std::io;
 using std::process;
 

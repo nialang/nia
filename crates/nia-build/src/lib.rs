@@ -3147,6 +3147,8 @@ pub(crate) fn manifest_module_roots(
                 scopes.contains(&DependencyScope::Development)
                     && compilation_mode == CompilationMode::Test
             }
+            DependencyScope::Optional => scopes.contains(&DependencyScope::Runtime),
+            DependencyScope::Lazy => scopes.contains(&DependencyScope::Runtime),
         };
         let Some(logical_root) = edge.resolved_root.as_deref() else {
             continue;
@@ -3280,6 +3282,7 @@ fn validate_manifest_dependency_references(
             // Only test artifacts see a development dependency; the
             // coordinator hides it from ordinary compilations.
             DependencyScope::Runtime | DependencyScope::Development => {}
+            DependencyScope::Optional | DependencyScope::Lazy => {}
             DependencyScope::Build => {
                 return Err(format!(
                     "`{name}` is build-only; build.nia can import it directly without addDependency"

@@ -1,5 +1,6 @@
 using std::io;
 using std::process;
+using std::slice;  // For .get() extension method
 using process::{Init, ExitCode};
 
 fun at(values: &[i32], index: usize) ?i32 {

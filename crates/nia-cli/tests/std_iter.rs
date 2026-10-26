@@ -15,6 +15,7 @@ fn emit_exe_std_iterator_for_each_accepts_borrowed_closure() {
         r#"
 using std::iter;
 using std::process;
+using std::slice;
 
 static mut invocationCount: i32 = 0;
 static mut total: i32 = 0;
@@ -73,6 +74,7 @@ fn emit_exe_std_iterator_fold_accepts_capturing_borrowed_closure() {
         r#"
 using std::iter;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -125,6 +127,7 @@ fn emit_exe_std_iterator_callbacks_infer_projected_item_parameters() {
         r#"
 using std::iter;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -680,6 +683,7 @@ fn emit_exe_std_u128_ranges_cover_integer_endpoints() {
         r#"
 using std::iter;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -751,6 +755,7 @@ fn emit_exe_std_owned_iterator_adapters_expose_constructors() {
         r#"
 using std::iter;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;

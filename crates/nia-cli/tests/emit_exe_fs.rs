@@ -1095,6 +1095,7 @@ fn emit_exe_std_fs_owner_adapters_reject_reused_descriptors() {
 using std::fs;
 using std::io;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;

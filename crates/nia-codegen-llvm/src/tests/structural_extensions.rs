@@ -130,6 +130,7 @@ fn emits_imported_generic_structural_extension_method_calls() {
         r#"
 module share;
 module ptr;
+using root::ptr;
 using root::share;
 
 extern fun read_readonly() &u8;

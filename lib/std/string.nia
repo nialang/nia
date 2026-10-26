@@ -11,6 +11,7 @@ using root::builtin;
 using root::error;
 using root::fmt;
 using root::io;
+using root::iter;
 using root::mem;
 using root::result;
 using root::slice;

@@ -4,6 +4,7 @@ using root::collections;
 using root::fs;
 using root::io::traits::Reader;
 using root::mem;
+using root::option;  // For .map() on optional values
 using root::process;
 using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
 using root::build::types::Build;

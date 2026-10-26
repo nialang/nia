@@ -1,8 +1,10 @@
 
 using std::build;
 using std::fmt;
+using std::fmt::template;  // For .print() extension method
 using std::fs;
 using std::io;
+using std::iter;  // For .take() extension method
 using std::mem;
 using std::process;
 using std::string;

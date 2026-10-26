@@ -129,6 +129,13 @@ pub(crate) fn package_dependency_classes(
 
 /// Whether a compilation in `mode` may read `package`. A package the root
 /// manifest does not declare is a local package and always visible.
+///
+/// Dependency scope semantics:
+/// - Build: visible only to build.nia (never to compiled artifacts)
+/// - Runtime: always visible to compiled artifacts
+/// - Development: visible only in Test mode
+/// - Optional: like Runtime, but not loaded unless explicitly referenced
+/// - Lazy: like Runtime, but loaded on first use (not at graph construction)
 pub(crate) fn package_dependency_selected(
     classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
     package: &PackageKey,
@@ -139,6 +146,8 @@ pub(crate) fn package_dependency_selected(
             DependencyScope::Build => false,
             DependencyScope::Runtime => true,
             DependencyScope::Development => mode == CompilationMode::Test,
+            DependencyScope::Optional => true,
+            DependencyScope::Lazy => true,
         })
     })
 }

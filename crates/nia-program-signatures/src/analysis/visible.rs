@@ -412,7 +412,6 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
                 continue;
             }
             if let Some(using_scope) = context.using_scopes.using_scope(visible) {
-                enqueue_using_scope_modules(&using_scope, &mut queue);
                 collect_public_inherent_extension_provider_targets_for_using_scope(
                     context,
                     &using_scope,

@@ -1,5 +1,6 @@
 using root::builtin;
 using root::fmt;
+using root::fmt::template;  // For .print() extension method
 using root::fs;
 using root::io;
 

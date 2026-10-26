@@ -113,6 +113,7 @@ fn build_process_errors_preserve_exit_codes_and_diagnostics() {
         &main,
         r#"
 using std::build;
+using std::fmt::template;
 using std::io;
 using std::process;
 
@@ -189,6 +190,7 @@ fn build_filesystem_operation_errors_preserve_context() {
         &main,
         r#"
 using std::build;
+using std::fmt::template;
 using std::fs;
 using std::io;
 using std::process;

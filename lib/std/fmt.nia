@@ -2,7 +2,7 @@
 
 pub(root) module core;
 pub(root) module primitive;
-pub(root) module template;
+pub module template;
 
 using root::fmt::core;
 using root::fmt::primitive;

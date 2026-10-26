@@ -342,6 +342,8 @@ pub enum DependencyScope {
     Build,
     Runtime,
     Development,
+    Optional,
+    Lazy,
 }
 
 /// Where a dependency is obtained from.
@@ -2710,6 +2712,8 @@ impl PackageGraph {
                     DependencyScope::Build => 0,
                     DependencyScope::Runtime => 1,
                     DependencyScope::Development => 2,
+                    DependencyScope::Optional => 3,
+                    DependencyScope::Lazy => 4,
                 });
             }
         }
@@ -2978,6 +2982,8 @@ impl PackageManifest {
             (DependencyScope::Build, raw.build_dependencies),
             (DependencyScope::Runtime, raw.dependencies),
             (DependencyScope::Development, raw.dev_dependencies),
+            (DependencyScope::Optional, raw.optional_dependencies),
+            (DependencyScope::Lazy, raw.lazy_dependencies),
         ] {
             for (name, declaration) in declarations {
                 let source = match declaration.workspace {
@@ -3758,6 +3764,10 @@ struct RawPackageManifest {
     dependencies: BTreeMap<String, RawDependency>,
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default, rename = "optional-dependencies")]
+    optional_dependencies: BTreeMap<String, RawDependency>,
+    #[serde(default, rename = "lazy-dependencies")]
+    lazy_dependencies: BTreeMap<String, RawDependency>,
     #[serde(default, rename = "executable")]
     executables: Vec<RawArtifact>,
     #[serde(default, rename = "test")]
