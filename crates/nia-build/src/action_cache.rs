@@ -1219,11 +1219,8 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     })
 }
 
-fn action_identity(action: &ActionKey) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    write_text(&mut encoded, action.package().as_str());
-    write_text(&mut encoded, action.name());
-    encoded
+pub(super) fn action_identity(action: &ActionKey) -> Vec<u8> {
+    action.identity_bytes()
 }
 
 fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {

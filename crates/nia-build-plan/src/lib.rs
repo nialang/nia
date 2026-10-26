@@ -144,6 +144,20 @@ macro_rules! define_node_key {
                     self.name
                 )
             }
+
+            /// Returns the canonical length-prefixed identity payload used by
+            /// build caches and action handoffs.
+            pub fn identity_bytes(&self) -> Vec<u8> {
+                fn write_text(encoded: &mut Vec<u8>, text: &str) {
+                    encoded.extend_from_slice(&(text.len() as u64).to_le_bytes());
+                    encoded.extend_from_slice(text.as_bytes());
+                }
+
+                let mut encoded = Vec::new();
+                write_text(&mut encoded, self.package.as_str());
+                write_text(&mut encoded, &self.name);
+                encoded
+            }
         }
     };
 }
@@ -1265,6 +1279,25 @@ mod tests {
             "action `root::compile` references missing artifact `root::app`"
         );
         assert!(!rendered.contains("ActionKey"));
+    }
+
+    #[test]
+    fn action_identity_bytes_are_canonical_and_package_qualified() {
+        let first = ActionKey::new(PackageKey::root(), "compile").unwrap();
+        let second = ActionKey::new(PackageKey::new("tools").unwrap(), "compile").unwrap();
+
+        assert_eq!(first.identity_bytes(), first.identity_bytes());
+        assert_ne!(first.identity_bytes(), second.identity_bytes());
+        assert_eq!(
+            first.identity_bytes(),
+            [
+                4u64.to_le_bytes().as_slice(),
+                b"root",
+                7u64.to_le_bytes().as_slice(),
+                b"compile"
+            ]
+            .concat()
+        );
     }
     use super::*;
 

@@ -24,7 +24,7 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE,
-    MAX_COMPILER_CACHE_ENTRY_BYTES, ensure_cache_directory, fingerprint_text,
+    MAX_COMPILER_CACHE_ENTRY_BYTES, action_identity, ensure_cache_directory, fingerprint_text,
     logical_path_identity, package_roots_identity, read_bounded_compiler_cache_entry, read_bytes,
     read_fingerprint, read_u64, validate_cache_namespace, validate_compiler_cache_entry_size,
     write_bytes, write_fingerprint, write_text,
@@ -814,13 +814,6 @@ pub(super) fn source_records_fingerprint(sources: &[SourceRecord]) -> QueryFinge
         )
         .parts(),
     )
-}
-
-fn action_identity(action: &ActionKey) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    write_text(&mut encoded, action.package().as_str());
-    write_text(&mut encoded, action.name());
-    encoded
 }
 
 fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
