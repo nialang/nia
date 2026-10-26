@@ -1222,7 +1222,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                     if output_json {
                         print!(
                             "{}",
-                            render_build_plan_json_with_context(
+                            render_build_plan_json(
                                 &plan,
                                 &invocation,
                                 configure_candidate.clone(),
@@ -1233,7 +1233,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                     } else {
                         print!(
                             "{}",
-                            render_build_plan_summary_with_configure(
+                            render_build_plan_summary(
                                 &plan,
                                 &invocation,
                                 configure_candidate.clone(),
@@ -1430,78 +1430,55 @@ fn step_kind_name(plan: &BuildPlan, step: &PlanStep) -> &'static str {
         .map_or("unknown", |index| action_kind_name(&plan.actions()[index]))
 }
 
-/// Renders a deterministic human-readable summary of a frozen build plan.
-pub fn render_build_plan_summary(plan: &BuildPlan) -> String {
-    render_build_plan_summary_inner(plan, None)
-}
-
-/// Renders a build plan summary with configure decision context.
-pub fn render_build_plan_summary_with_configure(
+/// Renders a deterministic human-readable summary of a frozen build plan and
+/// the decisions that produced it.
+pub fn render_build_plan_summary(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
     configure_candidate: ConfigureCacheCandidate,
     configure_reused: bool,
     runner_cache_reused: bool,
 ) -> String {
-    render_build_plan_summary_inner(
-        plan,
-        Some((
-            invocation,
-            &configure_candidate,
-            configure_reused,
-            runner_cache_reused,
-        )),
-    )
-}
-
-fn render_build_plan_summary_inner(
-    plan: &BuildPlan,
-    configure: Option<(&BuildInvocation, &ConfigureCacheCandidate, bool, bool)>,
-) -> String {
     let mut output = String::new();
     use std::fmt::Write as _;
     let _ = writeln!(output, "build plan:");
     let _ = writeln!(output, "  root package: {}", plan.root_package().as_str());
 
-    if let Some((invocation, configure_candidate, configure_reused, runner_cache_reused)) =
-        configure
-    {
-        // Configure decision context.
-        let _ = writeln!(
-            output,
-            "  configuration: profile={}, optimization={}, lto={}",
-            profile_name(invocation.profile),
-            optimization_name(invocation.optimization),
-            link_time_optimization_name(invocation.link_time_optimization),
-        );
+    // Configure decision context.
+    let _ = writeln!(
+        output,
+        "  configuration: profile={}, optimization={}, lto={}",
+        profile_name(invocation.profile),
+        optimization_name(invocation.optimization),
+        link_time_optimization_name(invocation.link_time_optimization),
+    );
 
-        // Cache status.
-        match configure_candidate {
-            ConfigureCacheCandidate::None => {
-                let _ = writeln!(output, "  configure cache candidate: none");
-            }
-            ConfigureCacheCandidate::Present => {
-                let _ = writeln!(output, "  configure cache candidate: present");
-            }
-            ConfigureCacheCandidate::Miss(reason) => {
-                let _ = writeln!(output, "  configure cache candidate: miss ({})", reason);
-            }
+    // Cache status.
+    match configure_candidate {
+        ConfigureCacheCandidate::None => {
+            let _ = writeln!(output, "  configure cache candidate: none");
         }
-        let _ = writeln!(
-            output,
-            "  configure result: {}",
-            if configure_reused {
-                "cached plan reused"
-            } else {
-                "build script runner executed"
-            }
-        );
-        let _ = writeln!(
-            output,
-            "  runner executable cache: {}",
-            if runner_cache_reused { "hit" } else { "miss" }
-        );
+        ConfigureCacheCandidate::Present => {
+            let _ = writeln!(output, "  configure cache candidate: present");
+        }
+        ConfigureCacheCandidate::Miss(reason) => {
+            let _ = writeln!(output, "  configure cache candidate: miss ({})", reason);
+        }
     }
+    let _ = writeln!(
+        output,
+        "  configure result: {}",
+        if configure_reused {
+            "cached plan reused"
+        } else {
+            "build script runner executed"
+        }
+    );
+    let _ = writeln!(
+        output,
+        "  runner executable cache: {}",
+        if runner_cache_reused { "hit" } else { "miss" }
+    );
 
     let _ = writeln!(output, "  host target: {}", plan.host_target().name());
     let _ = writeln!(
@@ -1975,15 +1952,9 @@ fn render_action_cache_summary(report: &ExecutionReport) -> String {
     output
 }
 
-/// Renders a stable machine-readable plan summary.
-pub fn render_build_plan_json(plan: &BuildPlan) -> String {
-    build_plan_json_value(plan).to_string() + "\n"
-}
-
-/// Renders the frozen plan together with the invocation decisions used to
-/// produce it. The plan-only renderer remains available to callers without
-/// invocation context.
-pub fn render_build_plan_json_with_context(
+/// Renders a stable machine-readable plan summary with the invocation
+/// decisions used to produce it.
+pub fn render_build_plan_json(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
     configure_candidate: ConfigureCacheCandidate,
@@ -5533,20 +5504,18 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
         let text =
             render_build_explanation(&plan, &invocation, ConfigureCacheCandidate::None, &preview);
-        let plan_summary = render_build_plan_summary(&plan);
-        assert!(plan_summary.contains("build plan:\n"));
-        assert!(!plan_summary.contains("configuration: profile="));
-        let plan_summary_with_cache = render_build_plan_summary_with_configure(
+        let plan_summary = render_build_plan_summary(
             &plan,
             &invocation,
             ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
             true,
             false,
         );
-        assert!(plan_summary_with_cache.contains("configuration: profile="));
-        assert!(plan_summary_with_cache.contains("configure cache candidate: miss (not found)"));
-        assert!(plan_summary_with_cache.contains("configure result: cached plan reused"));
-        assert!(plan_summary_with_cache.contains("runner executable cache: miss"));
+        assert!(plan_summary.contains("build plan:\n"));
+        assert!(plan_summary.contains("configuration: profile="));
+        assert!(plan_summary.contains("configure cache candidate: miss (not found)"));
+        assert!(plan_summary.contains("configure result: cached plan reused"));
+        assert!(plan_summary.contains("runner executable cache: miss"));
         assert!(text.contains(
             "package graph: declared_dependencies=3, resolved_dependencies=2, selected_packages=4"
         ));
@@ -5589,8 +5558,14 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 .all(|dependency| dependency.get("source_root").is_none())
         );
 
-        let plan_json: serde_json::Value =
-            serde_json::from_str(&render_build_plan_json(&plan)).expect("parse plan JSON");
+        let plan_json: serde_json::Value = serde_json::from_str(&render_build_plan_json(
+            &plan,
+            &invocation,
+            ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
+            false,
+            true,
+        ))
+        .expect("parse plan JSON");
         assert_eq!(plan_json["kind"], "build-plan");
         assert_eq!(plan_json["protocol_epoch"], plan.protocol_epoch());
         assert_eq!(
@@ -5610,15 +5585,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         assert!(json["observations"].get("valid").is_some());
         assert!(json["tools"].as_array().is_some());
 
-        let plan_json_with_context: serde_json::Value =
-            serde_json::from_str(&render_build_plan_json_with_context(
-                &plan,
-                &invocation,
-                ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
-                false,
-                true,
-            ))
-            .expect("parse contextual build plan JSON");
+        let plan_json_with_context = plan_json;
         assert_eq!(
             plan_json_with_context["invocation"]["configuration"]["profile"],
             profile_name(invocation.profile)
