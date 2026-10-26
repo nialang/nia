@@ -191,6 +191,100 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 
 #[test]
+fn runner_cache_status_reports_cold_hit_and_invalid_record() {
+    let root = temp_dir("runner_cache_status");
+    std::fs::write(
+        root.join("nia.toml"),
+        format!(
+            "[package]\nname = \"runner-cache-status-{}\"\nversion = \"0.1.0\"\n",
+            std::process::id()
+        ),
+    )
+    .expect("write package manifest");
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n").expect("write source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"
+using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let mut marker: [u8; 64] = [0; 64];
+    _ = b.probeFile(fs::PathView::init(&"src/main.nia"), &mut marker[..]).?;
+    let rootModule = b.addModule(build::ModuleOptions::init(
+        &"main", fs::PathView::init(&"src/main.nia"),
+    )).?;
+    let executable = b.addExecutable(build::ExecutableOptions::init(&"app", rootModule)).?;
+    let check = b.addCheckExecutableStep(&"check", executable).?;
+    b.setDefaultStep(check)
+}
+"#,
+    )
+    .expect("write build script");
+    let _ = std::fs::remove_dir_all(root.join("build"));
+
+    let run = || {
+        let output = support::nia_command()
+            .env("NIA_TEST_SHARED_ARTIFACT_CACHE", root.join("cache"))
+            .args([
+                "build",
+                "--root",
+                root.to_str().unwrap(),
+                "--dry-run",
+                "--print-plan",
+                "--diagnostics-format=json",
+            ])
+            .output_timeout_for_build("inspect runner cache status");
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("parse printed plan")
+    };
+
+    let cold = run();
+    assert!(cold["invocation"]["runner_executable_cache"]["status"].is_string());
+    let warm = run();
+    assert_eq!(
+        warm["invocation"]["runner_executable_cache"]["status"],
+        "hit"
+    );
+
+    let mut pending = vec![root.join("cache")];
+    let cache = 'search: loop {
+        let Some(directory) = pending.pop() else {
+            panic!("runner cache record");
+        };
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.expect("read runner cache entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "cache")
+                && path
+                    .components()
+                    .any(|component| component.as_os_str() == "runner")
+            {
+                break 'search path;
+            }
+        }
+    };
+    let mut bytes = std::fs::read(&cache).expect("read runner cache record");
+    *bytes.last_mut().expect("non-empty runner cache record") ^= 0xff;
+    std::fs::write(cache, bytes).expect("corrupt runner cache record");
+
+    let invalid = run();
+    assert_eq!(
+        invalid["invocation"]["runner_executable_cache"]["miss_reason"]["kind"],
+        "invalid_record"
+    );
+}
+
+#[test]
 fn command_and_tool_probes_reuse_and_invalidate_on_tool_change() {
     let root = temp_dir("build_command_and_tool_probes");
     let (_tool_name, command_path, _contents, argument_count, command_arguments) =
