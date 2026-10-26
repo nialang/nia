@@ -744,7 +744,7 @@ fn optional_and_lazy_dependencies_are_loaded_only_from_imported_sources() {
     }
     std::fs::write(
         root.join("optional/src/root.nia"),
-        "pub fun value() i32 { 7 }\n",
+        "this is intentionally invalid Nia source\n",
     )
     .unwrap();
     std::fs::write(
@@ -808,6 +808,50 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         String::from_utf8_lossy(&unused.stderr)
     );
 
+    let inspect = || {
+        let output = support::nia_command()
+            .args([
+                "build",
+                "--dry-run",
+                "--explain",
+                "--diagnostics-format=json",
+                "--root",
+            ])
+            .arg(&root)
+            .output_timeout_in_session("inspect optional and lazy dependency selection");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|record| record["kind"] == "build-explanation")
+            .expect("build explanation record")
+    };
+    let dependency = |record: &serde_json::Value, name: &str| {
+        record["package_graph"]["declared"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|dependency| dependency["name"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("missing dependency {name}: {record}"))
+    };
+    let unused_explanation = inspect();
+    for name in ["optional", "lazy"] {
+        let dependency = dependency(&unused_explanation, name);
+        assert_eq!(dependency["loaded_modules"], 0, "{name}: {dependency}");
+        assert_eq!(dependency["used"], false, "{name}: {dependency}");
+    }
+
+    std::fs::write(
+        root.join("optional/src/root.nia"),
+        "pub fun value() i32 { 7 }\n",
+    )
+    .unwrap();
+
     std::fs::write(
         root.join("src/main.nia"),
         "using optionalAlias;\nusing std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; _ = optionalAlias::value(); !() }\n",
@@ -823,6 +867,9 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         "{}",
         String::from_utf8_lossy(&selected.stderr)
     );
+    let optional_explanation = inspect();
+    let optional_dependency = dependency(&optional_explanation, "optional");
+    assert_eq!(optional_dependency["used"], true);
 
     std::fs::write(
         root.join("lazy/src/root.nia"),
