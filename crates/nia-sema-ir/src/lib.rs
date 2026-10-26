@@ -408,6 +408,8 @@ pub struct SemanticFacts {
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
     /// Pointer-to-array coercions owned by module-level expressions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Implicit address formation owned by module-level expressions.
+    pub node_address_of_coercions: NodeMap<AddressOfCoercion>,
     /// Mutable-pointer to readonly-pointer coercions owned by module-level expressions.
     pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions owned by module-level expressions.
@@ -450,6 +452,8 @@ pub struct SemanticFactsBuilder {
     /// Module-level pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Module-level implicit address formation.
+    pub node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
     /// Module-level mutable-pointer to readonly-pointer coercions.
     pub node_mutable_to_readonly_coercions:
         FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
@@ -521,6 +525,10 @@ impl SemanticFacts {
             facts.node_pointer_array_to_slice_coercions,
         );
         extend_node_map(
+            &mut self.node_address_of_coercions,
+            facts.node_address_of_coercions,
+        );
+        extend_node_map(
             &mut self.node_mutable_to_readonly_coercions,
             facts.node_mutable_to_readonly_coercions,
         );
@@ -573,6 +581,7 @@ impl SemanticFacts {
                 .node_pointer_array_to_slice_coercions
                 .into_entries()
                 .collect(),
+            node_address_of_coercions: self.node_address_of_coercions.into_entries().collect(),
             node_mutable_to_readonly_coercions: self
                 .node_mutable_to_readonly_coercions
                 .into_entries()
@@ -647,6 +656,17 @@ impl SemanticFacts {
             self.function_facts
                 .values()
                 .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
+        )
+    }
+
+    /// Iterates implicit address formation across all ownership domains.
+    pub fn iter_node_address_of_coercions(
+        &self,
+    ) -> impl Iterator<Item = (VersionedNodeKey, &AddressOfCoercion)> + '_ {
+        self.node_address_of_coercions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_address_of_coercions.iter()),
         )
     }
 
@@ -755,6 +775,9 @@ impl SemanticFactsBuilder {
             for key in facts.node_pointer_array_to_slice_coercions.keys() {
                 self.node_pointer_array_to_slice_coercions.remove(&key);
             }
+            for key in facts.node_address_of_coercions.keys() {
+                self.node_address_of_coercions.remove(&key);
+            }
             for key in facts.node_mutable_to_readonly_coercions.keys() {
                 self.node_mutable_to_readonly_coercions.remove(&key);
             }
@@ -805,6 +828,7 @@ impl SemanticFactsBuilder {
                 store,
                 self.node_pointer_array_to_slice_coercions,
             ),
+            node_address_of_coercions: node_map_from_entries(store, self.node_address_of_coercions),
             node_mutable_to_readonly_coercions: node_map_from_entries(
                 store,
                 self.node_mutable_to_readonly_coercions,
@@ -850,6 +874,8 @@ pub struct FunctionSemanticFacts {
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Implicit address formation.
+    pub node_address_of_coercions: NodeMap<AddressOfCoercion>,
     /// Mutable-pointer to readonly-pointer coercions.
     pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions.
@@ -890,6 +916,8 @@ pub struct FunctionSemanticFactsBuilder {
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Implicit address formation.
+    pub node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
     /// Mutable-pointer to readonly-pointer coercions.
     pub node_mutable_to_readonly_coercions:
         FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
@@ -943,6 +971,7 @@ impl FunctionSemanticFacts {
                 .node_pointer_array_to_slice_coercions
                 .into_entries()
                 .collect(),
+            node_address_of_coercions: self.node_address_of_coercions.into_entries().collect(),
             node_mutable_to_readonly_coercions: self
                 .node_mutable_to_readonly_coercions
                 .into_entries()
@@ -984,6 +1013,7 @@ impl FunctionSemanticFactsBuilder {
             && self.node_expr_types.is_empty()
             && self.node_bracket_suffix_resolutions.is_empty()
             && self.node_pointer_array_to_slice_coercions.is_empty()
+            && self.node_address_of_coercions.is_empty()
             && self.node_mutable_to_readonly_coercions.is_empty()
             && self.node_function_pointer_to_callable_coercions.is_empty()
             && self.node_trait_object_coercions.is_empty()
@@ -1012,6 +1042,7 @@ impl FunctionSemanticFactsBuilder {
                 store,
                 self.node_pointer_array_to_slice_coercions,
             ),
+            node_address_of_coercions: node_map_from_entries(store, self.node_address_of_coercions),
             node_mutable_to_readonly_coercions: node_map_from_entries(
                 store,
                 self.node_mutable_to_readonly_coercions,
@@ -1116,6 +1147,17 @@ pub struct PointerArrayToSliceCoercion {
     /// Result slice type.
     pub slice_ty: InternedTyId,
     /// Whether the resulting slice forbids mutation.
+    pub is_readonly: bool,
+}
+
+/// Implicit address formation for an expected pointer type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddressOfCoercion {
+    /// Source value type before address formation.
+    pub source_ty: InternedTyId,
+    /// Result pointer type.
+    pub target_ty: InternedTyId,
+    /// Whether the generated pointer is writable.
     pub is_readonly: bool,
 }
 

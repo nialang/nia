@@ -316,6 +316,63 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
+        if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
+            let actual_receiver_ty = self.normalization.normalize(actual_receiver_ty);
+            let mutable_address =
+                self.is_place_expr(receiver) && self.not_assignable_reason(receiver).is_none();
+            let mut address_types = Vec::with_capacity(2);
+            if mutable_address {
+                address_types.push(self.interner.intern(TyKind::Pointer {
+                    is_readonly: false,
+                    elem: actual_receiver_ty,
+                }));
+            }
+            address_types.push(self.interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: actual_receiver_ty,
+            }));
+            address_types.dedup();
+
+            for address_ty in address_types {
+                let (address_candidates, address_trait_candidates, address_traits_searched) =
+                    self.method_candidates_and_traits(address_ty, name);
+                let address_dynamic_ty = self.dynamic_trait_object_receiver_ty(address_ty);
+                let address_dynamic_candidates =
+                    self.dynamic_method_candidates(address_dynamic_ty, name);
+                if !address_candidates.is_empty()
+                    || !address_trait_candidates.is_empty()
+                    || !address_dynamic_candidates.is_empty()
+                {
+                    return MethodReceiverResolution {
+                        receiver_ty: address_dynamic_ty.unwrap_or(address_ty),
+                        candidates: address_candidates,
+                        trait_candidates: address_trait_candidates,
+                        dynamic_candidates: address_dynamic_candidates,
+                        trait_candidates_searched: address_traits_searched,
+                    };
+                }
+                if let Some(slice_ty) = self.pointer_array_method_receiver_slice_ty(address_ty) {
+                    let (slice_candidates, slice_trait_candidates, slice_traits_searched) =
+                        self.method_candidates_and_traits(slice_ty, name);
+                    let slice_dynamic_ty = self.dynamic_trait_object_receiver_ty(slice_ty);
+                    let slice_dynamic_candidates =
+                        self.dynamic_method_candidates(slice_dynamic_ty, name);
+                    if !slice_candidates.is_empty()
+                        || !slice_trait_candidates.is_empty()
+                        || !slice_dynamic_candidates.is_empty()
+                    {
+                        return MethodReceiverResolution {
+                            receiver_ty: slice_dynamic_ty.unwrap_or(slice_ty),
+                            candidates: slice_candidates,
+                            trait_candidates: slice_trait_candidates,
+                            dynamic_candidates: slice_dynamic_candidates,
+                            trait_candidates_searched: slice_traits_searched,
+                        };
+                    }
+                }
+            }
+        }
+
         let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
         if candidates.is_empty()
             && trait_candidates.is_empty()
@@ -557,6 +614,9 @@ impl<'a> BodyChecker<'a> {
             call.actual_receiver_ty,
             receiver_kind,
         );
+        let auto_addressed = self
+            .coerce_auto_address(call.receiver, receiver_expected_ty, call.actual_receiver_ty)
+            .is_some();
         if self
             .coerce_method_receiver_to_trait_object(
                 call.receiver,
@@ -565,6 +625,7 @@ impl<'a> BodyChecker<'a> {
                 receiver_kind,
             )
             .is_none()
+            && !auto_addressed
         {
             self.expect_expr_type(
                 call.receiver,

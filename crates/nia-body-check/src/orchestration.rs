@@ -175,6 +175,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         node_expr_types: FastHashMap::default(),
         node_bracket_suffix_resolutions: FastHashMap::default(),
         node_pointer_array_to_slice_coercions: FastHashMap::default(),
+        node_address_of_coercions: FastHashMap::default(),
         node_mutable_to_readonly_coercions: FastHashMap::default(),
         node_function_pointer_to_callable_coercions: FastHashMap::default(),
         node_trait_object_coercions: FastHashMap::default(),
@@ -277,6 +278,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
+            node_address_of_coercions: checker.node_address_of_coercions,
             node_mutable_to_readonly_coercions: checker.node_mutable_to_readonly_coercions,
             node_function_pointer_to_callable_coercions: checker
                 .node_function_pointer_to_callable_coercions,

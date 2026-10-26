@@ -392,7 +392,7 @@ facts. It publishes two products with different consumers:
 | SemanticFacts|  | BodyIr       |
 | expression   |  | typed body   |
 | types/calls  |  | static init  |
-| coercions    |  | source shape |
+| adaptations  |  | source shape |
 +------+-------+  +------+-------+
        |                 |
        | reachability    | lowering
@@ -433,6 +433,14 @@ Function lowering and backend lowering therefore never resolve names again. The
 callee carries the complete identity required for instance planning; trait
 arguments, method arguments, const arguments, and receiver substitutions remain
 separate fields.
+
+Expected-type adaptations are semantic facts as well. In particular, implicit
+address formation is recorded separately from pointer-array-to-slice views:
+`T -> &T` may create storage, while `&[T; N] -> &[T]` creates a slice view.
+Lowering consumes both facts in order and never reconstructs an address
+adjustment from source syntax. Explicit `as` casts and `. ?` error conversions
+remain separate operations because they have different evaluation and
+dispatch rules.
 
 ### 4.3 Executable Closure And Backend Partitioning
 

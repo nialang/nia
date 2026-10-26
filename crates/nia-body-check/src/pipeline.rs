@@ -98,6 +98,7 @@ impl<'a> BodyChecker<'a> {
         self.node_expr_types = facts.node_expr_types;
         self.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
         self.node_pointer_array_to_slice_coercions = facts.node_pointer_array_to_slice_coercions;
+        self.node_address_of_coercions = facts.node_address_of_coercions;
         self.node_mutable_to_readonly_coercions = facts.node_mutable_to_readonly_coercions;
         self.node_function_pointer_to_callable_coercions =
             facts.node_function_pointer_to_callable_coercions;

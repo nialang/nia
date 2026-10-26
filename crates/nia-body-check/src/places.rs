@@ -199,7 +199,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn not_materializable_reason(&self, ty: Option<InternedTyId>) -> Option<&'static str> {
+    pub(crate) fn not_materializable_reason(
+        &self,
+        ty: Option<InternedTyId>,
+    ) -> Option<&'static str> {
         let Some(ty) = ty else {
             return Some("expression type is not known");
         };
@@ -210,7 +213,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn not_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+    pub(crate) fn not_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
         if self.qualified_value(expr).is_some() {
             return None;
         }
@@ -261,7 +264,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+    pub(crate) fn not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
         if self.qualified_value(expr).is_some() {
             return Some("cross-module value is not assignable");
         }

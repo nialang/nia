@@ -346,6 +346,15 @@ accepted where `&T` is expected; every other pointer conversion is an explicit
 [cast](#casts). There is no pointer arithmetic: cast to `usize`, compute, and
 cast back.
 
+When an expression is used where `&T` is expected, Nia may take its address
+implicitly. Places and materializable temporary values are eligible for a
+read-only address. An expected `&mut T` may be formed implicitly only from a
+writable place; it never creates mutable access to a temporary or a read-only
+value. This applies to arguments, initializers, returns, and method receivers.
+The adjustment is performed at most once. Array values can therefore reach a
+slice parameter through the two explicit semantic steps `T -> &T` and
+`&[T; N] -> &[T]`; an array value is still not itself a slice.
+
 `&place` takes a read-only pointer and `&mut place` a writable one; `&mut`
 requires a writable place. `p.*` dereferences. Reads and writes through `^T`
 and `^mut T` are volatile accesses; `^T` cannot be written through.

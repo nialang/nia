@@ -719,6 +719,25 @@ impl<'a> BodyChecker<'a> {
             };
         }
         if let Some(coercion) = self
+            .node_address_of_coercions
+            .get(&expr.node_key)
+            .copied()
+            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.target_ty))
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.target_ty,
+                kind: TypedExprKind::Unary {
+                    op: if coercion.is_readonly {
+                        UnaryOp::RefReadOnly
+                    } else {
+                        UnaryOp::Ref
+                    },
+                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
+                },
+            };
+        }
+        if let Some(coercion) = self
             .node_function_pointer_to_callable_coercions
             .get(&expr.node_key)
             .copied()

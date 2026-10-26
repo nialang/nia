@@ -1089,11 +1089,11 @@ fun make() i32 {
 }
 
 #[test]
-fn rejects_general_array_value_to_slice_coercions() {
+fn keeps_array_to_slice_casts_explicit_while_allowing_auto_address() {
     let checked = pipeline(
         r#"
 fun take(xs: &[i32]) i32 {
-    xs.len() as i32
+    xs[0]
 }
 
 fun main() i32 {
@@ -1112,11 +1112,9 @@ fun main() i32 {
         .map(|diagnostic| diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert!(
-        messages
+        !messages
             .iter()
-            .filter(|message| message.contains("expected &[i32], got [i32; 2]"))
-            .count()
-            >= 3,
+            .any(|message| message.contains("expected &[i32], got [i32; 2]")),
         "{messages:?}"
     );
     assert!(
@@ -1130,8 +1128,35 @@ fun main() i32 {
 }
 
 #[test]
-fn rejects_string_array_values_without_an_explicit_address() {
+fn automatically_addresses_values_for_slice_parameters() {
     let checked = pipeline(
+        r#"
+fun take(xs: &[i32]) i32 { xs[0] }
+
+fun main() i32 {
+    let values: [i32; 2] = [1, 2];
+    take(values) + take([3, 4])
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .count()
+            >= 2,
+        "{:?}",
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn automatically_addresses_string_array_values_for_slice_parameters() {
+    let checked = pipeline_with_len_provider(
         r#"
 fun take_text(text: &[char]) usize {
     text.len()
@@ -1148,26 +1173,59 @@ fun main() usize {
 }
 "#,
     );
-    let messages = checked
-        .diagnostics
-        .iter()
-        .map(|diagnostic| diagnostic.summary.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        messages
-            .iter()
-            .filter(|message| message.contains("expected &[char], got [char; 3]"))
-            .count(),
-        2,
-        "{messages:?}"
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .count()
+            >= 4,
+        "{:?}",
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .collect::<Vec<_>>()
     );
-    assert_eq!(
-        messages
+}
+
+#[test]
+fn automatically_addresses_readonly_and_mutable_pointer_parameters() {
+    let checked = pipeline(
+        r#"
+fun read(value: &i32) i32 { value.* }
+
+fun write(value: &mut i32) i32 {
+    value.* = value.* + 1;
+    value.*
+}
+
+fun main() i32 {
+    let mut value = 4;
+    read(value) + write(value)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_automatic_mutable_address_of_readonly_values() {
+    let checked = pipeline(
+        r#"
+fun write(value: &mut i32) () { value.* = 1; }
+
+fun main(value: &i32) () {
+    write(value)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
             .iter()
-            .filter(|message| message.contains("expected &[u8], got [u8; 3]"))
-            .count(),
-        2,
-        "{messages:?}"
+            .any(|diagnostic| diagnostic.summary.contains("expected &mut i32")),
+        "{:?}",
+        checked.diagnostics
     );
 }
 

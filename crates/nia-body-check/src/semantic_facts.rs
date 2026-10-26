@@ -273,6 +273,11 @@ impl<'a> BodyChecker<'a> {
             .insert(expr.node_key.clone(), coercion);
     }
 
+    pub(super) fn record_address_of_coercion(&mut self, expr: &Expr, coercion: AddressOfCoercion) {
+        self.node_address_of_coercions
+            .insert(expr.node_key.clone(), coercion);
+    }
+
     pub(super) fn record_function_pointer_to_callable_coercion(
         &mut self,
         expr: &Expr,
@@ -362,6 +367,10 @@ impl<'a> BodyChecker<'a> {
         std::mem::swap(
             &mut self.node_pointer_array_to_slice_coercions,
             &mut facts.node_pointer_array_to_slice_coercions,
+        );
+        std::mem::swap(
+            &mut self.node_address_of_coercions,
+            &mut facts.node_address_of_coercions,
         );
         std::mem::swap(
             &mut self.node_mutable_to_readonly_coercions,

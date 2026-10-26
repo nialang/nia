@@ -1880,6 +1880,30 @@ fun main() () {
 }
 
 #[test]
+fn automatically_addresses_array_method_receivers() {
+    let checked = pipeline_with_len_provider(
+        r#"
+extend[T] [T]
+where T: Sized
+{
+    fun count(&self) usize { self.len() }
+
+    fun replaceFirst(&mut self, value: T) () {
+        self[0] = value;
+    }
+}
+
+fun main() usize {
+    let mut values: [i32; 2] = [1, 2];
+    values.replaceFirst(9);
+    values.count()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"
@@ -1891,6 +1915,10 @@ extend[T] &T {
     fun zero() usize {
         0usize
     }
+
+    fun marker(self) i32 {
+        3
+    }
 }
 
 extend[T] [T; 3] {
@@ -1899,12 +1927,12 @@ extend[T] [T; 3] {
     }
 }
 
-fun main(ptr: &u8, triple: [i32; 3]) i32 {
+fun main(ptr: &u8, triple: [i32; 3], value: i32) i32 {
     let is_null: &fun(&u8) bool = & [&u8]::is_null;
     let zero: &fun() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
-    [[i32; 3]]::first(triple) + zero() as i32
+    [[i32; 3]]::first(triple) + zero() as i32 + value.marker()
 }
 "#,
     );

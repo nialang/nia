@@ -11,7 +11,8 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_hash::FastHashMap;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::{
-    FunctionPointerToCallableCoercion, MutableToReadonlyCoercion, PointerArrayToSliceCoercion,
+    AddressOfCoercion, FunctionPointerToCallableCoercion, MutableToReadonlyCoercion,
+    PointerArrayToSliceCoercion,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
@@ -38,6 +39,124 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn expected_literal_type_for_auto_address(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let expected = expected?;
+        if !matches!(expr.kind, ExprKind::ArrayLiteral { .. }) {
+            return Some(expected);
+        }
+        let expected = self.normalization.normalize(expected);
+        match self.interner.get(expected).cloned() {
+            Some(TyKind::Pointer { elem, .. }) => {
+                let elem = self.normalization.normalize(elem);
+                match self.interner.get(elem).cloned() {
+                    Some(TyKind::Array { .. }) => Some(elem),
+                    Some(TyKind::Slice { elem, .. }) => Some(self.interner.intern(TyKind::Array {
+                        len: ArrayLenTy::Infer,
+                        elem,
+                    })),
+                    _ => Some(expected),
+                }
+            }
+            Some(TyKind::Slice { elem, .. }) => Some(self.interner.intern(TyKind::Array {
+                len: ArrayLenTy::Infer,
+                elem,
+            })),
+            _ => Some(expected),
+        }
+    }
+
+    pub(crate) fn coerce_auto_address(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let actual = self.normalization.normalize(actual);
+        let (is_readonly, expected_elem, expected_is_slice) =
+            match self.interner.get(expected).cloned() {
+                Some(TyKind::Pointer { is_readonly, elem }) => {
+                    (is_readonly, self.normalization.normalize(elem), false)
+                }
+                Some(TyKind::Slice { is_readonly, elem }) => {
+                    (is_readonly, self.normalization.normalize(elem), true)
+                }
+                _ => return None,
+            };
+        if !is_readonly {
+            if !self.is_place_expr(expr) || self.not_assignable_reason(expr).is_some() {
+                return None;
+            }
+        } else if self.is_place_expr(expr) {
+            if self.not_addressable_reason(expr).is_some() {
+                return None;
+            }
+        } else if self.not_materializable_reason(Some(actual)).is_some() {
+            return None;
+        }
+
+        if !expected_is_slice && self.types_match(actual, expected_elem) {
+            self.record_address_of_coercion(
+                expr,
+                AddressOfCoercion {
+                    source_ty: actual,
+                    target_ty: expected,
+                    is_readonly,
+                },
+            );
+            return Some(expected);
+        }
+
+        let (expected_slice_elem, slice_readonly) = if expected_is_slice {
+            (expected_elem, is_readonly)
+        } else {
+            let Some(TyKind::Slice { elem, is_readonly }) =
+                self.interner.get(expected_elem).cloned()
+            else {
+                return None;
+            };
+            (self.normalization.normalize(elem), is_readonly)
+        };
+        let Some(TyKind::Array {
+            elem: actual_array_elem,
+            ..
+        }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        if !self.types_match(actual_array_elem, expected_slice_elem)
+            || (!is_readonly && slice_readonly)
+        {
+            return None;
+        }
+        let pointer_ty = self.interner.intern(TyKind::Pointer {
+            is_readonly,
+            elem: actual,
+        });
+        self.record_address_of_coercion(
+            expr,
+            AddressOfCoercion {
+                source_ty: actual,
+                target_ty: pointer_ty,
+                is_readonly,
+            },
+        );
+        self.record_pointer_array_to_slice_node_coercion(
+            expr,
+            PointerArrayToSliceCoercion {
+                pointer_ty,
+                array_ty: actual,
+                slice_ty: expected,
+                is_readonly: slice_readonly,
+            },
+        );
+        Some(expected)
+    }
+
     pub(crate) fn tuple_field_type(
         &mut self,
         span: Span,
@@ -1842,6 +1961,7 @@ impl<'a> BodyChecker<'a> {
             node_expr_types: FastHashMap::default(),
             node_bracket_suffix_resolutions: FastHashMap::default(),
             node_pointer_array_to_slice_coercions: FastHashMap::default(),
+            node_address_of_coercions: FastHashMap::default(),
             node_mutable_to_readonly_coercions: FastHashMap::default(),
             node_function_pointer_to_callable_coercions: FastHashMap::default(),
             node_trait_object_coercions: FastHashMap::default(),

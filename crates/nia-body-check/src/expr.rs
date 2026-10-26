@@ -56,6 +56,8 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        let adaptation_expected = expected;
+        let expected = self.expected_literal_type_for_auto_address(expr, expected);
         if expr_allows_expected_const_projection(expr)
             && let Some(ty) = expected
                 .and_then(|expected| self.expected_const_expr_runtime_projection(expr, expected))
@@ -497,9 +499,10 @@ impl<'a> BodyChecker<'a> {
             ExprKind::IfPatternChain(chain) => self.check_if_pattern_chain_expr(chain, expected),
             ExprKind::Match(matched) => self.check_match_expr(matched, expected),
         };
-        let ty = if let Some(expected) = expected {
+        let ty = if let Some(expected) = adaptation_expected {
             let actual = ty;
-            self.coerce_pointer_array_to_slice(expr, expected, actual)
+            self.coerce_auto_address(expr, expected, actual)
+                .or_else(|| self.coerce_pointer_array_to_slice(expr, expected, actual))
                 .or_else(|| {
                     self.coerce_mutable_pointer_to_readonly(expected, actual)
                         .inspect(|target_ty| {
