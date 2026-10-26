@@ -1546,11 +1546,18 @@ pub fn render_build_explanation_with_observations(
             usage.used,
         );
     }
-    let _ = writeln!(
-        output,
-        "  configure cache candidate: {}",
-        configure_candidate
-    );
+    match &configure_candidate {
+        ConfigureCacheCandidate::None => {
+            let _ = writeln!(output, "  configure cache: none (no matching record)");
+        }
+        ConfigureCacheCandidate::Present => {
+            let _ = writeln!(output, "  configure cache: present (reused)");
+        }
+        ConfigureCacheCandidate::Miss(reason) => {
+            let _ = writeln!(output, "  configure cache: miss");
+            let _ = writeln!(output, "    reason: {}", reason);
+        }
+    }
     let _ = writeln!(
         output,
         "  selected step: {}",
@@ -2063,13 +2070,55 @@ pub fn render_build_explanation_json_with_observations(
 }
 
 fn render_configure_cache_json(candidate: ConfigureCacheCandidate, runner_reused: bool) -> String {
-    serde_json::json!({
+    let mut json = serde_json::json!({
         "kind": "configure-cache",
-        "candidate": candidate.to_string(),
         "runner": if runner_reused { "reused" } else { "executed" },
-    })
-    .to_string()
-        + "\n"
+    });
+
+    match candidate {
+        ConfigureCacheCandidate::None => {
+            json["status"] = serde_json::json!("none");
+            json["candidate"] = serde_json::json!("none");
+        }
+        ConfigureCacheCandidate::Present => {
+            json["status"] = serde_json::json!("hit");
+            json["candidate"] = serde_json::json!("present");
+        }
+        ConfigureCacheCandidate::Miss(reason) => {
+            json["status"] = serde_json::json!("miss");
+            json["candidate"] = serde_json::json!("miss");
+            json["miss_reason"] = match reason {
+                ConfigureCacheMissReason::NotFound => {
+                    serde_json::json!({
+                        "kind": "not_found",
+                        "description": "no matching record"
+                    })
+                }
+                ConfigureCacheMissReason::ObservationChanged { path } => {
+                    serde_json::json!({
+                        "kind": "observation_changed",
+                        "description": "observation changed",
+                        "path": path.display().to_string()
+                    })
+                }
+                ConfigureCacheMissReason::ObservationMissing { path } => {
+                    serde_json::json!({
+                        "kind": "observation_missing",
+                        "description": "observation missing",
+                        "path": path.display().to_string()
+                    })
+                }
+                ConfigureCacheMissReason::Poisoned => {
+                    serde_json::json!({
+                        "kind": "poisoned",
+                        "description": "poisoned observation policy"
+                    })
+                }
+            };
+        }
+    }
+
+    json.to_string() + "\n"
 }
 
 fn render_configure_observations_json(bytes: &[u8]) -> String {
