@@ -590,15 +590,6 @@ extend PlanEncoder {
         }
         self.writeTarget(build.hostTarget()).?;
         self.writeTarget(build.artifactTarget()).?;
-        // Invocation-owned configuration is bound by the host after decode.
-        // The runner still writes a complete typed record so the plan codec
-        // never has an implicit or position-dependent fallback.
-        self.writeU8(0).?; // debug profile
-        self.writeOptimization(build.defaultOptimization).?;
-        self.writeU8(0).?; // static linkage
-        self.writeU8(0).?; // LTO off
-        self.writeU8(0).?; // abort panics
-        self.writeU8(0).?; // no debug information
         self.writeCount(build.modules.len()).?;
         for &moduleRecord in build.modules.iter() {
             self.writeModule(moduleRecord, build.packages.asSlice()).?;

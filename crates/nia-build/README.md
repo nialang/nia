@@ -141,21 +141,17 @@ runner storage, or raw compiler argument vector.
 The std builder rejects foreign handles before encoding. `BuildPlan::freeze`
 then canonicalizes graph order and rejects invalid names and paths, duplicate
 identities, unresolved references, dependency cycles, conflicting output
-ownership, target mismatches, missing producer closure, and module import
-cycles. Protocol decoding repeats these semantic checks rather than trusting
-runner-produced bytes. `BuildPlan::package_graph`, `module_graph`, and
-`artifact_graph` are borrowed views over the frozen tables.
+ownership, target mismatches, and missing producer closure. Protocol decoding
+repeats these semantic checks rather than trusting runner-produced bytes.
+Module imports may form cycles; name resolution across them belongs to the
+compiler's using graph.
 
-The frozen plan carries one typed `BuildConfiguration` record alongside its
-target pair: profile, optimization, linkage, final-link LTO, panic strategy,
-and debug information. The host binds it from the invocation after decoding the
-runner's draft (`BuildPlan::with_configuration`), overwriting what the runner
-encoded, and the plan model rejects combinations without an executable owner,
-such as LTO on a plan with no executable. The record is part of the plan bytes
-and compiler action identities. Linkage, panic strategy, and debug information
-are currently always `Static`, `Abort`, and `None`. Artifact runtime remains an
-artifact-owned field, so runtime changes retain their own action invalidation
-reason.
+Profile, default optimization, and final-link LTO are invocation settings, not
+plan fields: the runner receives the default optimization, each module carries
+its effective level, and the coordinator passes profile and LTO to the
+compiler and linker. Each enters the cache identity of the actions it affects
+(`--explain` reports all three). Runtime is an artifact-owned field with its
+own invalidation reason.
 
 Targets cross the runner and plan protocols as canonical target names such as
 `aarch64-apple-macos`. Decoding rejects a name outside the maintained target

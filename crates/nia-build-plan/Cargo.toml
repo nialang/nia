@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 nia-target.workspace = true
-nia-target-config.workspace = true
 nia-compat.workspace = true
 blake3.workspace = true
 

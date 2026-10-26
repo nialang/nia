@@ -10,7 +10,6 @@ use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
 use nia_target::TargetConfig;
-use nia_target_config::BuildProfile;
 
 /// Reserved build-output directory used for atomic publication transactions.
 ///
@@ -263,10 +262,9 @@ impl LogicalPath {
 }
 
 /// Optimization level encoded into compiler actions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptimizationMode {
     /// No optimization.
-    #[default]
     O0,
     /// Basic optimization.
     O1,
@@ -287,88 +285,6 @@ pub enum Runtime {
     Bare,
     /// Freestanding runtime support is linked.
     Freestanding,
-}
-
-/// Linkage model owned by a final artifact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum Linkage {
-    /// Produce a self-contained static product.
-    #[default]
-    Static,
-    /// Produce a dynamically linked product when the target toolchain supports it.
-    Dynamic,
-}
-
-/// Cross-module optimization policy for a final executable link.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum LinkTimeOptimization {
-    /// Emit and link independent native objects.
-    #[default]
-    Off,
-    /// Use ThinLTO summaries and importing backends.
-    Thin,
-    /// Merge and optimize the complete linkage unit.
-    Full,
-}
-
-/// Panic strategy selected for generated code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum PanicStrategy {
-    /// Lower panics to the target trap/abort path.
-    #[default]
-    Abort,
-    /// Preserve unwind edges for a compatible runtime.
-    Unwind,
-}
-
-/// Debug information emitted by compiler actions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum DebugInfo {
-    /// Do not emit debug information.
-    #[default]
-    None,
-    /// Emit line tables only.
-    LineTables,
-    /// Emit complete source and type information.
-    Full,
-}
-
-/// Typed invocation configuration included in plan identity and cache keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct BuildConfiguration {
-    /// Profile used for profile-conditional source selection.
-    pub profile: BuildProfile,
-    /// Optimization level used by compiler actions.
-    pub optimization: OptimizationMode,
-    /// Linkage model owned by final products.
-    pub linkage: Linkage,
-    /// Final executable cross-module optimization policy.
-    pub lto: LinkTimeOptimization,
-    /// Panic lowering policy.
-    pub panic: PanicStrategy,
-    /// Debug information policy.
-    pub debug_info: DebugInfo,
-}
-
-impl BuildConfiguration {
-    /// Validates configuration combinations that cannot be represented by an artifact.
-    pub fn validate_for(&self, artifacts: &[PlanArtifact]) -> Result<(), &'static str> {
-        let executable = artifacts
-            .iter()
-            .find(|artifact| artifact.kind == PlanArtifactKind::Executable);
-        if self.lto != LinkTimeOptimization::Off && executable.is_none() {
-            return Err("LTO requires an executable artifact");
-        }
-        if self.linkage == Linkage::Dynamic && executable.is_none() {
-            return Err("dynamic linkage requires an executable artifact");
-        }
-        if self.panic == PanicStrategy::Unwind
-            && executable.is_some_and(|artifact| artifact.runtime == Runtime::Bare)
-        {
-            return Err("unwind panic strategy requires a runtime-backed executable");
-        }
-        Ok(())
-    }
 }
 
 /// Whether a compilation includes test-only source.
@@ -762,7 +678,6 @@ pub struct BuildPlan {
     packages: Vec<PlanPackage>,
     host_target: TargetConfig,
     artifact_target: TargetConfig,
-    configuration: BuildConfiguration,
     modules: Vec<PlanModule>,
     artifacts: Vec<PlanArtifact>,
     actions: Vec<PlanAction>,
@@ -892,11 +807,6 @@ pub enum PlanError {
         path: Box<LogicalPath>,
         /// Producing action absent from the closure.
         producer: Box<ActionKey>,
-    },
-    /// The typed build configuration cannot be represented by the declared artifacts.
-    InvalidConfiguration {
-        /// Stable semantic reason for the rejected combination.
-        reason: &'static str,
     },
 }
 
@@ -1052,9 +962,6 @@ impl fmt::Display for PlanError {
                 display_logical_path(path),
                 display_node_key(producer.as_ref())
             ),
-            Self::InvalidConfiguration { reason } => {
-                write!(f, "invalid build configuration: {reason}")
-            }
         }
     }
 }
@@ -1126,7 +1033,6 @@ impl BuildPlan {
             packages: draft.packages,
             host_target: draft.host_target,
             artifact_target: draft.artifact_target,
-            configuration: BuildConfiguration::default(),
             modules: draft.modules,
             artifacts: draft.artifacts,
             actions: draft.actions,
@@ -1189,25 +1095,6 @@ impl BuildPlan {
     pub fn artifact_target(&self) -> &TargetConfig {
         &self.artifact_target
     }
-    /// Returns the typed invocation configuration bound to this plan.
-    pub fn configuration(&self) -> BuildConfiguration {
-        self.configuration
-    }
-
-    /// Binds invocation-owned configuration after the runner draft is decoded.
-    ///
-    /// The returned plan remains immutable and is revalidated before it can be
-    /// published or executed.
-    pub fn with_configuration(
-        mut self,
-        configuration: BuildConfiguration,
-    ) -> Result<Self, PlanError> {
-        configuration
-            .validate_for(&self.artifacts)
-            .map_err(|reason| PlanError::InvalidConfiguration { reason })?;
-        self.configuration = configuration;
-        Ok(self)
-    }
     /// Returns canonical module declarations.
     pub fn modules(&self) -> &[PlanModule] {
         &self.modules
@@ -1268,64 +1155,6 @@ mod tests {
             BuildPlan::freeze(draft(false)).unwrap(),
             BuildPlan::freeze(draft(true)).unwrap()
         );
-    }
-
-    #[test]
-    fn typed_configuration_changes_plan_identity() {
-        let base = BuildPlan::freeze(draft(false)).unwrap();
-        let release = base
-            .clone()
-            .with_configuration(BuildConfiguration {
-                profile: BuildProfile::Release,
-                ..BuildConfiguration::default()
-            })
-            .unwrap();
-        let debug_bytes = base.encode().unwrap();
-        let release_bytes = release.encode().unwrap();
-        assert_ne!(debug_bytes, release_bytes);
-        assert_eq!(release.configuration().profile, BuildProfile::Release);
-        assert_eq!(
-            BuildPlan::decode(&release_bytes).unwrap().configuration(),
-            release.configuration()
-        );
-    }
-
-    #[test]
-    fn typed_configuration_rejects_incompatible_artifact_combinations() {
-        let base = BuildPlan::freeze(draft(false)).unwrap();
-        let error = base
-            .clone()
-            .with_configuration(BuildConfiguration {
-                lto: LinkTimeOptimization::Thin,
-                ..BuildConfiguration::default()
-            })
-            .unwrap();
-        assert_eq!(error.configuration().lto, LinkTimeOptimization::Thin);
-
-        let mut empty = draft(false);
-        empty.modules.clear();
-        empty.artifacts.clear();
-        empty.actions.clear();
-        empty.steps.clear();
-        empty.default_step = None;
-        let empty = BuildPlan::freeze(empty).unwrap();
-        let lto = empty.with_configuration(BuildConfiguration {
-            lto: LinkTimeOptimization::Thin,
-            ..BuildConfiguration::default()
-        });
-        assert!(matches!(lto, Err(PlanError::InvalidConfiguration { .. })));
-
-        let mut bare = draft(false);
-        bare.artifacts[0].runtime = Runtime::Bare;
-        let plan = BuildPlan::freeze(bare).unwrap();
-        let unwind = plan.with_configuration(BuildConfiguration {
-            panic: PanicStrategy::Unwind,
-            ..BuildConfiguration::default()
-        });
-        assert!(matches!(
-            unwind,
-            Err(PlanError::InvalidConfiguration { .. })
-        ));
     }
 
     #[test]

@@ -822,7 +822,6 @@ dependencies = [
  "blake3",
  "nia-compat",
  "nia-target",
- "nia-target-config",
 ]
 
 [[package]]
