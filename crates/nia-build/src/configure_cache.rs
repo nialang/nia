@@ -23,8 +23,8 @@ use crate::{
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CONFIGURE_CACHE_ENTRIES: usize = 4096;
-const INVOCATION_IDENTITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new(nia_compat::identities::BUILD_INVOCATION.name);
+const INVOCATION_IDENTITY_DOMAIN: nia_compat::IdentityDomain =
+    nia_compat::identities::BUILD_INVOCATION;
 const CONFIGURE_CACHE_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.configure-cache");
 const CONFIGURE_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
@@ -82,24 +82,22 @@ impl BuildInvocationIdentity {
 
     /// Encodes the identity under the registered protocol domain.
     pub fn encode(&self) -> Vec<u8> {
-        let mut encoded = Vec::new();
-        encoded.extend_from_slice(INVOCATION_IDENTITY_DOMAIN.as_str().as_bytes());
-        encoded.extend_from_slice(b"\0\x01");
-        write_identity_field(&mut encoded, &self.package_source_fingerprint);
-        write_identity_field(&mut encoded, self.host_target.as_bytes());
-        write_identity_field(&mut encoded, self.artifact_target.as_bytes());
-        encoded.push(profile_tag(self.profile));
-        encoded.push(optimization_tag(self.optimization));
-        encoded.push(link_time_optimization_tag(self.link_time_optimization));
+        let mut encoder = nia_compat::IdentityEncoder::new(INVOCATION_IDENTITY_DOMAIN);
+        encoder.write_bytes(&self.package_source_fingerprint);
+        encoder.write_str(&self.host_target);
+        encoder.write_str(&self.artifact_target);
+        encoder.write_tag(profile_tag(self.profile));
+        encoder.write_tag(optimization_tag(self.optimization));
+        encoder.write_tag(link_time_optimization_tag(self.link_time_optimization));
         match &self.step {
-            crate::BuildStepSelection::Default => encoded.push(0),
-            crate::BuildStepSelection::List => encoded.push(1),
+            crate::BuildStepSelection::Default => encoder.write_tag(0),
+            crate::BuildStepSelection::List => encoder.write_tag(1),
             crate::BuildStepSelection::Named(name) => {
-                encoded.push(2);
-                write_identity_field(&mut encoded, name.as_bytes());
+                encoder.write_tag(2);
+                encoder.write_str(name);
             }
         }
-        encoded
+        encoder.finish()
     }
 
     /// Returns the stable hexadecimal identity used by cache records.
@@ -111,24 +109,18 @@ impl BuildInvocationIdentity {
     /// Artifact optimization and selected build steps belong to later plan
     /// execution and must not invalidate the reusable host runner.
     pub fn encode_runner(&self) -> Vec<u8> {
-        let mut encoded = Vec::new();
-        encoded.extend_from_slice(nia_compat::identities::RUNNER_INVOCATION.name.as_bytes());
-        encoded.extend_from_slice(b"\0\x01");
-        write_identity_field(&mut encoded, self.host_target.as_bytes());
-        encoded.push(profile_tag(self.profile));
-        encoded.push(link_time_optimization_tag(self.link_time_optimization));
-        encoded
+        let mut encoder =
+            nia_compat::IdentityEncoder::new(nia_compat::identities::RUNNER_INVOCATION);
+        encoder.write_str(&self.host_target);
+        encoder.write_tag(profile_tag(self.profile));
+        encoder.write_tag(link_time_optimization_tag(self.link_time_optimization));
+        encoder.finish()
     }
 }
 
 /// Builds the invocation portion of the configure identity from typed policy fields.
 pub fn invocation_identity(invocation: &BuildInvocation) -> String {
     BuildInvocationIdentity::from_invocation(invocation).key()
-}
-
-fn write_identity_field(encoded: &mut Vec<u8>, value: &[u8]) {
-    encoded.extend_from_slice(&(value.len() as u64).to_le_bytes());
-    encoded.extend_from_slice(value);
 }
 
 fn profile_tag(profile: nia_target_config::BuildProfile) -> u8 {

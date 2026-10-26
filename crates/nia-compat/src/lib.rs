@@ -348,6 +348,49 @@ impl IdentityDomain {
     }
 }
 
+/// Canonical length-prefixed encoder shared by identity producers.
+#[derive(Debug, Default)]
+pub struct IdentityEncoder {
+    bytes: Vec<u8>,
+}
+
+impl IdentityEncoder {
+    /// Starts an identity under a registered domain and schema generation.
+    pub fn new(domain: IdentityDomain) -> Self {
+        let mut encoder = Self::default();
+        encoder.bytes.extend_from_slice(domain.name.as_bytes());
+        encoder.bytes.extend_from_slice(b"\0\x01");
+        encoder
+    }
+
+    /// Starts a payload whose outer domain is supplied by its cache protocol.
+    pub fn unscoped() -> Self {
+        Self::default()
+    }
+
+    /// Writes one length-prefixed byte field.
+    pub fn write_bytes(&mut self, value: &[u8]) {
+        self.bytes
+            .extend_from_slice(&(value.len() as u64).to_le_bytes());
+        self.bytes.extend_from_slice(value);
+    }
+
+    /// Writes one length-prefixed UTF-8 field.
+    pub fn write_str(&mut self, value: &str) {
+        self.write_bytes(value.as_bytes());
+    }
+
+    /// Writes one fixed-width protocol tag.
+    pub fn write_tag(&mut self, tag: u8) {
+        self.bytes.push(tag);
+    }
+
+    /// Finishes the canonical identity payload.
+    pub fn finish(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
 /// Authoritative registry of cross-crate build identity domains.
 pub mod identities {
     use super::{IdentityDomain, PROTOCOL_EPOCH};

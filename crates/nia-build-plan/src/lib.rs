@@ -148,15 +148,10 @@ macro_rules! define_node_key {
             /// Returns the canonical length-prefixed identity payload used by
             /// build caches and action handoffs.
             pub fn identity_bytes(&self) -> Vec<u8> {
-                fn write_text(encoded: &mut Vec<u8>, text: &str) {
-                    encoded.extend_from_slice(&(text.len() as u64).to_le_bytes());
-                    encoded.extend_from_slice(text.as_bytes());
-                }
-
-                let mut encoded = Vec::new();
-                write_text(&mut encoded, self.package.as_str());
-                write_text(&mut encoded, &self.name);
-                encoded
+                let mut encoder = nia_compat::IdentityEncoder::unscoped();
+                encoder.write_str(self.package.as_str());
+                encoder.write_str(&self.name);
+                encoder.finish()
             }
         }
     };
