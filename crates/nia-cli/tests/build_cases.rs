@@ -707,6 +707,103 @@ fn configure_timing_distinguishes_runner_execution_from_plan_reuse() {
     assert_no_transient_runner_files(&workspace);
 }
 
+#[test]
+fn optional_and_lazy_dependencies_are_loaded_only_from_imported_sources() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("optional-lazy-dependency-loading");
+    for package in ["optional", "lazy"] {
+        std::fs::create_dir_all(root.join(package).join("src")).unwrap();
+        std::fs::write(
+            root.join(package).join("nia.toml"),
+            format!(
+                "[package]\nname = \"{package}\"\nversion = \"1.0.0\"\n[library]\npath = \"src/root.nia\"\n"
+            ),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        root.join("optional/src/root.nia"),
+        "pub fun value() i32 { 7 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("lazy/src/root.nia"),
+        "this is intentionally invalid Nia source\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"scope-root\"\nversion = \"1.0.0\"\n[optional-dependencies]\noptional = { path = \"optional\" }\n[lazy-dependencies]\nlazy = { path = \"lazy\" }\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.nia"),
+        "using std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }\n",
+    )
+    .unwrap();
+
+    let build_script = |with_optional_import: bool| {
+        let imports = if with_optional_import {
+            r#"let imports = [build::ModuleImport::fromPackage(
+        &"optionalAlias",
+        optional,
+        fs::PathView::init(&"src/root.nia"),
+    )];
+    let rootModule = b.addModule(
+        build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia"))
+            .withImports(&imports[..]),
+    ).?;"#
+        } else {
+            r#"let rootModule = b.addModule(
+        build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia")),
+    ).?;"#
+        };
+        format!(
+            r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {{
+    let optional = b.addDependency(&"optional").?;
+    _ = b.addDependency(&"lazy").?;
+    {imports}
+    let executable = b.addExecutable(build::ExecutableOptions::init(&"app", rootModule)).?;
+    let check = b.addCheckExecutableStep(&"check", executable).?;
+    b.setDefaultStep(check).?;
+    !()
+}}
+"#
+        )
+    };
+
+    std::fs::write(root.join("build.nia"), build_script(false)).unwrap();
+    let unused = support::nia_command()
+        .args(["build", "--root"])
+        .arg(&root)
+        .output_timeout_in_session("build with unimported optional and lazy dependencies");
+    assert!(
+        unused.status.success(),
+        "{}",
+        String::from_utf8_lossy(&unused.stderr)
+    );
+
+    std::fs::write(
+        root.join("src/main.nia"),
+        "using optionalAlias;\nusing std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; _ = optionalAlias::value(); !() }\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("build.nia"), build_script(true)).unwrap();
+    let selected = support::nia_command()
+        .args(["build", "--root"])
+        .arg(&root)
+        .output_timeout_in_session("build with an explicitly imported optional dependency");
+    assert!(
+        selected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&selected.stderr)
+    );
+}
+
 fn run_build_case(name: &str) {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
     let case_root = fixtures.join(name);

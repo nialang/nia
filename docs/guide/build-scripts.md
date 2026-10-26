@@ -73,11 +73,19 @@ A dependency's scope is the table it appears in:
 | `[build-dependencies]` | `build.nia` only |
 | `[dependencies]` | package artifacts and their tests |
 | `[dev-dependencies]` | test suites only |
+| `[optional-dependencies]` | artifact modules only when the build plan explicitly imports them |
+| `[lazy-dependencies]` | artifact module resolution; source is loaded only when imported |
 
 A dependency name is local to the package that declares it and must be unique
-across its three tables. Artifact sources and `build.nia` open a dependency
-under that name, `using regex;`, without declaring it again in the script. The
-name resolves to the dependency's `[library].path`, so a package that other
+across its dependency tables. Runtime and development artifact sources open an
+available dependency under its manifest name, `using regex;`. Optional
+dependencies are not installed as general module roots; a build plan must add
+an explicit `ModuleImport::fromPackage` for an artifact module to use one.
+Lazy dependencies are available to runtime module resolution, while Nia's
+module loader reads their source only when the selected module closure imports
+them. Neither scope eagerly loads every source file in the dependency.
+
+The name resolves to the dependency's `[library].path`, so a package that other
 packages import must declare one; the file must lie inside its source roots.
 The library entry roots its own module tree, so its child modules sit beside
 it: with `path = "src/root.nia"`, `pub module util;` loads `src/util.nia`. Each
@@ -577,9 +585,14 @@ A command reruns on every build unless it selects a cache policy:
 | `withFullEnvironmentCache()` | the declared inputs and the whole inherited environment are unchanged; cannot be combined with `withEnvironment` |
 
 A cache policy is a promise that the typed arguments describe every file the
-command reads and writes. This step upper-cases a package file into the build
-directory and reruns only when `input.txt` changes. It needs a POSIX `sh` and
-`tr` on the `PATH`:
+command reads and writes. Cacheable commands also scan regular files in the
+working directory before and after successful execution and fail when contents
+or presence changed outside declared outputs. Scans have depth and entry limits
+and fail if incomplete. This check does not trace reads, follow symbolic links,
+observe writes outside the working directory, or isolate the process; those
+paths can still have unobserved side effects. This step upper-cases a package
+file into the build directory and reruns only when `input.txt` changes. It
+needs a POSIX `sh` and `tr` on the `PATH`:
 
 ```nia
 using std::build;
