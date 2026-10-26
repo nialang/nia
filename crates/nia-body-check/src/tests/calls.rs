@@ -388,6 +388,66 @@ fun main() i32 {
 }
 
 #[test]
+fn reports_both_uses_for_a_conflicting_closure_call() {
+    let source = r#"
+fun main() i32 {
+    let identity = \value -> { value };
+    _ = identity(1);
+    _ = identity(true);
+    0
+}
+"#;
+    let checked = pipeline(source);
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "closure uses have conflicting types")
+        .unwrap_or_else(|| {
+            panic!(
+                "expected the closure conflict diagnostic: {:?}",
+                checked.diagnostics
+            )
+        });
+    assert_eq!(diagnostic.labels.len(), 2, "{diagnostic:?}");
+    let first_call = source.find("identity(1)").expect("first call");
+    let second_call = source.find("identity(true)").expect("second call");
+    assert_eq!(diagnostic.primary_span().unwrap().start, second_call);
+    assert_eq!(diagnostic.labels[1].span.start, first_call);
+}
+
+#[test]
+fn reports_both_uses_when_a_closure_conflicts_through_a_generic_callee() {
+    let source = r#"
+fun apply[T](callback: &Fun(T) T, value: T) T {
+    callback(value)
+}
+
+fun main() i32 {
+    let identity = \value -> { value };
+    _ = apply(&identity, 1);
+    _ = apply(&identity, true);
+    0
+}
+"#;
+    let checked = pipeline(source);
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.summary == "closure uses have conflicting types")
+        .unwrap_or_else(|| {
+            panic!(
+                "expected the closure conflict diagnostic: {:?}",
+                checked.diagnostics
+            )
+        });
+    assert_eq!(diagnostic.labels.len(), 2, "{diagnostic:?}");
+    let first_call = source.find("apply(&identity, 1)").expect("first call");
+    let second_call = source.find("apply(&identity, true)").expect("second call");
+    assert_eq!(diagnostic.primary_span().unwrap().start, second_call);
+    assert_eq!(diagnostic.labels[1].span.start, first_call);
+}
+
+#[test]
 fn closure_signature_contributes_to_generic_callable_inference() {
     let checked = pipeline(
         r#"

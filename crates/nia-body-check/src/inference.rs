@@ -40,8 +40,10 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{BinaryOp, Block, Expr, ExprKind, Pattern, PatternKind, Stmt, StmtKind, UnaryOp};
+use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{InternedTyId, LocalId};
 use nia_node_id::VersionedNodeKey;
+use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{PrimitiveTy, RangeTyKind, TyKind};
 use std::collections::HashMap;
@@ -185,6 +187,12 @@ struct ClosureTerms {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct ClosureUse {
+    first: Span,
+    conflict: Option<Span>,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct OperatorObligation {
     op: BinaryOp,
     lhs: InferId,
@@ -206,6 +214,7 @@ struct FunctionInference {
     exprs: HashMap<VersionedNodeKey, InferId>,
     closures: Vec<ClosureTerms>,
     closure_locals: HashMap<LocalId, VersionedNodeKey>,
+    closure_uses: HashMap<LocalId, ClosureUse>,
     operators: Vec<OperatorObligation>,
     return_stack: Vec<InferId>,
 }
@@ -222,6 +231,21 @@ impl BodyChecker<'_> {
         inference.return_stack.push(function_return);
         inference.constrain_block(self, body, Some(function_return));
         inference.solve_operators(self);
+
+        let mut closure_uses: Vec<_> = inference.closure_uses.values().copied().collect();
+        closure_uses.sort_by_key(|usage| usage.first);
+        for usage in closure_uses {
+            let Some(conflict) = usage.conflict else {
+                continue;
+            };
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::TYPE_CHECK, "closure uses have conflicting types")
+                    .primary(conflict, "this closure use conflicts with the earlier use")
+                    .secondary(usage.first, "the closure was first used here")
+                    .help("use the closure consistently with one monomorphic signature")
+                    .finish(),
+            );
+        }
 
         for closure in inference.closures.clone() {
             let params = closure
@@ -247,6 +271,43 @@ impl BodyChecker<'_> {
 }
 
 impl FunctionInference {
+    fn closure_local(&self, checker: &BodyChecker<'_>, expr: &Expr) -> Option<LocalId> {
+        match &expr.kind {
+            ExprKind::Ident(_) => match checker.local_use(expr) {
+                Some(nia_local_resolve::LocalUse::Local(local))
+                    if self.closure_locals.contains_key(&local) =>
+                {
+                    Some(local)
+                }
+                _ => None,
+            },
+            ExprKind::Unary {
+                op: UnaryOp::Ref | UnaryOp::RefReadOnly,
+                expr,
+            } => self.closure_local(checker, expr),
+            _ => None,
+        }
+    }
+
+    fn note_closure_use(&mut self, local: LocalId, span: Span) {
+        self.closure_uses.entry(local).or_insert(ClosureUse {
+            first: span,
+            conflict: None,
+        });
+    }
+
+    fn note_closure_conflict(&mut self, local: Option<LocalId>, span: Span) {
+        let Some(local) = local else {
+            return;
+        };
+        let Some(usage) = self.closure_uses.get_mut(&local) else {
+            return;
+        };
+        if usage.first != span && usage.conflict.is_none() {
+            usage.conflict = Some(span);
+        }
+    }
+
     /// Lower a signature type into the local equality graph. Generic
     /// parameters become fresh terms for this particular call, so a generic
     /// callee contributes the same constraints as a concrete callee without
@@ -1318,6 +1379,11 @@ impl FunctionInference {
                 {
                     result
                 } else {
+                    let mut call_closure_locals = Vec::new();
+                    if let Some(local) = self.closure_local(checker, callee) {
+                        call_closure_locals.push(local);
+                        self.note_closure_use(local, expr.span);
+                    }
                     let known_signature = self.direct_call_signature_terms(checker, callee);
                     let known_signature = known_signature.or_else(|| {
                         checker
@@ -1353,10 +1419,23 @@ impl FunctionInference {
                         return_type: result,
                     });
                     let callee = self.constrain_expr(checker, callee, Some(callable));
-                    self.unify(checker, callable, callee);
+                    if !self.unify(checker, callable, callee) {
+                        for local in &call_closure_locals {
+                            self.note_closure_conflict(Some(*local), expr.span);
+                        }
+                    }
                     for (arg, param) in args.iter().zip(params) {
+                        let arg_closure_local = self.closure_local(checker, arg);
+                        if let Some(local) = arg_closure_local {
+                            call_closure_locals.push(local);
+                            self.note_closure_use(local, expr.span);
+                        }
                         let actual = self.constrain_expr(checker, arg, Some(param));
-                        self.unify(checker, param, actual);
+                        if !self.unify(checker, param, actual) {
+                            for local in &call_closure_locals {
+                                self.note_closure_conflict(Some(*local), expr.span);
+                            }
+                        }
                     }
                     result
                 }
@@ -1433,9 +1512,15 @@ impl FunctionInference {
                 }
             }
         };
+        let closure_local = self.closure_local(checker, expr);
+        if let Some(local) = closure_local {
+            self.note_closure_use(local, expr.span);
+        }
         self.unify(checker, term, actual);
         if let Some(expected) = expected {
-            self.unify(checker, term, expected);
+            if !self.unify(checker, term, expected) {
+                self.note_closure_conflict(closure_local, expr.span);
+            }
         }
         term
     }
