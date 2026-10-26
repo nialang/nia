@@ -423,6 +423,36 @@ pub struct BuildInvocation {
     pub link_time_optimization: LinkTimeOptimization,
 }
 
+/// Result of consulting the generated build-runner executable cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunnerCacheStatus {
+    /// A validated executable was restored.
+    Hit,
+    /// No usable executable was restored.
+    Miss(RunnerCacheMissReason),
+}
+
+/// Why the generated build-runner executable cache could not be reused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunnerCacheMissReason {
+    /// No record exists for the computed runner identity.
+    NotFound,
+    /// The record failed structural or checksum validation.
+    InvalidRecord,
+    /// The cache could not be read or its namespace could not be inspected.
+    ReadError,
+}
+
+impl std::fmt::Display for RunnerCacheMissReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::NotFound => "not found",
+            Self::InvalidRecord => "invalid record",
+            Self::ReadError => "read error",
+        })
+    }
+}
+
 pub(crate) fn package_source_root(
     invocation: &BuildInvocation,
     package: &PlanPackage,
@@ -1090,7 +1120,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                 if runner.is_err() {
                     nia_timing::emit_counter("build.runner_compile_failures", 1);
                 }
-                let (runner_executable, runner_cache_key, runner_cache_reused) = runner?;
+                let (runner_executable, runner_cache_key, runner_cache_status) = runner?;
                 let configured = time_summary_stage(timings, "build_configure_plan", || {
                     progress_phase(progress_guard.session(), ProgressPhase::Configure, || {
                         let mut configure_candidate = match configure_cache_candidate(
@@ -1227,7 +1257,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                                 &invocation,
                                 configure_candidate.clone(),
                                 configure_reused,
-                                runner_cache_reused,
+                                runner_cache_status,
                             )
                         );
                     } else {
@@ -1238,7 +1268,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                                 &invocation,
                                 configure_candidate.clone(),
                                 configure_reused,
-                                runner_cache_reused,
+                                runner_cache_status,
                             )
                         );
                     }
@@ -1285,18 +1315,15 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                             render_configure_cache_json(
                                 configure_candidate,
                                 configure_reused,
-                                runner_cache_reused,
+                                runner_cache_status,
                             )
                         );
                     } else {
                         println!(
-                            "configure cache: {}; runner {}",
+                            "configure cache: {}; configure result: {}; runner cache: {}",
                             configure_candidate.clone(),
-                            if configure_reused {
-                                "reused"
-                            } else {
-                                "executed"
-                            }
+                            if configure_reused { "reused" } else { "executed" },
+                            runner_cache_status_text(runner_cache_status),
                         );
                     }
                 }
@@ -1437,7 +1464,7 @@ pub fn render_build_plan_summary(
     invocation: &BuildInvocation,
     configure_candidate: ConfigureCacheCandidate,
     configure_reused: bool,
-    runner_cache_reused: bool,
+    runner_cache_status: RunnerCacheStatus,
 ) -> String {
     let mut output = String::new();
     use std::fmt::Write as _;
@@ -1477,7 +1504,7 @@ pub fn render_build_plan_summary(
     let _ = writeln!(
         output,
         "  runner executable cache: {}",
-        if runner_cache_reused { "hit" } else { "miss" }
+        runner_cache_status_text(runner_cache_status)
     );
 
     let _ = writeln!(output, "  host target: {}", plan.host_target().name());
@@ -1959,7 +1986,7 @@ pub fn render_build_plan_json(
     invocation: &BuildInvocation,
     configure_candidate: ConfigureCacheCandidate,
     configure_reused: bool,
-    runner_cache_reused: bool,
+    runner_cache_status: RunnerCacheStatus,
 ) -> String {
     let mut value = build_plan_json_value(plan);
     value["invocation"] = serde_json::json!({
@@ -1970,7 +1997,7 @@ pub fn render_build_plan_json(
         },
         "configure_cache": configure_cache_json_value(&configure_candidate),
         "configure_result": if configure_reused { "cached_plan_reused" } else { "runner_executed" },
-        "runner_executable_cache": if runner_cache_reused { "hit" } else { "miss" },
+        "runner_executable_cache": runner_cache_status_json_value(runner_cache_status),
     });
     value.to_string() + "\n"
 }
@@ -2209,10 +2236,36 @@ fn configure_cache_json_value(candidate: &ConfigureCacheCandidate) -> serde_json
     }
 }
 
+fn runner_cache_status_text(status: RunnerCacheStatus) -> String {
+    match status {
+        RunnerCacheStatus::Hit => "hit".to_owned(),
+        RunnerCacheStatus::Miss(reason) => format!("miss ({reason})"),
+    }
+}
+
+fn runner_cache_status_json_value(status: RunnerCacheStatus) -> serde_json::Value {
+    match status {
+        RunnerCacheStatus::Hit => serde_json::json!({
+            "status": "hit",
+        }),
+        RunnerCacheStatus::Miss(reason) => serde_json::json!({
+            "status": "miss",
+            "miss_reason": {
+                "kind": match reason {
+                    RunnerCacheMissReason::NotFound => "not_found",
+                    RunnerCacheMissReason::InvalidRecord => "invalid_record",
+                    RunnerCacheMissReason::ReadError => "read_error",
+                },
+                "description": reason.to_string(),
+            },
+        }),
+    }
+}
+
 fn render_configure_cache_json(
     candidate: ConfigureCacheCandidate,
     configure_reused: bool,
-    runner_cache_reused: bool,
+    runner_cache_status: RunnerCacheStatus,
 ) -> String {
     let mut json = configure_cache_json_value(&candidate);
     json["kind"] = serde_json::json!("configure-cache");
@@ -2221,8 +2274,7 @@ fn render_configure_cache_json(
     } else {
         "runner_executed"
     });
-    json["runner_executable_cache"] =
-        serde_json::json!(if runner_cache_reused { "hit" } else { "miss" });
+    json["runner_executable_cache"] = runner_cache_status_json_value(runner_cache_status);
     json.to_string() + "\n"
 }
 
@@ -3019,7 +3071,7 @@ fn build_runner_source_for_path(
 fn compile_build_runner(
     invocation: &BuildInvocation,
     progress: Option<&ProgressSession>,
-) -> Result<(PathBuf, String, bool), BuildError> {
+) -> Result<(PathBuf, String, RunnerCacheStatus), BuildError> {
     let lock_observer =
         progress.map(|progress| progress.phase_lock_observer(ProgressPhase::Runner));
     let runner = time_build_stage(invocation.timings, "build_runner_generate_source", || {
@@ -3035,10 +3087,11 @@ fn compile_build_runner(
     let cache_key = time_build_stage(invocation.timings, "build_runner_compute_cache_key", || {
         runner_cache::cache_key(invocation, &runner)
     })?;
-    let restored = time_build_stage(invocation.timings, "build_runner_restore_cache", || {
+    let runner_cache_status = time_build_stage(invocation.timings, "build_runner_restore_cache", || {
         runner_cache::restore_executable(invocation, &cache_key, lock_observer.as_ref())
-            .unwrap_or(false)
+            .unwrap_or(RunnerCacheStatus::Miss(RunnerCacheMissReason::ReadError))
     });
+    let restored = matches!(runner_cache_status, RunnerCacheStatus::Hit);
     if let Some(progress) = progress {
         progress.emit(ProgressEventKind::PhaseCacheDecision {
             phase: ProgressPhase::Runner,
@@ -3047,7 +3100,11 @@ fn compile_build_runner(
     }
     if restored {
         nia_timing::emit_counter("build.runner_cache_hits", 1);
-        return Ok((invocation.runner_executable.clone(), cache_key, true));
+        return Ok((
+            invocation.runner_executable.clone(),
+            cache_key,
+            runner_cache_status,
+        ));
     }
     nia_timing::emit_counter("build.runner_cache_misses", 1);
     if let Some(parent) = invocation.runner_executable.parent() {
@@ -3165,7 +3222,11 @@ fn compile_build_runner(
     if publish_result.is_err() {
         nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
     }
-    Ok((invocation.runner_executable.clone(), cache_key, false))
+    Ok((
+        invocation.runner_executable.clone(),
+        cache_key,
+        runner_cache_status,
+    ))
 }
 
 fn focus_build_script_diagnostics(error: DriverError, runner: &SourcePath) -> DriverError {
@@ -5514,7 +5575,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             &invocation,
             ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
             true,
-            false,
+            RunnerCacheStatus::Miss(RunnerCacheMissReason::NotFound),
         );
         assert!(plan_summary.contains("build plan:\n"));
         assert!(plan_summary.contains("configuration: profile="));
@@ -5568,7 +5629,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             &invocation,
             ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
             false,
-            true,
+            RunnerCacheStatus::Hit,
         ))
         .expect("parse plan JSON");
         assert_eq!(plan_json["kind"], "build-plan");
@@ -5608,7 +5669,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             "runner_executed"
         );
         assert_eq!(
-            plan_json_with_context["invocation"]["runner_executable_cache"],
+            plan_json_with_context["invocation"]["runner_executable_cache"]["status"],
             "hit"
         );
 

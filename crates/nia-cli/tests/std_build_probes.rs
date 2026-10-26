@@ -163,7 +163,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(plan["invocation"]["configuration"]["lto"].is_string());
     assert!(plan["invocation"]["configure_cache"]["status"].is_string());
     assert!(plan["invocation"]["configure_result"].is_string());
-    assert!(plan["invocation"]["runner_executable_cache"].is_string());
+    assert!(plan["invocation"]["runner_executable_cache"]["status"].is_string());
 
     let explanation = records
         .iter()
