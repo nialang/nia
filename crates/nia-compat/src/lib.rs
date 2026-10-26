@@ -375,6 +375,13 @@ pub mod identities {
     /// Static archive cache key identity.
     pub const ARCHIVE_RESULT_CACHE_KEY: IdentityDomain =
         IdentityDomain::new("nia.archive-result-cache-key");
+    /// Resolved external command tool identity.
+    pub const EXTERNAL_COMMAND_TOOL: IdentityDomain =
+        IdentityDomain::new("nia.build.external-command-tool");
+    /// Resolved executable linker identity.
+    pub const LINK_RESULT_LINKER: IdentityDomain = IdentityDomain::new("nia.link-result-linker");
+    /// Resolved static archive tool identity.
+    pub const ARCHIVE_TOOL: IdentityDomain = IdentityDomain::new("nia.archive-tool");
 
     /// Every registered cross-crate identity domain.
     pub const ALL: &[IdentityDomain] = &[
@@ -386,6 +393,9 @@ pub mod identities {
         EXTERNAL_COMMAND_ACTION,
         LINK_RESULT_CACHE_KEY,
         ARCHIVE_RESULT_CACHE_KEY,
+        EXTERNAL_COMMAND_TOOL,
+        LINK_RESULT_LINKER,
+        ARCHIVE_TOOL,
     ];
 
     /// Keeps the registry tied to the active compatibility epoch in const

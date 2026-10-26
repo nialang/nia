@@ -45,7 +45,7 @@ const EXTERNAL_COMMAND_KEY_DOMAIN: FingerprintDomain =
 const EXTERNAL_COMMAND_DECLARATION_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-declaration");
 const EXTERNAL_COMMAND_TOOL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-tool");
+    FingerprintDomain::new(nia_compat::identities::EXTERNAL_COMMAND_TOOL.name);
 const EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-environment");
 const EXTERNAL_COMMAND_INPUTS_DOMAIN: FingerprintDomain =

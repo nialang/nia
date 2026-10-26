@@ -49,7 +49,8 @@ const ARCHIVE_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.archive-result-components");
 const ARCHIVE_TOOLCHAIN_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-toolchain");
 const ARCHIVE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-target");
-const ARCHIVE_TOOL_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-tool");
+const ARCHIVE_TOOL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new(nia_compat::identities::ARCHIVE_TOOL.name);
 const ARCHIVE_OPTIONS_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-options");
 const ARCHIVE_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new(nia_compat::identities::ARCHIVE_RESULT_CACHE_KEY.name);
@@ -68,7 +69,7 @@ const LINK_RESULT_TOOLCHAIN_DOMAIN: FingerprintDomain =
 const LINK_RESULT_TARGET_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-target");
 const LINK_RESULT_LINKER_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-linker");
+    FingerprintDomain::new(nia_compat::identities::LINK_RESULT_LINKER.name);
 const LINK_RESULT_OPTIONS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-options");
 const MAX_LD_SO_CONF_FILE_BYTES: usize = 1024 * 1024;
