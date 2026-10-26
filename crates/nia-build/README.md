@@ -386,15 +386,16 @@ executable, source input manifest, declared inputs, effective environment,
 toolchain, and test action contract. Failed or cancelled suites never publish a
 record, and cache failures fall back to running the suite.
 
-Cacheable external commands also opt into undeclared-output checking. The
-coordinator hashes regular files below the command working directory before
-execution, permits the resolved final and staged paths declared by the action,
-and rejects files created, changed, or deleted elsewhere. Scans have depth and
-entry limits and fail when they cannot complete. Uncacheable commands do not
-pay this scan and retain their existing execution behavior. This check does not
-trace reads, follow symbolic links, observe writes outside the working
-directory, or isolate the process; those paths can still have unobserved side
-effects.
+Cacheable external commands execute with a temporary working-directory view
+containing only declared inputs. Relative reads of undeclared files therefore
+fail in the command instead of silently becoming untracked cache inputs. The
+view rejects links and is bounded by depth, entry, and copied-byte limits.
+Declared outputs continue to use staged build paths. The coordinator also
+checks for undeclared writes inside the temporary view. This is not an
+OS-level sandbox: absolute paths, paths outside the view, and child processes
+that deliberately escape the working directory are not intercepted. Commands
+requiring those behaviors must remain uncacheable until a platform sandbox
+contract is available.
 
 ## Publication and Locks
 

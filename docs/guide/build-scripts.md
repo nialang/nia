@@ -585,14 +585,14 @@ A command reruns on every build unless it selects a cache policy:
 | `withFullEnvironmentCache()` | the declared inputs and the whole inherited environment are unchanged; cannot be combined with `withEnvironment` |
 
 A cache policy is a promise that the typed arguments describe every file the
-command reads and writes. Cacheable commands also scan regular files in the
-working directory before and after successful execution and fail when contents
-or presence changed outside declared outputs. Scans have depth and entry limits
-and fail if incomplete. This check does not trace reads, follow symbolic links,
-observe writes outside the working directory, or isolate the process; those
-paths can still have unobserved side effects. This step upper-cases a package
-file into the build directory and reruns only when `input.txt` changes. It
-needs a POSIX `sh` and `tr` on the `PATH`:
+command reads and writes. A cacheable command runs from a temporary working
+directory containing only its declared inputs, so a relative read of an
+undeclared file fails. Links and input trees beyond the depth, entry, or byte
+limits are rejected. Declared outputs still go to staged build paths. This is
+not an OS-level sandbox: absolute paths and paths outside that working view are
+not intercepted, so commands requiring them must remain uncacheable. This step
+upper-cases a package file into the build directory and reruns only when
+`input.txt` changes. It needs a POSIX `sh` and `tr` on the `PATH`:
 
 ```nia
 using std::build;

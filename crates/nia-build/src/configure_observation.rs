@@ -35,6 +35,16 @@ pub enum ObservationPolicy {
     Ignore,
 }
 
+impl fmt::Display for ObservationPolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Disallow => "disallow",
+            Self::Poison => "poison",
+            Self::Ignore => "ignore",
+        })
+    }
+}
+
 /// The kind of filesystem fact a configuration observed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ObservationKind {

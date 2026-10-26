@@ -2014,7 +2014,7 @@ fn render_configure_observations(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         output.push_str("  untracked configuration; reuse disabled\n");
     } else if let Ok(manifest) = ConfigureManifest::decode(bytes) {
-        let _ = writeln!(output, "  policy: {:?}", manifest.policy());
+        let _ = writeln!(output, "  policy: {}", manifest.policy());
         for observation in manifest.observations() {
             let _ = writeln!(
                 output,
@@ -2441,7 +2441,7 @@ fn render_configure_observations_json(bytes: &[u8]) -> String {
 fn configure_observations_json_value(bytes: &[u8]) -> serde_json::Value {
     match ConfigureManifest::decode(bytes) {
         Ok(manifest) => serde_json::json!({
-            "policy": format!("{:?}", manifest.policy()),
+            "policy": manifest.policy().to_string(),
             "observations": manifest.observations().iter().map(|observation| serde_json::json!({
                 "path": observation.path().to_string_lossy(),
                 "kind": observation.kind().to_string(),
@@ -2450,7 +2450,7 @@ fn configure_observations_json_value(bytes: &[u8]) -> serde_json::Value {
             "valid": true,
         }),
         Err(_) => serde_json::json!({
-            "policy": "Poison",
+            "policy": "poison",
             "observations": [],
             "valid": false,
         }),

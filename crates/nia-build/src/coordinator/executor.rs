@@ -584,27 +584,43 @@ impl DriverActionExecutor {
                     .map(|output| output.temporary.clone()),
             )
             .collect::<Vec<_>>();
-        let execution = execute_external_command_with_writer(
-            action,
-            ResolvedExternalCommand {
-                program: &program_text,
-                arguments: &resolved_arguments,
-                working_directory: &working_directory,
-                environment_policy,
-                environment,
-                stdin: resolved_stdin,
-            },
-            ExternalExecutionPolicy {
-                timeout: EXTERNAL_COMMAND_TIMEOUT,
-                forward_output: self.invocation.forward_output,
-                cancellation: Some(cancellation),
-                // Cache policies with declared inputs are the explicit opt-in
-                // for checking that a command does not write elsewhere.
-                detect_undeclared_outputs: cacheable,
-                declared_output_paths: &declared_output_paths,
-            },
-            self.process_output_writer.clone(),
-        );
+        let execution_policy = ExternalExecutionPolicy {
+            timeout: EXTERNAL_COMMAND_TIMEOUT,
+            forward_output: self.invocation.forward_output,
+            cancellation: Some(cancellation),
+            // Cacheable commands execute in a declared-input filesystem view;
+            // the same policy also checks for undeclared writes in that view.
+            detect_undeclared_outputs: cacheable,
+            declared_output_paths: &declared_output_paths,
+        };
+        let request = ResolvedExternalCommand {
+            program: &program_text,
+            arguments: &resolved_arguments,
+            working_directory: &working_directory,
+            environment_policy,
+            environment,
+            stdin: resolved_stdin,
+        };
+        let execution = if cacheable {
+            let input_paths = resolved_inputs
+                .iter()
+                .map(|(_, path)| path.clone())
+                .collect::<Vec<_>>();
+            execute_external_command_with_input_isolation(
+                action,
+                request,
+                execution_policy,
+                &input_paths,
+                self.process_output_writer.clone(),
+            )
+        } else {
+            execute_external_command_with_writer(
+                action,
+                request,
+                execution_policy,
+                self.process_output_writer.clone(),
+            )
+        };
         let mut cache_outputs = match (execution, staged.as_ref()) {
             (Ok(()), Some(_)) if cancellation.is_cancelled() => {
                 let cause = CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {

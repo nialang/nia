@@ -3893,7 +3893,104 @@ fn cacheable_external_command_rejects_undeclared_output() {
     } else {
         "unexpected.txt"
     };
-    assert!(invocation.package_root.join(side_effect_name).is_file());
+    assert!(
+        !invocation.package_root.join(side_effect_name).exists(),
+        "the isolated command working tree must not publish undeclared files"
+    );
+    fs::remove_dir_all(&invocation.package_root).unwrap();
+}
+
+#[test]
+fn cacheable_external_command_cannot_read_undeclared_working_directory_input() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    fs::write(
+        invocation.package_root.join("secret.txt"),
+        "undeclared input",
+    )
+    .unwrap();
+    let output = LogicalPath::new(LogicalPathRoot::Build, "result.txt").unwrap();
+    let (program, arguments, environment) = if cfg!(windows) {
+        (
+            "powershell.exe",
+            vec![
+                CommandArgument::Literal("-NoProfile".to_string()),
+                CommandArgument::Literal("-Command".to_string()),
+                CommandArgument::Literal(
+                    "try { [IO.File]::ReadAllText('secret.txt') | Set-Content -NoNewline $args[0] } catch { exit 1 }".to_string(),
+                ),
+                CommandArgument::Literal("nia-input-fixture".to_string()),
+                CommandArgument::OutputPath(output.clone()),
+            ],
+            ["SystemRoot", "PATH", "PATHEXT"]
+                .into_iter()
+                .filter_map(|name| {
+                    std::env::var(name).ok().map(|value| EnvironmentInput {
+                        name: name.to_string(),
+                        value: Some(value),
+                    })
+                })
+                .collect(),
+        )
+    } else {
+        (
+            "sh",
+            vec![
+                CommandArgument::Literal("-c".to_string()),
+                CommandArgument::Literal("cat secret.txt > \"$1\"".to_string()),
+                CommandArgument::Literal("nia-input-fixture".to_string()),
+                CommandArgument::OutputPath(output.clone()),
+            ],
+            Vec::new(),
+        )
+    };
+    let plan = BuildPlan::freeze(BuildPlanDraft {
+        root_package: PackageKey::root(),
+        packages: vec![PlanPackage {
+            key: PackageKey::root(),
+            source: crate::PlanPackageSource::Local(String::new()),
+        }],
+        host_target: *invocation.toolchain.host_target(),
+        artifact_target: *invocation.toolchain.artifact_target(),
+        modules: Vec::new(),
+        artifacts: Vec::new(),
+        actions: vec![PlanAction {
+            key: action("read-undeclared"),
+            kind: ActionKind::ExternalCommand(CommandAction {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy: CommandCachePolicy::ToolAndInputs,
+                stdin: CommandStdin::Null,
+                program: CommandProgram::Search(program.to_string()),
+                arguments,
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment,
+                inputs: Vec::new(),
+                outputs: vec![output],
+            }),
+        }],
+        steps: vec![PlanStep {
+            key: step("read-undeclared"),
+            action: action("read-undeclared"),
+            dependencies: Vec::new(),
+        }],
+        default_step: Some(step("read-undeclared")),
+        selected_step: None,
+    })
+    .unwrap();
+
+    let error = execute_build_plan(&plan, &invocation).unwrap_err();
+
+    assert!(matches!(
+        error,
+        CoordinatorError::ExternalCommand(details)
+            if matches!(details.failure, ExternalCommandFailure::Exit { .. })
+    ));
+    assert!(!invocation.build_dir.join("out/result.txt").exists());
     fs::remove_dir_all(&invocation.package_root).unwrap();
 }
 

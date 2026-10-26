@@ -21,6 +21,8 @@ const EXTERNAL_DIRECTORY_IDENTITY_MAGIC: &[u8] = b"NIA-DIR1\0";
 const MAX_EXTERNAL_DIRECTORY_IDENTITY_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_EXTERNAL_DIRECTORY_DEPTH: usize = 256;
 const MAX_EXTERNAL_DIRECTORY_ENTRIES: usize = 1_000_000;
+const MAX_ISOLATED_INPUT_BYTES: u64 = 64 * 1024 * 1024;
+static INPUT_ISOLATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct ExternalDirectoryIdentityPlan {
     path: PathBuf,
@@ -528,6 +530,191 @@ pub(super) struct ExternalExecutionPolicy<'a> {
     pub(super) detect_undeclared_outputs: bool,
     /// Physical final and staged paths that the command is allowed to write.
     pub(super) declared_output_paths: &'a [PathBuf],
+}
+
+/// Provides cacheable commands with a filesystem view containing only their
+/// declared inputs. Relative access to an undeclared package or build file
+/// therefore fails in the child process instead of silently becoming an
+/// untracked cache input.
+struct DeclaredInputIsolation {
+    root: PathBuf,
+    mappings: Vec<(PathBuf, PathBuf)>,
+}
+
+impl DeclaredInputIsolation {
+    fn create(
+        action: &PlanAction,
+        working_directory: &Path,
+        inputs: &[PathBuf],
+    ) -> Result<Self, CoordinatorError> {
+        let root = std::env::temp_dir().join(format!(
+            "nia-command-inputs-{}-{}-{}",
+            std::process::id(),
+            action.key.name(),
+            INPUT_ISOLATION_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        ));
+        fs::create_dir(&root).map_err(|error| CoordinatorError::ExternalCommandIo {
+            action: action.key.clone(),
+            path: root.clone(),
+            operation: "create command input isolation",
+            error,
+        })?;
+        let result = (|| {
+            let mut mappings = Vec::with_capacity(inputs.len());
+            let mut entries_seen = 0;
+            let mut bytes_copied = 0;
+            for (index, input) in inputs.iter().enumerate() {
+                let destination = if let Ok(relative) = input.strip_prefix(working_directory) {
+                    root.join(relative)
+                } else {
+                    root.join(".nia-inputs").join(index.to_string()).join(
+                        input.file_name().ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "declared command input has no file name",
+                            )
+                        })?,
+                    )
+                };
+                copy_isolated_path(input, &destination, 0, &mut entries_seen, &mut bytes_copied)?;
+                mappings.push((input.clone(), destination));
+            }
+            Ok(Self {
+                root: root.clone(),
+                mappings,
+            })
+        })();
+        match result {
+            Ok(isolation) => Ok(isolation),
+            Err(error) => {
+                let _ = fs::remove_dir_all(&root);
+                Err(CoordinatorError::ExternalCommandIo {
+                    action: action.key.clone(),
+                    path: root,
+                    operation: "copy command declared inputs",
+                    error,
+                })
+            }
+        }
+    }
+
+    fn map_path(&self, path: &Path) -> PathBuf {
+        self.mappings
+            .iter()
+            .find_map(|(source, destination)| {
+                path.strip_prefix(source).ok().map(|relative| {
+                    if relative.as_os_str().is_empty() {
+                        destination.clone()
+                    } else {
+                        destination.join(relative)
+                    }
+                })
+            })
+            .unwrap_or_else(|| path.to_path_buf())
+    }
+}
+
+impl Drop for DeclaredInputIsolation {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn copy_isolated_path(
+    source: &Path,
+    destination: &Path,
+    depth: usize,
+    entries_seen: &mut usize,
+    bytes_copied: &mut u64,
+) -> io::Result<()> {
+    if depth > MAX_EXTERNAL_DIRECTORY_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "declared command input exceeds the isolation depth limit",
+        ));
+    }
+    *entries_seen += 1;
+    if *entries_seen > MAX_EXTERNAL_DIRECTORY_ENTRIES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "declared command inputs exceed the isolation entry limit",
+        ));
+    }
+    let metadata = fs::symlink_metadata(source)?;
+    if is_reparse_point(&metadata) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "declared command input cannot be a link or reparse point",
+        ));
+    }
+    if metadata.is_dir() {
+        fs::create_dir_all(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            copy_isolated_path(
+                &entry.path(),
+                &destination.join(entry.file_name()),
+                depth + 1,
+                entries_seen,
+                bytes_copied,
+            )?;
+        }
+    } else if metadata.is_file() {
+        *bytes_copied = bytes_copied
+            .checked_add(metadata.len())
+            .filter(|bytes| *bytes <= MAX_ISOLATED_INPUT_BYTES)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "declared command inputs exceed the isolation byte limit",
+                )
+            })?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(source, destination)?;
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "declared command input is not a regular file or directory",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn execute_external_command_with_input_isolation(
+    action: &PlanAction,
+    request: ResolvedExternalCommand<'_>,
+    policy: ExternalExecutionPolicy,
+    inputs: &[PathBuf],
+    output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
+) -> Result<(), CoordinatorError> {
+    let isolation = DeclaredInputIsolation::create(action, request.working_directory, inputs)?;
+    let arguments = request
+        .arguments
+        .iter()
+        .map(|argument| {
+            isolation
+                .map_path(Path::new(argument))
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+    let stdin = request.stdin.map(|path| isolation.map_path(path));
+    let working_directory = isolation.root.clone();
+    execute_external_command_with_writer(
+        action,
+        ResolvedExternalCommand {
+            program: request.program,
+            arguments: &arguments,
+            working_directory: &working_directory,
+            environment_policy: request.environment_policy,
+            environment: request.environment,
+            stdin: stdin.as_deref(),
+        },
+        policy,
+        output_writer,
+    )
 }
 
 #[cfg(test)]
