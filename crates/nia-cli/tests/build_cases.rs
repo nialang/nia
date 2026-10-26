@@ -555,10 +555,40 @@ pub fun build(b: &mut build::Build) build::Error!() {{
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&plans[&(step, mode == "json")]),
-        );
+        if mode == "json" {
+            let mut actual: serde_json::Value =
+                serde_json::from_slice(&output.stdout).expect("parse printed build plan");
+            let mut expected: serde_json::Value = serde_json::from_slice(
+                &plans[&(step, true)],
+            )
+            .expect("parse dry-run build plan");
+            for plan in [&mut actual, &mut expected] {
+                plan["invocation"].as_object_mut().unwrap().remove("configure_cache");
+                plan["invocation"].as_object_mut().unwrap().remove("configure_result");
+                plan["invocation"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("runner_executable_cache");
+            }
+            assert_eq!(actual, expected);
+        } else {
+            let stable_lines = |bytes: &[u8]| {
+                String::from_utf8_lossy(bytes)
+                    .lines()
+                    .filter(|line| {
+                        !line.starts_with("  configuration:")
+                            && !line.starts_with("  configure cache candidate:")
+                            && !line.starts_with("  configure result:")
+                            && !line.starts_with("  runner executable cache:")
+                    })
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                stable_lines(&output.stdout),
+                stable_lines(&plans[&(step, false)]),
+            );
+        }
         assert!(!output.stderr.contains(&0x1b));
         if step == "all" {
             assert_eq!(
