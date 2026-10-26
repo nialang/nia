@@ -61,7 +61,7 @@ pub(super) const COMPILER_CHECK_RUNTIME_DOMAIN: FingerprintDomain =
 pub(super) const COMPILER_CHECK_CONFIGURATION_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-check.configuration");
 const COMPILER_CHECK_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.compiler-check.key");
+    FingerprintDomain::new(nia_compat::identities::COMPILER_CHECK_ACTION.name);
 const COMPILER_CHECK_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-check.fingerprint");
 

@@ -52,7 +52,7 @@ const ARCHIVE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.arc
 const ARCHIVE_TOOL_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-tool");
 const ARCHIVE_OPTIONS_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.archive-options");
 const ARCHIVE_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.archive-result-cache-key");
+    FingerprintDomain::new(nia_compat::identities::ARCHIVE_RESULT_CACHE_KEY.name);
 const ARCHIVE_INPUTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.archive-result-inputs");
 const STATIC_ARCHIVE_LINK_INPUT_DOMAIN: FingerprintDomain =
@@ -60,7 +60,7 @@ const STATIC_ARCHIVE_LINK_INPUT_DOMAIN: FingerprintDomain =
 const SYSTEM_IMPORT_LIBRARY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.system-import-library");
 const LINK_RESULT_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-cache-key");
+    FingerprintDomain::new(nia_compat::identities::LINK_RESULT_CACHE_KEY.name);
 const LINK_RESULT_INPUTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-inputs");
 const LINK_RESULT_TOOLCHAIN_DOMAIN: FingerprintDomain =

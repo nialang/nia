@@ -62,7 +62,7 @@ const GENERATED_FILE_FINGERPRINT_DOMAIN: FingerprintDomain =
 const ACTION_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.action-cache-mutation-lock");
 const GENERATED_FILE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.generated-file-key");
+    FingerprintDomain::new(nia_compat::identities::GENERATED_FILE_ACTION.name);
 const GENERATED_FILE_CONTENTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.generated-file-contents");
 const GENERATED_FILE_OUTPUT_DOMAIN: FingerprintDomain =

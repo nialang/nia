@@ -324,6 +324,67 @@ impl PersistedNamespace {
     }
 }
 
+/// Registered identity domain for canonical cache and action fingerprints.
+///
+/// Identity domains are separate from persisted payload formats: a domain
+/// names the semantic inputs being fingerprinted, while a format names the
+/// bytes stored on disk. Keeping the domain names here prevents independent
+/// crates from silently inventing incompatible identity namespaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IdentityDomain {
+    /// Stable domain name passed to the fingerprint builder.
+    pub name: &'static str,
+    /// Protocol epoch that owns this identity contract.
+    pub protocol_epoch: u32,
+}
+
+impl IdentityDomain {
+    /// Defines one registered identity domain.
+    pub const fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            protocol_epoch: PROTOCOL_EPOCH,
+        }
+    }
+}
+
+/// Authoritative registry of cross-crate build identity domains.
+pub mod identities {
+    use super::{IdentityDomain, PROTOCOL_EPOCH};
+
+    /// Build invocation policy identity used by configure caching.
+    pub const BUILD_INVOCATION: IdentityDomain = IdentityDomain::new("nia.build.invocation");
+    /// Generated-file action key identity.
+    pub const GENERATED_FILE_ACTION: IdentityDomain =
+        IdentityDomain::new("nia.build.generated-file-key");
+    /// Compiler-check action key identity.
+    pub const COMPILER_CHECK_ACTION: IdentityDomain =
+        IdentityDomain::new("nia.build.compiler-check.key");
+    /// External-command action key identity.
+    pub const EXTERNAL_COMMAND_ACTION: IdentityDomain =
+        IdentityDomain::new("nia.build.external-command-key");
+    /// Executable link-result cache key identity.
+    pub const LINK_RESULT_CACHE_KEY: IdentityDomain =
+        IdentityDomain::new("nia.link-result-cache-key");
+    /// Static archive cache key identity.
+    pub const ARCHIVE_RESULT_CACHE_KEY: IdentityDomain =
+        IdentityDomain::new("nia.archive-result-cache-key");
+
+    /// Every registered cross-crate identity domain.
+    pub const ALL: &[IdentityDomain] = &[
+        BUILD_INVOCATION,
+        GENERATED_FILE_ACTION,
+        COMPILER_CHECK_ACTION,
+        EXTERNAL_COMMAND_ACTION,
+        LINK_RESULT_CACHE_KEY,
+        ARCHIVE_RESULT_CACHE_KEY,
+    ];
+
+    /// Keeps the registry tied to the active compatibility epoch in const
+    /// contexts that import only this module.
+    pub const PROTOCOL: u32 = PROTOCOL_EPOCH;
+}
+
 /// Authoritative registry of persisted payloads and cache namespaces.
 pub mod formats {
     use super::{PersistedFormat, PersistedNamespace};
@@ -608,6 +669,12 @@ mod tests {
                 "duplicate magic for {}",
                 format.name
             );
+        }
+
+        let mut identity_names = BTreeSet::new();
+        for domain in super::identities::ALL {
+            assert_eq!(domain.protocol_epoch, PROTOCOL_EPOCH);
+            assert!(identity_names.insert(domain.name));
         }
     }
 

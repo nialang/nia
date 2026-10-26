@@ -24,7 +24,7 @@ const HEADER_BYTES: usize = 8 + 4 + 4 + 4 + 32;
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CONFIGURE_CACHE_ENTRIES: usize = 4096;
 const INVOCATION_IDENTITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.invocation");
+    FingerprintDomain::new(nia_compat::identities::BUILD_INVOCATION.name);
 const CONFIGURE_CACHE_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.configure-cache");
 const CONFIGURE_CACHE_MUTATION_LOCK_DOMAIN: FingerprintDomain =
