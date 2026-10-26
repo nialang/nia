@@ -26,6 +26,7 @@ pub(super) struct DriverActionExecutor {
     package_dependency_classes: Arc<BTreeMap<PackageKey, BTreeSet<DependencyScope>>>,
     process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
     progress: Option<ProgressSession>,
+    dry_run: bool,
 }
 
 impl DriverActionExecutor {
@@ -48,6 +49,26 @@ impl DriverActionExecutor {
         invocation: BuildInvocation,
         process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
         progress: Option<ProgressSession>,
+    ) -> Self {
+        Self::new_with_output_writer_and_progress_and_mode(
+            plan,
+            invocation,
+            process_output_writer,
+            progress,
+            false,
+        )
+    }
+
+    pub(super) fn new_dry_run(plan: BuildPlan, invocation: BuildInvocation) -> Self {
+        Self::new_with_output_writer_and_progress_and_mode(plan, invocation, None, None, true)
+    }
+
+    fn new_with_output_writer_and_progress_and_mode(
+        plan: BuildPlan,
+        invocation: BuildInvocation,
+        process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
+        progress: Option<ProgressSession>,
+        dry_run: bool,
     ) -> Self {
         let plan = Arc::new(plan);
         let invocation = Arc::new(invocation);
@@ -76,6 +97,7 @@ impl DriverActionExecutor {
             package_dependency_classes: Arc::new(package_dependency_classes),
             process_output_writer,
             progress,
+            dry_run,
         }
     }
 
@@ -86,11 +108,16 @@ impl DriverActionExecutor {
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         // Locks cover cache restoration as well as fresh publication, so a hit
         // and a miss cannot race to make different bytes visible.
-        let Some(_output_locks) = self.acquire_output_locks(action, cancellation)? else {
+        let _output_locks = if self.dry_run {
+            None
+        } else {
+            self.acquire_output_locks(action, cancellation)?
+        };
+        if !self.dry_run && _output_locks.is_none() {
             return Err(CoordinatorError::Cancelled {
                 action: action.key.clone(),
             });
-        };
+        }
         if cancellation.is_cancelled() {
             return Err(CoordinatorError::Cancelled {
                 action: action.key.clone(),
@@ -104,6 +131,16 @@ impl DriverActionExecutor {
         action: &PlanAction,
         cancellation: &ActionCancellation,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        if self.dry_run && matches!(&action.kind, ActionKind::Aggregate) {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        }
+        if self.dry_run && matches!(&action.kind, ActionKind::Uncacheable { .. }) {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        }
         let result = match &action.kind {
             ActionKind::Aggregate => Ok(()),
             ActionKind::CompilerCheck {
@@ -148,9 +185,19 @@ impl DriverActionExecutor {
         cancellation: &ActionCancellation,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         if command.cache_policy != CommandCachePolicy::SuccessfulTests {
+            if self.dry_run {
+                return Ok(Some(ActionCacheOutcome::Miss(
+                    ActionCacheMissReason::Uncacheable,
+                )));
+            }
             return self.execute_external_command_action(action, command, cancellation);
         }
         let Some(identity) = self.test_suite_cache_identity(action, command)? else {
+            if self.dry_run {
+                return Ok(Some(ActionCacheOutcome::Miss(
+                    ActionCacheMissReason::Uncacheable,
+                )));
+            }
             return self.execute_external_command_action(action, command, cancellation);
         };
         let cache = TestSuiteCache::new(self.invocation.cache_dir.clone());
@@ -194,6 +241,9 @@ impl DriverActionExecutor {
             Err(_) => ActionCacheMissReason::ReadError,
         };
         self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
+        if self.dry_run {
+            return Ok(Some(ActionCacheOutcome::Miss(miss_reason)));
+        }
         self.execute_external_command_action(action, command, cancellation)?;
         if cancellation.is_cancelled() {
             return Err(CoordinatorError::Cancelled {
@@ -433,6 +483,9 @@ impl DriverActionExecutor {
             match cache.lookup(identity) {
                 Ok(ExternalCommandCacheLookup::Hit(hit)) => {
                     self.observe_cache_decision(action, ActionCacheOutcome::Hit);
+                    if self.dry_run {
+                        return Ok(Some(ActionCacheOutcome::Hit));
+                    }
                     restore_cached_external_outputs(
                         action,
                         &self.invocation.build_dir,
@@ -447,6 +500,15 @@ impl DriverActionExecutor {
         }
 
         if cache_policy != CommandCachePolicy::SuccessfulTests {
+            if self.dry_run {
+                let outcome = ActionCacheOutcome::Miss(
+                    miss_reason
+                        .clone()
+                        .unwrap_or(ActionCacheMissReason::Uncacheable),
+                );
+                self.observe_cache_decision(action, outcome.clone());
+                return Ok(Some(outcome));
+            }
             self.observe_cache_decision(
                 action,
                 ActionCacheOutcome::Miss(
@@ -702,6 +764,9 @@ impl DriverActionExecutor {
             },
         };
         self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
+        if self.dry_run {
+            return Ok(Some(ActionCacheOutcome::Miss(miss_reason)));
+        }
         let check_activity = self
             .progress
             .as_ref()
@@ -754,9 +819,19 @@ impl DriverActionExecutor {
         let artifact = self.artifact(action, artifact_key)?;
         match artifact.kind {
             PlanArtifactKind::ObjectSet => {
+                if self.dry_run {
+                    return Ok(Some(ActionCacheOutcome::Miss(
+                        ActionCacheMissReason::Uncacheable,
+                    )));
+                }
                 return self.execute_object_set_emit(action, artifact, target);
             }
             PlanArtifactKind::StaticArchive => {
+                if self.dry_run {
+                    return Ok(Some(ActionCacheOutcome::Miss(
+                        ActionCacheMissReason::Uncacheable,
+                    )));
+                }
                 return self.execute_static_archive_emit(action, artifact, target);
             }
             PlanArtifactKind::Executable => {}
@@ -881,6 +956,10 @@ impl DriverActionExecutor {
             None => ActionCacheMissReason::Uncacheable,
             Some(identity) => match cache.lookup(identity) {
                 Ok(CompilerEmitCacheLookup::Hit(reference)) => {
+                    if self.dry_run {
+                        self.observe_cache_decision(action, ActionCacheOutcome::Hit);
+                        return Ok(Some(ActionCacheOutcome::Hit));
+                    }
                     let reason = match driver.restore_executable_cache(reference, &output) {
                         ExecutableCacheRestore::Hit => {
                             self.observe_cache_decision(action, ActionCacheOutcome::Hit);
@@ -907,6 +986,9 @@ impl DriverActionExecutor {
             },
         };
         self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
+        if self.dry_run {
+            return Ok(Some(ActionCacheOutcome::Miss(miss_reason)));
+        }
         let link_activity = self.progress.as_ref().map(|progress| {
             progress.activity(action.key.clone(), ProgressActivity::CompilingAndLinking)
         });
@@ -1104,6 +1186,11 @@ impl DriverActionExecutor {
                     action,
                     ActionCacheOutcome::Miss(ActionCacheMissReason::ReadError),
                 );
+                if self.dry_run {
+                    return Ok(Some(ActionCacheOutcome::Miss(
+                        ActionCacheMissReason::ReadError,
+                    )));
+                }
                 write_generated_file(action, &self.invocation.build_dir, &output, contents)?;
                 return Ok(Some(ActionCacheOutcome::Miss(
                     ActionCacheMissReason::ReadError,
@@ -1113,11 +1200,17 @@ impl DriverActionExecutor {
         match lookup {
             GeneratedFileCacheLookup::Hit(payload) => {
                 self.observe_cache_decision(action, ActionCacheOutcome::Hit);
+                if self.dry_run {
+                    return Ok(Some(ActionCacheOutcome::Hit));
+                }
                 write_generated_file(action, &self.invocation.build_dir, &output, &payload)?;
                 Ok(Some(ActionCacheOutcome::Hit))
             }
             GeneratedFileCacheLookup::Miss(reason) => {
                 self.observe_cache_decision(action, ActionCacheOutcome::Miss(reason.clone()));
+                if self.dry_run {
+                    return Ok(Some(ActionCacheOutcome::Miss(reason)));
+                }
                 write_generated_file(action, &self.invocation.build_dir, &output, contents)?;
                 let reason = match cache.publish(&identity, contents) {
                     Ok(()) => reason,
@@ -1143,6 +1236,11 @@ impl DriverActionExecutor {
         artifact_key: &ArtifactKey,
         logical_destination: &LogicalPath,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
+        if self.dry_run {
+            return Ok(Some(ActionCacheOutcome::Miss(
+                ActionCacheMissReason::Uncacheable,
+            )));
+        }
         let artifact = self.artifact(action, artifact_key)?;
         if !matches!(
             artifact.kind,

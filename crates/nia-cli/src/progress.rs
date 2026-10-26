@@ -1026,6 +1026,7 @@ fn progress_outcome_name(outcome: &nia_build::ProgressOutcome) -> &'static str {
 fn cache_progress_detail(cache: &nia_build::ActionCacheOutcome) -> &'static str {
     match cache {
         nia_build::ActionCacheOutcome::Hit => "cache hit",
+        nia_build::ActionCacheOutcome::Unavailable => "cache prediction unavailable",
         nia_build::ActionCacheOutcome::Miss(nia_build::ActionCacheMissReason::NotFound) => {
             "cache miss: not found"
         }
@@ -1454,6 +1455,10 @@ fn cache_json_value(cache: nia_build::ActionCacheOutcome) -> serde_json::Value {
     use nia_build::ActionCacheOutcome;
     match cache {
         ActionCacheOutcome::Hit => serde_json::json!({"status": "hit"}),
+        ActionCacheOutcome::Unavailable => serde_json::json!({
+            "status": "unavailable",
+            "reason": "identity_unavailable"
+        }),
         ActionCacheOutcome::Miss(reason) => {
             let reason = match reason {
                 nia_build::ActionCacheMissReason::NotFound => "not_found",

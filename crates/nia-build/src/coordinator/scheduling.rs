@@ -25,6 +25,34 @@ pub fn preview_build_plan(
     execute_selected_closure(plan, invocation.keep_going, preview)
 }
 
+/// Predicts cache outcomes for the selected closure without restoring outputs,
+/// running actions, or publishing cache records.
+pub(crate) fn preview_action_cache(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+) -> Result<ExecutionReport, CoordinatorError> {
+    validate_invocation_targets(plan, invocation)?;
+    let executor = DriverActionExecutor::new_dry_run(plan.clone(), invocation.clone());
+    let cancellation_state = Arc::new(AtomicUsize::new(usize::MAX));
+    execute_selected_closure(plan, invocation.keep_going, |actions| {
+        Ok(actions
+            .iter()
+            .map(|action| {
+                let cancellation = ActionCancellation {
+                    earliest_failure: Arc::clone(&cancellation_state),
+                    position: 0,
+                    enabled: false,
+                };
+                match executor.execute(action, &cancellation) {
+                    Ok(cache) => ActionOutcome::Succeeded(cache),
+                    Err(error) if is_cancellation_error(&error) => ActionOutcome::Cancelled,
+                    Err(_) => ActionOutcome::Succeeded(Some(ActionCacheOutcome::Unavailable)),
+                }
+            })
+            .collect())
+    })
+}
+
 /// Validates invocation targets, recovers interrupted output transactions, and
 /// executes the selected dependency closure in deterministic readiness waves.
 pub fn execute_build_plan(
@@ -347,6 +375,9 @@ fn outcome_kind(outcome: &ActionOutcome, action: &PlanAction) -> ProgressOutcome
         ActionOutcome::Cancelled => ProgressOutcome::Cancelled,
         ActionOutcome::Failed(_) => ProgressOutcome::Failed,
         ActionOutcome::Succeeded(Some(ActionCacheOutcome::Hit)) => ProgressOutcome::Cached,
+        ActionOutcome::Succeeded(Some(ActionCacheOutcome::Unavailable)) => {
+            ProgressOutcome::Executed
+        }
         ActionOutcome::Succeeded(Some(ActionCacheOutcome::Miss(_))) => ProgressOutcome::Executed,
         ActionOutcome::Succeeded(None) if matches!(action.kind, ActionKind::Aggregate) => {
             ProgressOutcome::NoWork

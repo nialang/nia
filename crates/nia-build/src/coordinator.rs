@@ -19,6 +19,7 @@ use helpers::*;
 use publication::*;
 use scheduling::ActionCancellation;
 pub(crate) use scheduling::execute_build_plan_with_progress;
+pub(crate) use scheduling::preview_action_cache;
 #[cfg(test)]
 use scheduling::{
     ActionOutcome, action_resource_capacity, execute_selected_closure, run_action_tasks,

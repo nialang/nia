@@ -766,10 +766,10 @@ named, after the steps it depends on.
 | `--workspace` | selects every workspace member |
 | `--locked` | fails instead of changing `nia.lock` |
 | `--offline` | uses cached Git checkouts, registry indexes, and registry archives only |
-| `--dry-run` | configures and validates the graph without running any step |
+| `--dry-run` | configures and validates the graph, and predicts action-cache decisions without running build actions |
 | `--explain` | shows the selected step, targets, action closure, and configure-cache decision |
 | `--print-plan` | prints the frozen graph: modules, artifacts, actions, and steps |
-| `--print-cache` | prints configure and action cache hits and misses |
+| `--print-cache` | prints configure and action cache hits and misses; with `--dry-run`, reports predicted outcomes without restoring outputs or publishing records |
 | `--print-observations` | prints the facts recorded by probes |
 | `--list` | prints every step and its kind without running any |
 | `-k, --keep-going` | after a failure, keeps running the actions that do not depend on it |

@@ -459,11 +459,12 @@ counts selected dependency edges, while `resolved_count` counts selected
 package nodes including the root. Canonical checkout paths used to join
 metadata edges to plan roots are invocation-local and are not serialized.
 
-Dry runs emit the same action records with `not_consulted` and `not_attempted`
-states and neither consult nor publish any action cache. Explicit command
-environment values are represented by variable name, byte length, and a
-domain-separated fingerprint, never the value itself; inherited variables are
-represented as `inherited`.
+Dry runs consult action caches to predict hits and miss reasons. They do not run
+compiler, linker, or external-command actions, restore outputs, or publish cache
+records. An action is reported as unavailable when its identity depends on an input product
+that is not present yet. Explicit command environment values are represented
+by variable name, byte length, and a domain-separated fingerprint, never the
+value itself; inherited variables are represented as `inherited`.
 
 ## Evolution Rule
 

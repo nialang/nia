@@ -1341,10 +1341,18 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                 }
                 if dry_run {
                     if print_cache || explain {
+                        let cache_preview =
+                            time_summary_stage(timings, "build_preview_cache", || {
+                                preview_action_cache(&plan, &invocation).map_err(|error| {
+                                    BuildError::ExecuteBuildPlan {
+                                        error: Box::new(error),
+                                    }
+                                })
+                            })?;
                         if output_json {
-                            print!("{}", render_action_cache_preview_json(&plan, &preview));
+                            print!("{}", render_action_cache_json(&cache_preview, &plan, true));
                         } else {
-                            print!("{}", render_action_cache_preview_summary(&plan, &preview));
+                            print!("{}", render_action_cache_summary(&cache_preview, true));
                         }
                     }
                     return Ok(());
@@ -1371,9 +1379,9 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                     emit_action_cache_counters(report);
                     if print_cache || explain {
                         if output_json {
-                            print!("{}", render_action_cache_json(report, &plan));
+                            print!("{}", render_action_cache_json(report, &plan, false));
                         } else {
-                            print!("{}", render_action_cache_summary(report));
+                            print!("{}", render_action_cache_summary(report, false));
                         }
                     }
                 } else {
@@ -1968,9 +1976,13 @@ fn render_configure_observations(bytes: &[u8]) -> String {
     output
 }
 
-fn render_action_cache_summary(report: &ExecutionReport) -> String {
+fn render_action_cache_summary(report: &ExecutionReport, dry_run: bool) -> String {
     use std::fmt::Write as _;
-    let mut output = String::from("action cache:\n");
+    let mut output = String::from(if dry_run {
+        "action cache (dry run):\n"
+    } else {
+        "action cache:\n"
+    });
     for entry in &report.action_cache {
         let _ = writeln!(
             output,
@@ -2362,10 +2374,10 @@ fn plan_tool_json_values(plan: &BuildPlan) -> Vec<serde_json::Value> {
     tools
 }
 
-fn render_action_cache_json(report: &ExecutionReport, plan: &BuildPlan) -> String {
+fn render_action_cache_json(report: &ExecutionReport, plan: &BuildPlan, dry_run: bool) -> String {
     serde_json::json!({
         "kind": "action-cache",
-        "mode": "execution",
+        "mode": if dry_run { "dry_run" } else { "execution" },
         "entries": report.action_cache.iter().map(|entry| serde_json::json!({
             "action": format!("{}::{}", entry.action.package().as_str(), entry.action.name()),
             "outputs": plan
@@ -2377,59 +2389,11 @@ fn render_action_cache_json(report: &ExecutionReport, plan: &BuildPlan) -> Strin
             // Keep the original compact field for existing consumers. The
             // structured decision is the stable machine-readable contract.
             "outcome": format!("{:?}", entry.outcome),
-            "decision": action_cache_outcome_json(&entry.outcome),
+            "decision": action_cache_outcome_json(&entry.outcome, dry_run),
         })).collect::<Vec<_>>(),
     })
     .to_string()
         + "\n"
-}
-
-fn render_action_cache_preview_json(plan: &BuildPlan, preview: &ExecutionReport) -> String {
-    serde_json::json!({
-        "kind": "action-cache",
-        "mode": "dry_run",
-        "entries": preview.actions.iter().map(|key| {
-            let outputs = plan
-                .actions()
-                .iter()
-                .find(|action| action.key == *key)
-                .map(|action| action_outputs_json(plan, action))
-                .unwrap_or_default();
-            serde_json::json!({
-                "action": format!("{}::{}", key.package().as_str(), key.name()),
-                "outputs": outputs,
-                "outcome": {
-                    "status": "not_consulted",
-                    "reason": "dry_run",
-                    "invalidations": [],
-                    "publication": "not_attempted",
-                },
-            })
-        }).collect::<Vec<_>>(),
-    })
-    .to_string()
-        + "\n"
-}
-
-fn render_action_cache_preview_summary(plan: &BuildPlan, preview: &ExecutionReport) -> String {
-    use std::fmt::Write as _;
-    let mut output = String::from("action cache (dry run):\n");
-    for key in &preview.actions {
-        let outputs = plan
-            .actions()
-            .iter()
-            .find(|action| action.key == *key)
-            .map(|action| action_outputs_json(plan, action).len())
-            .unwrap_or(0);
-        let _ = writeln!(
-            output,
-            "  {}::{}: not consulted ({} declared output path(s))",
-            key.package().as_str(),
-            key.name(),
-            outputs
-        );
-    }
-    output
 }
 
 fn logical_path_json(path: &LogicalPath) -> serde_json::Value {
@@ -2650,18 +2614,19 @@ fn progress_action_description(plan: &BuildPlan, action: &PlanAction) -> Progres
     }
 }
 
-fn action_cache_outcome_json(outcome: &ActionCacheOutcome) -> serde_json::Value {
+fn action_cache_outcome_json(outcome: &ActionCacheOutcome, dry_run: bool) -> serde_json::Value {
     match outcome {
         ActionCacheOutcome::Hit => serde_json::json!({
             "status": "hit",
             "reason": serde_json::Value::Null,
             "invalidations": [],
-            "publication": "restored",
+            "publication": if dry_run { "not_attempted" } else { "restored" },
         }),
         ActionCacheOutcome::Miss(reason) => {
             let publication = match reason {
                 ActionCacheMissReason::Uncacheable => "not_applicable",
                 ActionCacheMissReason::WriteError => "failed",
+                _ if dry_run => "not_attempted",
                 _ => "published",
             };
             serde_json::json!({
@@ -2671,6 +2636,12 @@ fn action_cache_outcome_json(outcome: &ActionCacheOutcome) -> serde_json::Value 
                 "publication": publication,
             })
         }
+        ActionCacheOutcome::Unavailable => serde_json::json!({
+            "status": "unavailable",
+            "reason": "identity_unavailable",
+            "invalidations": [],
+            "publication": "not_attempted",
+        }),
     }
 }
 
@@ -2802,6 +2773,9 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
     for entry in &report.action_cache {
         match &entry.outcome {
             ActionCacheOutcome::Hit => nia_timing::emit_counter("build.action_cache_hits", 1),
+            ActionCacheOutcome::Unavailable => {
+                nia_timing::emit_counter("build.action_cache_unavailable", 1);
+            }
             ActionCacheOutcome::Miss(reason) => {
                 nia_timing::emit_counter("build.action_cache_misses", 1);
                 match reason {
@@ -5689,7 +5663,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             }],
         };
         let cache_json: serde_json::Value =
-            serde_json::from_str(&render_action_cache_json(&cache_report, &plan))
+            serde_json::from_str(&render_action_cache_json(&cache_report, &plan, false))
                 .expect("parse action cache JSON");
         assert_eq!(cache_json["mode"], "execution");
         assert_eq!(

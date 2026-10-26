@@ -558,13 +558,17 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         if mode == "json" {
             let mut actual: serde_json::Value =
                 serde_json::from_slice(&output.stdout).expect("parse printed build plan");
-            let mut expected: serde_json::Value = serde_json::from_slice(
-                &plans[&(step, true)],
-            )
-            .expect("parse dry-run build plan");
+            let mut expected: serde_json::Value =
+                serde_json::from_slice(&plans[&(step, true)]).expect("parse dry-run build plan");
             for plan in [&mut actual, &mut expected] {
-                plan["invocation"].as_object_mut().unwrap().remove("configure_cache");
-                plan["invocation"].as_object_mut().unwrap().remove("configure_result");
+                plan["invocation"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("configure_cache");
+                plan["invocation"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("configure_result");
                 plan["invocation"]
                     .as_object_mut()
                     .unwrap()
@@ -801,6 +805,27 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         selected.status.success(),
         "{}",
         String::from_utf8_lossy(&selected.stderr)
+    );
+
+    std::fs::write(
+        root.join("lazy/src/root.nia"),
+        "pub fun value() i32 { 9 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/main.nia"),
+        "using lazy;\nusing std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; _ = lazy::value(); !() }\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("build.nia"), build_script(false)).unwrap();
+    let lazy_selected = support::nia_command()
+        .args(["build", "--root"])
+        .arg(&root)
+        .output_timeout_in_session("build with an imported lazy dependency");
+    assert!(
+        lazy_selected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lazy_selected.stderr)
     );
 }
 

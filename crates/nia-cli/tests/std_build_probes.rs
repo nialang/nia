@@ -81,7 +81,11 @@ fn probe_build_command(root: &std::path::Path) -> std::process::Command {
 fn structured_build_inspection_reports_nodes_tools_observations_and_dry_run() {
     let root = temp_dir("structured_build_inspection");
     std::fs::create_dir_all(root.join("src")).expect("create source directory");
-    std::fs::write(root.join("src/main.nia"), "pub const value: u8 = 1;\n").expect("write source");
+    std::fs::write(
+        root.join("src/main.nia"),
+        "using std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }\n",
+    )
+    .expect("write source");
     std::fs::write(
         root.join("build.nia"),
         r#"
@@ -89,7 +93,7 @@ using std::build;
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let mut buffer: [u8; 64] = [0; 64];
+    let mut buffer: [u8; 256] = [0; 256];
     _ = b.probeFile(fs::PathView::init(&"src/main.nia"), &mut buffer[..]).?;
     let rootModule = b.addModule(build::ModuleOptions::init(
         &"main", fs::PathView::init(&"src/main.nia"),
@@ -182,10 +186,55 @@ pub fun build(b: &mut build::Build) build::Error!() {
         .iter()
         .find(|record| record["kind"] == "action-cache" && record["mode"] == "dry_run")
         .unwrap();
-    assert_eq!(cache["entries"][0]["outcome"]["status"], "not_consulted");
+    assert_eq!(cache["entries"][0]["decision"]["status"], "miss");
     assert_eq!(
-        cache["entries"][0]["outcome"]["publication"],
+        cache["entries"][0]["decision"]["publication"],
         "not_attempted"
+    );
+    assert!(!root.join("build/out/app").exists());
+
+    let built = support::nia_command()
+        .args(["build", "--root", root.to_str().unwrap()])
+        .output_timeout_for_build("populate action cache for dry-run prediction");
+    assert!(
+        built.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    std::fs::remove_dir_all(root.join("build/out")).expect("remove built outputs");
+    let warm = support::nia_command()
+        .args([
+            "build",
+            "--root",
+            root.to_str().unwrap(),
+            "--dry-run",
+            "--print-cache",
+            "--diagnostics-format=json",
+        ])
+        .output_timeout_for_build("predict warm action cache");
+    assert!(
+        warm.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    let warm_cache = String::from_utf8_lossy(&warm.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["kind"] == "action-cache" && record["mode"] == "dry_run")
+        .expect("warm action cache report");
+    assert!(
+        warm_cache["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["decision"]["status"] == "hit")
+    );
+    assert!(
+        warm_cache["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|entry| { entry["decision"]["publication"] == "not_attempted" })
     );
     assert!(!root.join("build/out/app").exists());
 }
@@ -281,6 +330,75 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert_eq!(
         invalid["invocation"]["runner_executable_cache"]["miss_reason"]["kind"],
         "invalid_record"
+    );
+}
+
+#[test]
+fn dry_run_does_not_execute_uncacheable_external_commands() {
+    let root = temp_dir("dry_run_external_command");
+    let marker = root.join("dry-run-marker");
+    let (program, arguments) = if cfg!(windows) {
+        (
+            "cmd.exe",
+            r#"[
+        build::CommandArgument::literal(&"/d"),
+        build::CommandArgument::literal(&"/c"),
+        build::CommandArgument::literal(&"echo ran > dry-run-marker"),
+    ]"#,
+        )
+    } else {
+        (
+            "sh",
+            r#"[
+        build::CommandArgument::literal(&"-c"),
+        build::CommandArgument::literal(&"printf ran > dry-run-marker"),
+    ]"#,
+        )
+    };
+    std::fs::write(
+        root.join("build.nia"),
+        format!(
+            r#"
+using std::build;
+
+pub fun build(b: &mut build::Build) build::Error!() {{
+    let arguments = {arguments};
+    let step = b.addExternalCommandStep(
+        &"side-effect",
+        build::ExternalCommandOptions::search(&"{program}").withArguments(&arguments),
+    ).?;
+    b.setDefaultStep(step)
+}}
+"#
+        ),
+    )
+    .expect("write build script");
+
+    let output = support::nia_command()
+        .args([
+            "build",
+            "--root",
+            root.to_str().unwrap(),
+            "--dry-run",
+            "--print-cache",
+            "--diagnostics-format=json",
+        ])
+        .output_timeout_for_build("dry-run external command");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!marker.exists(), "dry-run started the external command");
+    let cache = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|record| record["kind"] == "action-cache" && record["mode"] == "dry_run")
+        .expect("dry-run action cache report");
+    assert_eq!(cache["entries"][0]["decision"]["reason"], "uncacheable");
+    assert_eq!(
+        cache["entries"][0]["decision"]["publication"],
+        "not_applicable"
     );
 }
 

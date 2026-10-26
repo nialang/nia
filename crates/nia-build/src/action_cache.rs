@@ -86,10 +86,12 @@ pub struct ActionCacheReport {
 /// Result of consulting an action cache.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionCacheOutcome {
-    /// A complete, identity-matching entry was restored.
+    /// A complete cache entry matches the requested identity.
     Hit,
     /// No entry was restored; the reason describes the fallback path.
     Miss(ActionCacheMissReason),
+    /// A dry-run could not compute an identity from currently available inputs.
+    Unavailable,
 }
 
 /// Why an action cache lookup did not produce a reusable result.
