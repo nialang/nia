@@ -115,11 +115,24 @@ fn command_cache_outcome(mut command: Command) -> String {
         .find(|value| value["kind"] == "action-cache")
         .unwrap_or_else(|| panic!("missing action cache report: {stdout}"));
     assert_eq!(report["entries"].as_array().unwrap().len(), 1, "{report}");
-    assert!(
-        report["entries"][0]["decision"]["status"].is_string(),
-        "{report}"
-    );
-    report["entries"][0]["outcome"].as_str().unwrap().to_owned()
+    let decision = &report["entries"][0]["decision"];
+    assert!(decision["status"].is_string(), "{report}");
+    assert!(report["entries"][0].get("outcome").is_none(), "{report}");
+    let status = decision["status"].as_str().unwrap();
+    let reason = decision["reason"].as_str().unwrap_or("");
+    let invalidations = decision["invalidations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    if reason.is_empty() {
+        status.to_owned()
+    } else if invalidations.is_empty() {
+        format!("{status}({reason})")
+    } else {
+        format!("{status}({reason}:{})", invalidations.join(","))
+    }
 }
 
 #[test]
@@ -127,15 +140,15 @@ fn declared_command_policies_restore_outputs_and_invalidate_inputs_and_tools() {
     for policy in ["withDeclaredInputCache", "withToolAndInputCache"] {
         let root = test_dir(policy);
         command_fixture(&root, policy, true);
-        assert_eq!(cache_outcome(&root, Some("inherited")), "Miss(NotFound)");
+        assert_eq!(cache_outcome(&root, Some("inherited")), "miss(not_found)");
         let result = root.join("build/out/result.txt");
         let expected = fs::read(&result).expect("cold output");
         assert!(String::from_utf8_lossy(&expected).contains("override"));
         fs::remove_file(&result).expect("remove output before restore");
-        assert_eq!(cache_outcome(&root, Some("changed inherited value")), "Hit");
+        assert_eq!(cache_outcome(&root, Some("changed inherited value")), "hit");
         assert_eq!(fs::read(&result).unwrap(), expected);
         fs::write(root.join("input.txt"), "second\n").unwrap();
-        assert_eq!(cache_outcome(&root, None), "Miss(Invalidated([Inputs]))");
+        assert_eq!(cache_outcome(&root, None), "miss(invalidated:inputs)");
         assert!(fs::read_to_string(&result).unwrap().contains("second"));
 
         let program = if cfg!(windows) {
@@ -151,9 +164,9 @@ fn declared_command_policies_restore_outputs_and_invalidate_inputs_and_tools() {
         drop(tool);
         assert_eq!(
             cache_outcome(&root, None),
-            "Miss(Invalidated([ExternalTool]))"
+            "miss(invalidated:external_tool)"
         );
-        assert_eq!(cache_outcome(&root, None), "Hit");
+        assert_eq!(cache_outcome(&root, None), "hit");
 
         let replacement = root.join("replacement");
         fs::create_dir(&replacement).unwrap();
@@ -174,7 +187,7 @@ fn declared_command_policies_restore_outputs_and_invalidate_inputs_and_tools() {
         );
         assert_eq!(
             command_cache_outcome(command),
-            "Miss(Invalidated([ExternalTool]))"
+            "miss(invalidated:external_tool)"
         );
     }
 }
@@ -183,14 +196,14 @@ fn declared_command_policies_restore_outputs_and_invalidate_inputs_and_tools() {
 fn full_environment_command_cache_distinguishes_absent_empty_and_changed_values() {
     let root = test_dir("full_environment_command_cache");
     command_fixture(&root, "withFullEnvironmentCache", false);
-    assert_eq!(cache_outcome(&root, None), "Miss(NotFound)");
-    assert_eq!(cache_outcome(&root, None), "Hit");
+    assert_eq!(cache_outcome(&root, None), "miss(not_found)");
+    assert_eq!(cache_outcome(&root, None), "hit");
     for value in ["", "first", "second"] {
         assert_eq!(
             cache_outcome(&root, Some(value)),
-            "Miss(Invalidated([Environment]))"
+            "miss(invalidated:environment)"
         );
-        assert_eq!(cache_outcome(&root, Some(value)), "Hit");
+        assert_eq!(cache_outcome(&root, Some(value)), "hit");
         let result = root.join("build/out/result.txt");
         let expected = format!("{value}\nfirst\n");
         assert_eq!(
@@ -198,7 +211,7 @@ fn full_environment_command_cache_distinguishes_absent_empty_and_changed_values(
             expected
         );
         fs::remove_file(&result).unwrap();
-        assert_eq!(cache_outcome(&root, Some(value)), "Hit");
+        assert_eq!(cache_outcome(&root, Some(value)), "hit");
         assert_eq!(
             fs::read_to_string(&result).unwrap().replace("\r\n", "\n"),
             expected
@@ -238,7 +251,7 @@ fn oversized_environment_executes_without_publishing_command_cache() {
         for index in 0..36 {
             command.env(format!("NIA_COMMAND_PADDING_{index}"), "x".repeat(30_000));
         }
-        assert_eq!(command_cache_outcome(command), "Miss(Uncacheable)");
+        assert_eq!(command_cache_outcome(command), "miss(uncacheable)");
         assert!(
             fs::read_to_string(root.join("build/out/result.txt"))
                 .unwrap()

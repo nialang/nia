@@ -458,6 +458,8 @@ these as `resolved`, `loaded_modules`, and `used`. `resolved_dependency_count`
 counts selected dependency edges, while `resolved_count` counts selected
 package nodes including the root. Canonical checkout paths used to join
 metadata edges to plan roots are invocation-local and are not serialized.
+Dependency scopes in text and JSON use the stable names `build`, `runtime`,
+`development`, `optional`, and `lazy`.
 
 Text action-cache entries use stable status and reason names and include
 publication state and declared outputs. Component invalidations are listed on

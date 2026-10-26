@@ -1699,10 +1699,10 @@ pub fn render_build_explanation_with_observations(
         };
         let _ = writeln!(
             output,
-            "    {}::{} ({:?}) -> {} [resolved={}, loaded_modules={}, used={}]",
+            "    {}::{} ({}) -> {} [resolved={}, loaded_modules={}, used={}]",
             owner,
             dependency.dependency.name,
-            dependency.dependency.scope,
+            dependency_scope_name(dependency.dependency.scope),
             dependency.resolved_root.as_deref().unwrap_or("filtered"),
             usage.resolved,
             usage.loaded_modules,
@@ -2291,7 +2291,7 @@ pub fn render_build_explanation_json_with_observations(
             serde_json::json!({
                 "owner": &dependency.owner_root,
                 "name": &dependency.dependency.name,
-                "scope": format!("{:?}", dependency.dependency.scope),
+                "scope": dependency_scope_name(dependency.dependency.scope),
                 "resolved_root": dependency.resolved_root.as_deref(),
                 "resolved": usage.resolved,
                 "loaded_modules": usage.loaded_modules,
@@ -2519,9 +2519,6 @@ fn render_action_cache_json(report: &ExecutionReport, plan: &BuildPlan, dry_run:
                 .find(|action| action.key == entry.action)
                 .map(|action| action_outputs_json(plan, action))
                 .unwrap_or_default(),
-            // Keep the original compact field for existing consumers. The
-            // structured decision is the stable machine-readable contract.
-            "outcome": format!("{:?}", entry.outcome),
             "decision": action_cache_outcome_json(&entry.outcome, dry_run),
         })).collect::<Vec<_>>(),
     })
@@ -2822,6 +2819,16 @@ fn action_cache_invalidation_name(reason: &ActionCacheInvalidation) -> &'static 
         ActionCacheInvalidation::ResourceLayout => "resource_layout",
         ActionCacheInvalidation::StandardLibrary => "standard_library",
         ActionCacheInvalidation::BuildProtocol => "build_protocol",
+    }
+}
+
+fn dependency_scope_name(scope: DependencyScope) -> &'static str {
+    match scope {
+        DependencyScope::Build => "build",
+        DependencyScope::Runtime => "runtime",
+        DependencyScope::Development => "development",
+        DependencyScope::Optional => "optional",
+        DependencyScope::Lazy => "lazy",
     }
 }
 
@@ -5702,13 +5709,13 @@ pub fun build(b: &mut build::Build) build::Error!() {
             "package graph: declared_dependencies=3, resolved_dependencies=2, selected_packages=4"
         ));
         assert!(text.contains(
-            "root::runtime (Runtime) -> runtime [resolved=true, loaded_modules=1, used=true]"
+            "root::runtime (runtime) -> runtime [resolved=true, loaded_modules=1, used=true]"
         ));
         assert!(text.contains(
-            "root::development (Development) -> filtered [resolved=false, loaded_modules=1, used=false]"
+            "root::development (development) -> filtered [resolved=false, loaded_modules=1, used=false]"
         ));
         assert!(text.contains(
-            "root::orphan (Runtime) -> orphan [resolved=true, loaded_modules=0, used=false]"
+            "root::orphan (runtime) -> orphan [resolved=true, loaded_modules=0, used=false]"
         ));
 
         let json: serde_json::Value = serde_json::from_str(&render_build_explanation_json(
@@ -5730,8 +5737,10 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 .expect("dependency entry")
         };
         assert_eq!(dependency("runtime")["loaded_modules"], 1);
+        assert_eq!(dependency("runtime")["scope"], "runtime");
         assert_eq!(dependency("runtime")["used"], true);
         assert_eq!(dependency("development")["resolved"], false);
+        assert_eq!(dependency("development")["scope"], "development");
         assert_eq!(dependency("development")["loaded_modules"], 1);
         assert_eq!(dependency("orphan")["loaded_modules"], 0);
         assert!(
@@ -5803,10 +5812,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             serde_json::from_str(&render_action_cache_json(&cache_report, &plan, false))
                 .expect("parse action cache JSON");
         assert_eq!(cache_json["mode"], "execution");
-        assert_eq!(
-            cache_json["entries"][0]["outcome"],
-            "Miss(Invalidated([Inputs]))"
-        );
+        assert!(cache_json["entries"][0].get("outcome").is_none());
         assert_eq!(cache_json["entries"][0]["decision"]["status"], "miss");
         assert_eq!(
             cache_json["entries"][0]["decision"]["reason"],
