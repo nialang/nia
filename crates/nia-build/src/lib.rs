@@ -394,8 +394,8 @@ pub struct BuildInvocation {
     /// content and toolchain alone, so packages may share one root; it is
     /// `cache_dir` unless the test harness names a shared one.
     pub artifact_cache_dir: PathBuf,
-    /// Directory containing the generated host runner.
-    pub runner_dir: PathBuf,
+    /// Directory of the invocation-private runner, configuration, and draft.
+    pub tmp_dir: PathBuf,
     /// Path to the generated runner executable.
     pub runner_executable: PathBuf,
     /// Private runner configuration handoff path.
@@ -521,6 +521,13 @@ pub enum BuildError {
         /// Directory from which the manifest search began.
         path: PathBuf,
         /// Underlying manifest, fetch, or lock file error.
+        error: io::Error,
+    },
+    /// `nia clean` could not inspect, lock, or remove build state.
+    Clean {
+        /// Path the failed operation named.
+        path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
     /// Workspace members could not be selected for this build request.
@@ -700,6 +707,9 @@ impl fmt::Display for BuildError {
                 "failed to update nia.lock from `{}`: {error}",
                 path.display()
             ),
+            Self::Clean { path, error } => {
+                write!(f, "failed to clean `{}`: {error}", path.display())
+            }
             Self::WorkspaceSelection { path, detail } => write!(
                 f,
                 "failed to select workspace packages from `{}`: {detail}",
@@ -836,6 +846,67 @@ fn write_runner_output(f: &mut fmt::Formatter<'_>, stream: &str, bytes: &[u8]) -
 }
 
 impl std::error::Error for BuildError {}
+
+/// Removes the outputs, caches, and transient files of the package at or
+/// above `root` (the current directory when absent) for `nia clean`.
+///
+/// Discovery must find a `nia.toml` or `build.nia`, so `nia clean` never
+/// touches a `build/` that no Nia package owns. Fetched dependencies and the
+/// registry cache are kept. The package-state lock is held throughout, so a
+/// concurrent build or update waits instead of racing the removal, and
+/// `build/` itself must be a real directory, so the removal cannot follow a
+/// link out of the package.
+pub fn run_clean(root: Option<PathBuf>) -> Result<(), BuildError> {
+    let start = match root {
+        Some(root) if root.is_absolute() => root,
+        Some(root) => env::current_dir()
+            .map_err(|error| BuildError::CurrentDirectory { error })?
+            .join(root),
+        None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
+    };
+    let layout = match nia_package_metadata::BuildLayout::discover(&start) {
+        Ok(layout) => layout,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(BuildError::MissingBuildScript { start });
+        }
+        Err(error) => return Err(BuildError::Clean { path: start, error }),
+    };
+    let build_root = layout.root();
+    let clean = |error, path: &Path| BuildError::Clean {
+        path: path.to_path_buf(),
+        error,
+    };
+    match fs::symlink_metadata(&build_root) {
+        Ok(metadata) if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_dir() => {
+            return Err(clean(
+                io::Error::new(io::ErrorKind::InvalidData, "not a real directory"),
+                &build_root,
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(clean(error, &build_root)),
+    }
+    let _lock = layout
+        .lock_state()
+        .map_err(|error| clean(error, &layout.state_lock()))?;
+    for path in [layout.out_dir(), layout.cache_dir(), layout.tmp_dir()] {
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(clean(error, &path)),
+        };
+        // `remove_dir_all` does not follow links inside the tree; a link in
+        // place of the directory itself is removed as the link.
+        let result = if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_dir() {
+            fs::remove_file(&path)
+        } else {
+            fs::remove_dir_all(&path)
+        };
+        result.map_err(|error| clean(error, &path))?;
+    }
+    Ok(())
+}
 
 /// Refreshes Git selectors and registry versions in `nia.lock` for
 /// `nia update`. `root` defaults to the current directory; an empty `names`
@@ -2691,16 +2762,14 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
             .join(root),
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
-    let package_root = find_package_root(&start)?;
-
-    // Canonicalize package_root for consistent path handling (especially on Windows
-    // where canonicalize produces extended-length paths).
-    let package_root = normalize_host_path(package_root.canonicalize().map_err(|error| {
-        BuildError::ResolvePackageGraph {
-            path: package_root.clone(),
-            error,
+    let layout = match nia_package_metadata::BuildLayout::discover(&start) {
+        Ok(layout) => layout,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(BuildError::MissingBuildScript { start });
         }
-    })?);
+        Err(error) => return Err(BuildError::ResolvePackageGraph { path: start, error }),
+    };
+    let package_root = normalize_host_path(layout.package_root().to_path_buf());
 
     let package_graph =
         nia_package_metadata::PackageGraph::resolve_with_policy(&package_root, request.lock_policy)
@@ -2720,38 +2789,20 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         Vec::new()
     };
 
-    // Discover the workspace state root: this is where build/ is shared across workspace members.
-    let state_root =
-        workspace_state_root(&package_root).map_err(|error| BuildError::ResolvePackageGraph {
-            path: package_root.clone(),
-            error,
-        })?;
-
-    // Compute the member-specific output directory within the shared build root.
-    let member_relative = package_root
-        .strip_prefix(&state_root)
-        .unwrap_or(Path::new("."));
-    let build_root = state_root.join("build");
-    let member_out = if member_relative == Path::new(".") {
-        build_root.join("out")
-    } else {
-        build_root.join("out").join(member_relative)
-    };
-
-    let build_dir = member_out;
-    let runner_dir = build_dir.join("runner");
+    let build_dir = normalize_host_path(layout.out_dir());
+    let cache_dir = normalize_host_path(layout.cache_dir());
+    let tmp_dir = normalize_host_path(layout.tmp_dir());
     let transient_name = next_build_invocation_name();
-    let cache_dir = build_root.join("cache");
     let artifact_cache_dir = shared_artifact_cache_dir().unwrap_or_else(|| cache_dir.clone());
     Ok(BuildInvocation {
         toolchain: request.toolchain,
         cache_dir,
         artifact_cache_dir,
-        runner_executable: runner_dir.join(format!("nia-build-runner-{transient_name}")),
-        runner_config: build_dir.join(format!(".build-runner-{transient_name}.config")),
-        plan_draft: build_dir.join(format!(".build-plan-{transient_name}.draft")),
+        runner_executable: tmp_dir.join(format!("nia-build-runner-{transient_name}")),
+        runner_config: tmp_dir.join(format!("build-runner-{transient_name}.config")),
+        plan_draft: tmp_dir.join(format!("build-plan-{transient_name}.draft")),
         plan_path: build_dir.join("build-plan.bin"),
-        runner_dir,
+        tmp_dir,
         build_dir,
         package_root,
         package_source_fingerprint: package_graph.fingerprint(),
@@ -2851,14 +2902,6 @@ fn compile_build_runner(
 ) -> Result<(PathBuf, String), BuildError> {
     let lock_observer =
         progress.map(|progress| progress.phase_lock_observer(ProgressPhase::Runner));
-    time_build_stage(invocation.timings, "build_runner_prepare_directory", || {
-        create_real_directory(&invocation.runner_dir).map_err(|error| {
-            BuildError::CreateRunnerDirectory {
-                path: invocation.runner_dir.clone(),
-                error,
-            }
-        })
-    })?;
     let runner = time_build_stage(invocation.timings, "build_runner_generate_source", || {
         build_runner_source(invocation)
     })?;
@@ -3293,6 +3336,12 @@ fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildEr
             error,
         }
     })?;
+    create_real_directory(&invocation.tmp_dir).map_err(|error| {
+        BuildError::CreateRunnerDirectory {
+            path: invocation.tmp_dir.clone(),
+            error,
+        }
+    })?;
     create_real_directory(&invocation.cache_dir).map_err(|error| BuildError::CreateCacheDirectory {
         path: invocation.cache_dir.clone(),
         error,
@@ -3322,15 +3371,9 @@ fn run_build_runner(
         || prepare_runner_configuration(invocation),
     )?;
     let mut command = Command::new(runner_executable);
-    let runner_working_directory =
-        workspace_state_root(&invocation.package_root).map_err(|error| BuildError::RunRunner {
-            path: runner_executable.to_path_buf(),
-            error,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-        })?;
+    // Probes and package paths in build.nia are relative to the package root.
     command
-        .current_dir(runner_working_directory)
+        .current_dir(&invocation.package_root)
         .arg("--config")
         .arg(&invocation.runner_config)
         .stdout(Stdio::piped())
@@ -3748,42 +3791,12 @@ fn run_and_cleanup_build_runner_draft(
     }
 }
 
-fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
-    let mut cursor = start.to_path_buf();
-    loop {
-        if cursor.join("build.nia").is_file() || cursor.join("nia.toml").is_file() {
-            return Ok(cursor);
-        }
-        if !cursor.pop() {
-            return Err(BuildError::MissingBuildScript {
-                start: start.to_path_buf(),
-            });
-        }
-    }
-}
-
 fn time_summary_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
     nia_timing::time_stage(timings, nia_timing::TimingLevel::Summary, name, f)
 }
 
 fn time_build_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
     nia_timing::time_stage(timings, nia_timing::TimingLevel::Detail, name, f)
-}
-
-/// Resolves the workspace state root for build artifacts and caches.
-///
-/// If the package belongs to a workspace, returns the workspace root.
-/// Otherwise returns the package root itself.
-fn workspace_state_root(package_root: &Path) -> io::Result<PathBuf> {
-    let canonical_package_root = package_root.canonicalize().map_err(|error| {
-        io::Error::new(error.kind(), format!("canonicalize package root: {error}"))
-    })?;
-
-    Ok(
-        nia_package_metadata::WorkspaceManifest::discover_for_package(&canonical_package_root)?
-            .map(|workspace| normalize_host_path(workspace.root))
-            .unwrap_or_else(|| normalize_host_path(canonical_package_root)),
-    )
 }
 
 #[cfg(test)]
@@ -4066,13 +4079,10 @@ mod tests {
             plan.cache_dir,
             plan.package_root.join("build").join("cache")
         );
-        assert_eq!(
-            plan.runner_dir,
-            plan.package_root.join("build").join("out").join("runner")
-        );
+        assert_eq!(plan.tmp_dir, plan.package_root.join("build").join("tmp"));
         assert_eq!(
             plan.runner_executable.parent(),
-            Some(plan.runner_dir.as_path())
+            Some(plan.tmp_dir.as_path())
         );
         assert!(
             plan.runner_executable
@@ -4081,21 +4091,21 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("nia-build-runner-")
         );
-        assert_eq!(plan.plan_draft.parent(), Some(plan.build_dir.as_path()));
+        assert_eq!(plan.plan_draft.parent(), Some(plan.tmp_dir.as_path()));
         assert!(
             plan.plan_draft
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
-                .starts_with(".build-plan-")
+                .starts_with("build-plan-")
         );
-        assert_eq!(plan.runner_config.parent(), Some(plan.build_dir.as_path()));
+        assert_eq!(plan.runner_config.parent(), Some(plan.tmp_dir.as_path()));
         assert!(
             plan.runner_config
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
-                .starts_with(".build-runner-")
+                .starts_with("build-runner-")
         );
         assert_eq!(
             plan.plan_path,
@@ -4139,7 +4149,7 @@ mod tests {
             &invocation.build_script,
             &invocation.build_dir,
             &invocation.cache_dir,
-            &invocation.runner_dir,
+            &invocation.tmp_dir,
             &invocation.runner_executable,
             &invocation.runner_config,
             &invocation.plan_draft,
@@ -4250,7 +4260,7 @@ mod tests {
         )
         .expect("build invocation");
         prepare_build_directories(&invocation).expect("prepare build directories");
-        std::fs::create_dir_all(&invocation.runner_dir).expect("prepare runner directory");
+        std::fs::create_dir_all(&invocation.tmp_dir).expect("prepare transient directory");
         std::fs::write(
             &invocation.runner_executable,
             "#!/bin/sh\nprintf 'runner stdout\n'\nprintf 'runner stderr\n' >&2\nexit 7\n",
@@ -4643,7 +4653,7 @@ version = \"1.0.0\"
             std::fs::write(member.join("build.nia"), "").unwrap();
         }
 
-        let cache = nia_package_metadata::RegistryCache::new(root.join(".nia/registry"));
+        let cache = nia_package_metadata::RegistryCache::new(root.join("build/registry"));
         let mut index = String::from("schema_version = 1\n");
         for version in ["1.5.0", "2.1.0"] {
             let manifest = format!(
@@ -4689,8 +4699,8 @@ version = \"1.0.0\"
         assert!(message.contains("no single version"), "{message}");
         assert!(message.contains("left@1.0.0 -> json"), "{message}");
         assert!(message.contains("right@1.0.0 -> json"), "{message}");
-        assert!(!root.join("left/.nia-build").exists());
-        assert!(!root.join("right/.nia-build").exists());
+        assert!(!root.join("build/out/left").exists());
+        assert!(!root.join("build/out/right").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -5068,7 +5078,6 @@ version = \"1.0.0\"
     }
 
     #[test]
-    #[ignore] // TODO: investigate SSH fixture symlink loop on Windows (exit code 40)
     fn workspace_ssh_build_dependency_fetches_locks_and_runs_build_script() {
         let _environment = SSH_ENVIRONMENT_LOCK
             .lock()
@@ -5150,7 +5159,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 let result = run_build(BuildRequest::new(toolchain).with_root(&*workspace));
                 drop(ssh_environment);
                 result.expect("build with SSH dependency");
-                assert!(consumer.join(".nia-build/generated.txt").is_file());
+                assert!(workspace.join("build/out/app/generated.txt").is_file());
                 assert!(!consumer.join("nia.lock").exists());
                 assert!(!consumer.join("build/packages").exists());
                 assert!(workspace.join("build/packages").is_dir());

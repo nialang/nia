@@ -242,13 +242,8 @@ impl RuntimeMode {
 
 fn run_cli(cli: Cli) -> ExitCode {
     let diagnostics_format = cli.diagnostics_format;
-    if let CliCommand::Clean {
-        root,
-        migrate,
-        legacy,
-    } = &cli.command
-    {
-        return run_clean(root.clone(), *migrate, *legacy, diagnostics_format);
+    if let CliCommand::Clean { root } = &cli.command {
+        return run_clean(root.clone(), diagnostics_format);
     }
     let toolchain = match resolve_toolchain_layout(cli.resource_root.clone(), cli.target) {
         Ok(toolchain) => toolchain,
@@ -341,207 +336,17 @@ fn run_cli(cli: Cli) -> ExitCode {
     }
 }
 
-fn run_clean(
-    root: Option<PathBuf>,
-    migrate: bool,
-    legacy: bool,
-    format: DiagnosticsFormat,
-) -> ExitCode {
-    let start = match root {
-        Some(root) if root.is_absolute() => root,
-        Some(root) => match env::current_dir() {
-            Ok(current) => current.join(root),
-            Err(error) => {
-                report_boundary_error(
-                    nia_diagnostic::codes::LOAD,
-                    &format!("failed to resolve clean root: {error}"),
-                    format,
-                );
-                return ExitCode::FAILURE;
-            }
-        },
-        None => match env::current_dir() {
-            Ok(current) => current,
-            Err(error) => {
-                report_boundary_error(
-                    nia_diagnostic::codes::LOAD,
-                    &format!("failed to resolve clean root: {error}"),
-                    format,
-                );
-                return ExitCode::FAILURE;
-            }
-        },
-    };
-    let root = match nia_package_metadata::package_state_root(&start) {
-        Ok(root) => root,
-        Err(error) => {
-            report_boundary_error(
-                nia_diagnostic::codes::LOAD,
-                &format!(
-                    "failed to resolve clean state root `{}`: {error}",
-                    start.display()
-                ),
-                format,
-            );
-            return ExitCode::FAILURE;
-        }
-    };
-    let result = if migrate {
-        nia_package_metadata::validate_legacy_package_state_migration(&root)
-            .map_err(|error| format!("failed to validate package state migration: {error}"))
-            .and_then(|_| migrate_build_state(&root))
-            .and_then(
-                |_| match nia_package_metadata::migrate_legacy_package_state(&root) {
-                    Ok(_) => Ok(()),
-                    Err(error) => {
-                        rollback_build_state(&root);
-                        Err(format!("failed to migrate package state: {error}"))
-                    }
-                },
-            )
-    } else if legacy {
-        remove_legacy_build_state(&root).and_then(|_| {
-            nia_package_metadata::remove_legacy_package_state(&root)
-                .map_err(|error| format!("failed to remove legacy package state: {error}"))
-        })
-    } else {
-        remove_current_build_state(&root)
-    };
-    match result {
+fn run_clean(root: Option<PathBuf>, format: DiagnosticsFormat) -> ExitCode {
+    match nia_build::run_clean(root) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
-            report_boundary_error(nia_diagnostic::codes::LOAD, &message, format);
+        Err(error) => {
+            let rendered = match format {
+                DiagnosticsFormat::Text => nia_build::render_build_error(&error, None, None),
+                DiagnosticsFormat::Json => nia_build::render_build_error_json(&error),
+            };
+            write_diagnostic_report(&rendered, format);
             ExitCode::FAILURE
         }
-    }
-}
-
-fn remove_current_build_state(root: &Path) -> Result<(), String> {
-    remove_state_directory(&root.join("build/out"))?;
-    remove_state_directory(&root.join("build/cache"))
-}
-
-fn remove_legacy_build_state(root: &Path) -> Result<(), String> {
-    for path in [
-        root.join(".nia-build"),
-        root.join(".nia-cache"),
-        root.join(".nia/build/out"),
-        root.join(".nia/build/cache"),
-    ] {
-        remove_state_directory(&path)?;
-    }
-    remove_empty_dir(&root.join(".nia/build"))?;
-    remove_empty_dir(&root.join(".nia"))
-}
-
-fn migrate_build_state(root: &Path) -> Result<(), String> {
-    let legacy_out = first_existing_path(&[root.join(".nia-build"), root.join(".nia/build/out")]);
-    let legacy_cache =
-        first_existing_path(&[root.join(".nia-cache"), root.join(".nia/build/cache")]);
-    let current_out = root.join("build/out");
-    let current_cache = root.join("build/cache");
-    if let Some(path) = &legacy_out {
-        ensure_migration_source(path)?;
-        ensure_migration_destination(&current_out)?;
-    }
-    if let Some(path) = &legacy_cache {
-        ensure_migration_source(path)?;
-        ensure_migration_destination(&current_cache)?;
-    }
-    if legacy_out.is_some() || legacy_cache.is_some() {
-        std::fs::create_dir_all(current_out.parent().unwrap())
-            .map_err(|error| format!("failed to prepare build state root: {error}"))?;
-    }
-    if let (Some(out), Some(cache)) = (&legacy_out, &legacy_cache) {
-        if let Err(error) = std::fs::rename(out, &current_out) {
-            return Err(format!("failed to migrate `{}`: {error}", out.display()));
-        }
-        if let Err(error) = std::fs::rename(cache, &current_cache) {
-            let _ = std::fs::rename(&current_out, out);
-            return Err(format!("failed to migrate `{}`: {error}", cache.display()));
-        }
-    } else if let Some(out) = legacy_out {
-        std::fs::create_dir_all(current_out.parent().unwrap())
-            .map_err(|error| error.to_string())?;
-        std::fs::rename(&out, &current_out)
-            .map_err(|error| format!("failed to migrate `{}`: {error}", out.display()))?;
-    } else if let Some(cache) = legacy_cache {
-        std::fs::create_dir_all(current_cache.parent().unwrap())
-            .map_err(|error| error.to_string())?;
-        std::fs::rename(&cache, &current_cache)
-            .map_err(|error| format!("failed to migrate `{}`: {error}", cache.display()))?;
-    }
-    remove_empty_dir(&root.join(".nia/build"))?;
-    remove_empty_dir(&root.join(".nia"))
-}
-
-fn rollback_build_state(root: &Path) {
-    for (current, legacy) in [
-        (root.join("build/out"), root.join(".nia-build")),
-        (root.join("build/cache"), root.join(".nia-cache")),
-    ] {
-        if std::fs::symlink_metadata(&current).is_ok()
-            && std::fs::symlink_metadata(&legacy).is_err()
-        {
-            let _ = std::fs::rename(current, legacy);
-        }
-    }
-}
-
-fn first_existing_path(paths: &[PathBuf]) -> Option<PathBuf> {
-    paths.iter().find(|path| path.exists()).cloned()
-}
-
-fn ensure_migration_source(path: &Path) -> Result<(), String> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(format!(
-            "legacy build state `{}` is not a real directory",
-            path.display()
-        ));
-    }
-    Ok(())
-}
-
-fn ensure_migration_destination(path: &Path) -> Result<(), String> {
-    if std::fs::symlink_metadata(path).is_ok() {
-        return Err(format!(
-            "cannot migrate legacy build state because `{}` already exists",
-            path.display()
-        ));
-    }
-    Ok(())
-}
-
-fn remove_state_directory(path: &Path) -> Result<(), String> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(format!("failed to inspect `{}`: {error}", path.display())),
-    };
-    if metadata.file_type().is_symlink() {
-        return Err(format!("refusing to remove symlink `{}`", path.display()));
-    }
-    if metadata.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else {
-        std::fs::remove_file(path)
-    }
-    .map_err(|error| format!("failed to remove `{}`: {error}", path.display()))
-}
-
-fn remove_empty_dir(path: &Path) -> Result<(), String> {
-    match std::fs::remove_dir(path) {
-        Ok(()) => Ok(()),
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
-            ) =>
-        {
-            Ok(())
-        }
-        Err(error) => Err(format!("failed to remove `{}`: {error}", path.display())),
     }
 }
 

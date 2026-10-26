@@ -179,6 +179,12 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
                 .help("check nia.toml Git and registry sources and the names passed to `nia update`")
                 .finish(),
         ],
+        BuildError::Clean { path, error } => vec![
+            Diagnostic::user_error(codes::BUILD_PLAN, "could not clean build state")
+                .note(format!("`{}`: {error}", shown(path)))
+                .help("`build/` must be a real directory; remove a link in its place by hand")
+                .finish(),
+        ],
         BuildError::WorkspaceSelection { path, detail } => vec![
             Diagnostic::user_error(codes::BUILD_PLAN, "could not select workspace packages")
                 .note(format!("workspace discovery from `{}`: {detail}", shown(path)))
@@ -976,7 +982,7 @@ pub(crate) mod tests {
             .status()
             .expect("run test runner");
         let error = BuildError::RunnerFailed {
-            path: std::path::PathBuf::from("build/out/runner"),
+            path: std::path::PathBuf::from("build/tmp"),
             status,
             stdout: b"runner-out".to_vec(),
             stderr: b"runner-err".to_vec(),
@@ -998,7 +1004,7 @@ pub(crate) mod tests {
             .status()
             .expect("run test runner");
         let error = BuildError::RunnerFailed {
-            path: std::path::PathBuf::from("build/out/runner"),
+            path: std::path::PathBuf::from("build/tmp"),
             status,
             stdout: b"stdout-tail".to_vec(),
             stderr: b"stderr-tail".to_vec(),

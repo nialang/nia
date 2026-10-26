@@ -55,7 +55,7 @@ fn test_invocation() -> BuildInvocation {
         manifest_artifacts: Vec::new(),
         cache_dir: package_root.join("build/cache"),
         artifact_cache_dir: package_root.join("build/cache"),
-        runner_dir: build_dir.join("runner"),
+        tmp_dir: build_dir.join("tmp"),
         runner_executable: build_dir.join("runner/nia-build-runner"),
         runner_config: build_dir.join("build-runner.config"),
         plan_draft: build_dir.join("build-plan.draft"),

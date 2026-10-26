@@ -18,26 +18,9 @@ pub(root) fun handlePathLength(handle: usize, storage: &mut [u16]) Errno!usize {
 }
 
 pub(root) fun isPathWithin(base: &u16, baseLength: usize, candidate: &u16, candidateLength: usize) bool {
-    let mut baseStart: usize = 0;
-    let mut baseLen = baseLength;
-    let mut candidateStart: usize = 0;
-    let mut candidateLen = candidateLength;
-
-    // Strip \\?\ prefix if present on base
-    if baseLen >= 4 and base[0] == 92 and base[1] == 92 and base[2] == 63 and base[3] == 92 {
-        baseStart = 4;
-        baseLen -= 4;
-    }
-
-    // Strip \\?\ prefix if present on candidate
-    if candidateLen >= 4 and candidate[0] == 92 and candidate[1] == 92 and candidate[2] == 63 and candidate[3] == 92 {
-        candidateStart = 4;
-        candidateLen -= 4;
-    }
-
-    if candidateLen < baseLen { return false; }
-    if CompareStringOrdinal(&base[baseStart], baseLen as i32, &candidate[candidateStart], baseLen as i32, 1) != 2 { return false; }
-    candidateLen == baseLen or base[baseStart + baseLen - 1] == 92 or base[baseStart + baseLen - 1] == 47 or candidate[candidateStart + baseLen] == 92 or candidate[candidateStart + baseLen] == 47
+    if candidateLength < baseLength { return false; }
+    if CompareStringOrdinal(base, baseLength as i32, candidate, baseLength as i32, 1) != 2 { return false; }
+    candidateLength == baseLength or base[baseLength - 1] == 92 or base[baseLength - 1] == 47 or candidate[baseLength] == 92 or candidate[baseLength] == 47
 }
 
 // Paths stay in UTF-16 between the handle lookup and the native operation.

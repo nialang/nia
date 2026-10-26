@@ -141,8 +141,21 @@ runner storage, or raw compiler argument vector.
 The std builder rejects foreign handles before encoding. `BuildPlan::freeze`
 then canonicalizes graph order and rejects invalid names and paths, duplicate
 identities, unresolved references, dependency cycles, conflicting output
-ownership, target mismatches, and missing producer closure. Protocol decoding
-repeats these semantic checks rather than trusting runner-produced bytes.
+ownership, target mismatches, missing producer closure, and module import
+cycles. Protocol decoding repeats these semantic checks rather than trusting
+runner-produced bytes. `BuildPlan::package_graph`, `module_graph`, and
+`artifact_graph` are borrowed views over the frozen tables.
+
+The frozen plan carries one typed `BuildConfiguration` record alongside its
+target pair: profile, optimization, linkage, final-link LTO, panic strategy,
+and debug information. The host binds it from the invocation after decoding the
+runner's draft (`BuildPlan::with_configuration`), overwriting what the runner
+encoded, and the plan model rejects combinations without an executable owner,
+such as LTO on a plan with no executable. The record is part of the plan bytes
+and compiler action identities. Linkage, panic strategy, and debug information
+are currently always `Static`, `Abort`, and `None`. Artifact runtime remains an
+artifact-owned field, so runtime changes retain their own action invalidation
+reason.
 
 Targets cross the runner and plan protocols as canonical target names such as
 `aarch64-apple-macos`. Decoding rejects a name outside the maintained target
@@ -260,6 +273,30 @@ into a declared file-backed stdin input from the package or build tree; that
 path is part of the declared input set, command identity, and dependency
 closure. There is no inherited coordinator stdin or interactive input channel.
 
+## State Layout
+
+`nia_package_metadata::BuildLayout` is the only owner of state paths. All
+state lives under `build/` at the state root, which is the workspace root for
+a workspace member and the package root otherwise; only `nia.lock` sits outside
+it, beside the root `nia.toml`. The user-facing table is in
+[Build directory](../../docs/guide/build-scripts.md#build-directory).
+
+`build/out/` holds the published plan and declared outputs; a workspace member
+writes under `build/out/<member path>/`. `build/tmp/` holds the runner
+executable, runner configuration, and plan draft of invocations in progress,
+each named by process id and sequence. `build/cache/` holds the runner,
+configure, action, and compiler-product caches below. `build/packages/` and
+`build/registry/` hold fetched dependencies, and `build/packages.lock` is the
+package-state lock that dependency resolution, `nia update`, and `nia clean`
+hold while they change state.
+
+`nia clean` (`run_clean`) discovers a package like `nia build`, holds the
+package-state lock, and removes `build/out/`, `build/cache/`, and `build/tmp/`.
+It refuses to run when no `nia.toml` or `build.nia` is found and when `build/`
+is a link or reparse point. In tests, `NIA_TEST_SHARED_ARTIFACT_CACHE` moves
+the runner and compiler-product caches to one shared root; configure, action,
+and suite caches stay under the package's `build/cache/`.
+
 ## Caches
 
 | Cache | Stores | Owner |
@@ -286,14 +323,6 @@ transported through the private runner configuration but is excluded from the
 key, because the runner is always compiled at O0. A hit verifies and atomically
 restores the runner executable; malformed or corrupted records are retired as
 misses.
-
-The frozen plan carries one typed configuration record alongside its target
-pair. It includes profile, optimization, linkage, final-link LTO, panic
-strategy, and debug information. The record is part of the plan bytes and
-compiler action identities; the coordinator rejects combinations without an
-executable owner, such as LTO on an object-only plan, before dispatch.
-Artifact runtime remains an artifact-owned field, so runtime changes retain
-their own action invalidation reason.
 
 ### Configuration cache
 

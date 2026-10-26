@@ -121,8 +121,6 @@ pub(crate) enum CliCommand {
     },
     Clean {
         root: Option<PathBuf>,
-        migrate: bool,
-        legacy: bool,
     },
     Check {
         path: String,
@@ -653,12 +651,6 @@ fn parse_update(scanned: &Scanned) -> CliCommand {
 }
 
 fn parse_clean(scanned: &Scanned) -> CliResult<CliCommand> {
-    if scanned.has(OptionId::Migrate) && scanned.has(OptionId::Legacy) {
-        return Err(CliError::new(
-            "`--migrate` and `--legacy` cannot be combined",
-            HelpTopic::Clean,
-        ));
-    }
     if let Some(argument) = scanned.positionals.first() {
         return Err(CliError::new(
             format!("unexpected argument `{argument}` for `nia clean`"),
@@ -669,8 +661,6 @@ fn parse_clean(scanned: &Scanned) -> CliResult<CliCommand> {
         root: scanned
             .last(OptionId::Root)
             .map(|occurrence| PathBuf::from(value(occurrence))),
-        migrate: scanned.has(OptionId::Migrate),
-        legacy: scanned.has(OptionId::Legacy),
     })
 }
 
@@ -1260,32 +1250,19 @@ mod tests {
     }
 
     #[test]
-    fn clean_modes_are_typed_and_mutually_exclusive() {
+    fn clean_takes_only_a_root() {
         assert!(matches!(
             run(&["clean"]).command,
-            CliCommand::Clean {
-                migrate: false,
-                legacy: false,
-                ..
-            }
+            CliCommand::Clean { root: None }
         ));
         assert!(matches!(
-            run(&["clean", "--root", "workspace", "--migrate"]).command,
-            CliCommand::Clean { root: Some(root), migrate: true, legacy: false }
-                if root == std::path::Path::new("workspace")
-        ));
-        assert!(matches!(
-            run(&["clean", "--legacy"]).command,
-            CliCommand::Clean {
-                migrate: false,
-                legacy: true,
-                ..
-            }
+            run(&["clean", "--root", "workspace"]).command,
+            CliCommand::Clean { root: Some(root) } if root == std::path::Path::new("workspace")
         ));
         assert_errors(&[
-            (&["clean", "--migrate", "--legacy"], "cannot be combined"),
             (&["clean", "unexpected"], "unexpected argument"),
-            (&["build", "--migrate"], "belongs to `nia clean`"),
+            (&["clean", "--migrate"], "unknown `nia clean` option"),
+            (&["check", "--root", "x", "a.nia"], "belongs to"),
         ]);
     }
 

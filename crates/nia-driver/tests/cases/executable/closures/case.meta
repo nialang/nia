@@ -1,7 +1,7 @@
 mode=link-execute
 resource=build
 source=runner.nia
-virtual-source=.nia-build/runner/root.nia
+virtual-source=build/tmp/root.nia
 module.helper=helper.nia
 exit-code=0
 codegen-preparation-executions=1

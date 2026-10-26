@@ -177,6 +177,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 | --- | --- |
 | `nia build [step]` | Runs the named step, or the default step when none is named. |
 | `nia update [name ...]` | Refreshes Git revisions and registry versions in `nia.lock`. |
+| `nia clean` | Removes build outputs and caches; see [Build directory](build-scripts.md#build-directory). |
 | `nia check <path>` | Type-checks a source file or package directory without producing output. |
 | `nia emit --<kind> <path>` | Prints or writes one compiler output. |
 | `nia help [command]` | Shows a command's options; `nia help emit --exe` shows the options of one emit kind. |
@@ -193,8 +194,7 @@ nia build --list     # lists the steps without running them
 
 `nia build` searches upward from the current directory for the package's
 `nia.toml` or `build.nia`; `--root <dir>` starts the search elsewhere. Outputs are written
-under `build/out/` in the package root, and reusable results are kept in
-`build/cache/`. A test suite passes
+under `build/out/` and reusable results under `build/cache/`. A test suite passes
 when its executable exits with status 0; a suite that passed is not rerun until
 its inputs change. `nia build <suite>` runs one suite, and `--keep-going` runs
 the remaining suites after one fails.
@@ -222,8 +222,9 @@ build script declares its
 packages instead, so `nia build` does not accept `-M`.
 
 Global options apply to every command and may come before or after it:
-`-O0` through `-O3`, `-Os`, `-Oz` (`-O` means `-O2`), `--debug` / `--release`,
-and `--target <name>` to build for another
+`-O0` through `-O3`, `-Os`, `-Oz` (`-O` means `-O2`), `--debug` / `--release`
+or `--profile <debug|release>` (the default optimization is `-O0` for debug and
+`-O2` for release), and `--target <name>` to build for another
 [supported target](../reference/platform-support.md#targets).
 
 Every option that takes a value accepts both `--option value` and

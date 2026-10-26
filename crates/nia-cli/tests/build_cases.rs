@@ -933,7 +933,7 @@ fn assert_configured_build_success(
         !stderr.lines().any(|line| line.starts_with("error:")),
         "{stderr}"
     );
-    assert!(workspace.join("build/out/runner").is_dir());
+    assert!(workspace.join("build/tmp").is_dir());
     assert!(workspace.join("build/cache").is_dir());
     assert_no_transient_runner_files(workspace);
     let plan_path = workspace.join("build/out/build-plan.bin");
@@ -1727,23 +1727,13 @@ fn assert_runner_error(
 }
 
 fn assert_no_transient_runner_files(workspace: &Path) {
-    let build_dir = workspace.join("build/out");
-    if build_dir.is_dir() {
-        assert!(std::fs::read_dir(&build_dir).unwrap().all(|entry| {
-            let name = entry.unwrap().file_name();
-            let name = name.to_string_lossy();
-            !name.starts_with(".build-plan-") && !name.starts_with(".build-runner-")
-        }));
-    }
-    let runner_dir = build_dir.join("runner");
-    if runner_dir.is_dir() {
-        assert!(std::fs::read_dir(runner_dir).unwrap().all(|entry| {
-            !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with("nia-build-runner-")
-        }));
+    let tmp_dir = workspace.join("build/tmp");
+    if tmp_dir.is_dir() {
+        let left = std::fs::read_dir(&tmp_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        assert!(left.is_empty(), "transient files left behind: {left:?}");
     }
 }
 

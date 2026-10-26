@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fmt,
-    fs::{self, File},
+    fs::File,
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
     str::FromStr,
@@ -52,14 +52,8 @@ pub use registry::{
 pub const PROTOCOL_EPOCH: u32 = NIA_PROTOCOL_EPOCH;
 /// Maximum accepted stable metadata payload size.
 pub const MAX_STABLE_METADATA_BYTES: usize = 64 * 1024 * 1024;
-/// Current workspace-local cache directory for fetched package trees.
-pub const BUILD_PACKAGES_DIR: &str = "build/packages";
-/// Current workspace-local lock used while updating fetched package trees.
-pub const BUILD_PACKAGES_LOCK: &str = "build/packages.lock";
-/// Legacy package cache directory retained only for migration and cleanup.
-pub const LEGACY_PACKAGES_DIR: &str = ".nia/packages";
-/// Legacy package transaction lock retained only for migration and cleanup.
-pub const LEGACY_PACKAGES_LOCK: &str = ".nia/packages.lock";
+/// Directory under a state root that holds all of its build state.
+pub const BUILD_DIR: &str = "build";
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_SOURCE_FILES: usize = MAX_ITEMS;
@@ -1072,7 +1066,7 @@ impl PackageFetcher {
         let lock_path = state_root.join("nia.lock");
         let lock = PackageLock::read(&lock_path)?;
         Ok(Self {
-            cache_root: state_root.join(BUILD_PACKAGES_DIR),
+            cache_root: state_layout(&state_root).packages_dir(),
             original: lock.package.clone(),
             lock,
             lock_path,
@@ -1481,7 +1475,7 @@ impl PackageFetcher {
             .lock_path
             .parent()
             .ok_or_else(|| io::Error::other("registry state directory is unavailable"))?;
-        let cache = RegistryCache::new(state_root.join(".nia/registry"));
+        let cache = RegistryCache::new(state_layout(state_root).registry_dir());
         let locked = self.lock.package.iter().find_map(|entry| {
             let LockedSource::Registry {
                 registry: locked_registry,
@@ -1803,14 +1797,10 @@ impl PackageFetcher {
 
     fn lock_state(&mut self) -> io::Result<()> {
         if self.state_lock.is_none() {
-            let state_directory = self
-                .cache_root
-                .parent()
-                .expect("package cache has a state directory");
-            let state_lock_path = self
-                .transaction_lock
-                .clone()
-                .unwrap_or_else(|| state_directory.join("packages.lock"));
+            let state_lock_path = self.transaction_lock.clone().unwrap_or_else(|| {
+                state_layout(self.lock_path.parent().expect("nia.lock has a state root"))
+                    .state_lock()
+            });
             let lock = open_package_state_lock(&state_lock_path)?;
             if self.transaction_lock.is_none() {
                 lock.lock()?;
@@ -2073,9 +2063,9 @@ fn update_lock_inner(
         )
     })?;
     let state_root = workspace_state_root(manifest_root)?;
-    let transaction_lock_path = state_root.join(BUILD_PACKAGES_LOCK);
-    let transaction_lock = open_package_state_lock(&transaction_lock_path)?;
-    transaction_lock.lock()?;
+    let layout = state_layout(&state_root);
+    let transaction_lock_path = layout.state_lock();
+    let transaction_lock = layout.lock_state()?;
     let lock_path = state_root.join("nia.lock");
     let (original_lock, original_bytes) = PackageLock::read_snapshot(&lock_path)?;
     let before = original_lock.package.clone();
@@ -3313,144 +3303,133 @@ impl WorkspaceManifest {
     }
 }
 
-/// Returns the root that owns a package's shared lock and fetched package cache.
-pub fn package_state_root(package_root: &Path) -> io::Result<PathBuf> {
-    workspace_state_root(package_root)
-}
-
-/// Result of migrating legacy package state into the current build layout.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PackageStateMigration {
-    /// Whether `.nia/packages` was moved to `build/packages`.
-    pub packages_moved: bool,
-    /// Whether `.nia/packages.lock` was moved to `build/packages.lock`.
-    pub lock_moved: bool,
-}
-
-/// Moves package state from the pre-unification layout into `build/`.
+/// Every path a package's build state occupies.
 ///
-/// The operation refuses to merge two existing trees. A successful migration
-/// can therefore be retried safely, and a partially populated destination is
-/// never silently overwritten.
-pub fn migrate_legacy_package_state(package_root: &Path) -> io::Result<PackageStateMigration> {
-    let state_root = workspace_state_root(package_root)?;
-    let legacy_packages = state_root.join(LEGACY_PACKAGES_DIR);
-    let current_packages = state_root.join(BUILD_PACKAGES_DIR);
-    let legacy_lock = state_root.join(LEGACY_PACKAGES_LOCK);
-    let current_lock = state_root.join(BUILD_PACKAGES_LOCK);
-    let packages_present = validate_legacy_move(&legacy_packages, &current_packages, true)?;
-    let lock_present = validate_legacy_move(&legacy_lock, &current_lock, false)?;
-    if let Some(parent) = current_packages.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let packages_moved = packages_present;
-    if packages_moved {
-        fs::rename(&legacy_packages, &current_packages)?;
-    }
-    let lock_moved = if lock_present {
-        match fs::rename(&legacy_lock, &current_lock) {
-            Ok(()) => true,
-            Err(error) => {
-                if packages_moved {
-                    fs::rename(&current_packages, &legacy_packages)?;
-                }
-                return Err(error);
+/// All state lives under `<state root>/build/`, where the state root is the
+/// workspace root for a workspace member and the package root otherwise. This
+/// type is the only place those paths are spelled; `nia.lock` stays beside the
+/// root `nia.toml` because it is committed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildLayout {
+    state_root: PathBuf,
+    package_root: PathBuf,
+}
+
+impl BuildLayout {
+    /// Finds the nearest package at or above `start`: the first directory with
+    /// a `nia.toml` or a `build.nia`.
+    pub fn discover(start: &Path) -> io::Result<Self> {
+        let start = canonical_real_directory(start)?;
+        for directory in start.ancestors() {
+            if is_package_root(directory)? {
+                return Self::for_package(directory);
             }
         }
-    } else {
-        false
-    };
-    remove_empty_directory(&state_root.join(".nia"))?;
-    Ok(PackageStateMigration {
-        packages_moved,
-        lock_moved,
-    })
-}
-
-/// Checks package-state migration sources and destinations without changing them.
-pub fn validate_legacy_package_state_migration(package_root: &Path) -> io::Result<()> {
-    let state_root = workspace_state_root(package_root)?;
-    validate_legacy_move(
-        &state_root.join(LEGACY_PACKAGES_DIR),
-        &state_root.join(BUILD_PACKAGES_DIR),
-        true,
-    )?;
-    validate_legacy_move(
-        &state_root.join(LEGACY_PACKAGES_LOCK),
-        &state_root.join(BUILD_PACKAGES_LOCK),
-        false,
-    )?;
-    Ok(())
-}
-
-/// Removes known legacy package state without touching current build state.
-///
-/// Legacy roots are removed only after their known entries are gone. This
-/// preserves unrelated user files if an old `.nia` directory was repurposed.
-pub fn remove_legacy_package_state(package_root: &Path) -> io::Result<()> {
-    let state_root = workspace_state_root(package_root)?;
-    remove_legacy_path(&state_root.join(LEGACY_PACKAGES_DIR))?;
-    remove_legacy_path(&state_root.join(LEGACY_PACKAGES_LOCK))?;
-    remove_empty_directory(&state_root.join(".nia"))
-}
-
-fn validate_legacy_move(source: &Path, destination: &Path, directory: bool) -> io::Result<bool> {
-    let metadata = match fs::symlink_metadata(source) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    if metadata.file_type().is_symlink()
-        || (directory && !metadata.is_dir())
-        || (!directory && !metadata.is_file())
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
             format!(
-                "legacy package state has the wrong kind: {}",
-                display_path(source)
+                "no nia.toml or build.nia found at or above `{}`",
+                display_path(&start)
             ),
-        ));
+        ))
     }
-    if fs::symlink_metadata(destination).is_ok() {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!(
-                "cannot migrate `{}` because `{}` already exists",
-                display_path(source),
-                display_path(destination)
-            ),
-        ));
-    }
-    Ok(true)
-}
 
-fn remove_legacy_path(path: &Path) -> io::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        fs::remove_file(path)
-    } else {
-        fs::remove_dir_all(path)
-    }
-}
-
-fn remove_empty_directory(path: &Path) -> io::Result<()> {
-    match fs::remove_dir(path) {
-        Ok(()) => Ok(()),
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
-            ) =>
-        {
-            Ok(())
+    /// Resolves the layout of the package rooted at `package_root`, which must
+    /// hold a `nia.toml` or a `build.nia`.
+    pub fn for_package(package_root: &Path) -> io::Result<Self> {
+        let package_root = canonical_real_directory(package_root)?;
+        if !is_package_root(&package_root)? {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "no nia.toml or build.nia in `{}`",
+                    display_path(&package_root)
+                ),
+            ));
         }
-        Err(error) => Err(error),
+        Ok(Self {
+            state_root: workspace_state_root(&package_root)?,
+            package_root,
+        })
     }
+
+    /// Root of the package itself.
+    pub fn package_root(&self) -> &Path {
+        &self.package_root
+    }
+
+    /// Root that owns `nia.lock` and `build/`.
+    pub fn state_root(&self) -> &Path {
+        &self.state_root
+    }
+
+    /// `build/` at the state root.
+    pub fn root(&self) -> PathBuf {
+        self.state_root.join(BUILD_DIR)
+    }
+
+    /// This package's outputs: `build/out/`, or `build/out/<member path>/`
+    /// for a workspace member.
+    pub fn out_dir(&self) -> PathBuf {
+        let out = self.root().join("out");
+        match self.package_root.strip_prefix(&self.state_root) {
+            Ok(member) if !member.as_os_str().is_empty() => out.join(member),
+            _ => out,
+        }
+    }
+
+    /// Persistent build caches, shared by every package under the state root.
+    pub fn cache_dir(&self) -> PathBuf {
+        self.root().join("cache")
+    }
+
+    /// Transient files of running invocations.
+    pub fn tmp_dir(&self) -> PathBuf {
+        self.root().join("tmp")
+    }
+
+    /// Fetched dependency package trees.
+    pub fn packages_dir(&self) -> PathBuf {
+        self.root().join("packages")
+    }
+
+    /// Downloaded registry indexes and archives.
+    pub fn registry_dir(&self) -> PathBuf {
+        self.root().join("registry")
+    }
+
+    /// Lock serializing every reader and writer of the package state.
+    pub fn state_lock(&self) -> PathBuf {
+        self.root().join("packages.lock")
+    }
+
+    /// Locks the package state for the lifetime of the returned guard.
+    pub fn lock_state(&self) -> io::Result<PackageStateLock> {
+        let file = open_package_state_lock(&self.state_lock())?;
+        file.lock()?;
+        Ok(PackageStateLock { _file: file })
+    }
+}
+
+fn is_package_root(directory: &Path) -> io::Result<bool> {
+    Ok(
+        regular_file_exists(&directory.join("nia.toml"), "package manifest")?
+            || regular_file_exists(&directory.join("build.nia"), "build script")?,
+    )
+}
+
+/// Layout of an already resolved state root, for state the root owns as a whole.
+fn state_layout(state_root: &Path) -> BuildLayout {
+    BuildLayout {
+        state_root: state_root.to_path_buf(),
+        package_root: state_root.to_path_buf(),
+    }
+}
+
+/// Exclusive hold on a state root's package state; released on drop.
+#[derive(Debug)]
+pub struct PackageStateLock {
+    _file: File,
 }
 
 fn workspace_state_root(package_root: &Path) -> io::Result<PathBuf> {
@@ -3757,7 +3736,7 @@ fn workspace_path_excluded(path: &str, patterns: &[String]) -> bool {
 
 fn is_workspace_state_path(path: &str) -> bool {
     let path = Path::new(path);
-    path.starts_with(".nia") || path.starts_with("build")
+    path.starts_with(BUILD_DIR)
 }
 
 #[derive(Deserialize)]
@@ -4466,13 +4445,13 @@ fn fingerprint_source_file(mut file: File) -> io::Result<(u64, [u8; 32])> {
 
 /// Whether a package-relative entry is skipped by default.
 ///
-/// VCS, Nia state, and lock files are never package content. Conventional
-/// output directories of other tools are skipped only directly under the
+/// VCS metadata and lock files are never package content. Nia's `build/` and
+/// other tools' output directories are skipped only directly under the
 /// package root: a nested `build/` or `target/` can hold child modules, which
 /// the identity must cover because they are compiled. A selected source root
 /// is never itself checked, so `roots = ["build"]` still selects that tree.
 fn excluded_source_entry(relative: &Path) -> bool {
-    static EXCLUDED_ANYWHERE: &[&str] = &[".git", ".nia", "nia.lock"];
+    static EXCLUDED_ANYWHERE: &[&str] = &[".git", "nia.lock"];
     static EXCLUDED_AT_ROOT: &[&str] = &["target", "build", "dist"];
     let Some(name) = relative.file_name().map(|name| name.to_string_lossy()) else {
         return false;
@@ -6016,64 +5995,43 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     }
 
     #[test]
-    fn package_state_migration_moves_legacy_paths_and_is_idempotent() {
-        let root = lock_test_root("package-state-migration");
-        fs::create_dir_all(&root).unwrap();
+    fn build_layout_places_all_state_under_the_state_roots_build_directory() {
+        let root = lock_test_root("build-layout");
+        fs::create_dir_all(root.join("members/app")).unwrap();
         fs::write(
             root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n",
+            "[workspace]\nmembers = [\"members/app\"]\n",
         )
         .unwrap();
-        fs::create_dir_all(root.join(".nia/packages/pkg")).unwrap();
-        fs::write(root.join(".nia/packages/pkg/file"), b"cached").unwrap();
-        fs::write(root.join(".nia/packages.lock"), b"lock").unwrap();
-
-        let result = migrate_legacy_package_state(&root).unwrap();
-        assert_eq!(
-            result,
-            PackageStateMigration {
-                packages_moved: true,
-                lock_moved: true
-            }
-        );
-        assert_eq!(
-            fs::read(root.join("build/packages/pkg/file")).unwrap(),
-            b"cached"
-        );
-        assert_eq!(fs::read(root.join("build/packages.lock")).unwrap(), b"lock");
-        assert!(!root.join(".nia").exists());
-        assert_eq!(
-            migrate_legacy_package_state(&root).unwrap(),
-            PackageStateMigration::default()
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn package_state_migration_preflights_collisions_before_moving_anything() {
-        let root = lock_test_root("package-state-migration-collision");
-        fs::create_dir_all(&root).unwrap();
         fs::write(
-            root.join("nia.toml"),
-            "[package]\nname = \"root\"\nversion = \"1.0.0\"\n",
+            root.join("members/app/nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
-        fs::create_dir_all(root.join(".nia/packages")).unwrap();
-        fs::write(root.join(".nia/packages/legacy"), b"legacy").unwrap();
-        fs::create_dir_all(root.join("build")).unwrap();
-        fs::write(root.join("build/packages.lock"), b"current").unwrap();
-        fs::write(root.join(".nia/packages.lock"), b"legacy lock").unwrap();
+        let canonical = root.canonicalize().unwrap();
+        let build = canonical.join("build");
 
-        let error = migrate_legacy_package_state(&root).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
-        assert!(root.join(".nia/packages/legacy").is_file());
+        let member = BuildLayout::for_package(&root.join("members/app")).unwrap();
+        assert_eq!(member.state_root(), canonical);
         assert_eq!(
-            fs::read(root.join(".nia/packages.lock")).unwrap(),
-            b"legacy lock"
+            member.out_dir(),
+            build.join("out").join("members").join("app")
         );
+        assert_eq!(member.cache_dir(), build.join("cache"));
+        assert_eq!(member.tmp_dir(), build.join("tmp"));
+        assert_eq!(member.packages_dir(), build.join("packages"));
+        assert_eq!(member.registry_dir(), build.join("registry"));
+        assert_eq!(member.state_lock(), build.join("packages.lock"));
+
+        let workspace = BuildLayout::for_package(&root).unwrap();
+        assert_eq!(workspace.out_dir(), build.join("out"));
+
+        fs::create_dir_all(root.join("loose")).unwrap();
         assert_eq!(
-            fs::read(root.join("build/packages.lock")).unwrap(),
-            b"current"
+            BuildLayout::for_package(&root.join("loose"))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -7821,7 +7779,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         let index = format!(
             "schema_version = 1\n[[packages]]\nnamespace = \"acme\"\nname = \"json\"\nversion = \"1.0.0\"\narchive_url = \"https://cdn.example.test/json.nia\"\narchive_digest = \"{digest_text}\"\n"
         );
-        let cache = RegistryCache::new(consumer.join(".nia/registry"));
+        let cache = RegistryCache::new(consumer.join("build/registry"));
         cache.write_index("nia", index.as_bytes()).unwrap();
         cache.write_archive(&digest, &archive).unwrap();
         let graph = PackageGraph::resolve_with_policy(
@@ -7856,7 +7814,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     && archive_digest == &digest_text
             )
         }));
-        fs::remove_file(consumer.join(".nia/registry/indexes/nia/index.toml")).unwrap();
+        fs::remove_file(consumer.join("build/registry/indexes/nia/index.toml")).unwrap();
         let lock_bytes = fs::read(consumer.join("nia.lock")).unwrap();
         PackageGraph::resolve(&consumer).unwrap();
         assert_eq!(fs::read(consumer.join("nia.lock")).unwrap(), lock_bytes);
@@ -7977,7 +7935,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             ("shared", "1.1.0", None),
             ("z", "1.0.0", Some("^1.0")),
         ];
-        let cache = RegistryCache::new(consumer.join(".nia/registry"));
+        let cache = RegistryCache::new(consumer.join("build/registry"));
         let mut records = Vec::new();
         for (name, version, dependency) in releases {
             let bytes = archive(name, version, dependency);

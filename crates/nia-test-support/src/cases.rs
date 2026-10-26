@@ -212,7 +212,7 @@ pub fn copy_case_tree(source: &Path, destination: &Path) {
 }
 
 fn is_generated_case_state(name: &OsStr) -> bool {
-    name == OsStr::new(".nia") || name == OsStr::new("build")
+    name == OsStr::new("build")
 }
 
 /// Validates a fixture-relative path with no absolute or parent components.

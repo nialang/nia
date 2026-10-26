@@ -170,8 +170,6 @@ pub(crate) enum OptionId {
     LibraryPath,
     Library,
     Rpath,
-    Migrate,
-    Legacy,
 }
 
 /// One accepted option and its help row.
@@ -598,22 +596,6 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         scope: Scope::GLOBAL,
         usage: "-V, --version",
         about: "show the compiler version",
-    },
-    OptionSpec {
-        id: OptionId::Migrate,
-        names: &["--migrate"],
-        arity: Arity::Flag,
-        scope: Scope::CLEAN,
-        usage: "--migrate",
-        about: "move legacy build and package state into build/",
-    },
-    OptionSpec {
-        id: OptionId::Legacy,
-        names: &["--legacy"],
-        arity: Arity::Flag,
-        scope: Scope::CLEAN,
-        usage: "--legacy",
-        about: "remove known legacy build and package state",
     },
 ];
 

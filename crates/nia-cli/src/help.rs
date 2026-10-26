@@ -117,7 +117,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     "update [name ...]",
                     "refresh Git revisions and registry versions in nia.lock",
                 ),
-                ("clean", "remove build outputs or migrate legacy state"),
+                ("clean", "remove build outputs and caches"),
                 ("check <path>", "check a package or source file"),
                 ("emit --<target> <path>", "inspect or write compiler output"),
                 ("help [command]", "show command help"),
@@ -149,10 +149,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         },
         HelpTopic::Clean => HelpDoc {
             title: "nia clean",
-            about: "Remove build outputs and cached build results.",
-            usage: &["nia clean [--root <dir>] [--migrate | --legacy]"],
+            about: "Remove build outputs and caches; fetched dependencies are kept.",
+            usage: &["nia clean [--root <dir>]"],
             commands: &[],
-            examples: &["nia clean", "nia clean --migrate", "nia clean --legacy"],
+            examples: &["nia clean"],
         },
         HelpTopic::Check => HelpDoc {
             title: "nia check",

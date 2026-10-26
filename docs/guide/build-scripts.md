@@ -62,7 +62,7 @@ fixtures = { path = "tests/fixtures" }
 | `source.roots`, `source.exclude` | package-relative files that belong to the package; default the whole directory |
 | `[[executable]]`, `[[test]]` | artifacts built without a script; see [Manifest artifacts](#manifest-artifacts) |
 
-A package's files always leave out `.git`, `.nia`, and `nia.lock`, and leave out
+A package's files always leave out `.git` and `nia.lock`, and leave out
 `build/`, `dist/`, and `target/` directly under the package root. Name one of
 those three in `source.roots` to include it.
 
@@ -178,18 +178,17 @@ requiring package, its requirement, and its dependency chain. A package can be
 requested from only one registry within a graph.
 
 Archives are checked against the digest in the registry index before they are
-unpacked and are cached under `build/packages` only after the whole tree
+unpacked, and their package trees are cached only after the whole tree
 validates.
 
 The first build records each Git dependency's commit and content hash, and each
 registry dependency's selected version, archive digest, and content hash, in
 `nia.lock` next to the root `nia.toml` (the workspace root in a workspace).
-Git checkouts and verified registry packages are cached under `build/packages`
-beside it. Later builds reuse the locked source and reject cached content that
-no longer matches its recorded hash.
+Later builds reuse the locked source and reject cached content that no longer
+matches its recorded hash.
 Entries that no manifest in the package or workspace still reaches, in any
-dependency scope, are removed on the next build. Commit `nia.lock` and ignore
-`.nia/`.
+dependency scope, are removed on the next build. Commit `nia.lock`; everything
+else Nia writes is under `build/` (see [Build directory](#build-directory)).
 
 `nia update` refreshes every locked Git selector and registry version, then
 reports revision changes separately from version changes. `nia update <name>
@@ -201,12 +200,24 @@ which fails instead of adding, changing, or removing a lock entry, and
 archives only.
 CI builds should pass `--locked`.
 
-`nia clean` removes the selected package's `build/out/` and `build/cache/`
-directories while keeping `build/packages/` and `build/packages.lock/` for
-dependency reuse. `nia clean --migrate` moves legacy `.nia-build/`,
-`.nia-cache/`, and `.nia/` package state into the current `build/` layout and
-fails if a destination already exists. `nia clean --legacy` removes those
-known legacy entries without touching current build state or unrelated files.
+## Build directory
+
+Nia writes everything except `nia.lock` to one `build/` directory beside the
+root `nia.toml`, the workspace root in a workspace, so a single `build/` line in
+`.gitignore` covers it:
+
+| Path | Contents |
+| --- | --- |
+| `build/out/` | build outputs; `build/out/<member path>/` for a workspace member |
+| `build/cache/` | reusable results: the compiled script, configurations, compiler products, command results |
+| `build/tmp/` | files of builds in progress |
+| `build/packages/` | fetched Git checkouts and registry packages |
+| `build/registry/` | downloaded registry indexes and archives |
+
+Workspace members share `build/cache/`, `build/packages/`, and
+`build/registry/`. `nia clean` removes `build/out/`, `build/cache/`, and
+`build/tmp/`, and keeps fetched dependencies. It runs from anywhere inside a
+package and refuses to run outside one.
 
 ## Workspaces
 
@@ -246,8 +257,8 @@ Running `nia build` inside a member selects that package. Running
 from the workspace root selects `default-members`, or all members when that
 field is omitted. `--workspace` selects every member, and repeatable
 `-p`/`--package <name>` selects named members. Workspace members share the
-root `nia.lock` and `build/packages` cache while keeping their build outputs
-package-local.
+root `nia.lock` and the workspace root's `build/`; see
+[Build directory](#build-directory).
 
 Selected members build in manifest order, and the first failing member stops
 the build. With `--keep-going`, the remaining members still build and the
@@ -274,8 +285,9 @@ runtime = "freestanding"
 
 Each `[[executable]]` becomes an emit step `<name>` and a run step
 `run-<name>`; each `[[test]]` becomes a suite, as `addTestSuite` makes. `all`
-depends on every emit step and suite and is the default step. `all`, `test`,
-and names starting with `run-` are reserved for these derived steps.
+depends on every emit step and suite and is the default step. A manifest
+artifact cannot be named `all`, `test`, or `run-<anything>`, since those names
+belong to the derived steps.
 
 The manifest artifacts are declared before `build.nia` runs, so the script can
 extend them: `b.executable(name)` returns an artifact's handle, and
@@ -606,7 +618,7 @@ working directory. A suite that passed is not run again until its executable
 or inputs change.
 
 A suite is a step named after it, and the first suite also declares a `test`
-step that depends on every suite, so a script cannot name its own step `test`.
+step that depends on every suite.
 Tests run through `nia build`:
 
 | Command | Effect |
@@ -731,8 +743,8 @@ other `std` APIs inside the script convert to `build::Error` with
 nia build [step] [--root <dir>] [options]
 ```
 
-`nia build` searches upward from the current directory for `build.nia`, or
-starts at `--root <dir>`. It runs `step`, or the default step when no step is
+`nia build` searches upward from the current directory for `nia.toml` or
+`build.nia`, or starts at `--root <dir>`. It runs `step`, or the default step when no step is
 named, after the steps it depends on.
 
 | Option | Effect |
@@ -750,13 +762,13 @@ named, after the steps it depends on.
 | `-k, --keep-going` | after a failure, keeps running the actions that do not depend on it |
 | `-j, --jobs <count>` | limits concurrent actions |
 | `--target <name>` | sets the artifact target |
-| `-O<level>`, `--release` | sets the default optimization level |
+| `--debug`, `--release`, `--profile <debug\|release>` | selects the build profile; `--release` defaults to `-O2` |
+| `-O<level>` | sets the default optimization level, overriding the profile's |
 | `--lto <off\|thin\|full>` | selects link-time optimization for executables |
 
-Outputs go to `build/out/` in the package root: emitted artifacts under their
-output names, plus installed and generated files at the paths the script gave.
-Reusable results (the compiled script, recorded configurations, compiler
-products, and command results) are kept in `build/cache/`.
+Outputs go to `build/out/` ([Build directory](#build-directory)): emitted
+artifacts under their output names, plus installed and generated files at the
+paths the script gave.
 
 ### Progress output
 

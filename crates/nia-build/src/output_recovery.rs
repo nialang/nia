@@ -1706,7 +1706,7 @@ mod tests {
             std::process::id(),
             JOURNAL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        let build_dir = root.join(".nia-build");
+        let build_dir = root.join("build/out");
         let outside = root.join("outside");
         fs::create_dir_all(&build_dir).unwrap();
         fs::create_dir(&outside).unwrap();
