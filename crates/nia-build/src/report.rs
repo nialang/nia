@@ -563,35 +563,37 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
         }
         ExternalCommandFailure::UndeclaredOutputs {
             paths,
+            count,
             stdout,
             stderr,
         } => {
-            let reason = if paths.len() == 1 {
+            let reason = if *count == 1 {
                 format!(
-                    "command wrote 1 undeclared output: `{}`",
+                    "command changed 1 undeclared output: `{}`",
                     paths[0].display()
                 )
             } else {
-                format!("command wrote {} undeclared outputs", paths.len())
+                format!("command changed {count} undeclared outputs")
             };
             diagnostic.notes.push(reason);
-            if paths.len() > 1 {
-                for path in paths.iter().take(10) {
+            if *count > 1 {
+                for path in paths {
                     diagnostic.notes.push(format!("  `{}`", path.display()));
                 }
-                if paths.len() > 10 {
+                if *count > paths.len() {
                     diagnostic
                         .notes
-                        .push(format!("  ... and {} more", paths.len() - 10));
+                        .push(format!("  ... and {} more", count - paths.len()));
                 }
             }
             append_output_note(&mut diagnostic, "stdout", stdout);
             append_output_note(&mut diagnostic, "stderr", stderr);
         }
     }
-    diagnostic
-        .help
-        .push("declare all outputs in the command action, or disable undeclared-output detection".to_string());
+    diagnostic.help.push(
+        "declare all outputs in the command action, or use an uncacheable command policy"
+            .to_string(),
+    );
     diagnostic
 }
 

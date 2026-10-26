@@ -3779,13 +3779,108 @@ fn external_output_tail_discards_only_the_oldest_bytes() {
     assert_eq!(&tail[tail.len() - 5..], b"bcdef");
 }
 
-#[cfg(unix)]
+fn undeclared_side_effect_plan(
+    invocation: &BuildInvocation,
+    cache_policy: CommandCachePolicy,
+) -> BuildPlan {
+    let declared_output = LogicalPath::new(LogicalPathRoot::Build, "declared.txt").unwrap();
+    let declared_input =
+        LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "command.ps1").unwrap();
+    let environment = if cfg!(windows) {
+        ["SystemRoot", "PATH", "PATHEXT"]
+            .into_iter()
+            .filter_map(|name| {
+                std::env::var(name).ok().map(|value| EnvironmentInput {
+                    name: name.to_string(),
+                    value: Some(value),
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let (program, arguments) = if cfg!(windows) {
+        let script = if cache_policy == CommandCachePolicy::Uncacheable {
+            "[IO.File]::WriteAllText('unexpected', 'unexpected')\n"
+        } else {
+            "param([string]$declaredOutput)\n[IO.File]::WriteAllText($declaredOutput, 'declared')\n[IO.File]::WriteAllText('unexpected', 'unexpected')\n"
+        };
+        fs::write(invocation.package_root.join("command.ps1"), script).unwrap();
+        let mut arguments = vec![
+            CommandArgument::Literal("-NoProfile".to_string()),
+            CommandArgument::Literal("-ExecutionPolicy".to_string()),
+            CommandArgument::Literal("Bypass".to_string()),
+            CommandArgument::Literal("-File".to_string()),
+            CommandArgument::Literal("command.ps1".to_string()),
+        ];
+        if cache_policy != CommandCachePolicy::Uncacheable {
+            arguments.push(CommandArgument::OutputPath(declared_output.clone()));
+        }
+        ("powershell.exe", arguments)
+    } else {
+        let mut arguments = vec![
+            CommandArgument::Literal("-c".to_string()),
+            CommandArgument::Literal("printf unexpected > unexpected.txt".to_string()),
+        ];
+        if cache_policy != CommandCachePolicy::Uncacheable {
+            arguments.push(CommandArgument::Literal("nia-output-fixture".to_string()));
+            arguments.push(CommandArgument::OutputPath(declared_output.clone()));
+        }
+        ("sh", arguments)
+    };
+    BuildPlan::freeze(BuildPlanDraft {
+        root_package: PackageKey::root(),
+        packages: vec![PlanPackage {
+            key: PackageKey::root(),
+            source: crate::PlanPackageSource::Local(String::new()),
+        }],
+        host_target: *invocation.toolchain.host_target(),
+        artifact_target: *invocation.toolchain.artifact_target(),
+        modules: Vec::new(),
+        artifacts: Vec::new(),
+        actions: vec![PlanAction {
+            key: action("side-effect"),
+            kind: ActionKind::ExternalCommand(CommandAction {
+                resource_class: ActionResourceClass::Io,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy,
+                stdin: CommandStdin::Null,
+                program: CommandProgram::Search(program.to_string()),
+                arguments,
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment,
+                inputs: if cfg!(windows) && cache_policy != CommandCachePolicy::Uncacheable {
+                    vec![declared_input]
+                } else {
+                    Vec::new()
+                },
+                outputs: if cache_policy == CommandCachePolicy::Uncacheable {
+                    Vec::new()
+                } else {
+                    vec![declared_output]
+                },
+            }),
+        }],
+        steps: vec![PlanStep {
+            key: step("side-effect"),
+            action: action("side-effect"),
+            dependencies: Vec::new(),
+        }],
+        default_step: Some(step("side-effect")),
+        selected_step: None,
+    })
+    .unwrap()
+}
+
 #[test]
 fn cacheable_external_command_rejects_undeclared_output() {
     let invocation = test_invocation();
     fs::create_dir_all(&invocation.package_root).unwrap();
-    fs::write(invocation.package_root.join("tool-input.txt"), b"source").unwrap();
-    let plan = cacheable_command_plan(&invocation, "executor-undeclared");
+    let plan = undeclared_side_effect_plan(&invocation, CommandCachePolicy::ToolAndInputs);
     let error = execute_build_plan(&plan, &invocation).unwrap_err();
 
     assert!(matches!(
@@ -3793,6 +3888,32 @@ fn cacheable_external_command_rejects_undeclared_output() {
         CoordinatorError::ExternalCommand(details)
             if matches!(details.failure, ExternalCommandFailure::UndeclaredOutputs { .. })
     ));
+    let side_effect_name = if cfg!(windows) {
+        "unexpected"
+    } else {
+        "unexpected.txt"
+    };
+    assert!(invocation.package_root.join(side_effect_name).is_file());
+    fs::remove_dir_all(&invocation.package_root).unwrap();
+}
+
+#[test]
+fn uncacheable_external_command_keeps_undeclared_output_behavior() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let plan = undeclared_side_effect_plan(&invocation, CommandCachePolicy::Uncacheable);
+    let report = execute_build_plan(&plan, &invocation).unwrap();
+
+    assert!(report.action_cache.is_empty());
+    assert_eq!(
+        fs::read(invocation.package_root.join(if cfg!(windows) {
+            "unexpected"
+        } else {
+            "unexpected.txt"
+        }))
+        .unwrap(),
+        b"unexpected"
+    );
     fs::remove_dir_all(&invocation.package_root).unwrap();
 }
 

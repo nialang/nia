@@ -2,9 +2,8 @@
 //! Hermetic external-command identity, execution, and bounded diagnostics.
 
 use super::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Read;
-use std::time::SystemTime;
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
@@ -559,7 +558,11 @@ pub(super) fn execute_external_command_with_writer(
     // Capture file state before execution for undeclared output detection
     let (declared_outputs, pre_execution_state) = if policy.detect_undeclared_outputs {
         let declared_outputs = policy.declared_output_paths.iter().cloned().collect();
-        let pre_state = collect_directory_state(request.working_directory)?;
+        let pre_state = collect_directory_state(
+            &action.key,
+            request.working_directory,
+            "snapshot command outputs",
+        )?;
         (declared_outputs, Some(pre_state))
     } else {
         (HashSet::new(), None)
@@ -706,14 +709,16 @@ pub(super) fn execute_external_command_with_writer(
     match result {
         Ok((stdout, stderr)) => {
             if let Some(pre_state) = pre_execution_state {
-                let undeclared = detect_undeclared_outputs(
+                let (paths, count) = detect_undeclared_outputs(
+                    &action.key,
                     request.working_directory,
                     &declared_outputs,
                     &pre_state,
                 )?;
-                if !undeclared.is_empty() {
+                if count != 0 {
                     return Err(error(ExternalCommandFailure::UndeclaredOutputs {
-                        paths: undeclared,
+                        paths,
+                        count,
                         stdout,
                         stderr,
                     }));
@@ -854,17 +859,18 @@ pub(super) fn display_external_command_error(
         }
         ExternalCommandFailure::UndeclaredOutputs {
             paths,
+            count,
             stdout,
             stderr,
         } => {
-            write!(f, "wrote {} undeclared output(s): ", paths.len())?;
+            write!(f, "changed {count} undeclared output(s): ")?;
             for (i, path) in paths.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
                 write!(f, "`{}`", path.display())?;
-                if i >= 4 && paths.len() > 5 {
-                    write!(f, ", ... and {} more", paths.len() - 5)?;
+                if i >= 4 && *count > 5 {
+                    write!(f, ", ... and {} more", count - 5)?;
                     break;
                 }
             }
@@ -1035,6 +1041,8 @@ mod tests {
 
     #[test]
     fn undeclared_output_detection_distinguishes_created_and_declared_files() {
+        use std::time::SystemTime;
+
         let root = std::env::temp_dir().join(format!(
             "nia-build-output-scan-{}-{}",
             std::process::id(),
@@ -1047,91 +1055,127 @@ mod tests {
         let declared = root.join("declared.txt");
         let declared_directory = root.join("declared-directory");
         let unexpected = root.join("unexpected.txt");
+        let deleted = root.join("deleted.txt");
+        let created = root.join("created.txt");
         fs::write(&declared, b"before").expect("write declared file");
+        fs::write(&unexpected, b"before").expect("write existing undeclared file");
+        fs::write(&deleted, b"deleted").expect("write file to delete");
         fs::create_dir_all(&declared_directory).expect("create declared directory");
-        let before = collect_directory_state(&root).expect("capture output scan state");
+        let action = ActionKey::new(PackageKey::root(), "scan-test").unwrap();
+        let before = collect_directory_state(&action, &root, "test output snapshot")
+            .expect("capture output scan state");
         fs::write(&declared, b"after").expect("update declared file");
         fs::write(declared_directory.join("nested.txt"), b"declared")
             .expect("write nested declared file");
-        fs::write(&unexpected, b"unexpected").expect("write undeclared file");
+        fs::write(&unexpected, b"after!").expect("modify undeclared file");
+        fs::remove_file(&deleted).expect("delete undeclared file");
+        fs::write(&created, b"created").expect("create undeclared file");
 
         let undeclared = detect_undeclared_outputs(
+            &action,
             &root,
             &HashSet::from([declared, declared_directory]),
             &before,
         )
         .expect("scan output state");
-        assert_eq!(undeclared, vec![unexpected]);
+        assert_eq!(undeclared, (vec![created, deleted, unexpected], 3));
         let _ = fs::remove_dir_all(root);
     }
 }
 
-/// File modification time snapshot for undeclared-output detection.
+/// Content snapshot for undeclared-output detection.
 #[derive(Debug, Clone)]
 struct FileStateSnapshot {
-    files: HashMap<PathBuf, SystemTime>,
+    files: HashMap<PathBuf, [u8; blake3::OUT_LEN]>,
 }
 
-/// Recursively collects modification times of files under a directory.
-fn collect_directory_state(root: &Path) -> Result<FileStateSnapshot, CoordinatorError> {
+/// Recursively collects content fingerprints of files under a directory.
+fn collect_directory_state(
+    action: &ActionKey,
+    root: &Path,
+    operation: &'static str,
+) -> Result<FileStateSnapshot, CoordinatorError> {
     let mut files = HashMap::new();
-    collect_directory_state_recursive(root, root, &mut files, 0)?;
+    let mut entries_seen = 0;
+    collect_directory_state_recursive(root, root, &mut files, &mut entries_seen, 0).map_err(
+        |error| CoordinatorError::ExternalCommandIo {
+            action: action.clone(),
+            path: root.to_path_buf(),
+            operation,
+            error,
+        },
+    )?;
     Ok(FileStateSnapshot { files })
 }
 
 fn collect_directory_state_recursive(
     root: &Path,
     current: &Path,
-    files: &mut HashMap<PathBuf, SystemTime>,
+    files: &mut HashMap<PathBuf, [u8; blake3::OUT_LEN]>,
+    entries_seen: &mut usize,
     depth: usize,
-) -> Result<(), CoordinatorError> {
+) -> io::Result<()> {
     if depth > MAX_EXTERNAL_DIRECTORY_DEPTH {
-        return Ok(());
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "command working directory exceeds the output scan depth limit",
+        ));
     }
-    let entries = match fs::read_dir(current) {
-        Ok(entries) => entries,
-        Err(_) => return Ok(()), // Ignore inaccessible directories
-    };
+    let entries = fs::read_dir(current)?;
     for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
+        *entries_seen += 1;
+        if *entries_seen > MAX_EXTERNAL_DIRECTORY_ENTRIES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "command working directory exceeds the output scan entry limit",
+            ));
+        }
+        let entry = entry?;
         let path = entry.path();
         // Do not follow links while inspecting a command's working tree. A
         // link can point outside the declared working directory and must not
         // turn that external tree into an observed output set.
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(_) => continue,
-        };
+        let metadata = fs::symlink_metadata(&path)?;
         if is_reparse_point(&metadata) {
             continue;
         }
         if metadata.is_file() {
-            if let Ok(modified) = metadata.modified() {
-                if let Ok(relative) = path.strip_prefix(root) {
-                    files.insert(relative.to_path_buf(), modified);
+            let relative = path.strip_prefix(root).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "command output path escaped its working directory",
+                )
+            })?;
+            let mut file = fs::File::open(&path)?;
+            let mut hasher = blake3::Hasher::new();
+            let mut buffer = [0; 16 * 1024];
+            loop {
+                let bytes_read = file.read(&mut buffer)?;
+                if bytes_read == 0 {
+                    break;
                 }
+                hasher.update(&buffer[..bytes_read]);
             }
+            files.insert(relative.to_path_buf(), *hasher.finalize().as_bytes());
         } else if metadata.is_dir() {
-            collect_directory_state_recursive(root, &path, files, depth + 1)?;
+            collect_directory_state_recursive(root, &path, files, entries_seen, depth + 1)?;
         }
     }
     Ok(())
 }
 
-/// Detects files created or modified after command execution that were not
-/// declared in outputs.
+/// Detects file changes after command execution that were not declared in outputs.
 fn detect_undeclared_outputs(
+    action: &ActionKey,
     working_directory: &Path,
     declared_outputs: &HashSet<PathBuf>,
     pre_state: &FileStateSnapshot,
-) -> Result<Vec<PathBuf>, CoordinatorError> {
-    let post_state = collect_directory_state(working_directory)?;
-    let mut undeclared = Vec::new();
+) -> Result<(Vec<PathBuf>, usize), CoordinatorError> {
+    let post_state = collect_directory_state(action, working_directory, "scan command outputs")?;
+    let mut samples = BTreeSet::new();
+    let mut count = 0;
 
-    for (path, post_time) in &post_state.files {
+    for (path, post_fingerprint) in &post_state.files {
         let absolute = working_directory.join(path);
         if declared_outputs
             .iter()
@@ -1139,19 +1183,37 @@ fn detect_undeclared_outputs(
         {
             continue;
         }
-        match pre_state.files.get(path) {
-            Some(pre_time) if post_time > pre_time => {
-                // File was modified
-                undeclared.push(absolute);
+        let changed = match pre_state.files.get(path) {
+            Some(pre_fingerprint) => post_fingerprint != pre_fingerprint,
+            None => true,
+        };
+        if changed {
+            count += 1;
+            if samples.len() < 10 {
+                samples.insert(absolute);
+            } else if samples.first().is_some_and(|first| absolute < *first) {
+                samples.pop_first();
+                samples.insert(absolute);
             }
-            None => {
-                // File was created
-                undeclared.push(absolute);
-            }
-            _ => {}
         }
     }
 
-    undeclared.sort();
-    Ok(undeclared)
+    for path in pre_state.files.keys() {
+        let absolute = working_directory.join(path);
+        if !post_state.files.contains_key(path)
+            && !declared_outputs
+                .iter()
+                .any(|declared| absolute == *declared || absolute.starts_with(declared))
+        {
+            count += 1;
+            if samples.len() < 10 {
+                samples.insert(absolute);
+            } else if samples.first().is_some_and(|first| absolute < *first) {
+                samples.pop_first();
+                samples.insert(absolute);
+            }
+        }
+    }
+
+    Ok((samples.into_iter().collect(), count))
 }

@@ -291,10 +291,12 @@ pub enum ExternalCommandFailure {
         /// Bounded captured standard-error tail.
         stderr: Vec<u8>,
     },
-    /// The command wrote undeclared outputs.
+    /// The command changed undeclared outputs.
     UndeclaredOutputs {
-        /// Files created or modified but not declared in outputs.
+        /// Bounded sample of files created, changed, or deleted but not declared.
         paths: Vec<PathBuf>,
+        /// Total count of undeclared files.
+        count: usize,
         /// Bounded captured standard-output tail.
         stdout: Vec<u8>,
         /// Bounded captured standard-error tail.
