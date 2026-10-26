@@ -411,6 +411,41 @@ the artifact name and must be a plain file name. Executables also support:
 
 Object files and static archives do not select a runtime.
 
+### Artifact Configuration
+
+All three artifact option types support the same output-changing configuration
+methods. Each method returns a new options value, so configuration is part of
+the artifact declaration and is frozen into the build plan:
+
+| Method | Meaning |
+| --- | --- |
+| `withLinkage(Linkage::Static)` / `StaticPie` / `Dynamic` | Selects the native linkage form. Executables default to `StaticPie`; objects and archives default to `Static`. |
+| `withDebugInfo(DebugInfo::None)` / `LineTables` / `Full` | Selects emitted debug metadata. |
+| `withPanicStrategy(PanicStrategy::Abort)` / `Unwind` | Selects panic lowering for the artifact. |
+| `withLto(LtoMode::Off)` / `Thin` / `Full` | Selects the final-link optimization policy. |
+| `withDefines(&[ArtifactDefine])` | Adds the ordered conditional-compilation symbols passed to the compiler. Use `ArtifactDefine::init(name)` for each symbol. |
+| `withSystemLibraries(&[SystemLibrary])` | Adds ordered native libraries for the linker. Use `SystemLibrary::init(name, mode)` with `Default`, `Static`, or `Dynamic` search mode. |
+
+For example:
+
+```nia
+let app = b.addExecutable(
+    build::ExecutableOptions::init(&"app", root)
+        .withLinkage(build::Linkage::Dynamic)
+        .withDebugInfo(build::DebugInfo::LineTables)
+        .withPanicStrategy(build::PanicStrategy::Abort)
+        .withLto(build::LtoMode::Thin)
+        .withDefines(&[build::ArtifactDefine::init(&"APP_FEATURE")])
+        .withSystemLibraries(&[
+            build::SystemLibrary::init(&"m", build::SystemLibraryMode::Default),
+        ]),
+).?;
+```
+
+The configuration is artifact-owned rather than an invocation-global compiler
+flag. Changing any configured field invalidates the affected check, emit, and
+link actions; `--print-plan` and `--explain` show the frozen values.
+
 ### Targets
 
 An artifact without `forTarget` is built for the invocation's artifact target:
