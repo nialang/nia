@@ -357,6 +357,9 @@ pub mod identities {
     /// Host runner policy identity used by generated-runner caching.
     pub const RUNNER_INVOCATION: IdentityDomain =
         IdentityDomain::new("nia.build.runner-invocation");
+    /// Path-independent toolchain compatibility identity.
+    pub const TOOLCHAIN_COMPATIBILITY: IdentityDomain =
+        IdentityDomain::new("nia.toolchain.compatibility-identity");
     /// Generated-file action key identity.
     pub const GENERATED_FILE_ACTION: IdentityDomain =
         IdentityDomain::new("nia.build.generated-file-key");
@@ -377,6 +380,7 @@ pub mod identities {
     pub const ALL: &[IdentityDomain] = &[
         BUILD_INVOCATION,
         RUNNER_INVOCATION,
+        TOOLCHAIN_COMPATIBILITY,
         GENERATED_FILE_ACTION,
         COMPILER_CHECK_ACTION,
         EXTERNAL_COMMAND_ACTION,

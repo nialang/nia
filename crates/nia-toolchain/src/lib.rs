@@ -16,7 +16,7 @@ use nia_target::{Arch, Os, TargetConfig};
 use std::{fmt, fs, io, io::Read, path::PathBuf};
 
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.toolchain.compatibility-identity");
+    FingerprintDomain::new(nia_compat::identities::TOOLCHAIN_COMPATIBILITY.name);
 const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 
 /// File name of the versioned compatibility manifest under a resource root.
