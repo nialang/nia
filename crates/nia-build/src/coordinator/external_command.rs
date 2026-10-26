@@ -527,6 +527,8 @@ pub(super) struct ExternalExecutionPolicy<'a> {
     pub(super) forward_output: bool,
     pub(super) cancellation: Option<&'a ActionCancellation>,
     pub(super) detect_undeclared_outputs: bool,
+    /// Physical final and staged paths that the command is allowed to write.
+    pub(super) declared_output_paths: &'a [PathBuf],
 }
 
 #[cfg(test)]
@@ -556,17 +558,7 @@ pub(super) fn execute_external_command_with_writer(
 
     // Capture file state before execution for undeclared output detection
     let (declared_outputs, pre_execution_state) = if policy.detect_undeclared_outputs {
-        let outputs = match &action.kind {
-            ActionKind::ExternalCommand(cmd) | ActionKind::TestExecutable(cmd) => &cmd.outputs,
-            _ => &Vec::new(),
-        };
-        let declared_outputs = outputs
-            .iter()
-            .map(|logical| {
-                // Resolve logical path to physical path
-                request.working_directory.join(logical.protocol_path())
-            })
-            .collect();
+        let declared_outputs = policy.declared_output_paths.iter().cloned().collect();
         let pre_state = collect_directory_state(request.working_directory)?;
         (declared_outputs, Some(pre_state))
     } else {
@@ -1041,6 +1033,30 @@ mod tests {
             .expect_err("directory identity must be bounded");
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
+
+    #[test]
+    fn undeclared_output_detection_distinguishes_created_and_declared_files() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-build-output-scan-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("test clock must follow the Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create output scan root");
+        let declared = root.join("declared.txt");
+        let unexpected = root.join("unexpected.txt");
+        fs::write(&declared, b"before").expect("write declared file");
+        let before = collect_directory_state(&root).expect("capture output scan state");
+        fs::write(&declared, b"after").expect("update declared file");
+        fs::write(&unexpected, b"unexpected").expect("write undeclared file");
+
+        let undeclared = detect_undeclared_outputs(&root, &HashSet::from([declared]), &before)
+            .expect("scan output state");
+        assert_eq!(undeclared, vec![unexpected]);
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 /// File modification time snapshot for undeclared-output detection.
@@ -1075,10 +1091,16 @@ fn collect_directory_state_recursive(
             Err(_) => continue,
         };
         let path = entry.path();
-        let metadata = match entry.metadata() {
+        // Do not follow links while inspecting a command's working tree. A
+        // link can point outside the declared working directory and must not
+        // turn that external tree into an observed output set.
+        let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(_) => continue,
         };
+        if is_reparse_point(&metadata) {
+            continue;
+        }
         if metadata.is_file() {
             if let Ok(modified) = metadata.modified() {
                 if let Ok(relative) = path.strip_prefix(root) {

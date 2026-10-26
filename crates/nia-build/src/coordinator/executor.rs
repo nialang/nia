@@ -511,6 +511,17 @@ impl DriverActionExecutor {
                 .map(|()| None);
             }
         };
+        let declared_output_paths = resolved_outputs
+            .iter()
+            .map(|(_, path)| path.clone())
+            .chain(
+                staged
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|transaction| transaction.outputs.iter())
+                    .map(|output| output.temporary.clone()),
+            )
+            .collect::<Vec<_>>();
         let execution = execute_external_command_with_writer(
             action,
             ResolvedExternalCommand {
@@ -525,7 +536,10 @@ impl DriverActionExecutor {
                 timeout: EXTERNAL_COMMAND_TIMEOUT,
                 forward_output: self.invocation.forward_output,
                 cancellation: Some(cancellation),
-                detect_undeclared_outputs: false,
+                // Cache policies with declared inputs are the explicit opt-in
+                // for checking that a command does not write elsewhere.
+                detect_undeclared_outputs: cacheable,
+                declared_output_paths: &declared_output_paths,
             },
             self.process_output_writer.clone(),
         );

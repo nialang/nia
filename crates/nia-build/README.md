@@ -384,6 +384,16 @@ executable, source input manifest, declared inputs, effective environment,
 toolchain, and test action contract. Failed or cancelled suites never publish a
 record, and cache failures fall back to running the suite.
 
+Cacheable external commands also opt into undeclared-output checking. The
+coordinator snapshots regular files below the command working directory before
+execution, permits the resolved final and staged paths declared by the action,
+and rejects newly created or modified files elsewhere. Uncacheable commands do
+not pay this scan and retain their existing execution behavior. The check
+detects writes visible in the working tree; it does not trace reads performed
+through undeclared paths, child processes that escape the working tree, or
+platform-specific filesystem activity that is not observable from a regular
+file snapshot.
+
 ## Publication and Locks
 
 Actions publish only declared build-root outputs. Equal logical destinations

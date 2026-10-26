@@ -1225,6 +1225,7 @@ fn external_spawn_failure_reports_operation_and_program() {
             forward_output: false,
             cancellation: None,
             detect_undeclared_outputs: false,
+            declared_output_paths: &[],
         },
     )
     .unwrap_err();
@@ -3626,6 +3627,7 @@ fn execute_test_command(
             forward_output: false,
             cancellation: None,
             detect_undeclared_outputs: false,
+            declared_output_paths: &[],
         },
     )
 }
@@ -3695,6 +3697,7 @@ fn external_command_clear_environment_keeps_only_declared_values() {
             forward_output: false,
             cancellation: None,
             detect_undeclared_outputs: false,
+            declared_output_paths: &[],
         },
     )
     .unwrap();
@@ -3759,6 +3762,51 @@ fn external_output_tail_discards_only_the_oldest_bytes() {
     assert_eq!(&tail[tail.len() - 5..], b"bcdef");
 }
 
+#[cfg(unix)]
+#[test]
+fn cacheable_external_command_rejects_undeclared_output() {
+    let invocation = test_invocation();
+    fs::create_dir_all(&invocation.package_root).unwrap();
+    let mut action = external_action();
+    if let ActionKind::ExternalCommand(command) = &mut action.kind {
+        command.cache_policy = crate::CommandCachePolicy::DeclaredInputs;
+        command.outputs = vec![LogicalPath::new(LogicalPathRoot::Build, "declared.txt").unwrap()];
+    } else {
+        unreachable!("external action fixture");
+    }
+    let arguments = [
+        "-c".to_string(),
+        "printf unexpected > unexpected.txt".to_string(),
+    ];
+    let declared_output = invocation.package_root.join("declared.txt");
+    let error = execute_external_command(
+        &action,
+        ResolvedExternalCommand {
+            program: "sh",
+            arguments: &arguments,
+            working_directory: &invocation.package_root,
+            environment_policy: crate::CommandEnvironmentPolicy::Clear,
+            environment: &[],
+            stdin: None,
+        },
+        ExternalExecutionPolicy {
+            timeout: Duration::from_secs(5),
+            forward_output: false,
+            cancellation: None,
+            detect_undeclared_outputs: true,
+            declared_output_paths: std::slice::from_ref(&declared_output),
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        CoordinatorError::ExternalCommand(details)
+            if matches!(details.failure, ExternalCommandFailure::UndeclaredOutputs { .. })
+    ));
+    assert!(!invocation.package_root.join("unexpected.txt").exists());
+}
+
 #[test]
 #[cfg_attr(windows, ignore = "requires a POSIX shell fixture")]
 fn external_command_timeout_terminates_owned_process_group() {
@@ -3819,6 +3867,7 @@ fn external_command_cancellation_terminates_owned_process_group() {
                 forward_output: false,
                 cancellation: Some(&cancellation),
                 detect_undeclared_outputs: false,
+                declared_output_paths: &[],
             },
         )
     });
