@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Hermetic external-command identity, execution, and bounded diagnostics.
+//! External-command identity, execution, and bounded diagnostics.
 
 use super::*;
 use std::collections::{BTreeSet, HashMap, HashSet};
