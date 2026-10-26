@@ -356,6 +356,13 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(quiet.status.success());
     assert!(quiet.stderr.is_empty());
     assert!(!quiet.stdout.is_empty());
+    let plan_text = String::from_utf8_lossy(&quiet.stdout);
+    assert!(
+        plan_text.contains("selection: selected=root::all, explicit=root::all, default=root::all"),
+        "{plan_text}"
+    );
+    assert!(plan_text.contains("outputs="), "{plan_text}");
+    assert!(plan_text.contains("dependencies="), "{plan_text}");
     let preview = support::nia_command()
         .args(["build", "--dry-run", "--progress=plain", "--root"])
         .arg(&on_root)
