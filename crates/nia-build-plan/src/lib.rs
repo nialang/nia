@@ -167,6 +167,33 @@ define_node_key!(ArtifactKey);
 define_node_key!(ActionKey);
 define_node_key!(StepKey);
 
+/// Stable identity of an action key independent of the action's typed payload.
+///
+/// Action-specific inputs such as compiler configuration, declared command
+/// inputs, and tool fingerprints remain components owned by their cache. This
+/// type owns only the package-qualified action identity shared by all action
+/// products.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ActionIdentity(ActionKey);
+
+impl ActionIdentity {
+    /// Creates the identity for one validated action key.
+    pub fn new(key: ActionKey) -> Self {
+        Self(key)
+    }
+
+    /// Returns the stable action key represented by this identity.
+    pub fn key(&self) -> &ActionKey {
+        &self.0
+    }
+
+    /// Returns the canonical length-prefixed package/name payload used by
+    /// action cache records.
+    pub fn encode(&self) -> Vec<u8> {
+        self.0.identity_bytes()
+    }
+}
+
 /// Namespace used to resolve a logical path without exposing host paths.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LogicalPathRoot {
@@ -1285,8 +1312,11 @@ mod tests {
     fn action_identity_bytes_are_canonical_and_package_qualified() {
         let first = ActionKey::new(PackageKey::root(), "compile").unwrap();
         let second = ActionKey::new(PackageKey::new("tools").unwrap(), "compile").unwrap();
+        let identity = ActionIdentity::new(first.clone());
 
         assert_eq!(first.identity_bytes(), first.identity_bytes());
+        assert_eq!(identity.key(), &first);
+        assert_eq!(identity.encode(), first.identity_bytes());
         assert_ne!(first.identity_bytes(), second.identity_bytes());
         assert_eq!(
             first.identity_bytes(),

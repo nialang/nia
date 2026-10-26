@@ -14,7 +14,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use nia_build_plan::MAX_PLAN_STRING_BYTES;
+use nia_build_plan::{ActionIdentity, MAX_PLAN_STRING_BYTES};
 use nia_compat::formats::{GENERATED_FILE_CACHE, GENERATED_FILE_ENTRY};
 use nia_query::{
     FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
@@ -1220,7 +1220,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
 }
 
 pub(super) fn action_identity(action: &ActionKey) -> Vec<u8> {
-    action.identity_bytes()
+    ActionIdentity::new(action.clone()).encode()
 }
 
 fn action_key_fingerprint(action: &ActionKey) -> QueryFingerprint {
