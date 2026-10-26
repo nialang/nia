@@ -114,7 +114,6 @@ impl BuildInvocationIdentity {
         let mut encoded = Vec::new();
         encoded.extend_from_slice(nia_compat::identities::RUNNER_INVOCATION.name.as_bytes());
         encoded.extend_from_slice(b"\0\x01");
-        write_identity_field(&mut encoded, &self.package_source_fingerprint);
         write_identity_field(&mut encoded, self.host_target.as_bytes());
         encoded.push(profile_tag(self.profile));
         encoded.push(link_time_optimization_tag(self.link_time_optimization));
