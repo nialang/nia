@@ -563,7 +563,18 @@ impl DeclaredInputIsolation {
             let mut mappings = Vec::with_capacity(inputs.len());
             let mut entries_seen = 0;
             let mut bytes_copied = 0;
-            for (index, input) in inputs.iter().enumerate() {
+            // Copy an ancestor before any of its declared descendants. A
+            // command may declare both a directory and a file below it, and
+            // the resulting view must not depend on declaration order.
+            let mut ordered_inputs = inputs.iter().enumerate().collect::<Vec<_>>();
+            ordered_inputs.sort_by(|(left_index, left), (right_index, right)| {
+                left.components()
+                    .count()
+                    .cmp(&right.components().count())
+                    .then_with(|| left.cmp(right))
+                    .then_with(|| left_index.cmp(right_index))
+            });
+            for (index, input) in ordered_inputs {
                 let destination = if let Ok(relative) = input.strip_prefix(working_directory) {
                     root.join(relative)
                 } else {
@@ -1298,6 +1309,33 @@ mod tests {
             0
         );
         drop(isolation);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn input_isolation_is_independent_of_overlapping_input_order() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-build-input-isolation-overlap-{}-{}",
+            std::process::id(),
+            INPUT_ISOLATION_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("inputs")).expect("create overlap input directory");
+        let directory = root.join("inputs");
+        let nested = directory.join("nested.txt");
+        fs::write(&nested, b"declared").expect("write nested input");
+        let action = PlanAction {
+            key: ActionKey::new(PackageKey::root(), "isolation-overlap").unwrap(),
+            kind: ActionKind::Aggregate,
+        };
+        // The file is deliberately listed first. The isolation builder sorts
+        // the ancestor directory ahead of it before copying.
+        let isolation =
+            DeclaredInputIsolation::create(&action, &root, &[nested.clone(), directory.clone()])
+                .expect("create overlapping input isolation");
+        let copied = isolation.map_path(&nested);
+        assert_eq!(fs::read(&copied).unwrap(), b"declared");
+        drop(isolation);
+        assert!(!copied.exists(), "temporary input view must be cleaned up");
         let _ = fs::remove_dir_all(root);
     }
 }
