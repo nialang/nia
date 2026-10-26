@@ -1090,7 +1090,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                 if runner.is_err() {
                     nia_timing::emit_counter("build.runner_compile_failures", 1);
                 }
-                let (runner_executable, runner_cache_key) = runner?;
+                let (runner_executable, runner_cache_key, runner_cache_reused) = runner?;
                 let configured = time_summary_stage(timings, "build_configure_plan", || {
                     progress_phase(progress_guard.session(), ProgressPhase::Configure, || {
                         let mut configure_candidate = match configure_cache_candidate(
@@ -1124,13 +1124,13 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                                 }
                             })
                             .ok();
-                        let mut runner_reused = false;
+                        let mut configure_reused = false;
                         let draft = match reusable {
                             Some(ConfigureCacheLookup::Hit(record)) => {
                                 let manifest = record.manifest.encode().ok();
                                 match (ConfigureCache::decode_plan(&record).ok(), manifest) {
                                     (Some(plan), Some(observations)) => {
-                                        runner_reused = true;
+                                        configure_reused = true;
                                         nia_timing::emit_counter("build.configure_cache_hits", 1);
                                         let cleanup = fs::remove_file(&runner_executable);
                                         match cleanup {
@@ -1176,16 +1176,16 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         if let Some(progress) = progress_guard.session() {
                             progress.emit(ProgressEventKind::PhaseCacheDecision {
                                 phase: ProgressPhase::Configure,
-                                reused: runner_reused,
+                                reused: configure_reused,
                             });
                         }
-                        draft.map(|draft| (draft, configure_candidate, runner_reused))
+                        draft.map(|draft| (draft, configure_candidate, configure_reused))
                     })
                 });
                 if configured.is_err() {
                     nia_timing::emit_counter("build.runner_failures", 1);
                 }
-                let (draft, configure_candidate, runner_reused) = configured?;
+                let (draft, configure_candidate, configure_reused) = configured?;
                 validate_manifest_dependency_references(draft.plan.packages(), &invocation)
                     .map_err(|detail| BuildError::InvalidDependencyReference {
                         path: invocation.plan_draft.clone(),
@@ -1220,9 +1220,27 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                 }
                 if print_plan {
                     if output_json {
-                        print!("{}", render_build_plan_json(&plan));
+                        print!(
+                            "{}",
+                            render_build_plan_json_with_context(
+                                &plan,
+                                &invocation,
+                                configure_candidate.clone(),
+                                configure_reused,
+                                runner_cache_reused,
+                            )
+                        );
                     } else {
-                        print!("{}", render_build_plan_summary(&plan));
+                        print!(
+                            "{}",
+                            render_build_plan_summary_with_configure(
+                                &plan,
+                                &invocation,
+                                configure_candidate.clone(),
+                                configure_reused,
+                                runner_cache_reused,
+                            )
+                        );
                     }
                 }
                 if explain {
@@ -1264,13 +1282,21 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                     if output_json {
                         print!(
                             "{}",
-                            render_configure_cache_json(configure_candidate, runner_reused)
+                            render_configure_cache_json(
+                                configure_candidate,
+                                configure_reused,
+                                runner_cache_reused,
+                            )
                         );
                     } else {
                         println!(
                             "configure cache: {}; runner {}",
                             configure_candidate.clone(),
-                            if runner_reused { "reused" } else { "executed" }
+                            if configure_reused {
+                                "reused"
+                            } else {
+                                "executed"
+                            }
                         );
                     }
                 }
@@ -1406,10 +1432,77 @@ fn step_kind_name(plan: &BuildPlan, step: &PlanStep) -> &'static str {
 
 /// Renders a deterministic human-readable summary of a frozen build plan.
 pub fn render_build_plan_summary(plan: &BuildPlan) -> String {
+    render_build_plan_summary_inner(plan, None)
+}
+
+/// Renders a build plan summary with configure decision context.
+pub fn render_build_plan_summary_with_configure(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    configure_candidate: ConfigureCacheCandidate,
+    configure_reused: bool,
+    runner_cache_reused: bool,
+) -> String {
+    render_build_plan_summary_inner(
+        plan,
+        Some((
+            invocation,
+            &configure_candidate,
+            configure_reused,
+            runner_cache_reused,
+        )),
+    )
+}
+
+fn render_build_plan_summary_inner(
+    plan: &BuildPlan,
+    configure: Option<(&BuildInvocation, &ConfigureCacheCandidate, bool, bool)>,
+) -> String {
     let mut output = String::new();
     use std::fmt::Write as _;
     let _ = writeln!(output, "build plan:");
     let _ = writeln!(output, "  root package: {}", plan.root_package().as_str());
+
+    if let Some((invocation, configure_candidate, configure_reused, runner_cache_reused)) =
+        configure
+    {
+        // Configure decision context.
+        let _ = writeln!(
+            output,
+            "  configuration: profile={}, optimization={}, lto={}",
+            profile_name(invocation.profile),
+            optimization_name(invocation.optimization),
+            link_time_optimization_name(invocation.link_time_optimization),
+        );
+
+        // Cache status.
+        match configure_candidate {
+            ConfigureCacheCandidate::None => {
+                let _ = writeln!(output, "  configure cache candidate: none");
+            }
+            ConfigureCacheCandidate::Present => {
+                let _ = writeln!(output, "  configure cache candidate: present");
+            }
+            ConfigureCacheCandidate::Miss(reason) => {
+                let _ = writeln!(output, "  configure cache candidate: miss ({})", reason);
+            }
+        }
+        let _ = writeln!(
+            output,
+            "  configure result: {}",
+            if configure_reused {
+                "cached plan reused"
+            } else {
+                "build script runner executed"
+            }
+        );
+        let _ = writeln!(
+            output,
+            "  runner executable cache: {}",
+            if runner_cache_reused { "hit" } else { "miss" }
+        );
+    }
+
     let _ = writeln!(output, "  host target: {}", plan.host_target().name());
     let _ = writeln!(
         output,
@@ -1887,6 +1980,30 @@ pub fn render_build_plan_json(plan: &BuildPlan) -> String {
     build_plan_json_value(plan).to_string() + "\n"
 }
 
+/// Renders the frozen plan together with the invocation decisions used to
+/// produce it. The plan-only renderer remains available to callers without
+/// invocation context.
+pub fn render_build_plan_json_with_context(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    configure_candidate: ConfigureCacheCandidate,
+    configure_reused: bool,
+    runner_cache_reused: bool,
+) -> String {
+    let mut value = build_plan_json_value(plan);
+    value["invocation"] = serde_json::json!({
+        "configuration": {
+            "profile": profile_name(invocation.profile),
+            "optimization": optimization_name(invocation.optimization),
+            "lto": link_time_optimization_name(invocation.link_time_optimization),
+        },
+        "configure_cache": configure_cache_json_value(&configure_candidate),
+        "configure_result": if configure_reused { "cached_plan_reused" } else { "runner_executed" },
+        "runner_executable_cache": if runner_cache_reused { "hit" } else { "miss" },
+    });
+    value.to_string() + "\n"
+}
+
 fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
     let packages = plan
         .package_usage()
@@ -2069,25 +2186,22 @@ pub fn render_build_explanation_json_with_observations(
         + "\n"
 }
 
-fn render_configure_cache_json(candidate: ConfigureCacheCandidate, runner_reused: bool) -> String {
-    let mut json = serde_json::json!({
-        "kind": "configure-cache",
-        "runner": if runner_reused { "reused" } else { "executed" },
-    });
-
+fn configure_cache_json_value(candidate: &ConfigureCacheCandidate) -> serde_json::Value {
     match candidate {
         ConfigureCacheCandidate::None => {
-            json["status"] = serde_json::json!("none");
-            json["candidate"] = serde_json::json!("none");
+            serde_json::json!({
+                "status": "none",
+                "candidate": "none",
+            })
         }
         ConfigureCacheCandidate::Present => {
-            json["status"] = serde_json::json!("hit");
-            json["candidate"] = serde_json::json!("present");
+            serde_json::json!({
+                "status": "present",
+                "candidate": "present",
+            })
         }
         ConfigureCacheCandidate::Miss(reason) => {
-            json["status"] = serde_json::json!("miss");
-            json["candidate"] = serde_json::json!("miss");
-            json["miss_reason"] = match reason {
+            let miss_reason = match reason {
                 ConfigureCacheMissReason::NotFound => {
                     serde_json::json!({
                         "kind": "not_found",
@@ -2115,9 +2229,29 @@ fn render_configure_cache_json(candidate: ConfigureCacheCandidate, runner_reused
                     })
                 }
             };
+            serde_json::json!({
+                "status": "miss",
+                "candidate": "miss",
+                "miss_reason": miss_reason,
+            })
         }
     }
+}
 
+fn render_configure_cache_json(
+    candidate: ConfigureCacheCandidate,
+    configure_reused: bool,
+    runner_cache_reused: bool,
+) -> String {
+    let mut json = configure_cache_json_value(&candidate);
+    json["kind"] = serde_json::json!("configure-cache");
+    json["configure_result"] = serde_json::json!(if configure_reused {
+        "cached_plan_reused"
+    } else {
+        "runner_executed"
+    });
+    json["runner_executable_cache"] =
+        serde_json::json!(if runner_cache_reused { "hit" } else { "miss" });
     json.to_string() + "\n"
 }
 
@@ -2914,7 +3048,7 @@ fn build_runner_source_for_path(
 fn compile_build_runner(
     invocation: &BuildInvocation,
     progress: Option<&ProgressSession>,
-) -> Result<(PathBuf, String), BuildError> {
+) -> Result<(PathBuf, String, bool), BuildError> {
     let lock_observer =
         progress.map(|progress| progress.phase_lock_observer(ProgressPhase::Runner));
     let runner = time_build_stage(invocation.timings, "build_runner_generate_source", || {
@@ -2942,7 +3076,7 @@ fn compile_build_runner(
     }
     if restored {
         nia_timing::emit_counter("build.runner_cache_hits", 1);
-        return Ok((invocation.runner_executable.clone(), cache_key));
+        return Ok((invocation.runner_executable.clone(), cache_key, true));
     }
     nia_timing::emit_counter("build.runner_cache_misses", 1);
     if let Some(parent) = invocation.runner_executable.parent() {
@@ -3060,7 +3194,7 @@ fn compile_build_runner(
     if publish_result.is_err() {
         nia_timing::emit_counter("build.runner_cache_publish_failures", 1);
     }
-    Ok((invocation.runner_executable.clone(), cache_key))
+    Ok((invocation.runner_executable.clone(), cache_key, false))
 }
 
 fn focus_build_script_diagnostics(error: DriverError, runner: &SourcePath) -> DriverError {
@@ -5399,6 +5533,20 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
         let text =
             render_build_explanation(&plan, &invocation, ConfigureCacheCandidate::None, &preview);
+        let plan_summary = render_build_plan_summary(&plan);
+        assert!(plan_summary.contains("build plan:\n"));
+        assert!(!plan_summary.contains("configuration: profile="));
+        let plan_summary_with_cache = render_build_plan_summary_with_configure(
+            &plan,
+            &invocation,
+            ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
+            true,
+            false,
+        );
+        assert!(plan_summary_with_cache.contains("configuration: profile="));
+        assert!(plan_summary_with_cache.contains("configure cache candidate: miss (not found)"));
+        assert!(plan_summary_with_cache.contains("configure result: cached plan reused"));
+        assert!(plan_summary_with_cache.contains("runner executable cache: miss"));
         assert!(text.contains(
             "package graph: declared_dependencies=3, resolved_dependencies=2, selected_packages=4"
         ));
@@ -5461,6 +5609,36 @@ pub fun build(b: &mut build::Build) build::Error!() {
         assert_eq!(json["plan"]["kind"], "build-plan");
         assert!(json["observations"].get("valid").is_some());
         assert!(json["tools"].as_array().is_some());
+
+        let plan_json_with_context: serde_json::Value =
+            serde_json::from_str(&render_build_plan_json_with_context(
+                &plan,
+                &invocation,
+                ConfigureCacheCandidate::Miss(ConfigureCacheMissReason::NotFound),
+                false,
+                true,
+            ))
+            .expect("parse contextual build plan JSON");
+        assert_eq!(
+            plan_json_with_context["invocation"]["configuration"]["profile"],
+            profile_name(invocation.profile)
+        );
+        assert_eq!(
+            plan_json_with_context["invocation"]["configure_cache"]["status"],
+            "miss"
+        );
+        assert_eq!(
+            plan_json_with_context["invocation"]["configure_cache"]["miss_reason"]["kind"],
+            "not_found"
+        );
+        assert_eq!(
+            plan_json_with_context["invocation"]["configure_result"],
+            "runner_executed"
+        );
+        assert_eq!(
+            plan_json_with_context["invocation"]["runner_executable_cache"],
+            "hit"
+        );
 
         let cache_report = ExecutionReport {
             steps: Vec::new(),

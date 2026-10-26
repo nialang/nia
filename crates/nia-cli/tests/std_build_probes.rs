@@ -158,6 +158,12 @@ pub fun build(b: &mut build::Build) build::Error!() {
             .iter()
             .any(|step| step["name"] == "emit")
     );
+    assert!(plan["invocation"]["configuration"]["profile"].is_string());
+    assert!(plan["invocation"]["configuration"]["optimization"].is_string());
+    assert!(plan["invocation"]["configuration"]["lto"].is_string());
+    assert!(plan["invocation"]["configure_cache"]["status"].is_string());
+    assert!(plan["invocation"]["configure_result"].is_string());
+    assert!(plan["invocation"]["runner_executable_cache"].is_string());
 
     let explanation = records
         .iter()
