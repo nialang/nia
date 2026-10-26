@@ -1352,7 +1352,10 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         if output_json {
                             print!("{}", render_action_cache_json(&cache_preview, &plan, true));
                         } else {
-                            print!("{}", render_action_cache_summary(&cache_preview, true));
+                            print!(
+                                "{}",
+                                render_action_cache_summary(&cache_preview, &plan, true)
+                            );
                         }
                     }
                     return Ok(());
@@ -1381,7 +1384,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         if output_json {
                             print!("{}", render_action_cache_json(report, &plan, false));
                         } else {
-                            print!("{}", render_action_cache_summary(report, false));
+                            print!("{}", render_action_cache_summary(report, &plan, false));
                         }
                     }
                 } else {
@@ -1482,6 +1485,28 @@ pub fn render_build_plan_summary(
     use std::fmt::Write as _;
     let _ = writeln!(output, "build plan:");
     let _ = writeln!(output, "  root package: {}", plan.root_package().as_str());
+    let selected_step = plan.selected_step().or_else(|| plan.default_step());
+    let _ = writeln!(
+        output,
+        "  selection: selected={}, explicit={}, default={}",
+        selected_step.map_or("<none>".to_string(), |step| format!(
+            "{}::{}",
+            step.package().as_str(),
+            step.name()
+        )),
+        plan.selected_step()
+            .map_or("<none>".to_string(), |step| format!(
+                "{}::{}",
+                step.package().as_str(),
+                step.name()
+            )),
+        plan.default_step()
+            .map_or("<none>".to_string(), |step| format!(
+                "{}::{}",
+                step.package().as_str(),
+                step.name()
+            )),
+    );
 
     // Configure decision context.
     let _ = writeln!(
@@ -1531,43 +1556,72 @@ pub fn render_build_plan_summary(
     let _ = writeln!(output, "  actions: {}", plan.actions().len());
     let _ = writeln!(output, "  steps: {}", plan.steps().len());
     for module in plan.modules() {
+        let imports = module
+            .imports
+            .iter()
+            .map(|import| format!("{}={}", import.name, import.path.protocol_path()))
+            .collect::<Vec<_>>();
         let _ = writeln!(
             output,
-            "  module {}::{}: source={}, optimization={}",
+            "  module {}::{}: source={}, optimization={}, imports={}",
             module.key.package().as_str(),
             module.key.name(),
             module.root_source.protocol_path(),
             optimization_name(module.optimization),
+            if imports.is_empty() {
+                "none".to_string()
+            } else {
+                imports.join(", ")
+            },
         );
     }
     for artifact in plan.artifacts() {
         let _ = writeln!(
             output,
-            "  artifact {}::{}: kind={}, output={}",
+            "  artifact {}::{}: kind={}, output={}, runtime={}, mode={}",
             artifact.key.package().as_str(),
             artifact.key.name(),
             artifact_kind_name(&artifact.kind),
             artifact.output.protocol_path(),
+            runtime_name(artifact.runtime),
+            compilation_mode_name(artifact.mode),
         );
     }
     for action in plan.actions() {
+        let outputs = action_output_paths(plan, action)
+            .iter()
+            .map(LogicalPath::protocol_path)
+            .collect::<Vec<_>>();
         let _ = writeln!(
             output,
             "  action {}::{}: kind={}, outputs={}",
             action.key.package().as_str(),
             action.key.name(),
             action_kind_name(action),
-            action_outputs_json(plan, action).len(),
+            if outputs.is_empty() {
+                "none".to_string()
+            } else {
+                outputs.join(", ")
+            },
         );
     }
     for step in plan.steps() {
+        let dependencies = step
+            .dependencies
+            .iter()
+            .map(|dependency| format!("{}::{}", dependency.package().as_str(), dependency.name()))
+            .collect::<Vec<_>>();
         let _ = writeln!(
             output,
             "  step {}::{}: action={}, dependencies={}",
             step.key.package().as_str(),
             step.key.name(),
             format_args!("{}::{}", step.action.package().as_str(), step.action.name()),
-            step.dependencies.len(),
+            if dependencies.is_empty() {
+                "none".to_string()
+            } else {
+                dependencies.join(", ")
+            },
         );
     }
     for usage in plan.package_usage() {
@@ -1976,7 +2030,11 @@ fn render_configure_observations(bytes: &[u8]) -> String {
     output
 }
 
-fn render_action_cache_summary(report: &ExecutionReport, dry_run: bool) -> String {
+fn render_action_cache_summary(
+    report: &ExecutionReport,
+    plan: &BuildPlan,
+    dry_run: bool,
+) -> String {
     use std::fmt::Write as _;
     let mut output = String::from(if dry_run {
         "action cache (dry run):\n"
@@ -1984,15 +2042,90 @@ fn render_action_cache_summary(report: &ExecutionReport, dry_run: bool) -> Strin
         "action cache:\n"
     });
     for entry in &report.action_cache {
+        let (status, reason, invalidations, publication) =
+            action_cache_text_decision(&entry.outcome, dry_run);
+        let outputs = plan
+            .actions()
+            .binary_search_by(|action| action.key.cmp(&entry.action))
+            .ok()
+            .map(|index| {
+                action_output_paths(plan, &plan.actions()[index])
+                    .iter()
+                    .map(LogicalPath::protocol_path)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let _ = writeln!(
             output,
-            "  {}::{}: {:?}",
+            "  {}::{}: {}{}; publication={}; outputs={}",
             entry.action.package().as_str(),
             entry.action.name(),
-            entry.outcome
+            status,
+            reason.map_or_else(String::new, |reason| format!(" ({reason})")),
+            publication,
+            if outputs.is_empty() {
+                "none".to_string()
+            } else {
+                outputs.join(", ")
+            },
         );
+        if !invalidations.is_empty() {
+            let _ = writeln!(output, "    invalidated: {}", invalidations.join(", "));
+        }
     }
     output
+}
+
+fn action_cache_text_decision(
+    outcome: &ActionCacheOutcome,
+    dry_run: bool,
+) -> (
+    &'static str,
+    Option<&'static str>,
+    Vec<&'static str>,
+    &'static str,
+) {
+    match outcome {
+        ActionCacheOutcome::Hit => (
+            "hit",
+            None,
+            Vec::new(),
+            if dry_run { "not attempted" } else { "restored" },
+        ),
+        ActionCacheOutcome::Unavailable => (
+            "unavailable",
+            Some("identity unavailable"),
+            Vec::new(),
+            "not attempted",
+        ),
+        ActionCacheOutcome::Miss(reason) => {
+            let publication = match reason {
+                ActionCacheMissReason::Uncacheable => "not applicable",
+                ActionCacheMissReason::WriteError => "failed",
+                _ if dry_run => "not attempted",
+                _ => "published",
+            };
+            let invalidations = match reason {
+                ActionCacheMissReason::Invalidated(reasons) => {
+                    reasons.iter().map(action_cache_invalidation_name).collect()
+                }
+                _ => Vec::new(),
+            };
+            (
+                "miss",
+                Some(match reason {
+                    ActionCacheMissReason::NotFound => "not found",
+                    ActionCacheMissReason::Invalidated(_) => "invalidated",
+                    ActionCacheMissReason::Uncacheable => "uncacheable",
+                    ActionCacheMissReason::Corrupt => "corrupt",
+                    ActionCacheMissReason::ReadError => "read error",
+                    ActionCacheMissReason::WriteError => "write error",
+                }),
+                invalidations,
+                publication,
+            )
+        }
+    }
 }
 
 /// Renders a stable machine-readable plan summary with the invocation
@@ -5557,6 +5690,10 @@ pub fun build(b: &mut build::Build) build::Error!() {
             RunnerCacheStatus::Miss(RunnerCacheMissReason::NotFound),
         );
         assert!(plan_summary.contains("build plan:\n"));
+        assert!(
+            plan_summary
+                .contains("selection: selected=root::check, explicit=<none>, default=root::check")
+        );
         assert!(plan_summary.contains("configuration: profile="));
         assert!(plan_summary.contains("configure cache candidate: miss (not found)"));
         assert!(plan_summary.contains("configure result: cached plan reused"));
@@ -5679,6 +5816,13 @@ pub fun build(b: &mut build::Build) build::Error!() {
             cache_json["entries"][0]["decision"]["invalidations"][0],
             "inputs"
         );
+        let cache_text = render_action_cache_summary(&cache_report, &plan, false);
+        assert!(
+            cache_text
+                .contains("root::check: miss (invalidated); publication=published; outputs=none")
+        );
+        assert!(cache_text.contains("invalidated: inputs"));
+        assert!(!cache_text.contains("Invalidated(") && !cache_text.contains("Inputs"));
 
         std::fs::remove_dir_all(root).expect("remove test package root");
     }

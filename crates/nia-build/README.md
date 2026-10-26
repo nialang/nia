@@ -459,6 +459,10 @@ counts selected dependency edges, while `resolved_count` counts selected
 package nodes including the root. Canonical checkout paths used to join
 metadata edges to plan roots are invocation-local and are not serialized.
 
+Text action-cache entries use stable status and reason names and include
+publication state and declared outputs. Component invalidations are listed on
+the following indented line; text output does not expose Rust debug formatting.
+
 Dry runs consult action caches to predict hits and miss reasons. They do not run
 compiler, linker, or external-command actions, restore outputs, or publish cache
 records. An action is reported as unavailable when its identity depends on an input product

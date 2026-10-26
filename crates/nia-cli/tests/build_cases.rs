@@ -327,6 +327,16 @@ pub fun build(b: &mut build::Build) build::Error!() {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        let cache_text = String::from_utf8_lossy(&output.stdout);
+        assert!(cache_text.contains("action cache:"), "{cache_text}");
+        assert!(
+            cache_text.contains(": hit; publication=restored; outputs="),
+            "{cache_text}"
+        );
+        assert!(
+            !cache_text.contains("Miss(") && !cache_text.contains("Hit"),
+            "cache text must use stable user-facing outcomes: {cache_text}"
+        );
         assert!(!output.stderr.contains(&0x1b));
         if let Some(baseline) = &baseline_cache {
             assert_eq!(&output.stdout, baseline);
