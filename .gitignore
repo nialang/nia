@@ -1,4 +1,10 @@
 /target/
-/build/
-**/.nia/
+# Every Nia package and workspace keeps all of its build state under build/.
+# lib/std/build/ and other source trees named build/ are tracked explicitly.
+build/
+!/lib/std/build/
+!/maintain/src/baseline/build/
+!/benchmarks/build/
+!/benchmarks/competitive/build/
+!/crates/nia-cli/tests/cases/build/
 /.claude/

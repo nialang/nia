@@ -4110,7 +4110,9 @@ mod tests {
 
     #[test]
     fn resolves_relative_root_to_absolute_invocation_paths() {
-        let relative_root = PathBuf::from("target")
+        // Cargo runs unit tests from the crate directory; the fixture must stay
+        // relative to it, so it goes under the workspace's ignored target/.
+        let relative_root = PathBuf::from("../../target")
             .join("nia-build-tests")
             .join(format!("relative-root-{}", std::process::id()));
         let root = env::current_dir()
@@ -4128,7 +4130,10 @@ mod tests {
         )
         .expect("build invocation");
 
-        assert_eq!(invocation.package_root, root);
+        assert_eq!(
+            invocation.package_root,
+            normalize_host_path(root.canonicalize().expect("canonical fixture root"))
+        );
         for path in [
             &invocation.package_root,
             &invocation.build_script,

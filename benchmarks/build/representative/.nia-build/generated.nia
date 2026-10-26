@@ -1,2 +1,0 @@
-using std::process;
-pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }
