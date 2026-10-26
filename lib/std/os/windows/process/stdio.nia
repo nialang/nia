@@ -1,4 +1,3 @@
-using root::builtin::Len;
 using root::os::windows::bindings::{
     invalidHandle, handleFlagInherit, duplicateSameAccess, nullDeviceAccess,
     fileShareRead, fileShareWrite, openExisting, errorInsufficientBuffer,

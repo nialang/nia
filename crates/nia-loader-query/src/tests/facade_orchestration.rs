@@ -160,6 +160,8 @@ extend types::Widget {
             source_path: entry_path,
             request: nia_compiler_query::ProviderRequest::Method {
                 target_type_name: Some(sym("Widget")),
+                target_package: nia_symbol::known::STD,
+                target_module_segments: Vec::new(),
                 method_name: sym("score"),
             },
         }])

@@ -11,6 +11,8 @@ fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
         source_path: SourcePath::new(main_path.to_string_lossy()),
         request: nia_compiler_query::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: sym("missing"),
         },
     };

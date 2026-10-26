@@ -85,6 +85,8 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
     match &demand.request {
         crate::ProviderRequest::Method {
             target_type_name,
+            target_package,
+            target_module_segments,
             method_name,
         } => {
             builder.write_u8(0);
@@ -93,6 +95,11 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
                 builder.write_u64(target_type_name.raw());
             } else {
                 builder.write_u8(0);
+            }
+            builder.write_u64(target_package.raw());
+            builder.write_u64(target_module_segments.len() as u64);
+            for segment in target_module_segments {
+                builder.write_u64(segment.raw());
             }
             builder.write_u64(method_name.raw());
         }
@@ -363,6 +370,12 @@ pub(super) fn provider_type_ref_fingerprint(
     if let Some(last_name) = type_ref.last_name {
         builder.write_u8(1);
         builder.write_u64(last_name.raw());
+    } else {
+        builder.write_u8(0);
+    }
+    if let Some(module) = type_ref.target_module_name {
+        builder.write_u8(1);
+        builder.write_u64(module.raw());
     } else {
         builder.write_u8(0);
     }

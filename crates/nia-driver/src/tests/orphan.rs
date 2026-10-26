@@ -78,6 +78,69 @@ pub fun marker() () {}
 }
 
 #[test]
+fn builtin_trait_impl_in_a_third_package_is_rejected() {
+    let root = temp_dir("builtin_trait_impl_in_a_third_package_is_rejected");
+    write(
+        &root.join("main.nia"),
+        r#"
+using extra::impls;
+
+fun main() i32 {
+    impls::marker();
+    0
+}
+"#,
+    );
+    write(&root.join("dep/root.nia"), "pub module types;");
+    std::fs::create_dir_all(root.join("dep")).expect("create type package directory");
+    write(
+        &root.join("dep/types.nia"),
+        "pub struct Widget { value: usize }",
+    );
+    write(&root.join("extra/root.nia"), "pub module impls;");
+    std::fs::create_dir_all(root.join("extra")).expect("create third package directory");
+    write(
+        &root.join("extra/impls.nia"),
+        r#"
+using dep::types;
+using std::builtin::Len;
+
+extend types::Widget : Len {
+    fun len(&self) usize { self.value }
+}
+
+pub fun marker() () {}
+"#,
+    );
+
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep/root.nia").to_string_lossy()),
+        )
+        .expect("insert type package");
+    module_map
+        .insert(
+            "extra",
+            SourcePath::new(root.join("extra/root.nia").to_string_lossy()),
+        )
+        .expect("insert third package");
+
+    let checked = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("trait implementation violates the package orphan rule")
+        }),
+        "missing orphan diagnostic: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn structural_trait_impl_must_be_declared_in_the_trait_package() {
     let root = temp_dir("structural_trait_impl_must_be_declared_in_the_trait_package");
     write(

@@ -1,4 +1,3 @@
-using std::builtin::Len;
 const replacementCharacter: u32 = 0xfffd;
 const highSurrogateStart: u16 = 0xd800;
 const highSurrogateEnd: u16 = 0xdbff;

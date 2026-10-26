@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Byte-count limits for readers.
 //
 // Like every generic I/O adapter, the limited reader preserves the wrapped

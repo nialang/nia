@@ -360,10 +360,10 @@ pub mod formats {
         PersistedFormat::new("frontend-module-dependencies", b"NIAFMD\0\x03");
     /// Persisted provider candidate summary.
     pub const FRONTEND_PROVIDER_SUMMARY: PersistedFormat =
-        PersistedFormat::new("frontend-provider-summary", b"NIAFPS\0\x04");
+        PersistedFormat::new("frontend-provider-summary", b"NIAFPS\0\x05");
     /// Persisted fixed-point provider demand plan.
     pub const FRONTEND_PROVIDER_DEMAND_PLAN: PersistedFormat =
-        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD\0\x03");
+        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD\0\x04");
     /// Persisted module public-surface facts.
     pub const FRONTEND_PUBLIC_SURFACE_FACTS: PersistedFormat =
         PersistedFormat::new("frontend-public-surface-facts", b"NIAFPF\0\0");
@@ -385,10 +385,10 @@ pub mod formats {
         PersistedFormat::new("executable-value-ref-edges", b"NIAER\0\0\0");
     /// Certificate proving that cached frontend checks covered their inputs.
     pub const CHECK_CERTIFICATE: PersistedFormat =
-        PersistedFormat::new("check-certificate", b"NIACC\0\0\x01");
+        PersistedFormat::new("check-certificate", b"NIACC\0\0\x02");
     /// Path-independent stable diagnostic bundle for one module.
     pub const STABLE_DIAGNOSTIC_BUNDLE: PersistedFormat =
-        PersistedFormat::new("stable-diagnostic-bundle", b"NIADB5\0\0");
+        PersistedFormat::new("stable-diagnostic-bundle", b"NIADB5\0\x01");
     /// Path-independent stable diagnostic bundle for a program.
     pub const STABLE_PROGRAM_DIAGNOSTIC_BUNDLE: PersistedFormat =
         PersistedFormat::new("stable-program-diagnostic-bundle", b"NIAPD\0\0\0");

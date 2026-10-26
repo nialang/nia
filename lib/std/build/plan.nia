@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Canonical build-plan draft encoding used by the generated runner.
 //
 // Encoding is bounded and deterministic. The handoff is validated again before

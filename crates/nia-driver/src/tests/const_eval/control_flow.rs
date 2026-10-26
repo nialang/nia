@@ -7,7 +7,6 @@ fn const_function_loop_statements_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun width() usize {
     loop {
         break;
@@ -35,7 +34,6 @@ fn const_function_while_statements_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun width(flag: bool) usize {
     while false {
         return 1;
@@ -121,7 +119,6 @@ fn const_statement_type_check_allows_loop_control_flow() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun width(flag: bool) usize {
     if flag {
         return 4usize;
@@ -161,7 +158,6 @@ fn const_function_mutable_locals_drive_loop_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun width() usize {
     let mut i: usize = 0;
     while true {
@@ -192,7 +188,6 @@ fn const_function_integer_comparisons_drive_control_flow() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun width(limit: usize) usize {
     let mut i: usize = 0;
     let mut total: usize = 0;
@@ -230,7 +225,6 @@ fn const_function_supports_plain_local_assignment() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun width() usize {
     let mut i: usize = 2;
     i = 5;
@@ -257,7 +251,6 @@ fn const_initializer_block_uses_transient_mutable_locals() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const n: usize = {
     let mut value: usize = 0;
     while value < 4usize {

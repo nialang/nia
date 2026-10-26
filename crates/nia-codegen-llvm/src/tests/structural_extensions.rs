@@ -54,7 +54,6 @@ fn emits_structural_extension_method_calls() {
     std::fs::write(
         &main,
         r#"
-using std::builtin::Len;
 
 type RawPtr[T] = &T;
 

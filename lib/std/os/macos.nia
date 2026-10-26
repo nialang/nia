@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Darwin platform boundary. Native calls stay in the private bindings module;
 // operations without an implementation still return Unsupported explicitly.
 pub(root) module bindings;

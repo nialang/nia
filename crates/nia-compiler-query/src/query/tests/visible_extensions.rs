@@ -218,6 +218,7 @@ fun from(input: &[u8]) i32 {
 }
 "#,
     );
+    fixture.add_trait_impl_provider(entry_id, parse_impl_id);
     let db = query_db(fixture.program());
 
     let trait_impls = db.expect_get(VisibleTraitImplsQuery(entry_id));

@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Build artifacts, target triples, and their declaration options.
 //
 // Public options are borrowed descriptors. The owned target records retain

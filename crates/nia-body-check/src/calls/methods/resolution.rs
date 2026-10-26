@@ -497,6 +497,12 @@ impl<'a> BodyChecker<'a> {
             source_path: self.source_path.clone(),
             request: crate::ProviderRequest::Method {
                 target_type_name,
+                // Structural and primitive receivers get their trait
+                // implementations from std, the builtin traits' package.
+                target_package: self
+                    .provider_target_package(receiver_ty)
+                    .unwrap_or(nia_symbol::known::STD),
+                target_module_segments: self.provider_target_module_segments(receiver_ty),
                 method_name,
             },
         });

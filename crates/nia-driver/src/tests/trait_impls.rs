@@ -73,7 +73,6 @@ fn trait_associated_function_dispatch_uses_bounds_and_impls() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 trait ReadText {
     fun read_text(text: &[char]) Self;
 }
@@ -498,7 +497,6 @@ pub using parse_impl::From;
     write(
         &root.join("parse/parse_impl.nia"),
         r#"
-using std::builtin::Len;
 pub trait From[Input] {
     fun from(input: Input) Self;
 }
@@ -557,7 +555,6 @@ where W: Writer
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 module io;
 using root::io;
 
@@ -651,7 +648,6 @@ extend File {
     write(
         &root.join("io.nia"),
         r#"
-using std::builtin::Len;
 using root::fs;
 
 pub trait Writer {
@@ -774,7 +770,6 @@ fn generic_trait_bound_can_call_default_trait_method_in_backend() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 trait Writer {
     type Error;
 

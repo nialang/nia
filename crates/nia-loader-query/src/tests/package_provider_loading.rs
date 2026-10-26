@@ -351,6 +351,8 @@ pub fun score(&self) i32 {
             source_path,
             request: nia_compiler_query::ProviderRequest::Method {
                 target_type_name: Some(sym("Widget")),
+                target_package: nia_symbol::known::STD,
+                target_module_segments: Vec::new(),
                 method_name: sym("score"),
             },
         }])

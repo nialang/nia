@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Build graph mutation: packages, modules, artifacts, steps, and validation.
 //
 // Every insertion reserves its containing list before initializing a

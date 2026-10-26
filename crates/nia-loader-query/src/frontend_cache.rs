@@ -1608,10 +1608,7 @@ fn write_provider_type_ref(encoded: &mut Vec<u8>, ty: &ProviderTypeRef) {
     for argument in &ty.type_argument_names {
         write_optional_symbol(encoded, *argument);
     }
-    encoded.extend_from_slice(&(ty.target_module_segments.len() as u64).to_le_bytes());
-    for segment in &ty.target_module_segments {
-        encoded.extend_from_slice(&segment.raw().to_le_bytes());
-    }
+    write_optional_symbol(encoded, ty.target_module_name);
     encoded.push(u8::from(ty.target_is_local_nominal));
     encoded.push(u8::from(ty.is_generic_or_structural_target));
     encoded.push(u8::from(ty.semantic_is_conservative));
@@ -1628,16 +1625,12 @@ fn read_provider_type_ref(cursor: &mut Cursor<&[u8]>) -> Option<ProviderTypeRef>
     for _ in 0..argument_len {
         type_argument_names.push(read_optional_symbol(cursor)?);
     }
-    let module_len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
-    let mut target_module_segments = Vec::with_capacity(module_len);
-    for _ in 0..module_len {
-        target_module_segments.push(SymbolId::from_stable_hash(read_u64(cursor)?));
-    }
+    let target_module_name = read_optional_symbol(cursor)?;
     let target_is_local_nominal = read_bool(cursor)?;
     Some(ProviderTypeRef {
         last_name,
         type_argument_names,
-        target_module_segments,
+        target_module_name,
         target_is_local_nominal,
         is_generic_or_structural_target: read_bool(cursor)?,
         semantic_is_conservative: read_bool(cursor)?,
@@ -1648,6 +1641,7 @@ fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
     let mut symbols = BTreeSet::new();
     for provider in summary.providers() {
         symbols.extend(provider.target.ty.last_name);
+        symbols.extend(provider.target.ty.target_module_name);
         symbols.extend(
             provider
                 .target
@@ -1657,7 +1651,6 @@ fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
                 .flatten()
                 .copied(),
         );
-        symbols.extend(provider.target.ty.target_module_segments.iter().copied());
         symbols.extend(
             provider
                 .trait_ref
@@ -1666,7 +1659,6 @@ fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
         );
         if let Some(trait_ref) = &provider.trait_ref {
             symbols.extend(trait_ref.type_argument_names.iter().flatten().copied());
-            symbols.extend(trait_ref.target_module_segments.iter().copied());
         }
         symbols.extend(provider.associated_methods.iter().copied());
         symbols.extend(provider.associated_values.iter().copied());

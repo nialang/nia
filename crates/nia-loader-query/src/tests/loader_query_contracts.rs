@@ -275,6 +275,8 @@ fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
                     source_path: main.clone(),
                     request: nia_compiler_query::ProviderRequest::Method {
                         target_type_name: None,
+                        target_package: nia_symbol::known::STD,
+                        target_module_segments: Vec::new(),
                         method_name: sym(&format!("missing_{revision}")),
                     },
                 }])

@@ -98,11 +98,9 @@ fn emits_for_over_range_value() {
     std::fs::write(
         &main,
         r#"
-using std::iter;
-
 fun main() i32 {
     let mut sum = 0;
-    for i in (1usize..4usize).iter() {
+    for i in 1usize..4usize {
         sum += i as i32;
     }
     sum

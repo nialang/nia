@@ -263,6 +263,31 @@ impl LoadedProgramFixture {
         );
     }
 
+    /// Records that `module_id` sees the trait implementations of `provider`,
+    /// as the loader does after an owner-package search finds them.
+    pub(super) fn add_trait_impl_provider(&mut self, module_id: ModuleId, provider: ModuleId) {
+        self.graph.add_trait_impl_dependency(module_id, provider);
+    }
+
+    /// Makes every fixture module's trait implementations visible to every
+    /// other one. Fixtures bypass the loader, whose owner-package search adds
+    /// these edges from body-check demands; a fixture is one package, so the
+    /// search would find all of them.
+    pub(super) fn connect_trait_impl_providers(&mut self) {
+        let modules = self
+            .modules
+            .iter()
+            .map(|module| module.id)
+            .collect::<Vec<_>>();
+        for &module in &modules {
+            for &provider in &modules {
+                if module != provider {
+                    self.graph.add_trait_impl_dependency(module, provider);
+                }
+            }
+        }
+    }
+
     pub(super) fn program(&self) -> LoadedProgram {
         LoadedProgram {
             graph: self.graph.clone().into(),

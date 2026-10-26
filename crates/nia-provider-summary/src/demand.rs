@@ -84,9 +84,19 @@ impl ProviderFactRevision {
 /// Kind of cross-module provider fact requested during semantic analysis.
 pub enum ProviderRequest {
     /// Method lookup/semantic facts.
+    ///
+    /// Inherent extension methods are found through the requesting module's
+    /// imports. Trait-implementation methods are package-owned: the loader
+    /// also searches the receiver type's package, and std for structural and
+    /// primitive receivers, whatever the requester imports.
     Method {
         /// Optional target type display identity.
         target_type_name: Option<SymbolId>,
+        /// Package that defines the receiver type: its own package for a
+        /// nominal type, the language standard package otherwise.
+        target_package: SymbolId,
+        /// Module path below the target package that defines the receiver.
+        target_module_segments: Vec<SymbolId>,
         /// Method display identity.
         method_name: SymbolId,
     },

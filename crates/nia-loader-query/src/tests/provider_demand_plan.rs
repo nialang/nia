@@ -215,6 +215,8 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
             source_path: entry.clone(),
             request: nia_compiler_query::ProviderRequest::Method {
                 target_type_name: Some(target),
+                target_package: nia_symbol::known::STD,
+                target_module_segments: Vec::new(),
                 method_name: method,
             },
         },
@@ -325,6 +327,8 @@ fn provider_demand_plan_verification_replaces_semantically_wrong_artifact() {
         source_path: entry,
         request: nia_compiler_query::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: fake_method,
         },
     };
@@ -392,6 +396,8 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
         source_path: SourcePath::new(main_path.to_string_lossy()),
         request: nia_compiler_query::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name,
         },
     };

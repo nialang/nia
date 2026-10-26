@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Allocator-explicit growable array.
 //
 // The active allocation keeps its owner in `storageBlock`, even when the

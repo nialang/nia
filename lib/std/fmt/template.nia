@@ -1,4 +1,3 @@
-using root::builtin::Len;
 using root::fmt::core;
 using root::io;
 using root::math;

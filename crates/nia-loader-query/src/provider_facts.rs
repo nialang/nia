@@ -200,6 +200,8 @@ mod tests {
             source_path: SourcePath::new("main.nia"),
             request: ProviderRequest::Method {
                 target_type_name: None,
+                target_package: nia_symbol::known::STD,
+                target_module_segments: Vec::new(),
                 method_name: SymbolId::default(),
             },
         };

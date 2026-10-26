@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Package and module descriptors retained by a build graph.
 //
 // Borrowed options are copied into owned package/module records. Generated

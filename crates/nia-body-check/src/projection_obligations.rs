@@ -1921,8 +1921,18 @@ impl<'a> BodyChecker<'a> {
         obligations: &[TraitObligation],
         required: &TraitObligation,
     ) -> bool {
+        let resolution = self.resolve_trait_obligation(obligations, required);
+        // Implementations live in the owner packages; an unproven goal asks
+        // the loader for them, and the next round sees them.
+        if matches!(resolution, TraitResolution::Unsatisfied) {
+            self.record_trait_provider_demand(
+                required.self_ty,
+                required.trait_id,
+                &required.trait_args,
+            );
+        }
         matches!(
-            self.resolve_trait_obligation(obligations, required),
+            resolution,
             TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
         )
     }

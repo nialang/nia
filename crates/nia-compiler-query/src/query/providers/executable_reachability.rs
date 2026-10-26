@@ -997,6 +997,13 @@ fn executable_check_in_session(
             Ok(module_demands) => demands.extend(module_demands),
             Err(error) => return_session_error!(error),
         }
+        // Final checking validates every `const fun` declaration of a checked
+        // module, reachable or not; discovery must request its trait
+        // implementations too, or finalization adds them in a later round.
+        match const_declaration_demands(db, fact_by_id.keys().copied()) {
+            Ok(const_demands) => demands.extend(const_demands),
+            Err(error) => return_session_error!(error),
+        }
         let output = match extension_lookup.take_failure() {
             Some(error) => Err(error),
             None => Ok(ExecutableCheckOutput::ProviderDemands(
@@ -1512,6 +1519,20 @@ fn executable_module_body_demands(
             })
         })
         .collect()
+}
+
+fn const_declaration_demands(
+    db: &QueryDb<CompilerContext>,
+    modules: impl IntoIterator<Item = ModuleId>,
+) -> QueryResult<Vec<crate::ProviderDemand>> {
+    let mut demands = Vec::new();
+    for module_id in modules {
+        if super::body_executable::module_has_const_declarations(db, module_id)? {
+            let check = super::body_executable::body_check_const_declarations(db, module_id)?;
+            demands.extend(check.provider_demands.iter().cloned());
+        }
+    }
+    Ok(demands)
 }
 
 fn executable_root_defs(

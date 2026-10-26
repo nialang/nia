@@ -7,7 +7,6 @@ fn const_pointer_equality_uses_allocation_provenance() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun samePlace() bool {
     let value: usize = 7;
     let first = &value;
@@ -40,7 +39,6 @@ fn const_place_pointer_dereference_reads_the_live_allocation() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun read() usize {
     let mut value: usize = 4;
     let pointer = &value;
@@ -67,7 +65,6 @@ fn const_function_can_return_caller_pointer_provenance() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun identity(pointer: &usize) &usize {
     pointer
 }
@@ -182,7 +179,6 @@ fn top_level_const_can_promote_a_frozen_readonly_array_allocation() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const values: &[usize; 2] = &[5, 9];
 const width: usize = values.*[1];
 
@@ -266,7 +262,6 @@ fn const_union_pointer_field_round_trips_provenance() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 union Slot {
     pointer: &usize,
     integer: usize,
@@ -298,7 +293,6 @@ fn top_level_const_union_preserves_frozen_pointer_relocation() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 union Slot {
     pointer: &usize,
     integer: usize,

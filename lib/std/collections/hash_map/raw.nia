@@ -1,4 +1,3 @@
-using root::builtin::Len;
 using root::iter::range;
 using root::math;
 using root::mem;

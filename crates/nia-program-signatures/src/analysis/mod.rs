@@ -305,14 +305,21 @@ pub fn collect_extension_method_diagnostics_for_module(
             continue;
         }
         let trait_id = impl_trait_id(module, impl_signature, input.trait_defs, &mut diagnostics);
-        validate_orphan_rule(
-            module,
-            impl_signature,
-            target_ty,
-            trait_id,
-            input.graph,
-            &mut diagnostics,
-        )?;
+        // An impl that repeats a compiler-proven builtin impl is invalid
+        // wherever it is declared; that specific report replaces the orphan
+        // report for the same header.
+        let overlaps_intrinsic = matches!(trait_id, Some(TraitId::Builtin(builtin))
+            if builtin_trait_impl_overlaps_intrinsic(module, target_ty, builtin, impl_signature));
+        if !overlaps_intrinsic {
+            validate_orphan_rule(
+                module,
+                impl_signature,
+                target_ty,
+                trait_id,
+                input.graph,
+                &mut diagnostics,
+            )?;
+        }
         if trait_id.is_none() {
             for associated_type in &impl_signature.associated_types {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -371,12 +378,9 @@ fn validate_orphan_rule(
     let Some(trait_id) = trait_id else {
         return Ok(());
     };
-    // Compiler-defined traits are language contracts. Their user extensions
-    // are validated against intrinsic implementations below, rather than by
-    // the source-package orphan rule used for declared traits.
-    if matches!(trait_id, TraitId::Builtin(_)) {
-        return Ok(());
-    }
+    // Builtin traits are owned by std like any declared trait, so a third
+    // package cannot implement one for a type it does not own: implementation
+    // lookup only ever searches the type's and the trait's packages.
     let current_package = graph
         .module_path(module.module_id)
         .map(|path| path.package)

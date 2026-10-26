@@ -57,6 +57,12 @@ pub(super) fn provide_const(
     const_eval
         .diagnostics
         .extend(declaration_check.diagnostics.iter().cloned());
+    // Declaration-wide `const fun` checking proves trait obligations too; the
+    // implementations it needs must reach the loader like any other demand.
+    if !declaration_check.provider_demands.is_empty() {
+        Arc::make_mut(&mut const_eval.provider_demands)
+            .extend(declaration_check.provider_demands.iter().cloned());
+    }
     let diagnostics = std::mem::take(&mut const_eval.diagnostics);
     Ok(ModuleConstCheck {
         semantic: Arc::new(const_eval),

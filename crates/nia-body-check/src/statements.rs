@@ -154,6 +154,13 @@ impl<'a> BodyChecker<'a> {
             nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             &[],
         );
+        // Every Iterator is intrinsically Iterable, so proving Iterable can
+        // reduce to the type's Iterator implementation.
+        self.record_trait_provider_demand(
+            iterable_ty,
+            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            &[],
+        );
         if !self.current_context_proves_trait_obligation(
             iterable_ty,
             nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),

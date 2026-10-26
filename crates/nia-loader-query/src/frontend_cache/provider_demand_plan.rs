@@ -82,9 +82,13 @@ pub(super) fn encode_provider_demand_plan(
         match demand.request {
             ProviderRequest::Method {
                 target_type_name,
+                target_package,
+                ref target_module_segments,
                 method_name,
             } => {
                 demand_symbols.extend(target_type_name);
+                demand_symbols.insert(target_package);
+                demand_symbols.extend(target_module_segments.iter().copied());
                 demand_symbols.insert(method_name);
             }
             ProviderRequest::TraitImpl {
@@ -118,10 +122,17 @@ pub(super) fn encode_provider_demand_plan(
         match &demand.request {
             ProviderRequest::Method {
                 target_type_name,
+                target_package,
+                target_module_segments,
                 method_name,
             } => {
                 payload.push(0);
                 write_optional_symbol(&mut payload, *target_type_name);
+                payload.extend_from_slice(&target_package.raw().to_le_bytes());
+                payload.extend_from_slice(&(target_module_segments.len() as u64).to_le_bytes());
+                for segment in target_module_segments {
+                    payload.extend_from_slice(&segment.raw().to_le_bytes());
+                }
                 payload.extend_from_slice(&method_name.raw().to_le_bytes());
             }
             ProviderRequest::TraitImpl {
@@ -218,11 +229,21 @@ pub(super) fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProvi
         let request = match read_u8(&mut cursor)? {
             0 => {
                 let target_type_name = read_optional_symbol(&mut cursor)?;
+                let target_package = read_symbol(&mut cursor)?;
+                let target_module_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+                let mut target_module_segments = Vec::with_capacity(target_module_len);
+                for _ in 0..target_module_len {
+                    target_module_segments.push(read_symbol(&mut cursor)?);
+                }
                 let method_name = read_symbol(&mut cursor)?;
                 demand_symbols.extend(target_type_name);
+                demand_symbols.insert(target_package);
+                demand_symbols.extend(target_module_segments.iter().copied());
                 demand_symbols.insert(method_name);
                 ProviderRequest::Method {
                     target_type_name,
+                    target_package,
+                    target_module_segments,
                     method_name,
                 }
             }
@@ -324,13 +345,7 @@ pub(super) fn remap_provider_demands(
             let source_path =
                 resolve_cached_source_path(&demand.source_path.identity(), source_roots)?;
             let request = match demand.request {
-                ProviderRequest::Method {
-                    target_type_name,
-                    method_name,
-                } => ProviderRequest::Method {
-                    target_type_name,
-                    method_name,
-                },
+                request @ ProviderRequest::Method { .. } => request,
                 ProviderRequest::TraitImpl {
                     target_type_name,
                     trait_name,
@@ -446,15 +461,26 @@ fn compare_provider_requests(
             (
                 ProviderRequest::Method {
                     target_type_name: left_target,
+                    target_package: left_package,
+                    target_module_segments: left_segments,
                     method_name: left_method,
                 },
                 ProviderRequest::Method {
                     target_type_name: right_target,
+                    target_package: right_package,
+                    target_module_segments: right_segments,
                     method_name: right_method,
                 },
             ) => left_target
                 .map(SymbolId::raw)
                 .cmp(&right_target.map(SymbolId::raw))
+                .then_with(|| left_package.raw().cmp(&right_package.raw()))
+                .then_with(|| {
+                    left_segments
+                        .iter()
+                        .map(|symbol| symbol.raw())
+                        .cmp(right_segments.iter().map(|symbol| symbol.raw()))
+                })
                 .then_with(|| left_method.raw().cmp(&right_method.raw())),
             (
                 ProviderRequest::TraitImpl {

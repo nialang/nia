@@ -764,7 +764,7 @@ pub(super) fn body_check_const_declarations(
     .body_check)
 }
 
-fn module_has_const_declarations(
+pub(super) fn module_has_const_declarations(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<bool> {
@@ -2000,6 +2000,11 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
                     {
                         diagnostics.push(diagnostic.clone());
                     }
+                }
+                // Its trait proofs need implementations like any other check.
+                if !declaration_check.provider_demands.is_empty() {
+                    Arc::make_mut(&mut const_eval.provider_demands)
+                        .extend(declaration_check.provider_demands.iter().cloned());
                 }
             }
             let diagnostics = db.context().diagnostic_store.bundle(diagnostics)?;

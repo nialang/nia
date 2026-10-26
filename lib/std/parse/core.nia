@@ -1,5 +1,4 @@
 using root::slice;
-using root::builtin::Len;
 
 pub enum Error: i32 {
     Empty = 1,

@@ -1373,7 +1373,6 @@ The operand is evaluated once, conversion happens only on the error path, and
 nothing is allocated.
 
 ```nia
-using std::builtin::Len;
 
 struct ParseError {
     code: i32,
@@ -1785,14 +1784,17 @@ A structural target is named in a path by wrapping it in brackets:
 `[&u8]::is_null`, `[&[char]]::name`. This is only a path to the target's
 members; it neither captures a receiver nor creates a short name.
 
-Implementations of source-defined traits are package-owned facts. An
-implementation for a nominal type may be declared only in the package that
-defines the type or in the package that defines the trait. Primitive and
-structural types have no defining package, so their implementations must be
-declared in the trait's package. The compiler searches those owner packages
-directly; a `using` declaration does not change which implementations exist or
-make a third package eligible. Compiler-defined [built-in traits](#built-in-traits)
-follow the language's intrinsic-implementation rules.
+Trait implementations are package-owned facts. An implementation for a
+nominal type may be declared only in the package that defines the type or in
+the package that defines the trait; [built-in traits](#built-in-traits) belong
+to `std`. Primitive and structural types have no defining package, so their
+implementations must be declared in the trait's package. The compiler searches
+those owner packages directly; a `using` declaration does not change which
+implementations exist or make a third package eligible, so trait methods such
+as `xs.len()` and loops such as `for i in 0..3` need no import. A `pub(root)` or
+private trait's implementations apply only where the trait is visible.
+Extension methods declared without a trait are different: they are scoped and
+need a `using` of their module.
 
 When two implementation headers overlap, a strictly more-specific header may
 specialize the general one and is selected for matching types. A header is

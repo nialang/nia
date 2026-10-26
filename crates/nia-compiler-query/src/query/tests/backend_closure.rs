@@ -557,6 +557,7 @@ pub struct Token {}
 extend Token : Marker {}
 "#,
     );
+    fixture.connect_trait_impl_providers();
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
@@ -724,6 +725,7 @@ self.value()
 "#,
     );
     fixture.graph.mark_semantic_selected(provider_id);
+    fixture.connect_trait_impl_providers();
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 
@@ -802,6 +804,7 @@ fun alloc(&mut self) i32 {
 }
 "#,
     );
+    fixture.connect_trait_impl_providers();
     let loaded = fixture.freestanding_program();
     let codegen = CompilerDatabase::new(
         CompileRequest::new(loaded).with_optimization(NiaOptimizationLevel::O1),
@@ -1146,6 +1149,7 @@ value.read()
 }
 "#,
     );
+    fixture.connect_trait_impl_providers();
     let loaded = fixture.freestanding_program();
 
     let backend = query_db(loaded).expect_get(BackendLoweringQuery);

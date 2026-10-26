@@ -507,20 +507,19 @@ fn apply_provider_demands(
             )?;
             continue;
         }
+        // Trait implementations are package-owned facts: the owner packages
+        // are searched, and `using` paths never add a third package to the
+        // candidate set. A method demand also searches the importing module's
+        // scope below, which is where inherent extension methods come from.
+        apply_trait_demand(
+            db,
+            graph,
+            node,
+            &demand.request,
+            diagnostics,
+            pending_trait_provider_imports,
+        )?;
         if let nia_loader_contract::ProviderRequest::TraitImpl { .. } = &demand.request {
-            apply_trait_demand(
-                db,
-                graph,
-                node,
-                &demand.request,
-                diagnostics,
-                pending_trait_provider_imports,
-            )?;
-
-            // Trait implementations are package-owned facts. Once the two
-            // owner packages have been searched, `using` paths must not add a
-            // third package to the candidate set. Ordinary method demands
-            // still use the importing module's extension scope below.
             continue;
         }
         for import in imports {
@@ -528,6 +527,7 @@ fn apply_provider_demands(
                 nia_loader_contract::ProviderRequest::Method {
                     target_type_name,
                     method_name,
+                    ..
                 } => UsedModulePathProcessing::IfProvidesTraitMethod {
                     target_type_name,
                     associated_name: method_name,
@@ -550,6 +550,9 @@ fn apply_provider_demands(
     Ok(())
 }
 
+/// Searches the packages that own a demanded implementation and adds an
+/// impl-provider edge for each matching module. Trait implementations are
+/// package-owned facts, so the requester's imports never take part.
 fn apply_trait_demand(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
@@ -558,28 +561,51 @@ fn apply_trait_demand(
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
 ) -> QueryResult<()> {
-    let nia_loader_contract::ProviderRequest::TraitImpl {
-        target_type_name,
-        target_package,
-        target_module_segments,
-        trait_name,
-        trait_package,
-        trait_type_argument_names,
-    } = request
-    else {
-        return Ok(());
+    let (target_type_name, target_module_segments, packages, wanted) = match request {
+        nia_loader_contract::ProviderRequest::TraitImpl {
+            target_type_name,
+            target_package,
+            target_module_segments,
+            trait_name,
+            trait_package,
+            trait_type_argument_names,
+        } => (
+            *target_type_name,
+            target_module_segments,
+            target_package
+                .iter()
+                .chain(trait_package)
+                .copied()
+                .collect::<Vec<_>>(),
+            TraitProviderMatch::Trait {
+                trait_name: *trait_name,
+                trait_type_argument_names,
+            },
+        ),
+        // The trait is unknown until the type checker picks the method, so
+        // the receiver's package and std, which owns every builtin trait, are
+        // searched for implementations that can supply the method.
+        nia_loader_contract::ProviderRequest::Method {
+            target_type_name,
+            target_package,
+            target_module_segments,
+            method_name,
+        } => (
+            *target_type_name,
+            target_module_segments,
+            vec![*target_package, nia_symbol::known::STD],
+            TraitProviderMatch::Method {
+                method_name: *method_name,
+            },
+        ),
+        nia_loader_contract::ProviderRequest::ModuleSemantic { .. }
+        | nia_loader_contract::ProviderRequest::ModuleBody { .. } => return Ok(()),
     };
-    let mut visited = HashSet::new();
-    let mut providers = Vec::new();
-    let mut packages = Vec::new();
-    if let Some(package) = target_package {
-        packages.push(*package);
-    }
-    if let Some(package) = trait_package {
-        packages.push(*package);
-    }
+    let mut packages = packages;
     packages.sort();
     packages.dedup();
+    let mut visited = HashSet::new();
+    let mut providers = Vec::new();
     for package in packages {
         if graph.package_root(&package).is_none() {
             mount_module_packages(db, graph, requesting_node, &[package])?;
@@ -598,10 +624,9 @@ fn apply_trait_demand(
             db,
             graph,
             package,
-            target_type_name: *target_type_name,
+            target_type_name,
             target_module_segments,
-            trait_name: *trait_name,
-            trait_type_argument_names,
+            wanted,
             visited: &mut visited,
             providers: &mut providers,
         }
@@ -653,14 +678,25 @@ fn add_package_trait_provider(
     Ok(())
 }
 
+/// What an owner-package search looks for in each module's provider summary.
+#[derive(Clone, Copy)]
+enum TraitProviderMatch<'a> {
+    /// An implementation of one trait.
+    Trait {
+        trait_name: SymbolId,
+        trait_type_argument_names: &'a [Option<SymbolId>],
+    },
+    /// An implementation of a trait that can supply one method.
+    Method { method_name: SymbolId },
+}
+
 struct TraitProviderSearch<'a> {
     db: &'a QueryDb<LoaderContext>,
     graph: &'a ModuleGraph,
     package: SymbolId,
     target_type_name: Option<SymbolId>,
     target_module_segments: &'a [SymbolId],
-    trait_name: SymbolId,
-    trait_type_argument_names: &'a [Option<SymbolId>],
+    wanted: TraitProviderMatch<'a>,
     visited: &'a mut HashSet<String>,
     providers: &'a mut Vec<(SymbolId, Vec<SymbolId>)>,
 }
@@ -684,14 +720,27 @@ impl TraitProviderSearch<'_> {
             let summary = self
                 .db
                 .get(crate::queries::provider_summary_query(self.db, &path)?)?;
-            if summary.defines_trait_impl_at_module(
-                self.target_type_name.as_ref(),
-                self.target_module_segments,
-                &module_path.segments,
-                &self.trait_name,
-                self.trait_type_argument_names,
-                None,
-            ) {
+            let matches = match &self.wanted {
+                TraitProviderMatch::Trait {
+                    trait_name,
+                    trait_type_argument_names,
+                } => summary.defines_trait_impl_at_module(
+                    self.target_type_name.as_ref(),
+                    self.target_module_segments,
+                    &module_path.segments,
+                    trait_name,
+                    trait_type_argument_names,
+                    None,
+                ),
+                TraitProviderMatch::Method { method_name } => summary
+                    .defines_trait_method_impl_at_module(
+                        self.target_type_name.as_ref(),
+                        self.target_module_segments,
+                        &module_path.segments,
+                        method_name,
+                    ),
+            };
+            if matches {
                 self.providers.push((self.package, path_segments.clone()));
             }
             let declarations = self.db.get(module_declarations_query(self.db, &path)?)?;

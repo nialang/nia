@@ -498,6 +498,8 @@ fn load_program_with_provider_demand(
             source_path,
             request: nia_compiler_query::ProviderRequest::Method {
                 target_type_name: target_type_name.map(sym),
+                target_package: nia_symbol::known::STD,
+                target_module_segments: Vec::new(),
                 method_name: sym(method_name),
             },
         }])

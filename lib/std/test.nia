@@ -1,4 +1,3 @@
-using root::builtin::Len;
 // Small, composable assertions and an explicit in-process test runner.
 //
 // A failed assertion is an ordinary typed error. Test runners can attach

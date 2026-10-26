@@ -1,4 +1,3 @@
-using root::builtin::Len;
 using root::os::windows::bindings::{fileNameNormalized, GetFinalPathNameByHandleW, CompareStringOrdinal};
 using root::os::windows::types::{Errno, FileDescriptor};
 using root::os::windows::error::lastError;

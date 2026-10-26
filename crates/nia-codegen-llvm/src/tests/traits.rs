@@ -317,7 +317,6 @@ fn emits_slice_trait_object_coercions_through_adapter() {
     std::fs::write(
         &main,
         r#"
-using std::builtin::Len;
 
 trait Source {
     fun get(& self) i32;
@@ -363,7 +362,6 @@ fn slice_trait_object_default_method_preserves_receiver_abi() {
     std::fs::write(
         &main,
         r#"
-using std::builtin::Len;
 
 trait Source {
     fun get(& self) i32;
@@ -460,7 +458,6 @@ fn slice_trait_object_adapter_preserves_value_argument_abi() {
     std::fs::write(
         &main,
         r#"
-using std::builtin::Len;
 
 struct Empty {}
 
@@ -1102,7 +1099,6 @@ fn emits_mut_receiver_default_trait_method_with_associated_error() {
     std::fs::write(
         &main,
         r#"
-using std::builtin::Len;
 
 trait Writer {
     type Error;
@@ -1222,7 +1218,6 @@ fn concrete_trait_impl_methods_resolve_local_associated_type_names() {
     std::fs::write(
         &main,
         r#"
-using std::builtin::Len;
 
 trait Writer {
     type Error;

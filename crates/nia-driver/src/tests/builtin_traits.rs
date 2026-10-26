@@ -995,13 +995,11 @@ fun main(slice: & [usize]) usize {
 }
 
 #[test]
-fn len_trait_method_import_counts_as_used() {
-    let root = temp_dir("len_trait_method_import_counts_as_used");
+fn len_needs_no_import() {
+    let root = temp_dir("len_needs_no_import");
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
-
 fun main(values: &[i32]) usize {
     values.len()
 }
@@ -1013,13 +1011,12 @@ fun main(values: &[i32]) usize {
 }
 
 #[test]
-fn len_trait_import_without_method_call_is_unused() {
-    let root = temp_dir("len_trait_import_without_method_call_is_unused");
+fn unused_len_import_is_reported() {
+    let root = temp_dir("unused_len_import_is_reported");
     write(
         &root.join("main.nia"),
         r#"
 using std::builtin::Len;
-
 fun main() usize {
     0usize
 }
@@ -1054,7 +1051,6 @@ where T: Len {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 module api;
 using root::api;
 
@@ -1225,7 +1221,6 @@ fn builtin_slice_ranges_require_usize_bounds() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 
 fun main() i32 {
     let mut items: [i32; 4] = [1, 2, 3, 4];

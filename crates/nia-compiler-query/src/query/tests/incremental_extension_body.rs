@@ -66,6 +66,7 @@ pub fun write(&mut self, bytes: &[u8]) Error!usize {
 }
 "#,
     );
+    fixture.connect_trait_impl_providers();
     let loaded = fixture.freestanding_program();
     let db = query_db(loaded);
 

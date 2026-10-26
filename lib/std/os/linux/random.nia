@@ -1,4 +1,3 @@
-using root::builtin::Len;
 using root::os::linux::syscall;
 using root::os::linux::types;
 

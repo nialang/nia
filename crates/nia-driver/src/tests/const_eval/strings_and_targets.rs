@@ -7,7 +7,6 @@ fn const_char_arrays_compare_with_string_literals() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun is_sample_os(value: [char; 5]) bool {
     value[0] == 'l' and value[1] == 'i' and value[2] == 'n'
         and value[3] == 'u' and value[4] == 'x'
@@ -32,7 +31,6 @@ fn const_char_arrays_pass_as_char_arrays() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun accept_linux(value: [char; 5]) usize {
     if value.len() == 5usize and value[0] == 'l' and value[1] == 'i'
         and value[2] == 'n' and value[3] == 'u' and value[4] == 'x' {
@@ -61,7 +59,6 @@ fn const_char_arrays_validate_char_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun accept_short(value: [char; 4]) usize {
     value.len()
 }
@@ -87,7 +84,6 @@ fn typed_const_char_array_binding_is_a_char_array() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const os: [char; 5] = "linux";
 const n: usize = if os.len() == 5usize {
     os.len()
@@ -118,7 +114,6 @@ pub const os: [char; 5] = "linux";
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 module config;
 using root::config;
 
@@ -141,7 +136,6 @@ fn const_function_returned_char_array_is_a_char_array() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun sample_os() [char; 5] {
     "linux"
 }
@@ -166,7 +160,6 @@ fn const_function_returned_char_array_can_be_consumed_directly() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun sample_os() [char; 5] {
     "linux"
 }
@@ -215,7 +208,6 @@ fn const_for_in_array_binding_requires_iterator() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun total(values: [[char; 5]; 1]) usize {
     let mut n: usize = 0usize;
     for os in values {
@@ -250,7 +242,6 @@ fn const_if_pattern_optional_payload_preserves_array_type() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun sample_os() ?[char; 5] {
     ?"linux"
 }
@@ -281,7 +272,6 @@ fn const_optional_constructor_projects_char_array_payload() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const os = ?"linux";
 const n: usize = match os {
     ?payload => {
@@ -319,7 +309,6 @@ pub const fun sample_os() [char; os_len] {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 module config;
 using root::config;
 
@@ -376,7 +365,6 @@ fn const_byte_string_literals_are_typed_arrays() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun byte_score(value: [u8; 3]) usize {
     if value[0] == b'n' {
         value[2] as usize
@@ -412,7 +400,6 @@ fn const_string_literals_support_source_concatenation_and_newlines() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun char_score(value: [char; 3]) usize {
     if value[1] == '\x69' {
         3usize

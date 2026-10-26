@@ -189,6 +189,8 @@ fn provider_changes_discard_affected_executable_fact_caches() {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: SymbolId::default(),
         },
     }];
@@ -258,6 +260,8 @@ fn provider_fact_snapshot_deduplicates_demands() {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: SymbolId::default(),
         },
     };
@@ -425,6 +429,8 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
             target_type_name: Some(sym("Thing")),
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: sym("run"),
         },
     };
@@ -524,6 +530,8 @@ fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: SymbolId::default(),
         },
     };
@@ -615,6 +623,8 @@ fn provider_worklist_accumulates_until_consumed() {
         source_path: SourcePath::new("main.nia"),
         request: crate::ProviderRequest::Method {
             target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
             method_name: SymbolId::default(),
         },
     };

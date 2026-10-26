@@ -54,8 +54,9 @@ pub struct ProviderTypeRef {
     pub type_argument_names: Vec<Option<SymbolId>>,
     /// Whether the target is generic or structurally shaped.
     pub is_generic_or_structural_target: bool,
-    /// Qualified module path segments before the target name, when explicit.
-    pub target_module_segments: Vec<SymbolId>,
+    /// Final segment of the module a qualified target names through this
+    /// file's imports (`string` for `stringPackage::String`), when known.
+    pub target_module_name: Option<SymbolId>,
     /// Whether an unqualified target resolves to a nominal type in this module.
     pub target_is_local_nominal: bool,
     /// Whether matching must conservatively account for aliases or imports.
@@ -159,6 +160,7 @@ impl ProviderSummary {
                 Some((alias.name, alias))
             })
             .collect::<SymbolMap<_>>();
+        let module_names = module_name_bindings(item_tree);
         let providers = item_tree
             .items
             .iter()
@@ -185,6 +187,7 @@ impl ProviderSummary {
                             &local_nominal_names,
                             &local_nominal_names,
                             &aliases,
+                            &module_names,
                             &mut SymbolSet::default(),
                         ),
                     },
@@ -195,6 +198,7 @@ impl ProviderSummary {
                             &local_trait_names,
                             &argument_nominal_names,
                             &aliases,
+                            &module_names,
                             &mut SymbolSet::default(),
                         )
                     }),
@@ -314,6 +318,41 @@ impl ProviderSummary {
         )
     }
 
+    /// Reports whether this module may implement a trait that supplies
+    /// `method_name` for a target defined in `target_module_segments`.
+    ///
+    /// A method call can reach a trait method through a default body or a
+    /// supertrait, neither of which the implementing block names, so an
+    /// implementation for the receiver itself matches whatever methods it
+    /// lists, and the type checker picks the method.
+    pub fn defines_trait_method_impl_at_module(
+        &self,
+        target_type_name: Option<&SymbolId>,
+        target_module_segments: &[SymbolId],
+        provider_module_segments: &[SymbolId],
+        method_name: &SymbolId,
+    ) -> bool {
+        self.providers.iter().any(|provider| {
+            provider.trait_ref.is_some()
+                && match (target_type_name, provider.target.ty.last_name) {
+                    // A named target, even one imported under that name,
+                    // matches by name, so default and supertrait methods of
+                    // its impl are found.
+                    (Some(receiver), Some(target)) => receiver == &target,
+                    // A blanket or unresolved target may be any receiver; it
+                    // matches only when its block defines the method, or every
+                    // such provider in the package would load for any call.
+                    (Some(_), None) => provider.has_associated_item(method_name),
+                    (None, _) => true,
+                }
+                && provider.may_target(
+                    target_type_name,
+                    target_module_segments,
+                    provider_module_segments,
+                )
+        })
+    }
+
     /// Reports whether a matching implementation may target a type defined in
     /// the given module path. Unqualified summary paths remain conservative.
     pub fn defines_trait_impl_at_module(
@@ -326,26 +365,11 @@ impl ProviderSummary {
         associated_name: Option<&SymbolId>,
     ) -> bool {
         self.providers.iter().any(|provider| {
-            target_type_name.map_or(
-                provider.target.ty.is_generic_or_structural_target
-                    || provider.target.ty.semantic_is_conservative,
-                |target_type_name| {
-                    provider
-                        .target
-                        .ty
-                        .may_match_demand_nominal_name(target_type_name)
-                },
-            ) && {
-                let provider_target_module_segments = if provider.target.ty.target_is_local_nominal
-                {
-                    provider_module_segments
-                } else {
-                    &provider.target.ty.target_module_segments
-                };
-                target_module_segments.is_empty()
-                    || provider_target_module_segments.is_empty()
-                    || provider_target_module_segments == target_module_segments
-            } && provider
+            provider.may_target(
+                target_type_name,
+                target_module_segments,
+                provider_module_segments,
+            ) && provider
                 .trait_ref
                 .as_ref()
                 .is_some_and(|trait_ref| trait_ref.may_match_trait_name(trait_name))
@@ -398,6 +422,35 @@ impl Provider {
             .chain(self.associated_values.iter())
             .any(|associated| associated == name)
     }
+
+    /// Whether this provider's target may be the demanded type. A demand
+    /// without a nominal name matches generic, structural, and unresolved
+    /// targets; module segments narrow a nominal match when both sides know
+    /// them.
+    fn may_target(
+        &self,
+        target_type_name: Option<&SymbolId>,
+        target_module_segments: &[SymbolId],
+        provider_module_segments: &[SymbolId],
+    ) -> bool {
+        let ty = &self.target.ty;
+        let name_matches = target_type_name.map_or(
+            ty.is_generic_or_structural_target || ty.semantic_is_conservative,
+            |name| ty.may_match_demand_nominal_name(name),
+        );
+        // A local nominal target is defined in the provider's own module. A
+        // qualified path such as `os::Error` or `stringPackage::String` names
+        // its module through an import; the summary keeps the imported
+        // module's final segment, which must match the demanded type's module
+        // when both are known.
+        let module_matches = if ty.target_is_local_nominal {
+            provider_module_segments == target_module_segments
+        } else {
+            ty.target_module_name
+                .is_none_or(|module| target_module_segments.last() == Some(&module))
+        };
+        name_matches && (target_module_segments.is_empty() || module_matches)
+    }
 }
 
 impl ProviderTypeRef {
@@ -407,6 +460,7 @@ impl ProviderTypeRef {
         definite_names: &SymbolSet,
         argument_definite_names: &SymbolSet,
         aliases: &SymbolMap<&nia_ast::TypeAliasItem>,
+        module_names: &SymbolMap<SymbolId>,
         visiting: &mut SymbolSet,
     ) -> Self {
         if let TypeKind::Path { segments } = &ty.kind
@@ -426,6 +480,7 @@ impl ProviderTypeRef {
                     definite_names,
                     argument_definite_names,
                     aliases,
+                    module_names,
                     visiting,
                 );
                 visiting.remove(&name);
@@ -435,24 +490,25 @@ impl ProviderTypeRef {
                 last_name: None,
                 type_argument_names: Vec::new(),
                 is_generic_or_structural_target: true,
+                target_module_name: None,
                 semantic_is_conservative: true,
-                target_module_segments: Vec::new(),
                 target_is_local_nominal: false,
             };
         }
         let last_name = type_ref_last_name(ty);
-        let target_module_segments = match &ty.kind {
-            TypeKind::Path { segments } => segments
-                .iter()
-                .take(segments.len().saturating_sub(1))
-                .filter_map(|segment| match segment.kind {
+        let target_module_name = match &ty.kind {
+            TypeKind::Path { segments } if segments.len() >= 2 => {
+                match segments[segments.len() - 2].kind {
+                    PathSegmentKind::Name(name) if segments.len() == 2 => {
+                        Some(module_names.get(&name).copied().unwrap_or(name))
+                    }
                     PathSegmentKind::Name(name) => Some(name),
                     PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => {
                         None
                     }
-                })
-                .collect(),
-            _ => Vec::new(),
+                }
+            }
+            _ => None,
         };
         let is_generic_or_structural_target =
             type_ref_is_generic_or_structural_provider_target(ty, generic_names);
@@ -473,8 +529,8 @@ impl ProviderTypeRef {
                 argument_definite_names,
             ),
             is_generic_or_structural_target,
+            target_module_name,
             semantic_is_conservative,
-            target_module_segments,
             target_is_local_nominal,
         }
     }
@@ -527,6 +583,52 @@ impl ProviderTypeRef {
     fn is_definite_semantic_name(&self) -> bool {
         !self.semantic_is_conservative
     }
+}
+
+/// Maps each module name this file brings into scope to the module's own
+/// final path segment: `using root::string as stringPackage;` maps
+/// `stringPackage` to `string`, and a `module name;` child maps to itself.
+fn module_name_bindings(item_tree: &ActiveModuleItemTree) -> SymbolMap<SymbolId> {
+    fn bind(
+        bindings: &mut SymbolMap<SymbolId>,
+        host: &[nia_ast::UsingHostSegment],
+        selector: &nia_ast::UsingSelector,
+    ) {
+        match selector {
+            nia_ast::UsingSelector::Single(name) => {
+                bindings.insert(name.alias.unwrap_or(name.name), name.name);
+            }
+            nia_ast::UsingSelector::Group(items) => {
+                for item in items {
+                    match item {
+                        nia_ast::UsingGroupItem::Name(name) => {
+                            bindings.insert(name.alias.unwrap_or(name.name), name.name);
+                        }
+                        nia_ast::UsingGroupItem::Nested { host, selector } => {
+                            bind(bindings, host, selector);
+                        }
+                    }
+                }
+            }
+            nia_ast::UsingSelector::SelfName => {
+                if let Some(PathSegmentKind::Name(name)) = host.last().map(|segment| segment.kind) {
+                    bindings.insert(name, name);
+                }
+            }
+            nia_ast::UsingSelector::Wildcard { .. } => {}
+        }
+    }
+    let mut bindings = SymbolMap::default();
+    for item in item_tree.items.iter() {
+        match &item.kind {
+            ItemTreeNodeKind::Module(module) => {
+                bindings.insert(module.name, module.name);
+            }
+            ItemTreeNodeKind::Using(using) => bind(&mut bindings, &using.host, &using.selector),
+            _ => {}
+        }
+    }
+    bindings
 }
 
 fn local_nominal_type_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {

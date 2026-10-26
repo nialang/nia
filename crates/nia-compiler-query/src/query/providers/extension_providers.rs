@@ -809,11 +809,12 @@ fn visible_trait_impl_modules_for_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<Vec<ModuleId>> {
-    visible_modules_for_module(
-        db,
-        module_id,
-        nia_program_signatures::visible_trait_impl_modules,
-    )
+    let graph = QueryModuleGraphLookup::new(db)?;
+    let modules = nia_program_signatures::visible_trait_impl_modules(module_id, &graph);
+    match graph.take_failure() {
+        Some(error) => Err(error),
+        None => Ok(modules),
+    }
 }
 
 fn visible_modules_for_module(
@@ -892,7 +893,6 @@ pub(super) fn provide_visible_extensions(
 ) -> QueryResult<VisibleExtensionsValue> {
     let graph = QueryModuleGraphLookup::new(db)?;
     let defs = SharedProgramDefsResolver::new(db);
-    let public_surfaces = QueryPublicSurfaceLookup::new(db);
     let query_failure = RefCell::new(None);
     let using_scopes =
         |module_id| capture_query_failure(&query_failure, db.get(ModuleUsingScopeQuery(module_id)));
@@ -928,9 +928,7 @@ pub(super) fn provide_visible_extensions(
     let mut visible_modules = visible_provider_modules_for_module(db, module_id)?;
     visible_modules.sort();
     visible_modules.dedup();
-    let mut trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
-    trait_witness_modules.sort();
-    trait_witness_modules.dedup();
+    let trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
     let mut fact_modules = visible_modules.clone();
     fact_modules.extend(trait_witness_modules.iter().copied());
     fact_modules.sort();
@@ -943,13 +941,16 @@ pub(super) fn provide_visible_extensions(
             extension_methods.extend(facts.methods.clone());
             associated_values.extend(facts.associated_values.clone());
         } else {
+            // Trait implementations, of builtin and source traits alike, are
+            // facts wherever they are witnesses; inherent extension methods
+            // stay scoped to imports.
             for method in facts.methods.all_methods() {
-                if matches!(method.trait_id, Some(nia_ty::TraitId::Source(_))) {
+                if method.trait_id.is_some() {
                     extension_methods.insert(provider_module, method.clone());
                 }
             }
             for value in facts.associated_values.all_values() {
-                if matches!(value.trait_id, Some(nia_ty::TraitId::Source(_))) {
+                if value.trait_id.is_some() {
                     associated_values.insert(provider_module, value.clone());
                 }
             }
@@ -961,7 +962,6 @@ pub(super) fn provide_visible_extensions(
         graph: &graph,
         using_scope: &using_scope,
         using_scopes: &using_scopes,
-        public_surfaces: &public_surfaces,
         defs: &defs,
         normalizations: &extension_method_normalization,
         visible_type_signatures: VisibleTypeSignatures {
@@ -969,16 +969,14 @@ pub(super) fn provide_visible_extensions(
         },
         extensions: &extension_methods,
         associated_values: &associated_values,
-        trait_impls: &[],
         nominal_extension_providers: &nominal_extension_providers,
         visible_modules: Some(visible_modules.as_slice()),
-        trait_witness_modules: Some(trait_witness_modules.as_slice()),
+        trait_witness_modules: &trait_witness_modules,
     });
     if let Some(error) = query_failure
         .into_inner()
         .or_else(|| graph.take_failure())
         .or_else(|| defs.take_failure())
-        .or_else(|| public_surfaces.take_failure())
     {
         Err(error)
     } else {
@@ -990,77 +988,25 @@ pub(super) fn provide_visible_trait_impls(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<VisibleTraitImplsValue> {
-    let graph = QueryModuleGraphLookup::new(db)?;
-    let defs = SharedProgramDefsResolver::new(db);
-    let public_surfaces = QueryPublicSurfaceLookup::new(db);
-    let query_failure = RefCell::new(None);
-    let using_scopes =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleUsingScopeQuery(module_id)));
-    let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
-    let extension_method_normalization = |module_id| {
-        capture_query_failure(
-            &query_failure,
-            signature_type_normalization_semantic(
-                db,
-                module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ),
-        )
-    };
-    let type_alias = |def_id| {
-        capture_query_failure(
-            &query_failure,
-            db.get(ProgramTypeAliasSignatureQuery(def_id)),
-        )
-        .and_then(|signature| signature.as_ref().clone())
-    };
-    let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
-        capture_query_failure(
-            &query_failure,
-            db.get(ExtensionProviderNominalModulesForTargetsQuery(
-                ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
-                module_id,
-            )),
-        )
-        .map(|providers| providers.modules.clone())
-        .unwrap_or_default()
-    };
-    let mut visible_modules = visible_trait_impl_modules_for_module(db, module_id)?;
-    visible_modules.sort();
-    visible_modules.dedup();
+    let witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
     let mut trait_impls = Vec::new();
-    for provider_module in visible_modules.iter().copied() {
+    for provider_module in witness_modules.iter().copied() {
         let facts = db.get(ExtensionTraitSolvingModuleFactsQuery(provider_module))?;
         trait_impls.extend(facts.trait_impls.iter().cloned());
     }
-    let visible_trait_impls = visible_trait_impls_for_module(VisibleExtensionsInput {
+    let graph = QueryModuleGraphLookup::new(db)?;
+    let defs = SharedProgramDefsResolver::new(db);
+    let visible = visible_trait_impls_for_module(
         module_id,
-        type_store: &db.context().type_store,
-        graph: &graph,
-        using_scope: &using_scope,
-        using_scopes: &using_scopes,
-        public_surfaces: &public_surfaces,
-        defs: &defs,
-        normalizations: &extension_method_normalization,
-        visible_type_signatures: VisibleTypeSignatures {
-            type_alias: &type_alias,
-        },
-        extensions: &nia_defs::ExtensionMethods::default(),
-        associated_values: &nia_defs::ExtensionAssociatedValues::default(),
-        trait_impls: trait_impls.as_slice(),
-        nominal_extension_providers: &nominal_extension_providers,
-        visible_modules: Some(visible_modules.as_slice()),
-        trait_witness_modules: None,
-    });
-    if let Some(error) = query_failure
-        .into_inner()
-        .or_else(|| graph.take_failure())
-        .or_else(|| defs.take_failure())
-        .or_else(|| public_surfaces.take_failure())
-    {
-        Err(error)
-    } else {
-        Ok(visible_trait_impls)
+        &db.context().type_store,
+        &graph,
+        &defs,
+        &witness_modules,
+        &trait_impls,
+    );
+    match graph.take_failure().or_else(|| defs.take_failure()) {
+        Some(error) => Err(error),
+        None => Ok(visible),
     }
 }
 

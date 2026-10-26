@@ -7,7 +7,6 @@ fn const_generic_supertrait_projection_substitutes_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 trait ArraySource[N: usize] {
     type Item;
 
@@ -318,7 +317,6 @@ fn const_generic_const_fn_result_can_drive_nominal_arg_and_extend_value() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 const fun plus_one(value: usize) usize {
     value + 1usize
 }

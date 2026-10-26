@@ -111,7 +111,7 @@ value.used()
 "#,
     );
     let entry_id = fixture.entry_id();
-    fixture.add_child(
+    let traits_id = fixture.add_child(
         entry_id,
         "traits",
         "traits.nia",
@@ -129,6 +129,7 @@ fun used(self) i32 {
 }
 "#,
     );
+    fixture.add_trait_impl_provider(entry_id, traits_id);
     let db = query_db(fixture.program());
 
     let checked = db.expect_get(BodyCheckQuery(entry_id));

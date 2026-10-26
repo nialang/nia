@@ -6,10 +6,9 @@ use std::{
 
 use nia_defs::{
     DefCollection, ExtensionAssociatedValues, ExtensionMethods, PublicNamespace,
-    PublicSurfaceLookup, VisibleExtensionAssociatedValue, VisibleExtensionMethod,
-    VisibleExtensionMethods,
+    VisibleExtensionAssociatedValue, VisibleExtensionMethod, VisibleExtensionMethods,
 };
-use nia_ids::{GlobalDefId, TraitId, Visibility};
+use nia_ids::{GlobalDefId, Visibility};
 use nia_item_signatures::{ProgramTraitImplSignature, ProgramTypeAliasSignature};
 use nia_ty::{TyKind, TypeStore};
 use nia_type_normalize::TypeNormalization;
@@ -70,8 +69,6 @@ pub struct VisibleExtensionsInput<'a> {
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     /// Resolver for imported modules' using scopes.
     pub using_scopes: &'a dyn ProgramUsingScopeResolver,
-    /// Public re-export surface lookup.
-    pub public_surfaces: &'a dyn PublicSurfaceLookup,
     /// Definition resolver for extension members and traits.
     pub defs: &'a dyn ProgramDefsResolver,
     /// Per-module canonical type-normalization resolver.
@@ -82,14 +79,13 @@ pub struct VisibleExtensionsInput<'a> {
     pub extensions: &'a ExtensionMethods,
     /// Collected extension associated values.
     pub associated_values: &'a ExtensionAssociatedValues,
-    /// Program trait implementations available to the collector.
-    pub trait_impls: &'a [ProgramTraitImplSignature],
     /// Resolver for nominal extension provider modules.
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
     /// Optional precomputed visible module closure.
     pub visible_modules: Option<&'a [nia_ids::ModuleId]>,
-    /// Optional narrower closure used for trait witnesses.
-    pub trait_witness_modules: Option<&'a [nia_ids::ModuleId]>,
+    /// Modules whose trait implementations are facts here; see
+    /// [`visible_trait_impl_modules`].
+    pub trait_witness_modules: &'a [nia_ids::ModuleId],
 }
 
 /// Type-signature callbacks needed while resolving visible aliases.
@@ -142,13 +138,11 @@ pub fn visible_extensions_for_module(
         graph,
         using_scope,
         using_scopes,
-        public_surfaces,
         defs,
         normalizations,
         visible_type_signatures,
         extensions,
         associated_values,
-        trait_impls: _,
         nominal_extension_providers,
         visible_modules,
         trait_witness_modules,
@@ -173,7 +167,7 @@ pub fn visible_extensions_for_module(
         computed_visible_modules = declared_module_closure(&visibility_context);
         &computed_visible_modules
     };
-    let witness_modules = trait_witness_modules.unwrap_or(visible_modules);
+    let witness_modules = trait_witness_modules;
     let mut imported_visible_modules = visible_modules
         .iter()
         .chain(witness_modules.iter())
@@ -199,14 +193,7 @@ pub fn visible_extensions_for_module(
             }
             let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
                 witness_modules.contains(&method.def_id.module_id)
-                    && trait_id_is_visible(
-                        module_id,
-                        witness_modules,
-                        trait_id,
-                        graph,
-                        public_surfaces,
-                        &mut resolver_cache,
-                    )
+                    && trait_declaration_allows(defs, graph, trait_id, module_id)
             });
             let Some(method_normalization) = resolver_cache.normalization(method.def_id.module_id)
             else {
@@ -249,14 +236,7 @@ pub fn visible_extensions_for_module(
             }
             let trait_is_visible = value.trait_id.is_some_and(|trait_id| {
                 witness_modules.contains(&value.def_id.module_id)
-                    && trait_id_is_visible(
-                        module_id,
-                        witness_modules,
-                        trait_id,
-                        graph,
-                        public_surfaces,
-                        &mut resolver_cache,
-                    )
+                    && trait_declaration_allows(defs, graph, trait_id, module_id)
             });
             if !visible_modules.contains(&value.def_id.module_id) && !trait_is_visible {
                 return;
@@ -293,58 +273,43 @@ pub fn visible_extensions_for_module(
     }
 }
 
-/// Computes visible trait implementations and their candidate index.
-pub fn visible_trait_impls_for_module(
-    input: VisibleExtensionsInput<'_>,
-) -> VisibleTraitImplsForModule {
-    let VisibleExtensionsInput {
-        module_id,
-        type_store,
-        graph,
-        using_scope,
-        using_scopes,
-        public_surfaces,
-        defs,
-        normalizations,
-        visible_type_signatures,
-        trait_impls,
-        nominal_extension_providers,
-        visible_modules,
-        trait_witness_modules,
-        ..
-    } = input;
-    let computed_visible_modules;
-    let visible_modules = if let Some(visible_modules) = visible_modules {
-        visible_modules
-    } else {
-        let visibility_context = VisibilityClosureContext {
-            module_id,
-            type_store,
-            graph,
-            using_scope,
-            using_scopes,
-            defs,
-            normalizations,
-            visible_type_signatures,
-            nominal_extension_providers,
-        };
-        computed_visible_modules = declared_module_closure(&visibility_context);
-        &computed_visible_modules
+/// Whether a trait's own declared visibility reaches `module_id`.
+///
+/// Implementations are global facts, but a `pub(root)` or private trait's
+/// implementations are facts only where the trait itself is visible. This
+/// reads the declaration, never the requester's imports. Builtin traits are
+/// public.
+fn trait_declaration_allows(
+    defs: &dyn ProgramDefsResolver,
+    graph: &dyn nia_imports::ModuleGraphLookup,
+    trait_id: nia_ids::TraitId,
+    module_id: nia_ids::ModuleId,
+) -> bool {
+    let nia_ids::TraitId::Source(trait_id) = trait_id else {
+        return true;
     };
-    let witness_modules = trait_witness_modules.unwrap_or(visible_modules);
-    let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
+    defs.defs(trait_id.module_id).is_some_and(|defs| {
+        defs.defs.get(trait_id.def_id).is_some_and(|def| {
+            nia_imports::visibility_allows(def.visibility, graph, trait_id.module_id, module_id)
+        })
+    })
+}
+
+/// Indexes the trait implementations in `witness_modules` whose trait is
+/// visible from `module_id`.
+pub fn visible_trait_impls_for_module(
+    module_id: nia_ids::ModuleId,
+    type_store: &TypeStore,
+    graph: &dyn nia_imports::ModuleGraphLookup,
+    defs: &dyn ProgramDefsResolver,
+    witness_modules: &[nia_ids::ModuleId],
+    trait_impls: &[ProgramTraitImplSignature],
+) -> VisibleTraitImplsForModule {
     let trait_impls = trait_impls
         .iter()
         .filter(|impl_signature| {
             witness_modules.contains(&impl_signature.module_id)
-                && trait_id_is_visible(
-                    module_id,
-                    witness_modules,
-                    impl_signature.trait_id,
-                    graph,
-                    public_surfaces,
-                    &mut resolver_cache,
-                )
+                && trait_declaration_allows(defs, graph, impl_signature.trait_id, module_id)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -386,12 +351,26 @@ pub fn visible_extension_provider_modules(
     declared_module_closure(&context)
 }
 
-/// Returns modules contributing visible trait implementations.
+/// Returns the modules whose trait implementations are facts for `module_id`.
+///
+/// Implementations are global and independent of the caller's imports: the
+/// set is the module itself plus the transitive closure of its trait-impl
+/// provider edges, which the loader adds by searching the packages that own
+/// each demanded type and trait. A `using` never adds or hides an impl.
 pub fn visible_trait_impl_modules(
-    input: VisibleExtensionProviderModulesInput<'_>,
+    module_id: nia_ids::ModuleId,
+    graph: &dyn nia_imports::ModuleGraphLookup,
 ) -> Vec<nia_ids::ModuleId> {
-    let context = visibility_closure_context(input);
-    declared_module_closure_including_item_target_modules(&context)
+    let mut seen = HashSet::from([module_id]);
+    let mut queue = VecDeque::from(graph.provider_dependencies(module_id, true));
+    while let Some(module) = queue.pop_front() {
+        if seen.insert(module) {
+            queue.extend(graph.provider_dependencies(module, true));
+        }
+    }
+    let mut modules = seen.into_iter().collect::<Vec<_>>();
+    modules.sort();
+    modules
 }
 
 fn visibility_closure_context<'a>(
@@ -410,67 +389,7 @@ fn visibility_closure_context<'a>(
     }
 }
 
-fn trait_id_is_visible(
-    current_module: nia_ids::ModuleId,
-    imported_modules: &[nia_ids::ModuleId],
-    trait_id: TraitId,
-    graph: &dyn nia_imports::ModuleGraphLookup,
-    public_surfaces: &dyn PublicSurfaceLookup,
-    resolver_cache: &mut VisibleExtensionResolverCache<'_>,
-) -> bool {
-    let TraitId::Source(trait_id) = trait_id else {
-        return true;
-    };
-    if trait_id.module_id == current_module {
-        return true;
-    }
-    if imported_modules.contains(&trait_id.module_id) {
-        return resolver_cache.defs(trait_id.module_id).is_some_and(|defs| {
-            defs.defs.get(trait_id.def_id).is_some_and(|def| {
-                nia_imports::visibility_allows(
-                    def.visibility,
-                    graph,
-                    trait_id.module_id,
-                    current_module,
-                )
-            })
-        });
-    }
-    std::iter::once(current_module)
-        .chain(imported_modules.iter().copied())
-        .any(|module_id| public_surface_exports_type(public_surfaces, module_id, trait_id))
-}
-
-fn public_surface_exports_type(
-    public_surfaces: &dyn PublicSurfaceLookup,
-    module_id: nia_ids::ModuleId,
-    def_id: GlobalDefId,
-) -> bool {
-    public_surfaces
-        .public_surface(module_id)
-        .is_some_and(|surface| {
-            surface.types.values().any(|item| {
-                item.target_module == def_id.module_id
-                    && item.target_def_id == def_id.def_id
-                    && item.namespace == PublicNamespace::Type
-            })
-        })
-}
-
 fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {
-    declared_module_closure_inner(context, false)
-}
-
-fn declared_module_closure_including_item_target_modules(
-    context: &VisibilityClosureContext<'_>,
-) -> Vec<nia_ids::ModuleId> {
-    declared_module_closure_inner(context, true)
-}
-
-fn declared_module_closure_inner(
-    context: &VisibilityClosureContext<'_>,
-    include_item_target_modules: bool,
-) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
     let mut pending_provider_targets = Vec::new();
@@ -481,9 +400,6 @@ fn declared_module_closure_inner(
             .graph
             .provider_dependencies(context.module_id, false),
     );
-    if include_item_target_modules {
-        enqueue_using_scope_item_target_modules(context.using_scope, &mut queue);
-    }
     collect_public_inherent_extension_provider_targets_for_using_scope(
         context,
         context.using_scope,
@@ -497,9 +413,6 @@ fn declared_module_closure_inner(
             }
             if let Some(using_scope) = context.using_scopes.using_scope(visible) {
                 enqueue_using_scope_modules(&using_scope, &mut queue);
-                if include_item_target_modules {
-                    enqueue_using_scope_item_target_modules(&using_scope, &mut queue);
-                }
                 collect_public_inherent_extension_provider_targets_for_using_scope(
                     context,
                     &using_scope,
@@ -524,18 +437,6 @@ fn declared_module_closure_inner(
         pending_provider_targets.clear();
     }
 
-    if include_item_target_modules {
-        // Witness discovery contributes implementation facts, never the
-        // provider module's own imports or inherent extensions.
-        for module in std::iter::once(context.module_id).chain(seen.iter().copied()) {
-            queue.extend(context.graph.provider_dependencies(module, true));
-        }
-        while let Some(module) = queue.pop_front() {
-            if seen.insert(module) {
-                queue.extend(context.graph.provider_dependencies(module, true));
-            }
-        }
-    }
     let mut modules = seen.into_iter().collect::<Vec<_>>();
     modules.sort();
     modules
@@ -546,19 +447,6 @@ fn enqueue_using_scope_modules(
     queue: &mut VecDeque<nia_ids::ModuleId>,
 ) {
     queue.extend(using_scope.modules.values().copied());
-}
-
-fn enqueue_using_scope_item_target_modules(
-    using_scope: &nia_defs::ModuleUsingScope,
-    queue: &mut VecDeque<nia_ids::ModuleId>,
-) {
-    queue.extend(
-        using_scope
-            .values
-            .values()
-            .chain(using_scope.types.values())
-            .map(|entry| entry.target_module),
-    );
 }
 
 struct VisibilityClosureContext<'a> {

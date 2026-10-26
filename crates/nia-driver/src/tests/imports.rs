@@ -596,7 +596,6 @@ fn builtin_module_exposes_target_const_values() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std::builtin::target;
 
 fun main() usize {
@@ -1103,7 +1102,6 @@ fn equivalent_public_std_imports_select_the_same_compiler_work() {
     write(
         &broad_path,
         r#"
-using std::builtin::Len;
 using std::collections;
 
 fun consume(values: collections::ArrayList[i32]) usize {
@@ -1114,7 +1112,6 @@ fun consume(values: collections::ArrayList[i32]) usize {
     write(
         &narrow_path,
         r#"
-using std::builtin::Len;
 using std::collections::ArrayList;
 
 fun consume(values: ArrayList[i32]) usize {
@@ -1612,7 +1609,6 @@ fn std_facade_exposes_array_list_type_directly() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std;
 
 fun main() usize {
@@ -1676,7 +1672,6 @@ fn imported_type_alias_can_be_used_as_associated_call_prefix() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std::collections::ArrayList;
 
 fun main() usize {
@@ -1696,7 +1691,6 @@ fn std_facade_does_not_reexport_standard_library_module_namespaces() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std;
 
 fun main() usize {
@@ -1723,7 +1717,6 @@ fn std_facade_does_not_reexport_array_list_module_namespace() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std;
 
 fun main() usize {
@@ -1870,7 +1863,6 @@ fn std_hash_facade_enables_default_hash_map_key_impls() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std;
 using std::collections;
 using std::hash;
@@ -2032,7 +2024,6 @@ fn predeclared_trait_method_names_still_load_scoped_user_extensions() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 module types;
 module extensions;
 using root::types;
@@ -2161,7 +2152,6 @@ fn std_root_facade_enables_default_hash_map_key_impls() {
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 using std;
 using std::collections;
 using std::mem;
@@ -2534,7 +2524,6 @@ fn facade_reexported_generic_alias_exposes_methods_and_contextual_constructors()
     write(
         &root.join("main.nia"),
         r#"
-using std::builtin::Len;
 module facade;
 module impls;
 module types;
