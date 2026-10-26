@@ -599,5 +599,6 @@ crate-level rustdoc is the detailed reference.
 | `nia-package-metadata` | Relocation-independent package, module, and definition identities; stable type graphs. |
 | `nia-git` | Nia-owned Git transports (local, `git://`, HTTP(S), SSH) and verified checkout of package dependencies. |
 | `nia-toolchain` | Toolchain resource layout discovery and compatibility identity. |
+| `nia-alloc` | Process allocator (mimalloc) installed by every binary that compiles Nia; optional counting wrapper. |
 | **Test infrastructure** | |
 | `nia-test-support` | Resource-accounted child-process helpers for workspace tests. |

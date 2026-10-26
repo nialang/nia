@@ -738,7 +738,7 @@ fun clamp(value: i32) i32 {
     if value < 0 { 0 } else { value }
 }
 
-// Visible anywhere in the current package.
+// Visible anywhere in the current module tree.
 pub(root) fun span(low: i32, high: i32) i32 {
     clamp(high - low)
 }

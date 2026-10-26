@@ -154,8 +154,9 @@ pool sizes, permit waits, and per-command peaks when tuning a new host.
 `nia build` commands from the harness share one compiler-cache root per `nia`
 binary, under the system temporary directory, so the build runner and the
 standard library are compiled once per test run rather than once per test
-package. Configure, action, and suite caches stay in each package's
-`build/cache/`, so tests of cache behavior see only their own records.
+package. Configure, action, and suite caches stay in the test package's (or
+test workspace's) own `build/cache/`, so tests of cache behavior see only their
+own records.
 
 Tests use the same public compiler, build, and LLVM contracts as production;
 the harness bounds resources but does not change production semantics.

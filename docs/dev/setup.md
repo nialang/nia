@@ -161,6 +161,7 @@ be a CLI/API option instead.
 | `NIA_AR` | User | Overrides the static archive tool; otherwise `llvm-ar`, then `ar`, is discovered. |
 | `NO_COLOR` | User | Standard terminal convention respected by CLI help and diagnostics rendering. |
 | `LLVM_SYS_231_PREFIX` | Build | `llvm-sys` override for a non-standard LLVM installation. |
+| `NIA_TEST_SHARED_ARTIFACT_CACHE` | Tests | Set by `nia-test-support` for child `nia build` processes: an absolute directory that holds the runner and compiler-product caches shared by every test package in one run. Not a user option. |
 | `NIA_TEST_RESOURCE_TRACE=1` | Tests | Prints permit waits and the peak process count/RSS of each managed test command. Useful when tuning a new host; it does not change scheduling or limits. |
 
 Test-only fixture variables such as `NIA_TEST_ENV` may appear inside tests that

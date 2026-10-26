@@ -92,7 +92,7 @@ not introduce a separate report or schema version axis; Git revision and
 complete tool identities provide experiment attribution.
 
 Allocation counters require both the `perf-alloc` build feature and
-`--timings=detail`; the normal compiler binary uses the ordinary Rust allocator
+`--timings=detail`; the normal compiler binary installs mimalloc (`nia-alloc`)
 without a counting wrapper. The counters stop before the collector flushes or
 serializes its report. They describe traffic and live allocations through the
 Rust global allocator; `allocator.peak_live_bytes` starts from the process's

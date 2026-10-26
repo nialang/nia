@@ -12,7 +12,7 @@ runtime entry points.
 
 This repository contains the compiler, the standard library, the package build
 system, documentation, and examples. Nia is pre-1.0: the language and toolchain
-evolve together, and compatibility changes are called out in release notes.
+evolve together, and breaking changes land without compatibility shims.
 
 ## Example
 
