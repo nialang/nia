@@ -28,12 +28,13 @@ use super::{
     ActionCacheInvalidation, ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE,
     MAX_COMPILER_CACHE_ENTRY_BYTES,
     compiler_check::{
-        COMPILER_CHECK_COMPILATION_MODE_DOMAIN, COMPILER_CHECK_MODULE_DOMAIN,
-        COMPILER_CHECK_OPTIMIZATION_DOMAIN, COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN,
-        COMPILER_CHECK_PROFILE_DOMAIN, COMPILER_CHECK_RUNTIME_DOMAIN, COMPILER_CHECK_TARGET_DOMAIN,
-        CompilerCheckCacheIdentity, CompilerCheckCacheIdentityInput, FingerprintComponents,
-        SourceRecord, action_fingerprint, bytes_fingerprint, integer_fingerprint,
-        invalidations as compiler_invalidations, read_tag, source_records_fingerprint,
+        COMPILER_CHECK_COMPILATION_MODE_DOMAIN, COMPILER_CHECK_CONFIGURATION_DOMAIN,
+        COMPILER_CHECK_MODULE_DOMAIN, COMPILER_CHECK_OPTIMIZATION_DOMAIN,
+        COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, COMPILER_CHECK_PROFILE_DOMAIN,
+        COMPILER_CHECK_RUNTIME_DOMAIN, COMPILER_CHECK_TARGET_DOMAIN, CompilerCheckCacheIdentity,
+        CompilerCheckCacheIdentityInput, FingerprintComponents, SourceRecord, action_fingerprint,
+        bytes_fingerprint, integer_fingerprint, invalidations as compiler_invalidations, read_tag,
+        source_records_fingerprint,
     },
     ensure_cache_directory, fingerprint_text, logical_path_identity,
     read_bounded_compiler_cache_entry, read_bytes, read_fingerprint, read_u64,
@@ -88,6 +89,7 @@ pub(crate) struct CompilerEmitCacheIdentity {
     compilation_mode: u8,
     optimization: u8,
     runtime: u8,
+    configuration: Vec<u8>,
     sources: Vec<SourceRecord>,
     artifact: Vec<u8>,
     output: Vec<u8>,
@@ -161,6 +163,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: crate::CompilationMode,
     pub(crate) runtime: crate::Runtime,
+    pub(crate) configuration: &'a crate::ArtifactConfiguration,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
@@ -178,6 +181,7 @@ impl CompilerEmitCacheIdentity {
             profile: input.profile,
             compilation_mode: input.compilation_mode,
             runtime: input.runtime,
+            configuration: input.configuration,
             manifest: input.manifest,
             toolchain: input.toolchain,
         })?;
@@ -210,6 +214,7 @@ impl CompilerEmitCacheIdentity {
             compilation_mode: compiler.compilation_mode,
             optimization: compiler.optimization,
             runtime: compiler.runtime,
+            configuration: compiler.configuration,
             sources: compiler.sources,
             artifact,
             output,
@@ -555,6 +560,7 @@ struct DecodedEntry {
     compilation_mode: u8,
     optimization: u8,
     runtime: u8,
+    configuration: Vec<u8>,
     sources: Vec<SourceRecord>,
     artifact: Vec<u8>,
     output: Vec<u8>,
@@ -578,6 +584,7 @@ fn encode_entry(
     encoded.push(identity.compilation_mode);
     encoded.push(identity.optimization);
     encoded.push(identity.runtime);
+    write_bytes(&mut encoded, &identity.configuration);
     encoded.extend_from_slice(&(identity.sources.len() as u64).to_le_bytes());
     for source in &identity.sources {
         write_text(&mut encoded, &source.identity);
@@ -611,6 +618,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let compilation_mode = read_tag(&mut cursor, 2)?;
     let optimization = read_tag(&mut cursor, 6)?;
     let runtime = read_tag(&mut cursor, 2)?;
+    let configuration = read_bytes(&mut cursor, encoded.len())?;
     let source_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
     (source_len <= encoded.len()).then_some(())?;
     let mut sources = Vec::with_capacity(source_len);
@@ -656,6 +664,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             u64::from(optimization),
         ),
         runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(runtime)),
+        configuration: bytes_fingerprint(COMPILER_CHECK_CONFIGURATION_DOMAIN, &configuration),
         compiler: fingerprints.components.compiler.compiler,
         resource_layout: fingerprints.components.compiler.resource_layout,
         standard_library: fingerprints.components.compiler.standard_library,
@@ -684,6 +693,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             compilation_mode,
             optimization,
             runtime,
+            configuration,
             sources,
             artifact,
             output,
@@ -705,6 +715,7 @@ fn write_fingerprint_set(encoded: &mut Vec<u8>, fingerprints: EmitFingerprintSet
         fingerprints.components.compiler.compilation_mode,
         fingerprints.components.compiler.optimization,
         fingerprints.components.compiler.runtime,
+        fingerprints.components.compiler.configuration,
         fingerprints.components.compiler.compiler,
         fingerprints.components.compiler.resource_layout,
         fingerprints.components.compiler.standard_library,
@@ -732,6 +743,7 @@ fn read_fingerprint_set(cursor: &mut Cursor<&[u8]>) -> Option<EmitFingerprintSet
                 compilation_mode: read_fingerprint(cursor)?,
                 optimization: read_fingerprint(cursor)?,
                 runtime: read_fingerprint(cursor)?,
+                configuration: read_fingerprint(cursor)?,
                 compiler: read_fingerprint(cursor)?,
                 resource_layout: read_fingerprint(cursor)?,
                 standard_library: read_fingerprint(cursor)?,
@@ -755,6 +767,7 @@ fn entry_matches(entry: &DecodedEntry, identity: &CompilerEmitCacheIdentity) -> 
         && entry.compilation_mode == identity.compilation_mode
         && entry.optimization == identity.optimization
         && entry.runtime == identity.runtime
+        && entry.configuration == identity.configuration
         && entry.sources == identity.sources
         && entry.artifact == identity.artifact
         && entry.output == identity.output
@@ -805,6 +818,40 @@ fn artifact_identity(
         LinkTimeOptimization::Thin => 1,
         LinkTimeOptimization::Full => 2,
     });
+    encoded.push(match artifact.configuration.linkage {
+        crate::ArtifactLinkage::Static => 0,
+        crate::ArtifactLinkage::StaticPie => 1,
+        crate::ArtifactLinkage::Dynamic => 2,
+    });
+    encoded.push(match artifact.configuration.debug_info {
+        crate::DebugInfo::None => 0,
+        crate::DebugInfo::LineTables => 1,
+        crate::DebugInfo::Full => 2,
+    });
+    encoded.push(match artifact.configuration.panic_strategy {
+        crate::PanicStrategy::Abort => 0,
+        crate::PanicStrategy::Unwind => 1,
+    });
+    encoded.push(match artifact.configuration.lto {
+        crate::ArtifactLto::Off => 0,
+        crate::ArtifactLto::Thin => 1,
+        crate::ArtifactLto::Full => 2,
+    });
+    encoded.extend_from_slice(&(artifact.configuration.defines.len() as u64).to_le_bytes());
+    for define in &artifact.configuration.defines {
+        write_text(&mut encoded, &define.name);
+        write_text(&mut encoded, define.value.as_deref().unwrap_or(""));
+    }
+    encoded
+        .extend_from_slice(&(artifact.configuration.system_libraries.len() as u64).to_le_bytes());
+    for library in &artifact.configuration.system_libraries {
+        write_text(&mut encoded, &library.name);
+        encoded.push(match library.mode {
+            crate::SystemLibraryMode::Default => 0,
+            crate::SystemLibraryMode::Static => 1,
+            crate::SystemLibraryMode::Dynamic => 2,
+        });
+    }
     encoded
 }
 
@@ -849,6 +896,7 @@ fn combined_fingerprint(
         components.compiler.target,
         components.compiler.optimization,
         components.compiler.runtime,
+        components.compiler.configuration,
         components.compiler.compiler,
         components.compiler.resource_layout,
         components.compiler.standard_library,
@@ -895,6 +943,7 @@ mod tests {
             output: crate::LogicalPath::new(crate::LogicalPathRoot::Build, "app").unwrap(),
             runtime: crate::Runtime::Freestanding,
             mode: crate::CompilationMode::Normal,
+            configuration: crate::ArtifactConfiguration::default(),
         }
     }
 
@@ -907,6 +956,30 @@ mod tests {
         assert_ne!(off, thin);
         assert_ne!(thin, full);
         assert_ne!(off, full);
+    }
+
+    #[test]
+    fn executable_artifact_identity_includes_typed_configuration() {
+        let baseline = executable_artifact();
+        let mut changed = baseline.clone();
+        changed.configuration.linkage = crate::ArtifactLinkage::Dynamic;
+        changed.configuration.debug_info = crate::DebugInfo::Full;
+        changed.configuration.panic_strategy = crate::PanicStrategy::Unwind;
+        changed.configuration.defines.push(crate::ArtifactDefine {
+            name: "FEATURE".to_string(),
+            value: Some("enabled".to_string()),
+        });
+        changed
+            .configuration
+            .system_libraries
+            .push(crate::SystemLibrary {
+                name: "m".to_string(),
+                mode: crate::SystemLibraryMode::Dynamic,
+            });
+        assert_ne!(
+            artifact_identity(&baseline, LinkTimeOptimization::Off),
+            artifact_identity(&changed, LinkTimeOptimization::Off)
+        );
     }
 
     #[test]
@@ -962,6 +1035,7 @@ mod tests {
                 u64::from(optimization),
             ),
             runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(runtime)),
+            configuration: bytes_fingerprint(COMPILER_CHECK_CONFIGURATION_DOMAIN, &[]),
             compiler: fingerprint(6),
             resource_layout: fingerprint(7),
             standard_library: fingerprint(8),
@@ -999,6 +1073,7 @@ mod tests {
             compilation_mode: 0,
             optimization,
             runtime,
+            configuration: Vec::new(),
             sources,
             artifact,
             output,

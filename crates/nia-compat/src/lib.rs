@@ -329,7 +329,7 @@ pub mod formats {
     use super::{PersistedFormat, PersistedNamespace};
 
     /// Immutable action graph handed from a build runner to the coordinator.
-    pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\0");
+    pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\x01");
     /// Invocation-private configuration consumed by a compiled build runner.
     pub const RUNNER_CONFIG: PersistedFormat = PersistedFormat::new("runner-config", b"NIARUNCF");
     /// Bounded observations emitted by a host build runner.
@@ -415,13 +415,13 @@ pub mod formats {
         PersistedNamespace::new("compiler-check-cache");
     /// Cached compiler-check action result.
     pub const COMPILER_CHECK_ENTRY: PersistedFormat =
-        PersistedFormat::new("compiler-check-entry", b"NIACKC\0\0");
+        PersistedFormat::new("compiler-check-entry", b"NIACKC\0\x01");
     /// Build-action cache namespace for compiler emission.
     pub const COMPILER_EMIT_CACHE: PersistedNamespace =
         PersistedNamespace::new("compiler-emit-cache");
     /// Cached compiler-emission action result.
     pub const COMPILER_EMIT_ENTRY: PersistedFormat =
-        PersistedFormat::new("compiler-emit-entry", b"NIAKCE\0\0");
+        PersistedFormat::new("compiler-emit-entry", b"NIAKCE\0\x01");
 
     /// Namespace for recoverable output publication transactions.
     pub const OUTPUT_TRANSACTION: PersistedNamespace =

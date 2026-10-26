@@ -1578,13 +1578,14 @@ pub fn render_build_plan_summary(
     for artifact in plan.artifacts() {
         let _ = writeln!(
             output,
-            "  artifact {}::{}: kind={}, output={}, runtime={}, mode={}",
+            "  artifact {}::{}: kind={}, output={}, runtime={}, mode={}, configuration={:?}",
             artifact.key.package().as_str(),
             artifact.key.name(),
             artifact_kind_name(&artifact.kind),
             artifact.output.protocol_path(),
             runtime_name(artifact.runtime),
             compilation_mode_name(artifact.mode),
+            artifact_configuration_json(&artifact.configuration),
         );
     }
     for action in plan.actions() {
@@ -2206,6 +2207,7 @@ fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
                 "output": logical_path_json(&artifact.output),
                 "runtime": runtime_name(artifact.runtime),
                 "mode": compilation_mode_name(artifact.mode),
+                "configuration": artifact_configuration_json(&artifact.configuration),
             })
         })
         .collect::<Vec<_>>();
@@ -2562,6 +2564,7 @@ fn action_json_value(plan: &BuildPlan, action: &PlanAction) -> serde_json::Value
             target,
             runtime,
             mode,
+            configuration,
         } => base(
             "compiler-check",
             serde_json::json!({
@@ -2569,18 +2572,21 @@ fn action_json_value(plan: &BuildPlan, action: &PlanAction) -> serde_json::Value
                 "target": target.name(),
                 "runtime": runtime_name(*runtime),
                 "mode": compilation_mode_name(*mode),
+                "configuration": artifact_configuration_json(configuration),
             }),
         ),
         ActionKind::CompilerEmit {
             artifact,
             target,
             static_archives,
+            configuration,
         } => base(
             "compiler-emit",
             serde_json::json!({
                 "artifact": format!("{}::{}", artifact.package().as_str(), artifact.name()),
                 "target": target.name(),
                 "static_archives": static_archives.iter().map(|archive| format!("{}::{}", archive.package().as_str(), archive.name())).collect::<Vec<_>>(),
+                "configuration": artifact_configuration_json(configuration),
             }),
         ),
         ActionKind::ExternalCommand(command) => {
@@ -2870,6 +2876,42 @@ fn compilation_mode_name(value: CompilationMode) -> &'static str {
         CompilationMode::Normal => "normal",
         CompilationMode::Test => "test",
     }
+}
+
+fn artifact_configuration_json(value: &ArtifactConfiguration) -> serde_json::Value {
+    serde_json::json!({
+        "linkage": match value.linkage {
+            ArtifactLinkage::Static => "static",
+            ArtifactLinkage::StaticPie => "static-pie",
+            ArtifactLinkage::Dynamic => "dynamic",
+        },
+        "debug_info": match value.debug_info {
+            DebugInfo::None => "none",
+            DebugInfo::LineTables => "line-tables",
+            DebugInfo::Full => "full",
+        },
+        "panic": match value.panic_strategy {
+            PanicStrategy::Abort => "abort",
+            PanicStrategy::Unwind => "unwind",
+        },
+        "lto": match value.lto {
+            ArtifactLto::Off => "off",
+            ArtifactLto::Thin => "thin",
+            ArtifactLto::Full => "full",
+        },
+        "defines": value.defines.iter().map(|define| serde_json::json!({
+            "name": define.name,
+            "value": define.value,
+        })).collect::<Vec<_>>(),
+        "system_libraries": value.system_libraries.iter().map(|library| serde_json::json!({
+            "name": library.name,
+            "mode": match library.mode {
+                SystemLibraryMode::Default => "default",
+                SystemLibraryMode::Static => "static",
+                SystemLibraryMode::Dynamic => "dynamic",
+            },
+        })).collect::<Vec<_>>(),
+    })
 }
 
 fn artifact_kind_name(value: &PlanArtifactKind) -> &'static str {
@@ -5670,6 +5712,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
                     target,
                     runtime: Runtime::Freestanding,
                     mode: CompilationMode::Normal,
+                    configuration: ArtifactConfiguration::default(),
                 },
             }],
             steps: vec![PlanStep {

@@ -38,6 +38,11 @@ using types::{
     TargetView,
     PackageHandle,
     Runtime,
+    Linkage,
+    DebugInfo,
+    PanicStrategy,
+    LtoMode,
+    OwnedSystemLibrary,
 };
 
 const maxPlanBytes: usize = 67108864;
@@ -215,6 +220,56 @@ extend PlanEncoder {
         self.writeU8(if test { 1 } else { 0 })
     }
 
+    fun writeArtifactConfiguration(
+        &mut self,
+        linkage: Linkage,
+        debugInfo: DebugInfo,
+        panicStrategy: PanicStrategy,
+        lto: LtoMode,
+        defines: &[string::String],
+        systemLibraries: &[OwnedSystemLibrary],
+    ) Error!() {
+        self.writeU8(match linkage {
+            .Static => 0,
+            .StaticPie => 1,
+            .Dynamic => 2,
+            _ => return invalidPlan(),
+        }).?;
+        self.writeU8(match debugInfo {
+            .None => 0,
+            .LineTables => 1,
+            .Full => 2,
+            _ => return invalidPlan(),
+        }).?;
+        self.writeU8(match panicStrategy {
+            .Abort => 0,
+            .Unwind => 1,
+            _ => return invalidPlan(),
+        }).?;
+        self.writeU8(match lto {
+            .Off => 0,
+            .Thin => 1,
+            .Full => 2,
+            _ => return invalidPlan(),
+        }).?;
+        self.writeCount(defines.len()).?;
+        for define in defines.iter() {
+            self.writeString(define.text()).?;
+            self.writeU8(0).?; // boolean define with no textual value
+        }
+        self.writeCount(systemLibraries.len()).?;
+        for library in systemLibraries.iter() {
+            self.writeString(library.name.text()).?;
+            self.writeU8(match library.mode {
+                .Default => 0,
+                .Static => 1,
+                .Dynamic => 2,
+                _ => return invalidPlan(),
+            }).?;
+        }
+        !()
+    }
+
     fun writeResourceClass(&mut self, resourceClass: ActionResourceClass) Error!() {
         self.writeU8(match resourceClass {
             .Conservative => 0,
@@ -270,7 +325,8 @@ extend PlanEncoder {
         self.writeU8(0).?;
         self.writeBuildPath(target.outputName.text()).?;
         self.writeRuntime(target.runtime).?;
-        self.writeCompilationMode(target.test)
+        self.writeCompilationMode(target.test).?;
+        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
     }
 
     fun writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {
@@ -280,7 +336,8 @@ extend PlanEncoder {
         self.writeU8(1).?;
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(0).?;
-        self.writeCompilationMode(false)
+        self.writeCompilationMode(false).?;
+        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
     }
 
     fun writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module]) Error!() {
@@ -290,7 +347,8 @@ extend PlanEncoder {
         self.writeU8(2).?;
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(0).?;
-        self.writeCompilationMode(false)
+        self.writeCompilationMode(false).?;
+        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
     }
 
     fun writeAction(
@@ -322,7 +380,8 @@ extend PlanEncoder {
                 self.writeRootNodeKey(moduleRecord.name.text()).?;
                 self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeU8(1).?;
-                self.writeCompilationMode(target.test)
+                self.writeCompilationMode(target.test).?;
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
@@ -334,21 +393,23 @@ extend PlanEncoder {
                     let archiveTarget = staticArchives[archive.index];
                     self.writeRootNodeKey(archiveTarget.name.text()).?;
                 }
-                !()
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .EmitObject => {
                 let target = objects[step.payload.object.target.index];
                 self.writeU8(1).?;
                 self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targets[target.targetIndex].view()).?;
-                self.writeCount(0)
+                self.writeCount(0).?;
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .EmitStaticArchive => {
                 let target = staticArchives[step.payload.staticArchive.target.index];
                 self.writeU8(1).?;
                 self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targets[target.targetIndex].view()).?;
-                self.writeCount(0)
+                self.writeCount(0).?;
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .RunExecutable => {
                 let run = step.payload.runExecutable;
@@ -569,7 +630,7 @@ extend PlanEncoder {
     }
 
     fun writeBuild(&mut self, build: &Build) Error!() {
-        self.writeBytes(&b"NIA-PLN\0"[..]).?;
+        self.writeBytes(&b"NIA-PLN\x01"[..]).?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;

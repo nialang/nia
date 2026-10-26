@@ -191,6 +191,46 @@ pub(super) fn canonicalize_artifacts(
         if artifact.mode == CompilationMode::Test && artifact.kind != PlanArtifactKind::Executable {
             return Err(PlanError::NonExecutableTest(artifact.key.clone()));
         }
+        if artifact.kind != PlanArtifactKind::Executable
+            && matches!(artifact.configuration.linkage, ArtifactLinkage::Dynamic)
+        {
+            return Err(PlanError::InvalidArtifactConfiguration {
+                artifact: artifact.key.clone(),
+                reason: "dynamic linkage requires an executable",
+            });
+        }
+        if artifact.kind != PlanArtifactKind::Executable
+            && !matches!(artifact.configuration.lto, ArtifactLto::Off)
+        {
+            return Err(PlanError::InvalidArtifactConfiguration {
+                artifact: artifact.key.clone(),
+                reason: "LTO requires an executable",
+            });
+        }
+        for define in &artifact.configuration.defines {
+            if define.name.is_empty() || define.name.contains('\0') {
+                return Err(PlanError::InvalidArtifactConfiguration {
+                    artifact: artifact.key.clone(),
+                    reason: "define names must be non-empty and contain no NUL",
+                });
+            }
+        }
+        for library in &artifact.configuration.system_libraries {
+            if library.name.is_empty() || library.name.contains('\0') {
+                return Err(PlanError::InvalidArtifactConfiguration {
+                    artifact: artifact.key.clone(),
+                    reason: "system library names must be non-empty and contain no NUL",
+                });
+            }
+            if matches!(library.mode, SystemLibraryMode::Dynamic)
+                && matches!(artifact.configuration.linkage, ArtifactLinkage::Static)
+            {
+                return Err(PlanError::InvalidArtifactConfiguration {
+                    artifact: artifact.key.clone(),
+                    reason: "dynamic system libraries require dynamic linkage",
+                });
+            }
+        }
     }
     Ok(())
 }

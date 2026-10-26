@@ -45,7 +45,7 @@ use nia_driver::{
     LinkExecutableRequest, LinkTimeOptimization, ModuleMap, NiaOptimizationLevel, ObjectOutput,
     RuntimeSpec, SourceInputContent, SourcePath,
 };
-use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
+use nia_linker::{ArchiveOptions, StaticArchiveLinkInput};
 use nia_package_metadata::DependencyScope;
 use nia_query::{QueryFingerprintBytesWriter, QuerySession};
 use nia_target::TargetConfig;

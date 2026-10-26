@@ -300,6 +300,107 @@ pub enum CompilationMode {
     Test,
 }
 
+/// Linkage model owned by one emitted artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ArtifactLinkage {
+    /// A fixed-address executable or archive product.
+    Static,
+    /// A position-independent executable without a dynamic loader.
+    StaticPie,
+    /// A dynamically loaded executable.
+    Dynamic,
+}
+
+/// Debug information emitted for an artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DebugInfo {
+    /// Do not emit debug information.
+    None,
+    /// Emit line tables only.
+    LineTables,
+    /// Emit complete debuggable metadata.
+    Full,
+}
+
+/// Runtime panic policy owned by an artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PanicStrategy {
+    /// Lower panics to the target abort path.
+    Abort,
+    /// Preserve unwind edges for a runtime that supports them.
+    Unwind,
+}
+
+/// Link-time optimization policy owned by an artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ArtifactLto {
+    /// Emit independent native objects.
+    Off,
+    /// Use ThinLTO at the final link.
+    Thin,
+    /// Use full LTO at the final link.
+    Full,
+}
+
+/// One deterministic compiler define.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ArtifactDefine {
+    /// Identifier exposed to conditional compilation and code generation.
+    pub name: String,
+    /// Optional textual value; a missing value means the define is boolean.
+    pub value: Option<String>,
+}
+
+/// Search mode for a declared system library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SystemLibraryMode {
+    /// Follow the artifact linkage model.
+    Default,
+    /// Search only static variants.
+    Static,
+    /// Search only dynamic variants.
+    Dynamic,
+}
+
+/// One declared native system library.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SystemLibrary {
+    /// Linker library name without a `-l` prefix.
+    pub name: String,
+    /// Search mode applied to this library.
+    pub mode: SystemLibraryMode,
+}
+
+/// Complete output-changing configuration for one artifact.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ArtifactConfiguration {
+    /// Linkage form of the emitted product.
+    pub linkage: ArtifactLinkage,
+    /// Debug metadata policy.
+    pub debug_info: DebugInfo,
+    /// Panic lowering policy.
+    pub panic_strategy: PanicStrategy,
+    /// Whole-program optimization policy.
+    pub lto: ArtifactLto,
+    /// Ordered compiler defines.
+    pub defines: Vec<ArtifactDefine>,
+    /// Ordered native libraries passed to the linker.
+    pub system_libraries: Vec<SystemLibrary>,
+}
+
+impl Default for ArtifactConfiguration {
+    fn default() -> Self {
+        Self {
+            linkage: ArtifactLinkage::StaticPie,
+            debug_info: DebugInfo::None,
+            panic_strategy: PanicStrategy::Abort,
+            lto: ArtifactLto::Off,
+            defines: Vec::new(),
+            system_libraries: Vec::new(),
+        }
+    }
+}
+
 /// Named module import and its logical source path.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ModuleImport {
@@ -425,6 +526,8 @@ pub struct PlanArtifact {
     pub runtime: Runtime,
     /// Whether the product is compiled with test-only source.
     pub mode: CompilationMode,
+    /// Complete output-changing configuration owned by this artifact.
+    pub configuration: ArtifactConfiguration,
 }
 
 /// How an external command locates its program.
@@ -523,6 +626,8 @@ pub enum ActionKind {
         runtime: Runtime,
         /// Compilation mode of the artifact being checked.
         mode: CompilationMode,
+        /// Artifact configuration applied while checking this module.
+        configuration: ArtifactConfiguration,
     },
     /// Compile and link one declared artifact.
     CompilerEmit {
@@ -532,6 +637,8 @@ pub enum ActionKind {
         target: TargetConfig,
         /// Static archives linked in declaration order.
         static_archives: Vec<ArtifactKey>,
+        /// Artifact configuration applied while emitting this product.
+        configuration: ArtifactConfiguration,
     },
     /// Run a declared external program in a bounded environment.
     ExternalCommand(CommandAction),
@@ -763,6 +870,13 @@ pub enum PlanError {
     },
     /// A test-mode artifact is not an executable; only executables run tests.
     NonExecutableTest(ArtifactKey),
+    /// An artifact configuration is not valid for its product kind.
+    InvalidArtifactConfiguration {
+        /// Artifact carrying the invalid configuration.
+        artifact: ArtifactKey,
+        /// Stable rejection reason.
+        reason: &'static str,
+    },
     /// An action uses an artifact in an unsupported role.
     InvalidArtifactUse {
         /// Rejected action.
@@ -909,6 +1023,11 @@ impl fmt::Display for PlanError {
             Self::NonExecutableTest(artifact) => write!(
                 f,
                 "artifact `{}` is compiled as a test but is not an executable",
+                display_node_key(artifact)
+            ),
+            Self::InvalidArtifactConfiguration { artifact, reason } => write!(
+                f,
+                "artifact `{}` has invalid configuration: {reason}",
                 display_node_key(artifact)
             ),
             Self::InvalidArtifactUse {
@@ -1302,6 +1421,7 @@ mod tests {
                 artifact: artifact_key("app"),
                 target: target(),
                 static_archives: Vec::new(),
+                configuration: ArtifactConfiguration::default(),
             },
         });
 

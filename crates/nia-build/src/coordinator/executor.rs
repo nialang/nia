@@ -9,9 +9,11 @@ use super::*;
 use crate::action_cache::CompilerCheckCacheIdentityInput;
 use crate::lock::{LockWaitEvent, LockWaitObserver};
 use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
+use crate::{ArtifactConfiguration, ArtifactLinkage, ArtifactLto, SystemLibraryMode};
 use crate::{
     PlanPackageSource, add_manifest_module_roots, add_own_library_module_root, insert_module_root,
 };
+use nia_linker::{ExecutableForm, Interpreter, LinkOptions};
 use nia_package_metadata::DependencyScope;
 use std::io::{Seek as _, SeekFrom};
 
@@ -148,13 +150,22 @@ impl DriverActionExecutor {
                 target,
                 runtime,
                 mode,
+                configuration,
             } => {
-                return self.execute_compiler_check(action, module, target, *runtime, *mode);
+                return self.execute_compiler_check(
+                    action,
+                    module,
+                    target,
+                    *runtime,
+                    *mode,
+                    configuration,
+                );
             }
             ActionKind::CompilerEmit {
                 artifact,
                 target,
                 static_archives,
+                ..
             } => {
                 return self.execute_compiler_emit(action, artifact, target, static_archives);
             }
@@ -326,9 +337,9 @@ impl DriverActionExecutor {
         encoded.push(compilation_mode_tag(artifact.mode));
         encoded.push(optimization_tag(module.optimization));
         encoded.push(runtime_tag(artifact.runtime));
-        encoded.push(link_time_optimization_tag(
-            self.invocation.link_time_optimization,
-        ));
+        encoded.push(link_time_optimization_tag(artifact_lto_policy(
+            artifact.configuration.lto,
+        )));
         let mut package_paths = vec![
             program,
             &command.working_directory,
@@ -732,6 +743,7 @@ impl DriverActionExecutor {
         target: &TargetConfig,
         runtime: Runtime,
         mode: CompilationMode,
+        configuration: &ArtifactConfiguration,
     ) -> Result<Option<ActionCacheOutcome>, CoordinatorError> {
         let module = find_module(self.plan.modules(), module_key).ok_or_else(|| {
             inconsistent(
@@ -769,6 +781,7 @@ impl DriverActionExecutor {
             profile: self.invocation.profile,
             compilation_mode: mode,
             runtime,
+            configuration,
             manifest: &precheck_manifest,
             toolchain: self.invocation.toolchain.identity(),
         });
@@ -814,6 +827,7 @@ impl DriverActionExecutor {
                 profile: self.invocation.profile,
                 compilation_mode: mode,
                 runtime,
+                configuration,
                 manifest: &checked.source_manifest,
                 toolchain: self.invocation.toolchain.identity(),
             })
@@ -940,7 +954,9 @@ impl DriverActionExecutor {
             cache_link_inputs.push(cache_input);
             linker_inputs.push(linker_input);
         }
-        let link_options = LinkOptions::default().with_static_archives(linker_inputs);
+        let link_options = artifact_link_options(&artifact.configuration, *target)
+            .with_static_archives(linker_inputs);
+        let link_time_optimization = artifact_lto_policy(artifact.configuration.lto);
         // Lookup may use the precheck closure; publication must bind the
         // executable to the finalized source closure returned after linking.
         let precheck_manifest = driver
@@ -965,11 +981,12 @@ impl DriverActionExecutor {
                 profile: self.invocation.profile,
                 compilation_mode: artifact.mode,
                 runtime: artifact.runtime,
+                configuration: &artifact.configuration,
                 manifest: &precheck_manifest,
                 toolchain: self.invocation.toolchain.identity(),
                 link_environment: environment,
                 link_inputs: &cache_link_inputs,
-                link_time_optimization: self.invocation.link_time_optimization,
+                link_time_optimization,
             })
         });
         let miss_reason = match precheck_identity.as_ref() {
@@ -1016,7 +1033,7 @@ impl DriverActionExecutor {
             .link_executable_with_source_manifest(
                 LinkExecutableRequest::new(request, output)
                     .with_link_options(link_options.clone())
-                    .with_link_time_optimization(self.invocation.link_time_optimization),
+                    .with_link_time_optimization(link_time_optimization),
             )
             .result;
         let link_success = linked.is_ok();
@@ -1051,11 +1068,12 @@ impl DriverActionExecutor {
             profile: self.invocation.profile,
             compilation_mode: artifact.mode,
             runtime: artifact.runtime,
+            configuration: &artifact.configuration,
             manifest: &linked.source_manifest,
             toolchain: self.invocation.toolchain.identity(),
             link_environment,
             link_inputs: &cache_link_inputs,
-            link_time_optimization: self.invocation.link_time_optimization,
+            link_time_optimization,
         }) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
@@ -1863,6 +1881,37 @@ fn link_time_optimization_tag(policy: LinkTimeOptimization) -> u8 {
         LinkTimeOptimization::Thin => 1,
         LinkTimeOptimization::Full => 2,
     }
+}
+
+fn artifact_lto_policy(policy: ArtifactLto) -> LinkTimeOptimization {
+    match policy {
+        ArtifactLto::Off => LinkTimeOptimization::Off,
+        ArtifactLto::Thin => LinkTimeOptimization::Thin,
+        ArtifactLto::Full => LinkTimeOptimization::Full,
+    }
+}
+
+fn artifact_link_options(
+    configuration: &ArtifactConfiguration,
+    target: TargetConfig,
+) -> LinkOptions {
+    let mut options = LinkOptions::default();
+    if target.object_format() == nia_target::ObjectFormat::Elf {
+        let form = match configuration.linkage {
+            ArtifactLinkage::Static => ExecutableForm::Static,
+            ArtifactLinkage::StaticPie => ExecutableForm::StaticPie,
+            ArtifactLinkage::Dynamic => ExecutableForm::Dynamic(Interpreter::Standard),
+        };
+        options = options.with_form(form);
+    }
+    for library in &configuration.system_libraries {
+        options = match library.mode {
+            SystemLibraryMode::Default => options.add_library(library.name.clone()),
+            SystemLibraryMode::Static => options.add_static_library(library.name.clone()),
+            SystemLibraryMode::Dynamic => options.add_dynamic_library(library.name.clone()),
+        };
+    }
+    options
 }
 
 const MAX_COMMAND_ENVIRONMENT_SNAPSHOT_BYTES: usize = 1024 * 1024;

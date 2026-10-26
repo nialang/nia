@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::{
-    BuildPlanDraft, CommandEnvironmentPolicy, ModuleImport, PlanAction, PlanPackage, PlanStep,
+    ArtifactConfiguration, BuildPlanDraft, CommandEnvironmentPolicy, ModuleImport, PlanAction,
+    PlanPackage, PlanStep,
 };
 use std::sync::{Arc, Barrier, Mutex, OnceLock, atomic::AtomicBool};
 
@@ -243,6 +244,7 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
                     target: target(),
                     runtime: Runtime::Freestanding,
                     mode: CompilationMode::Normal,
+                    configuration: ArtifactConfiguration::default(),
                 },
             },
             PlanAction {
@@ -378,6 +380,7 @@ fn compiler_module_maps_only_include_dependencies_selected_for_the_action() {
                     target: target(),
                     runtime: Runtime::Bare,
                     mode,
+                    configuration: ArtifactConfiguration::default(),
                 },
             }],
             steps: Vec::new(),
@@ -1293,6 +1296,7 @@ fn compiler_check_plan_with_runtime(
                 target: artifact,
                 runtime,
                 mode: CompilationMode::Normal,
+                configuration: ArtifactConfiguration::default(),
             },
         }],
         steps: vec![PlanStep {
@@ -1375,6 +1379,7 @@ fn compiler_emit_plan_kind(
             root_module: module,
             kind,
             mode: CompilationMode::Normal,
+            configuration: ArtifactConfiguration::default(),
             output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
             runtime,
         }],
@@ -1384,6 +1389,7 @@ fn compiler_emit_plan_kind(
                 artifact: artifact_key,
                 target: artifact_target,
                 static_archives: Vec::new(),
+                configuration: ArtifactConfiguration::default(),
             },
         }],
         steps: vec![PlanStep {
@@ -1426,6 +1432,7 @@ fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
             output: LogicalPath::new(LogicalPathRoot::Build, "bin/app").unwrap(),
             runtime: Runtime::Freestanding,
             mode: CompilationMode::Normal,
+            configuration: ArtifactConfiguration::default(),
         }],
         actions: vec![
             PlanAction {
@@ -1434,6 +1441,7 @@ fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
                     artifact: artifact_key.clone(),
                     target: artifact_target,
                     static_archives: Vec::new(),
+                    configuration: ArtifactConfiguration::default(),
                 },
             },
             PlanAction {
@@ -1512,6 +1520,7 @@ fn mixed_generated_source_emit_plan(
                 output: LogicalPath::new(LogicalPathRoot::Build, "bin/generated").unwrap(),
                 runtime: Runtime::Freestanding,
                 mode: CompilationMode::Normal,
+                configuration: ArtifactConfiguration::default(),
             },
             PlanArtifact {
                 key: stable_artifact.clone(),
@@ -1520,6 +1529,7 @@ fn mixed_generated_source_emit_plan(
                 output: LogicalPath::new(LogicalPathRoot::Build, "bin/stable").unwrap(),
                 runtime: Runtime::Freestanding,
                 mode: CompilationMode::Normal,
+                configuration: ArtifactConfiguration::default(),
             },
         ],
         actions: vec![
@@ -1533,6 +1543,7 @@ fn mixed_generated_source_emit_plan(
                     artifact: generated_artifact,
                     target: artifact_target,
                     static_archives: Vec::new(),
+                    configuration: ArtifactConfiguration::default(),
                 },
             },
             PlanAction {
@@ -1541,6 +1552,7 @@ fn mixed_generated_source_emit_plan(
                     artifact: stable_artifact,
                     target: artifact_target,
                     static_archives: Vec::new(),
+                    configuration: ArtifactConfiguration::default(),
                 },
             },
             PlanAction {

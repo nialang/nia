@@ -30,7 +30,8 @@ use super::{
     write_bytes, write_fingerprint, write_text,
 };
 use crate::{
-    ActionKey, CompilationMode, OptimizationMode, PlanModule, PlanPackage, Runtime,
+    ActionKey, ArtifactConfiguration, ArtifactLinkage, ArtifactLto, CompilationMode, DebugInfo,
+    OptimizationMode, PanicStrategy, PlanModule, PlanPackage, Runtime, SystemLibraryMode,
     lock::{LockWaitObserver, ScopedFileLock},
 };
 use nia_target::TargetConfig;
@@ -57,6 +58,8 @@ pub(super) const COMPILER_CHECK_OPTIMIZATION_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-check.optimization");
 pub(super) const COMPILER_CHECK_RUNTIME_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-check.runtime");
+pub(super) const COMPILER_CHECK_CONFIGURATION_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.build.compiler-check.configuration");
 const COMPILER_CHECK_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.compiler-check.key");
 const COMPILER_CHECK_FINGERPRINT_DOMAIN: FingerprintDomain =
@@ -100,6 +103,7 @@ pub(super) struct FingerprintComponents {
     pub(super) compilation_mode: QueryFingerprint,
     pub(super) optimization: QueryFingerprint,
     pub(super) runtime: QueryFingerprint,
+    pub(super) configuration: QueryFingerprint,
     pub(super) compiler: QueryFingerprint,
     pub(super) resource_layout: QueryFingerprint,
     pub(super) standard_library: QueryFingerprint,
@@ -121,6 +125,7 @@ struct FingerprintSetInput<'a> {
     compilation_mode: u8,
     optimization: u8,
     runtime: u8,
+    configuration: &'a [u8],
     sources: QueryFingerprint,
     toolchain: ToolchainComponents,
 }
@@ -146,6 +151,10 @@ impl FingerprintSet {
                 u64::from(input.optimization),
             ),
             runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(input.runtime)),
+            configuration: bytes_fingerprint(
+                COMPILER_CHECK_CONFIGURATION_DOMAIN,
+                input.configuration,
+            ),
             compiler: input.toolchain.compiler,
             resource_layout: input.toolchain.resource_layout,
             standard_library: input.toolchain.standard_library,
@@ -177,6 +186,7 @@ pub(crate) struct CompilerCheckCacheIdentity {
     pub(super) compilation_mode: u8,
     pub(super) optimization: u8,
     pub(super) runtime: u8,
+    pub(super) configuration: Vec<u8>,
     pub(super) sources: Vec<SourceRecord>,
 }
 
@@ -188,6 +198,7 @@ pub(crate) struct CompilerCheckCacheIdentityInput<'a> {
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: CompilationMode,
     pub(crate) runtime: Runtime,
+    pub(crate) configuration: &'a ArtifactConfiguration,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
 }
@@ -208,6 +219,7 @@ impl CompilerCheckCacheIdentity {
         let compilation_mode = compilation_mode_tag(input.compilation_mode);
         let optimization = optimization_tag(input.module.optimization);
         let runtime = runtime_tag(input.runtime);
+        let configuration = artifact_configuration_identity(input.configuration);
         Some(Self {
             fingerprints: FingerprintSet::new(
                 input.action,
@@ -219,6 +231,7 @@ impl CompilerCheckCacheIdentity {
                     compilation_mode,
                     optimization,
                     runtime,
+                    configuration: &configuration,
                     sources: source_fingerprint,
                     toolchain: ToolchainComponents::new(input.toolchain),
                 },
@@ -231,6 +244,7 @@ impl CompilerCheckCacheIdentity {
             compilation_mode,
             optimization,
             runtime,
+            configuration,
             sources,
         })
     }
@@ -535,6 +549,7 @@ struct DecodedEntry {
     compilation_mode: u8,
     optimization: u8,
     runtime: u8,
+    configuration: Vec<u8>,
     sources: Vec<SourceRecord>,
 }
 
@@ -550,6 +565,7 @@ fn encode_entry(identity: &CompilerCheckCacheIdentity) -> Vec<u8> {
     encoded.push(identity.compilation_mode);
     encoded.push(identity.optimization);
     encoded.push(identity.runtime);
+    write_bytes(&mut encoded, &identity.configuration);
     encoded.extend_from_slice(&(identity.sources.len() as u64).to_le_bytes());
     for source in &identity.sources {
         write_text(&mut encoded, &source.identity);
@@ -576,6 +592,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let compilation_mode = read_tag(&mut cursor, 2)?;
     let optimization = read_tag(&mut cursor, 6)?;
     let runtime = read_tag(&mut cursor, 2)?;
+    let configuration = read_bytes(&mut cursor, encoded.len())?;
     let source_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
     (source_len <= encoded.len()).then_some(())?;
     let mut sources = Vec::with_capacity(source_len);
@@ -612,6 +629,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             u64::from(optimization),
         ),
         runtime: integer_fingerprint(COMPILER_CHECK_RUNTIME_DOMAIN, u64::from(runtime)),
+        configuration: bytes_fingerprint(COMPILER_CHECK_CONFIGURATION_DOMAIN, &configuration),
         compiler: fingerprints.components.compiler,
         resource_layout: fingerprints.components.resource_layout,
         standard_library: fingerprints.components.standard_library,
@@ -630,6 +648,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             compilation_mode,
             optimization,
             runtime,
+            configuration,
             sources,
         })
 }
@@ -646,6 +665,7 @@ fn write_fingerprint_set(encoded: &mut Vec<u8>, fingerprints: FingerprintSet) {
         fingerprints.components.compilation_mode,
         fingerprints.components.optimization,
         fingerprints.components.runtime,
+        fingerprints.components.configuration,
         fingerprints.components.compiler,
         fingerprints.components.resource_layout,
         fingerprints.components.standard_library,
@@ -668,6 +688,7 @@ fn read_fingerprint_set(cursor: &mut Cursor<&[u8]>) -> Option<FingerprintSet> {
             compilation_mode: read_fingerprint(cursor)?,
             optimization: read_fingerprint(cursor)?,
             runtime: read_fingerprint(cursor)?,
+            configuration: read_fingerprint(cursor)?,
             compiler: read_fingerprint(cursor)?,
             resource_layout: read_fingerprint(cursor)?,
             standard_library: read_fingerprint(cursor)?,
@@ -686,6 +707,7 @@ fn entry_matches(entry: &DecodedEntry, identity: &CompilerCheckCacheIdentity) ->
         && entry.compilation_mode == identity.compilation_mode
         && entry.optimization == identity.optimization
         && entry.runtime == identity.runtime
+        && entry.configuration == identity.configuration
         && entry.sources == identity.sources
 }
 
@@ -726,6 +748,10 @@ pub(super) fn invalidations(
         (
             found.runtime != expected.runtime,
             ActionCacheInvalidation::Runtime,
+        ),
+        (
+            found.configuration != expected.configuration,
+            ActionCacheInvalidation::Artifact,
         ),
         (
             found.compiler != expected.compiler,
@@ -889,6 +915,7 @@ fn combined_fingerprint(
         components.compilation_mode,
         components.optimization,
         components.runtime,
+        components.configuration,
         components.compiler,
         components.resource_layout,
         components.standard_library,
@@ -897,6 +924,50 @@ fn combined_fingerprint(
         builder.write_fingerprint(component);
     }
     builder.finish()
+}
+
+fn artifact_configuration_identity(configuration: &ArtifactConfiguration) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.push(match configuration.linkage {
+        ArtifactLinkage::Static => 0,
+        ArtifactLinkage::StaticPie => 1,
+        ArtifactLinkage::Dynamic => 2,
+    });
+    encoded.push(match configuration.debug_info {
+        DebugInfo::None => 0,
+        DebugInfo::LineTables => 1,
+        DebugInfo::Full => 2,
+    });
+    encoded.push(match configuration.panic_strategy {
+        PanicStrategy::Abort => 0,
+        PanicStrategy::Unwind => 1,
+    });
+    encoded.push(match configuration.lto {
+        ArtifactLto::Off => 0,
+        ArtifactLto::Thin => 1,
+        ArtifactLto::Full => 2,
+    });
+    encoded.extend_from_slice(&(configuration.defines.len() as u64).to_le_bytes());
+    for define in &configuration.defines {
+        write_text(&mut encoded, &define.name);
+        match &define.value {
+            Some(value) => {
+                encoded.push(1);
+                write_text(&mut encoded, value);
+            }
+            None => encoded.push(0),
+        }
+    }
+    encoded.extend_from_slice(&(configuration.system_libraries.len() as u64).to_le_bytes());
+    for library in &configuration.system_libraries {
+        write_text(&mut encoded, &library.name);
+        encoded.push(match library.mode {
+            SystemLibraryMode::Default => 0,
+            SystemLibraryMode::Static => 1,
+            SystemLibraryMode::Dynamic => 2,
+        });
+    }
+    encoded
 }
 
 pub(super) fn bytes_fingerprint(domain: FingerprintDomain, bytes: &[u8]) -> QueryFingerprint {
@@ -959,6 +1030,7 @@ mod tests {
                 compilation_mode,
                 optimization: optimization_tag(module.optimization),
                 runtime: runtime_tag(Runtime::Bare),
+                configuration: &[],
                 sources: source_records_fingerprint(&sources),
                 toolchain: ToolchainComponents {
                     compiler: fingerprint(1),
@@ -978,6 +1050,7 @@ mod tests {
             compilation_mode,
             optimization: optimization_tag(module.optimization),
             runtime: runtime_tag(Runtime::Bare),
+            configuration: Vec::new(),
             sources,
         }
     }
@@ -1063,6 +1136,13 @@ mod tests {
                     ..baseline
                 },
                 ActionCacheInvalidation::Runtime,
+            ),
+            (
+                FingerprintComponents {
+                    configuration: fingerprint(10),
+                    ..baseline
+                },
+                ActionCacheInvalidation::Artifact,
             ),
         ] {
             assert_eq!(invalidations(baseline, changed), [expected]);

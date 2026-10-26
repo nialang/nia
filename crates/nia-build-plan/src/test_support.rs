@@ -61,6 +61,7 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
                 target: target(),
                 runtime: Runtime::Freestanding,
                 mode: CompilationMode::Normal,
+                configuration: ArtifactConfiguration::default(),
             },
         },
         PlanAction {
@@ -69,6 +70,7 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
                 artifact: artifact.clone(),
                 target: target(),
                 static_archives: Vec::new(),
+                configuration: ArtifactConfiguration::default(),
             },
         },
     ];
@@ -105,6 +107,7 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
             output: LogicalPath::new(LogicalPathRoot::Build, "app").unwrap(),
             runtime: Runtime::Freestanding,
             mode: CompilationMode::Normal,
+            configuration: ArtifactConfiguration::default(),
         }],
         actions,
         steps,
@@ -128,6 +131,7 @@ pub(crate) fn static_archive_link_draft() -> BuildPlanDraft {
             output: LogicalPath::new(LogicalPathRoot::Build, output).unwrap(),
             runtime: Runtime::Bare,
             mode: CompilationMode::Normal,
+            configuration: ArtifactConfiguration::default(),
         });
         value.actions.push(PlanAction {
             key: action_key(&format!("emit-{}", artifact.name())),
@@ -135,6 +139,7 @@ pub(crate) fn static_archive_link_draft() -> BuildPlanDraft {
                 artifact: artifact.clone(),
                 target: target(),
                 static_archives: Vec::new(),
+                configuration: ArtifactConfiguration::default(),
             },
         });
         value.steps.push(PlanStep {
@@ -204,6 +209,7 @@ pub(crate) fn generated_source_draft(
                     target: target(),
                     runtime: Runtime::Freestanding,
                     mode: CompilationMode::Normal,
+                    configuration: ArtifactConfiguration::default(),
                 },
             },
         ],

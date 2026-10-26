@@ -87,6 +87,7 @@ pub(crate) fn canonicalize_actions(
                 artifact,
                 target,
                 static_archives,
+                configuration,
             } => {
                 let Some(emitted) = artifacts_by_key.get(artifact) else {
                     return Err(PlanError::MissingArtifact {
@@ -94,6 +95,13 @@ pub(crate) fn canonicalize_actions(
                         artifact: artifact.clone(),
                     });
                 };
+                if emitted.configuration != *configuration {
+                    return Err(PlanError::InvalidArtifactUse {
+                        action: action.key.clone(),
+                        artifact: artifact.clone(),
+                        reason: "compiler emit configuration must match its artifact",
+                    });
+                }
                 if emitted.kind != PlanArtifactKind::Executable && !static_archives.is_empty() {
                     return Err(PlanError::InvalidArtifactUse {
                         action: action.key.clone(),

@@ -42,6 +42,57 @@ pub enum Runtime: i32 {
     _
 }
 
+// Output-changing artifact configuration is retained by the artifact record
+// and serialized into every compiler action. These are Nia build semantics,
+// not invocation-global compiler flags.
+pub enum Linkage: i32 {
+    Static = 0,
+    StaticPie = 1,
+    Dynamic = 2,
+    _
+}
+
+pub enum DebugInfo: i32 {
+    None = 0,
+    LineTables = 1,
+    Full = 2,
+    _
+}
+
+pub enum PanicStrategy: i32 {
+    Abort = 0,
+    Unwind = 1,
+    _
+}
+
+pub enum LtoMode: i32 {
+    Off = 0,
+    Thin = 1,
+    Full = 2,
+    _
+}
+
+pub enum SystemLibraryMode: i32 {
+    Default = 0,
+    Static = 1,
+    Dynamic = 2,
+    _
+}
+
+pub struct ArtifactDefine {
+    name: &[char],
+}
+
+pub struct SystemLibrary {
+    name: &[char],
+    mode: SystemLibraryMode,
+}
+
+pub(root) struct OwnedSystemLibrary {
+    name: string::String,
+    mode: SystemLibraryMode,
+}
+
 pub(root) enum ModuleSourceRoot: i32 {
     Package = 1,
     Build = 2,
@@ -330,6 +381,12 @@ pub struct ExecutableOptions {
     target: ?TargetView,
     staticArchives: ?&[StaticArchiveHandle],
     runtime: Runtime,
+    linkage: Linkage,
+    debugInfo: DebugInfo,
+    panicStrategy: PanicStrategy,
+    lto: LtoMode,
+    defines: ?&[ArtifactDefine],
+    systemLibraries: ?&[SystemLibrary],
 }
 
 pub struct ExecutableTarget {
@@ -340,6 +397,12 @@ pub struct ExecutableTarget {
     targetIndex: usize,
     staticArchives: collections::ArrayList[StaticArchiveHandle],
     runtime: Runtime,
+    linkage: Linkage,
+    debugInfo: DebugInfo,
+    panicStrategy: PanicStrategy,
+    lto: LtoMode,
+    defines: collections::ArrayList[string::String],
+    systemLibraries: collections::ArrayList[OwnedSystemLibrary],
     // A test executable is compiled with `@[test]` source and the root
     // package's development dependencies; only `addTestSuite` sets it.
     test: bool,
@@ -350,6 +413,12 @@ pub struct ObjectOptions {
     rootModule: ModuleHandle,
     outputName: ?&[char],
     target: ?TargetView,
+    linkage: Linkage,
+    debugInfo: DebugInfo,
+    panicStrategy: PanicStrategy,
+    lto: LtoMode,
+    defines: ?&[ArtifactDefine],
+    systemLibraries: ?&[SystemLibrary],
 }
 
 pub struct ObjectTarget {
@@ -358,6 +427,12 @@ pub struct ObjectTarget {
     rootModule: ModuleHandle,
     outputName: string::String,
     targetIndex: usize,
+    linkage: Linkage,
+    debugInfo: DebugInfo,
+    panicStrategy: PanicStrategy,
+    lto: LtoMode,
+    defines: collections::ArrayList[string::String],
+    systemLibraries: collections::ArrayList[OwnedSystemLibrary],
 }
 
 pub struct StaticArchiveOptions {
@@ -365,6 +440,12 @@ pub struct StaticArchiveOptions {
     rootModule: ModuleHandle,
     outputName: ?&[char],
     target: ?TargetView,
+    linkage: Linkage,
+    debugInfo: DebugInfo,
+    panicStrategy: PanicStrategy,
+    lto: LtoMode,
+    defines: ?&[ArtifactDefine],
+    systemLibraries: ?&[SystemLibrary],
 }
 
 pub struct StaticArchiveTarget {
@@ -373,6 +454,12 @@ pub struct StaticArchiveTarget {
     rootModule: ModuleHandle,
     outputName: string::String,
     targetIndex: usize,
+    linkage: Linkage,
+    debugInfo: DebugInfo,
+    panicStrategy: PanicStrategy,
+    lto: LtoMode,
+    defines: collections::ArrayList[string::String],
+    systemLibraries: collections::ArrayList[OwnedSystemLibrary],
 }
 
 pub struct BuildPaths {

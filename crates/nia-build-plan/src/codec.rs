@@ -371,6 +371,46 @@ impl Writer {
         });
     }
 
+    fn artifact_configuration(
+        &mut self,
+        value: &ArtifactConfiguration,
+    ) -> Result<(), PlanCodecError> {
+        self.u8(match value.linkage {
+            ArtifactLinkage::Static => 0,
+            ArtifactLinkage::StaticPie => 1,
+            ArtifactLinkage::Dynamic => 2,
+        });
+        self.u8(match value.debug_info {
+            DebugInfo::None => 0,
+            DebugInfo::LineTables => 1,
+            DebugInfo::Full => 2,
+        });
+        self.u8(match value.panic_strategy {
+            PanicStrategy::Abort => 0,
+            PanicStrategy::Unwind => 1,
+        });
+        self.u8(match value.lto {
+            ArtifactLto::Off => 0,
+            ArtifactLto::Thin => 1,
+            ArtifactLto::Full => 2,
+        });
+        self.count(value.defines.len())?;
+        for define in &value.defines {
+            self.string(&define.name)?;
+            self.option_string(define.value.as_deref())?;
+        }
+        self.count(value.system_libraries.len())?;
+        for library in &value.system_libraries {
+            self.string(&library.name)?;
+            self.u8(match library.mode {
+                SystemLibraryMode::Default => 0,
+                SystemLibraryMode::Static => 1,
+                SystemLibraryMode::Dynamic => 2,
+            });
+        }
+        Ok(())
+    }
+
     fn module(&mut self, module: &PlanModule) -> Result<(), PlanCodecError> {
         self.module_key(&module.key)?;
         self.logical_path(&module.root_source)?;
@@ -394,6 +434,7 @@ impl Writer {
         self.logical_path(&artifact.output)?;
         self.runtime(artifact.runtime);
         self.mode(artifact.mode);
+        self.artifact_configuration(&artifact.configuration)?;
         Ok(())
     }
 
@@ -405,17 +446,20 @@ impl Writer {
                 target,
                 runtime,
                 mode,
+                configuration,
             } => {
                 self.u8(0);
                 self.module_key(module)?;
                 self.target(target)?;
                 self.runtime(*runtime);
                 self.mode(*mode);
+                self.artifact_configuration(configuration)?;
             }
             ActionKind::CompilerEmit {
                 artifact,
                 target,
                 static_archives,
+                configuration,
             } => {
                 self.u8(1);
                 self.artifact_key(artifact)?;
@@ -424,6 +468,7 @@ impl Writer {
                 for archive in static_archives {
                     self.artifact_key(archive)?;
                 }
+                self.artifact_configuration(configuration)?;
             }
             ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
                 let CommandAction {
@@ -775,6 +820,91 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn artifact_configuration(&mut self) -> Result<ArtifactConfiguration, PlanCodecError> {
+        let linkage_offset = self.offset;
+        let linkage = match self.u8()? {
+            0 => ArtifactLinkage::Static,
+            1 => ArtifactLinkage::StaticPie,
+            2 => ArtifactLinkage::Dynamic,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "artifact linkage",
+                    tag,
+                    offset: linkage_offset,
+                });
+            }
+        };
+        let debug_offset = self.offset;
+        let debug_info = match self.u8()? {
+            0 => DebugInfo::None,
+            1 => DebugInfo::LineTables,
+            2 => DebugInfo::Full,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "debug info",
+                    tag,
+                    offset: debug_offset,
+                });
+            }
+        };
+        let panic_offset = self.offset;
+        let panic_strategy = match self.u8()? {
+            0 => PanicStrategy::Abort,
+            1 => PanicStrategy::Unwind,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "panic strategy",
+                    tag,
+                    offset: panic_offset,
+                });
+            }
+        };
+        let lto_offset = self.offset;
+        let lto = match self.u8()? {
+            0 => ArtifactLto::Off,
+            1 => ArtifactLto::Thin,
+            2 => ArtifactLto::Full,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "artifact LTO",
+                    tag,
+                    offset: lto_offset,
+                });
+            }
+        };
+        let defines = self.list(|reader| {
+            Ok(ArtifactDefine {
+                name: reader.string()?,
+                value: reader.option_string()?,
+            })
+        })?;
+        let system_libraries = self.list(|reader| {
+            let name = reader.string()?;
+            let offset = reader.offset;
+            let mode = match reader.u8()? {
+                0 => SystemLibraryMode::Default,
+                1 => SystemLibraryMode::Static,
+                2 => SystemLibraryMode::Dynamic,
+                tag => {
+                    return Err(PlanCodecError::InvalidTag {
+                        kind: "system library mode",
+                        tag,
+                        offset,
+                    });
+                }
+            };
+            Ok(SystemLibrary { name, mode })
+        })?;
+        Ok(ArtifactConfiguration {
+            linkage,
+            debug_info,
+            panic_strategy,
+            lto,
+            defines,
+            system_libraries,
+        })
+    }
+
     fn module(&mut self) -> Result<PlanModule, PlanCodecError> {
         Ok(PlanModule {
             key: self.module_key()?,
@@ -812,6 +942,7 @@ impl<'a> Reader<'a> {
             output: self.logical_path()?,
             runtime: self.runtime()?,
             mode: self.mode()?,
+            configuration: self.artifact_configuration()?,
         })
     }
 
@@ -825,11 +956,13 @@ impl<'a> Reader<'a> {
                 target: self.target()?,
                 runtime: self.runtime()?,
                 mode: self.mode()?,
+                configuration: self.artifact_configuration()?,
             },
             1 => ActionKind::CompilerEmit {
                 artifact: self.artifact_key()?,
                 target: self.target()?,
                 static_archives: self.list(|reader| reader.artifact_key())?,
+                configuration: self.artifact_configuration()?,
             },
             2 | 7 => {
                 let resource_class = self.resource_class()?;
@@ -1142,6 +1275,55 @@ mod tests {
     }
 
     #[test]
+    fn artifact_configuration_round_trips_as_part_of_the_plan() {
+        let mut value = draft(false);
+        let configuration = ArtifactConfiguration {
+            linkage: ArtifactLinkage::Dynamic,
+            debug_info: DebugInfo::Full,
+            panic_strategy: PanicStrategy::Unwind,
+            lto: ArtifactLto::Thin,
+            defines: vec![ArtifactDefine {
+                name: "FEATURE".to_string(),
+                value: Some("enabled".to_string()),
+            }],
+            system_libraries: vec![SystemLibrary {
+                name: "m".to_string(),
+                mode: SystemLibraryMode::Dynamic,
+            }],
+        };
+        value.artifacts[0].configuration = configuration.clone();
+        for action in &mut value.actions {
+            match &mut action.kind {
+                ActionKind::CompilerCheck {
+                    configuration: config,
+                    ..
+                }
+                | ActionKind::CompilerEmit {
+                    configuration: config,
+                    ..
+                } => {
+                    *config = configuration.clone();
+                }
+                _ => {}
+            }
+        }
+        let plan = BuildPlan::freeze(value).unwrap();
+        let decoded = BuildPlan::decode(&plan.encode().unwrap()).unwrap();
+        assert_eq!(decoded.artifacts()[0].configuration, configuration);
+        assert!(decoded.actions().iter().all(|action| match &action.kind {
+            ActionKind::CompilerCheck {
+                configuration: config,
+                ..
+            }
+            | ActionKind::CompilerEmit {
+                configuration: config,
+                ..
+            } => config == &configuration,
+            _ => true,
+        }));
+    }
+
+    #[test]
     fn command_stdin_input_round_trips() {
         let mut value = draft(false);
         let input =
@@ -1244,6 +1426,7 @@ mod tests {
             output: LogicalPath::new(LogicalPathRoot::Build, "objects/app").unwrap(),
             runtime: Runtime::Bare,
             mode: CompilationMode::Normal,
+            configuration: ArtifactConfiguration::default(),
         });
         value.artifacts.push(PlanArtifact {
             key: ArtifactKey::new(PackageKey::root(), "archive").unwrap(),
@@ -1252,6 +1435,7 @@ mod tests {
             output: LogicalPath::new(LogicalPathRoot::Build, "lib/libarchive.a").unwrap(),
             runtime: Runtime::Bare,
             mode: CompilationMode::Normal,
+            configuration: ArtifactConfiguration::default(),
         });
         let package = PackageKey::root();
         value.actions.extend([
