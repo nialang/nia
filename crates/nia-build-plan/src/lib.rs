@@ -444,82 +444,6 @@ pub struct PlanPackageUsage {
     pub steps: usize,
 }
 
-/// Borrowed package-selection product owned by a frozen [`BuildPlan`].
-#[derive(Debug, Clone, Copy)]
-pub struct PlanPackageGraph<'a> {
-    root: &'a PackageKey,
-    packages: &'a [PlanPackage],
-}
-
-impl<'a> PlanPackageGraph<'a> {
-    /// Returns the package whose manifest anchors this graph.
-    pub fn root(&self) -> &'a PackageKey {
-        self.root
-    }
-
-    /// Returns packages selected by package resolution.
-    pub fn packages(&self) -> &'a [PlanPackage] {
-        self.packages
-    }
-}
-
-/// Borrowed module-source product owned by a frozen [`BuildPlan`].
-#[derive(Debug, Clone, Copy)]
-pub struct PlanModuleGraph<'a> {
-    modules: &'a [PlanModule],
-}
-
-impl<'a> PlanModuleGraph<'a> {
-    /// Returns modules selected from the package graph.
-    pub fn modules(&self) -> &'a [PlanModule] {
-        self.modules
-    }
-
-    /// Returns whether the selected module graph contains `key`.
-    pub fn contains(&self, key: &ModuleKey) -> bool {
-        self.modules
-            .binary_search_by(|module| module.key.cmp(key))
-            .is_ok()
-    }
-}
-
-/// Borrowed artifact execution product owned by a frozen [`BuildPlan`].
-#[derive(Debug, Clone, Copy)]
-pub struct PlanArtifactGraph<'a> {
-    artifacts: &'a [PlanArtifact],
-    actions: &'a [PlanAction],
-    steps: &'a [PlanStep],
-    default_step: Option<&'a StepKey>,
-    selected_step: Option<&'a StepKey>,
-}
-
-impl<'a> PlanArtifactGraph<'a> {
-    /// Returns artifact declarations and their owning compilation modes.
-    pub fn artifacts(&self) -> &'a [PlanArtifact] {
-        self.artifacts
-    }
-
-    /// Returns executable actions for these artifacts.
-    pub fn actions(&self) -> &'a [PlanAction] {
-        self.actions
-    }
-
-    /// Returns the dependency DAG that schedules artifact work.
-    pub fn steps(&self) -> &'a [PlanStep] {
-        self.steps
-    }
-
-    /// Returns the plan default step, if one was declared.
-    pub fn default_step(&self) -> Option<&'a StepKey> {
-        self.default_step
-    }
-
-    /// Returns the invocation-selected step, if one was requested.
-    pub fn selected_step(&self) -> Option<&'a StepKey> {
-        self.selected_step
-    }
-}
-
 impl PlanPackageUsage {
     /// Whether at least one module from this package entered the module graph.
     pub fn is_loaded(&self) -> bool {
@@ -906,8 +830,6 @@ pub enum PlanError {
     },
     /// Step dependencies contain a cycle in traversal order.
     StepCycle(Vec<StepKey>),
-    /// Module imports contain a cycle in traversal order.
-    ModuleCycle(Vec<ModuleKey>),
     /// An action declares an output outside the permitted build roots.
     InvalidOutput {
         /// Action declaring the output.
@@ -1056,15 +978,6 @@ impl fmt::Display for PlanError {
                     .collect::<Vec<_>>()
                     .join(" -> ")
             ),
-            Self::ModuleCycle(modules) => write!(
-                f,
-                "module import cycle: {}",
-                modules
-                    .iter()
-                    .map(display_node_key)
-                    .collect::<Vec<_>>()
-                    .join(" -> ")
-            ),
             Self::InvalidOutput { action, path } => write!(
                 f,
                 "action `{}` declares invalid output `{}`",
@@ -1192,7 +1105,6 @@ impl BuildPlan {
         validation::canonicalize_packages(&mut draft.packages, &draft.root_package)?;
         validation::validate_package_references(&draft)?;
         validation::canonicalize_modules(&mut draft.modules)?;
-        validation::validate_module_cycles(&draft.modules)?;
         validation::canonicalize_artifacts(&mut draft.artifacts, &draft.modules)?;
         validation::canonicalize_actions(
             &mut draft.actions,
@@ -1235,14 +1147,6 @@ impl BuildPlan {
     /// Returns canonical package declarations.
     pub fn packages(&self) -> &[PlanPackage] {
         &self.packages
-    }
-
-    /// Returns the package-resolution product selected for this plan.
-    pub fn package_graph(&self) -> PlanPackageGraph<'_> {
-        PlanPackageGraph {
-            root: &self.root_package,
-            packages: &self.packages,
-        }
     }
 
     /// Summarizes package declarations against loaded modules and actions.
@@ -1308,13 +1212,6 @@ impl BuildPlan {
     pub fn modules(&self) -> &[PlanModule] {
         &self.modules
     }
-
-    /// Returns the module-source subset selected from the package graph.
-    pub fn module_graph(&self) -> PlanModuleGraph<'_> {
-        PlanModuleGraph {
-            modules: &self.modules,
-        }
-    }
     /// Returns canonical artifact declarations.
     pub fn artifacts(&self) -> &[PlanArtifact] {
         &self.artifacts
@@ -1326,17 +1223,6 @@ impl BuildPlan {
     /// Returns canonical dependency steps.
     pub fn steps(&self) -> &[PlanStep] {
         &self.steps
-    }
-
-    /// Returns the artifact and action DAG selected from the module graph.
-    pub fn artifact_graph(&self) -> PlanArtifactGraph<'_> {
-        PlanArtifactGraph {
-            artifacts: &self.artifacts,
-            actions: &self.actions,
-            steps: &self.steps,
-            default_step: self.default_step.as_ref(),
-            selected_step: self.selected_step.as_ref(),
-        }
     }
     /// Returns the plan-declared default step, if any.
     pub fn default_step(&self) -> Option<&StepKey> {
@@ -1453,13 +1339,6 @@ mod tests {
         assert!(root.is_loaded());
         assert!(root.is_used());
         assert_eq!(usage.len(), plan.packages().len());
-        assert_eq!(plan.package_graph().root(), &PackageKey::root());
-        assert_eq!(plan.package_graph().packages(), plan.packages());
-        assert!(plan.module_graph().contains(&module_key("a")));
-        assert_eq!(plan.module_graph().modules(), plan.modules());
-        assert_eq!(plan.artifact_graph().artifacts(), plan.artifacts());
-        assert_eq!(plan.artifact_graph().actions(), plan.actions());
-        assert_eq!(plan.artifact_graph().steps(), plan.steps());
     }
 
     #[test]
@@ -1688,29 +1567,6 @@ mod tests {
         assert!(matches!(
             BuildPlan::freeze(value),
             Err(PlanError::StepCycle(_))
-        ));
-    }
-
-    #[test]
-    fn freeze_rejects_module_import_cycles_before_execution() {
-        let mut value = draft(false);
-        let first = value.modules[0].key.clone();
-        let second = value.modules[1].key.clone();
-        let first_source = value.modules[0].root_source.clone();
-        let second_source = value.modules[1].root_source.clone();
-        value.modules[0].imports = vec![ModuleImport {
-            name: "b".to_owned(),
-            path: second_source,
-        }];
-        value.modules[1].imports = vec![ModuleImport {
-            name: "a".to_owned(),
-            path: first_source,
-        }];
-        assert!(matches!(
-            BuildPlan::freeze(value),
-            Err(PlanError::ModuleCycle(cycle))
-                if cycle.first() == Some(&first) && cycle.last() == Some(&first)
-                    && cycle.contains(&second)
         ));
     }
 
