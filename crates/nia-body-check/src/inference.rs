@@ -233,7 +233,7 @@ impl BodyChecker<'_> {
         inference.solve_operators(self);
 
         let mut closure_uses: Vec<_> = inference.closure_uses.values().copied().collect();
-        closure_uses.sort_by_key(|usage| usage.first);
+        closure_uses.sort_by_key(|usage| (usage.first.start, usage.first.end));
         for usage in closure_uses {
             let Some(conflict) = usage.conflict else {
                 continue;
