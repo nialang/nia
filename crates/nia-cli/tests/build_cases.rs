@@ -1043,13 +1043,20 @@ fn assert_configured_build_success(
 ) {
     // The build runner reports physical paths after canonicalization. macOS
     // exposes `/private` for temporary directories even when the test creates
-    // them through `/var`, so compare against the same canonical identity.
-    let reported_workspace: Cow<'_, Path> = if cfg!(target_os = "macos") {
-        Cow::Owned(
-            workspace
-                .canonicalize()
-                .expect("canonicalize configured build workspace"),
-        )
+    // them through `/var`, and Windows may resolve an 8.3 short path to its
+    // long form, so compare against the same canonical identity.
+    let reported_workspace: Cow<'_, Path> = if cfg!(any(target_os = "macos", windows)) {
+        let canonical = workspace
+            .canonicalize()
+            .expect("canonicalize configured build workspace");
+        #[cfg(windows)]
+        let canonical = canonical
+            .to_string_lossy()
+            .strip_prefix(r"\\?\")
+            .map(Path::new)
+            .unwrap_or(&canonical)
+            .to_path_buf();
+        Cow::Owned(canonical)
     } else {
         Cow::Borrowed(workspace)
     };
