@@ -1,0 +1,140 @@
+// Hash-based set with explicit allocation and cleanup.
+//
+// The set deliberately delegates storage and probing to HashMap. The marker
+// value is private, so callers get set semantics without a second hash-table
+// implementation or a second tombstone/rehash protocol.
+
+using root::collections::hash_map;
+using root::mem;
+using root::hash;
+using root::iter;
+
+pub struct HashSetWithContext[K, C]
+where K: Sized, C: hash_map::HashMapContext[K]
+{
+    map: hash_map::HashMapWithContext[K, u8, C],
+}
+
+pub type HashSet[K] = HashSetWithContext[K, hash_map::DefaultHashMapContext];
+
+pub type HashSetIter[K] = hash_map::HashMapKeys[K, u8];
+
+extend[K] HashSetWithContext[K, hash_map::DefaultHashMapContext]
+where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
+{
+    pub fun init() HashSet[K] {
+        .{ map: hash_map::HashMap[K, u8]::init() }
+    }
+
+    pub fun tryInit() hash_map::HashMapInitError!HashSet[K] {
+        !.{ map: hash_map::HashMap[K, u8]::tryInit().? }
+    }
+
+    pub fun initSeed(seed: u64) HashSet[K] {
+        .{ map: hash_map::HashMap[K, u8]::initSeed(seed) }
+    }
+
+    pub fun initSeedCapacity(
+        allocator: &mut mem::Allocator,
+        seed: u64,
+        capacity: usize,
+    ) mem::Error!HashSet[K] {
+        !.{ map: hash_map::HashMap[K, u8]::initSeedCapacity(allocator, seed, capacity).? }
+    }
+}
+
+extend[K, C] HashSetWithContext[K, C]
+where K: Sized, C: hash_map::HashMapContext[K]
+{
+    pub fun initContext(context: C) HashSetWithContext[K, C] {
+        .{ map: hash_map::HashMapWithContext[K, u8, C]::initContext(context) }
+    }
+
+    pub fun tryInitContext(context: C) hash_map::HashMapInitError!HashSetWithContext[K, C] {
+        !.{ map: hash_map::HashMapWithContext[K, u8, C]::tryInitContext(context).? }
+    }
+
+    pub fun initContextSeed(context: C, seed: u64) HashSetWithContext[K, C] {
+        .{ map: hash_map::HashMapWithContext[K, u8, C]::initContextSeed(context, seed) }
+    }
+
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        self.map.deinit(allocator)
+    }
+
+    pub fun len(&self) usize {
+        self.map.len()
+    }
+
+    pub fun capacity(&self) usize {
+        self.map.capacity()
+    }
+
+    pub fun isEmpty(&self) bool {
+        self.map.isEmpty()
+    }
+
+    pub fun clear(&mut self) () {
+        self.map.clear()
+    }
+
+    pub fun compact(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        self.map.compact(allocator)
+    }
+
+    pub fun clone(&self, allocator: &mut mem::Allocator) mem::Error!HashSetWithContext[K, C] {
+        !.{ map: self.map.clone(allocator).? }
+    }
+
+    pub fun contains(&self, key: &K) bool {
+        self.map.containsKey(key)
+    }
+
+    pub fun insert(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        key: K,
+    ) mem::Error!bool {
+        if self.map.insert(allocator, key, 0u8).? is ?_ {
+            !false
+        } else {
+            !true
+        }
+    }
+
+    pub fun insertAssumeCapacity(&mut self, key: K) bool {
+        if self.map.insertAssumeCapacity(key, 0u8) is ?_ {
+            false
+        } else {
+            true
+        }
+    }
+
+    pub fun remove(&mut self, key: &K) bool {
+        if self.map.remove(key) is ?_ {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+        self.map.reserve(allocator, additional)
+    }
+
+    pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+        self.map.ensureTotalCapacity(allocator, capacity)
+    }
+
+}
+
+extend[K, C] HashSetWithContext[K, C] : Iterable
+where K: Sized, C: hash_map::HashMapContext[K]
+{
+    type Item = &K;
+    type Iter = hash_map::HashMapKeysWithContext[K, u8, C];
+
+    pub fun iter(&self) hash_map::HashMapKeysWithContext[K, u8, C] {
+        self.map.keys()
+    }
+}

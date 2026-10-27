@@ -1,0 +1,321 @@
+// Ordered map with explicit allocation.
+//
+// Entries are kept in key order. Lookup uses a binary search and iteration is
+// always ordered; insertion and removal preserve that order through the
+// ArrayList's checked shifting operations. This representation keeps the
+// ownership and cleanup contract small while providing the TreeMap semantics
+// needed by compilers and build tools.
+
+using root::collections::array_list;
+using root::error;
+using root::mem;
+using root::iter;
+
+pub struct TreeMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    key: K,
+    value: V,
+}
+
+pub struct TreeMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &V,
+}
+
+pub struct TreeMapEntryMut[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &mut V,
+}
+
+pub struct TreeMap[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    keys: array_list::ArrayList[K],
+    values: array_list::ArrayList[V],
+}
+
+pub struct TreeMapIter[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    map: &TreeMap[K, V],
+    index: usize,
+}
+
+pub struct TreeMapIterMut[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    map: &mut TreeMap[K, V],
+    index: usize,
+}
+
+extend[K, V] TreeMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    pub fun key(&self) &K { &self.key }
+    pub fun value(&self) &V { &self.value }
+    pub fun keyMut(&mut self) &mut K { &mut self.key }
+    pub fun valueMut(&mut self) &mut V { &mut self.value }
+}
+
+extend[K, V] TreeMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    pub fun key(&self) &K { self.key }
+    pub fun value(&self) &V { self.value }
+}
+
+extend[K, V] TreeMapEntryMut[K, V]
+where K: Sized, V: Sized
+{
+    pub fun key(&self) &K { self.key }
+    pub fun value(&self) &V { self.value }
+    pub fun valueMut(&mut self) &mut V { self.value }
+}
+
+extend[K, V] TreeMap[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun init() TreeMap[K, V] {
+        .{ keys: .init(), values: .init() }
+    }
+
+    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!TreeMap[K, V] {
+        let mut keys: array_list::ArrayList[K] = .init();
+        keys.ensureTotalCapacity(allocator, capacity).?;
+        let mut values: array_list::ArrayList[V] = .init();
+        if values.ensureTotalCapacity(allocator, capacity) is allocationError! {
+            let mut cleanup: root::error::CleanupAccumulator[mem::Error] = .init();
+            cleanup.attempt(keys.deinit(allocator));
+            cleanup.attempt(values.deinit(allocator));
+            _ = cleanup;
+            return allocationError!;
+        }
+        !.{ keys, values }
+    }
+
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        let mut cleanup: root::error::CleanupAccumulator[mem::Error] = .init();
+        cleanup.attempt(self.keys.deinit(allocator));
+        cleanup.attempt(self.values.deinit(allocator));
+        cleanup.finish()
+    }
+
+    pub fun len(&self) usize {
+        self.keys.len()
+    }
+
+    pub fun capacity(&self) usize {
+        self.keys.capacity()
+    }
+
+    pub fun isEmpty(&self) bool {
+        self.keys.isEmpty()
+    }
+
+    pub fun clear(&mut self) () {
+        self.keys.clear();
+        self.values.clear()
+    }
+
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+        self.keys.reserve(allocator, additional).?;
+        self.values.reserve(allocator, additional)
+    }
+
+    pub fun containsKey(&self, key: &K) bool {
+        if self.findIndex(key) is ?_ { true } else { false }
+    }
+
+    pub fun get(&self, key: &K) ?&V {
+        if self.findIndex(key) is ?index {
+            if self.values.get(index) is ?value {
+                return ?value;
+            }
+        }
+        null
+    }
+
+    pub fun getMut(&mut self, key: &K) ?&mut V {
+        if self.findIndex(key) is ?index {
+            if self.values.getMut(index) is mut ?value {
+                return ?value;
+            }
+        }
+        null
+    }
+
+    pub fun getEntry(&self, key: &K) ?TreeMapEntryRef[K, V] {
+        if self.findIndex(key) is ?index {
+            if self.keys.get(index) is ?foundKey and self.values.get(index) is ?foundValue {
+                return ?.{ key: foundKey, value: foundValue };
+            }
+        }
+        null
+    }
+
+    pub fun getEntryMut(&mut self, key: &K) ?TreeMapEntryMut[K, V] {
+        if self.findIndex(key) is ?index {
+            if self.keys.get(index) is ?foundKey and self.values.getMut(index) is mut ?foundValue {
+                return ?.{ key: foundKey, value: foundValue };
+            }
+        }
+        null
+    }
+
+    pub fun insert(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        key: K,
+        value: V,
+    ) mem::Error!?V {
+        if self.findIndex(&key) is ?index {
+            if self.values.getMut(index) is mut ?slot {
+                let old = slot.*;
+                slot.* = value;
+                return !?old;
+            }
+        }
+        let index = self.lowerBound(&key);
+        self.keys.insert(allocator, index, key).?;
+        if self.values.insert(allocator, index, value) is insertError! {
+            _ = self.keys.orderedRemove(index);
+            return insertError!;
+        }
+        !null
+    }
+
+    pub fun remove(&mut self, key: &K) ?TreeMapEntry[K, V] {
+        if self.findIndex(key) is ?index {
+            if self.keys.orderedRemove(index) is ?foundKey
+                and self.values.orderedRemove(index) is ?foundValue
+            {
+                return ?.{ key: foundKey, value: foundValue };
+            }
+        }
+        null
+    }
+
+    pub fun lowerBound(&self, key: &K) usize {
+        let mut low: usize = 0;
+        let mut high = self.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if self.keys.get(middle) is ?foundKey {
+                if foundKey.* < key.* {
+                    low = middle + 1;
+                } else {
+                    high = middle;
+                }
+            } else {
+                high = middle;
+            }
+        }
+        low
+    }
+
+    pub fun upperBound(&self, key: &K) usize {
+        let mut low: usize = 0;
+        let mut high = self.len();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if self.keys.get(middle) is ?foundKey {
+                if foundKey.* <= key.* {
+                    low = middle + 1;
+                } else {
+                    high = middle;
+                }
+            } else {
+                high = middle;
+            }
+        }
+        low
+    }
+
+    pub fun iter(&self) TreeMapIter[K, V] {
+        .{ map: self, index: 0 }
+    }
+
+    pub fun iterMut(&mut self) TreeMapIterMut[K, V] {
+        .{ map: self, index: 0 }
+    }
+
+    fun findIndex(&self, key: &K) ?usize {
+        let index = self.lowerBound(key);
+        if index < self.len() {
+            if self.keys.get(index) is ?foundKey
+                and not foundKey.* < key.* and not foundKey.* > key.*
+            {
+                return ?index;
+            }
+        }
+        null
+    }
+}
+
+extend[K, V] TreeMapIter[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun len(&self) usize {
+        self.map.len() - self.index
+    }
+
+    pub fun isEmpty(&self) bool {
+        self.len() == 0
+    }
+}
+
+extend[K, V] TreeMapIter[K, V] : Iterator
+where K: Sized + Ord[K], V: Sized
+{
+    type Item = TreeMapEntryRef[K, V];
+
+    pub fun next(&mut self) ?TreeMapEntryRef[K, V] {
+        if self.map.keys.get(self.index) is ?key and self.map.values.get(self.index) is ?value {
+            self.index += 1;
+            return ?.{ key, value };
+        }
+        null
+    }
+}
+
+extend[K, V] TreeMapIterMut[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun len(&self) usize {
+        self.map.len() - self.index
+    }
+
+    pub fun isEmpty(&self) bool {
+        self.len() == 0
+    }
+}
+
+extend[K, V] TreeMapIterMut[K, V] : Iterator
+where K: Sized + Ord[K], V: Sized
+{
+    type Item = TreeMapEntryMut[K, V];
+
+    pub fun next(&mut self) ?TreeMapEntryMut[K, V] {
+        if self.map.keys.get(self.index) is ?key and self.map.values.getMut(self.index) is mut ?value {
+            self.index += 1;
+            return ?.{ key, value };
+        }
+        null
+    }
+}
+
+extend[K, V] TreeMap[K, V] : Iterable
+where K: Sized + Ord[K], V: Sized
+{
+    type Item = TreeMapEntryRef[K, V];
+    type Iter = TreeMapIter[K, V];
+
+    pub fun iter(&self) TreeMapIter[K, V] {
+        .{ map: self, index: 0 }
+    }
+}

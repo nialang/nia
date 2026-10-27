@@ -7,10 +7,14 @@
 // Fallible `deinit` attempts every independently owned allocation and retains
 // each one whose release fails. A partially completed `deinit` leaves the value
 // in cleanup-only state: retry `deinit` with the same allocator rather than
-// using the value again.
+// using the value again. Ordered maps and sets retain key order during every
+// mutation, so their iterators are deterministic without a separate sort pass.
 
 pub(root) module array_list;
 pub(root) module hash_map;
+pub(root) module hash_set;
+pub(root) module tree_map;
+pub(root) module tree_set;
 
 using root::collections::array_list;
 using root::collections::array_list::format as array_list_format;
@@ -19,8 +23,14 @@ using root::collections::hash_map::context;
 using root::collections::hash_map::format as hash_map_format;
 using root::collections::hash_map::iterators;
 using root::collections::hash_map::map;
+using root::collections::hash_set;
+using root::collections::tree_map;
+using root::collections::tree_set;
 
 pub using array_list::ArrayList;
+pub using hash_set::{HashSet, HashSetIter, HashSetWithContext};
+pub using tree_map::{TreeMap, TreeMapEntry, TreeMapEntryMut, TreeMapEntryRef, TreeMapIter, TreeMapIterMut};
+pub using tree_set::{TreeSet, TreeSetIter};
 pub using hash_map::{
     DefaultHashMapContext,
     HashMap,

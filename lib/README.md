@@ -22,7 +22,7 @@ are also re-exported at the root: `std::String`, `std::ArrayList`,
 | `std::build` | Declarative build-script API: packages, modules, artifacts, steps, and test suites |
 | `std::builtin` | Compiler-backed intrinsics (layout, bits, memory, SIMD, atomics, `asm`); see [builtins reference](../docs/reference/builtins.md) |
 | `std::cmp` | `Ordering` and `max` |
-| `std::collections` | Allocator-explicit `ArrayList` and `HashMap` with borrowed iterators |
+| `std::collections` | Allocator-explicit `ArrayList`, `HashMap`, `HashSet`, ordered `TreeMap`, and `TreeSet` with borrowed iterators |
 | `std::cstring` | NUL-terminated `CString` owners and `CStringView` borrows for C interop |
 | `std::error` | Cleanup combinators: `cleanupAfter` and `CleanupAccumulator` |
 | `std::fmt` | `Format` trait, `Formatter`, format specs, and checked template printing |
@@ -36,7 +36,7 @@ are also re-exported at the root: `std::String`, `std::ArrayList`,
 | `std::parse` | `From` and `FromRadix` parsing traits |
 | `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
 | `std::result` | Operations on error unions (`E!T`) |
-| `std::slice` | Borrowed slice operations, iterators, and splitting |
+| `std::slice` | Borrowed slice operations, iterators, splitting, sorting, binary search, bounds, and partition points |
 | `std::source` | `SourceLocation` and `callerLocation` |
 | `std::string` | Owned Unicode text (`String`) and text utilities |
 | `std::test` | Assertions and an explicit in-process test runner |

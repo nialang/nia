@@ -1,0 +1,85 @@
+using root::collections::tree_map;
+using root::mem;
+using root::iter;
+
+pub struct TreeSet[K]
+where K: Sized + Ord[K]
+{
+    map: tree_map::TreeMap[K, u8],
+}
+
+pub struct TreeSetIter[K]
+where K: Sized + Ord[K]
+{
+    iter: tree_map::TreeMapIter[K, u8],
+}
+
+extend[K] TreeSet[K]
+where K: Sized + Ord[K]
+{
+    pub fun init() TreeSet[K] {
+        .{ map: .init() }
+    }
+
+    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!TreeSet[K] {
+        !.{ map: tree_map::TreeMap[K, u8]::initCapacity(allocator, capacity).? }
+    }
+
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        self.map.deinit(allocator)
+    }
+
+    pub fun len(&self) usize { self.map.len() }
+    pub fun capacity(&self) usize { self.map.capacity() }
+    pub fun isEmpty(&self) bool { self.map.isEmpty() }
+    pub fun clear(&mut self) () { self.map.clear() }
+
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+        self.map.reserve(allocator, additional)
+    }
+
+    pub fun contains(&self, key: &K) bool { self.map.containsKey(key) }
+
+    pub fun insert(&mut self, allocator: &mut mem::Allocator, key: K) mem::Error!bool {
+        if self.map.insert(allocator, key, 0u8).? is ?_ { !false } else { !true }
+    }
+
+    pub fun remove(&mut self, key: &K) bool {
+        if self.map.remove(key) is ?_ { true } else { false }
+    }
+
+    pub fun lowerBound(&self, key: &K) usize { self.map.lowerBound(key) }
+    pub fun upperBound(&self, key: &K) usize { self.map.upperBound(key) }
+
+    pub fun iter(&self) TreeSetIter[K] {
+        .{ iter: self.map.iter() }
+    }
+}
+
+extend[K] TreeSetIter[K]
+where K: Sized + Ord[K]
+{
+    pub fun len(&self) usize { self.iter.len() }
+    pub fun isEmpty(&self) bool { self.iter.isEmpty() }
+}
+
+extend[K] TreeSetIter[K] : Iterator
+where K: Sized + Ord[K]
+{
+    type Item = &K;
+
+    pub fun next(&mut self) ?&K {
+        self.iter.next().map[&K, _](\entry: tree_map::TreeMapEntryRef[K, u8] -> entry.key())
+    }
+}
+
+extend[K] TreeSet[K] : Iterable
+where K: Sized + Ord[K]
+{
+    type Item = &K;
+    type Iter = TreeSetIter[K];
+
+    pub fun iter(&self) TreeSetIter[K] {
+        .{ iter: self.map.iter() }
+    }
+}
