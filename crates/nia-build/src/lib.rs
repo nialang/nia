@@ -4887,7 +4887,10 @@ version = \"1.0.0\"
             resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&child))
                 .expect("child manifest roots its own package");
 
-        assert_eq!(invocation.package_root, child);
+        assert_eq!(
+            invocation.package_root,
+            normalize_host_path(child.canonicalize().expect("canonical child package root"))
+        );
         assert!(!invocation.build_script.is_file());
     }
 

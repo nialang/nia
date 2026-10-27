@@ -2843,6 +2843,7 @@ fn external_command_cache_reuses_relocated_logical_inputs_and_outputs() {
     second.cache_dir = first.cache_dir.clone();
     second.artifact_cache_dir = first.artifact_cache_dir.clone();
     fs::create_dir_all(&second.package_root).unwrap();
+    fs::create_dir_all(second.package_root.join("build")).unwrap();
     fs::write(second.package_root.join("tool-input.txt"), b"relocated").unwrap();
     let second_plan = cacheable_command_plan(&second, "shared");
     let warm = execute_build_plan(&second_plan, &second).unwrap();
@@ -3356,6 +3357,7 @@ fn output_parent_replacement_is_rejected_before_publication() {
     let second = redirected.join("result.txt");
     fs::create_dir_all(&outside).unwrap();
     fs::create_dir_all(&invocation.package_root).unwrap();
+    fs::create_dir_all(invocation.package_root.join("build")).unwrap();
     let staged = prepare_test_staged_outputs(&invocation, &[first, second]).unwrap();
     for output in &staged.outputs {
         fs::write(&output.temporary, b"new").unwrap();

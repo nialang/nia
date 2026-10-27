@@ -225,6 +225,9 @@ fn release_workflow_publishes_the_supported_host_matrix() {
     assert!(workflow.contains(
         "      - name: Check out release source\n        uses: actions/checkout@v7\n        with:\n          ref: ${{ needs.validate.outputs.tag }}\n          path: nia-source"
     ));
+    assert!(workflow.contains(
+        "      - name: Check out release tooling\n        uses: actions/checkout@v7\n        with:\n          ref: ${{ needs.validate.outputs.tag }}\n          path: release-tools"
+    ));
     assert!(workflow.contains("../release-tools/tools/release/package.sh"));
     assert!(workflow.contains("release-tools\\tools\\release\\package.ps1"));
     for platform in [

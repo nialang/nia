@@ -12,6 +12,7 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 fn assert_source_error_json(stderr: &str, code: &str, source: &std::path::Path) {
+    let source = source.canonicalize().expect("canonical source path");
     let report: serde_json::Value = serde_json::from_str(stderr).expect("one complete JSON report");
     let diagnostics = report["diagnostics"]
         .as_array()
@@ -28,7 +29,8 @@ fn assert_source_error_json(stderr: &str, code: &str, source: &std::path::Path) 
                 && item["kind"] == "root"
                 && item["path"]
                     .as_str()
-                    .is_some_and(|path| std::path::Path::new(path) == source)
+                    .and_then(|path| std::path::Path::new(path).canonicalize().ok())
+                    .is_some_and(|path| path == source)
                 && item["summary"]
                     .as_str()
                     .is_some_and(|summary| !summary.is_empty())

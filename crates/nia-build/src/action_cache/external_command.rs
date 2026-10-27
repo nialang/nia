@@ -27,13 +27,14 @@ use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, encoded_field_fits,
     ensure_cache_directory, fingerprint_text, integer_component, logical_path_identity,
     open_cache_entry, package_roots_identity, read_exact_or_corrupt, read_stream_fingerprint,
-    read_stream_u64, stream_has_trailing_byte, text_component, typed_action_identity,
-    validate_cache_namespace, write_bytes, write_fingerprint,
+    read_stream_u64, stream_has_trailing_byte, text_component, validate_cache_namespace,
+    write_bytes, write_fingerprint,
 };
 #[cfg(test)]
 use super::{read_bytes, read_fingerprint, read_u64};
 use crate::{
-    CommandAction, CommandArgument, CommandProgram, CommandStdin, EnvironmentInput, LogicalPath,
+    ActionResourceClass, CommandAction, CommandArgument, CommandCachePolicy,
+    CommandEnvironmentPolicy, CommandProgram, CommandStdin, EnvironmentInput, LogicalPath,
     LogicalPathRoot, PlanAction, PlanPackage,
     lock::{LockWaitObserver, ScopedFileLock},
 };
@@ -213,7 +214,7 @@ impl FingerprintComponents {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalCommandCacheIdentity {
     fingerprints: FingerprintSet,
-    action: Vec<u8>,
+    action_key: Vec<u8>,
     command: Vec<u8>,
     tool: Vec<u8>,
     environment: Vec<u8>,
@@ -242,14 +243,14 @@ impl ExternalCommandCacheIdentity {
         let CommandAction {
             program,
             arguments,
-            stdin,
+            stdin: _,
             working_directory,
             environment,
             outputs,
             ..
         } = command;
-        let action_identity = typed_action_identity(&action.key, &action.kind);
-        let command = command_identity(program, arguments, stdin);
+        let action_key_identity = action.key.identity_bytes();
+        let command = command_identity(command);
         let tool = tool_identity(program, tool_contents);
         let environment = environment_identity(environment, environment_snapshot);
         let regular_inputs = inputs
@@ -279,7 +280,7 @@ impl ExternalCommandCacheIdentity {
         let dependencies = input_identity(&dependency_inputs);
         let working_directory = logical_path_identity(working_directory);
         let outputs_identity = path_list_identity(outputs);
-        let cache_key = component(EXTERNAL_COMMAND_KEY_DOMAIN, &action_identity);
+        let cache_key = component(EXTERNAL_COMMAND_KEY_DOMAIN, &action_key_identity);
         let components = FingerprintComponents {
             command: component(EXTERNAL_COMMAND_DECLARATION_DOMAIN, &command),
             tool: component(EXTERNAL_COMMAND_TOOL_DOMAIN, &tool),
@@ -311,7 +312,7 @@ impl ExternalCommandCacheIdentity {
         };
         Some(Self {
             fingerprints: FingerprintSet::new(cache_key, components),
-            action: action_identity,
+            action_key: action_key_identity,
             command,
             tool,
             environment,
@@ -895,7 +896,7 @@ fn write_entry(
         write_stream_fingerprint(encoded, component)?;
     }
     for value in [
-        &identity.action,
+        &identity.action_key,
         &identity.command,
         &identity.tool,
         &identity.environment,
@@ -934,7 +935,7 @@ fn write_stream_fingerprint(
 #[cfg(test)]
 struct DecodedEntry {
     fingerprints: FingerprintSet,
-    action: Vec<u8>,
+    action_key: Vec<u8>,
     command: Vec<u8>,
     tool: Vec<u8>,
     environment: Vec<u8>,
@@ -1048,7 +1049,7 @@ fn scan_external_command_entry(
         }
         let capture_count = index + 1 == identity_domains.len();
         let expected_bytes = expected.map(|expected| match index {
-            0 => expected.action.as_slice(),
+            0 => expected.action_key.as_slice(),
             1 => expected.command.as_slice(),
             2 => expected.tool.as_slice(),
             3 => expected.environment.as_slice(),
@@ -1193,7 +1194,7 @@ fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -
         write_fingerprint(&mut encoded, component);
     }
     for value in [
-        &identity.action,
+        &identity.action_key,
         &identity.command,
         &identity.tool,
         &identity.environment,
@@ -1240,7 +1241,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     };
     let fingerprints = FingerprintSet::new(cache_key, components);
     (fingerprints.fingerprint == fingerprint).then_some(())?;
-    let action = read_bytes(&mut cursor, encoded.len())?;
+    let action_key = read_bytes(&mut cursor, encoded.len())?;
     let command = read_bytes(&mut cursor, encoded.len())?;
     let tool = read_bytes(&mut cursor, encoded.len())?;
     let environment = read_bytes(&mut cursor, encoded.len())?;
@@ -1249,7 +1250,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let working_directory = read_bytes(&mut cursor, encoded.len())?;
     let package_roots = read_bytes(&mut cursor, encoded.len())?;
     let outputs = read_bytes(&mut cursor, encoded.len())?;
-    (component(EXTERNAL_COMMAND_KEY_DOMAIN, &action) == cache_key).then_some(())?;
+    (component(EXTERNAL_COMMAND_KEY_DOMAIN, &action_key) == cache_key).then_some(())?;
     for (found, domain, value) in [
         (
             components.command,
@@ -1298,7 +1299,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     }
     (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(DecodedEntry {
         fingerprints,
-        action,
+        action_key,
         command,
         tool,
         environment,
@@ -1314,7 +1315,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
 #[cfg(test)]
 fn entry_matches(entry: &DecodedEntry, identity: &ExternalCommandCacheIdentity) -> bool {
     entry.fingerprints == identity.fingerprints
-        && entry.action == identity.action
+        && entry.action_key == identity.action_key
         && entry.command == identity.command
         && entry.tool == identity.tool
         && entry.environment == identity.environment
@@ -1401,22 +1402,34 @@ fn bytes_fingerprint(domain: FingerprintDomain, value: &[u8]) -> QueryFingerprin
     builder.finish()
 }
 
-fn command_identity(
-    program: &CommandProgram,
-    arguments: &[CommandArgument],
-    stdin: &CommandStdin,
-) -> Vec<u8> {
+fn command_identity(command: &CommandAction) -> Vec<u8> {
     let mut encoded = Vec::new();
-    encode_program(&mut encoded, program);
-    match stdin {
+    encoded.push(match command.resource_class {
+        ActionResourceClass::Conservative => 0,
+        ActionResourceClass::Cpu => 1,
+        ActionResourceClass::Io => 2,
+    });
+    encoded.push(match command.environment_policy {
+        CommandEnvironmentPolicy::Inherit => 0,
+        CommandEnvironmentPolicy::Clear => 1,
+    });
+    encoded.push(match command.cache_policy {
+        CommandCachePolicy::Uncacheable => 0,
+        CommandCachePolicy::DeclaredInputs => 1,
+        CommandCachePolicy::ToolAndInputs => 2,
+        CommandCachePolicy::FullDeclaredEnvironment => 3,
+        CommandCachePolicy::SuccessfulTests => 4,
+    });
+    encode_program(&mut encoded, &command.program);
+    match &command.stdin {
         CommandStdin::Null => encoded.push(0),
         CommandStdin::InputPath(path) => {
             encoded.push(1);
             write_bytes(&mut encoded, &logical_path_identity(path));
         }
     }
-    encoded.extend_from_slice(&(arguments.len() as u64).to_le_bytes());
-    for argument in arguments {
+    encoded.extend_from_slice(&(command.arguments.len() as u64).to_le_bytes());
+    for argument in &command.arguments {
         match argument {
             CommandArgument::Literal(value) => {
                 encoded.push(0);
@@ -1561,23 +1574,32 @@ mod tests {
     fn command_identity_includes_declared_stdin() {
         let program = CommandProgram::Search("tool".to_string());
         let arguments = [CommandArgument::Literal("--read".to_string())];
-        let null = command_identity(&program, &arguments, &CommandStdin::Null);
+        let command = |stdin| CommandAction {
+            resource_class: ActionResourceClass::Io,
+            environment_policy: CommandEnvironmentPolicy::Clear,
+            cache_policy: CommandCachePolicy::DeclaredInputs,
+            stdin,
+            program: program.clone(),
+            arguments: arguments.to_vec(),
+            working_directory: LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "")
+                .unwrap(),
+            environment: Vec::new(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        };
+        let null = command_identity(&command(CommandStdin::Null));
         let input =
             LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "stdin.txt").unwrap();
-        let path = command_identity(
-            &program,
-            &arguments,
-            &CommandStdin::InputPath(input.clone()),
-        );
+        let path = command_identity(&command(CommandStdin::InputPath(input.clone())));
         let other =
             LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "other.txt").unwrap();
-        let other_path = command_identity(&program, &arguments, &CommandStdin::InputPath(other));
+        let other_path = command_identity(&command(CommandStdin::InputPath(other)));
         assert_ne!(null, path);
         assert_ne!(path, other_path);
     }
 
     fn identity() -> ExternalCommandCacheIdentity {
-        let action = b"action".to_vec();
+        let action_key = b"action-key".to_vec();
         let command = b"command".to_vec();
         let tool = b"tool".to_vec();
         let environment = b"environment".to_vec();
@@ -1588,7 +1610,7 @@ mod tests {
         let mut outputs = Vec::new();
         outputs.extend_from_slice(&2_u64.to_le_bytes());
         outputs.extend_from_slice(b"outputs");
-        let cache_key = component(EXTERNAL_COMMAND_KEY_DOMAIN, &action);
+        let cache_key = component(EXTERNAL_COMMAND_KEY_DOMAIN, &action_key);
         let components = FingerprintComponents {
             command: component(EXTERNAL_COMMAND_DECLARATION_DOMAIN, &command),
             tool: component(EXTERNAL_COMMAND_TOOL_DOMAIN, &tool),
@@ -1608,7 +1630,7 @@ mod tests {
         };
         ExternalCommandCacheIdentity {
             fingerprints: FingerprintSet::new(cache_key, components),
-            action,
+            action_key,
             command,
             tool,
             environment,

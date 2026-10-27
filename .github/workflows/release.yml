@@ -94,7 +94,7 @@ jobs:
       - name: Check out release tooling
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+          ref: ${{ needs.validate.outputs.tag }}
           path: release-tools
       - name: Check out release source
         uses: actions/checkout@v7
