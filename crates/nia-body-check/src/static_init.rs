@@ -69,6 +69,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
+        if self
+            .node_address_of_coercions
+            .get(&expr.node_key)
+            .is_some_and(|coercion| coercion.target_ty == ty)
+        {
+            return self.lower_static_address_init(expr);
+        }
         match &expr.kind {
             ExprKind::String(literal) if self.static_init_target_is_array(ty) => {
                 self.lower_static_string_array_init(expr, literal)

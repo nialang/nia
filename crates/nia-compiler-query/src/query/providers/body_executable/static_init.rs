@@ -102,6 +102,9 @@ fn executable_static_init_semantic_facts(
             .node_pointer_array_to_slice_coercions
             .extend(owner_facts.node_pointer_array_to_slice_coercions);
         facts
+            .node_address_of_coercions
+            .extend(owner_facts.node_address_of_coercions);
+        facts
             .node_trait_object_coercions
             .extend(owner_facts.node_trait_object_coercions);
         facts

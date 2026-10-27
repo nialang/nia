@@ -1292,6 +1292,7 @@ pub fn filter_semantic_facts_for_reachable_items(
     reachable_facts.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
     reachable_facts.node_pointer_array_to_slice_coercions =
         facts.node_pointer_array_to_slice_coercions;
+    reachable_facts.node_address_of_coercions = facts.node_address_of_coercions;
     reachable_facts.node_trait_object_coercions = facts.node_trait_object_coercions;
     reachable_facts.node_trait_object_upcasts = facts.node_trait_object_upcasts;
     reachable_facts.node_builtin_values = facts.node_builtin_values;

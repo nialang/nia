@@ -28,8 +28,8 @@ fun main() bool {
 }
 
 #[test]
-fn rejects_bare_global_as_pointer_initializer() {
-    let root = temp_dir("rejects_bare_global_as_pointer_initializer");
+fn auto_addresses_global_pointer_initializer() {
+    let root = temp_dir("auto_addresses_global_pointer_initializer");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -45,14 +45,12 @@ fun main() i32 {
     .expect("write test source");
 
     let codegen = codegen_program(main.to_string_lossy().into_owned());
-    assert!(
-        codegen
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("global initializer")),
-        "{:?}",
-        codegen.diagnostics
-    );
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("constant ptr"), "{ir}");
+    assert!(!ir.contains("constant ptr null"), "{ir}");
 }
 
 #[test]
