@@ -117,3 +117,41 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn generic_nominal_arraylist_argument_has_sized_layout() {
+    let root = temp_dir("generic_nominal_arraylist_argument_has_sized_layout");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Entry[K, V]
+where K: Sized, V: Sized
+{
+    key: K,
+    value: V,
+}
+
+struct Wrapper[K, V]
+where K: Sized, V: Sized, Entry[K, V]: Sized
+{
+    entries: std::collections::ArrayList[Entry[K, V]],
+}
+
+pub fun main() () {
+    let _ = Wrapper[i32, i32] { entries: .init() };
+}
+"#,
+    )
+    .expect("write regression source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_build("check generic nominal Sized layout");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

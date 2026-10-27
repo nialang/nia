@@ -169,6 +169,95 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
+    /// A concrete nominal can be introduced by a value-level generic call
+    /// after the signature layout query has finished. Compute that one local
+    /// instance on demand with the canonical layout engine.
+    fn ensure_concrete_nominal_sized(&mut self, ty: InternedTyId) -> bool {
+        let ty = self.normalization.normalize(ty);
+        if self.sized_type_cache.contains(&ty) || self.layout_of(ty).is_some() {
+            return true;
+        }
+        let Some(TyKind::Nominal { .. }) = self.interner.get(ty) else {
+            return false;
+        };
+        let lengths = |id| self.const_eval.array_lengths.get(&id).copied();
+        let program_layouts = self.program.layouts;
+        let program_signatures = self.program.signatures;
+        let program_struct = |id: GlobalDefId| {
+            program_signatures
+                .and_then(|load| load(id.module_id))
+                .and_then(|signatures| {
+                    signatures
+                        .structs
+                        .get(&id.def_id)
+                        .cloned()
+                        .map(|signature| nia_item_signatures::ProgramStructSignature { signature })
+                })
+        };
+        let program_union =
+            |id: GlobalDefId| {
+                program_signatures
+                    .and_then(|load| load(id.module_id))
+                    .and_then(|signatures| {
+                        signatures.unions.get(&id.def_id).cloned().map(|signature| {
+                            nia_item_signatures::ProgramUnionSignature { signature }
+                        })
+                    })
+            };
+        let program_enum =
+            |id: GlobalDefId| {
+                program_signatures
+                    .and_then(|load| load(id.module_id))
+                    .and_then(|signatures| {
+                        signatures.enums.get(&id.def_id).cloned().map(|signature| {
+                            nia_item_signatures::ProgramEnumSignature { signature }
+                        })
+                    })
+            };
+        let program_type_alias = |id: GlobalDefId| {
+            program_signatures
+                .and_then(|load| load(id.module_id))
+                .and_then(|signatures| {
+                    signatures
+                        .type_aliases
+                        .get(&id.def_id)
+                        .cloned()
+                        .map(|signature| nia_item_signatures::ProgramTypeAliasSignature {
+                            signature,
+                        })
+                })
+        };
+        let input = nia_layout::LayoutComputationInput {
+            type_store: self.type_store,
+            defs: self.defs,
+            signatures: self.const_signatures,
+            root_types: &[],
+            normalized: &self.normalization.normalized,
+            array_lengths: &lengths,
+            target: nia_layout::TargetDataLayout::for_target(*self.target),
+            program: nia_layout::ProgramLayoutContext {
+                layouts: program_layouts,
+                struct_: Some(&program_struct),
+                union: Some(&program_union),
+                enum_: Some(&program_enum),
+                type_alias: Some(&program_type_alias),
+                ..Default::default()
+            },
+        };
+        let roots = nia_layout::LayoutRoots {
+            types: std::slice::from_ref(&ty),
+            structs: &[],
+            unions: &[],
+        };
+        let computed = nia_layout::compute_layouts_for_roots_with_program_context(input, roots)
+            .ok()
+            .is_some_and(|layouts| layouts.types.contains_key(&ty));
+        if computed {
+            self.sized_type_cache.insert(ty);
+        }
+        computed
+    }
+
     pub(crate) fn current_context_resolve_trait_obligation(
         &mut self,
         self_ty: InternedTyId,
@@ -191,6 +280,20 @@ impl<'a> BodyChecker<'a> {
         trait_const_args: Vec<ConstGenericArg>,
     ) -> TraitResolution {
         let self_ty = self.normalize_aliases_in_type(self_ty);
+        if trait_id == TraitId::Builtin(nia_ty::BuiltinTrait::Sized)
+            && trait_args.is_empty()
+            && trait_const_args.is_empty()
+            && self.ensure_concrete_nominal_sized(self_ty)
+        {
+            return TraitResolution::Intrinsic(nia_trait_solve::IntrinsicImpl {
+                goal: TraitGoal {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    trait_const_args,
+                },
+            });
+        }
         let key = crate::TraitObligationResolutionKey {
             current_def_id: self.current_def_id,
             self_ty,
