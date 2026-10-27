@@ -34,12 +34,12 @@ static CONSTRUCTOR_DOMAIN: LazyLock<Regex> = LazyLock::new(|| {
         .expect("valid constructor domain regex")
 });
 static TYPED_DOMAIN_CONSTRUCTOR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?s)FingerprintDomain::new\s*\(\s*"((?:\\.|[^"\\\r\n])*)""#)
+    Regex::new(r#"(?s)(?:FingerprintDomain|IdentityDomain)::new\s*\(\s*"((?:\\.|[^"\\\r\n])*)""#)
         .expect("valid typed domain constructor regex")
 });
 static TYPED_DOMAIN_DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r#"(?s)\bconst\s+([A-Z][A-Z0-9_]*)\s*:\s*FingerprintDomain\s*=\s*FingerprintDomain::new\s*\(\s*"({DOMAIN_IDENTITY})"\s*\)"#
+        r#"(?s)\bconst\s+([A-Z][A-Z0-9_]*)\s*:\s*(?:FingerprintDomain|IdentityDomain)\s*=\s*(?:FingerprintDomain|IdentityDomain)::new\s*\(\s*"({DOMAIN_IDENTITY})"\s*\)"#
     ))
     .expect("valid typed domain regex")
 });
@@ -475,6 +475,25 @@ mod tests {
     }
 
     #[test]
+    fn accepts_registered_identity_domains() {
+        let directory = repository("valid-identity-domain");
+        directory.write(
+            "crates/owner/src/lib.rs",
+            "const PRODUCT_DOMAIN: IdentityDomain =\n    IdentityDomain::new(\"nia.owner.product\");\nIdentityEncoder::new(PRODUCT_DOMAIN);\n",
+        );
+        assert!(
+            fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            typed_fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn rejects_raw_constructor_domains() {
         let directory = repository("raw-domain");
         directory.write(
@@ -547,6 +566,27 @@ const RAW: &str = "nia.owner.product";
             "const BAD_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner..product\");\nconst FIRST_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner.product\");\nconst SECOND_DOMAIN: FingerprintDomain = FingerprintDomain::new(\"nia.owner.product\");\n",
         );
         assert!(fingerprint_domain_errors(directory.path()).unwrap()[0].contains("owner..product"));
+        assert!(
+            typed_fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .iter()
+                .any(|error| error.contains("duplicate"))
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_and_duplicate_identity_domains() {
+        let directory = repository("duplicate-identity-domain");
+        directory.write(
+            "crates/owner/src/lib.rs",
+            "const BAD_DOMAIN: IdentityDomain = IdentityDomain::new(\"nia.owner..product\");\nconst FIRST_DOMAIN: IdentityDomain = IdentityDomain::new(\"nia.owner.product\");\nconst SECOND_DOMAIN: IdentityDomain = IdentityDomain::new(\"nia.owner.product\");\n",
+        );
+        assert!(
+            fingerprint_domain_errors(directory.path())
+                .unwrap()
+                .iter()
+                .any(|error| error.contains("owner..product"))
+        );
         assert!(
             typed_fingerprint_domain_errors(directory.path())
                 .unwrap()

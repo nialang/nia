@@ -41,7 +41,7 @@ use crate::{
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command");
 const EXTERNAL_COMMAND_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-key");
+    FingerprintDomain::new(nia_compat::identities::EXTERNAL_COMMAND_ACTION.name);
 const EXTERNAL_COMMAND_DECLARATION_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-declaration");
 const EXTERNAL_COMMAND_TOOL_DOMAIN: FingerprintDomain =
