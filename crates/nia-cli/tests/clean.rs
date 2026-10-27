@@ -101,7 +101,7 @@ fn clean_refuses_a_linked_build_directory() {
     let root = package_root("clean-linked-build");
     let outside = test_dir("clean-linked-build-outside");
     write(&outside, "out/kept");
-    std::os::unix::fs::symlink(outside.path(), root.join("build")).unwrap();
+    std::os::unix::fs::symlink(&*outside, root.join("build")).unwrap();
 
     let output = run_clean(&root);
     assert!(!output.status.success());

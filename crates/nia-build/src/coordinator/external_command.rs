@@ -1314,8 +1314,9 @@ mod tests {
             key: ActionKey::new(PackageKey::root(), "isolation-test").unwrap(),
             kind: ActionKind::Aggregate,
         };
-        let isolation = DeclaredInputIsolation::create(&action, &root, &[source.clone()])
-            .expect("create input isolation");
+        let isolation =
+            DeclaredInputIsolation::create(&action, &root, std::slice::from_ref(&source))
+                .expect("create input isolation");
         let copied = isolation.map_path(&source);
         assert_ne!(
             fs::metadata(copied).unwrap().permissions().mode() & 0o111,
