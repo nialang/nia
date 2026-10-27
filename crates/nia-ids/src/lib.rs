@@ -12,6 +12,7 @@
 //! diagnostic responsibility. A type handle exposes its session owner but no
 //! semantic interpretation; the type store owns that.
 
+use nia_node_id::{NodePosition, SyntaxKind, VersionedNodeKey};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -119,16 +120,75 @@ pub struct GlobalDefId {
 /// Identity of a trait implementation in semantic products.
 pub struct TraitImplId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-/// Identity of one lowered const expression within a module.
-pub struct ConstExprId(pub u32);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Source-backed identity of a const expression, independent of lowering order.
+///
+/// Synthetic identities are reserved for compiler-created semantic fixtures.
+pub enum ConstExprId {
+    /// Expression identified by its parsed source syntax node.
+    Syntax(VersionedNodeKey),
+    /// Compiler-created expression identity without a source syntax node.
+    Synthetic(u32),
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+impl ConstExprId {
+    /// Creates a source-backed identity from an AST expression locator.
+    pub fn from_syntax(node: VersionedNodeKey) -> Self {
+        Self::Syntax(node)
+    }
+
+    /// Creates an identity for compiler-generated expressions.
+    #[doc(hidden)]
+    pub const fn synthetic(index: u32) -> Self {
+        Self::Synthetic(index)
+    }
+
+    /// Returns a deterministic source-site label within the owning module.
+    ///
+    /// The label deliberately excludes source revision so generated symbols
+    /// remain stable across edits at the same syntax site.
+    pub fn stable_label(&self) -> String {
+        fn path_label(path: &nia_node_id::NodeChildPath) -> String {
+            path.steps()
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join("_")
+        }
+
+        match self {
+            Self::Syntax(node) => {
+                let kind = match node.kind() {
+                    SyntaxKind::Module => 0,
+                    SyntaxKind::Item => 1,
+                    SyntaxKind::Stmt => 2,
+                    SyntaxKind::Expr => 3,
+                    SyntaxKind::Type => 4,
+                    SyntaxKind::Pattern => 5,
+                    SyntaxKind::Param => 6,
+                    SyntaxKind::Syntax => 7,
+                    SyntaxKind::Token => 8,
+                };
+                let position = match node.position() {
+                    NodePosition::Span(span) => format!("span_{}_{}", span.start, span.end),
+                    NodePosition::ChildPath(path) => format!("path_{}", path_label(path)),
+                    NodePosition::ChildPathRange { start, end } => {
+                        format!("range_{}_{}", path_label(start), path_label(end))
+                    }
+                };
+                format!("kind_{kind}_{position}")
+            }
+            Self::Synthetic(index) => format!("synthetic_{index}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Const-expression identity qualified by its owning module.
 pub struct GlobalConstExprId {
     /// Module containing the expression.
     pub module_id: ModuleId,
-    /// Expression slot within that module.
+    /// Source syntax site or compiler-generated identity.
     pub const_expr_id: ConstExprId,
 }
 
@@ -2011,6 +2071,43 @@ pub struct BuiltinTraitDescriptor {
     pub required_methods: &'static [BuiltinTraitMethod],
     /// Supertrait edges in declaration order.
     pub supertraits: &'static [BuiltinSupertrait],
+}
+
+#[cfg(test)]
+mod const_expr_id_tests {
+    use super::*;
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use nia_span::Span;
+
+    #[test]
+    fn syntax_identity_tracks_revision_without_changing_site_label() {
+        let source = SourceId::isolated();
+        let first = VersionedNodeKey::span(
+            SourceVersion {
+                id: source,
+                revision: SourceRevision::INITIAL,
+            },
+            SyntaxKind::Expr,
+            Span::new(12, 17),
+        );
+        let updated = VersionedNodeKey::span(
+            SourceVersion {
+                id: source,
+                revision: SourceRevision(1),
+            },
+            SyntaxKind::Expr,
+            Span::new(12, 17),
+        );
+        let first_id = ConstExprId::from_syntax(first);
+        let updated_id = ConstExprId::from_syntax(updated);
+
+        assert_ne!(first_id, updated_id);
+        assert_eq!(first_id.stable_label(), updated_id.stable_label());
+        assert_ne!(
+            first_id.stable_label(),
+            ConstExprId::synthetic(0).stable_label()
+        );
+    }
 }
 
 #[cfg(test)]

@@ -10,3 +10,8 @@ path = "src/lib.rs"
 
 [dependencies]
 nia-ice.workspace = true
+nia-node-id.workspace = true
+
+[dev-dependencies]
+nia-source.workspace = true
+nia-span.workspace = true

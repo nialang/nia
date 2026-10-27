@@ -351,7 +351,7 @@ impl<'a> Encoder<'a> {
 
     fn global_const_expr(&mut self, expr: GlobalConstExprId) {
         self.module_id(expr.module_id);
-        self.u32(expr.const_expr_id.0);
+        self.builder.write_str(&expr.const_expr_id.stable_label());
     }
 
     fn codegen_unit_key(&mut self, key: &CodegenUnitKey) {
@@ -1784,7 +1784,7 @@ impl<'a> Encoder<'a> {
             }
             ConstGenericValue::ConstExpr(expr) => {
                 self.tag(1);
-                self.global_const_expr(*expr);
+                self.global_const_expr(expr.clone());
             }
             ConstGenericValue::Int(value) => {
                 self.tag(2);
@@ -1814,7 +1814,7 @@ impl<'a> Encoder<'a> {
             }
             ArrayLenTy::ConstExpr(expr) => {
                 self.tag(3);
-                self.global_const_expr(*expr);
+                self.global_const_expr(expr.clone());
             }
             ArrayLenTy::Builtin { builtin, ty } => {
                 self.tag(4);

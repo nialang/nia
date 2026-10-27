@@ -208,18 +208,18 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
     let right_u8 = right_append.test_primitive(nia_ty::PrimitiveTy::U8);
     let left_expr = nia_ids::GlobalConstExprId {
         module_id: left_module,
-        const_expr_id: nia_ids::ConstExprId(1),
+        const_expr_id: nia_ids::ConstExprId::synthetic(1),
     };
     let right_expr = nia_ids::GlobalConstExprId {
         module_id: right_module,
-        const_expr_id: nia_ids::ConstExprId(2),
+        const_expr_id: nia_ids::ConstExprId::synthetic(2),
     };
     let left_array = left_append.test_intern(nia_ty::TyKind::Array {
-        len: nia_ty::ArrayLenTy::ConstExpr(left_expr),
+        len: nia_ty::ArrayLenTy::ConstExpr(left_expr.clone()),
         elem: left_u8,
     });
     let right_array = right_append.test_intern(nia_ty::TyKind::Array {
-        len: nia_ty::ArrayLenTy::ConstExpr(right_expr),
+        len: nia_ty::ArrayLenTy::ConstExpr(right_expr.clone()),
         elem: right_u8,
     });
     let key = |ty| BackendTraitObjectVtableKey {
@@ -228,7 +228,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
     };
     let left = key(left_array);
     let right = key(right_array);
-    let lengths = HashMap::from([(left_expr, 4), (right_expr, 4)]);
+    let lengths = HashMap::from([(left_expr.clone(), 4), (right_expr.clone(), 4)]);
 
     assert!(backend_vtable_keys_match(
         &type_store,
@@ -248,7 +248,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
             ty: left_usize,
-            value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+            value: nia_ty::ConstGenericValue::ConstExpr(left_expr.clone()),
         }],
     });
     let right_nominal = right_append.test_intern(nia_ty::TyKind::Nominal {
@@ -256,7 +256,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
             ty: right_usize,
-            value: nia_ty::ConstGenericValue::ConstExpr(right_expr),
+            value: nia_ty::ConstGenericValue::ConstExpr(right_expr.clone()),
         }],
     });
     assert!(backend_vtable_keys_match(
@@ -267,7 +267,7 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
     ));
     let unresolved_expr = nia_ids::GlobalConstExprId {
         module_id: right_module,
-        const_expr_id: nia_ids::ConstExprId(3),
+        const_expr_id: nia_ids::ConstExprId::synthetic(3),
     };
     let unresolved_nominal = right_append.test_intern(nia_ty::TyKind::Nominal {
         def_id: nominal_def,

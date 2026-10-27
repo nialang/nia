@@ -536,7 +536,7 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_const_arg_dependencies(&mut self, args: &[ConstGenericArg]) {
         for arg in args {
-            if let ConstGenericValue::ConstExpr(expr_id) = arg.value {
+            if let ConstGenericValue::ConstExpr(expr_id) = &arg.value {
                 self.dependency_modules.insert(expr_id.module_id);
             }
         }
@@ -1193,7 +1193,7 @@ mod tests {
                 ty: i32_ty,
                 value: ConstGenericValue::ConstExpr(GlobalConstExprId {
                     module_id: const_owner,
-                    const_expr_id: ConstExprId(0),
+                    const_expr_id: ConstExprId::synthetic(0),
                 }),
             }],
         });
@@ -1330,7 +1330,7 @@ mod tests {
             ty,
             value: ConstGenericValue::ConstExpr(GlobalConstExprId {
                 module_id: const_owner,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
         };
         let mut caller_backend = empty_module(caller, "caller.nia");
@@ -1387,14 +1387,14 @@ mod tests {
         let left = append.test_intern(TyKind::Array {
             len: nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
             elem: i32_ty,
         });
         let right = append.test_intern(TyKind::Array {
             len: nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id,
-                const_expr_id: ConstExprId(1),
+                const_expr_id: ConstExprId::synthetic(1),
             }),
             elem: i32_ty,
         });
@@ -1402,14 +1402,14 @@ mod tests {
         module.const_eval.array_lengths.insert(
             GlobalConstExprId {
                 module_id,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             },
             4,
         );
         module.const_eval.array_lengths.insert(
             GlobalConstExprId {
                 module_id,
-                const_expr_id: ConstExprId(1),
+                const_expr_id: ConstExprId::synthetic(1),
             },
             8,
         );

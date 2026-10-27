@@ -82,10 +82,10 @@ fn same_array_len_with_values(
         ) => left_builtin == right_builtin && same_type(*left_ty, *right_ty),
         (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
         | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => {
-            array_value(*right).is_some_and(|right| *left == right)
+            array_value(right.clone()).is_some_and(|right| *left == right)
         }
-        (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => array_value(*left)
-            .zip(array_value(*right))
+        (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => array_value(left.clone())
+            .zip(array_value(right.clone()))
             .is_some_and(|(left, right)| left == right),
         _ => false,
     }
@@ -123,11 +123,11 @@ impl<'a> BodyChecker<'a> {
             }
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
-                .array_len_const_expr_value(*right)
+                .array_len_const_expr_value(right.clone())
                 .is_some_and(|right| *left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => self
-                .array_len_const_expr_value(*left)
-                .zip(self.array_len_const_expr_value(*right))
+                .array_len_const_expr_value(left.clone())
+                .zip(self.array_len_const_expr_value(right.clone()))
                 .is_some_and(|(left, right)| left == right),
             _ => false,
         }
@@ -1763,7 +1763,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         match len {
             ArrayLenTy::ConstExpr(id) => {
-                self.check_const_expr_projection_obligations(*id, obligations);
+                self.check_const_expr_projection_obligations(id.clone(), obligations);
             }
             ArrayLenTy::Builtin { ty, .. } => {
                 self.check_type_projection_obligations(span, *ty, obligations);
@@ -1777,8 +1777,8 @@ impl<'a> BodyChecker<'a> {
         arg: &ConstGenericArg,
         obligations: &[TraitObligation],
     ) {
-        if let ConstGenericValue::ConstExpr(id) = arg.value {
-            self.check_const_expr_projection_obligations(id, obligations);
+        if let ConstGenericValue::ConstExpr(id) = &arg.value {
+            self.check_const_expr_projection_obligations(id.clone(), obligations);
         }
     }
 
@@ -2554,15 +2554,15 @@ mod tests {
         let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let left = ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),
-            const_expr_id: nia_ids::ConstExprId(1),
+            const_expr_id: nia_ids::ConstExprId::synthetic(1),
         });
         let right_id = nia_ids::GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),
-            const_expr_id: nia_ids::ConstExprId(2),
+            const_expr_id: nia_ids::ConstExprId::synthetic(2),
         };
-        let right = ArrayLenTy::ConstExpr(right_id);
-        let left_id = match left {
-            ArrayLenTy::ConstExpr(id) => id,
+        let right = ArrayLenTy::ConstExpr(right_id.clone());
+        let left_id = match &left {
+            ArrayLenTy::ConstExpr(id) => id.clone(),
             _ => unreachable!(),
         };
         assert!(same_array_len_with_values(
@@ -2581,7 +2581,7 @@ mod tests {
             &left,
             &ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
                 module_id: right_id.module_id,
-                const_expr_id: nia_ids::ConstExprId(3),
+                const_expr_id: nia_ids::ConstExprId::synthetic(3),
             }),
             &mut |_, _| false,
             &mut |id| (id == left_id || id == right_id).then_some(4),

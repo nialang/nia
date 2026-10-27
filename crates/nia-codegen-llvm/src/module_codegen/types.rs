@@ -45,12 +45,13 @@ fn const_args_match_semantic_with_array_lengths(
                     | (
                         nia_ty::ConstGenericValue::ConstExpr(right),
                         nia_ty::ConstGenericValue::Int(left),
-                    ) => array_length(*right).is_some_and(|right| left.bits() == u128::from(right)),
+                    ) => array_length(right.clone())
+                        .is_some_and(|right| left.bits() == u128::from(right)),
                     (
                         nia_ty::ConstGenericValue::ConstExpr(left),
                         nia_ty::ConstGenericValue::ConstExpr(right),
-                    ) => array_length(*left)
-                        .zip(array_length(*right))
+                    ) => array_length(left.clone())
+                        .zip(array_length(right.clone()))
                         .is_some_and(|(left, right)| left == right),
                     (left, right) => left == right,
                 }
@@ -1529,19 +1530,19 @@ mod tests {
         let modules = ModuleIdAllocator::new().expect("create module ID allocator");
         let left_expr = GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),
-            const_expr_id: ConstExprId(1),
+            const_expr_id: ConstExprId::synthetic(1),
         };
         let right_expr = GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),
-            const_expr_id: ConstExprId(2),
+            const_expr_id: ConstExprId::synthetic(2),
         };
         let left = ConstGenericArg {
             ty,
-            value: ConstGenericValue::ConstExpr(left_expr),
+            value: ConstGenericValue::ConstExpr(left_expr.clone()),
         };
         let right = ConstGenericArg {
             ty,
-            value: ConstGenericValue::ConstExpr(right_expr),
+            value: ConstGenericValue::ConstExpr(right_expr.clone()),
         };
         assert!(const_args_match_semantic_with_array_lengths(
             std::slice::from_ref(&left),

@@ -335,7 +335,7 @@ pub fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
             value.try_into().ok().map(ArrayLenTy::ConstValue)
         }
         ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
-        ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
+        ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(id.clone())),
         ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
     }
 }

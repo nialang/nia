@@ -1745,7 +1745,7 @@ impl Analyzer<'_> {
                 .array_lengths
                 .get(&id)
                 .copied()
-                .or_else(|| self.eval_array_len_const_expr_id(id)),
+                .or_else(|| self.eval_array_len_const_expr_id(&id)),
             ArrayLenTy::Builtin { builtin, ty } => {
                 let ConstValue::Int(value) = self
                     .resolve_layout_builtin_for_ty(Span::default(), builtin, ty)
@@ -1759,7 +1759,7 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn eval_array_len_const_expr_id(&mut self, id: GlobalConstExprId) -> Option<u64> {
+    pub(super) fn eval_array_len_const_expr_id(&mut self, id: &GlobalConstExprId) -> Option<u64> {
         let expr = if id.module_id == self.input.defs.module_id {
             self.input.module.const_exprs().get(&id)?.clone()
         } else {
@@ -1771,7 +1771,7 @@ impl Analyzer<'_> {
         let value = self.with_execution_module(id.module_id, |this| {
             this.eval_resolved_array_len_expr(&expr)
         })?;
-        self.array_lengths.insert(id, value);
+        self.array_lengths.insert(id.clone(), value);
         Some(value)
     }
 
@@ -2507,7 +2507,7 @@ impl Analyzer<'_> {
         &mut self,
         arg: &ConstGenericArg,
     ) -> Option<ConstGenericValue> {
-        let ConstGenericValue::ConstExpr(id) = arg.value else {
+        let ConstGenericValue::ConstExpr(id) = &arg.value else {
             return (!matches!(arg.value, ConstGenericValue::GenericParam(_)))
                 .then(|| arg.value.clone());
         };
@@ -2518,7 +2518,7 @@ impl Analyzer<'_> {
             .array_lengths
             .get(&id)
             .copied()
-            .or_else(|| self.eval_array_len_const_expr_id(id))
+            .or_else(|| self.eval_array_len_const_expr_id(&id))
         {
             return Some(ConstGenericValue::Int(IntConst::unsigned(value.into())));
         }

@@ -1317,7 +1317,7 @@ impl Analyzer<'_> {
             if array_lengths.contains_key(&id) {
                 continue;
             }
-            if let Some(value) = self.eval_array_len_const_expr_id(id) {
+            if let Some(value) = self.eval_array_len_const_expr_id(&id) {
                 array_lengths.insert(id, value);
             }
         }
@@ -1528,7 +1528,7 @@ impl Analyzer<'_> {
         if self.const_generic_arg_type_is_array_len(arg.ty)
             && let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
         {
-            out.insert(*id);
+            out.insert(id.clone());
         }
         self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
     }
@@ -1594,7 +1594,7 @@ mod tests {
             let ids: Vec<_> = (0..4)
                 .map(|index| GlobalConstExprId {
                     module_id,
-                    const_expr_id: nia_ids::ConstExprId(index),
+                    const_expr_id: nia_ids::ConstExprId::synthetic(index),
                 })
                 .collect();
             let arrays: Vec<_> = ids[..3]
@@ -1602,7 +1602,7 @@ mod tests {
                 .map(|id| {
                     append
                         .intern(TyKind::Array {
-                            len: ArrayLenTy::ConstExpr(*id),
+                            len: ArrayLenTy::ConstExpr(id.clone()),
                             elem: usize_ty,
                         })
                         .expect("array type")
@@ -1628,7 +1628,7 @@ mod tests {
                             },
                             ConstGenericArg {
                                 ty: usize_ty,
-                                value: ConstGenericValue::ConstExpr(ids[3]),
+                                value: ConstGenericValue::ConstExpr(ids[3].clone()),
                             },
                         ],
                     }),

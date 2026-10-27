@@ -293,7 +293,7 @@ fn type_lowering_rejects_const_expression_handles() {
     let array = append.test_intern(TyKind::Array {
         len: ArrayLenTy::ConstExpr(GlobalConstExprId {
             module_id,
-            const_expr_id: ConstExprId(3),
+            const_expr_id: ConstExprId::synthetic(3),
         }),
         elem: primitive,
     });

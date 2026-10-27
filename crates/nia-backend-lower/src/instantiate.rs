@@ -70,11 +70,11 @@ fn array_len_values_match(
     match (left, right) {
         (nia_ty::ArrayLenTy::ConstValue(left), nia_ty::ArrayLenTy::ConstExpr(right))
         | (nia_ty::ArrayLenTy::ConstExpr(right), nia_ty::ArrayLenTy::ConstValue(left)) => {
-            array_value(*right).is_some_and(|right| *left == right)
+            array_value(right.clone()).is_some_and(|right| *left == right)
         }
         (nia_ty::ArrayLenTy::ConstExpr(left), nia_ty::ArrayLenTy::ConstExpr(right)) => {
-            array_value(*left)
-                .zip(array_value(*right))
+            array_value(left.clone())
+                .zip(array_value(right.clone()))
                 .is_some_and(|(left, right)| left == right)
         }
         _ => false,
@@ -104,11 +104,11 @@ fn same_array_len_with_values(
         ) => left_builtin == right_builtin && same_type(*left_ty, *right_ty),
         (nia_ty::ArrayLenTy::ConstValue(left), nia_ty::ArrayLenTy::ConstExpr(right))
         | (nia_ty::ArrayLenTy::ConstExpr(right), nia_ty::ArrayLenTy::ConstValue(left)) => {
-            array_value(*right).is_some_and(|right| *left == right)
+            array_value(right.clone()).is_some_and(|right| *left == right)
         }
         (nia_ty::ArrayLenTy::ConstExpr(left), nia_ty::ArrayLenTy::ConstExpr(right)) => {
-            array_value(*left)
-                .zip(array_value(*right))
+            array_value(left.clone())
+                .zip(array_value(right.clone()))
                 .is_some_and(|(left, right)| left == right)
         }
         _ => false,
@@ -484,12 +484,12 @@ impl<'a> ModuleLowerer<'a> {
         arg: &nia_ty::ConstGenericArg,
     ) -> nia_ty::ConstGenericArg {
         let mut arg = self.normalize_const_generic_arg(arg);
-        if let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value
+        if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
             && let Some(value) = self
                 .input
                 .program
                 .const_array_lengths(id.module_id)
-                .and_then(|lengths| lengths.get(&id))
+                .and_then(|lengths| lengths.get(id))
         {
             arg.value = nia_ty::ConstGenericValue::Int(i128::from(*value).into());
         }
@@ -3187,38 +3187,38 @@ mod tests {
         let modules = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
         let left = nia_ids::GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),
-            const_expr_id: nia_ids::ConstExprId(1),
+            const_expr_id: nia_ids::ConstExprId::synthetic(1),
         };
         let right = nia_ids::GlobalConstExprId {
             module_id: modules.allocate().expect("allocate module ID"),
-            const_expr_id: nia_ids::ConstExprId(2),
+            const_expr_id: nia_ids::ConstExprId::synthetic(2),
         };
         assert!(same_array_len_with_values(
-            &ArrayLenTy::ConstExpr(left),
-            &ArrayLenTy::ConstExpr(right),
+            &ArrayLenTy::ConstExpr(left.clone()),
+            &ArrayLenTy::ConstExpr(right.clone()),
             &mut |_, _| false,
             &mut |id| (id == left || id == right).then_some(4),
         ));
         assert!(same_array_len_with_values(
             &ArrayLenTy::ConstValue(4),
-            &ArrayLenTy::ConstExpr(left),
+            &ArrayLenTy::ConstExpr(left.clone()),
             &mut |_, _| false,
             &mut |id| (id == left).then_some(4),
         ));
         assert!(!same_array_len_with_values(
-            &ArrayLenTy::ConstExpr(left),
-            &ArrayLenTy::ConstExpr(right),
+            &ArrayLenTy::ConstExpr(left.clone()),
+            &ArrayLenTy::ConstExpr(right.clone()),
             &mut |_, _| false,
             &mut |id| (id == left).then_some(4),
         ));
         assert!(array_len_values_match(
             &ArrayLenTy::ConstValue(4),
-            &ArrayLenTy::ConstExpr(left),
+            &ArrayLenTy::ConstExpr(left.clone()),
             |id| (id == left).then_some(4),
         ));
         assert!(!array_len_values_match(
-            &ArrayLenTy::ConstExpr(left),
-            &ArrayLenTy::ConstExpr(right),
+            &ArrayLenTy::ConstExpr(left.clone()),
+            &ArrayLenTy::ConstExpr(right.clone()),
             |id| (id == left).then_some(4),
         ));
     }

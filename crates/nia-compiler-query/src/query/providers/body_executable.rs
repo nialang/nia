@@ -2396,7 +2396,7 @@ mod fact_layout_cache_tests {
             values: Arc::new(HashMap::from([(
                 nia_ids::GlobalConstExprId {
                     module_id,
-                    const_expr_id: nia_ids::ConstExprId(0),
+                    const_expr_id: nia_ids::ConstExprId::synthetic(0),
                 },
                 4,
             )])),

@@ -284,18 +284,18 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_const_arg(&mut self, arg: &nia_ty::ConstGenericArg, span: Span) {
         self.validate_type(arg.ty, span);
-        if let nia_ty::ConstGenericValue::GenericParam(name) = arg.value {
+        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!(
                     "backend IR const generic `{}` reached LLVM codegen",
-                    mangle_symbol_id(name)
+                    mangle_symbol_id(*name)
                 ),
             ));
             return;
         }
-        let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value else {
+        let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value else {
             return;
         };
         if !self.index.is_registered_module(id.module_id) {
@@ -668,7 +668,7 @@ impl BackendValidator<'_> {
                             nia_ty::ConstGenericValue::ConstExpr(right),
                             nia_ty::ConstGenericValue::Int(left),
                         ) => self
-                            .array_len_value(&ArrayLenTy::ConstExpr(*right))
+                            .array_len_value(&ArrayLenTy::ConstExpr(right.clone()))
                             .is_some_and(|right| left.bits() == u128::from(right)),
                         (
                             nia_ty::ConstGenericValue::ConstExpr(left),
@@ -676,8 +676,10 @@ impl BackendValidator<'_> {
                         ) => {
                             left == right
                                 || self
-                                    .array_len_value(&ArrayLenTy::ConstExpr(*left))
-                                    .zip(self.array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                                    .array_len_value(&ArrayLenTy::ConstExpr(left.clone()))
+                                    .zip(
+                                        self.array_len_value(&ArrayLenTy::ConstExpr(right.clone())),
+                                    )
                                     .is_some_and(|(left, right)| left == right)
                         }
                         (left, right) => left == right,
@@ -735,12 +737,12 @@ impl BackendValidator<'_> {
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
-                .array_len_value(&ArrayLenTy::ConstExpr(*right))
+                .array_len_value(&ArrayLenTy::ConstExpr(right.clone()))
                 .is_some_and(|right| *left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
                 left == right || {
-                    let left = self.array_len_value(&ArrayLenTy::ConstExpr(*left));
-                    let right = self.array_len_value(&ArrayLenTy::ConstExpr(*right));
+                    let left = self.array_len_value(&ArrayLenTy::ConstExpr(left.clone()));
+                    let right = self.array_len_value(&ArrayLenTy::ConstExpr(right.clone()));
                     left.is_some() && left == right
                 }
             }
@@ -955,7 +957,7 @@ mod tests {
         validator.validate_array_len(
             &nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id: owner,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
             Span::default(),
         );
@@ -969,7 +971,7 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let len_id = GlobalConstExprId {
             module_id: owner,
-            const_expr_id: ConstExprId(0),
+            const_expr_id: ConstExprId::synthetic(0),
         };
         let mut module = test_module(owner, {
             let interner = type_store.append_for_module(owner);
@@ -977,14 +979,17 @@ mod tests {
             drop(interner);
             ty
         });
-        module.const_eval.array_lengths.insert(len_id, 4);
+        module.const_eval.array_lengths.insert(len_id.clone(), 4);
         let store =
             Arc::new(BackendModuleStore::new([owner]).expect("create backend module store"));
         store.publish(module).expect("publish backend module");
         let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
         let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
 
-        validator.validate_array_len(&nia_ty::ArrayLenTy::ConstExpr(len_id), Span::default());
+        validator.validate_array_len(
+            &nia_ty::ArrayLenTy::ConstExpr(len_id.clone()),
+            Span::default(),
+        );
         assert!(validator.diagnostics.is_empty());
     }
 
@@ -1004,16 +1009,16 @@ mod tests {
         };
         let left_expr = GlobalConstExprId {
             module_id: left_module,
-            const_expr_id: ConstExprId(0),
+            const_expr_id: ConstExprId::synthetic(0),
         };
         let right_expr = GlobalConstExprId {
             module_id: right_module,
-            const_expr_id: ConstExprId(1),
+            const_expr_id: ConstExprId::synthetic(1),
         };
         let mut left = test_module(left_module, left_ty);
-        left.const_eval.array_lengths.insert(left_expr, 4);
+        left.const_eval.array_lengths.insert(left_expr.clone(), 4);
         let mut right = test_module(right_module, right_ty);
-        right.const_eval.array_lengths.insert(right_expr, 4);
+        right.const_eval.array_lengths.insert(right_expr.clone(), 4);
         let store = Arc::new(
             BackendModuleStore::new([left_module, right_module])
                 .expect("create backend module store"),
@@ -1026,11 +1031,11 @@ mod tests {
         let validator = BackendValidator::new(&index, TargetDataLayout::LP64);
         let left_arg = nia_ty::ConstGenericArg {
             ty: left_ty,
-            value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+            value: nia_ty::ConstGenericValue::ConstExpr(left_expr.clone()),
         };
         let right_arg = nia_ty::ConstGenericArg {
             ty: right_ty,
-            value: nia_ty::ConstGenericValue::ConstExpr(right_expr),
+            value: nia_ty::ConstGenericValue::ConstExpr(right_expr.clone()),
         };
         assert!(validator.same_const_args(
             std::slice::from_ref(&left_arg),
@@ -1046,13 +1051,13 @@ mod tests {
         assert!(!validator.same_const_args(
             &[nia_ty::ConstGenericArg {
                 ty: left_ty,
-                value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+                value: nia_ty::ConstGenericValue::ConstExpr(left_expr.clone()),
             }],
             &[nia_ty::ConstGenericArg {
                 ty: right_ty,
                 value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
                     module_id: right_module,
-                    const_expr_id: ConstExprId(2),
+                    const_expr_id: ConstExprId::synthetic(2),
                 }),
             }],
         ));
@@ -1072,7 +1077,7 @@ mod tests {
         validator.validate_array_len(
             &nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id: foreign,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
             Span::default(),
         );

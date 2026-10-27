@@ -179,7 +179,7 @@ impl ModuleLowerer<'_> {
                 },
                 |id| {
                     let value = const_array_lengths.get(&id).copied();
-                    if value.is_none() && missing_array_len_diagnostics.insert(id) {
+                    if value.is_none() && missing_array_len_diagnostics.insert(id.clone()) {
                         let span = const_expr_summaries
                             .get(&id)
                             .map(|summary| summary.span)

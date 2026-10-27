@@ -85,7 +85,7 @@ impl NodeChildPath {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Source position strategy used by a stable node locator.
 pub enum NodePosition {
     /// Source span position.
@@ -101,7 +101,7 @@ pub enum NodePosition {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Revision-independent node site within one source.
 pub struct NodeSite {
     /// Owning source identity.
@@ -112,7 +112,7 @@ pub struct NodeSite {
     pub position: NodePosition,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Stable node locator scoped to an exact source revision.
 pub struct VersionedNodeKey {
     /// Source, kind, and position identity.

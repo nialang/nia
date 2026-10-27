@@ -2054,11 +2054,11 @@ mod tests {
         let type_store = TypeStore::new().expect("create type store");
         let left_expr = nia_ids::GlobalConstExprId {
             module_id: left_module,
-            const_expr_id: nia_ids::ConstExprId(1),
+            const_expr_id: nia_ids::ConstExprId::synthetic(1),
         };
         let right_expr = nia_ids::GlobalConstExprId {
             module_id: right_module,
-            const_expr_id: nia_ids::ConstExprId(2),
+            const_expr_id: nia_ids::ConstExprId::synthetic(2),
         };
         let left_module_data = BackendModule {
             id: left_module,
@@ -2066,7 +2066,7 @@ mod tests {
             symbol_package_identity: "test/package@0".into(),
             name: "left".to_string(),
             const_eval: BackendConstFacts {
-                array_lengths: [(left_expr, 4)].into_iter().collect(),
+                array_lengths: [(left_expr.clone(), 4)].into_iter().collect(),
             },
             ..enum_module(
                 left_module,
@@ -2084,7 +2084,7 @@ mod tests {
             symbol_package_identity: "test/package@0".into(),
             name: "right".to_string(),
             const_eval: BackendConstFacts {
-                array_lengths: [(right_expr, 4)].into_iter().collect(),
+                array_lengths: [(right_expr.clone(), 4)].into_iter().collect(),
             },
             ..enum_module(
                 right_module,
@@ -2111,15 +2111,15 @@ mod tests {
 
         assert!(equivalence.same_array_len_for_equiv(
             &ArrayLenTy::ConstValue(4),
-            &ArrayLenTy::ConstExpr(left_expr),
+            &ArrayLenTy::ConstExpr(left_expr.clone()),
         ));
         assert!(equivalence.same_array_len_for_equiv(
-            &ArrayLenTy::ConstExpr(left_expr),
-            &ArrayLenTy::ConstExpr(right_expr),
+            &ArrayLenTy::ConstExpr(left_expr.clone()),
+            &ArrayLenTy::ConstExpr(right_expr.clone()),
         ));
         assert!(!equivalence.same_array_len_for_equiv(
             &ArrayLenTy::ConstValue(5),
-            &ArrayLenTy::ConstExpr(left_expr),
+            &ArrayLenTy::ConstExpr(left_expr.clone()),
         ));
 
         let left_usize = type_store
@@ -2130,11 +2130,11 @@ mod tests {
             .test_primitive(PrimitiveTy::Usize);
         let left_const_args = [ConstGenericArg {
             ty: left_usize,
-            value: ConstGenericValue::ConstExpr(left_expr),
+            value: ConstGenericValue::ConstExpr(left_expr.clone()),
         }];
         let right_const_args = [ConstGenericArg {
             ty: right_usize,
-            value: ConstGenericValue::ConstExpr(right_expr),
+            value: ConstGenericValue::ConstExpr(right_expr.clone()),
         }];
         assert!(
             equivalence.same_const_generic_args_for_equiv(&left_const_args, &right_const_args,)
@@ -2148,7 +2148,7 @@ mod tests {
         ));
         let unresolved_expr = nia_ids::GlobalConstExprId {
             module_id: right_module,
-            const_expr_id: nia_ids::ConstExprId(3),
+            const_expr_id: nia_ids::ConstExprId::synthetic(3),
         };
         assert!(!equivalence.same_const_generic_args_for_equiv(
             &left_const_args,

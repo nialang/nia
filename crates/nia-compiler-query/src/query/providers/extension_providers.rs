@@ -782,7 +782,7 @@ fn collect_const_arg_owner_modules(
     modules: &mut HashSet<ModuleId>,
 ) {
     for arg in args {
-        if let nia_ty::ConstGenericValue::ConstExpr(expr_id) = arg.value {
+        if let nia_ty::ConstGenericValue::ConstExpr(expr_id) = &arg.value {
             modules.insert(expr_id.module_id);
         }
     }
@@ -1051,11 +1051,11 @@ mod tests {
         });
         let const_expr = GlobalConstExprId {
             module_id: const_module,
-            const_expr_id: ConstExprId(2),
+            const_expr_id: ConstExprId::synthetic(2),
         };
         let array_expr = GlobalConstExprId {
             module_id: array_module,
-            const_expr_id: ConstExprId(3),
+            const_expr_id: ConstExprId::synthetic(3),
         };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(trait_module);

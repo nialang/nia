@@ -5,7 +5,7 @@
 //! the owning product pairs it with a source or node key. Lexer and syntax
 //! spans are UTF-8 byte offsets.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 /// A half-open byte/character source range `[start, end)`.
 pub struct Span {
     /// Inclusive range start.

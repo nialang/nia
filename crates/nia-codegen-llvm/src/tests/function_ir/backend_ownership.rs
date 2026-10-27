@@ -9,15 +9,15 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     let span = Span::default();
     let len_id = GlobalConstExprId {
         module_id,
-        const_expr_id: ConstExprId(0),
+        const_expr_id: ConstExprId::synthetic(0),
     };
     let elem = interner.test_primitive(PrimitiveTy::U8);
     let array_ty = interner.test_intern(TyKind::Array {
-        len: ArrayLenTy::ConstExpr(len_id),
+        len: ArrayLenTy::ConstExpr(len_id.clone()),
         elem,
     });
     let mut const_eval = BackendConstFacts::default();
-    const_eval.array_lengths.insert(len_id, 4);
+    const_eval.array_lengths.insert(len_id.clone(), 4);
     let mut module = BackendModule {
         id: module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
@@ -532,7 +532,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                             value: ConstGenericValue::ConstExpr(
                                                 GlobalConstExprId {
                                                     module_id: foreign_module_id,
-                                                    const_expr_id: ConstExprId(0),
+                                                    const_expr_id: ConstExprId::synthetic(0),
                                                 },
                                             ),
                                         }],

@@ -12,11 +12,11 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
     };
     let len_id = GlobalConstExprId {
         module_id: fixture.module_id,
-        const_expr_id: ConstExprId(0),
+        const_expr_id: ConstExprId::synthetic(0),
     };
     let elem = fixture.types.primitive(PrimitiveTy::I32);
     let array_ty = fixture.types.intern(TyKind::Array {
-        len: ArrayLenTy::ConstExpr(len_id),
+        len: ArrayLenTy::ConstExpr(len_id.clone()),
         elem,
     });
     let instantiations = vec![inst(take_id, vec![array_ty], Span::new(1, 2), None)];
@@ -132,7 +132,7 @@ fun wrap[T](value: T) T { value }
     };
     let len_id = GlobalConstExprId {
         module_id: fixture.module_id,
-        const_expr_id: ConstExprId(0),
+        const_expr_id: ConstExprId::synthetic(0),
     };
     let elem = fixture.types.primitive(PrimitiveTy::I32);
     let array_ty = fixture.types.intern(TyKind::Array {

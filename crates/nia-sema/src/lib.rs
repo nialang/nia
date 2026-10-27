@@ -336,7 +336,7 @@ mod tests {
             check_array_literal_len(
                 Some(ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
                     module_id,
-                    const_expr_id: nia_ids::ConstExprId(0),
+                    const_expr_id: nia_ids::ConstExprId::synthetic(0),
                 })),
                 Some(9),
                 Some(4),

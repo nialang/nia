@@ -43,18 +43,18 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
     let right_u8 = right.test_primitive(PrimitiveTy::U8);
     let left_expr = GlobalConstExprId {
         module_id: left_module,
-        const_expr_id: nia_ids::ConstExprId(1),
+        const_expr_id: nia_ids::ConstExprId::synthetic(1),
     };
     let right_expr = GlobalConstExprId {
         module_id: right_module,
-        const_expr_id: nia_ids::ConstExprId(2),
+        const_expr_id: nia_ids::ConstExprId::synthetic(2),
     };
     let left_array = left.test_intern(TyKind::Array {
-        len: ArrayLenTy::ConstExpr(left_expr),
+        len: ArrayLenTy::ConstExpr(left_expr.clone()),
         elem: left_u8,
     });
     let right_array = right.test_intern(TyKind::Array {
-        len: ArrayLenTy::ConstExpr(right_expr),
+        len: ArrayLenTy::ConstExpr(right_expr.clone()),
         elem: right_u8,
     });
     let normalization = TypeNormalization {
@@ -64,7 +64,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
     let const_expr_value = |id, _| {
-        [left_expr, right_expr]
+        [left_expr.clone(), right_expr.clone()]
             .contains(&id)
             .then(|| ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)))
     };
@@ -112,18 +112,18 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     let layout_u8_ty = layout_append.test_primitive(PrimitiveTy::U8);
     let left_expr = GlobalConstExprId {
         module_id,
-        const_expr_id: nia_ids::ConstExprId(10),
+        const_expr_id: nia_ids::ConstExprId::synthetic(10),
     };
     let right_expr = GlobalConstExprId {
         module_id: layout_module_id,
-        const_expr_id: nia_ids::ConstExprId(11),
+        const_expr_id: nia_ids::ConstExprId::synthetic(11),
     };
     let actual = append.test_intern(TyKind::Array {
-        len: ArrayLenTy::ConstExpr(left_expr),
+        len: ArrayLenTy::ConstExpr(left_expr.clone()),
         elem: u8_ty,
     });
     let layout_key = layout_append.test_intern(TyKind::Array {
-        len: ArrayLenTy::ConstExpr(right_expr),
+        len: ArrayLenTy::ConstExpr(right_expr.clone()),
         elem: layout_u8_ty,
     });
     let layouts = nia_layout::Layouts {
@@ -144,7 +144,7 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
     let const_expr_value = |id, _| {
-        [left_expr, right_expr]
+        [left_expr.clone(), right_expr.clone()]
             .contains(&id)
             .then(|| ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)))
     };
@@ -199,18 +199,18 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
     };
     let left_expr = GlobalConstExprId {
         module_id,
-        const_expr_id: nia_ids::ConstExprId(12),
+        const_expr_id: nia_ids::ConstExprId::synthetic(12),
     };
     let right_expr = GlobalConstExprId {
         module_id: layout_module_id,
-        const_expr_id: nia_ids::ConstExprId(13),
+        const_expr_id: nia_ids::ConstExprId::synthetic(13),
     };
     let actual = append.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
             ty: usize_ty,
-            value: ConstGenericValue::ConstExpr(left_expr),
+            value: ConstGenericValue::ConstExpr(left_expr.clone()),
         }],
     });
     let layout_key = layout_append.test_intern(TyKind::Nominal {
@@ -218,7 +218,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
         args: Vec::new(),
         const_args: vec![ConstGenericArg {
             ty: layout_usize_ty,
-            value: ConstGenericValue::ConstExpr(right_expr),
+            value: ConstGenericValue::ConstExpr(right_expr.clone()),
         }],
     });
     let layouts = nia_layout::Layouts {
@@ -239,7 +239,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
     let const_expr_value = |id, _| {
-        [left_expr, right_expr]
+        [left_expr.clone(), right_expr.clone()]
             .contains(&id)
             .then(|| ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)))
     };

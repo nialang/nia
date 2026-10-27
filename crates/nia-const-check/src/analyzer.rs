@@ -606,7 +606,7 @@ impl Analyzer<'_> {
             self.collect_array_len_const_exprs_in_ty_inner(ty, &mut needed, &mut seen);
         }
         for id in needed {
-            self.eval_array_len_const_expr_id(id);
+            self.eval_array_len_const_expr_id(&id);
         }
     }
 

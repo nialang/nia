@@ -947,7 +947,7 @@ fn backend_array_lengths(modules: &[BackendModule]) -> HashMap<GlobalConstExprId
                 .const_eval
                 .array_lengths
                 .iter()
-                .map(|(id, value)| (*id, *value))
+                .map(|(id, value)| (id.clone(), *value))
         })
         .collect()
 }

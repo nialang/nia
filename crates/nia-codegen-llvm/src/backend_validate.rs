@@ -2664,18 +2664,18 @@ mod owner_tests {
         let i32_ty = interner.test_primitive(nia_ty::PrimitiveTy::I32);
         let left_expr = GlobalConstExprId {
             module_id,
-            const_expr_id: ConstExprId(0),
+            const_expr_id: ConstExprId::synthetic(0),
         };
         let right_expr = GlobalConstExprId {
             module_id,
-            const_expr_id: ConstExprId(1),
+            const_expr_id: ConstExprId::synthetic(1),
         };
         let left = interner.test_intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr(left_expr),
+            len: ArrayLenTy::ConstExpr(left_expr.clone()),
             elem: i32_ty,
         });
         let right = interner.test_intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr(right_expr),
+            len: ArrayLenTy::ConstExpr(right_expr.clone()),
             elem: i32_ty,
         });
         drop(interner);
@@ -2708,8 +2708,11 @@ mod owner_tests {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         };
-        module.const_eval.array_lengths.insert(left_expr, 4);
-        module.const_eval.array_lengths.insert(right_expr, 8);
+        module.const_eval.array_lengths.insert(left_expr.clone(), 4);
+        module
+            .const_eval
+            .array_lengths
+            .insert(right_expr.clone(), 8);
         let store =
             Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
         store.publish(module).expect("publish backend module");

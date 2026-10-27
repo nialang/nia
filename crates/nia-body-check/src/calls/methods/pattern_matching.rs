@@ -647,7 +647,7 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
                 nia_ty::IntConst::unsigned((*value).into()),
             )),
-            ArrayLenTy::ConstExpr(id) => self.array_len_const_expr_value(*id).map(|value| {
+            ArrayLenTy::ConstExpr(id) => self.array_len_const_expr_value(id.clone()).map(|value| {
                 nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
             }),
             ArrayLenTy::Builtin { .. } => self.array_len_value(len).ok().map(|value| {

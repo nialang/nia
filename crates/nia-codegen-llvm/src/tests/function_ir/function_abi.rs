@@ -867,7 +867,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
             ty: i32_ty,
             value: ConstGenericValue::ConstExpr(GlobalConstExprId {
                 module_id: foreign_module_id,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
         }],
         symbol: "bad\0function_instance".to_string(),

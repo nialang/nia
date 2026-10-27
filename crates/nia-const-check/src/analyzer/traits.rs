@@ -654,7 +654,7 @@ impl Analyzer<'_> {
         let mut array_lengths = self.array_lengths.clone();
         for id in needed {
             if !array_lengths.contains_key(&id)
-                && let Some(value) = self.eval_array_len_const_expr_id(id)
+                && let Some(value) = self.eval_array_len_const_expr_id(&id)
             {
                 array_lengths.insert(id, value);
             }
@@ -672,9 +672,9 @@ impl Analyzer<'_> {
             if matches!(
                 self.ty_kind(arg.ty),
                 Some(TyKind::Primitive(PrimitiveTy::Usize))
-            ) && let ConstGenericValue::ConstExpr(id) = arg.value
+            ) && let ConstGenericValue::ConstExpr(id) = &arg.value
             {
-                out.insert(id);
+                out.insert(id.clone());
             }
         }
     }

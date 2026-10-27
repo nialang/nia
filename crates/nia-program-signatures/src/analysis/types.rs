@@ -152,14 +152,16 @@ impl TypeEquivalence for SignatureTypeEquivalence<'_> {
                             nia_ty::ConstGenericValue::ConstExpr(right),
                             nia_ty::ConstGenericValue::Int(left),
                         ) => self
-                            .literal_array_len_value(&ArrayLenTy::ConstExpr(*right))
+                            .literal_array_len_value(&ArrayLenTy::ConstExpr(right.clone()))
                             .is_some_and(|right| left.bits() == u128::from(right)),
                         (
                             nia_ty::ConstGenericValue::ConstExpr(left),
                             nia_ty::ConstGenericValue::ConstExpr(right),
                         ) => self
-                            .literal_array_len_value(&ArrayLenTy::ConstExpr(*left))
-                            .zip(self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                            .literal_array_len_value(&ArrayLenTy::ConstExpr(left.clone()))
+                            .zip(
+                                self.literal_array_len_value(&ArrayLenTy::ConstExpr(right.clone())),
+                            )
                             .is_some_and(|(left, right)| left == right),
                         (left, right) => left == right,
                     }

@@ -624,7 +624,7 @@ pub(super) fn needed_const_exprs_for_active_item_tree(
     let candidate_ids = type_lowering
         .const_exprs
         .keys()
-        .copied()
+        .cloned()
         .collect::<HashSet<_>>();
     let mut out = HashSet::new();
     let mut seen = HashSet::new();
@@ -643,7 +643,7 @@ pub(super) fn const_expr_subset_for_ids(
 ) -> HashMap<GlobalConstExprId, nia_ast::Expr> {
     const_exprs
         .iter()
-        .filter_map(|(id, expr)| ids.contains(id).then_some((*id, expr.clone())))
+        .filter_map(|(id, expr)| ids.contains(id).then_some((id.clone(), expr.clone())))
         .collect()
 }
 
@@ -868,7 +868,7 @@ fn collect_array_len_const_exprs_in_len(
     match len {
         ArrayLenTy::ConstExpr(id) => {
             if candidate_ids.contains(id) {
-                out.insert(*id);
+                out.insert(id.clone());
             }
         }
         ArrayLenTy::Builtin { ty, .. } => {
@@ -883,10 +883,10 @@ fn collect_array_len_const_exprs_in_const_arg(
     candidate_ids: &HashSet<GlobalConstExprId>,
     out: &mut HashSet<GlobalConstExprId>,
 ) {
-    if let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value
-        && candidate_ids.contains(&id)
+    if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
+        && candidate_ids.contains(id)
     {
-        out.insert(id);
+        out.insert(id.clone());
     }
 }
 
@@ -923,14 +923,14 @@ mod tests {
         });
         let expr = GlobalConstExprId {
             module_id,
-            const_expr_id: ConstExprId(7),
+            const_expr_id: ConstExprId::synthetic(7),
         };
         let types = TypeStore::new().expect("create type store");
         let append = types.append_for_module(module_id);
         let usize_ty = append.test_primitive(PrimitiveTy::Usize);
         let const_arg = ConstGenericArg {
             ty: usize_ty,
-            value: ConstGenericValue::ConstExpr(expr),
+            value: ConstGenericValue::ConstExpr(expr.clone()),
         };
         let binding_ty = append.test_intern(TyKind::Primitive(PrimitiveTy::Bool));
         let binding = nia_ty::AssociatedTypeBindingTy {
@@ -971,14 +971,14 @@ mod tests {
         let ids: Vec<_> = (0..4)
             .map(|index| GlobalConstExprId {
                 module_id,
-                const_expr_id: ConstExprId(index),
+                const_expr_id: ConstExprId::synthetic(index),
             })
             .collect();
         let arrays: Vec<_> = ids[..3]
             .iter()
             .map(|id| {
                 append.test_intern(TyKind::Array {
-                    len: ArrayLenTy::ConstExpr(*id),
+                    len: ArrayLenTy::ConstExpr(id.clone()),
                     elem: usize_ty,
                 })
             })
@@ -1002,7 +1002,7 @@ mod tests {
                     },
                     ConstGenericArg {
                         ty: usize_ty,
-                        value: ConstGenericValue::ConstExpr(ids[3]),
+                        value: ConstGenericValue::ConstExpr(ids[3].clone()),
                     },
                 ],
             }),

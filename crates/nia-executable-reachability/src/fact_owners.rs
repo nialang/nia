@@ -10,7 +10,7 @@ fn collect_const_arg_owner_modules(
     type_modules: &mut HashSet<ModuleId>,
 ) {
     for arg in args {
-        if let nia_ty::ConstGenericValue::ConstExpr(expr_id) = arg.value {
+        if let nia_ty::ConstGenericValue::ConstExpr(expr_id) = &arg.value {
             add_reachable_type_module(expr_id.module_id, type_modules);
         }
     }
@@ -739,7 +739,7 @@ mod tests {
             ty,
             value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
                 module_id: const_owner,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
         };
         let mut type_modules = HashSet::new();
@@ -750,7 +750,7 @@ mod tests {
         collect_array_len_owner_modules(
             &nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
                 module_id: const_owner,
-                const_expr_id: ConstExprId(1),
+                const_expr_id: ConstExprId::synthetic(1),
             }),
             &mut VecDeque::new(),
             &mut array_modules,
@@ -886,7 +886,7 @@ mod tests {
             ty: usize_ty,
             value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
                 module_id: const_module,
-                const_expr_id: ConstExprId(0),
+                const_expr_id: ConstExprId::synthetic(0),
             }),
         };
         let closure = append.test_intern(TyKind::ClosureState {

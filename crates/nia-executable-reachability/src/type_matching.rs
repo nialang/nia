@@ -988,7 +988,7 @@ fn const_value_from_array_len(len: &nia_ty::ArrayLenTy) -> Option<nia_ty::ConstG
         nia_ty::ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
             nia_ty::IntConst::unsigned((*value).into()),
         )),
-        nia_ty::ArrayLenTy::ConstExpr(id) => Some(nia_ty::ConstGenericValue::ConstExpr(*id)),
+        nia_ty::ArrayLenTy::ConstExpr(id) => Some(nia_ty::ConstGenericValue::ConstExpr(id.clone())),
         nia_ty::ArrayLenTy::Infer | nia_ty::ArrayLenTy::Builtin { .. } => None,
     }
 }

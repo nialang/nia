@@ -30,11 +30,11 @@ impl TypeEquivalence for TypeLowererTypeEquivalence<'_> {
             ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
-                .literal_array_len_value(&ArrayLenTy::ConstExpr(*right))
+                .literal_array_len_value(&ArrayLenTy::ConstExpr(right.clone()))
                 .is_some_and(|right| *left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => self
-                .literal_array_len_value(&ArrayLenTy::ConstExpr(*left))
-                .zip(self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                .literal_array_len_value(&ArrayLenTy::ConstExpr(left.clone()))
+                .zip(self.literal_array_len_value(&ArrayLenTy::ConstExpr(right.clone())))
                 .is_some_and(|(left, right)| left == right),
             _ => false,
         }
@@ -58,15 +58,17 @@ impl TypeEquivalence for TypeLowererTypeEquivalence<'_> {
                         }
                         (ConstGenericValue::Int(left), ConstGenericValue::ConstExpr(right))
                         | (ConstGenericValue::ConstExpr(right), ConstGenericValue::Int(left)) => {
-                            self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right))
+                            self.literal_array_len_value(&ArrayLenTy::ConstExpr(right.clone()))
                                 .is_some_and(|right| left.bits() == u128::from(right))
                         }
                         (
                             ConstGenericValue::ConstExpr(left),
                             ConstGenericValue::ConstExpr(right),
                         ) => self
-                            .literal_array_len_value(&ArrayLenTy::ConstExpr(*left))
-                            .zip(self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                            .literal_array_len_value(&ArrayLenTy::ConstExpr(left.clone()))
+                            .zip(
+                                self.literal_array_len_value(&ArrayLenTy::ConstExpr(right.clone())),
+                            )
                             .is_some_and(|(left, right)| left == right),
                         (left, right) => left == right,
                     }
@@ -149,17 +151,19 @@ impl TypeLowerer<'_, '_> {
     }
 
     pub(crate) fn register_const_expr_value(&mut self, expr: &Expr) -> GlobalConstExprId {
-        // Const expressions receive module-scoped monotonic identities. Visit first so nested
-        // type uses and diagnostics are recorded before the expression becomes observable.
+        // Resolve nested type uses before publishing the expression. Its source-backed identity
+        // keeps partial and complete lowering products aligned without depending on traversal.
         self.visit_expr(expr);
         let id = GlobalConstExprId {
             module_id: self.module_id,
-            const_expr_id: ConstExprId(self.next_const_expr_id),
+            const_expr_id: ConstExprId::from_syntax(expr.node_key.clone()),
         };
-        self.next_const_expr_id += 1;
-        self.const_exprs.insert(id, expr.clone());
+        self.const_exprs
+            .entry(id.clone())
+            .or_insert_with(|| expr.clone());
         self.const_expr_summaries
-            .insert(id, const_expr_summary(expr));
+            .entry(id.clone())
+            .or_insert_with(|| const_expr_summary(expr));
         id
     }
 
@@ -281,11 +285,11 @@ mod tests {
             .expect("intern usize type");
         let left_expr = GlobalConstExprId {
             module_id,
-            const_expr_id: ConstExprId(1),
+            const_expr_id: ConstExprId::synthetic(1),
         };
         let right_expr = GlobalConstExprId {
             module_id,
-            const_expr_id: ConstExprId(2),
+            const_expr_id: ConstExprId::synthetic(2),
         };
         let def_id = GlobalDefId {
             module_id,
@@ -301,8 +305,8 @@ mod tests {
                 }],
             })
         };
-        let left = make(left_expr).expect("intern left nominal");
-        let right = make(right_expr).expect("intern right nominal");
+        let left = make(left_expr.clone()).expect("intern left nominal");
+        let right = make(right_expr.clone()).expect("intern right nominal");
         let summaries = HashMap::from([
             (
                 left_expr,
@@ -350,7 +354,7 @@ mod tests {
                     ty: const_ty,
                     value: ConstGenericValue::ConstExpr(GlobalConstExprId {
                         module_id,
-                        const_expr_id: ConstExprId(const_expr_id),
+                        const_expr_id: ConstExprId::synthetic(const_expr_id),
                     }),
                 }],
             })

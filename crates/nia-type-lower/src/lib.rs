@@ -386,7 +386,6 @@ fn lower_module_types_from_items(
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
         associated_type_scope_stack: Vec::new(),
-        next_const_expr_id: 0,
         mode,
     };
     for item in items.iter() {
@@ -425,7 +424,6 @@ struct TypeLowerer<'a, 'store> {
     generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<InternedTyId>,
     associated_type_scope_stack: Vec<AssociatedTypeScope>,
-    next_const_expr_id: u32,
     mode: TypeLowerMode,
 }
 
@@ -556,14 +554,6 @@ fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
     }
 }
 
-fn literal_array_len_expr_value(expr: &Expr) -> Option<u64> {
-    let ExprKind::Integer(text) = &expr.kind else {
-        return None;
-    };
-    let value = nia_literals::eval_int_literal(text).ok()?;
-    u64::try_from(value).ok()
-}
-
 fn parse_integer_const_generic(text: &str) -> Option<IntConst> {
     nia_literals::eval_int_literal(text)
         .ok()
@@ -608,6 +598,14 @@ fn const_expr_summary(expr: &Expr) -> ConstExprSummary {
         span: expr.span,
         literal_array_len: literal_array_len_expr_value(expr),
     }
+}
+
+fn literal_array_len_expr_value(expr: &Expr) -> Option<u64> {
+    let ExprKind::Integer(text) = &expr.kind else {
+        return None;
+    };
+    let value = nia_literals::eval_int_literal(text).ok()?;
+    u64::try_from(value).ok()
 }
 
 #[cfg(test)]

@@ -1180,7 +1180,7 @@ where
         ArrayLenTy::Infer => "infer".to_string(),
         ArrayLenTy::GenericParam(name) => format!("gen_len__{}", mangle_symbol_id(*name)),
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
-        ArrayLenTy::ConstExpr(id) => array_len(*id)
+        ArrayLenTy::ConstExpr(id) => array_len(id.clone())
             .map(|value| format!("len__{value}"))
             // Keep mangling total so later phases can keep reporting errors.
             // The unresolved marker is stable and cannot collide with a valid
@@ -1189,7 +1189,7 @@ where
                 format!(
                     "len_unresolved__s{:016x}__c{}",
                     module_id(id.module_id).0,
-                    id.const_expr_id.0
+                    sanitize_symbol_part(&id.const_expr_id.stable_label())
                 )
             }),
         ArrayLenTy::Builtin { builtin, ty } => format!(
@@ -1215,13 +1215,13 @@ where
     let ty = mangle_type_inner(type_store, arg.ty, module_id, nominal_name, array_len);
     let value = match &arg.value {
         ConstGenericValue::GenericParam(name) => format!("g{}", mangle_symbol_id(*name)),
-        ConstGenericValue::ConstExpr(id) => array_len(*id)
+        ConstGenericValue::ConstExpr(id) => array_len(id.clone())
             .map(|value| format!("expr_len__{value}"))
             .unwrap_or_else(|| {
                 format!(
                     "expr_unresolved__s{:016x}__c{}",
                     module_id(id.module_id).0,
-                    id.const_expr_id.0
+                    sanitize_symbol_part(&id.const_expr_id.stable_label())
                 )
             }),
         ConstGenericValue::Int(value) => {

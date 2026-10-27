@@ -58,7 +58,7 @@ pub(super) fn rooted_layouts_for_checked_module(
     };
     let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
         program_array_lengths_override
-            .and_then(|array_lengths| array_lengths(id))
+            .and_then(|array_lengths| array_lengths(id.clone()))
             .or_else(|| {
                 capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(id.module_id)))
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())

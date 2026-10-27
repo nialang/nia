@@ -116,18 +116,18 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
     };
     let left_expr = nia_ids::GlobalConstExprId {
         module_id: left_module,
-        const_expr_id: nia_ids::ConstExprId(1),
+        const_expr_id: nia_ids::ConstExprId::synthetic(1),
     };
     let right_expr = nia_ids::GlobalConstExprId {
         module_id: right_module,
-        const_expr_id: nia_ids::ConstExprId(2),
+        const_expr_id: nia_ids::ConstExprId::synthetic(2),
     };
     let left_ty = left.test_intern(TyKind::Nominal {
         def_id,
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
             ty: left_usize,
-            value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+            value: nia_ty::ConstGenericValue::ConstExpr(left_expr.clone()),
         }],
     });
     let right_ty = right.test_intern(TyKind::Nominal {
@@ -135,19 +135,19 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
         args: Vec::new(),
         const_args: vec![nia_ty::ConstGenericArg {
             ty: right_usize,
-            value: nia_ty::ConstGenericValue::ConstExpr(right_expr),
+            value: nia_ty::ConstGenericValue::ConstExpr(right_expr.clone()),
         }],
     });
     let mut const_expr_summaries = HashMap::new();
     const_expr_summaries.insert(
-        left_expr,
+        left_expr.clone(),
         nia_ty::ConstExprSummary {
             span: Span::default(),
             literal_array_len: Some(4),
         },
     );
     const_expr_summaries.insert(
-        right_expr,
+        right_expr.clone(),
         nia_ty::ConstExprSummary {
             span: Span::default(),
             literal_array_len: Some(4),
@@ -171,7 +171,7 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
     assert!(types_equivalent(&type_store, &lowering, left_ty, right_int));
     let unresolved_expr = nia_ids::GlobalConstExprId {
         module_id: right_module,
-        const_expr_id: nia_ids::ConstExprId(3),
+        const_expr_id: nia_ids::ConstExprId::synthetic(3),
     };
     let unresolved = right.test_intern(TyKind::Nominal {
         def_id,
@@ -205,11 +205,11 @@ fn trait_goal_guard_resolves_const_expression_summaries() {
     });
     let left_expr = nia_ids::GlobalConstExprId {
         module_id: left_module,
-        const_expr_id: nia_ids::ConstExprId(4),
+        const_expr_id: nia_ids::ConstExprId::synthetic(4),
     };
     let right_expr = nia_ids::GlobalConstExprId {
         module_id: right_module,
-        const_expr_id: nia_ids::ConstExprId(5),
+        const_expr_id: nia_ids::ConstExprId::synthetic(5),
     };
     let argument = |ty, expr| nia_ty::ConstGenericArg {
         ty,
@@ -219,16 +219,16 @@ fn trait_goal_guard_resolves_const_expression_summaries() {
         self_ty: left_usize,
         trait_id,
         trait_args: Vec::new(),
-        trait_const_args: vec![argument(left_usize, left_expr)],
+        trait_const_args: vec![argument(left_usize, left_expr.clone())],
     };
     let right_goal = TraitGoal {
         self_ty: right_usize,
         trait_id,
         trait_args: Vec::new(),
-        trait_const_args: vec![argument(right_usize, right_expr)],
+        trait_const_args: vec![argument(right_usize, right_expr.clone())],
     };
     let mut const_expr_summaries = HashMap::new();
-    for expr in [left_expr, right_expr] {
+    for expr in [left_expr.clone(), right_expr.clone()] {
         const_expr_summaries.insert(
             expr,
             nia_ty::ConstExprSummary {
@@ -255,7 +255,7 @@ fn trait_goal_guard_resolves_const_expression_summaries() {
             right_usize,
             nia_ids::GlobalConstExprId {
                 module_id: right_module,
-                const_expr_id: nia_ids::ConstExprId(6),
+                const_expr_id: nia_ids::ConstExprId::synthetic(6),
             },
         )],
         ..right_goal

@@ -114,6 +114,67 @@ fn type_store_preserves_published_slots_across_database_updates() {
 }
 
 #[test]
+fn signature_and_full_lowering_share_const_expression_ids_across_query_order() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fun first() [u8; 8 + 8] {
+    let body: [u8; 32 + 32] = [0; 64];
+    _ = body;
+    [0; 16]
+}
+
+fun second() [u8; 10 + 10] {
+    [0; 20]
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+    let signature = database.db.expect_get(SignatureTypeLoweringQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    let full = database.db.expect_get(TypeLoweringQuery(module_id));
+    let second_key = fixture
+        .modules
+        .first()
+        .expect("entry module")
+        .item_tree
+        .items
+        .iter()
+        .nth(1)
+        .and_then(|item| match &item.kind {
+            nia_ast::ItemKind::Function(function) => function.return_type.as_ref(),
+            _ => None,
+        })
+        .and_then(|ty| match &ty.kind {
+            nia_ast::TypeKind::Array {
+                len: nia_ast::ArrayLen::Expr(expr),
+                ..
+            } => Some(expr.node_key.clone()),
+            _ => None,
+        })
+        .expect("second function array length");
+    let id_for_key = |lowering: &nia_type_lower::TypeLowering| {
+        lowering
+            .const_exprs
+            .iter()
+            .find_map(|(id, expr)| (expr.node_key == second_key).then_some(id.clone()))
+    };
+    let signature_id = id_for_key(&signature.semantic).expect("signature const expression");
+    assert_eq!(
+        Some(signature_id),
+        id_for_key(&full.semantic),
+        "signature and full lowering must share source-backed const IDs"
+    );
+    assert!(
+        full.semantic.const_exprs.len() > signature.semantic.const_exprs.len(),
+        "full lowering should include the function-body expression"
+    );
+}
+
+#[test]
 fn type_normalization_appends_to_the_session_type_store() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

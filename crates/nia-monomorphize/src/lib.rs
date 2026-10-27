@@ -1004,7 +1004,7 @@ impl MonoCollector<'_> {
                     ConstGenericValue::Int(value) => {
                         u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
                     }
-                    ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
+                    ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(id.clone())),
                     ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
                     ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
                 })
@@ -1723,7 +1723,7 @@ impl MonoCollector<'_> {
                 format!(
                     "expr__s{:016x}__c{}",
                     self.module_mangle_id(id.module_id).raw(),
-                    id.const_expr_id.0
+                    id.const_expr_id.stable_label()
                 )
             }
             ConstGenericValue::Int(value) => {
@@ -1949,7 +1949,7 @@ fn array_len(
     let value = const_by_module
         .get(&id.module_id)
         .and_then(|const_eval| const_eval.array_lengths.get(&id).copied());
-    if value.is_none() && missing_array_len_diagnostics.insert(id) {
+    if value.is_none() && missing_array_len_diagnostics.insert(id.clone()) {
         let span = const_expr_summaries_by_module
             .get(&id.module_id)
             .and_then(|summaries| summaries.get(&id))
@@ -2199,18 +2199,18 @@ mod tests {
         let right_u8 = right.test_primitive(PrimitiveTy::U8);
         let left_expr = GlobalConstExprId {
             module_id: left_module,
-            const_expr_id: nia_ids::ConstExprId(1),
+            const_expr_id: nia_ids::ConstExprId::synthetic(1),
         };
         let right_expr = GlobalConstExprId {
             module_id: right_module,
-            const_expr_id: nia_ids::ConstExprId(2),
+            const_expr_id: nia_ids::ConstExprId::synthetic(2),
         };
         let left_array = left.test_intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr(left_expr),
+            len: ArrayLenTy::ConstExpr(left_expr.clone()),
             elem: left_u8,
         });
         let right_array = right.test_intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr(right_expr),
+            len: ArrayLenTy::ConstExpr(right_expr.clone()),
             elem: right_u8,
         });
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
@@ -2232,9 +2232,9 @@ mod tests {
             name: left_key.name,
         };
         let mut left_check = ConstCheck::default();
-        Arc::make_mut(&mut left_check.array_lengths).insert(left_expr, 4);
+        Arc::make_mut(&mut left_check.array_lengths).insert(left_expr.clone(), 4);
         let mut right_check = ConstCheck::default();
-        Arc::make_mut(&mut right_check.array_lengths).insert(right_expr, 4);
+        Arc::make_mut(&mut right_check.array_lengths).insert(right_expr.clone(), 4);
         let const_by_module =
             HashMap::from([(left_module, &left_check), (right_module, &right_check)]);
 
@@ -2247,11 +2247,11 @@ mod tests {
 
         let left_const = ConstGenericArg {
             ty: left_u8,
-            value: ConstGenericValue::ConstExpr(left_expr),
+            value: ConstGenericValue::ConstExpr(left_expr.clone()),
         };
         let right_const = ConstGenericArg {
             ty: right_u8,
-            value: ConstGenericValue::ConstExpr(right_expr),
+            value: ConstGenericValue::ConstExpr(right_expr.clone()),
         };
         let mut left_key_with_const = left_key.clone();
         left_key_with_const.trait_const_args = vec![left_const];
@@ -2265,7 +2265,7 @@ mod tests {
         ));
         let unresolved_expr = GlobalConstExprId {
             module_id: right_module,
-            const_expr_id: nia_ids::ConstExprId(3),
+            const_expr_id: nia_ids::ConstExprId::synthetic(3),
         };
         right_key_with_const.trait_const_args[0].value =
             ConstGenericValue::ConstExpr(unresolved_expr);

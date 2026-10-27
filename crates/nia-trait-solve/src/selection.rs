@@ -923,7 +923,7 @@ impl TraitSolver<'_> {
                 ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()))
             }
             ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(*name),
-            ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(*id),
+            ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(id.clone()),
             ArrayLenTy::Builtin {
                 builtin,
                 ty: layout_ty,

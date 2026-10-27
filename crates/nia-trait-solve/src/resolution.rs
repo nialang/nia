@@ -398,7 +398,7 @@ impl TraitSolver<'_> {
         match value {
             ConstGenericValue::ConstExpr(id) => self
                 .const_expr_value
-                .and_then(|value| value(*id, ty))
+                .and_then(|value| value(id.clone(), ty))
                 .unwrap_or_else(|| value.clone()),
             ConstGenericValue::GenericParam(_)
             | ConstGenericValue::Int(_)

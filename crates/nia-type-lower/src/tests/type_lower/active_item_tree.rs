@@ -196,6 +196,110 @@ struct Buffer[N: usize] {
     assert!(uses.iter().any(|(key, _)| key == &ty.node_key));
 }
 
+#[test]
+fn declaration_and_full_lowering_share_const_expression_identity() {
+    let (module, errors) = parse_module(
+        r#"
+fun first() [u8; 8 + 8] {
+    let body: [u8; 32 + 32] = [0; 64];
+    _ = body;
+    [0; 16]
+}
+
+fun second() [u8; 10 + 10] {
+    [0; 20]
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let module_id = ModuleIdAllocator::new()
+        .expect("create module ID allocator")
+        .allocate()
+        .expect("allocate module ID");
+    let tree = ModuleItemTree::from_module(&module);
+    let active = tree.all_items_active();
+    let defs =
+        collect_module_defs_from_active_item_tree(module_id, &active).expect("collect definitions");
+    let resolved = resolve_module_types_from_active_item_tree(
+        &active,
+        &defs,
+        TypeResolveProgramDefsContext::empty(),
+        &nia_defs::PublicSurfaces::default(),
+        &nia_defs::ModuleUsingScope::default(),
+    );
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+
+    let store = nia_ty::TypeStore::new().expect("create type store");
+    let declarations = lower_module_declaration_types_from_active_item_tree_with_context(
+        module_id,
+        &active,
+        &resolved,
+        TypeLoweringContext::empty(&store),
+    )
+    .expect("lower declaration types");
+    let full = lower_module_types_from_active_item_tree_with_context(
+        module_id,
+        &active,
+        &resolved,
+        TypeLoweringContext::empty(&store),
+    )
+    .expect("lower full types");
+
+    let ItemKind::Function(second) = &module.items[1].kind else {
+        panic!("expected second function");
+    };
+    let TypeKind::Array {
+        len: ArrayLen::Expr(second_len),
+        ..
+    } = &second.return_type.as_ref().expect("return type").kind
+    else {
+        panic!("expected array return type");
+    };
+    let id_for_node = |lowering: &TypeLowering| {
+        lowering
+            .const_exprs
+            .iter()
+            .find_map(|(id, expr)| (expr.node_key == second_len.node_key).then_some(id.clone()))
+    };
+    let declaration_id = id_for_node(&declarations).expect("declaration array length");
+    assert_eq!(
+        Some(declaration_id),
+        id_for_node(&full),
+        "the same syntax node must keep its const-expression ID across lowering modes"
+    );
+    assert_eq!(declarations.const_exprs.len(), 2);
+    assert_eq!(
+        full.const_exprs.len(),
+        3,
+        "full lowering also publishes the interleaved body expression"
+    );
+
+    let other_store = nia_ty::TypeStore::new().expect("create second type store");
+    let full_first = lower_module_types_from_active_item_tree_with_context(
+        module_id,
+        &active,
+        &resolved,
+        TypeLoweringContext::empty(&other_store),
+    )
+    .expect("lower full types first");
+    let declarations_after = lower_module_declaration_types_from_active_item_tree_with_context(
+        module_id,
+        &active,
+        &resolved,
+        TypeLoweringContext::empty(&other_store),
+    )
+    .expect("lower declaration types after full types");
+    assert_eq!(
+        id_for_node(&full_first),
+        id_for_node(&declarations_after),
+        "identity must be stable whichever lowering product requests the node first"
+    );
+}
+
 struct BoolResolver(bool);
 
 impl nia_item_tree::ConditionResolver for BoolResolver {

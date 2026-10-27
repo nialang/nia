@@ -1914,7 +1914,9 @@ impl<'a> BodyChecker<'a> {
         value: &ConstGenericValue,
     ) -> Option<ConstGenericValue> {
         match value {
-            ConstGenericValue::ConstExpr(id) => self.const_expr_value_for_trait_solver(*id, ty),
+            ConstGenericValue::ConstExpr(id) => {
+                self.const_expr_value_for_trait_solver(id.clone(), ty)
+            }
             ConstGenericValue::GenericParam(_) => None,
             ConstGenericValue::Int(_) | ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => {
                 Some(value.clone())
@@ -2149,7 +2151,7 @@ impl<'a> BodyChecker<'a> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
-                .array_len_const_expr_value(*id)
+                .array_len_const_expr_value(id.clone())
                 .ok_or_else(|| "array length was not evaluated by const".to_string()),
             ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
@@ -2172,11 +2174,11 @@ impl<'a> BodyChecker<'a> {
         match len {
             ArrayLenTy::ConstValue(value) => Some(*value),
             ArrayLenTy::ConstExpr(id) => {
-                if let Some(value) = self.array_len_const_expr_value(*id) {
+                if let Some(value) = self.array_len_const_expr_value(id.clone()) {
                     return Some(value);
                 }
                 let usize_ty = self.primitive(PrimitiveTy::Usize);
-                match self.const_expr_value_for_trait_solver(*id, usize_ty)? {
+                match self.const_expr_value_for_trait_solver(id.clone(), usize_ty)? {
                     ConstGenericValue::Int(value) => u64::try_from(value.bits()).ok(),
                     ConstGenericValue::Bool(_)
                     | ConstGenericValue::Char(_)
@@ -2356,7 +2358,7 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::GenericParam(name) => self.symbol_name(*name),
             ArrayLenTy::ConstValue(value) => value.to_string(),
             ArrayLenTy::ConstExpr(id) => self
-                .array_len_const_expr_value(*id)
+                .array_len_const_expr_value(id.clone())
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "<unevaluated const value>".to_string()),
             ArrayLenTy::Builtin { builtin, ty } => {
@@ -2389,10 +2391,10 @@ impl<'a> BodyChecker<'a> {
         arg: &ConstGenericArg,
         values: &mut HashMap<(GlobalConstExprId, InternedTyId), ConstGenericValue>,
     ) {
-        if let ConstGenericValue::ConstExpr(id) = arg.value
-            && let Some(value) = self.const_expr_value_for_trait_solver(id, arg.ty)
+        if let ConstGenericValue::ConstExpr(id) = &arg.value
+            && let Some(value) = self.const_expr_value_for_trait_solver(id.clone(), arg.ty)
         {
-            values.insert((id, arg.ty), value);
+            values.insert((id.clone(), arg.ty), value);
         }
     }
 
@@ -2401,7 +2403,7 @@ impl<'a> BodyChecker<'a> {
         id: GlobalConstExprId,
         ty: InternedTyId,
     ) -> Option<ConstGenericValue> {
-        if let Some(value) = self.array_len_const_expr_value(id) {
+        if let Some(value) = self.array_len_const_expr_value(id.clone()) {
             return Some(ConstGenericValue::Int(IntConst::unsigned(value.into())));
         }
         if id.module_id != self.defs.module_id {

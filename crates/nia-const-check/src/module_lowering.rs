@@ -113,7 +113,7 @@ impl ConstModuleLowerer<'_> {
         }
         for (id, expr) in self.input.const_exprs {
             if let Some(lowered) = self.lower_expr(expr) {
-                self.module.insert_const_expr(*id, lowered);
+                self.module.insert_const_expr(id.clone(), lowered);
             }
         }
     }
