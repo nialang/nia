@@ -191,7 +191,7 @@ impl CompilerEmitCacheIdentity {
             input.action,
             &ActionKind::CompilerEmit {
                 artifact: input.artifact.key.clone(),
-                target: input.target.clone(),
+                target: *input.target,
                 static_archives: input
                     .link_inputs
                     .iter()

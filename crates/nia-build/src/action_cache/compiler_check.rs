@@ -226,7 +226,7 @@ impl CompilerCheckCacheIdentity {
             input.action,
             &ActionKind::CompilerCheck {
                 module: input.module.key.clone(),
-                target: input.target.clone(),
+                target: *input.target,
                 runtime: input.runtime,
                 mode: input.compilation_mode,
                 configuration: input.configuration.clone(),
@@ -939,26 +939,27 @@ fn combined_fingerprint(
 }
 
 fn artifact_configuration_identity(configuration: &ArtifactConfiguration) -> Vec<u8> {
-    let mut encoded = Vec::new();
-    encoded.push(match configuration.linkage {
-        ArtifactLinkage::Static => 0,
-        ArtifactLinkage::StaticPie => 1,
-        ArtifactLinkage::Dynamic => 2,
-    });
-    encoded.push(match configuration.debug_info {
-        DebugInfo::None => 0,
-        DebugInfo::LineTables => 1,
-        DebugInfo::Full => 2,
-    });
-    encoded.push(match configuration.panic_strategy {
-        PanicStrategy::Abort => 0,
-        PanicStrategy::Unwind => 1,
-    });
-    encoded.push(match configuration.lto {
-        ArtifactLto::Off => 0,
-        ArtifactLto::Thin => 1,
-        ArtifactLto::Full => 2,
-    });
+    let mut encoded = vec![
+        match configuration.linkage {
+            ArtifactLinkage::Static => 0,
+            ArtifactLinkage::StaticPie => 1,
+            ArtifactLinkage::Dynamic => 2,
+        },
+        match configuration.debug_info {
+            DebugInfo::None => 0,
+            DebugInfo::LineTables => 1,
+            DebugInfo::Full => 2,
+        },
+        match configuration.panic_strategy {
+            PanicStrategy::Abort => 0,
+            PanicStrategy::Unwind => 1,
+        },
+        match configuration.lto {
+            ArtifactLto::Off => 0,
+            ArtifactLto::Thin => 1,
+            ArtifactLto::Full => 2,
+        },
+    ];
     encoded.extend_from_slice(&(configuration.defines.len() as u64).to_le_bytes());
     for define in &configuration.defines {
         write_text(&mut encoded, &define.name);
@@ -1036,7 +1037,7 @@ mod tests {
             &action,
             &ActionKind::CompilerCheck {
                 module: module.key.clone(),
-                target: target.clone(),
+                target,
                 runtime: Runtime::Bare,
                 mode: CompilationMode::Normal,
                 configuration: ArtifactConfiguration::default(),

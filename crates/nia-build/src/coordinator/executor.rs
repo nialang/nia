@@ -720,8 +720,7 @@ impl DriverActionExecutor {
             })
             .collect::<Result<Vec<_>, _>>()?;
         ExternalCommandCacheIdentity::new(
-            &action.key,
-            &action.kind,
+            action,
             command,
             &inputs,
             self.plan.packages(),

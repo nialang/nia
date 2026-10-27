@@ -1517,10 +1517,10 @@ impl FunctionInference {
             self.note_closure_use(local, expr.span);
         }
         self.unify(checker, term, actual);
-        if let Some(expected) = expected {
-            if !self.unify(checker, term, expected) {
-                self.note_closure_conflict(closure_local, expr.span);
-            }
+        if let Some(expected) = expected
+            && !self.unify(checker, term, expected)
+        {
+            self.note_closure_conflict(closure_local, expr.span);
         }
         term
     }
