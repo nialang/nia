@@ -1444,6 +1444,10 @@ const countOverflow: u8 = 1u8 << 8u8;
 const valueOverflow: u8 = (128u8 << 1u8) >> 1u8;
 const signedOverflow: i8 = (64i8 << 1i8) >> 1i8;
 const contextualOverflow: u8 = (128 << 1) >> 1;
+const signed128Overflow: i128 = 1i128 << 127i128;
+const unsigned128Overflow: u128 = 340282366920938463463374607431768211455u128 << 1u128;
+const signed128Boundary: i128 = -1i128 << 127i128;
+const unsigned128Boundary: u128 = 1u128 << 127u128;
 
 fun main() i32 { 0 }
 "#,
@@ -1467,7 +1471,7 @@ fun main() i32 { 0 }
                 .summary
                 .contains("integer overflow in const left shift"))
             .count(),
-        3,
+        5,
         "{:?}",
         program.diagnostics
     );

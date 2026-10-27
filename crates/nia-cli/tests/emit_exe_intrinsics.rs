@@ -6,6 +6,115 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn runtime_shifts_trap_on_overflow_but_widened_rotations_truncate() {
+    let root = temp_dir("runtime_shifts_trap_on_overflow_but_widened_rotations_truncate");
+    let rotate_source = root.join("rotate.nia");
+    let rotate_exe = root.join(format!("rotate{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &rotate_source,
+        r#"
+using std::process;
+
+fun rotateLeft(value: u64, amount: u64) u64 {
+    (((value as u128) << amount) as u64) | (value >> (64u64 - amount))
+}
+fun shiftLeft(value: u8) u8 { value << 1u8 }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if rotateLeft(0x0123456789abcdefu64, 8u64) != 0x23456789abcdef01u64 {
+        return process::ExitCode(1)!;
+    }
+    if shiftLeft(64u8) != 128u8 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write widened rotation source");
+    let build = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&rotate_source)
+        .arg("-o")
+        .arg(&rotate_exe)
+        .output_timeout_for_build("emit widened rotation semantics executable");
+    assert!(
+        build.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let status = Command::new(&rotate_exe).status_timeout("run widened rotation semantics");
+    assert_eq!(status.code(), Some(0));
+
+    let overflow_source = root.join("overflow.nia");
+    let overflow_exe = root.join(format!("overflow{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &overflow_source,
+        r#"
+using std::process;
+
+fun overflowingShift(value: u8) u8 { value << 1u8 }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    _ = overflowingShift(128u8);
+    !()
+}
+"#,
+    )
+    .expect("write overflowing shift source");
+    let build = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&overflow_source)
+        .arg("-o")
+        .arg(&overflow_exe)
+        .output_timeout_for_build("emit overflowing shift semantics executable");
+    assert!(
+        build.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let status = Command::new(&overflow_exe).status_timeout("run overflowing shift semantics");
+    assert!(!status.success(), "overflowing left shift must trap");
+
+    let signed_overflow_source = root.join("signed-overflow.nia");
+    let signed_overflow_exe = root.join(format!("signed-overflow{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &signed_overflow_source,
+        r#"
+using std::process;
+
+fun overflowingSignedShift(value: i8) i8 { value << 1i8 }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    _ = overflowingSignedShift(64i8);
+    !()
+}
+"#,
+    )
+    .expect("write overflowing signed shift source");
+    let build = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&signed_overflow_source)
+        .arg("-o")
+        .arg(&signed_overflow_exe)
+        .output_timeout_for_build("emit overflowing signed shift semantics executable");
+    assert!(
+        build.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let status =
+        Command::new(&signed_overflow_exe).status_timeout("run overflowing signed shift semantics");
+    assert!(!status.success(), "signed overflowing left shift must trap");
+}
+
+#[test]
 fn emit_exe_array_repeat_evaluates_each_element_once() {
     let root = temp_dir("emit_exe_array_repeat_evaluates_each_element_once");
     let main = root.join("main.nia");

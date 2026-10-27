@@ -7,7 +7,10 @@ use nia_const_ir::ConstBinaryOp;
 use nia_span::Span;
 use nia_ty::IntConst;
 
-use crate::literals::{char_array_to_string, checked_shift, checked_shift_u128};
+use crate::literals::{
+    char_array_to_string, checked_shift, checked_shift_u128, checked_signed_left_shift,
+    checked_unsigned_left_shift,
+};
 
 pub(super) fn const_bit_not(value: IntConst) -> IntConst {
     if value.is_signed() {
@@ -149,7 +152,7 @@ pub(super) fn eval_typed_binary_int(
             ConstBinaryOp::Sub => lhs.checked_sub(rhs),
             ConstBinaryOp::Shl => {
                 let count = typed_shift_count(rhs, semantics.bits)?;
-                lhs.checked_shl(count)
+                checked_signed_left_shift(lhs, count, semantics.bits)
             }
             ConstBinaryOp::Shr => {
                 let count = typed_shift_count(rhs, semantics.bits)?;
@@ -177,7 +180,7 @@ pub(super) fn eval_typed_binary_int(
             ConstBinaryOp::Sub => lhs.checked_sub(rhs),
             ConstBinaryOp::Shl => {
                 let count = typed_shift_count_u128(rhs, semantics.bits)?;
-                lhs.checked_shl(count)
+                checked_unsigned_left_shift(lhs, count, semantics.bits)
             }
             ConstBinaryOp::Shr => {
                 let count = typed_shift_count_u128(rhs, semantics.bits)?;
@@ -580,6 +583,131 @@ mod tests {
                 }),
             ),
             Err("invalid integer width in const bitwise not semantics".to_string())
+        );
+    }
+
+    #[test]
+    fn typed_left_shift_matches_narrow_runtime_overflow_semantics() {
+        let signed8 = ConstIntegerSemantics {
+            bits: 8,
+            signed: true,
+        };
+        let unsigned8 = ConstIntegerSemantics {
+            bits: 8,
+            signed: false,
+        };
+
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::from_i128(1),
+                ConstBinaryOp::Shl,
+                IntConst::from_i128(6),
+                signed8,
+            ),
+            Ok(IntConst::from_i128(64))
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::from_i128(1),
+                ConstBinaryOp::Shl,
+                IntConst::from_i128(7),
+                signed8,
+            ),
+            Err("integer overflow in const left shift".to_string())
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::from_i128(-1),
+                ConstBinaryOp::Shl,
+                IntConst::from_i128(7),
+                signed8,
+            ),
+            Ok(IntConst::from_i128(-128))
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::unsigned(1),
+                ConstBinaryOp::Shl,
+                IntConst::unsigned(7),
+                unsigned8,
+            ),
+            Ok(IntConst::unsigned(128))
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::unsigned(2),
+                ConstBinaryOp::Shl,
+                IntConst::unsigned(7),
+                unsigned8,
+            ),
+            Err("integer overflow in const left shift".to_string())
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::unsigned(1),
+                ConstBinaryOp::Shl,
+                IntConst::unsigned(8),
+                unsigned8,
+            ),
+            Err("shift count is out of range in const expression".to_string())
+        );
+    }
+
+    #[test]
+    fn typed_128_bit_left_shift_rejects_host_width_wraparound() {
+        let signed128 = ConstIntegerSemantics {
+            bits: 128,
+            signed: true,
+        };
+        let unsigned128 = ConstIntegerSemantics {
+            bits: 128,
+            signed: false,
+        };
+
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::from_i128(1),
+                ConstBinaryOp::Shl,
+                IntConst::from_i128(127),
+                signed128,
+            ),
+            Err("integer overflow in const left shift".to_string())
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::from_i128(i128::MIN),
+                ConstBinaryOp::Shl,
+                IntConst::from_i128(1),
+                signed128,
+            ),
+            Err("integer overflow in const left shift".to_string())
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::from_i128(-1),
+                ConstBinaryOp::Shl,
+                IntConst::from_i128(127),
+                signed128,
+            ),
+            Ok(IntConst::from_i128(i128::MIN))
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::unsigned(u128::MAX),
+                ConstBinaryOp::Shl,
+                IntConst::unsigned(1),
+                unsigned128,
+            ),
+            Err("integer overflow in const left shift".to_string())
+        );
+        assert_eq!(
+            eval_typed_binary_int(
+                IntConst::unsigned(1),
+                ConstBinaryOp::Shl,
+                IntConst::unsigned(127),
+                unsigned128,
+            ),
+            Ok(IntConst::unsigned(1_u128 << 127))
         );
     }
 
