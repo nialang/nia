@@ -1,15 +1,40 @@
-// Ordered map with explicit allocation.
+// Ordered map backed by a fixed-degree B-tree.
 //
-// Entries are kept in key order. Lookup uses a binary search and iteration is
-// always ordered; insertion and removal preserve that order through the
-// ArrayList's checked shifting operations. This representation keeps the
-// ownership and cleanup contract small while providing the TreeMap semantics
-// needed by compilers and build tools.
+// Nodes use one allocator block containing the node header and its key,
+// value, and child-pointer slots. The tree keeps an allocation list separate
+// from a reusable-node list so clear() retains capacity without moving values.
+// `capacity()` is the minimum number of entries guaranteed to fit without
+// allocation; `reserve()` preallocates a conservative B-tree node bound for it.
 
-using root::collections::array_list;
+using root::cmp;
 using root::error;
 using root::mem;
 using root::iter;
+
+// Minimum degree four: every non-root node has 3..7 keys and 4..8 children.
+const minKeys: usize = 3;
+const maxKeys: usize = 7;
+const maxChildren: usize = 8;
+const maxIteratorDepth: usize = 128;
+
+struct TreeMapNode {
+    block: mem::Block,
+    allNext: ?&mut TreeMapNode,
+    freeNext: ?&mut TreeMapNode,
+    leaf: bool,
+    len: usize,
+    subtreeLen: usize,
+    keysOffset: usize,
+    valuesOffset: usize,
+    childrenOffset: usize,
+}
+
+struct NodeStoragePlan {
+    layout: mem::Layout,
+    keysOffset: usize,
+    valuesOffset: usize,
+    childrenOffset: usize,
+}
 
 pub struct TreeMapEntry[K, V]
 where K: Sized, V: Sized
@@ -35,22 +60,237 @@ where K: Sized, V: Sized
 pub struct TreeMap[K, V]
 where K: Sized + Ord[K], V: Sized
 {
-    keys: array_list::ArrayList[K],
-    values: array_list::ArrayList[V],
+    rootNode: ?&mut TreeMapNode,
+    allNodes: ?&mut TreeMapNode,
+    freeNodes: ?&mut TreeMapNode,
+    len: usize,
+    capacity: usize,
+    allocatedNodes: usize,
 }
 
 pub struct TreeMapIter[K, V]
 where K: Sized + Ord[K], V: Sized
 {
-    map: &TreeMap[K, V],
-    index: usize,
+    stack: [?&TreeMapNode; maxIteratorDepth],
+    state: [usize; maxIteratorDepth],
+    depth: usize,
+    remaining: usize,
 }
 
 pub struct TreeMapIterMut[K, V]
 where K: Sized + Ord[K], V: Sized
 {
-    map: &mut TreeMap[K, V],
+    stack: [?&mut TreeMapNode; maxIteratorDepth],
+    state: [usize; maxIteratorDepth],
+    depth: usize,
+    remaining: usize,
+}
+
+struct TreeMapLookup[K, V]
+where K: Sized, V: Sized
+{
+    node: &TreeMapNode,
     index: usize,
+}
+
+struct TreeMapLookupMut[K, V]
+where K: Sized, V: Sized
+{
+    node: &mut TreeMapNode,
+    index: usize,
+}
+
+fun nodeStoragePlan[K, V]() mem::Error!NodeStoragePlan
+where K: Sized, V: Sized
+{
+    let headerSize = root::builtin::size[TreeMapNode]();
+    let headerAlign = root::builtin::align[TreeMapNode]();
+    let keyBytes = match root::builtin::size[K]().checkedMul(maxKeys) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let valueBytes = match root::builtin::size[V]().checkedMul(maxKeys) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let childBytes = match root::builtin::size[?&mut TreeMapNode]().checkedMul(maxChildren) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let keysOffset = match headerSize.alignForward(root::builtin::align[K]()) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let afterKeys = match keysOffset.checkedAdd(keyBytes) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let valuesOffset = match afterKeys.alignForward(root::builtin::align[V]()) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let afterValues = match valuesOffset.checkedAdd(valueBytes) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let childrenOffset = match afterValues.alignForward(root::builtin::align[?&mut TreeMapNode]()) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let totalSize = match childrenOffset.checkedAdd(childBytes) {
+        ?value => value,
+        null => return .OutOfMemory!,
+    };
+    let blockAlign = cmp::max(
+        headerAlign,
+        cmp::max(
+            root::builtin::align[K](),
+            cmp::max(root::builtin::align[V](), root::builtin::align[?&mut TreeMapNode]()),
+        ),
+    );
+    !.{
+        layout: mem::Layout::init(totalSize, blockAlign).?,
+        keysOffset,
+        valuesOffset,
+        childrenOffset,
+    }
+}
+
+fun nodeItems[T](block: mem::Block, offset: usize, len: usize) &[T]
+where T: Sized
+{
+    let ptr = ((block.ptr() as usize) + offset) as &T;
+    &ptr[0..len]
+}
+
+fun nodeItemsMut[T](block: mem::Block, offset: usize, len: usize) &mut [T]
+where T: Sized
+{
+    let mut ptr = ((block.ptr() as usize) + offset) as &mut T;
+    &mut ptr[0..len]
+}
+
+fun nodeKeys[K](node: &TreeMapNode) &[K]
+where K: Sized
+{
+    nodeItems[K](node.block, node.keysOffset, maxKeys)
+}
+
+fun nodeKeysMut[K](node: &mut TreeMapNode) &mut [K]
+where K: Sized
+{
+    nodeItemsMut[K](node.block, node.keysOffset, maxKeys)
+}
+
+fun nodeValues[V](node: &TreeMapNode) &[V]
+where V: Sized
+{
+    nodeItems[V](node.block, node.valuesOffset, maxKeys)
+}
+
+fun nodeValuesMut[V](node: &mut TreeMapNode) &mut [V]
+where V: Sized
+{
+    nodeItemsMut[V](node.block, node.valuesOffset, maxKeys)
+}
+
+fun nodeChildren(node: &TreeMapNode) &[?&mut TreeMapNode]
+{
+    nodeItems[?&mut TreeMapNode](node.block, node.childrenOffset, maxChildren)
+}
+
+fun nodeChildrenMut(node: &mut TreeMapNode) &mut [?&mut TreeMapNode]
+{
+    nodeItemsMut[?&mut TreeMapNode](node.block, node.childrenOffset, maxChildren)
+}
+
+fun requiredChild(node: &TreeMapNode, index: usize) &TreeMapNode {
+    if nodeChildren(node)[index] is ?child { child } else { root::builtin::trap() }
+}
+
+fun requiredChildMut(node: &mut TreeMapNode, index: usize) &mut TreeMapNode {
+    if nodeChildrenMut(node)[index] is ?child { child } else { root::builtin::trap() }
+}
+
+fun resetNode(node: &mut TreeMapNode, leaf: bool) ()
+{
+    node.freeNext = null;
+    node.leaf = leaf;
+    node.len = 0;
+    node.subtreeLen = 0;
+    for index in 0..maxChildren {
+        nodeChildrenMut(node)[index] = null;
+    }
+}
+
+fun nodeLowerBound[K](node: &TreeMapNode, key: &K) usize
+where K: Sized + Ord[K]
+{
+    let mut low: usize = 0;
+    let mut high = node.len;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if nodeKeys[K](node)[middle] < key.* {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
+
+fun nodeUpperBound[K](node: &TreeMapNode, key: &K) usize
+where K: Sized + Ord[K]
+{
+    let mut low: usize = 0;
+    let mut high = node.len;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if nodeKeys[K](node)[middle] <= key.* {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
+
+fun keysEqual[K](left: &K, right: &K) bool
+where K: Sized + Ord[K]
+{
+    not left.* < right.* and not left.* > right.*
+}
+
+fun nodeSubtreeLen(node: &TreeMapNode) usize
+{
+    if node.leaf {
+        return node.len;
+    }
+    let mut total = node.len;
+    for index in 0..(node.len + 1) {
+        total += requiredChild(node, index).subtreeLen;
+    }
+    total
+}
+
+fun leftmostEntry[K, V](nodeArg: &TreeMapNode) TreeMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    let mut node = nodeArg;
+    while not node.leaf {
+        node = requiredChild(node, 0);
+    }
+    .{ key: nodeKeys[K](node)[0], value: nodeValues[V](node)[0] }
+}
+
+fun rightmostEntry[K, V](nodeArg: &TreeMapNode) TreeMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    let mut node = nodeArg;
+    while not node.leaf {
+        node = requiredChild(node, node.len);
+    }
+    .{ key: nodeKeys[K](node)[node.len - 1], value: nodeValues[V](node)[node.len - 1] }
 }
 
 extend[K, V] TreeMapEntry[K, V]
@@ -81,191 +321,522 @@ extend[K, V] TreeMap[K, V]
 where K: Sized + Ord[K], V: Sized
 {
     pub fun init() TreeMap[K, V] {
-        .{ keys: .init(), values: .init() }
+        .{ rootNode: null, allNodes: null, freeNodes: null, len: 0, capacity: 0, allocatedNodes: 0 }
     }
 
     pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!TreeMap[K, V] {
-        let mut keys: array_list::ArrayList[K] = .init();
-        keys.ensureTotalCapacity(allocator, capacity).?;
-        let mut values: array_list::ArrayList[V] = .init();
-        if values.ensureTotalCapacity(allocator, capacity) is allocationError! {
-            let mut cleanup: root::error::CleanupAccumulator[mem::Error] = .init();
-            cleanup.attempt(keys.deinit(allocator));
-            cleanup.attempt(values.deinit(allocator));
-            _ = cleanup;
-            return allocationError!;
+        let mut map: TreeMap[K, V] = .init();
+        if map.reserve(allocator, capacity) is error! {
+            let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
+            cleanup.attempt(error!);
+            cleanup.attempt(map.deinit(allocator));
+            if cleanup.finish() is error! {
+                return error!;
+            }
+            root::builtin::trap();
         }
-        !.{ keys, values }
+        !map
     }
 
     pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut cleanup: root::error::CleanupAccumulator[mem::Error] = .init();
-        cleanup.attempt(self.keys.deinit(allocator));
-        cleanup.attempt(self.values.deinit(allocator));
-        cleanup.finish()
+        let mut current = self.allNodes;
+        self.allNodes = null;
+        self.rootNode = null;
+        self.freeNodes = null;
+        self.len = 0;
+        self.capacity = 0;
+        self.allocatedNodes = 0;
+        let mut failed: ?&mut TreeMapNode = null;
+        let mut failedFree: ?&mut TreeMapNode = null;
+        let mut failedCount: usize = 0;
+        let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
+        loop {
+            if current is mut ?node {
+                let next = node.allNext;
+                node.allNext = failed;
+                if allocator.free(node.block) is error! {
+                    failed = ?node;
+                    node.freeNext = failedFree;
+                    failedFree = ?node;
+                    failedCount += 1;
+                    cleanup.attempt(error!);
+                }
+                current = next;
+            } else {
+                break;
+            }
+        }
+        self.allNodes = failed;
+        self.freeNodes = failedFree;
+        self.allocatedNodes = failedCount;
+        if not cleanup.isClean() {
+            return cleanup.finish();
+        }
+        !()
     }
 
-    pub fun len(&self) usize {
-        self.keys.len()
-    }
-
-    pub fun capacity(&self) usize {
-        self.keys.capacity()
-    }
-
-    pub fun isEmpty(&self) bool {
-        self.keys.isEmpty()
-    }
+    pub fun len(&self) usize { self.len }
+    pub fun capacity(&self) usize { self.capacity }
+    pub fun isEmpty(&self) bool { self.len == 0 }
 
     pub fun clear(&mut self) () {
-        self.keys.clear();
-        self.values.clear()
+        if self.rootNode is ?rootNode {
+            self.recycleTree(rootNode);
+            self.rootNode = null;
+        }
+        self.len = 0;
     }
 
     pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        self.keys.reserve(allocator, additional).?;
-        self.values.reserve(allocator, additional)
+        let needed = match self.len.checkedAdd(additional) {
+            ?value => value,
+            null => return .OutOfMemory!,
+        };
+        if needed <= self.capacity {
+            return !();
+        }
+        self.ensureCapacity(allocator, needed)
     }
 
-    pub fun containsKey(&self, key: &K) bool {
-        if self.findIndex(key) is ?_ { true } else { false }
-    }
+    pub fun containsKey(&self, key: &K) bool { if self.findNode(key) is ?_ { true } else { false } }
 
     pub fun get(&self, key: &K) ?&V {
-        if self.findIndex(key) is ?index {
-            if self.values.get(index) is ?value {
-                return ?value;
-            }
-        }
-        null
+        if self.findNode(key) is ?hit { ?&nodeValues[V](hit.node)[hit.index] } else { null }
     }
 
     pub fun getMut(&mut self, key: &K) ?&mut V {
-        if self.findIndex(key) is ?index {
-            if self.values.getMut(index) is mut ?value {
-                return ?value;
-            }
-        }
-        null
+        if self.findNodeMut(key) is mut ?hit { ?&mut nodeValuesMut[V](hit.node)[hit.index] } else { null }
     }
 
     pub fun getEntry(&self, key: &K) ?TreeMapEntryRef[K, V] {
-        if self.findIndex(key) is ?index {
-            if self.keys.get(index) is ?foundKey and self.values.get(index) is ?foundValue {
-                return ?.{ key: foundKey, value: foundValue };
-            }
-        }
-        null
+        if self.findNode(key) is ?hit {
+            ?.{ key: &nodeKeys[K](hit.node)[hit.index], value: &nodeValues[V](hit.node)[hit.index] }
+        } else { null }
     }
 
     pub fun getEntryMut(&mut self, key: &K) ?TreeMapEntryMut[K, V] {
-        if self.findIndex(key) is ?index {
-            if self.keys.get(index) is ?foundKey and self.values.getMut(index) is mut ?foundValue {
-                return ?.{ key: foundKey, value: foundValue };
-            }
-        }
-        null
+        if self.findNodeMut(key) is mut ?hit {
+            ?.{ key: &nodeKeys[K](hit.node)[hit.index], value: &mut nodeValuesMut[V](hit.node)[hit.index] }
+        } else { null }
     }
 
-    pub fun insert(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        key: K,
-        value: V,
-    ) mem::Error!?V {
-        if self.findIndex(&key) is ?index {
-            if self.values.getMut(index) is mut ?slot {
-                let old = slot.*;
-                slot.* = value;
-                return !?old;
-            }
+    pub fun insert(&mut self, allocator: &mut mem::Allocator, key: K, value: V) mem::Error!?V {
+        if self.findNodeMut(&key) is mut ?hit {
+            let old = nodeValues[V](hit.node)[hit.index];
+            nodeValuesMut[V](hit.node)[hit.index] = value;
+            return !?old;
         }
-        let index = self.lowerBound(&key);
-        self.keys.insert(allocator, index, key).?;
-        if self.values.insert(allocator, index, value) is insertError! {
-            _ = self.keys.orderedRemove(index);
-            return insertError!;
+        let needed = match self.len.checkedAdd(1) {
+            ?value => value,
+            null => return .OutOfMemory!,
+        };
+        self.ensureCapacity(allocator, needed).?;
+        if self.rootNode is null {
+            let rootNode = self.acquireNode(allocator, true).?;
+            self.rootNode = ?rootNode;
         }
+        if self.rootNode is mut ?rootNode and rootNode.len == maxKeys {
+            let newRoot = self.acquireNode(allocator, false).?;
+            let right = match self.acquireNode(allocator, true) {
+                !node => node,
+                error! => {
+                    self.recycleNode(newRoot);
+                    return error!;
+                }
+            };
+            nodeChildrenMut(newRoot)[0] = ?rootNode;
+            self.splitChild(newRoot, 0, right);
+            self.rootNode = ?newRoot;
+        }
+        if self.rootNode is mut ?rootNode {
+            self.insertNonFull(rootNode, key, value, allocator).?;
+        } else {
+            root::builtin::trap();
+        }
+        self.len = needed;
+        self.capacity = cmp::max(self.capacity, self.len);
         !null
     }
 
     pub fun remove(&mut self, key: &K) ?TreeMapEntry[K, V] {
-        if self.findIndex(key) is ?index {
-            if self.keys.orderedRemove(index) is ?foundKey
-                and self.values.orderedRemove(index) is ?foundValue
-            {
-                return ?.{ key: foundKey, value: foundValue };
+        if self.rootNode is mut ?rootNode {
+            let removed = self.removeFromNode(rootNode, key);
+            if removed is ?entry {
+                self.len -= 1;
             }
+            if not rootNode.leaf and rootNode.len == 0 {
+                let child = requiredChildMut(rootNode, 0);
+                nodeChildrenMut(rootNode)[0] = null;
+                self.rootNode = ?child;
+                self.recycleNode(rootNode);
+            } else if rootNode.leaf and rootNode.len == 0 {
+                self.rootNode = null;
+                self.recycleNode(rootNode);
+            }
+            return removed;
         }
         null
     }
 
     pub fun lowerBound(&self, key: &K) usize {
-        let mut low: usize = 0;
-        let mut high = self.len();
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if self.keys.get(middle) is ?foundKey {
-                if foundKey.* < key.* {
-                    low = middle + 1;
-                } else {
-                    high = middle;
-                }
-            } else {
-                high = middle;
-            }
-        }
-        low
+        if self.rootNode is ?rootNode { self.rankLower(rootNode, key) } else { 0 }
     }
 
     pub fun upperBound(&self, key: &K) usize {
-        let mut low: usize = 0;
-        let mut high = self.len();
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if self.keys.get(middle) is ?foundKey {
-                if foundKey.* <= key.* {
-                    low = middle + 1;
-                } else {
-                    high = middle;
-                }
-            } else {
-                high = middle;
-            }
-        }
-        low
+        if self.rootNode is ?rootNode { self.rankUpper(rootNode, key) } else { 0 }
     }
 
     pub fun iter(&self) TreeMapIter[K, V] {
-        .{ map: self, index: 0 }
+        let mut result = TreeMapIter[K, V] {
+            stack: [null; maxIteratorDepth], state: [0; maxIteratorDepth], depth: 0, remaining: self.len,
+        };
+        if self.rootNode is ?rootNode {
+            result.pushLeft(rootNode);
+        }
+        result
     }
 
     pub fun iterMut(&mut self) TreeMapIterMut[K, V] {
-        .{ map: self, index: 0 }
+        let mut result = TreeMapIterMut[K, V] {
+            stack: [null; maxIteratorDepth], state: [0; maxIteratorDepth], depth: 0, remaining: self.len,
+        };
+        if self.rootNode is ?rootNode {
+            result.pushLeft(rootNode);
+        }
+        result
     }
 
-    fun findIndex(&self, key: &K) ?usize {
-        let index = self.lowerBound(key);
-        if index < self.len() {
-            if self.keys.get(index) is ?foundKey
-                and not foundKey.* < key.* and not foundKey.* > key.*
-            {
-                return ?index;
+    fun findNode(&self, key: &K) ?TreeMapLookup[K, V] {
+        let mut current = self.rootNode;
+        loop {
+            if current is ?node {
+                let index = nodeLowerBound[K](node, key);
+                if index < node.len and keysEqual(&nodeKeys[K](node)[index], key) { return ?.{ node, index }; }
+                if node.leaf { return null; }
+                current = nodeChildren(node)[index];
+            } else { return null; }
+        }
+    }
+
+    fun findNodeMut(&mut self, key: &K) ?TreeMapLookupMut[K, V] {
+        let mut current = self.rootNode;
+        loop {
+            if current is mut ?node {
+                let index = nodeLowerBound[K](node, key);
+                if index < node.len and keysEqual(&nodeKeys[K](node)[index], key) { return ?.{ node, index }; }
+                if node.leaf { return null; }
+                current = nodeChildrenMut(node)[index];
+            } else { return null; }
+        }
+    }
+
+    fun ensureCapacity(&mut self, allocator: &mut mem::Allocator, needed: usize) mem::Error!() {
+        if needed <= self.capacity { return !(); }
+        // For more than one node, a degree-four B-tree with N entries needs at
+        // most ceil(N / 3) nodes. Keep the reservation conservative so a later
+        // insertion can split its entire search path without allocating.
+        let requiredNodes = if needed <= maxKeys {
+            1
+        } else {
+            let rounded = match needed.checkedAdd(2) {
+                ?value => value,
+                null => return .OutOfMemory!,
+            };
+            rounded / 3
+        };
+        while self.allocatedNodes < requiredNodes {
+            let mut node = self.allocateNode(allocator, true).?;
+            node.freeNext = self.freeNodes;
+            self.freeNodes = ?node;
+        }
+        self.capacity = needed;
+        !()
+    }
+
+    fun acquireNode(&mut self, allocator: &mut mem::Allocator, leaf: bool) mem::Error!&mut TreeMapNode {
+        if self.freeNodes is mut ?node {
+            self.freeNodes = node.freeNext;
+            resetNode(node, leaf);
+            return !node;
+        }
+        self.allocateNode(allocator, leaf)
+    }
+
+    fun allocateNode(&mut self, allocator: &mut mem::Allocator, leaf: bool) mem::Error!&mut TreeMapNode {
+        let nextNodeCount = match self.allocatedNodes.checkedAdd(1) {
+            ?value => value,
+            null => return .OutOfMemory!,
+        };
+        let plan = nodeStoragePlan[K, V]().?;
+        let block = allocator.alloc(plan.layout).?;
+        let mut node = block.ptr() as &mut TreeMapNode;
+        node.* = .{
+            block, allNext: self.allNodes, freeNext: null, leaf, len: 0, subtreeLen: 0,
+            keysOffset: plan.keysOffset, valuesOffset: plan.valuesOffset, childrenOffset: plan.childrenOffset,
+        };
+        self.allNodes = ?node;
+        self.allocatedNodes = nextNodeCount;
+        for index in 0..maxChildren { nodeChildrenMut(node)[index] = null; }
+        !node
+    }
+
+    fun recycleNode(&mut self, node: &mut TreeMapNode) () {
+        resetNode(node, true);
+        node.freeNext = self.freeNodes;
+        self.freeNodes = ?node;
+    }
+
+    fun recycleTree(&mut self, node: &mut TreeMapNode) () {
+        if not node.leaf {
+            let count = node.len + 1;
+            for index in 0..count {
+                if nodeChildrenMut(node)[index] is ?child {
+                    self.recycleTree(child);
+                    nodeChildrenMut(node)[index] = null;
+                }
             }
         }
-        null
+        self.recycleNode(node);
+    }
+
+    fun insertNonFull(&mut self, node: &mut TreeMapNode, key: K, value: V, allocator: &mut mem::Allocator) mem::Error!() {
+        let mut index = nodeLowerBound[K](node, &key);
+        if node.leaf {
+            let mut cursor = node.len;
+            while cursor > index {
+                nodeKeysMut[K](node)[cursor] = nodeKeys[K](node)[cursor - 1];
+                nodeValuesMut[V](node)[cursor] = nodeValues[V](node)[cursor - 1];
+                cursor -= 1;
+            }
+            nodeKeysMut[K](node)[index] = key;
+            nodeValuesMut[V](node)[index] = value;
+            node.len += 1;
+            node.subtreeLen += 1;
+            return !();
+        }
+        let child = requiredChildMut(node, index);
+        if child.len == maxKeys {
+            let right = self.acquireNode(allocator, child.leaf).?;
+            self.splitChild(node, index, right);
+            if nodeKeys[K](node)[index] < key { index += 1; }
+        }
+        self.insertNonFull(requiredChildMut(node, index), key, value, allocator).?;
+        node.subtreeLen += 1;
+        !()
+    }
+
+    fun splitChild(&mut self, parent: &mut TreeMapNode, index: usize, right: &mut TreeMapNode) () {
+        let mut left = requiredChildMut(parent, index);
+        right.leaf = left.leaf;
+        right.len = minKeys;
+        for offset in 0..minKeys {
+            nodeKeysMut[K](right)[offset] = nodeKeys[K](left)[offset + minKeys + 1];
+            nodeValuesMut[V](right)[offset] = nodeValues[V](left)[offset + minKeys + 1];
+        }
+        if not left.leaf {
+            for offset in 0..(minKeys + 1) {
+                nodeChildrenMut(right)[offset] = nodeChildren(left)[offset + minKeys + 1];
+                nodeChildrenMut(left)[offset + minKeys + 1] = null;
+            }
+        }
+        right.subtreeLen = nodeSubtreeLen(right);
+        let mut cursor = parent.len;
+        while cursor > index {
+            nodeKeysMut[K](parent)[cursor] = nodeKeys[K](parent)[cursor - 1];
+            nodeValuesMut[V](parent)[cursor] = nodeValues[V](parent)[cursor - 1];
+            cursor -= 1;
+        }
+        cursor = parent.len + 1;
+        while cursor > index + 1 { nodeChildrenMut(parent)[cursor] = nodeChildrenMut(parent)[cursor - 1]; cursor -= 1; }
+        nodeKeysMut[K](parent)[index] = nodeKeys[K](left)[minKeys];
+        nodeValuesMut[V](parent)[index] = nodeValues[V](left)[minKeys];
+        nodeChildrenMut(parent)[index + 1] = ?right;
+        left.len = minKeys;
+        left.subtreeLen = nodeSubtreeLen(left);
+        parent.len += 1;
+        parent.subtreeLen = nodeSubtreeLen(parent);
+    }
+
+    fun removeFromNode(&mut self, node: &mut TreeMapNode, key: &K) ?TreeMapEntry[K, V] {
+        let index = nodeLowerBound[K](node, key);
+        if node.leaf {
+            if index == node.len or not keysEqual(&nodeKeys[K](node)[index], key) { return null; }
+            let removed: TreeMapEntry[K, V] = .{ key: nodeKeys[K](node)[index], value: nodeValues[V](node)[index] };
+            let mut cursor = index;
+            while cursor + 1 < node.len {
+                nodeKeysMut[K](node)[cursor] = nodeKeys[K](node)[cursor + 1];
+                nodeValuesMut[V](node)[cursor] = nodeValues[V](node)[cursor + 1];
+                cursor += 1;
+            }
+            node.len -= 1;
+            node.subtreeLen -= 1;
+            return ?removed;
+        }
+        if index < node.len and keysEqual(&nodeKeys[K](node)[index], key) {
+            let mut left = requiredChildMut(node, index);
+            if left.len > minKeys {
+                let replacement = rightmostEntry[K, V](left);
+                let removed: TreeMapEntry[K, V] = .{ key: nodeKeys[K](node)[index], value: nodeValues[V](node)[index] };
+                nodeKeysMut[K](node)[index] = replacement.key;
+                nodeValuesMut[V](node)[index] = replacement.value;
+                _ = self.removeFromNode(left, &replacement.key);
+                node.subtreeLen -= 1;
+                return ?removed;
+            }
+            let mut right = requiredChildMut(node, index + 1);
+            if right.len > minKeys {
+                let replacement = leftmostEntry[K, V](right);
+                let removed: TreeMapEntry[K, V] = .{ key: nodeKeys[K](node)[index], value: nodeValues[V](node)[index] };
+                nodeKeysMut[K](node)[index] = replacement.key;
+                nodeValuesMut[V](node)[index] = replacement.value;
+                _ = self.removeFromNode(right, &replacement.key);
+                node.subtreeLen -= 1;
+                return ?removed;
+            }
+            self.mergeChildren(node, index);
+            let removed = self.removeFromNode(requiredChildMut(node, index), key);
+            node.subtreeLen -= 1;
+            return removed;
+        }
+        let mut childIndex = index;
+        if requiredChild(node, childIndex).len == minKeys {
+            if childIndex > 0 and nodeChildrenMut(node)[childIndex - 1] is ?left and left.len > minKeys {
+                self.borrowFromPrevious(node, childIndex);
+            } else if childIndex < node.len and nodeChildrenMut(node)[childIndex + 1] is ?right and right.len > minKeys {
+                self.borrowFromNext(node, childIndex);
+            } else if childIndex < node.len {
+                self.mergeChildren(node, childIndex);
+            } else {
+                self.mergeChildren(node, childIndex - 1);
+                childIndex -= 1;
+            }
+        }
+        let removed = self.removeFromNode(requiredChildMut(node, childIndex), key);
+        if removed is ?_ { node.subtreeLen -= 1; }
+        removed
+    }
+
+    fun borrowFromPrevious(&mut self, parent: &mut TreeMapNode, index: usize) () {
+        let mut child = requiredChildMut(parent, index);
+        let mut sibling = requiredChildMut(parent, index - 1);
+        let mut cursor = child.len;
+        while cursor > 0 {
+            nodeKeysMut[K](child)[cursor] = nodeKeys[K](child)[cursor - 1];
+            nodeValuesMut[V](child)[cursor] = nodeValues[V](child)[cursor - 1];
+            cursor -= 1;
+        }
+        if not child.leaf {
+            cursor = child.len + 1;
+            while cursor > 0 { nodeChildrenMut(child)[cursor] = nodeChildrenMut(child)[cursor - 1]; cursor -= 1; }
+            nodeChildrenMut(child)[0] = nodeChildren(sibling)[sibling.len];
+            nodeChildrenMut(sibling)[sibling.len] = null;
+        }
+        nodeKeysMut[K](child)[0] = nodeKeys[K](parent)[index - 1];
+        nodeValuesMut[V](child)[0] = nodeValues[V](parent)[index - 1];
+        nodeKeysMut[K](parent)[index - 1] = nodeKeys[K](sibling)[sibling.len - 1];
+        nodeValuesMut[V](parent)[index - 1] = nodeValues[V](sibling)[sibling.len - 1];
+        sibling.len -= 1;
+        child.len += 1;
+        sibling.subtreeLen = nodeSubtreeLen(sibling);
+        child.subtreeLen = nodeSubtreeLen(child);
+        parent.subtreeLen = nodeSubtreeLen(parent);
+    }
+
+    fun borrowFromNext(&mut self, parent: &mut TreeMapNode, index: usize) () {
+        let mut child = requiredChildMut(parent, index);
+        let mut sibling = requiredChildMut(parent, index + 1);
+        nodeKeysMut[K](child)[child.len] = nodeKeys[K](parent)[index];
+        nodeValuesMut[V](child)[child.len] = nodeValues[V](parent)[index];
+        if not child.leaf { nodeChildrenMut(child)[child.len + 1] = nodeChildren(sibling)[0]; }
+        nodeKeysMut[K](parent)[index] = nodeKeys[K](sibling)[0];
+        nodeValuesMut[V](parent)[index] = nodeValues[V](sibling)[0];
+        let mut cursor: usize = 0;
+        while cursor + 1 < sibling.len {
+            nodeKeysMut[K](sibling)[cursor] = nodeKeys[K](sibling)[cursor + 1];
+            nodeValuesMut[V](sibling)[cursor] = nodeValues[V](sibling)[cursor + 1];
+            cursor += 1;
+        }
+        if not sibling.leaf {
+            cursor = 0;
+            while cursor < sibling.len { nodeChildrenMut(sibling)[cursor] = nodeChildrenMut(sibling)[cursor + 1]; cursor += 1; }
+            nodeChildrenMut(sibling)[sibling.len] = null;
+        }
+        sibling.len -= 1;
+        child.len += 1;
+        sibling.subtreeLen = nodeSubtreeLen(sibling);
+        child.subtreeLen = nodeSubtreeLen(child);
+        parent.subtreeLen = nodeSubtreeLen(parent);
+    }
+
+    fun mergeChildren(&mut self, parent: &mut TreeMapNode, index: usize) () {
+        let mut left = requiredChildMut(parent, index);
+        let mut right = requiredChildMut(parent, index + 1);
+        let leftLen = left.len;
+        nodeKeysMut[K](left)[leftLen] = nodeKeys[K](parent)[index];
+        nodeValuesMut[V](left)[leftLen] = nodeValues[V](parent)[index];
+        for offset in 0..right.len {
+            nodeKeysMut[K](left)[leftLen + 1 + offset] = nodeKeys[K](right)[offset];
+            nodeValuesMut[V](left)[leftLen + 1 + offset] = nodeValues[V](right)[offset];
+        }
+        if not left.leaf {
+            for offset in 0..(right.len + 1) {
+                nodeChildrenMut(left)[leftLen + 1 + offset] = nodeChildren(right)[offset];
+                nodeChildrenMut(right)[offset] = null;
+            }
+        }
+        left.len = leftLen + 1 + right.len;
+        left.subtreeLen = nodeSubtreeLen(left);
+        let mut cursor = index;
+        while cursor + 1 < parent.len {
+            nodeKeysMut[K](parent)[cursor] = nodeKeys[K](parent)[cursor + 1];
+            nodeValuesMut[V](parent)[cursor] = nodeValues[V](parent)[cursor + 1];
+            cursor += 1;
+        }
+        cursor = index + 1;
+        while cursor < parent.len {
+            nodeChildrenMut(parent)[cursor] = nodeChildrenMut(parent)[cursor + 1];
+            cursor += 1;
+        }
+        parent.len -= 1;
+        nodeChildrenMut(parent)[parent.len + 1] = null;
+        parent.subtreeLen = nodeSubtreeLen(parent);
+        self.recycleNode(right);
+    }
+
+    fun rankLower(&self, node: &TreeMapNode, key: &K) usize {
+        let index = nodeLowerBound[K](node, key);
+        if node.leaf { return index; }
+        let mut rank: usize = 0;
+        for childIndex in 0..index { rank += requiredChild(node, childIndex).subtreeLen + 1; }
+        rank + self.rankLower(requiredChild(node, index), key)
+    }
+
+    fun rankUpper(&self, node: &TreeMapNode, key: &K) usize {
+        let index = nodeUpperBound[K](node, key);
+        if node.leaf { return index; }
+        let mut rank: usize = 0;
+        for childIndex in 0..index { rank += requiredChild(node, childIndex).subtreeLen + 1; }
+        rank + self.rankUpper(requiredChild(node, index), key)
     }
 }
 
 extend[K, V] TreeMapIter[K, V]
 where K: Sized + Ord[K], V: Sized
 {
-    pub fun len(&self) usize {
-        self.map.len() - self.index
-    }
+    pub fun len(&self) usize { self.remaining }
+    pub fun isEmpty(&self) bool { self.remaining == 0 }
 
-    pub fun isEmpty(&self) bool {
-        self.len() == 0
+    fun pushLeft(&mut self, nodeArg: &TreeMapNode) () {
+        let mut node = nodeArg;
+        while self.depth < maxIteratorDepth {
+            self.stack[self.depth] = ?node;
+            self.state[self.depth] = 0;
+            self.depth += 1;
+            if node.leaf { return; }
+            self.state[self.depth - 1] = 1;
+            node = requiredChild(node, 0);
+        }
+        root::builtin::trap();
     }
 }
 
@@ -273,11 +844,31 @@ extend[K, V] TreeMapIter[K, V] : Iterator
 where K: Sized + Ord[K], V: Sized
 {
     type Item = TreeMapEntryRef[K, V];
-
     pub fun next(&mut self) ?TreeMapEntryRef[K, V] {
-        if self.map.keys.get(self.index) is ?key and self.map.values.get(self.index) is ?value {
-            self.index += 1;
-            return ?.{ key, value };
+        while self.depth > 0 {
+            let frame = self.depth - 1;
+            let node = self.stack[frame].?;
+            if node.leaf {
+                if self.state[frame] < node.len {
+                    let index = self.state[frame];
+                    self.state[frame] += 1;
+                    self.remaining -= 1;
+                    return ?.{ key: &nodeKeys[K](node)[index], value: &nodeValues[V](node)[index] };
+                }
+                self.depth -= 1;
+                continue;
+            }
+            if self.state[frame] >= node.len * 2 + 1 { self.depth -= 1; continue; }
+            if self.state[frame] % 2 == 0 {
+                let childIndex = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.pushLeft(requiredChild(node, childIndex));
+            } else {
+                let index = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.remaining -= 1;
+                return ?.{ key: &nodeKeys[K](node)[index], value: &nodeValues[V](node)[index] };
+            }
         }
         null
     }
@@ -286,12 +877,20 @@ where K: Sized + Ord[K], V: Sized
 extend[K, V] TreeMapIterMut[K, V]
 where K: Sized + Ord[K], V: Sized
 {
-    pub fun len(&self) usize {
-        self.map.len() - self.index
-    }
+    pub fun len(&self) usize { self.remaining }
+    pub fun isEmpty(&self) bool { self.remaining == 0 }
 
-    pub fun isEmpty(&self) bool {
-        self.len() == 0
+    fun pushLeft(&mut self, nodeArg: &mut TreeMapNode) () {
+        let mut node = nodeArg;
+        while self.depth < maxIteratorDepth {
+            self.stack[self.depth] = ?node;
+            self.state[self.depth] = 0;
+            self.depth += 1;
+            if node.leaf { return; }
+            self.state[self.depth - 1] = 1;
+            node = requiredChildMut(node, 0);
+        }
+        root::builtin::trap();
     }
 }
 
@@ -299,11 +898,31 @@ extend[K, V] TreeMapIterMut[K, V] : Iterator
 where K: Sized + Ord[K], V: Sized
 {
     type Item = TreeMapEntryMut[K, V];
-
     pub fun next(&mut self) ?TreeMapEntryMut[K, V] {
-        if self.map.keys.get(self.index) is ?key and self.map.values.getMut(self.index) is mut ?value {
-            self.index += 1;
-            return ?.{ key, value };
+        while self.depth > 0 {
+            let frame = self.depth - 1;
+            let mut node = self.stack[frame].?;
+            if node.leaf {
+                if self.state[frame] < node.len {
+                    let index = self.state[frame];
+                    self.state[frame] += 1;
+                    self.remaining -= 1;
+                    return ?.{ key: &nodeKeys[K](node)[index], value: &mut nodeValuesMut[V](node)[index] };
+                }
+                self.depth -= 1;
+                continue;
+            }
+            if self.state[frame] >= node.len * 2 + 1 { self.depth -= 1; continue; }
+            if self.state[frame] % 2 == 0 {
+                let childIndex = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.pushLeft(requiredChildMut(node, childIndex));
+            } else {
+                let index = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.remaining -= 1;
+                return ?.{ key: &nodeKeys[K](node)[index], value: &mut nodeValuesMut[V](node)[index] };
+            }
         }
         null
     }
@@ -314,8 +933,13 @@ where K: Sized + Ord[K], V: Sized
 {
     type Item = TreeMapEntryRef[K, V];
     type Iter = TreeMapIter[K, V];
-
     pub fun iter(&self) TreeMapIter[K, V] {
-        .{ map: self, index: 0 }
+        let mut result = TreeMapIter[K, V] {
+            stack: [null; maxIteratorDepth], state: [0; maxIteratorDepth], depth: 0, remaining: self.len,
+        };
+        if self.rootNode is ?rootNode {
+            result.pushLeft(rootNode);
+        }
+        result
     }
 }
