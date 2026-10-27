@@ -1,0 +1,46 @@
+// Adler-32 streaming checksum from RFC 1950.
+
+pub struct Adler32 {
+    first: u32,
+    second: u32,
+}
+
+const modulus: u64 = 65521;
+const maxBlockLength: usize = 5552;
+
+extend Adler32 {
+    pub fun init() Adler32 {
+        .{ first: 1, second: 0 }
+    }
+
+    pub fun update(&mut self, bytes: &[u8]) () {
+        let mut offset: usize = 0;
+        while offset < bytes.len() {
+            let count = if bytes.len() - offset < maxBlockLength {
+                bytes.len() - offset
+            } else {
+                maxBlockLength
+            };
+            let end = offset + count;
+            let mut first = self.first as u64;
+            let mut second = self.second as u64;
+            while offset < end {
+                first += bytes[offset] as u64;
+                second += first;
+                offset += 1;
+            }
+            self.first = (first % modulus) as u32;
+            self.second = (second % modulus) as u32;
+        }
+    }
+
+    pub fun finish(&self) u32 {
+        (self.second << 16) | self.first
+    }
+
+    pub fun hash(bytes: &[u8]) u32 {
+        let mut checksum = Adler32::init();
+        checksum.update(bytes);
+        checksum.finish()
+    }
+}

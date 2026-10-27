@@ -1,0 +1,11 @@
+// Checksums detect accidental data corruption. They are not collision-resistant
+// hashes and are intentionally separate from `std::hash`.
+
+pub(root) module adler32;
+pub(root) module crc;
+
+using root::checksum::adler32;
+using root::checksum::crc;
+
+pub using adler32::Adler32;
+pub using crc::{Crc32, Crc32C};

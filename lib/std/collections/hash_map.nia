@@ -11,7 +11,7 @@ using root::collections::hash_map::format;
 using root::collections::hash_map::iterators;
 using root::collections::hash_map::map;
 
-pub using context::DefaultHashMapContext;
+pub using context::{DefaultHashMapContext, SipHashMapContext};
 pub using entries::{
     HashMapEntry,
     HashMapEntryMut,

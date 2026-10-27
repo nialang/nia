@@ -1,0 +1,261 @@
+// Streaming SHA-256 as specified by FIPS 180-4.
+//
+// The digest is a stable 32-byte value in network byte order. Finalization is
+// non-mutating, so callers may inspect a digest and continue updating state.
+
+using root::slice;
+
+fun roundConstant(index: usize) u32 {
+    match index {
+        0 => 0x428a2f98,
+        1 => 0x71374491,
+        2 => 0xb5c0fbcf,
+        3 => 0xe9b5dba5,
+        4 => 0x3956c25b,
+        5 => 0x59f111f1,
+        6 => 0x923f82a4,
+        7 => 0xab1c5ed5,
+        8 => 0xd807aa98,
+        9 => 0x12835b01,
+        10 => 0x243185be,
+        11 => 0x550c7dc3,
+        12 => 0x72be5d74,
+        13 => 0x80deb1fe,
+        14 => 0x9bdc06a7,
+        15 => 0xc19bf174,
+        16 => 0xe49b69c1,
+        17 => 0xefbe4786,
+        18 => 0x0fc19dc6,
+        19 => 0x240ca1cc,
+        20 => 0x2de92c6f,
+        21 => 0x4a7484aa,
+        22 => 0x5cb0a9dc,
+        23 => 0x76f988da,
+        24 => 0x983e5152,
+        25 => 0xa831c66d,
+        26 => 0xb00327c8,
+        27 => 0xbf597fc7,
+        28 => 0xc6e00bf3,
+        29 => 0xd5a79147,
+        30 => 0x06ca6351,
+        31 => 0x14292967,
+        32 => 0x27b70a85,
+        33 => 0x2e1b2138,
+        34 => 0x4d2c6dfc,
+        35 => 0x53380d13,
+        36 => 0x650a7354,
+        37 => 0x766a0abb,
+        38 => 0x81c2c92e,
+        39 => 0x92722c85,
+        40 => 0xa2bfe8a1,
+        41 => 0xa81a664b,
+        42 => 0xc24b8b70,
+        43 => 0xc76c51a3,
+        44 => 0xd192e819,
+        45 => 0xd6990624,
+        46 => 0xf40e3585,
+        47 => 0x106aa070,
+        48 => 0x19a4c116,
+        49 => 0x1e376c08,
+        50 => 0x2748774c,
+        51 => 0x34b0bcb5,
+        52 => 0x391c0cb3,
+        53 => 0x4ed8aa4a,
+        54 => 0x5b9cca4f,
+        55 => 0x682e6ff3,
+        56 => 0x748f82ee,
+        57 => 0x78a5636f,
+        58 => 0x84c87814,
+        59 => 0x8cc70208,
+        60 => 0x90befffa,
+        61 => 0xa4506ceb,
+        62 => 0xbef9a3f7,
+        63 => 0xc67178f2,
+        _ => 0,
+    }
+}
+
+pub struct Sha256 {
+    state: [u32; 8],
+    totalLen: u64,
+    buffer: [u8; 64],
+    bufferLen: usize,
+}
+
+fun rotateRight(value: u32, amount: usize) u32 {
+    (value >> amount) | ((((value as u64) << (32 - amount)) as u32))
+}
+
+fun readBig32(bytes: &[u8]) u32 {
+    ((bytes[0] as u32) << 24)
+        | ((bytes[1] as u32) << 16)
+        | ((bytes[2] as u32) << 8)
+        | (bytes[3] as u32)
+}
+
+fun writeBig64(bytes: &mut [u8], value: u64) () {
+    bytes[0] = (value >> 56) as u8;
+    bytes[1] = (value >> 48) as u8;
+    bytes[2] = (value >> 40) as u8;
+    bytes[3] = (value >> 32) as u8;
+    bytes[4] = (value >> 24) as u8;
+    bytes[5] = (value >> 16) as u8;
+    bytes[6] = (value >> 8) as u8;
+    bytes[7] = value as u8;
+}
+
+fun choice(x: u32, y: u32, z: u32) u32 {
+    (x & y) ^ ((u32::MAX ^ x) & z)
+}
+
+fun majority(x: u32, y: u32, z: u32) u32 {
+    (x & y) ^ (x & z) ^ (y & z)
+}
+
+fun bigSigma0(value: u32) u32 {
+    rotateRight(value, 2) ^ rotateRight(value, 13) ^ rotateRight(value, 22)
+}
+
+fun bigSigma1(value: u32) u32 {
+    rotateRight(value, 6) ^ rotateRight(value, 11) ^ rotateRight(value, 25)
+}
+
+fun smallSigma0(value: u32) u32 {
+    rotateRight(value, 7) ^ rotateRight(value, 18) ^ (value >> 3)
+}
+
+fun smallSigma1(value: u32) u32 {
+    rotateRight(value, 17) ^ rotateRight(value, 19) ^ (value >> 10)
+}
+
+fun addWrap32(left: u32, right: u32) u32 {
+    ((left as u64) + (right as u64)) as u32
+}
+
+fun compress(hashState: &mut [u32], block: &[u8]) () {
+    let mut schedule: [u32; 16] = [0; 16];
+    let mut index: usize = 0;
+    while index < 16 {
+        schedule[index] = readBig32(&block[(index * 4)..]);
+        index += 1;
+    }
+
+    let mut a: u32 = hashState[0];
+    let mut b: u32 = hashState[1];
+    let mut c: u32 = hashState[2];
+    let mut d: u32 = hashState[3];
+    let mut e: u32 = hashState[4];
+    let mut f: u32 = hashState[5];
+    let mut g: u32 = hashState[6];
+    let mut h: u32 = hashState[7];
+
+    index = 0;
+    while index < 64 {
+        if index >= 16 {
+            let sum = (smallSigma1(schedule[(index + 14) % 16]) as u64)
+                + (schedule[(index + 9) % 16] as u64)
+                + (smallSigma0(schedule[(index + 1) % 16]) as u64)
+                + (schedule[index % 16] as u64);
+            schedule[index % 16] = sum as u32;
+        }
+        let t1 = (h as u64)
+            + (bigSigma1(e) as u64)
+            + (choice(e, f, g) as u64)
+            + (roundConstant(index) as u64)
+            + (schedule[index % 16] as u64);
+        let t2 = (bigSigma0(a) as u64) + (majority(a, b, c) as u64);
+        h = g;
+        g = f;
+        f = e;
+        e = addWrap32(d, t1 as u32);
+        d = c;
+        c = b;
+        b = a;
+        a = addWrap32(t1 as u32, t2 as u32);
+        index += 1;
+    }
+
+    hashState[0] = addWrap32(hashState[0], a);
+    hashState[1] = addWrap32(hashState[1], b);
+    hashState[2] = addWrap32(hashState[2], c);
+    hashState[3] = addWrap32(hashState[3], d);
+    hashState[4] = addWrap32(hashState[4], e);
+    hashState[5] = addWrap32(hashState[5], f);
+    hashState[6] = addWrap32(hashState[6], g);
+    hashState[7] = addWrap32(hashState[7], h);
+}
+
+extend Sha256 {
+    pub fun init() Sha256 {
+        .{
+            state: [
+                0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+            ],
+            totalLen: 0,
+            buffer: [0; 64],
+            bufferLen: 0,
+        }
+    }
+
+    pub fun update(&mut self, bytes: &[u8]) () {
+        self.totalLen = ((self.totalLen as u128) + (bytes.len() as u128)) as u64;
+        let mut index: usize = 0;
+
+        if self.bufferLen > 0 {
+            let needed = 64 - self.bufferLen;
+            if bytes.len() < needed {
+                _ = (&mut self.buffer[self.bufferLen..(self.bufferLen + bytes.len())]).copyFrom(bytes);
+                self.bufferLen += bytes.len();
+                return;
+            }
+            _ = (&mut self.buffer[self.bufferLen..64]).copyFrom(&bytes[0..needed]);
+            compress(&mut self.state[..], &self.buffer[..]);
+            self.bufferLen = 0;
+            index = needed;
+        }
+
+        while bytes.len() - index >= 64 {
+            compress(&mut self.state[..], &bytes[index..]);
+            index += 64;
+        }
+
+        let remaining = &bytes[index..];
+        _ = (&mut self.buffer[0..remaining.len()]).copyFrom(remaining);
+        self.bufferLen = remaining.len();
+    }
+
+    pub fun finish(&self) [u8; 32] {
+        let mut finalBlocks: [u8; 128] = [0; 128];
+        _ = (&mut finalBlocks[0..self.bufferLen]).copyFrom(&self.buffer[0..self.bufferLen]);
+        finalBlocks[self.bufferLen] = 0x80;
+
+        let paddedLen: usize = if self.bufferLen < 56 { 64 } else { 128 };
+        let lengthBits = ((self.totalLen as u128) << 3) as u64;
+        writeBig64(&mut finalBlocks[(paddedLen - 8)..paddedLen], lengthBits);
+
+        let mut finalState = self.state;
+        compress(&mut finalState[..], &finalBlocks[0..64]);
+        if paddedLen == 128 {
+            compress(&mut finalState[..], &finalBlocks[64..128]);
+        }
+
+        let mut digest: [u8; 32] = [0; 32];
+        let mut index: usize = 0;
+        while index < digest.len() / 4 {
+            let word = finalState[index];
+            digest[index * 4] = (word >> 24) as u8;
+            digest[index * 4 + 1] = (word >> 16) as u8;
+            digest[index * 4 + 2] = (word >> 8) as u8;
+            digest[index * 4 + 3] = word as u8;
+            index += 1;
+        }
+        digest
+    }
+
+    pub fun digest(bytes: &[u8]) [u8; 32] {
+        let mut hasher = Sha256::init();
+        hasher.update(bytes);
+        hasher.finish()
+    }
+}

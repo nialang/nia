@@ -1,9 +1,18 @@
 pub(root) module impls;
+pub(root) module fnv;
+pub(root) module siphash;
 pub(root) module traits;
+pub(root) module xxhash;
 pub(root) module wyhash;
 
+using root::hash::fnv;
+using root::hash::siphash;
 using root::hash::impls;
 using root::hash::wyhash;
+using root::hash::xxhash;
 
+pub using fnv::{Fnv1a32, Fnv1a64};
+pub using siphash::{SipHash13, SipHash24};
 pub using traits::{Hash, Hasher};
+pub using xxhash::XxHash64;
 pub using wyhash::{Wyhash, wyhash};

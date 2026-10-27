@@ -76,11 +76,33 @@ where H: Hasher
     }
 }
 
+extend[H] u128 : Hash[H]
+where H: Hasher
+{
+    pub fun hash(&self, hasher: &mut H) () {
+        let mut bytes: [u8; 16] = [0; 16];
+        let mut value = self.*;
+        for index in 0..16 {
+            bytes[index] = value as u8;
+            value >>= 8;
+        }
+        hasher.write(&bytes[..])
+    }
+}
+
 extend[H] i64 : Hash[H]
 where H: Hasher
 {
     pub fun hash(&self, hasher: &mut H) () {
         (self.* as u64).hash(hasher)
+    }
+}
+
+extend[H] i128 : Hash[H]
+where H: Hasher
+{
+    pub fun hash(&self, hasher: &mut H) () {
+        (self.* as u128).hash(hasher)
     }
 }
 

@@ -1,0 +1,5 @@
+pub(root) module sha256;
+
+using root::crypto::hash::sha256;
+
+pub using sha256::Sha256;

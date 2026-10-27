@@ -1,0 +1,9 @@
+// Cryptographic primitives are separate from the non-cryptographic `hash`
+// module and from checksums. Digest APIs here do not implement `Hasher` and
+// must not be used as a substitute for a keyed message-authentication code.
+
+pub module hash;
+
+using root::crypto::hash;
+
+pub using hash::Sha256;

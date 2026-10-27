@@ -1,0 +1,170 @@
+// XXH64 streaming non-cryptographic hash.
+
+using root::hash::traits;
+using root::slice;
+
+using traits::Hasher;
+
+const prime1: u64 = 0x9e3779b185ebca87;
+const prime2: u64 = 0xc2b2ae3d27d4eb4f;
+const prime3: u64 = 0x165667b19e3779f9;
+const prime4: u64 = 0x85ebca77c2b2ae63;
+const prime5: u64 = 0x27d4eb2f165667c5;
+
+pub struct XxHash64 {
+    seed: u64,
+    acc1: u64,
+    acc2: u64,
+    acc3: u64,
+    acc4: u64,
+    totalLen: u64,
+    buffer: [u8; 32],
+    bufferLen: usize,
+}
+
+fun rotateLeft(value: u64, amount: usize) u64 {
+    (((value as u128) << amount) as u64) | (value >> (64 - amount))
+}
+
+fun addWrap64(left: u64, right: u64) u64 {
+    ((left as u128) + (right as u128)) as u64
+}
+
+fun subWrap64(left: u64, right: u64) u64 {
+    ((left as u128) + (1u128 << 64) - (right as u128)) as u64
+}
+
+fun mulWrap64(left: u64, right: u64) u64 {
+    ((left as u128) * (right as u128)) as u64
+}
+
+fun read4(bytes: &[u8]) u64 {
+    (bytes[0] as u64)
+        | ((bytes[1] as u64) << 8)
+        | ((bytes[2] as u64) << 16)
+        | ((bytes[3] as u64) << 24)
+}
+
+fun read8(bytes: &[u8]) u64 {
+    (bytes[0] as u64)
+        | ((bytes[1] as u64) << 8)
+        | ((bytes[2] as u64) << 16)
+        | ((bytes[3] as u64) << 24)
+        | ((bytes[4] as u64) << 32)
+        | ((bytes[5] as u64) << 40)
+        | ((bytes[6] as u64) << 48)
+        | ((bytes[7] as u64) << 56)
+}
+
+fun round(acc: u64, lane: u64) u64 {
+    mulWrap64(rotateLeft(addWrap64(acc, mulWrap64(lane, prime2)), 31), prime1)
+}
+
+fun mergeRound(acc: u64, lane: u64) u64 {
+    let mixed = round(0, lane);
+    addWrap64(mulWrap64(acc ^ mixed, prime1), prime4)
+}
+
+fun avalanche(value: u64) u64 {
+    let mut result = value;
+    result ^= result >> 33;
+    result = mulWrap64(result, prime2);
+    result ^= result >> 29;
+    result = mulWrap64(result, prime3);
+    result ^= result >> 32;
+    result
+}
+
+fun processStripe(hasher: &mut XxHash64, bytes: &[u8]) () {
+    hasher.acc1 = round(hasher.acc1, read8(&bytes[0..]));
+    hasher.acc2 = round(hasher.acc2, read8(&bytes[8..]));
+    hasher.acc3 = round(hasher.acc3, read8(&bytes[16..]));
+    hasher.acc4 = round(hasher.acc4, read8(&bytes[24..]));
+}
+
+extend XxHash64 {
+    pub fun init(seed: u64) XxHash64 {
+        .{
+            seed,
+            acc1: addWrap64(addWrap64(seed, prime1), prime2),
+            acc2: addWrap64(seed, prime2),
+            acc3: seed,
+            acc4: subWrap64(seed, prime1),
+            totalLen: 0,
+            buffer: [0; 32],
+            bufferLen: 0,
+        }
+    }
+
+    pub fun update(&mut self, bytes: &[u8]) () {
+        self.totalLen = addWrap64(self.totalLen, bytes.len() as u64);
+        let mut index: usize = 0;
+        if self.bufferLen > 0 {
+            let needed = 32 - self.bufferLen;
+            if bytes.len() < needed {
+                _ = (&mut self.buffer[self.bufferLen..(self.bufferLen + bytes.len())]).copyFrom(bytes);
+                self.bufferLen += bytes.len();
+                return;
+            }
+            _ = (&mut self.buffer[self.bufferLen..32]).copyFrom(&bytes[0..needed]);
+            processStripe(self, &self.buffer[..]);
+            self.bufferLen = 0;
+            index = needed;
+        }
+        while bytes.len() - index >= 32 {
+            processStripe(self, &bytes[index..]);
+            index += 32;
+        }
+        let remaining = &bytes[index..];
+        _ = (&mut self.buffer[0..remaining.len()]).copyFrom(remaining);
+        self.bufferLen = remaining.len();
+    }
+
+    pub fun finishValue(&self) u64 {
+        let mut result: u64;
+        if self.totalLen >= 32 {
+            result = addWrap64(
+                addWrap64(
+                    addWrap64(rotateLeft(self.acc1, 1), rotateLeft(self.acc2, 7)),
+                    rotateLeft(self.acc3, 12),
+                ),
+                rotateLeft(self.acc4, 18),
+            );
+            result = mergeRound(result, self.acc1);
+            result = mergeRound(result, self.acc2);
+            result = mergeRound(result, self.acc3);
+            result = mergeRound(result, self.acc4);
+        } else {
+            result = addWrap64(self.seed, prime5);
+        }
+        result = addWrap64(result, self.totalLen);
+        let mut index: usize = 0;
+        while self.bufferLen - index >= 8 {
+            result ^= round(0, read8(&self.buffer[index..]));
+            result = addWrap64(mulWrap64(rotateLeft(result, 27), prime1), prime4);
+            index += 8;
+        }
+        if self.bufferLen - index >= 4 {
+            result ^= mulWrap64(read4(&self.buffer[index..]), prime1);
+            result = addWrap64(mulWrap64(rotateLeft(result, 23), prime2), prime3);
+            index += 4;
+        }
+        while index < self.bufferLen {
+            result ^= mulWrap64(self.buffer[index] as u64, prime5);
+            result = mulWrap64(rotateLeft(result, 11), prime1);
+            index += 1;
+        }
+        avalanche(result)
+    }
+
+    pub fun hash(seed: u64, bytes: &[u8]) u64 {
+        let mut hasher = XxHash64::init(seed);
+        hasher.update(bytes);
+        hasher.finishValue()
+    }
+}
+
+extend XxHash64 : Hasher {
+    pub fun write(&mut self, bytes: &[u8]) () { self.update(bytes) }
+    pub fun finish(&self) u64 { self.finishValue() }
+}

@@ -1,7 +1,9 @@
 using root::hash;
 using root::collections::hash_map::types;
+using root::collections::hash_map::raw;
+using root::os;
 
-using types::HashMapContext;
+using types::{HashMapContext, HashMapInitError};
 
 pub struct DefaultHashMapContext {}
 
@@ -23,6 +25,47 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
 
     pub fun eql(&self, left: &K, right: &K) bool {
         _ = self;
+        left.* == right.*
+    }
+}
+
+// Keyed context for maps that need SipHash's resistance to chosen-key
+// collision attacks. `tryInit()` obtains its 128-bit key from the OS random
+// source; `fromKeys()` is for explicitly managed keys and deterministic tests.
+pub struct SipHashMapContext {
+    key0: u64,
+    key1: u64,
+}
+
+extend SipHashMapContext {
+    pub fun fromKeys(key0: u64, key1: u64) SipHashMapContext {
+        .{ key0, key1 }
+    }
+
+    pub fun tryInit() HashMapInitError!SipHashMapContext {
+        let mut key: [u8; 16] = [0; 16];
+        os::random(&mut key[..]).?;
+        !.{ key0: raw::readU64(&key[0..]), key1: raw::readU64(&key[8..]) }
+    }
+
+    pub fun init() SipHashMapContext {
+        if SipHashMapContext::tryInit() is !context {
+            return context;
+        }
+        root::builtin::trap()
+    }
+}
+
+extend[K] SipHashMapContext : HashMapContext[K]
+where K: Sized + Eq[K] + hash::Hash[hash::SipHash24]
+{
+    pub fun hash(&self, seed: u64, key: &K) u64 {
+        let mut hasher = hash::SipHash24::init(self.key0 ^ seed, self.key1);
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fun eql(&self, left: &K, right: &K) bool {
         left.* == right.*
     }
 }

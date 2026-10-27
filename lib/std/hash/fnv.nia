@@ -1,0 +1,82 @@
+// Fowler-Noll-Vo 1a hashers.
+//
+// FNV-1a is a small, deterministic non-cryptographic hash. It is useful for
+// stable file formats and compact indexes; callers should prefer a keyed
+// hasher such as SipHash when the input is attacker-controlled.
+
+using root::hash::traits;
+
+using traits::Hasher;
+
+pub struct Fnv1a32 {
+    state: u32,
+}
+
+pub struct Fnv1a64 {
+    state: u64,
+}
+
+extend Fnv1a32 {
+    pub fun init() Fnv1a32 {
+        .{ state: 0x811c9dc5u32 }
+    }
+
+    pub fun update(&mut self, bytes: &[u8]) () {
+        for index in 0..bytes.len() {
+            self.state = (((self.state ^ bytes[index] as u32) as u64) * 0x01000193u64) as u32;
+        }
+    }
+
+    pub fun finishValue(&self) u32 {
+        self.state
+    }
+
+    pub fun hash(bytes: &[u8]) u32 {
+        let mut hasher = Fnv1a32::init();
+        hasher.update(bytes);
+        hasher.finishValue()
+    }
+}
+
+extend Fnv1a32 : Hasher {
+    pub fun write(&mut self, bytes: &[u8]) () {
+        self.update(bytes)
+    }
+
+    pub fun finish(&self) u64 {
+        self.finishValue() as u64
+    }
+}
+
+extend Fnv1a64 {
+    pub fun init() Fnv1a64 {
+        .{ state: 0xcbf29ce484222325u64 }
+    }
+
+    pub fun update(&mut self, bytes: &[u8]) () {
+        for index in 0..bytes.len() {
+            let product = ((self.state ^ bytes[index] as u64) as u128) * 0x100000001b3u128;
+            self.state = product as u64;
+        }
+    }
+
+    pub fun finishValue(&self) u64 {
+        self.state
+    }
+
+    pub fun hash(bytes: &[u8]) u64 {
+        let mut hasher = Fnv1a64::init();
+        hasher.update(bytes);
+        hasher.finishValue()
+    }
+}
+
+extend Fnv1a64 : Hasher {
+    pub fun write(&mut self, bytes: &[u8]) () {
+        self.update(bytes)
+    }
+
+    pub fun finish(&self) u64 {
+        self.finishValue()
+    }
+}

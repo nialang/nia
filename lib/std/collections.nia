@@ -33,6 +33,7 @@ pub using tree_map::{TreeMap, TreeMapEntry, TreeMapEntryMut, TreeMapEntryRef, Tr
 pub using tree_set::{TreeSet, TreeSetIter};
 pub using hash_map::{
     DefaultHashMapContext,
+    SipHashMapContext,
     HashMap,
     HashMapContext,
     HashMapInitError,
