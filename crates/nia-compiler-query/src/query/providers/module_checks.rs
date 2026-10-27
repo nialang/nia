@@ -27,6 +27,74 @@ pub(super) fn provide_layouts(
             capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
+        let program_struct = |def_id: GlobalDefId| {
+            capture_query_failure(
+                &query_failure,
+                db.get(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            )
+            .and_then(|signatures| {
+                signatures
+                    .semantic
+                    .structs
+                    .get(&def_id.def_id)
+                    .cloned()
+                    .map(|signature| ProgramStructSignature { signature })
+            })
+        };
+        let program_union = |def_id: GlobalDefId| {
+            capture_query_failure(
+                &query_failure,
+                db.get(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            )
+            .and_then(|signatures| {
+                signatures
+                    .semantic
+                    .unions
+                    .get(&def_id.def_id)
+                    .cloned()
+                    .map(|signature| ProgramUnionSignature { signature })
+            })
+        };
+        let program_enum = |def_id: GlobalDefId| {
+            capture_query_failure(
+                &query_failure,
+                db.get(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            )
+            .and_then(|signatures| {
+                signatures
+                    .semantic
+                    .enums
+                    .get(&def_id.def_id)
+                    .cloned()
+                    .map(|signature| ProgramEnumSignature { signature })
+            })
+        };
+        let program_type_alias = |def_id: GlobalDefId| {
+            capture_query_failure(
+                &query_failure,
+                db.get(SignatureItemSignaturesQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            )
+            .and_then(|signatures| {
+                signatures
+                    .semantic
+                    .type_aliases
+                    .get(&def_id.def_id)
+                    .cloned()
+                    .map(|signature| ProgramTypeAliasSignature { signature })
+            })
+        };
         let layouts =
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: &db.context().type_store,
@@ -40,6 +108,10 @@ pub(super) fn provide_layouts(
                     symbols: Some(&symbols),
                     layouts: Some(&layout_query),
                     array_lengths: Some(&program_array_lengths),
+                    struct_: Some(&program_struct),
+                    union: Some(&program_union),
+                    enum_: Some(&program_enum),
+                    type_alias: Some(&program_type_alias),
                     ..Default::default()
                 },
             })?;

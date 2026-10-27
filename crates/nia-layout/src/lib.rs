@@ -42,7 +42,8 @@ use nia_item_signatures::{
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
 use nia_ty::{
-    ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind,
+    ArrayLenTy, BuiltinTrait, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy,
+    RangeTyKind, TyKind,
 };
 
 mod abi;
@@ -1238,38 +1239,72 @@ impl<'a> LayoutComputer<'a> {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
-        if let Some(layouts) = self
-            .program
-            .layouts
-            .and_then(|query| query(def_id.module_id))
-            && let Some(layout) =
-                layouts.nominal_type_layout_with_const_args(def_id, args, const_args)
-        {
-            return Some(layout);
-        }
         if let Some(program_structs) = self.program.structs
             && let Some(signature) = program_structs.get(&def_id).cloned()
         {
             let signature = signature.signature;
-            return self.external_struct_layout(span, def_id, &signature, args, const_args);
+            self.demand_sized_generic_arguments(
+                &signature.generic_params,
+                &signature.where_predicates,
+                args,
+                const_args,
+            );
+            return self
+                .cached_external_nominal_layout(def_id, args, const_args)
+                .or_else(|| {
+                    self.external_struct_layout(span, def_id, &signature, args, const_args)
+                });
         }
         if let Some(program_struct) = self.program.struct_
             && let Some(signature) = program_struct(def_id)
         {
             let signature = signature.signature;
-            return self.external_struct_layout(span, def_id, &signature, args, const_args);
+            self.demand_sized_generic_arguments(
+                &signature.generic_params,
+                &signature.where_predicates,
+                args,
+                const_args,
+            );
+            return self
+                .cached_external_nominal_layout(def_id, args, const_args)
+                .or_else(|| {
+                    self.external_struct_layout(span, def_id, &signature, args, const_args)
+                });
         }
         if let Some(program_unions) = self.program.unions
             && let Some(signature) = program_unions.get(&def_id).cloned()
         {
             let signature = signature.signature;
-            return self.external_union_layout(span, def_id, &signature, args, const_args);
+            self.demand_sized_generic_arguments(
+                &signature.generic_params,
+                &signature.where_predicates,
+                args,
+                const_args,
+            );
+            return self
+                .cached_external_nominal_layout(def_id, args, const_args)
+                .or_else(|| {
+                    self.external_union_layout(span, def_id, &signature, args, const_args)
+                });
         }
         if let Some(program_union) = self.program.union
             && let Some(signature) = program_union(def_id)
         {
             let signature = signature.signature;
-            return self.external_union_layout(span, def_id, &signature, args, const_args);
+            self.demand_sized_generic_arguments(
+                &signature.generic_params,
+                &signature.where_predicates,
+                args,
+                const_args,
+            );
+            return self
+                .cached_external_nominal_layout(def_id, args, const_args)
+                .or_else(|| {
+                    self.external_union_layout(span, def_id, &signature, args, const_args)
+                });
+        }
+        if let Some(layout) = self.cached_external_nominal_layout(def_id, args, const_args) {
+            return Some(layout);
         }
         if let Some(program_enums) = self.program.enums
             && let Some(signature) = program_enums.get(&def_id).cloned()
@@ -1298,6 +1333,56 @@ impl<'a> LayoutComputer<'a> {
         None
     }
 
+    fn cached_external_nominal_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<TypeLayout> {
+        self.program
+            .layouts
+            .and_then(|query| query(def_id.module_id))
+            .and_then(|layouts| {
+                layouts.nominal_type_layout_with_const_args(def_id, args, const_args)
+            })
+    }
+
+    /// A nominal declaration's `T: Sized` predicates are representation
+    /// demands even when the declaration stores `T` only behind a pointer.
+    /// Propagate those concrete arguments into this layout computation so a
+    /// later body check can resolve the same `Sized` fact from the product.
+    fn demand_sized_generic_arguments(
+        &mut self,
+        generic_params: &[nia_item_signatures::GenericParamSignature],
+        predicates: &[nia_defs::WherePredicateSignature],
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) {
+        let Some((substitutions, const_substitutions)) =
+            generic_argument_substitutions(generic_params, args, const_args)
+        else {
+            return;
+        };
+        for predicate in predicates {
+            let constrained_ty =
+                self.substitute_ty(predicate.ty, &substitutions, &const_substitutions);
+            let is_sized = predicate.bounds.iter().any(|bound| {
+                let trait_ty =
+                    self.substitute_ty(bound.trait_ty, &substitutions, &const_substitutions);
+                matches!(
+                    self.type_context.get(self.normalize_ty(trait_ty)),
+                    Some(TyKind::BuiltinTrait {
+                        trait_id: BuiltinTrait::Sized,
+                        args,
+                    }) if args.is_empty()
+                )
+            });
+            if is_sized {
+                let _ = self.layout_ty(constrained_ty, predicate.span);
+            }
+        }
+    }
+
     fn type_alias_layout(
         &mut self,
         span: Span,
@@ -1319,6 +1404,12 @@ impl<'a> LayoutComputer<'a> {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
+        self.demand_sized_generic_arguments(
+            &signature.generic_params,
+            &signature.where_predicates,
+            args,
+            const_args,
+        );
         let key = GlobalStructLayoutKey {
             def_id,
             args: args.to_vec(),
@@ -1352,6 +1443,12 @@ impl<'a> LayoutComputer<'a> {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
+        self.demand_sized_generic_arguments(
+            &signature.generic_params,
+            &signature.where_predicates,
+            args,
+            const_args,
+        );
         let key = GlobalStructLayoutKey {
             def_id,
             args: args.to_vec(),
@@ -1499,6 +1596,12 @@ impl<'a> LayoutComputer<'a> {
             );
             return None;
         }
+        self.demand_sized_generic_arguments(
+            &signature.generic_params,
+            &signature.where_predicates,
+            args,
+            const_args,
+        );
         let struct_layout = if signature.is_extern {
             self.c_struct_layout(&key, signature, &substitutions, &const_substitutions)?
         } else {
@@ -1554,6 +1657,12 @@ impl<'a> LayoutComputer<'a> {
             );
             return None;
         }
+        self.demand_sized_generic_arguments(
+            &signature.generic_params,
+            &signature.where_predicates,
+            args,
+            const_args,
+        );
         let union_layout =
             self.union_field_layout(&key, signature, &substitutions, &const_substitutions)?;
         let layout = union_layout.layout.clone();

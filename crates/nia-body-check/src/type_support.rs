@@ -1987,7 +1987,6 @@ impl<'a> BodyChecker<'a> {
             trait_impls_by_trait: FastHashMap::default(),
             def_trait_obligations_cache: FastHashMap::default(),
             trait_obligation_resolution_cache: FastHashMap::default(),
-            sized_type_cache: self.sized_type_cache.clone(),
             type_match_cache: FastHashMap::default(),
             diagnostics: Vec::new(),
             diagnostic_owners: Vec::new(),

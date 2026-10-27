@@ -265,8 +265,6 @@ struct BodyChecker<'a> {
     def_trait_obligations_cache: FastHashMap<DefId, Vec<TraitObligation>>,
     trait_obligation_resolution_cache:
         FastHashMap<TraitObligationResolutionKey, nia_trait_solve::TraitResolution>,
-    /// Concrete nominal layouts discovered while checking a body.
-    sized_type_cache: HashSet<InternedTyId>,
     type_match_cache: FastHashMap<(InternedTyId, InternedTyId), bool>,
     diagnostics: Vec<Diagnostic>,
     diagnostic_owners: Vec<Option<GlobalDefId>>,
