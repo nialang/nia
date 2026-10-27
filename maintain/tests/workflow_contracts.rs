@@ -219,8 +219,11 @@ fn release_workflow_publishes_the_supported_host_matrix() {
     assert!(workflow.contains("ubuntu-24.04-arm"));
     assert!(workflow.contains("Validate formal release tag"));
     assert!(workflow.contains("^v[0-9]+\\.[0-9]+\\.0$"));
+    assert!(
+        workflow.contains("github.event_name == 'workflow_dispatch' && github.sha || github.ref")
+    );
     assert!(workflow.contains(
-        "github.event_name == 'workflow_dispatch' && github.sha || needs.validate.outputs.tag"
+        "      - name: Check out release source\n        uses: actions/checkout@v7\n        with:\n          ref: ${{ needs.validate.outputs.tag }}\n          path: nia-source"
     ));
     assert!(workflow.contains("../release-tools/tools/release/package.sh"));
     assert!(workflow.contains("release-tools\\tools\\release\\package.ps1"));

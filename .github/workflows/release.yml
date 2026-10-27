@@ -99,7 +99,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.validate.outputs.tag }}
+          ref: ${{ needs.validate.outputs.tag }}
           path: nia-source
       - name: Install Rust
         shell: bash
