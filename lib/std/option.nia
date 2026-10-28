@@ -30,4 +30,22 @@ extend[Value] ?Value {
             null
         }
     }
+
+    pub fun okOr[Error](self, error: Error) Error!Value {
+        if self is ?value {
+            !value
+        } else {
+            error!
+        }
+    }
+
+    pub fun okOrElse[Error, Supplier](self, supplier: Supplier) Error!Value
+    where Supplier: Fun() Error
+    {
+        if self is ?value {
+            !value
+        } else {
+            supplier()!
+        }
+    }
 }
