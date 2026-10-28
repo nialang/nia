@@ -73,6 +73,36 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(super) fn check_direct_call_args_with_callable_bounds(
+        &mut self,
+        span: Span,
+        target: CallTarget,
+        args: &[Expr],
+        params: &[InternedTyId],
+        callable_bounds: &[Option<InternedTyId>],
+        is_variadic: bool,
+    ) {
+        self.check_call_arg_count(span, args.len(), params.len(), is_variadic);
+
+        for (index, arg) in args.iter().enumerate() {
+            if let Some(parameter) = params.get(index).copied() {
+                let expected = callable_bounds
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .unwrap_or(parameter);
+                self.seed_closure_params_from_callable_pattern(expected, arg);
+                // The bound supplies the closure body's context, while the
+                // inferred concrete argument still has to match the generic
+                // parameter recorded for this call.
+                let arg_ty = self.check_expr_with_expected(arg, Some(expected));
+                self.expect_call_arg_type(target, index, arg, parameter, arg_ty);
+            } else {
+                self.check_expr(arg);
+            }
+        }
+    }
+
     /// Checks one argument against its parameter. A mismatch names the
     /// callee's parameter declaration, wherever it is declared.
     pub(crate) fn expect_call_arg_type(

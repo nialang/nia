@@ -31,11 +31,13 @@
 //! | union-find | equality between locals, expressions, and shape children | no subtyping/coercion search |
 //! | structural shapes | tuples, pointers, optionals, error unions, callables | nominal types stay canonical |
 //! | partial closure types | preserve unresolved closure leaves | never enter Body IR directly |
+//! | call-result contexts | reuse solved result equalities in ordinary call inference | never a prechecked type or resolved callee |
+//! | propagation obligations | connect operand shape and success payload after later contexts arrive | no source/target error equality or conversion search |
 //! | operator obligations | defer overload output until operands resolve | canonical trait solver decides |
 //!
 //! The solver is monomorphic within one function pass. Generic call matching
 //! and ordinary diagnostic/coercion behavior remain outside this module; this
-//! pass supplies the missing closure constraints they can consume.
+//! pass supplies the closure and propagation constraints they can consume.
 
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
@@ -49,6 +51,14 @@ use nia_ty::{PrimitiveTy, RangeTyKind, TyKind};
 use std::collections::HashMap;
 
 type InferId = usize;
+type CallableTerms = (Vec<InferId>, InferId);
+
+struct CallSignatureTerms {
+    params: Vec<InferId>,
+    return_type: InferId,
+    callable_bounds: Vec<Option<CallableTerms>>,
+    callee_uses_bound: bool,
+}
 
 fn closure_expr_key(expr: &Expr) -> Option<VersionedNodeKey> {
     match &expr.kind {
@@ -200,27 +210,46 @@ struct OperatorObligation {
     output: InferId,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct TryObligation {
+    operand: InferId,
+    value: InferId,
+    propagation_target: Option<InferId>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum InferenceObligation {
+    Operator(OperatorObligation),
+    Try(TryObligation),
+}
+
 /// Constraint state for one function body.
 ///
 /// Locals and expressions are interned into stable inference ids. Closures are
-/// recorded for publication after solving, while operators are retained as
-/// obligations until ordinary equality constraints have made their operands
-/// concrete enough for the authoritative trait solver.
+/// recorded for publication after solving. Operators and propagation share
+/// deferred obligations until equality constraints have supplied the shapes
+/// they need; the authoritative trait solver decides operator instances.
 #[derive(Default)]
 struct FunctionInference {
     nodes: Vec<InferNode>,
     concrete_terms: HashMap<InternedTyId, InferId>,
     locals: HashMap<LocalId, InferId>,
     exprs: HashMap<VersionedNodeKey, InferId>,
+    call_results: HashMap<VersionedNodeKey, InferId>,
     closures: Vec<ClosureTerms>,
     closure_locals: HashMap<LocalId, VersionedNodeKey>,
     closure_uses: HashMap<LocalId, ClosureUse>,
-    operators: Vec<OperatorObligation>,
+    obligations: Vec<InferenceObligation>,
     return_stack: Vec<InferId>,
 }
 
 impl BodyChecker<'_> {
-    pub(super) fn infer_function_closures(&mut self, body: &Block) {
+    pub(super) fn infer_function_contexts(&mut self, body: &Block) {
+        // Ordinary expression checking suffices when no closure or
+        // propagation expression needs nonlocal contextual constraints.
+        if self.closure_ordinals.is_empty() && !contains_propagation(body) {
+            return;
+        }
         let mut inference = FunctionInference::default();
         for (local, ty) in self.local_types.clone() {
             let term = inference.known(ty);
@@ -230,7 +259,17 @@ impl BodyChecker<'_> {
         let function_return = inference.known(self.current_return);
         inference.return_stack.push(function_return);
         inference.constrain_block(self, body, Some(function_return));
-        inference.solve_operators(self);
+        inference.solve_obligations(self);
+
+        for (key, term) in std::mem::take(&mut inference.call_results) {
+            if let Some(ty) = inference.resolve(self, term)
+                && !self.type_contains_generic_param(ty)
+                && !self.type_contains_const_generic_param(ty)
+                && !self.is_error_recovery_ty(ty)
+            {
+                self.inferred_call_results.insert(key, ty);
+            }
+        }
 
         let mut closure_uses: Vec<_> = inference.closure_uses.values().copied().collect();
         closure_uses.sort_by_key(|usage| (usage.first.start, usage.first.end));
@@ -411,51 +450,91 @@ impl FunctionInference {
         }
     }
 
-    fn direct_call_signature_terms(
+    fn function_call_signature_terms(
         &mut self,
         checker: &mut BodyChecker<'_>,
         callee: &Expr,
-    ) -> Option<(Vec<InferId>, InferId)> {
+        explicit_type_args: Option<&[nia_ast::BracketArg]>,
+    ) -> Option<CallSignatureTerms> {
         let signature = checker.direct_callee_signature(callee)?.signature;
         let mut generics = HashMap::new();
+        let mut substitutions = nia_symbol::SymbolMap::default();
+        if let Some(type_args) = explicit_type_args {
+            let mut type_index = 0;
+            for generic in &signature.generic_params {
+                if !matches!(
+                    generic.kind,
+                    nia_item_signatures::GenericParamSignatureKind::Type
+                ) {
+                    continue;
+                }
+                let arg = type_args.get(type_index)?.ty.as_ref()?;
+                let arg = checker.ty_for_type(arg);
+                substitutions.insert(generic.name, arg);
+                let term = self.signature_term(checker, arg, &mut generics);
+                generics.insert(generic.name, term);
+                type_index += 1;
+            }
+        }
+        let const_substitutions = nia_symbol::SymbolMap::default();
+        let callable_bounds = signature
+            .params
+            .iter()
+            .map(|param| {
+                checker
+                    .callable_bound_for_generic_parameter(
+                        param.ty,
+                        &signature.where_predicates,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                    .map(|(params, return_type)| {
+                        let params = params
+                            .into_iter()
+                            .map(|param| self.signature_term(checker, param, &mut generics))
+                            .collect();
+                        let return_type = self.signature_term(checker, return_type, &mut generics);
+                        (params, return_type)
+                    })
+            })
+            .collect();
         let params = signature
             .params
             .into_iter()
             .map(|param| self.signature_term(checker, param.ty, &mut generics))
             .collect();
         let return_type = self.signature_term(checker, signature.return_type, &mut generics);
-        Some((params, return_type))
+        Some(CallSignatureTerms {
+            params,
+            return_type,
+            callable_bounds,
+            callee_uses_bound: false,
+        })
     }
 
-    fn explicit_call_signature_terms(
+    fn local_callable_call_signature_terms(
         &mut self,
         checker: &mut BodyChecker<'_>,
         callee: &Expr,
-        type_args: &[nia_ast::BracketArg],
-    ) -> Option<(Vec<InferId>, InferId)> {
-        let signature = checker.direct_callee_signature(callee)?.signature;
-        let mut generics = HashMap::new();
-        let mut type_index = 0;
-        for generic in &signature.generic_params {
-            if !matches!(
-                generic.kind,
-                nia_item_signatures::GenericParamSignatureKind::Type
-            ) {
-                continue;
-            }
-            let arg = type_args.get(type_index)?.ty.as_ref()?;
-            let arg = checker.ty_for_type(arg);
-            let term = self.signature_term(checker, arg, &mut generics);
-            generics.insert(generic.name, term);
-            type_index += 1;
-        }
-        let params = signature
-            .params
-            .into_iter()
-            .map(|param| self.signature_term(checker, param.ty, &mut generics))
-            .collect();
-        let return_type = self.signature_term(checker, signature.return_type, &mut generics);
-        Some((params, return_type))
+    ) -> Option<CallSignatureTerms> {
+        let ExprKind::Ident(_) = &callee.kind else {
+            return None;
+        };
+        let nia_local_resolve::LocalUse::Local(local) = checker.local_use(callee)? else {
+            return None;
+        };
+        let callee_term = self.local_term(local);
+        let callee_ty = self.resolve(checker, callee_term)?;
+        let (params, return_type) = checker.static_callable_bound(callee_ty)?;
+        let callable_bounds = vec![None; params.len()];
+        let params = params.into_iter().map(|param| self.known(param)).collect();
+        let return_type = self.known(return_type);
+        Some(CallSignatureTerms {
+            params,
+            return_type,
+            callable_bounds,
+            callee_uses_bound: true,
+        })
     }
 
     fn method_call_signature_terms(
@@ -464,17 +543,36 @@ impl FunctionInference {
         receiver: &Expr,
         name: &nia_symbol::SymbolId,
         receiver_term: InferId,
-    ) -> Option<(Vec<InferId>, InferId)> {
+    ) -> Option<CallSignatureTerms> {
         let receiver_ty = self.resolve(checker, receiver_term)?;
-        let (params, return_type) =
-            checker.method_signature_for_inference(receiver, receiver_ty, name)?;
+        let signature = checker.method_signature_for_inference(receiver, receiver_ty, name)?;
         let mut generics = HashMap::new();
-        let params = params
+        let callable_bounds = signature
+            .callable_bounds
+            .into_iter()
+            .map(|bound| {
+                bound.map(|(params, return_type)| {
+                    let params = params
+                        .into_iter()
+                        .map(|param| self.signature_term(checker, param, &mut generics))
+                        .collect();
+                    let return_type = self.signature_term(checker, return_type, &mut generics);
+                    (params, return_type)
+                })
+            })
+            .collect::<Vec<_>>();
+        let params = signature
+            .params
             .into_iter()
             .map(|param| self.signature_term(checker, param, &mut generics))
             .collect();
-        let return_type = self.signature_term(checker, return_type, &mut generics);
-        Some((params, return_type))
+        let return_type = self.signature_term(checker, signature.return_type, &mut generics);
+        Some(CallSignatureTerms {
+            params,
+            return_type,
+            callable_bounds,
+            callee_uses_bound: false,
+        })
     }
 
     fn constrain_method_call(
@@ -500,13 +598,25 @@ impl FunctionInference {
             // projection chain.
             return None;
         }
-        let (params, method_result) =
-            self.method_call_signature_terms(checker, lhs, name, receiver)?;
-        let result = expected.unwrap_or(method_result);
-        self.unify(checker, result, method_result);
-        for (arg, param) in args.iter().zip(params) {
-            let actual = self.constrain_expr(checker, arg, Some(param));
-            self.unify(checker, param, actual);
+        let signature = self.method_call_signature_terms(checker, lhs, name, receiver)?;
+        let result = expected.unwrap_or(signature.return_type);
+        self.unify(checker, result, signature.return_type);
+        for (index, (arg, param)) in args.iter().zip(signature.params).enumerate() {
+            let callable_bound = signature
+                .callable_bounds
+                .get(index)
+                .and_then(Option::as_ref)
+                .map(|(params, return_type)| {
+                    self.with_shape(InferShape::Callable {
+                        params: params.clone(),
+                        return_type: *return_type,
+                    })
+                });
+            let expected = callable_bound.unwrap_or(param);
+            let actual = self.constrain_expr(checker, arg, Some(expected));
+            if callable_bound.is_none() {
+                self.unify(checker, param, actual);
+            }
         }
         Some(result)
     }
@@ -1055,6 +1165,11 @@ impl FunctionInference {
         }
         let result = if let Some(tail) = block.tail.as_deref() {
             self.constrain_expr(checker, tail, expected)
+        } else if checker.block_is_diverging(block) {
+            // No value reaches the enclosing expression. Reuse the normal
+            // flow analysis instead of imposing `()` on a returning/breaking
+            // branch, which would constrain unrelated match payloads.
+            expected.unwrap_or_else(|| self.fresh())
         } else {
             self.known(checker.unit())
         };
@@ -1114,11 +1229,53 @@ impl FunctionInference {
             Some(ty) => self.known(ty),
             None => self.fresh(),
         };
-        if let PatternKind::Bind { node_key, .. } = &pattern.kind
-            && let Some(local) = checker.local_def(node_key)
-        {
-            let local = self.local_term(local);
-            self.unify(checker, term, local);
+        let shape = match &pattern.kind {
+            PatternKind::Bind { node_key, .. } => checker
+                .local_def(node_key)
+                .map(|local| self.local_term(local)),
+            PatternKind::Pointer(inner) | PatternKind::MutPointer(inner) => {
+                let elem = self.pattern_term(checker, inner, None);
+                Some(self.with_shape(InferShape::Pointer {
+                    is_readonly: matches!(pattern.kind, PatternKind::Pointer(_)),
+                    elem,
+                }))
+            }
+            PatternKind::OptionalSome(inner) => {
+                let elem = self.pattern_term(checker, inner, None);
+                Some(self.with_shape(InferShape::Optional { elem }))
+            }
+            PatternKind::OptionalNull => {
+                let elem = self.fresh();
+                Some(self.with_shape(InferShape::Optional { elem }))
+            }
+            PatternKind::ErrorOk(inner) | PatternKind::ErrorErr(inner) => {
+                let payload = self.pattern_term(checker, inner, None);
+                let missing = self.fresh();
+                let (error, value) = if matches!(pattern.kind, PatternKind::ErrorOk(_)) {
+                    (missing, payload)
+                } else {
+                    (payload, missing)
+                };
+                Some(self.with_shape(InferShape::ErrorUnion { error, value }))
+            }
+            PatternKind::Tuple(patterns) => {
+                let elems = patterns
+                    .iter()
+                    .map(|pattern| self.pattern_term(checker, pattern, None))
+                    .collect();
+                Some(self.with_shape(InferShape::Tuple(elems)))
+            }
+            PatternKind::Expr(expr) => Some(self.constrain_expr(checker, expr, Some(term))),
+            PatternKind::Range { start, end, .. } => {
+                let start = self.constrain_expr(checker, start, Some(term));
+                let end = self.constrain_expr(checker, end, Some(term));
+                self.unify(checker, start, end);
+                Some(start)
+            }
+            PatternKind::Wildcard | PatternKind::Nominal { .. } => None,
+        };
+        if let Some(shape) = shape {
+            self.unify(checker, term, shape);
         }
         term
     }
@@ -1138,6 +1295,9 @@ impl FunctionInference {
         expected: Option<InferId>,
     ) -> InferId {
         let term = self.expr_term(expr);
+        if matches!(expr.kind, ExprKind::Call { .. }) {
+            self.call_results.insert(expr.node_key.clone(), term);
+        }
         let actual = match &expr.kind {
             ExprKind::Integer(_) => self.known(
                 integer_literal_suffix_ty(expr)
@@ -1348,23 +1508,41 @@ impl FunctionInference {
                 } = &callee.kind
                     && type_args.iter().all(|arg| arg.expr.is_none())
                 {
-                    if let Some((params, return_type)) =
-                        self.explicit_call_signature_terms(checker, generic_callee, type_args)
+                    if let Some(signature) =
+                        self.function_call_signature_terms(checker, generic_callee, Some(type_args))
                     {
-                        let result = expected.unwrap_or(return_type);
-                        self.unify(checker, result, return_type);
-                        for (arg, param) in args.iter().zip(params) {
-                            let actual = self.constrain_expr(checker, arg, Some(param));
-                            self.unify(checker, param, actual);
+                        let result = expected.unwrap_or(signature.return_type);
+                        self.unify(checker, result, signature.return_type);
+                        for (index, (arg, param)) in args.iter().zip(signature.params).enumerate() {
+                            let callable_bound = signature
+                                .callable_bounds
+                                .get(index)
+                                .and_then(Option::as_ref)
+                                .map(|(params, return_type)| {
+                                    self.with_shape(InferShape::Callable {
+                                        params: params.clone(),
+                                        return_type: *return_type,
+                                    })
+                                });
+                            let actual = self.constrain_expr(
+                                checker,
+                                arg,
+                                Some(callable_bound.unwrap_or(param)),
+                            );
+                            if callable_bound.is_none() {
+                                self.unify(checker, param, actual);
+                            }
                         }
-                        return result;
+                        self.unify(checker, term, result);
+                        return term;
                     }
                     let result = expected.unwrap_or_else(|| self.fresh());
                     let _ = self.constrain_expr(checker, generic_callee, None);
                     for arg in args {
                         let _ = self.constrain_expr(checker, arg, None);
                     }
-                    return result;
+                    self.unify(checker, term, result);
+                    return term;
                 }
                 // Value resolution already distinguishes enum constructors
                 // from callable values. Their result type is known before
@@ -1384,54 +1562,86 @@ impl FunctionInference {
                         call_closure_locals.push(local);
                         self.note_closure_use(local, expr.span);
                     }
-                    let known_signature = self.direct_call_signature_terms(checker, callee);
-                    let known_signature = known_signature.or_else(|| {
-                        checker
-                            .type_lowering
-                            .ty_for_key(&callee.node_key)
-                            .and_then(|ty| checker.interner.get(ty))
-                            .and_then(|ty| match ty {
-                                TyKind::FunctionItem {
-                                    params,
-                                    return_type,
-                                    is_variadic: false,
-                                    ..
-                                } => Some((
-                                    params.iter().map(|param| self.known(*param)).collect(),
-                                    self.known(*return_type),
-                                )),
-                                _ => None,
-                            })
-                    });
+                    let known_signature = self.function_call_signature_terms(checker, callee, None);
+                    let known_signature = known_signature
+                        .or_else(|| self.local_callable_call_signature_terms(checker, callee))
+                        .or_else(|| {
+                            checker
+                                .type_lowering
+                                .ty_for_key(&callee.node_key)
+                                .and_then(|ty| checker.interner.get(ty))
+                                .and_then(|ty| match ty {
+                                    TyKind::FunctionItem {
+                                        params,
+                                        return_type,
+                                        is_variadic: false,
+                                        ..
+                                    } => Some(CallSignatureTerms {
+                                        params: params
+                                            .iter()
+                                            .map(|param| self.known(*param))
+                                            .collect(),
+                                        return_type: self.known(*return_type),
+                                        callable_bounds: vec![None; params.len()],
+                                        callee_uses_bound: false,
+                                    }),
+                                    _ => None,
+                                })
+                        });
                     let params: Vec<InferId> = known_signature
                         .as_ref()
-                        .map(|(params, _)| params.clone())
+                        .map(|signature| signature.params.clone())
                         .unwrap_or_else(|| (0..args.len()).map(|_| self.fresh()).collect());
                     let result = expected
                         .or_else(|| {
                             known_signature
                                 .as_ref()
-                                .map(|(_, return_type)| *return_type)
+                                .map(|signature| signature.return_type)
                         })
                         .unwrap_or_else(|| self.fresh());
                     let callable = self.with_shape(InferShape::Callable {
                         params: params.clone(),
                         return_type: result,
                     });
-                    let callee = self.constrain_expr(checker, callee, Some(callable));
-                    if !self.unify(checker, callable, callee) {
+                    let callee_term = self.constrain_expr(
+                        checker,
+                        callee,
+                        (!known_signature
+                            .as_ref()
+                            .is_some_and(|signature| signature.callee_uses_bound))
+                        .then_some(callable),
+                    );
+                    if !known_signature
+                        .as_ref()
+                        .is_some_and(|signature| signature.callee_uses_bound)
+                        && !self.unify(checker, callable, callee_term)
+                    {
                         for local in &call_closure_locals {
                             self.note_closure_conflict(Some(*local), expr.span);
                         }
                     }
-                    for (arg, param) in args.iter().zip(params) {
+                    for (index, (arg, param)) in args.iter().zip(params).enumerate() {
                         let arg_closure_local = self.closure_local(checker, arg);
                         if let Some(local) = arg_closure_local {
                             call_closure_locals.push(local);
                             self.note_closure_use(local, expr.span);
                         }
-                        let actual = self.constrain_expr(checker, arg, Some(param));
-                        if !self.unify(checker, param, actual) {
+                        let callable_bound = known_signature
+                            .as_ref()
+                            .and_then(|signature| signature.callable_bounds.get(index))
+                            .and_then(Option::as_ref)
+                            .map(|(params, return_type)| {
+                                self.with_shape(InferShape::Callable {
+                                    params: params.clone(),
+                                    return_type: *return_type,
+                                })
+                            });
+                        let actual = self.constrain_expr(
+                            checker,
+                            arg,
+                            Some(callable_bound.unwrap_or(param)),
+                        );
+                        if callable_bound.is_none() && !self.unify(checker, param, actual) {
                             for local in &call_closure_locals {
                                 self.note_closure_conflict(Some(*local), expr.span);
                             }
@@ -1464,12 +1674,13 @@ impl FunctionInference {
                     } else {
                         expected.unwrap_or_else(|| self.fresh())
                     };
-                    self.operators.push(OperatorObligation {
-                        op: *op,
-                        lhs,
-                        rhs,
-                        output,
-                    });
+                    self.obligations
+                        .push(InferenceObligation::Operator(OperatorObligation {
+                            op: *op,
+                            lhs,
+                            rhs,
+                            output,
+                        }));
                     output
                 }
             }
@@ -1497,11 +1708,90 @@ impl FunctionInference {
                 }
                 result
             }
+            ExprKind::IfPattern(if_pattern) => {
+                let target = self.constrain_expr(checker, &if_pattern.target, None);
+                let pattern = self.pattern_term(checker, &if_pattern.pattern, None);
+                self.unify(checker, target, pattern);
+                let result = expected.unwrap_or_else(|| self.fresh());
+                self.constrain_block(checker, &if_pattern.then_branch, Some(result));
+                if let Some(else_branch) = &if_pattern.else_branch {
+                    self.constrain_expr(checker, else_branch, Some(result));
+                }
+                result
+            }
+            ExprKind::IfPatternChain(chain) => {
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            let target = self.constrain_expr(checker, target, None);
+                            let pattern = self.pattern_term(checker, pattern, None);
+                            self.unify(checker, target, pattern);
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            let bool_term = self.known(checker.bool());
+                            self.constrain_expr(checker, condition, Some(bool_term));
+                        }
+                    }
+                }
+                let result = expected.unwrap_or_else(|| self.fresh());
+                self.constrain_block(checker, &chain.then_branch, Some(result));
+                if let Some(else_branch) = &chain.else_branch {
+                    self.constrain_expr(checker, else_branch, Some(result));
+                }
+                result
+            }
+            ExprKind::Match(matched) => {
+                let target = self.constrain_expr(checker, &matched.target, None);
+                let result = expected.unwrap_or_else(|| self.fresh());
+                for arm in &matched.arms {
+                    for pattern in &arm.patterns {
+                        let pattern = self.pattern_term(checker, pattern, None);
+                        self.unify(checker, target, pattern);
+                    }
+                    match &arm.body {
+                        nia_ast::MatchArmBody::Expr(body) => {
+                            self.constrain_expr(checker, body, Some(result));
+                        }
+                        nia_ast::MatchArmBody::Block(body) => {
+                            self.constrain_block(checker, body, Some(result));
+                        }
+                        nia_ast::MatchArmBody::Stmt(stmt) => {
+                            self.constrain_stmt(checker, stmt);
+                        }
+                    }
+                }
+                result
+            }
             ExprKind::Cast { ty, expr: inner } => {
                 self.constrain_expr(checker, inner, None);
                 self.known(checker.ty_for_type(ty))
             }
+            ExprKind::Try { expr: inner } => {
+                let value = expected.unwrap_or_else(|| self.fresh());
+                let operand = self.constrain_expr(checker, inner, None);
+                self.obligations
+                    .push(InferenceObligation::Try(TryObligation {
+                        operand,
+                        value,
+                        propagation_target: self.return_stack.last().copied(),
+                    }));
+                // The operand's error describes the source only. Nia's
+                // direct `IntoError` conversion is validated by body checking
+                // and is not an equality constraint in this solver.
+                value
+            }
             _ => {
+                // Even a form whose result has no structural inference rule
+                // must contribute the calls and closures in its children.
+                // Use the canonical AST walker so an opaque outer expression
+                // cannot silently disconnect a nested contextual use.
+                nia_ast_walk::walk_expr(
+                    &mut ExpressionConstraintCollector {
+                        inference: self,
+                        checker,
+                    },
+                    expr,
+                );
                 if let Some(ty) = checker.inference_enum_variant_type(expr) {
                     self.known(ty)
                 } else {
@@ -1525,64 +1815,151 @@ impl FunctionInference {
         term
     }
 
-    /// Discharge deferred binary-operator obligations through the canonical
-    /// trait solver after equality constraints have settled.
+    /// Reach a fixed point across all deferred structural and operator
+    /// obligations after the full body has contributed its contexts.
+    ///
+    /// Each productive round removes at least one obligation. Unresolved
+    /// obligations remain for the ordinary checker; there is no iteration
+    /// limit or guessed type, and no dependence on a try-before-operator
+    /// phase ordering.
+    fn solve_obligations(&mut self, checker: &mut BodyChecker<'_>) {
+        let mut pending = std::mem::take(&mut self.obligations);
+        loop {
+            let before = pending.len();
+            pending.retain(|obligation| !match *obligation {
+                InferenceObligation::Operator(operator) => self.solve_operator(checker, operator),
+                InferenceObligation::Try(propagation) => self.solve_try(checker, propagation),
+            });
+            if pending.len() == before {
+                break;
+            }
+        }
+    }
+
+    /// Discharge an operator obligation through the canonical trait solver.
     ///
     /// Comparison operators have the built-in `bool` result. Other operators
     /// require a proven built-in trait and are materialized through its
     /// `OUTPUT` projection. Failed or still-unknown obligations are left for
     /// the ordinary checker, avoiding a second, divergent overload algorithm.
-    fn solve_operators(&mut self, checker: &mut BodyChecker<'_>) {
-        // Operator traits are resolved only after ordinary equality
-        // constraints settle. This reuses the authoritative trait solver and
-        // avoids duplicating overload selection in the inference layer.
-        let obligations = self.operators.clone();
-        for obligation in obligations {
-            let Some(lhs) = self.resolve(checker, obligation.lhs) else {
-                continue;
-            };
-            let Some(rhs) = self.resolve(checker, obligation.rhs) else {
-                continue;
-            };
-            let Some(trait_id) = nia_sema_ir::BuiltinOperatorOp::Binary(obligation.op).trait_id()
-            else {
-                continue;
-            };
-            let output = if matches!(
-                obligation.op,
-                BinaryOp::Lt
-                    | BinaryOp::Le
-                    | BinaryOp::Gt
-                    | BinaryOp::Ge
-                    | BinaryOp::Eq
-                    | BinaryOp::Ne
-            ) {
-                checker.bool()
-            } else if checker.current_context_proves_trait_obligation(
-                lhs,
-                nia_ty::TraitId::Builtin(trait_id),
-                vec![rhs],
-            ) {
-                let projection = checker.interner.intern(TyKind::Projection {
-                    self_ty: lhs,
-                    trait_id: nia_ty::TraitId::Builtin(trait_id),
-                    trait_args: vec![rhs],
-                    trait_const_args: Vec::new(),
-                    name: nia_symbol::known::OUTPUT,
+    fn solve_operator(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        obligation: OperatorObligation,
+    ) -> bool {
+        let Some(lhs) = self.resolve(checker, obligation.lhs) else {
+            return false;
+        };
+        let Some(rhs) = self.resolve(checker, obligation.rhs) else {
+            return false;
+        };
+        let Some(trait_id) = nia_sema_ir::BuiltinOperatorOp::Binary(obligation.op).trait_id()
+        else {
+            return false;
+        };
+        let output = if matches!(
+            obligation.op,
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne
+        ) {
+            checker.bool()
+        } else if checker.current_context_proves_trait_obligation(
+            lhs,
+            nia_ty::TraitId::Builtin(trait_id),
+            vec![rhs],
+        ) {
+            let projection = checker.interner.intern(TyKind::Projection {
+                self_ty: lhs,
+                trait_id: nia_ty::TraitId::Builtin(trait_id),
+                trait_args: vec![rhs],
+                trait_const_args: Vec::new(),
+                name: nia_symbol::known::OUTPUT,
+            });
+            checker.normalize_projection(projection)
+        } else {
+            return false;
+        };
+        let output = self.known(output);
+        self.unify(checker, obligation.output, output);
+        true
+    }
+
+    /// Apply propagation operand shapes only after all closure and call
+    /// contexts in the function have joined the local constraint graph.
+    ///
+    /// A local closure can be declared before a later callable use supplies
+    /// its return context. Deferring `.?` avoids losing the relationship
+    /// between the propagated value and the closure result merely because the
+    /// return union was unresolved during the first AST walk.
+    fn solve_try(&mut self, checker: &BodyChecker<'_>, obligation: TryObligation) -> bool {
+        let target_shape = obligation
+            .propagation_target
+            .and_then(|target| self.expanded_shape(checker, target));
+        match target_shape {
+            Some(InferShape::Optional { .. }) => {
+                let optional = self.with_shape(InferShape::Optional {
+                    elem: obligation.value,
                 });
-                checker.normalize_projection(projection)
-            } else {
-                continue;
-            };
-            let output = self.known(output);
-            self.unify(checker, obligation.output, output);
+                self.unify(checker, obligation.operand, optional);
+                true
+            }
+            Some(InferShape::ErrorUnion { .. }) => {
+                let error = self.fresh();
+                let union = self.with_shape(InferShape::ErrorUnion {
+                    error,
+                    value: obligation.value,
+                });
+                self.unify(checker, obligation.operand, union);
+                true
+            }
+            _ => match self.expanded_shape(checker, obligation.operand) {
+                Some(InferShape::Optional { elem }) => {
+                    self.unify(checker, obligation.value, elem);
+                    true
+                }
+                Some(InferShape::ErrorUnion { value, .. }) => {
+                    self.unify(checker, obligation.value, value);
+                    true
+                }
+                _ => false,
+            },
         }
     }
+}
+
+fn contains_propagation(body: &Block) -> bool {
+    struct Finder(bool);
+    impl<'ast> nia_ast_walk::Visitor<'ast> for Finder {
+        fn visit_expr(&mut self, expr: &'ast Expr) {
+            if matches!(expr.kind, ExprKind::Try { .. }) {
+                self.0 = true;
+            } else if !self.0 {
+                nia_ast_walk::walk_expr(self, expr);
+            }
+        }
+    }
+    let mut finder = Finder(false);
+    nia_ast_walk::walk_block(&mut finder, body);
+    finder.0
 }
 
 struct LocalCollector<'a, 'b, 'c> {
     inference: &'a mut FunctionInference,
     checker: &'b BodyChecker<'c>,
+}
+
+struct ExpressionConstraintCollector<'a, 'b, 'c> {
+    inference: &'a mut FunctionInference,
+    checker: &'b mut BodyChecker<'c>,
+}
+
+impl<'ast> nia_ast_walk::Visitor<'ast> for ExpressionConstraintCollector<'_, '_, '_> {
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        self.inference.constrain_expr(self.checker, expr, None);
+    }
+
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        self.inference.constrain_stmt(self.checker, stmt);
+    }
 }
 
 impl<'ast> nia_ast_walk::Visitor<'ast> for LocalCollector<'_, '_, '_> {

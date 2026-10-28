@@ -1488,6 +1488,35 @@ closure is monomorphic, so all uses must agree on its parameter types. A
 parameter type that appears in neither the body nor any callable context cannot
 be inferred and must be annotated.
 
+For a generic parameter constrained by `F: Fun(Args) Return`, the bound has
+two distinct roles during a call:
+
+1. The callable shape supplies expected parameter and return types while the
+   closure body is inferred. Its generic variables are shared with the
+   corresponding variables in the callee's ordinary parameter and result
+   types, so constraints from the closure result and other arguments can
+   determine the same instantiation.
+2. After inference, the closure's concrete state type is checked against `F`.
+   The bound does not replace the parameter type or bypass callable-state and
+   mutability checks.
+
+An error-union callable result such as `Target!Value` therefore contexts both
+`!value` and `error!`; `Target` may be inferred from a nominal error constructor
+in the closure, while `Value` is determined by another argument. The local
+inference pass preserves `.?` operand shape so calls inside its operand take
+part in this process. It models the propagated value component and keeps the
+operand's error type distinct from the enclosing function's error type:
+`IntoError` is a direct conversion obligation checked by ordinary body
+checking, not an equality rule in closure inference.
+
+An explicit parameter such as `callback: &Fun(Args) Return` uses the same
+expected invocation signature to infer an inline or local closure's body, then
+checks the resulting closure state against the requested callable view. The
+invocation signature is contextual information; it does not replace the
+runtime view type. If `Return` is an error union, both its success and error
+constructors receive their corresponding expected payload types. A `.?`
+inside that body still checks `IntoError` at its own propagation boundary.
+
 ```nia
 fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)

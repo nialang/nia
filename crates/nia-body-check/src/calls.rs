@@ -56,6 +56,10 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
+        // The local constraint pass can learn a call's result from later
+        // closure uses or a propagation payload. Consume it as context for
+        // ordinary call inference, never as a prechecked semantic result.
+        let expected = expected.or_else(|| self.inferred_call_results.get(&expr.node_key).copied());
         if let Some(builtin) = std_builtin_function(callee) {
             return self.check_builtin_function_call(
                 span,

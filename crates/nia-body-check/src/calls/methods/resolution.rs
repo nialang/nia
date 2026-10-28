@@ -1785,11 +1785,44 @@ impl<'a> BodyChecker<'a> {
             &candidate.target_const_substitutions,
             call.span,
         );
-        self.check_direct_call_args(
+        let callable_params = self.method_candidate_param_types(candidate, &signature);
+        let mut callable_substitutions = candidate.target_substitutions.clone();
+        callable_substitutions.extend(substitutions);
+        let mut callable_const_substitutions = candidate.target_const_substitutions.clone();
+        callable_const_substitutions.extend(const_substitutions);
+        let callable_bounds = callable_params
+            .iter()
+            .map(|param| {
+                self.callable_bound_for_generic_parameter_with_self(
+                    *param,
+                    &signature.where_predicates,
+                    &callable_substitutions,
+                    &callable_const_substitutions,
+                    Some(candidate.self_ty),
+                )
+                .or_else(|| {
+                    self.callable_bound_for_generic_parameter_with_self(
+                        *param,
+                        &candidate.method.where_predicates,
+                        &callable_substitutions,
+                        &callable_const_substitutions,
+                        Some(candidate.self_ty),
+                    )
+                })
+                .map(|(params, return_type)| {
+                    self.interner.intern(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        self.check_direct_call_args_with_callable_bounds(
             call.span,
             CallTarget::method(candidate.method.def_id),
             call.args,
             &params,
+            &callable_bounds,
             false,
         );
         true

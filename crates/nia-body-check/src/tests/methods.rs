@@ -752,6 +752,35 @@ fun main(box: Box) bool {
 }
 
 #[test]
+fn trait_method_callable_bound_contextualizes_closure_arguments() {
+    let checked = pipeline(
+        r#"
+trait Apply {
+    fun apply[Callback](&self, callback: Callback) i32
+    where Callback: Fun(i32) i32;
+}
+
+struct Worker {}
+
+extend Worker : Apply {
+    fun apply[Callback](&self, callback: Callback) i32
+    where Callback: Fun(i32) i32
+    {
+        callback(4)
+    }
+}
+
+fun main() i32 {
+    let worker = Worker {};
+    worker.apply(\value -> value + 3)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn attributes_provider_demand_to_calling_function() {
     let checked = pipeline_without_visible_extensions(
         r#"

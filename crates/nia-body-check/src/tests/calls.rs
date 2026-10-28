@@ -925,6 +925,786 @@ fun main() i32 {
 }
 
 #[test]
+fn generic_fallible_callable_bound_infers_error_and_receiver_value() {
+    let checked = pipeline(
+        r#"
+enum TargetError {
+    Wrapped,
+    _,
+}
+
+extend[Value, Source] Source!Value {
+    fun orElse[Target, Fallback](self, fallback: Fallback) Target!Value
+    where Fallback: Fun(Source) Target!Value
+    {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun source() i32!i32 {
+    1!
+}
+
+fun main() i32 {
+    let recovered = source().orElse(\error -> {
+        if error == 1 {
+            TargetError::Wrapped!
+        } else {
+            TargetError::Wrapped!
+        }
+    });
+    match recovered {
+        !value => value,
+        error! => if error == TargetError::Wrapped { 1 } else { 0 },
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_function_fallible_callable_bound_contextualizes_error_arms() {
+    let checked = pipeline(
+        r#"
+enum TargetError {
+    Wrapped,
+    _,
+}
+
+fun recover[Value, Source, Target, Fallback](
+    input: Source!Value,
+    fallback: Fallback,
+) Target!Value
+where Fallback: Fun(Source) Target!Value
+{
+    match input {
+        !value => !value,
+        error! => fallback(error),
+    }
+}
+
+fun source() i32!i32 {
+    1!
+}
+
+fun main() i32 {
+    let recovered = recover(source(), \error -> {
+        if error == 1 {
+            TargetError::Wrapped!
+        } else {
+            TargetError::Wrapped!
+        }
+    });
+    match recovered {
+        !value => value,
+        error! => if error == TargetError::Wrapped { 1 } else { 0 },
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn explicit_callable_view_infers_error_union_closure_context() {
+    let checked = pipeline(
+        r#"
+enum TargetError {
+    Wrapped,
+    _,
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun source() i32!i32 {
+    1!
+}
+
+fun main() i32 {
+    let recovered = source().orElse(&\cause -> {
+        if cause == 1 {
+            TargetError::Wrapped!
+        } else {
+            TargetError::Wrapped!
+        }
+    });
+    match recovered {
+        !value => value,
+        error! => if error == TargetError::Wrapped { 1 } else { 0 },
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn explicit_callable_view_supplies_error_context_for_nested_propagation() {
+    let checked = pipeline(
+        r#"
+enum Failure {
+    Failed,
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun fallible() Failure!i32 {
+    Failure::Failed!
+}
+
+fun main() Failure!i32 {
+    let input = fallible();
+    input.orElse(&\cause -> !(fallible().?))
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn explicit_fallible_callable_view_infers_local_closure_as_one_signature() {
+    let checked = pipeline(
+        r#"
+enum Failure {
+    Failed,
+    Unexpected,
+    _,
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun main() Failure!i32 {
+    let fallback = \cause -> {
+        if cause == 1 {
+            Failure::Failed!
+        } else {
+            Failure::Unexpected!
+        }
+    };
+    let input: i32!i32 = 1!;
+    input.orElse(&fallback)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn later_callable_context_resolves_generic_result_through_local_try() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed,
+}
+
+fun source[Value]() SourceError!Value {
+    SourceError::Failed!
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun main() SourceError!i32 {
+    let fallback = \cause -> !(source().?);
+    let input: i32!i32 = 1!;
+    input.orElse(&fallback)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn later_callable_context_connects_propagation_to_nested_local_closure() {
+    for (operand, result) in [("?i32", "?value"), ("Failure!i32", "!value")] {
+        let source = format!(
+            r#"
+enum Failure {{ Failed }}
+
+fun invoke(callback: &Fun({operand}) {operand}, input: {operand}) {operand} {{
+    callback(input)
+}}
+
+fun main(input: {operand}) {operand} {{
+    let callback = \input -> {{
+        let identity = \item -> item;
+        let value = identity(input.?);
+        {result}
+    }};
+    invoke(callback, input)
+}}
+"#
+        );
+        let checked = pipeline(&source);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{operand}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn generic_propagation_payload_context_does_not_require_a_closure() {
+    let checked = pipeline(
+        r#"
+enum Failure { Failed }
+
+fun source[Value]() Failure!Value { Failure::Failed! }
+
+fun main() Failure!i64 {
+    !(source().?)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_method_result_uses_solved_propagation_payload_context() {
+    let checked = pipeline(
+        r#"
+enum Failure { Failed }
+
+struct Factory {}
+extend Factory {
+    fun make[Value](&self) Failure!Value { Failure::Failed! }
+}
+
+fun invoke(callback: &Fun(i32) Failure!i64) Failure!i64 {
+    callback(0)
+}
+
+fun main() Failure!i64 {
+    let callback = \input -> {
+        let factory = Factory {};
+        !(factory.make().?)
+    };
+    invoke(callback)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn later_callable_context_keeps_propagation_error_conversion_independent() {
+    let checked = pipeline(
+        r#"
+enum SourceError { Failed }
+enum TargetError { Failed }
+
+fun invoke(callback: &Fun(SourceError!i32) TargetError!i32) TargetError!i32 {
+    callback(SourceError::Failed!)
+}
+
+fun main() TargetError!i32 {
+    let callback = \input -> {
+        let identity = \item -> item;
+        let value = identity(input.?);
+        !value
+    };
+    invoke(callback)
+}
+"#,
+    );
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|d| d.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert!(
+        messages[0].contains("`SourceError` to implement `IntoError[TargetError]`"),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn propagation_does_not_guess_an_unconstrained_generic_source_error() {
+    let checked = pipeline(
+        r#"
+enum Failure { Failed }
+
+fun source[Error, Value](value: Value) Error!Value { !value }
+
+fun main() Failure!i32 {
+    !(source(42).?)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|d| d.summary.contains("cannot infer generic parameter `Error`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn fallible_closure_context_flows_through_match_and_pattern_branches() {
+    for body in [
+        "match source() { !value => !value, error! => fallback(error), }",
+        "if source() is error! { fallback(error) } else { !0 }",
+        "if source() is error! and error == 1 { fallback(error) } else { !0 }",
+        "match source() { !value => !value, error! => { let (left, right) = (error, 0); fallback(left + right) }, }",
+    ] {
+        let source = format!(
+            r#"
+enum Failure {{ Failed, Other }}
+fun source() i32!i32 {{ 1! }}
+fun main() Failure!i32 {{
+    let fallback = \cause -> {{
+        if cause == 1 {{ Failure::Failed! }} else {{ Failure::Other! }}
+    }};
+    {body}
+}}
+"#
+        );
+        let checked = pipeline(&source);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{body}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn diverging_branches_do_not_constrain_contextual_call_payloads_to_unit() {
+    for body in [
+        "match source() { ?value => value, null => { return 0; }, }",
+        "match source() { null => { return 0; }, ?value => value, }",
+        "match source() { ?value => value, null => return 0, }",
+        "if source() is ?value { value } else { return 0; }",
+        "if source() is ?value and true { value } else { return 0; }",
+        "match source() { ?value => value, null => { loop {} }, }",
+        "match source() { ?value => value, null => stop(), }",
+        "if source() is ?value { value } else { stop() }",
+    ] {
+        let source = format!(
+            r#"
+fun source[Value]() ?Value {{ null }}
+fun stop() never {{ loop {{}} }}
+fun consume(value: i64) i64 {{ value }}
+fun main() i32 {{
+    let identity = \item -> item;
+    let value = {body};
+    _ = consume(identity(value));
+    0
+}}
+"#
+        );
+        let checked = pipeline(&source);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{body}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn propagation_payload_is_independent_of_the_enclosing_success_type() {
+    let checked = pipeline(
+        r#"
+enum Failure { Failed }
+fun source[Value]() Failure!Value { Failure::Failed! }
+fun main() Failure!bool {
+    let value: i64 = source().?;
+    _ = value;
+    !true
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn fallible_callable_bound_still_rejects_a_runtime_erased_view() {
+    let checked = pipeline(
+        r#"
+enum Failure { Failed }
+fun invoke[Callback](callback: Callback) Failure!i32
+where Callback: Fun(i32) Failure!i32
+{
+    callback(1)
+}
+fun main() Failure!i32 {
+    let callback: &Fun(i32) Failure!i32 = \value -> !value;
+    invoke(callback)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|d| d.summary.contains("trait bound not satisfied")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn propagation_and_operator_constraints_share_a_fixed_point() {
+    let checked = pipeline(
+        r#"
+struct Boxed {}
+extend Boxed : Add[i32] {
+    type Output = ?i32;
+    fun add(self, rhs: i32) ?i32 { ?rhs }
+}
+fun main() i32 {
+    let callback = \input -> {
+        let identity = \value -> value;
+        let one: i32 = 1;
+        let value = identity((input + one).?);
+        input + value
+    };
+    _ = callback(Boxed {});
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn explicit_callable_view_infers_nested_error_union_and_keeps_conversion_boundary() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed,
+}
+
+enum TargetError {
+    Wrapped(SourceError),
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun source() SourceError!i32 {
+    SourceError::Failed!
+}
+
+fun propagate() SourceError!i32 {
+    let result = source().orElse(&\cause -> {
+        if cause == SourceError::Failed {
+            SourceError::Failed!
+        } else {
+            SourceError::Failed!
+        }
+    });
+    !(result.?)
+}
+
+fun main() i32 {
+    match propagate() {
+        !value => value,
+        error! => if error == SourceError::Failed { 1 } else { 0 },
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn explicit_callable_view_does_not_infer_into_error_conversion_as_type_equality() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed,
+}
+
+enum TargetError {
+    Wrapped(SourceError),
+}
+
+enum UnrelatedError {
+    Failed,
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun orElse(self, fallback: &Fun(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}
+
+fun source() SourceError!i32 {
+    SourceError::Failed!
+}
+
+fun propagate() TargetError!i32 {
+    let result = source().orElse(&\cause -> {
+        if cause == SourceError::Failed {
+            UnrelatedError::Failed!
+        } else {
+            UnrelatedError::Failed!
+        }
+    });
+    !(result.?)
+}
+
+fun main() i32 {
+    0
+}
+"#,
+    );
+
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("IntoError[TargetError]")),
+        "expected IntoError conversion failure at `.?`, got {messages:?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("cannot infer closure parameter")),
+        "callable view should contextualize closure parameter: {messages:?}"
+    );
+}
+
+#[test]
+fn callable_bound_propagates_error_union_shape_through_local_call() {
+    let checked = pipeline(
+        r#"
+enum Failure {
+    Failed,
+}
+
+fun invoke[Callback](callback: Callback) Failure!i32
+where Callback: Fun() Failure!i32
+{
+    let identity = \value -> value;
+    !(identity(callback().?))
+}
+
+fun main() i32 {
+    match invoke(\-> Failure::Failed!) {
+        !value => value,
+        error! => 1,
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_callable_bound_infers_nominal_constructor_return() {
+    let checked = pipeline(
+        r#"
+enum TargetError {
+    Wrapped(i32),
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun source() i32!i32 {
+    1!
+}
+
+fun main() i32 {
+    let mapped = source().mapError(\cause -> TargetError::Wrapped(cause));
+    match mapped {
+        !value => value,
+        error! => match error {
+            .Wrapped(value) => value,
+        },
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn trait_default_method_infers_nominal_error_mapping_from_callable_bound() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed,
+}
+
+enum ReallocError {
+    Allocation(SourceError),
+}
+
+trait Allocator {
+    fun allocate(&mut self) SourceError!i32;
+
+    fun reallocate(&mut self) ReallocError!i32 {
+        let value = self.allocate()
+            .mapError(\cause -> ReallocError::Allocation(cause))
+            .?;
+        !value
+    }
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun main() i32 {
+    0
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn closure_callable_error_inference_keeps_into_error_as_conversion_obligation() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed,
+}
+
+enum ReallocError {
+    Allocation(SourceError),
+}
+
+enum UnrelatedError {
+    Failed,
+}
+
+trait Allocator {
+    fun allocate(&mut self) SourceError!i32;
+
+    fun reallocate(&mut self) ReallocError!i32 {
+        let value = self.allocate()
+            .mapError(\cause -> UnrelatedError::Failed)
+            .?;
+        !value
+    }
+}
+
+extend[Value, Source] Source!Value {
+    fun mapError[Target, Mapper](self, mapper: Mapper) Target!Value
+    where Mapper: Fun(Source) Target
+    {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun main() i32 {
+    0
+}
+"#,
+    );
+
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("IntoError[ReallocError]")),
+        "expected a direct error-conversion diagnostic, got {messages:?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.contains("cannot infer closure parameter")),
+        "the callable bound should still provide the closure's source-error context: {messages:?}"
+    );
+}
+
+#[test]
+fn closure_inference_preserves_optional_propagation_shape() {
+    let checked = pipeline(
+        r#"
+fun main(value: ?i32) ?i32 {
+    let unwrapped = value.?;
+    let increment = \item: i32 -> item + 1;
+    ?increment(unwrapped)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn fallible_error_recovery_rejects_a_different_success_type() {
     let checked = pipeline(
         r#"

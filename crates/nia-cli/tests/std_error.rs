@@ -6,6 +6,97 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn emit_exe_fallible_closure_context_preserves_direct_error_conversion() {
+    let root = temp_dir("emit_exe_fallible_closure_context_preserves_direct_error_conversion");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+using std::result;
+
+enum SourceError: i32 { Missing = 1, _ }
+enum TargetError: i32 { Converted = 37, Unexpected = 38, _ }
+
+extend SourceError : builtin::IntoError[TargetError] {
+    const fun intoError(self) TargetError {
+        if self == SourceError::Missing { TargetError::Converted } else { TargetError::Unexpected }
+    }
+}
+
+fun fail[Value]() SourceError!Value { SourceError::Missing! }
+
+fun borrowed(callback: &Fun(SourceError!i64) TargetError!i64) TargetError!i64 {
+    callback(!42i64)
+}
+
+fun generic[Callback](callback: Callback) TargetError!i64
+where Callback: Fun(SourceError!i64) TargetError!i64
+{
+    callback(!42i64)
+}
+
+trait Reader {
+    fun read(&self) SourceError!i64;
+
+    fun mapped(&self) TargetError!i64 {
+        self.read().mapError(\cause -> {
+            if cause == SourceError::Missing { TargetError::Converted } else { TargetError::Unexpected }
+        })
+    }
+}
+
+struct Input {}
+extend Input : Reader {
+    fun read(&self) SourceError!i64 { SourceError::Missing! }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let callback = \input -> {
+        let identity = \value -> value;
+        let value = identity(input.?);
+        _ = value;
+        !(fail().?)
+    };
+    match borrowed(callback) {
+        TargetError::Converted! => {},
+        _ => return process::ExitCode(1)!,
+    }
+    match generic(callback) {
+        TargetError::Converted! => {},
+        _ => return process::ExitCode(2)!,
+    }
+    let input = Input {};
+    match input.mapped() {
+        TargetError::Converted! => {},
+        _ => return process::ExitCode(3)!,
+    }
+    !()
+}
+"#,
+    )
+    .expect("write fallible closure context source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit fallible closure context executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run = Command::new(&exe).status_timeout("run fallible closure context executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_error_map_error_maps_only_failure_arm() {
     let root = temp_dir("emit_exe_std_error_map_error_maps_only_failure_arm");
     let main = root.join("main.nia");
@@ -40,7 +131,7 @@ fun source(ok: bool) SourceError!(i32, i32) {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let offset = 1;
-    let success = source(true).mapError(&\cause: SourceError -> {
+    let success = source(true).mapError(\cause: SourceError -> {
         _ = cause;
         std::builtin::trap();
         TargetError::Wrapped
@@ -57,7 +148,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let failure = source(false).mapError(&\[offset] cause: SourceError -> {
+    let failure = source(false).mapError(\[offset] cause -> {
         if cause == SourceError::Missing and offset == 1 {
             TargetError::Wrapped
         } else {
@@ -132,7 +223,7 @@ fun source(ok: bool) SourceError!(i32, i32) {
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let success = source(true).orElse(&\cause: SourceError -> {
+    let success = source(true).orElse(\cause: SourceError -> {
         _ = cause;
         std::builtin::trap();
         TargetError::Unexpected!
@@ -148,7 +239,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     let offset = 2;
-    let recovered = source(false).orElse(&\[offset] cause: SourceError -> {
+    let recovered = source(false).orElse(\[offset] cause -> {
         if cause == SourceError::Missing {
             !(40, offset)
         } else {
@@ -165,7 +256,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    let replaced = source(false).orElse(&\cause: SourceError -> {
+    let replaced = source(false).orElse(&\cause -> {
         if cause == SourceError::Missing {
             TargetError::Wrapped!
         } else {
@@ -298,7 +389,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let mut calls = 0usize;
     let mut observed = 0usize;
 
-    let success = source(&mut calls, true).inspectError(&\[&mut observed] cause: Failure -> {
+    let success = source(&mut calls, true).inspectError(\[&mut observed] cause: Failure -> {
         _ = cause;
         observed.* += 1usize;
     });
@@ -312,7 +403,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(3)!;
     }
 
-    let failure = source(&mut calls, false).inspectError(&\[&mut observed] cause: Failure -> {
+    let failure = source(&mut calls, false).inspectError(\[&mut observed] cause -> {
         if cause == Failure::Missing {
             observed.* += 10usize;
         }

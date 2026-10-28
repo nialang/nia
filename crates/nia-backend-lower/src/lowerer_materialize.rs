@@ -7,6 +7,7 @@ impl ModuleLowerer<'_> {
     pub(crate) fn lower_reachable_function_closure(
         &mut self,
         functions: &mut Vec<BackendFunction>,
+        closure_entries: &mut Vec<BackendClosureEntry>,
         worklist: &mut ReachabilityWorklist,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
     ) -> bool {
@@ -44,9 +45,12 @@ impl ModuleLowerer<'_> {
             if function.generics.is_empty() {
                 let mut discovery =
                     self.discover_backend_items_from_optional_body(&function.function_body);
-                for entry in self.input.program.closure_entries(function.def_id) {
-                    discovery.extend(self.discover_backend_items_from_body(&entry.body));
+                let source_entries =
+                    self.lower_source_closure_entries(std::slice::from_ref(&function));
+                for entry in &source_entries {
+                    discovery.extend(self.discover_backend_items_from_body(&entry.function_body));
                 }
+                closure_entries.extend(source_entries);
                 worklist.enqueue_refs(discovery.refs);
                 self.append_trait_object_vtable_delta(
                     trait_object_vtables,
@@ -191,8 +195,12 @@ impl ModuleLowerer<'_> {
         // other. Drain all three queues as one fixed point so every referenced backend item has
         // an owning finalized module.
         loop {
-            let mut changed =
-                self.lower_reachable_function_closure(functions, worklist, trait_object_vtables);
+            let mut changed = self.lower_reachable_function_closure(
+                functions,
+                closure_entries,
+                worklist,
+                trait_object_vtables,
+            );
             if !worklist.pending_instances.is_empty() {
                 self.lower_pending_instance_templates(
                     function_templates,

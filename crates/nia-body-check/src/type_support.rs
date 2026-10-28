@@ -2022,6 +2022,7 @@ impl<'a> BodyChecker<'a> {
             node_function_references: FastHashMap::default(),
             inferred_closures: self.inferred_closures.clone(),
             inferred_local_closures: self.inferred_local_closures.clone(),
+            inferred_call_results: self.inferred_call_results.clone(),
             generic_instantiations: Vec::new(),
             function_facts: HashMap::new(),
             function_bodies: HashMap::new(),

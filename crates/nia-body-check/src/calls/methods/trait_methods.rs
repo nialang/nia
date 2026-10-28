@@ -115,11 +115,33 @@ impl<'a> BodyChecker<'a> {
                 })
                 .collect();
         }
-        self.check_direct_call_args(
+        let callable_bounds = candidate
+            .signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| {
+                self.callable_bound_for_generic_parameter_with_self(
+                    param.ty,
+                    &candidate.signature.where_predicates,
+                    &substitutions,
+                    &const_substitutions,
+                    Some(candidate.self_ty),
+                )
+                .map(|(params, return_type)| {
+                    self.interner.intern(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        self.check_direct_call_args_with_callable_bounds(
             call.span,
             CallTarget::method(candidate.method_id),
             call.args,
             &params,
+            &callable_bounds,
             false,
         );
         let trait_args = candidate

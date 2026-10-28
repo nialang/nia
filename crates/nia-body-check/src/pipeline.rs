@@ -778,9 +778,7 @@ impl<'a> BodyChecker<'a> {
         );
         if let Some((body, closure_ordinals)) = function.body.as_ref().zip(closure_ordinals) {
             self.closure_ordinals = closure_ordinals;
-            if !self.closure_ordinals.is_empty() {
-                self.infer_function_closures(body);
-            }
+            self.infer_function_contexts(body);
             let expected_tail =
                 (!self.is_unit(signature.return_type)).then_some(signature.return_type);
             time_body_stage_if_slow(

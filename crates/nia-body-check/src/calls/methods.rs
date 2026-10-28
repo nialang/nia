@@ -35,6 +35,12 @@ pub(super) struct MethodGenericContext<'a> {
     pub(super) expected: Option<InternedTyId>,
 }
 
+pub(crate) struct MethodInferenceSignature {
+    pub(crate) params: Vec<InternedTyId>,
+    pub(crate) return_type: InternedTyId,
+    pub(crate) callable_bounds: Vec<Option<(Vec<InternedTyId>, InternedTyId)>>,
+}
+
 struct MethodReceiverResolution {
     receiver_ty: InternedTyId,
     candidates: Vec<MethodCandidate>,
@@ -102,13 +108,19 @@ impl<'a> BodyChecker<'a> {
         receiver: &Expr,
         receiver_ty: InternedTyId,
         name: &SymbolId,
-    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+    ) -> Option<MethodInferenceSignature> {
         let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
         if resolution.candidates.is_empty()
             && resolution.trait_candidates.is_empty()
             && resolution.dynamic_candidates.is_empty()
         {
-            return self.builtin_trait_method_signature_for_inference(resolution.receiver_ty, name);
+            let (params, return_type) =
+                self.builtin_trait_method_signature_for_inference(resolution.receiver_ty, name)?;
+            return Some(MethodInferenceSignature {
+                callable_bounds: vec![None; params.len()],
+                params,
+                return_type,
+            });
         }
         if resolution.candidates.len() + resolution.trait_candidates.len() != 1
             || !resolution.dynamic_candidates.is_empty()
@@ -120,13 +132,38 @@ impl<'a> BodyChecker<'a> {
                 .resolved_function_signature(candidate.method.def_id)
                 .map(|resolved| resolved.signature)?;
             let params = self.method_candidate_param_types(candidate, &signature);
+            let callable_bounds = params
+                .iter()
+                .map(|param| {
+                    self.callable_bound_for_generic_parameter_with_self(
+                        *param,
+                        &signature.where_predicates,
+                        &candidate.target_substitutions,
+                        &candidate.target_const_substitutions,
+                        Some(candidate.self_ty),
+                    )
+                    .or_else(|| {
+                        self.callable_bound_for_generic_parameter_with_self(
+                            *param,
+                            &candidate.method.where_predicates,
+                            &candidate.target_substitutions,
+                            &candidate.target_const_substitutions,
+                            Some(candidate.self_ty),
+                        )
+                    })
+                })
+                .collect();
             let return_type = self.substitute_generics_and_consts_with_self(
                 signature.return_type,
                 &candidate.target_substitutions,
                 &candidate.target_const_substitutions,
                 candidate.self_ty,
             );
-            return Some((params, return_type));
+            return Some(MethodInferenceSignature {
+                params,
+                return_type,
+                callable_bounds,
+            });
         }
 
         let candidate = resolution.trait_candidates.first()?;
@@ -151,13 +188,38 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect();
+        let callable_bounds = candidate
+            .signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| {
+                let param = self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &target_substitutions,
+                    &target_const_substitutions,
+                    candidate.self_ty,
+                );
+                self.callable_bound_for_generic_parameter_with_self(
+                    param,
+                    &candidate.signature.where_predicates,
+                    &target_substitutions,
+                    &target_const_substitutions,
+                    Some(candidate.self_ty),
+                )
+            })
+            .collect();
         let return_type = self.substitute_generics_and_consts_with_self(
             candidate.signature.return_type,
             &target_substitutions,
             &target_const_substitutions,
             candidate.self_ty,
         );
-        Some((params, return_type))
+        Some(MethodInferenceSignature {
+            params,
+            return_type,
+            callable_bounds,
+        })
     }
 
     fn check_contextual_receiver_expr(
@@ -746,11 +808,40 @@ impl<'a> BodyChecker<'a> {
             );
         });
         self.profile_stage("body_check.profile.method.check_args", |this| {
-            this.check_direct_call_args(
+            let callable_params = this.method_candidate_param_types(&candidate, &signature);
+            let callable_bounds = callable_params
+                .iter()
+                .map(|param| {
+                    this.callable_bound_for_generic_parameter_with_self(
+                        *param,
+                        &signature.where_predicates,
+                        &substitutions,
+                        &const_substitutions,
+                        Some(candidate.self_ty),
+                    )
+                    .or_else(|| {
+                        this.callable_bound_for_generic_parameter_with_self(
+                            *param,
+                            &candidate.method.where_predicates,
+                            &substitutions,
+                            &const_substitutions,
+                            Some(candidate.self_ty),
+                        )
+                    })
+                    .map(|(params, return_type)| {
+                        this.interner.intern(nia_ty::TyKind::CallablePointee {
+                            params,
+                            return_type,
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
+            this.check_direct_call_args_with_callable_bounds(
                 call.span,
                 CallTarget::method(method_id),
                 call.args,
                 &params,
+                &callable_bounds,
                 false,
             );
         });

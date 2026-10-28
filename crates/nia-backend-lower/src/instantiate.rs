@@ -1055,13 +1055,14 @@ impl<'a> ModuleLowerer<'a> {
                         self.effective_instance_type_args_for_def(closure_id.owner, substitutions);
                     let const_args =
                         self.effective_instance_const_args_for_def(closure_id.owner, substitutions);
+                    let self_arg = self.self_substitution(substitutions);
                     match (args, const_args) {
                         (Some(args), Some(const_args))
-                            if !args.is_empty() || !const_args.is_empty() =>
+                            if self_arg.is_some() || !args.is_empty() || !const_args.is_empty() =>
                         {
                             Some(nia_ty::ClosureOwnerInstance {
                                 arg_module_id: self.current_arg_module_id(),
-                                self_arg: self.self_substitution(substitutions),
+                                self_arg,
                                 args,
                                 const_args,
                             })
@@ -1589,13 +1590,16 @@ impl<'a> ModuleLowerer<'a> {
         let args = self.effective_instance_type_args_for_def(closure_id.owner, substitutions);
         let const_args =
             self.effective_instance_const_args_for_def(closure_id.owner, substitutions);
+        let self_arg = self.self_substitution(substitutions);
         match (args, const_args) {
-            (Some(args), Some(const_args)) if !args.is_empty() || !const_args.is_empty() => {
+            (Some(args), Some(const_args))
+                if self_arg.is_some() || !args.is_empty() || !const_args.is_empty() =>
+            {
                 self.type_context.intern(TyKind::ClosureState {
                     closure_id,
                     owner_instance: Some(nia_ty::ClosureOwnerInstance {
                         arg_module_id: self.current_arg_module_id(),
-                        self_arg: self.self_substitution(substitutions),
+                        self_arg,
                         args,
                         const_args,
                     }),

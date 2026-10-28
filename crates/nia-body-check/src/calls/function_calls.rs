@@ -813,28 +813,66 @@ impl<'a> BodyChecker<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
-        let ty = self.substitute_generics_and_consts(ty, substitutions, const_substitutions);
-        let ty = self.normalize_aliases_in_type(ty);
-        let Some(TyKind::GenericParam(name)) = self.interner.get(ty).cloned() else {
+        self.callable_bound_for_generic_parameter(
+            ty,
+            predicates,
+            substitutions,
+            const_substitutions,
+        )
+    }
+
+    pub(crate) fn callable_bound_for_generic_parameter(
+        &mut self,
+        parameter: InternedTyId,
+        predicates: &[WherePredicateSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        self.callable_bound_for_generic_parameter_with_self(
+            parameter,
+            predicates,
+            substitutions,
+            const_substitutions,
+            None,
+        )
+    }
+
+    /// Select the predicate by its declaration-owned parameter, then
+    /// instantiate its invocation signature. Substituting the subject first
+    /// loses `F: Fun(A) R` as soon as `F` becomes a concrete closure state.
+    pub(crate) fn callable_bound_for_generic_parameter_with_self(
+        &mut self,
+        parameter: InternedTyId,
+        predicates: &[WherePredicateSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+        self_ty: Option<InternedTyId>,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let parameter = self.normalize_aliases_in_type(parameter);
+        let Some(TyKind::GenericParam(name)) = self.interner.get(parameter).cloned() else {
             return None;
         };
         for predicate in predicates {
-            let predicate_ty = self.substitute_generics_and_consts(
-                predicate.ty,
-                substitutions,
-                const_substitutions,
-            );
-            let predicate_ty = self.normalize_aliases_in_type(predicate_ty);
+            let predicate_ty = self.normalize_aliases_in_type(predicate.ty);
             if !matches!(self.interner.get(predicate_ty), Some(TyKind::GenericParam(candidate)) if *candidate == name)
             {
                 continue;
             }
             for bound in &predicate.bounds {
-                let bound_ty = self.substitute_generics_and_consts(
-                    bound.trait_ty,
-                    substitutions,
-                    const_substitutions,
-                );
+                let bound_ty = if let Some(self_ty) = self_ty {
+                    self.substitute_generics_and_consts_with_self(
+                        bound.trait_ty,
+                        substitutions,
+                        const_substitutions,
+                        self_ty,
+                    )
+                } else {
+                    self.substitute_generics_and_consts(
+                        bound.trait_ty,
+                        substitutions,
+                        const_substitutions,
+                    )
+                };
                 let bound_ty = self.normalize_aliases_in_type(bound_ty);
                 if let Some(TyKind::CallablePointee {
                     params,
@@ -2653,7 +2691,25 @@ impl<'a> BodyChecker<'a> {
         );
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
-                let actual = self.check_expr_with_expected(arg, Some(expected));
+                let contextual_expected = signature
+                    .params
+                    .get(index)
+                    .and_then(|param| {
+                        self.callable_bound_for_generic_parameter(
+                            param.ty,
+                            &signature.where_predicates,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    })
+                    .map(|(params, return_type)| {
+                        self.interner.intern(TyKind::CallablePointee {
+                            params,
+                            return_type,
+                        })
+                    })
+                    .unwrap_or(expected);
+                let actual = self.check_expr_with_expected(arg, Some(contextual_expected));
                 self.expect_call_arg_type(
                     CallTarget::function(callee),
                     index,

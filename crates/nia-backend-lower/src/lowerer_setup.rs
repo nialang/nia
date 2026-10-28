@@ -2,6 +2,7 @@
 //! Module-lowerer construction and initial source-item materialization.
 
 use super::*;
+use nia_symbol::SymbolMap;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn new(
@@ -223,6 +224,7 @@ impl<'a> ModuleLowerer<'a> {
         worklist.enqueue_instances(self.initial_planned_function_instance_refs());
         self.lower_reachable_function_closure(
             &mut functions,
+            &mut closure_entries,
             &mut worklist,
             &mut trait_object_vtables,
         );
@@ -236,7 +238,6 @@ impl<'a> ModuleLowerer<'a> {
             &mut worklist,
             &mut trait_object_vtables,
         );
-        closure_entries.extend(self.lower_source_closure_entries(&functions));
         closure_entries.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
         BackendModule {
             id: self.input.module_id,
@@ -293,14 +294,29 @@ impl<'a> ModuleLowerer<'a> {
             ) else {
                 continue;
             };
-            for entry in self.input.program.closure_entries(function.def_id) {
+            for entry in self.input.program.closure_entries(function.def_id).to_vec() {
+                // Source closure entries are executable bodies too. Run the
+                // same concrete call/trait lowering as ordinary functions
+                // before their references are discovered, rather than
+                // copying symbolic builtin calls into backend IR.
+                let body =
+                    self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
+                        function: function.def_id,
+                        module_id: self.input.module_id,
+                        is_instance: false,
+                        type_arg_count: 0,
+                        body: entry.body.clone(),
+                        self_arg: None,
+                        substitutions: &SymbolMap::default(),
+                        const_substitutions: &SymbolMap::default(),
+                    });
                 if let Some(lowered_entry) = self.materialize_closure_entry(
-                    entry,
+                    &entry,
                     BackendClosureEntryOwner::Source(function.def_id),
                     &owner_symbol,
                     entry.state_ty,
                     entry.return_type,
-                    entry.body.clone(),
+                    body,
                 ) {
                     lowered.push(lowered_entry);
                 }
