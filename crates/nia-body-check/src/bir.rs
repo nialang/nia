@@ -650,6 +650,32 @@ impl<'a> BodyChecker<'a> {
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
         if let Some(coercion) = self
+            .node_closure_callable_view_coercions
+            .get(&expr.node_key)
+            .copied()
+            .filter(|coercion| forced_ty.is_none_or(|ty| ty == coercion.target_ty))
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.target_ty,
+                kind: TypedExprKind::CallableCoercion {
+                    state: Box::new(TypedExpr {
+                        span: expr.span,
+                        ty: coercion.state_ty,
+                        kind: TypedExprKind::Unary {
+                            op: if coercion.is_readonly {
+                                UnaryOp::RefReadOnly
+                            } else {
+                                UnaryOp::Ref
+                            },
+                            expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
+                        },
+                    }),
+                    closure_id: coercion.closure_id,
+                },
+            };
+        }
+        if let Some(coercion) = self
             .node_mutable_to_readonly_coercions
             .get(&expr.node_key)
             .copied()

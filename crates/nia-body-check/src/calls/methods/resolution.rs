@@ -2023,22 +2023,29 @@ impl<'a> BodyChecker<'a> {
             } else {
                 self.check_expr(arg)
             };
+            let inference_actual =
+                self.generic_argument_inference_type(param.unwrap_or(actual), arg, actual);
             if let Some(param) = param
                 && (self.inferred_closure_signature(arg).is_none()
-                    || self.generic_pattern_accepts_type_shape(param, actual))
+                    || self.generic_pattern_accepts_type_shape(param, inference_actual))
             {
                 if let Some(callable_pattern) = callable_pattern {
                     self.infer_generics_from_static_callable_shape(
                         callable_pattern,
-                        actual,
+                        inference_actual,
                         substitutions,
                         arg.span,
                     );
                 }
-                self.infer_generics_from_type(param, actual, substitutions, arg.span);
-                if self.generic_pattern_accepts_type_shape(param, actual) {
+                self.infer_generics_from_type(param, inference_actual, substitutions, arg.span);
+                if self.generic_pattern_accepts_type_shape(param, inference_actual) {
                     let mut staged = const_substitutions.clone();
-                    self.infer_const_generics_from_type(param, actual, &mut staged, arg.span);
+                    self.infer_const_generics_from_type(
+                        param,
+                        inference_actual,
+                        &mut staged,
+                        arg.span,
+                    );
                     *const_substitutions = staged;
                 }
             }

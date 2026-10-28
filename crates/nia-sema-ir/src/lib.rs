@@ -410,6 +410,8 @@ pub struct SemanticFacts {
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
     /// Implicit address formation owned by module-level expressions.
     pub node_address_of_coercions: NodeMap<AddressOfCoercion>,
+    /// Closure-state address formation and conversion to callable views.
+    pub node_closure_callable_view_coercions: NodeMap<ClosureCallableViewCoercion>,
     /// Mutable-pointer to readonly-pointer coercions owned by module-level expressions.
     pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions owned by module-level expressions.
@@ -454,6 +456,9 @@ pub struct SemanticFactsBuilder {
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     /// Module-level implicit address formation.
     pub node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
+    /// Module-level closure-state address formation and callable-view conversion.
+    pub node_closure_callable_view_coercions:
+        FastHashMap<VersionedNodeKey, ClosureCallableViewCoercion>,
     /// Module-level mutable-pointer to readonly-pointer coercions.
     pub node_mutable_to_readonly_coercions:
         FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
@@ -529,6 +534,10 @@ impl SemanticFacts {
             facts.node_address_of_coercions,
         );
         extend_node_map(
+            &mut self.node_closure_callable_view_coercions,
+            facts.node_closure_callable_view_coercions,
+        );
+        extend_node_map(
             &mut self.node_mutable_to_readonly_coercions,
             facts.node_mutable_to_readonly_coercions,
         );
@@ -582,6 +591,10 @@ impl SemanticFacts {
                 .into_entries()
                 .collect(),
             node_address_of_coercions: self.node_address_of_coercions.into_entries().collect(),
+            node_closure_callable_view_coercions: self
+                .node_closure_callable_view_coercions
+                .into_entries()
+                .collect(),
             node_mutable_to_readonly_coercions: self
                 .node_mutable_to_readonly_coercions
                 .into_entries()
@@ -667,6 +680,17 @@ impl SemanticFacts {
             self.function_facts
                 .values()
                 .flat_map(|facts| facts.node_address_of_coercions.iter()),
+        )
+    }
+
+    /// Iterates closure-to-callable-view conversions across all ownership domains.
+    pub fn iter_node_closure_callable_view_coercions(
+        &self,
+    ) -> impl Iterator<Item = (VersionedNodeKey, &ClosureCallableViewCoercion)> + '_ {
+        self.node_closure_callable_view_coercions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_closure_callable_view_coercions.iter()),
         )
     }
 
@@ -778,6 +802,9 @@ impl SemanticFactsBuilder {
             for key in facts.node_address_of_coercions.keys() {
                 self.node_address_of_coercions.remove(&key);
             }
+            for key in facts.node_closure_callable_view_coercions.keys() {
+                self.node_closure_callable_view_coercions.remove(&key);
+            }
             for key in facts.node_mutable_to_readonly_coercions.keys() {
                 self.node_mutable_to_readonly_coercions.remove(&key);
             }
@@ -829,6 +856,10 @@ impl SemanticFactsBuilder {
                 self.node_pointer_array_to_slice_coercions,
             ),
             node_address_of_coercions: node_map_from_entries(store, self.node_address_of_coercions),
+            node_closure_callable_view_coercions: node_map_from_entries(
+                store,
+                self.node_closure_callable_view_coercions,
+            ),
             node_mutable_to_readonly_coercions: node_map_from_entries(
                 store,
                 self.node_mutable_to_readonly_coercions,
@@ -876,6 +907,8 @@ pub struct FunctionSemanticFacts {
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
     /// Implicit address formation.
     pub node_address_of_coercions: NodeMap<AddressOfCoercion>,
+    /// Closure-state address formation and conversion to callable views.
+    pub node_closure_callable_view_coercions: NodeMap<ClosureCallableViewCoercion>,
     /// Mutable-pointer to readonly-pointer coercions.
     pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
     /// Function-pointer to callable-view coercions.
@@ -918,6 +951,9 @@ pub struct FunctionSemanticFactsBuilder {
         FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
     /// Implicit address formation.
     pub node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
+    /// Function-body closure-state address formation and callable-view conversion.
+    pub node_closure_callable_view_coercions:
+        FastHashMap<VersionedNodeKey, ClosureCallableViewCoercion>,
     /// Mutable-pointer to readonly-pointer coercions.
     pub node_mutable_to_readonly_coercions:
         FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
@@ -972,6 +1008,10 @@ impl FunctionSemanticFacts {
                 .into_entries()
                 .collect(),
             node_address_of_coercions: self.node_address_of_coercions.into_entries().collect(),
+            node_closure_callable_view_coercions: self
+                .node_closure_callable_view_coercions
+                .into_entries()
+                .collect(),
             node_mutable_to_readonly_coercions: self
                 .node_mutable_to_readonly_coercions
                 .into_entries()
@@ -1014,6 +1054,7 @@ impl FunctionSemanticFactsBuilder {
             && self.node_bracket_suffix_resolutions.is_empty()
             && self.node_pointer_array_to_slice_coercions.is_empty()
             && self.node_address_of_coercions.is_empty()
+            && self.node_closure_callable_view_coercions.is_empty()
             && self.node_mutable_to_readonly_coercions.is_empty()
             && self.node_function_pointer_to_callable_coercions.is_empty()
             && self.node_trait_object_coercions.is_empty()
@@ -1043,6 +1084,10 @@ impl FunctionSemanticFactsBuilder {
                 self.node_pointer_array_to_slice_coercions,
             ),
             node_address_of_coercions: node_map_from_entries(store, self.node_address_of_coercions),
+            node_closure_callable_view_coercions: node_map_from_entries(
+                store,
+                self.node_closure_callable_view_coercions,
+            ),
             node_mutable_to_readonly_coercions: node_map_from_entries(
                 store,
                 self.node_mutable_to_readonly_coercions,
@@ -1158,6 +1203,21 @@ pub struct AddressOfCoercion {
     /// Result pointer type.
     pub target_ty: InternedTyId,
     /// Whether the generated pointer is writable.
+    pub is_readonly: bool,
+}
+
+/// Implicit closure-state address formation for a callable view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClosureCallableViewCoercion {
+    /// Identity of the closure environment being viewed.
+    pub closure_id: nia_ids::ClosureId,
+    /// Closure state type before taking its address.
+    pub source_ty: InternedTyId,
+    /// Runtime state-pointer type used by the callable view.
+    pub state_ty: InternedTyId,
+    /// Callable view produced for the expected signature.
+    pub target_ty: InternedTyId,
+    /// Whether the generated state pointer is writable.
     pub is_readonly: bool,
 }
 

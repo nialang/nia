@@ -67,6 +67,151 @@ fun main(box: Box[i32], ptr: & i32, flag: bool) i32 {
 }
 
 #[test]
+fn infers_generic_types_through_implicit_pointer_and_slice_adjustments() {
+    let checked = pipeline(
+        r#"
+fun read[T](value: &T) T where T: Sized { value.* }
+fun write[T](value: &mut T) T where T: Sized { value.* }
+fun first[T](values: &[T]) T { values[0] }
+
+fun main() i32 {
+    let mut value = 7;
+    read(value) + write(value) + first([5, 6])
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_generic_types_through_adjustments_inside_tuple_and_array_literals() {
+    let checked = pipeline(
+        r#"
+fun tuple[T](value: (&T,)) T where T: Sized { value.0.* }
+fun array[T](values: [&T; 2]) T where T: Sized { values[0].* }
+fun optional[T](value: ?&T) () where T: Sized { _ = value; () }
+
+fun main() i32 {
+    let left = 3;
+    let right = 4;
+    optional(?left);
+    tuple((left,)) + array([left, right])
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn invalid_mutable_address_keeps_inference_and_reports_the_adjustment_error() {
+    let checked = pipeline(
+        r#"
+fun write[T](value: &mut T) () where T: Sized { () }
+
+fun main() () {
+    let value = 1;
+    write(value);
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.summary.contains("expected &mut i32, got i32") }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
+                .summary
+                .contains("cannot infer generic parameter `T`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn invalid_mutable_slice_keeps_element_inference_and_reports_mutability() {
+    let checked = pipeline(
+        r#"
+fun write[T](values: &mut [T]) () where T: Sized { () }
+
+fun main() () {
+    let values = [1, 2];
+    write(values);
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("expected &mut [i32], got [i32; 2]")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
+                .summary
+                .contains("cannot infer generic parameter `T`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn generic_inference_uses_result_context_before_implicit_address_adjustment() {
+    let checked = pipeline(
+        r#"
+fun read[T](value: &T) T where T: Sized { value.* }
+
+fun main() i32 {
+    let mut value = 7;
+    let result: i32 = read(value);
+    result
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn inferred_generic_pointer_arguments_report_conflicting_value_types() {
+    let checked = pipeline(
+        r#"
+fun same[T](left: &T, right: &T) () where T: Sized { () }
+
+fun main() () {
+    let left = 1i32;
+    let right = true;
+    same(left, right);
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("conflicting inferred type for generic parameter `T`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn infers_generic_function_type_arguments_from_expected_return_type() {
     let checked = pipeline(
         r#"

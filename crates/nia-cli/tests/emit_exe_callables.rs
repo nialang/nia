@@ -21,6 +21,19 @@ struct Runner {}
 
 fun makeSource() Source { Source { value: 20 } }
 
+fun readGeneric[T](value: &T) T where T: Sized { value.* }
+fun replaceGeneric[T](value: &mut T, replacement: T) () where T: Sized {
+    value.* = replacement;
+}
+fun firstGeneric[T](values: &[T]) T { values[0] }
+fun firstReferenceGeneric[T](values: &[&T]) T where T: Sized { values[0].*.* }
+
+fun verifyImplicitAdjustments() i32 {
+    let mut value = 7;
+    replaceGeneric(value, 8);
+    readGeneric(value) + firstGeneric([5, 6]) + firstReferenceGeneric([value, value])
+}
+
 extend Source {
     fun intoTarget(self) Target { Target { value: self.value * 2 } }
 }
@@ -46,11 +59,17 @@ fun transform[Context](context: Context, offset: i32) i32 {
         _ = context;
         Target { value: value.intoTarget().value + offset }
     });
+    let borrowedImplicit = Runner {}.applyBorrowed(makeSource(), \[context, offset] value -> {
+        _ = context;
+        Target { value: value.intoTarget().value + offset }
+    });
+    if borrowedImplicit.value != borrowed.value { return -1; }
     result.value + borrowed.value
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
+    if verifyImplicitAdjustments() != 21 { return process::ExitCode(3)!; }
     if transform(1i32, 2) != 84 { return process::ExitCode(1)!; }
     if transform(true, 3) != 86 { return process::ExitCode(2)!; }
     !()

@@ -11,8 +11,8 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_hash::FastHashMap;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::{
-    AddressOfCoercion, FunctionPointerToCallableCoercion, MutableToReadonlyCoercion,
-    PointerArrayToSliceCoercion,
+    AddressOfCoercion, ClosureCallableViewCoercion, FunctionPointerToCallableCoercion,
+    MutableToReadonlyCoercion, PointerArrayToSliceCoercion,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
@@ -152,6 +152,51 @@ impl<'a> BodyChecker<'a> {
                 array_ty: actual,
                 slice_ty: expected,
                 is_readonly: slice_readonly,
+            },
+        );
+        Some(expected)
+    }
+
+    pub(crate) fn coerce_auto_closure_callable_view(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let actual = self.normalization.normalize(actual);
+        let Some(TyKind::ClosureState { closure_id, .. }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        let Some(TyKind::Callable { is_readonly, .. }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        if is_readonly {
+            if self.is_place_expr(expr) {
+                if self.not_addressable_reason(expr).is_some() {
+                    return None;
+                }
+            } else if self.not_materializable_reason(Some(actual)).is_some() {
+                return None;
+            }
+        } else if !self.is_place_expr(expr) || self.not_assignable_reason(expr).is_some() {
+            return None;
+        }
+        let state_ty = self.interner.intern(TyKind::Pointer {
+            is_readonly,
+            elem: actual,
+        });
+        self.coerce_closure_pointer_to_callable(expected, state_ty)?;
+        self.record_closure_callable_view_coercion(
+            expr,
+            ClosureCallableViewCoercion {
+                closure_id,
+                source_ty: actual,
+                state_ty,
+                target_ty: expected,
+                is_readonly,
             },
         );
         Some(expected)
@@ -1964,6 +2009,7 @@ impl<'a> BodyChecker<'a> {
             node_bracket_suffix_resolutions: FastHashMap::default(),
             node_pointer_array_to_slice_coercions: FastHashMap::default(),
             node_address_of_coercions: FastHashMap::default(),
+            node_closure_callable_view_coercions: FastHashMap::default(),
             node_mutable_to_readonly_coercions: FastHashMap::default(),
             node_function_pointer_to_callable_coercions: FastHashMap::default(),
             node_trait_object_coercions: FastHashMap::default(),

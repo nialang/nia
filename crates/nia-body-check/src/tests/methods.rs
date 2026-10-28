@@ -1602,6 +1602,27 @@ fun main() usize {
 }
 
 #[test]
+fn infers_method_generics_through_implicit_pointer_adjustments() {
+    let checked = pipeline(
+        r#"
+struct Reader {}
+
+extend Reader {
+    fun read[T](&self, value: &T) T where T: Sized { value.* }
+    fun write[T](&self, value: &mut T) T where T: Sized { value.* }
+}
+
+fun main() i32 {
+    let mut value = 7;
+    Reader {}.read(value) + Reader {}.write(value)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn method_const_inference_shapes_later_callable_arguments() {
     let checked = pipeline(
         r#"

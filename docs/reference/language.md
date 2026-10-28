@@ -355,6 +355,13 @@ The adjustment is performed at most once. Array values can therefore reach a
 slice parameter through the two explicit semantic steps `T -> &T` and
 `&[T; N] -> &[T]`; an array value is still not itself a slice.
 
+An expected callable view also accepts a closure value directly. Nia forms the
+closure-state view required by `&Fun(...)` or `&mut Fun(...)`; the same
+writable-place rule applies to mutable views. This is a dedicated closure
+conversion, not another ordinary address adjustment. It is therefore not
+applied inside an explicit `&closure` expression, and it never converts a
+capturing closure into a thin `&fun(...)` pointer.
+
 `&place` takes a read-only pointer and `&mut place` a writable one; `&mut`
 requires a writable place. `p.*` dereferences. Reads and writes through `^T`
 and `^mut T` are volatile accesses; `^T` cannot be written through.
@@ -564,9 +571,10 @@ used only behind a pointer:
 
 A view is a non-owning value that refers to a closure's state; it never
 allocates, frees, or extends the life of that state. `Fun` types cannot be
-variadic. Views are created only by taking the address of a closure where a
-view type is expected; see [Closures](#closures) for the rules. `&Fun(...)` and
-`&fun(...)` are different types. The representation is in the
+variadic. A view can be created by taking the address of a closure, or by
+passing a closure value where a callable view is expected; see
+[Closures](#closures) for the rules. `&Fun(...)` and `&fun(...)` are different
+types. The representation is in the
 [ABI reference](abi.md#callable-views-and-closures).
 
 ### Trait Objects
@@ -1472,6 +1480,8 @@ fun curried() i32 {
 A parameter type may be omitted when it can be determined from the closure's
 uses in the same function body: an expected callable type, a direct call, or a
 later address conversion to a callable view at a function or method call.
+When the expected parameter is a callable view, passing the closure directly
+also supplies that context; writing `&closure` is optional.
 Generic callable parameters participate in the same inference. Return types are
 inferred from the body and context; a closure has no return annotation. A
 closure is monomorphic, so all uses must agree on its parameter types. A
@@ -1487,24 +1497,26 @@ fun inferred() i32 {
     let double = \value -> value * 2;
     let increment = \value -> value + 1;
     let direct = double(3);
-    direct + apply(&increment, 1)
+    direct + apply(increment, 1)
 }
 ```
 
 ### Conversion To Views And Function Pointers
 
-A closure is a value with its own anonymous type. It converts in two ways, both
-through a `&` or `&mut` expression applied to the closure value while the target
-type is expected:
+A closure is a value with its own anonymous type. It converts in two ways:
 
-- To a callable view `&Fun(...)` or `&mut Fun(...)`. `&closure` gives only a
-  read-only view; `&mut closure` gives either kind. Parameter and return types
-  must match.
+- To a callable view `&Fun(...)` or `&mut Fun(...)`, either by taking the
+  closure's address or by passing the closure value directly where that view is
+  expected. Direct conversion follows the same addressability rules as implicit
+  address formation: a read-only view accepts addressable places and
+  materializable temporaries, while a writable view requires a writable place.
+  An explicit `&closure` gives a read-only view; `&mut closure` gives either
+  kind. Parameter and return types must match.
 - To a thin `&fun(...)` pointer, only for a closure without captures and only
   with `&closure`.
 
-Storing a callable view first and converting it later is not a conversion. A
-closure with captures cannot become a `&fun(...)`.
+Storing a closure-state pointer first and converting it later is not a
+conversion. A closure with captures cannot become a `&fun(...)`.
 
 ```nia
 fun views() i32 {
@@ -1670,6 +1682,12 @@ fun generic_calls() usize {
     c + length([4, 5])
 }
 ```
+
+Type arguments can be inferred through Nia's implicit pointer adjustments. For
+example, a value passed to `&T` or `&mut T` can determine `T`; an array passed
+to a slice parameter can determine its element type. The completed call still
+checks the same addressability and mutability rules as an explicitly typed
+call. Expected result types can also determine generic arguments.
 
 Requirements on parameters go in a `where` clause after the signature or type
 header. Predicates are separated by commas, and several bounds on one parameter

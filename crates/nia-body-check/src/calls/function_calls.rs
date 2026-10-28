@@ -5,7 +5,7 @@ use super::generic_args::GenericSubstitutions;
 use super::std_builtin_function;
 use crate::calls::args::CallTarget;
 use crate::{BodyChecker, generic_inst_base};
-use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
+use nia_ast::{ArrayElements, BracketArg, Expr, ExprKind, UnaryOp};
 use nia_defs::WherePredicateSignature;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId};
@@ -1216,31 +1216,33 @@ impl<'a> BodyChecker<'a> {
             } else {
                 self.check_expr(arg)
             };
+            let inference_actual =
+                self.generic_argument_inference_type(inference_param, arg, actual);
             let closure_shape_matches = self.inferred_closure_signature(arg).is_none()
-                || self.generic_pattern_accepts_type_shape(inference_param, actual);
+                || self.generic_pattern_accepts_type_shape(inference_param, inference_actual);
             if closure_shape_matches {
                 if let Some(callable_pattern) = callable_pattern {
                     self.infer_generics_from_static_callable_shape(
                         callable_pattern,
-                        actual,
+                        inference_actual,
                         &mut substitutions.types,
                         arg.span,
                     );
                 }
                 self.infer_generics_from_type(
                     inference_param,
-                    actual,
+                    inference_actual,
                     &mut substitutions.types,
                     arg.span,
                 );
-                if self.generic_pattern_accepts_type_shape(inference_param, actual) {
+                if self.generic_pattern_accepts_type_shape(inference_param, inference_actual) {
                     // Const inference is staged behind a complete structural
                     // probe. A mismatch in a later tuple field or associated
                     // binding must not leak values collected from a prefix.
                     let mut staged = substitutions.consts.clone();
                     self.infer_const_generics_from_type(
                         inference_param,
-                        actual,
+                        inference_actual,
                         &mut staged,
                         arg.span,
                     );
@@ -1265,9 +1267,10 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = self.inferred_closure_signature(expr).cloned() else {
             return false;
         };
-        // `&Fn` is canonicalized to `TyKind::Callable`, so the address
-        // operator is the only remaining source of the closure state's
-        // mutability during pre-check inference.
+        // `&Fun` is canonicalized to `TyKind::Callable`. Explicit address
+        // syntax constrains the state mutability; an implicit view instead
+        // takes its mutability from the expected callable type and is checked
+        // against the source place after generic substitutions are complete.
         let closure_address_readonly = match &expr.kind {
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::RefReadOnly,
@@ -1279,13 +1282,15 @@ impl<'a> BodyChecker<'a> {
             } => Some(false),
             _ => None,
         };
+        let implicit_callable_view =
+            matches!(expr.kind, ExprKind::Closure { .. } | ExprKind::Ident(_));
         let pattern = self.normalization.normalize(pattern);
         let Some((params, return_type)) = (match self.interner.get(pattern).cloned() {
             Some(TyKind::Callable {
                 is_readonly: pattern_readonly,
                 params,
                 return_type,
-            }) if closure_address_readonly.is_some_and(|actual_readonly| {
+            }) if closure_address_readonly.map_or(implicit_callable_view, |actual_readonly| {
                 pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly
             }) =>
             {
@@ -1329,6 +1334,153 @@ impl<'a> BodyChecker<'a> {
             span,
         );
         true
+    }
+
+    /// Projects an argument's inferred type through its unresolved parameter
+    /// shape for generic inference only. It does not validate the expression's
+    /// eligibility; the authoritative checker does that after substitution.
+    pub(in crate::calls) fn generic_argument_inference_type(
+        &mut self,
+        pattern: InternedTyId,
+        expr: &Expr,
+        actual: InternedTyId,
+    ) -> InternedTyId {
+        let pattern = self.normalization.normalize(pattern);
+        let actual = self.normalization.normalize(actual);
+        let Some(pattern_kind) = self.interner.get(pattern).cloned() else {
+            return actual;
+        };
+        if !self.type_contains_generic_param(pattern)
+            && !self.type_contains_const_generic_param(pattern)
+        {
+            return actual;
+        }
+        if let (
+            TyKind::Tuple(pattern_elems),
+            Some(TyKind::Tuple(actual_elems)),
+            ExprKind::Tuple(expr_elems),
+        ) = (
+            &pattern_kind,
+            self.interner.get(actual).cloned(),
+            &expr.kind,
+        ) && pattern_elems.len() == actual_elems.len()
+            && actual_elems.len() == expr_elems.len()
+        {
+            let elems = pattern_elems
+                .iter()
+                .zip(expr_elems)
+                .zip(actual_elems)
+                .map(|((pattern, expr), actual)| {
+                    self.generic_argument_inference_type(*pattern, expr, actual)
+                })
+                .collect();
+            return self.interner.intern(TyKind::Tuple(elems));
+        }
+        if let (
+            TyKind::Array {
+                elem: pattern_elem, ..
+            },
+            Some(TyKind::Array {
+                len: actual_len,
+                elem: actual_elem,
+            }),
+            ExprKind::ArrayLiteral { elems },
+        ) = (
+            &pattern_kind,
+            self.interner.get(actual).cloned(),
+            &expr.kind,
+        ) {
+            let value = match elems {
+                ArrayElements::List(values) => values.first(),
+                ArrayElements::Repeat { value, .. } => Some(value.as_ref()),
+            };
+            if let Some(value) = value {
+                let projected_elem =
+                    self.generic_argument_inference_type(*pattern_elem, value, actual_elem);
+                if self.generic_pattern_accepts_type_shape(*pattern_elem, projected_elem) {
+                    return self.interner.intern(TyKind::Array {
+                        len: actual_len,
+                        elem: projected_elem,
+                    });
+                }
+            }
+        }
+        if let (
+            TyKind::Optional { elem: pattern_elem },
+            Some(TyKind::Optional { elem: actual_elem }),
+            ExprKind::OptionalSome { expr: inner },
+        ) = (
+            &pattern_kind,
+            self.interner.get(actual).cloned(),
+            &expr.kind,
+        ) {
+            let elem = self.generic_argument_inference_type(*pattern_elem, inner, actual_elem);
+            return self.interner.intern(TyKind::Optional { elem });
+        }
+        if let TyKind::Callable { is_readonly, .. } = &pattern_kind
+            && matches!(self.interner.get(actual), Some(TyKind::ClosureState { .. }))
+        {
+            return self.interner.intern(TyKind::Pointer {
+                is_readonly: *is_readonly,
+                elem: actual,
+            });
+        }
+        let (is_readonly, wants_slice, pointee_pattern) = match pattern_kind {
+            TyKind::Pointer { is_readonly, .. } => (is_readonly, false, None),
+            TyKind::Slice { is_readonly, elem } => (is_readonly, true, Some(elem)),
+            _ => return actual,
+        };
+
+        let direct_shape_matches = self.generic_pattern_accepts_type_shape(pattern, actual);
+        if matches!(
+            self.interner.get(actual),
+            Some(TyKind::Pointer { .. } | TyKind::Slice { .. })
+        ) && direct_shape_matches
+        {
+            return actual;
+        }
+        if wants_slice {
+            return match self.interner.get(actual).cloned() {
+                Some(TyKind::Array { len, elem }) => {
+                    let elem = if let ExprKind::ArrayLiteral { elems } = &expr.kind {
+                        let value = match elems {
+                            ArrayElements::List(values) => values.first(),
+                            ArrayElements::Repeat { value, .. } => Some(value.as_ref()),
+                        };
+                        value
+                            .zip(pointee_pattern)
+                            .map(|(value, pattern)| {
+                                self.generic_argument_inference_type(pattern, value, elem)
+                            })
+                            .unwrap_or(elem)
+                    } else {
+                        elem
+                    };
+                    let array = self.interner.intern(TyKind::Array { len, elem });
+                    self.interner.intern(TyKind::Pointer {
+                        is_readonly,
+                        elem: array,
+                    })
+                }
+                Some(TyKind::Pointer { elem, .. })
+                    if matches!(
+                        self.interner.get(elem),
+                        Some(TyKind::Array { .. } | TyKind::SlicePointee { .. })
+                    ) =>
+                {
+                    self.interner.intern(TyKind::Pointer { is_readonly, elem })
+                }
+                Some(TyKind::Slice { elem, .. }) => {
+                    self.interner.intern(TyKind::Slice { is_readonly, elem })
+                }
+                _ => actual,
+            };
+        }
+
+        self.interner.intern(TyKind::Pointer {
+            is_readonly,
+            elem: actual,
+        })
     }
 
     /// Supplies callable parameter types that the local closure pre-pass could
@@ -1668,6 +1820,27 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 (pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly)
                     && pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Callable {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                    ..
+                },
+                Some(TyKind::ClosureState {
+                    params: actual_params,
+                    return_type: actual_return,
+                    ..
+                }),
+            ) => {
+                pattern_params.len() == actual_params.len()
                     && pattern_params
                         .iter()
                         .zip(actual_params)

@@ -464,6 +464,23 @@ fun main() i32 {
 }
 
 #[test]
+fn generic_callable_inference_accepts_implicit_closure_views() {
+    let checked = pipeline(
+        r#"
+fun accepts[T](callback: &Fun(T) T) i32 {
+    1
+}
+
+fun main() i32 {
+    accepts(\value: i32 -> value)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn mutable_closure_address_infers_generic_readonly_callable_signature() {
     let checked = pipeline(
         r#"
@@ -991,6 +1008,87 @@ fun main(base: i32) i32 {
 }
 
 #[test]
+fn implicitly_converts_closure_values_to_callable_views() {
+    let checked = pipeline(
+        r#"
+fun apply(callback: &Fun(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fun main(base: i32) i32 {
+    let add_base = \[base] value: i32 -> base + value;
+    apply(add_base, 3) + apply(\value -> value + 1, 4)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .find(|body| body.stmts.len() == 1)
+        .expect("main body");
+    let tail = body.tail.as_deref().expect("main tail");
+    let nia_body_ir::TypedExprKind::Call { args, .. } = &tail.kind else {
+        panic!("expected addition call");
+    };
+    for call in args {
+        let nia_body_ir::TypedExprKind::Call { args, .. } = &call.kind else {
+            panic!("expected apply call");
+        };
+        assert!(matches!(
+            args.first().map(|arg| &arg.kind),
+            Some(nia_body_ir::TypedExprKind::CallableCoercion { .. })
+        ));
+    }
+}
+
+#[test]
+fn implicitly_converts_writable_closure_values_to_mutable_callable_views() {
+    let checked = pipeline(
+        r#"
+fun apply(callback: &mut Fun(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fun main() i32 {
+    let mut total = 0;
+    let mut accumulate = \[&mut total] value: i32 -> {
+        total.* += value;
+        total.*
+    };
+    apply(accumulate, 3) + total
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn implicit_mutable_callable_view_requires_a_writable_closure_place() {
+    let checked = pipeline(
+        r#"
+fun apply(callback: &mut Fun(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fun main() i32 {
+    let callback = \value: i32 -> value + 1;
+    apply(callback, 2)
+}
+"#,
+    );
+
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.summary.contains("expected &mut Fun(i32) i32") })
+    );
+}
+
+#[test]
 fn constructs_readonly_callable_view_from_mutable_closure_state() {
     let checked = pipeline(
         r#"
@@ -1057,7 +1155,7 @@ fun main(base: i32) i32 {
 }
 
 #[test]
-fn callable_view_construction_requires_explicit_closure_address_syntax() {
+fn callable_view_conversion_does_not_reinterpret_a_stored_closure_state_pointer() {
     let checked = pipeline(
         r#"
 fun main(base: i32) i32 {

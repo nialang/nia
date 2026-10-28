@@ -56,6 +56,15 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        self.check_expr_with_expected_and_closure_view(expr, expected, true)
+    }
+
+    fn check_expr_with_expected_and_closure_view(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+        allow_closure_view: bool,
+    ) -> InternedTyId {
         let adaptation_expected = expected;
         let expected = self.expected_literal_type_for_auto_address(expr, expected);
         if expr_allows_expected_const_projection(expr)
@@ -306,7 +315,11 @@ impl<'a> BodyChecker<'a> {
                         self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }
                     UnaryOp::RefReadOnly => {
-                        let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
+                        let inner_ty = self.check_expr_with_expected_and_closure_view(
+                            inner,
+                            expected_ref_target,
+                            false,
+                        );
                         let inner_ty = expected_ref_target
                             .and_then(|expected| {
                                 self.materialize_inferred_array_type(expected, inner_ty)
@@ -326,7 +339,11 @@ impl<'a> BodyChecker<'a> {
                         })
                     }
                     UnaryOp::Ref => {
-                        let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
+                        let inner_ty = self.check_expr_with_expected_and_closure_view(
+                            inner,
+                            expected_ref_target,
+                            false,
+                        );
                         let inner_ty = expected_ref_target
                             .and_then(|expected| {
                                 self.materialize_inferred_array_type(expected, inner_ty)
@@ -502,6 +519,11 @@ impl<'a> BodyChecker<'a> {
         let ty = if let Some(expected) = adaptation_expected {
             let actual = ty;
             self.coerce_auto_address(expr, expected, actual)
+                .or_else(|| {
+                    allow_closure_view
+                        .then(|| self.coerce_auto_closure_callable_view(expr, expected, actual))
+                        .flatten()
+                })
                 .or_else(|| self.coerce_pointer_array_to_slice(expr, expected, actual))
                 .or_else(|| {
                     self.coerce_mutable_pointer_to_readonly(expected, actual)
