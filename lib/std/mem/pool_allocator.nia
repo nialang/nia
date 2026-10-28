@@ -1,0 +1,598 @@
+// Fixed-size object pool over a child allocator.
+//
+// Each backing page stores initialized slot metadata and a free-slot chain
+// before its aligned object storage. Allocation takes a slot from an available
+// page in constant time; release validates page ownership before returning the
+// slot to its page. Empty pages remain available for reuse until `deinit`.
+
+using root::cmp;
+using root::error;
+using root::mem::allocator;
+using root::mem::types;
+using root::option;
+
+using allocator::Allocator;
+using types::{Block, Error, Layout};
+
+struct PoolSlot {
+    size: usize,
+    align: usize,
+    next: ?&mut PoolSlot,
+}
+
+struct PoolPage {
+    backing: Block,
+    slots: &mut PoolSlot,
+    freeSlots: ?&mut PoolSlot,
+    slotData: &mut u8,
+    slotCount: usize,
+    usedCount: usize,
+    usedBytes: usize,
+    next: ?&mut PoolPage,
+    nextAvailable: ?&mut PoolPage,
+}
+
+pub struct PoolAllocator[T]
+where T: Sized
+{
+    child: &mut Allocator,
+    pages: ?&mut PoolPage,
+    availablePages: ?&mut PoolPage,
+    objectLayout: Layout,
+    slotStride: usize,
+    slotsOffset: usize,
+    slotMetadataOffset: usize,
+    slotMetadataSize: usize,
+    pageSize: usize,
+    pageAlign: usize,
+    slotsPerPage: usize,
+    pendingFree: ?Block,
+    deinitStarted: bool,
+    deinitLeak: bool,
+}
+
+extend[T] PoolAllocator[T]
+where T: Sized
+{
+    // Create a pool with a fixed number of T-sized slots per backing page.
+    // Requests whose size and alignment fit T share these slots.
+    pub fun init(child: &mut Allocator, slotsPerPage: usize) Error!PoolAllocator[T] {
+        if slotsPerPage == 0 {
+            return .Invalid!;
+        }
+
+        let objectLayout = Layout::of[T]().?;
+        let slotSize = root::builtin::size[PoolSlot]();
+        let slotAlign = root::builtin::align[PoolSlot]();
+        let pageAlign = cmp::max(
+            cmp::max(objectLayout.align(), root::builtin::align[PoolPage]()),
+            slotAlign,
+        );
+        let mut slotStride: usize = 0;
+        let mut slotsOffset: usize = 0;
+        let mut slotMetadataOffset: usize = 0;
+        let mut slotMetadataSize: usize = 0;
+        let mut pageSize: usize = 0;
+
+        if not objectLayout.isEmpty() {
+            slotStride = match objectLayout.size().alignForward(objectLayout.align()) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+            slotMetadataOffset = match root::builtin::size[PoolPage]().alignForward(slotAlign) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+            slotMetadataSize = match slotSize.checkedMul(slotsPerPage) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+            let metadataEnd = match slotMetadataOffset.checkedAdd(slotMetadataSize) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+            slotsOffset = match metadataEnd.alignForward(objectLayout.align()) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+            let slotBytes = match slotStride.checkedMul(slotsPerPage) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+            pageSize = match slotsOffset.checkedAdd(slotBytes) {
+                ?value => value,
+                null => {
+                    return .OutOfMemory!;
+                },
+            };
+        }
+
+        !.{
+            child,
+            pages: null,
+            availablePages: null,
+            objectLayout,
+            slotStride,
+            slotsOffset,
+            slotMetadataOffset,
+            slotMetadataSize,
+            pageSize,
+            pageAlign,
+            slotsPerPage,
+            pendingFree: null,
+            deinitStarted: false,
+            deinitLeak: false,
+        }
+    }
+
+    // Usable capacity is reported in T-sized payload bytes; page metadata and
+    // alignment padding are excluded. `used` counts requested live bytes.
+    pub fun capacity(&self) usize {
+        self.listBytes(self.pages, false)
+    }
+
+    pub fun used(&self) usize {
+        self.listBytes(self.pages, true)
+    }
+
+    // Number of live non-empty allocations; zero-sized blocks consume no slot.
+    pub fun allocationCount(&self) usize {
+        let mut total: usize = 0;
+        let mut current = self.pages;
+        loop {
+            if current is ?page {
+                total = saturatingAdd(total, page.usedCount);
+                current = page.next;
+            } else {
+                return total;
+            }
+        }
+    }
+
+    // True only after every backing page and pending child release is gone.
+    pub fun isEmpty(&self) bool {
+        self.pages.isNull() and self.availablePages.isNull() and self.pendingFree.isNull()
+    }
+
+    // Release all backing pages. If live slots remain, they are reported as a
+    // leak after cleanup. A failed release retains its owner for retry and
+    // blocks on retained pages may still be freed; allocation stays disabled
+    // until cleanup succeeds.
+    pub fun deinit(&mut self) Error!() {
+        self.deinitBacking(true)
+    }
+
+    // Release backing pages without reporting live slots as a leak.
+    pub fun deinitWithoutLeakCheck(&mut self) Error!() {
+        self.deinitLeak = false;
+        self.deinitBacking(false)
+    }
+
+    fun deinitBacking(&mut self, checkLeaks: bool) Error!() {
+        if checkLeaks {
+            self.deinitLeak = self.deinitLeak or self.hasLiveAllocations();
+        }
+        let mut current = self.pages;
+        let pending = self.pendingFree;
+        self.pages = null;
+        self.availablePages = null;
+        self.pendingFree = null;
+        self.deinitStarted = true;
+        let mut cleanup: error::CleanupAccumulator[Error] = .init();
+
+        loop {
+            if current is ?pageValue {
+                let mut page = pageValue;
+                let next = page.next;
+                page.next = null;
+                page.nextAvailable = null;
+                if self.child.free(page.backing) is err! {
+                    page.next = self.pages;
+                    self.pages = ?page;
+                    if page.freeSlots is ?_ {
+                        page.nextAvailable = self.availablePages;
+                        self.availablePages = ?page;
+                    }
+                    cleanup.attempt(err!);
+                }
+                current = next;
+                continue;
+            }
+            break;
+        }
+
+        if pending is ?block and self.child.free(block) is err! {
+            self.pendingFree = ?block;
+            cleanup.attempt(err!);
+        }
+
+        cleanup.finish().?;
+        self.deinitStarted = false;
+        if self.deinitLeak {
+            self.deinitLeak = false;
+            return .Leak!;
+        }
+        !()
+    }
+
+    fun hasLiveAllocations(&self) bool {
+        let mut current = self.pages;
+        loop {
+            if current is ?page {
+                if page.usedCount != 0 {
+                    return true;
+                }
+                current = page.next;
+            } else {
+                return false;
+            }
+        }
+    }
+
+    fun listBytes(&self, first: ?&mut PoolPage, countUsed: bool) usize {
+        let mut total: usize = 0;
+        let mut current = first;
+        loop {
+            if current is ?page {
+                let count = if countUsed { page.usedBytes } else {
+                    match page.slotCount.checkedMul(self.objectLayout.size()) {
+                        ?value => value,
+                        null => usize::MAX,
+                    }
+                };
+                total = saturatingAdd(total, count);
+                current = page.next;
+            } else {
+                return total;
+            }
+        }
+    }
+
+    fun allocatePage(&mut self) Error!() {
+        let layout = Layout::init(self.pageSize, self.pageAlign).?;
+        let backing = self.child.alloc(layout).?;
+        let base = backing.ptr() as usize;
+        if backing.size() < self.pageSize {
+            self.releaseUnpublished(backing);
+            return .Invalid!;
+        }
+        let pageEnd = match base.checkedAdd(self.pageSize) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        let slotsAddress = match base.checkedAdd(self.slotsOffset) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        let metadataAddress = match base.checkedAdd(self.slotMetadataOffset) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        let metadataEnd = match metadataAddress.checkedAdd(self.slotMetadataSize) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        let slotDataSize = match self.slotStride.checkedMul(self.slotsPerPage) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        let slotsEnd = match slotsAddress.checkedAdd(slotDataSize) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        let headerEnd = match base.checkedAdd(root::builtin::size[PoolPage]()) {
+            ?value => value,
+            null => {
+                self.releaseUnpublished(backing);
+                return .OutOfMemory!;
+            },
+        };
+        if base % self.pageAlign != 0
+            or metadataAddress < headerEnd
+            or metadataEnd > pageEnd
+            or slotsAddress < metadataEnd
+            or slotsEnd > pageEnd
+        {
+            self.releaseUnpublished(backing);
+            return .InvalidAlignment!;
+        }
+
+        let mut page = base as &mut PoolPage;
+        page.* = .{
+            backing,
+            slots: metadataAddress as &mut PoolSlot,
+            freeSlots: null,
+            slotData: slotsAddress as &mut u8,
+            slotCount: self.slotsPerPage,
+            usedCount: 0,
+            usedBytes: 0,
+            next: self.pages,
+            nextAvailable: self.availablePages,
+        };
+
+        let mut index: usize = 0;
+        while index < self.slotsPerPage {
+            let slotAddress = metadataAddress + index * root::builtin::size[PoolSlot]();
+            let mut slot = slotAddress as &mut PoolSlot;
+            slot.* = .{
+                size: 0,
+                align: self.objectLayout.align(),
+                next: page.freeSlots,
+            };
+            page.freeSlots = ?slot;
+            index += 1;
+        }
+        self.pages = ?page;
+        self.availablePages = ?page;
+        !()
+    }
+
+    fun releaseUnpublished(&mut self, block: Block) () {
+        if self.child.free(block) is err! {
+            self.pendingFree = ?block;
+        }
+    }
+
+    fun retryPendingFree(&mut self) Error!() {
+        if self.pendingFree is ?block {
+            self.child.free(block).?;
+            self.pendingFree = null;
+        }
+        !()
+    }
+
+    fun allocateFromPage(&mut self, page: &mut PoolPage, layout: Layout) ?Block {
+        let mut slot = match page.freeSlots {
+            ?value => value,
+            null => return null,
+        };
+        if slot.size != 0 or page.usedCount >= page.slotCount {
+            return null;
+        }
+        let newUsedCount = match page.usedCount.checkedAdd(1) {
+            ?value => value,
+            null => return null,
+        };
+        let newUsedBytes = match page.usedBytes.checkedAdd(layout.size()) {
+            ?value => value,
+            null => return null,
+        };
+        if newUsedBytes > page.slotCount * self.objectLayout.size() {
+            return null;
+        }
+
+        page.freeSlots = slot.next;
+        // Slot metadata is chained in reverse order, so derive the payload
+        // index from the slot's stable position in its metadata array.
+        let metadataBase = page.slots as usize;
+        let slotAddress = slot as usize;
+        let slotIndex = (slotAddress - metadataBase) / root::builtin::size[PoolSlot]();
+        let dataOffset = self.slotStride * slotIndex;
+        let ptr = ((page.slotData as usize) + dataOffset) as &mut u8;
+
+        slot.size = layout.size();
+        slot.align = layout.align();
+        slot.next = null;
+        page.usedCount = newUsedCount;
+        page.usedBytes = newUsedBytes;
+        return ?.initWithRelease(ptr, layout, ptr, self.slotStride);
+    }
+
+    fun findPage(&self, ptr: &mut u8) ?&mut PoolPage {
+        let addr = ptr as usize;
+        let mut current = self.pages;
+        loop {
+            if current is ?page {
+                let bytes = match self.slotStride.checkedMul(page.slotCount) {
+                    ?value => value,
+                    null => return null,
+                };
+                let base = page.slotData as usize;
+                let limit = match base.checkedAdd(bytes) {
+                    ?value => value,
+                    null => return null,
+                };
+                if addr >= base and addr < limit {
+                    return ?page;
+                }
+                current = page.next;
+            } else {
+                return null;
+            }
+        }
+    }
+
+    fun slotIndex(&self, page: &mut PoolPage, ptr: &mut u8) ?usize {
+        let base = page.slotData as usize;
+        let addr = ptr as usize;
+        if addr < base {
+            return null;
+        }
+        let offset = addr - base;
+        if offset % self.slotStride != 0 {
+            return null;
+        }
+        let index = offset / self.slotStride;
+        if index < page.slotCount { ?index } else { null }
+    }
+
+    fun slotAt(&self, page: &mut PoolPage, index: usize) &mut PoolSlot {
+        let address = (page.slots as usize) + index * root::builtin::size[PoolSlot]();
+        address as &mut PoolSlot
+    }
+
+    fun blockMatchesSlot(&self, block: Block, slot: &mut PoolSlot) bool {
+        block.releaseSize() == self.slotStride
+            and block.ptr() as usize == block.releasePtr() as usize
+            and slot.size != 0
+            and block.size() == slot.size
+            and block.align() == slot.align
+    }
+}
+
+extend[T] PoolAllocator[T] : Allocator
+where T: Sized
+{
+    pub fun alloc(&mut self, layout: Layout) Error!Block {
+        if self.deinitStarted {
+            return .Invalid!;
+        }
+        self.retryPendingFree().?;
+        if layout.isEmpty() {
+            return !.empty(layout);
+        }
+        if layout.size() > self.objectLayout.size()
+            or layout.align() > self.objectLayout.align()
+        {
+            return .Invalid!;
+        }
+
+        if self.availablePages is mut ?page {
+            if self.allocateFromPage(page, layout) is ?block {
+                if page.freeSlots.isNull() {
+                    self.availablePages = page.nextAvailable;
+                    page.nextAvailable = null;
+                }
+                return !block;
+            }
+            return .Invalid!;
+        }
+
+        self.allocatePage().?;
+        match self.availablePages {
+            mut ?page => {
+                match self.allocateFromPage(page, layout) {
+                    ?block => {
+                        if page.freeSlots.isNull() {
+                            self.availablePages = page.nextAvailable;
+                            page.nextAvailable = null;
+                        }
+                        !block
+                    },
+                    null => .OutOfMemory!,
+                }
+            },
+            null => .OutOfMemory!,
+        }
+    }
+
+    pub fun resize(&mut self, block: Block, newLayout: Layout) bool {
+        if self.deinitStarted or block.isEmpty() {
+            return block.isEmpty() and newLayout.isEmpty();
+        }
+        if newLayout.isEmpty()
+            or newLayout.size() > self.objectLayout.size()
+            or newLayout.align() > self.objectLayout.align()
+        {
+            return false;
+        }
+        let mut page = match self.findPage(block.ptr()) {
+            ?value => value,
+            null => return false,
+        };
+        let index = match self.slotIndex(page, block.ptr()) {
+            ?value => value,
+            null => return false,
+        };
+        let mut slot = self.slotAt(page, index);
+        if not self.blockMatchesSlot(block, slot) {
+            return false;
+        }
+        let usedWithoutBlock = page.usedBytes - block.size();
+        let newUsedBytes = match usedWithoutBlock.checkedAdd(newLayout.size()) {
+            ?value => value,
+            null => return false,
+        };
+        if newUsedBytes > page.slotCount * self.objectLayout.size() {
+            return false;
+        }
+        slot.size = newLayout.size();
+        slot.align = newLayout.align();
+        page.usedBytes = newUsedBytes;
+        true
+    }
+
+    pub fun remap(&mut self, block: Block, newLayout: Layout) ?Block {
+        if block.isEmpty() and newLayout.isEmpty() {
+            ?.empty(newLayout)
+        } else if self.resize(block, newLayout) {
+            ?block.withLayout(newLayout)
+        } else {
+            null
+        }
+    }
+
+    pub fun free(&mut self, block: Block) Error!() {
+        if block.isEmpty() {
+            return !();
+        }
+        let mut page = match self.findPage(block.ptr()) {
+            ?value => value,
+            null => {
+                return .Invalid!;
+            },
+        };
+        let index = match self.slotIndex(page, block.ptr()) {
+            ?value => value,
+            null => {
+                return .Invalid!;
+            },
+        };
+        let mut slot = self.slotAt(page, index);
+        if not self.blockMatchesSlot(block, slot)
+            or page.usedCount == 0
+            or page.usedBytes < block.size()
+        {
+            return .Invalid!;
+        }
+
+        slot.size = 0;
+        slot.align = self.objectLayout.align();
+        slot.next = page.freeSlots;
+        page.freeSlots = ?slot;
+        if page.usedCount == page.slotCount {
+            page.nextAvailable = self.availablePages;
+            self.availablePages = ?page;
+        }
+        page.usedCount -= 1;
+        page.usedBytes -= block.size();
+        !()
+    }
+}
+
+fun saturatingAdd(left: usize, right: usize) usize {
+    match left.checkedAdd(right) {
+        ?value => value,
+        null => usize::MAX,
+    }
+}

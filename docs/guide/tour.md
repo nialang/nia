@@ -513,8 +513,12 @@ Nia never allocates implicitly. Containers such as `std::ArrayList`,
 may allocate or free, and must be released with `deinit` before their
 allocator is torn down. Writing `defer value.deinit(&mut allocator).?;` right
 after creating a value keeps that order correct. `std::mem` provides
-`PageAllocator`, `GeneralPurposeAllocator`, `ArenaAllocator`, and
-`FixedBufferAllocator`.
+`PageAllocator`, `GeneralPurposeAllocator`, `ArenaAllocator`,
+`FixedBufferAllocator`, and `PoolAllocator[T]`. A pool keeps fixed-size slots
+for `T`, reuses freed slots, and accepts smaller layouts that fit the slot's
+size and alignment. Its `deinit` releases all backing pages and reports live
+slots as `mem::Error::Leak`; `deinitWithoutLeakCheck` performs the same cleanup
+without that diagnostic.
 
 ## Generics And Traits
 

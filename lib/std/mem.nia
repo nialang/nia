@@ -14,6 +14,7 @@ pub(root) module allocator;
 pub(root) module fixed_buffer_allocator;
 pub(root) module general_purpose_allocator;
 pub(root) module page_allocator;
+pub(root) module pool_allocator;
 pub(root) module types;
 
 using root::mem::arena_allocator;
@@ -21,6 +22,7 @@ using root::mem::allocation;
 using root::mem::fixed_buffer_allocator;
 using root::mem::general_purpose_allocator;
 using root::mem::page_allocator;
+using root::mem::pool_allocator;
 
 pub using types::{Block, Error, Layout};
 pub using allocation::{Allocated, CallableAllocation};
@@ -29,6 +31,7 @@ pub using allocator::{Allocator, ReallocError, SliceAllocation};
 pub using fixed_buffer_allocator::FixedBufferAllocator;
 pub using general_purpose_allocator::GeneralPurposeAllocator;
 pub using page_allocator::PageAllocator;
+pub using pool_allocator::PoolAllocator;
 
 // Public construction boundary for allocator-backed typed owners. `Allocated`
 // and `CallableAllocation` keep the returned Block layout and complete release
