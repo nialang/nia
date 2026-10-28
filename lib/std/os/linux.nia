@@ -3,8 +3,8 @@ pub(root) module mem;
 pub(root) module process;
 pub(root) module random;
 pub(root) module stat;
-pub(root) module syscall;
-pub(root) module types;
+pub module syscall;
+pub module types;
 @[if arch == "x86_64"]
 pub(root) module x86_64;
 @[if arch == "x86"]

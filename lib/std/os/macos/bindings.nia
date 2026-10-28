@@ -1,64 +1,64 @@
-// POSIX symbols exported by Darwin's libSystem. The platform facade keeps
-// these declarations private so callers cannot depend on C layout details.
-pub(root) extern fun read(fd: i32, buffer: &mut u8, length: usize) i64;
-pub(root) extern fun write(fd: i32, buffer: &u8, length: usize) i64;
-pub(root) extern fun close(fd: i32) i32;
-pub(root) extern fun pipe(fds: &mut i32) i32;
-pub(root) extern fun fcntl(fd: i32, command: i32, ...) i32;
-pub(root) extern fun dup2(oldFd: i32, newFd: i32) i32;
-pub(root) extern fun fork() i32;
-pub(root) extern fun execve(path: &u8, argv: &&u8, envp: &&u8) i32;
-pub(root) extern fun chdir(path: &u8) i32;
-pub(root) extern fun waitpid(pid: i32, status: &mut i32, options: i32) i32;
-pub(root) extern fun kill(pid: i32, signal: i32) i32;
-pub(root) extern fun openat(fd: i32, path: &u8, flags: i32, ...) i32;
-pub(root) extern fun mkdirat(fd: i32, path: &u8, mode: u16) i32;
-pub(root) extern fun unlinkat(fd: i32, path: &u8, flags: i32) i32;
-pub(root) extern fun renameat(oldFd: i32, oldPath: &u8, newFd: i32, newPath: &u8) i32;
-pub(root) extern fun lseek(fd: i32, offset: i64, whence: i32) i64;
-pub(root) extern fun ftruncate(fd: i32, length: i64) i32;
-pub(root) extern fun fchmod(fd: i32, mode: u16) i32;
-pub(root) extern fun fsync(fd: i32) i32;
-pub(root) extern fun fdatasync(fd: i32) i32;
+// Public POSIX symbols exported by Darwin's libSystem. Private implementation
+// entry points such as `__error` and `__getdirentries64` remain package-only.
+pub extern fun read(fd: i32, buffer: &mut u8, length: usize) i64;
+pub extern fun write(fd: i32, buffer: &u8, length: usize) i64;
+pub extern fun close(fd: i32) i32;
+pub extern fun pipe(fds: &mut i32) i32;
+pub extern fun fcntl(fd: i32, command: i32, ...) i32;
+pub extern fun dup2(oldFd: i32, newFd: i32) i32;
+pub extern fun fork() i32;
+pub extern fun execve(path: &u8, argv: &&u8, envp: &&u8) i32;
+pub extern fun chdir(path: &u8) i32;
+pub extern fun waitpid(pid: i32, status: &mut i32, options: i32) i32;
+pub extern fun kill(pid: i32, signal: i32) i32;
+pub extern fun openat(fd: i32, path: &u8, flags: i32, ...) i32;
+pub extern fun mkdirat(fd: i32, path: &u8, mode: u16) i32;
+pub extern fun unlinkat(fd: i32, path: &u8, flags: i32) i32;
+pub extern fun renameat(oldFd: i32, oldPath: &u8, newFd: i32, newPath: &u8) i32;
+pub extern fun lseek(fd: i32, offset: i64, whence: i32) i64;
+pub extern fun ftruncate(fd: i32, length: i64) i32;
+pub extern fun fchmod(fd: i32, mode: u16) i32;
+pub extern fun fsync(fd: i32) i32;
+pub extern fun fdatasync(fd: i32) i32;
 @[if arch == "aarch64"]
-pub(root) extern fun fstat(fd: i32, stat: &mut DarwinStat) i32;
+pub extern fun fstat(fd: i32, stat: &mut DarwinStat) i32;
 @[if arch == "x86_64"]
 @[linkName("fstat$INODE64")]
-pub(root) extern fun fstat(fd: i32, stat: &mut DarwinStat) i32;
+pub extern fun fstat(fd: i32, stat: &mut DarwinStat) i32;
 @[if arch == "aarch64"]
-pub(root) extern fun fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
+pub extern fun fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
 @[if arch == "x86_64"]
 @[linkName("fstatat$INODE64")]
-pub(root) extern fun fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
+pub extern fun fstatat(fd: i32, path: &u8, stat: &mut DarwinStat, flags: i32) i32;
 // Darwin's 64-bit inode directory ABI is the private __getdirentries64
 // entry point used by Zig and libc; the public getdirentries is explicitly
 // unavailable when 64-bit inodes are enabled.
 @[linkName("__getdirentries64")]
 pub(root) extern fun getdirentries64(fd: i32, buffer: &mut u8, length: usize, base: &mut i64) i64;
-pub(root) extern fun getcwd(buffer: &mut u8, length: usize) &mut u8;
-pub(root) extern fun mmap(address: usize, length: usize, protection: i32, flags: i32, fd: i32, offset: i64) &mut u8;
-pub(root) extern fun munmap(address: &mut u8, length: usize) i32;
-pub(root) extern fun getentropy(buffer: &mut u8, length: usize) i32;
+pub extern fun getcwd(buffer: &mut u8, length: usize) &mut u8;
+pub extern fun mmap(address: usize, length: usize, protection: i32, flags: i32, fd: i32, offset: i64) &mut u8;
+pub extern fun munmap(address: &mut u8, length: usize) i32;
+pub extern fun getentropy(buffer: &mut u8, length: usize) i32;
 pub(root) extern fun __error() &mut i32;
-pub(root) extern fun exit(code: i32) ();
+pub extern fun exit(code: i32) ();
 
-pub(root) const protRead: i32 = 1;
-pub(root) const protWrite: i32 = 2;
-pub(root) const mapPrivate: i32 = 2;
-pub(root) const mapAnonymous: i32 = 0x1000;
-pub(root) const atSymlinkNoFollow: i32 = 0x20;
-pub(root) const atRemoveDir: i32 = 0x80;
-pub(root) const openCreate: i32 = 0x200;
-pub(root) const openExclusive: i32 = 0x800;
-pub(root) const openTruncate: i32 = 0x400;
-pub(root) const openDirectory: i32 = 0x100000;
-pub(root) const openNoFollow: i32 = 0x100;
-pub(root) const fSetFd: i32 = 2;
-pub(root) const fGetPath: i32 = 50;
-pub(root) const fdCloseOnExec: i32 = 1;
-pub(root) const waitNoHang: i32 = 1;
+pub const protRead: i32 = 1;
+pub const protWrite: i32 = 2;
+pub const mapPrivate: i32 = 2;
+pub const mapAnonymous: i32 = 0x1000;
+pub const atSymlinkNoFollow: i32 = 0x20;
+pub const atRemoveDir: i32 = 0x80;
+pub const openCreate: i32 = 0x200;
+pub const openExclusive: i32 = 0x800;
+pub const openTruncate: i32 = 0x400;
+pub const openDirectory: i32 = 0x100000;
+pub const openNoFollow: i32 = 0x100;
+pub const fSetFd: i32 = 2;
+pub const fGetPath: i32 = 50;
+pub const fdCloseOnExec: i32 = 1;
+pub const waitNoHang: i32 = 1;
 
-pub(root) extern struct DarwinTimespec {
+pub extern struct DarwinTimespec {
     seconds: i64,
     nanos: i64,
 }
@@ -66,7 +66,7 @@ pub(root) extern struct DarwinTimespec {
 // This is the 64-bit-inode Darwin stat layout used by arm64 and by the
 // x86_64 `$INODE64` entry points. Keep it as a C-layout type: the facade reads
 // fields only after the target-specific libSystem call has filled it.
-pub(root) extern struct DarwinStat {
+pub extern struct DarwinStat {
     device: i32,
     mode: u16,
     links: u16,

@@ -520,6 +520,13 @@ size and alignment. Its `deinit` releases all backing pages and reports live
 slots as `mem::Error::Leak`; `deinitWithoutLeakCheck` performs the same cleanup
 without that diagnostic.
 
+`std::os` exposes low-level operating-system services. Platform-specific
+interfaces are available under `std::os::linux`, `std::os::windows`, and
+`std::os::macos`; Linux exposes its syscall ABI through `syscall`, while
+Windows and macOS expose their declared native bindings through `bindings`.
+These APIs retain platform-specific calling conventions and error results;
+use `std::fs` and `std::process` when their portable interfaces are sufficient.
+
 ## Generics And Traits
 
 ```nia

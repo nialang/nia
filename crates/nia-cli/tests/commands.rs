@@ -282,26 +282,79 @@ fn readme_nia_examples_check_as_freestanding_programs() {
 }
 
 #[test]
-fn std_os_module_is_package_private() {
-    let root = temp_dir("std_os_module_is_package_private");
-    let main = root.join("main.nia");
-    std::fs::write(
-        &main,
-        r#"
-using std::os;
+fn std_os_and_native_platform_apis_are_public() {
+    let root = temp_dir("std_os_and_native_platform_apis_are_public");
+    let targets = [
+        (
+            "x86_64-unknown-linux",
+            "pub fun nativeProbe() isize { std::os::linux::syscall::syscall0(usize::MAX) }\npub fun nativeStructProbe() u64 { let how = std::os::linux::types::OpenHow { flags: 0, mode: 0, resolve: 0 }; how.flags }",
+        ),
+        (
+            "x86-unknown-linux",
+            "pub fun nativeProbe() isize { std::os::linux::syscall::syscall0(usize::MAX) }\npub fun nativeStructProbe() u64 { let how = std::os::linux::types::OpenHow { flags: 0, mode: 0, resolve: 0 }; how.flags }",
+        ),
+        (
+            "aarch64-unknown-linux",
+            "pub fun nativeProbe() isize { std::os::linux::syscall::syscall0(usize::MAX) }\npub fun nativeStructProbe() u64 { let how = std::os::linux::types::OpenHow { flags: 0, mode: 0, resolve: 0 }; how.flags }",
+        ),
+        (
+            "x86_64-pc-windows-msvc",
+            "pub fun nativeProbe() u32 { std::os::windows::bindings::GetLastError() }\npub fun nativeStructProbe() u32 { let mut info: std::os::windows::bindings::SystemInfo; std::os::windows::bindings::GetSystemInfo(&mut info); info.pageSize }",
+        ),
+        (
+            "x86_64-apple-macos",
+            "pub fun nativeProbe() i32 { std::os::macos::bindings::close(-1) }\npub fun nativeStructProbe() u16 { let mut stat: std::os::macos::bindings::DarwinStat; _ = std::os::macos::bindings::fstat(-1, &mut stat); stat.mode }",
+        ),
+        (
+            "aarch64-apple-macos",
+            "pub fun nativeProbe() i32 { std::os::macos::bindings::close(-1) }\npub fun nativeStructProbe() u16 { let mut stat: std::os::macos::bindings::DarwinStat; _ = std::os::macos::bindings::fstat(-1, &mut stat); stat.mode }",
+        ),
+    ];
 
-"#,
-    )
-    .expect("write private std os module source");
+    for (index, (target, native_probe)) in targets.into_iter().enumerate() {
+        let main = root.join(format!("main-{index}.nia"));
+        let source = format!(
+            "using std::os;\npub fun portablePageSize() usize {{ os::pageSize() }}\npub fun portableError() os::Error {{ .Unsupported }}\npub fun standardOutput() os::FileHandle {{ os::FileHandle::stdout() }}\n{native_probe}\n"
+        );
+        std::fs::write(&main, source).expect("write public std os module source");
 
+        let output = support::nia_command()
+            .args(["--target", target, "check"])
+            .arg(&main)
+            .output_timeout_for_compiler("check public std os and native platform APIs");
+        assert!(
+            output.status.success(),
+            "{target}: stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let host_native_probe = match std::env::consts::OS {
+        "windows" => "pub fun nativeProbe() u32 { std::os::windows::bindings::GetLastError() }",
+        "linux" => "pub fun nativeProbe() isize { std::os::linux::syscall::syscall0(usize::MAX) }",
+        "macos" => "pub fun nativeProbe() i32 { std::os::macos::bindings::close(-1) }",
+        other => panic!("unsupported test host OS: {other}"),
+    };
+    let main = root.join(format!("linked{}", std::env::consts::EXE_SUFFIX));
+    let source = root.join("linked.nia");
+    let source_text = format!(
+        "using std::process;\n{host_native_probe}\npub fun main(init: process::Init) process::ExitCode!() {{ _ = init; _ = std::os::pageSize(); _ = nativeProbe(); !() }}\n"
+    );
+    std::fs::write(&source, source_text).expect("write linked public std os probe");
     let output = support::nia_command()
-        .arg("check")
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
         .arg(&main)
-        .output_timeout_for_compiler("check private std os module boundary");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("private"), "{stderr}");
-    assert!(stderr.contains("std::os"), "{stderr}");
+        .output_timeout_for_build("link public std os and native platform APIs");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = std::process::Command::new(&main).status_timeout("run public std os probe");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]

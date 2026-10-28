@@ -1,6 +1,6 @@
-// Darwin platform boundary. Native calls stay in the private bindings module;
+// Darwin platform boundary. `bindings` exposes the available native ABI;
 // operations without an implementation still return Unsupported explicitly.
-pub(root) module bindings;
+pub module bindings;
 using root::os::macos::bindings;
 using root::error;
 using root::math;
@@ -784,7 +784,7 @@ extend bindings::DarwinStat {
     }
 }
 
-fun errno() Errno {
+pub fun errno() Errno {
     let value = bindings::__error().*;
     // Preserve portable errors for unsupported calls and invalid native paths.
     if value == 78 { .Unsupported }

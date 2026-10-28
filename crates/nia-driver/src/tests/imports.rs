@@ -1783,18 +1783,40 @@ fn std_os_does_not_expose_platform_implementation_modules() {
     write(
         &root.join("main.nia"),
         r#"
+using std::os;
+
+fun main() () {
+    _ = os::pageSize();
+}
+"#,
+    );
+
+    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    write(
+        &root.join("private.nia"),
+        r#"
 using std::os::linux::stat;
 
 fun main() () {}
 "#,
     );
 
-    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    let program = check_entry_program(root.join("private.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown namespace `os`")),
+            .contains("private")
+            || diagnostic
+                .diagnostic
+                .summary
+                .contains("unknown namespace `stat`")
+            || diagnostic
+                .diagnostic
+                .summary
+                .contains("could not be resolved")),
         "{:?}",
         program.diagnostics
     );

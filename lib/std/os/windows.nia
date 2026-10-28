@@ -1,11 +1,12 @@
-// Windows OS boundary. Native bindings and implementation modules stay
-// package-private; std::os consumes this platform contract.
+// Windows OS boundary. `bindings` exposes the available raw Win32 ABI;
+// implementation modules stay package-private and back the higher-level OS
+// operations below.
 //
 // Win32 declarations live in `bindings`; file, directory, path, encoding,
 // memory, and process operations are delegated to the package-private
 // implementation modules. Startup does not depend on a C CRT entry.
 
-pub(root) module bindings;
+pub module bindings;
 pub(root) module command;
 pub(root) module directory;
 pub(root) module encoding;
