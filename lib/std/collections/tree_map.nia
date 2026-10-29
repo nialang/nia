@@ -10,6 +10,7 @@ using root::cmp;
 using root::error;
 using root::mem;
 using root::iter;
+using root::option;
 
 // Minimum degree four: every non-root node has 3..7 keys and 4..8 children.
 const minKeys: usize = 3;
@@ -105,42 +106,24 @@ where K: Sized, V: Sized
 {
     let headerSize = root::builtin::size[TreeMapNode]();
     let headerAlign = root::builtin::align[TreeMapNode]();
-    let keyBytes = match root::builtin::size[K]().checkedMul(maxKeys) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let valueBytes = match root::builtin::size[V]().checkedMul(maxKeys) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let childBytes = match root::builtin::size[?&mut TreeMapNode]().checkedMul(maxChildren) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let keysOffset = match headerSize.alignForward(root::builtin::align[K]()) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let afterKeys = match keysOffset.checkedAdd(keyBytes) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let valuesOffset = match afterKeys.alignForward(root::builtin::align[V]()) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let afterValues = match valuesOffset.checkedAdd(valueBytes) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let childrenOffset = match afterValues.alignForward(root::builtin::align[?&mut TreeMapNode]()) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let totalSize = match childrenOffset.checkedAdd(childBytes) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
+    let keyBytes = root::builtin::size[K]().checkedMul(maxKeys)
+        .okOr(mem::Error::OutOfMemory).?;
+    let valueBytes = root::builtin::size[V]().checkedMul(maxKeys)
+        .okOr(mem::Error::OutOfMemory).?;
+    let childBytes = root::builtin::size[?&mut TreeMapNode]().checkedMul(maxChildren)
+        .okOr(mem::Error::OutOfMemory).?;
+    let keysOffset = headerSize.alignForward(root::builtin::align[K]())
+        .okOr(mem::Error::OutOfMemory).?;
+    let afterKeys = keysOffset.checkedAdd(keyBytes)
+        .okOr(mem::Error::OutOfMemory).?;
+    let valuesOffset = afterKeys.alignForward(root::builtin::align[V]())
+        .okOr(mem::Error::OutOfMemory).?;
+    let afterValues = valuesOffset.checkedAdd(valueBytes)
+        .okOr(mem::Error::OutOfMemory).?;
+    let childrenOffset = afterValues.alignForward(root::builtin::align[?&mut TreeMapNode]())
+        .okOr(mem::Error::OutOfMemory).?;
+    let totalSize = childrenOffset.checkedAdd(childBytes)
+        .okOr(mem::Error::OutOfMemory).?;
     let blockAlign = cmp::max(
         headerAlign,
         cmp::max(
@@ -388,10 +371,8 @@ where K: Sized + Ord[K], V: Sized
     }
 
     pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        let needed = match self.len.checkedAdd(additional) {
-            ?value => value,
-            null => return .OutOfMemory!,
-        };
+        let needed = self.len.checkedAdd(additional)
+            .okOr(mem::Error::OutOfMemory).?;
         if needed <= self.capacity {
             return !();
         }
@@ -426,10 +407,8 @@ where K: Sized + Ord[K], V: Sized
             nodeValuesMut[V](hit.node)[hit.index] = value;
             return !?old;
         }
-        let needed = match self.len.checkedAdd(1) {
-            ?value => value,
-            null => return .OutOfMemory!,
-        };
+        let needed = self.len.checkedAdd(1)
+            .okOr(mem::Error::OutOfMemory).?;
         self.ensureCapacity(allocator, needed).?;
         if self.rootNode is null {
             let rootNode = self.acquireNode(allocator, true).?;
