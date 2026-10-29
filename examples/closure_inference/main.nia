@@ -1,0 +1,20 @@
+// Generic callable closure inference.
+using std::mem;
+using std::process;
+
+pub fun callSupplier[T](supplier: &Fun() T) T {
+    supplier()
+}
+
+pub fun directInference() mem::Error {
+    callSupplier(\-> mem::Error::Leak)
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if directInference() == mem::Error::Leak {
+        !()
+    } else {
+        process::ExitCode(1)!
+    }
+}
