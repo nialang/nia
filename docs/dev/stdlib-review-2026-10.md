@@ -50,6 +50,21 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: `std_sort` and the loader's method-provider demand test confirm the public sorting API still resolves through `using std::slice`.
 - Status: completed as a focused source split; eager provider loading is an accepted consequence of the current import model.
 
+### H6 — Share integer presentation decoding
+
+- Files: `lib/std/fmt/primitive.nia`
+- Evidence: signed and unsigned formatting repeat the same five presentation-to-radix branches, differing only in the writer operation.
+- Result: decode the radix once through a private helper; keep signed/unsigned flag validation and output dispatch at their call sites. Uppercase remains an explicit property of `UpperHex`. Unsupported and unknown presentations still fail before output.
+- Validation: all 18 `emit_exe_io` tests pass, including primitive radices, sign/prefix padding, pointers, template errors, and invalid open-enum values.
+- Status: completed.
+
+### Formatting review conclusions
+
+- Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
+- Keep the open-enum validation matches in `FormatSpec::validate` and the alignment output matches: they enumerate supported states or select distinct effects. They are not optional/result plumbing.
+- Keep the template parser's indices: they represent character positions and argument-consumption order. Its decimal accumulation already composes checked operations with `andThen` and converts the error once.
+- No compiler defect was confirmed in this batch. Remaining counter-based output loops are candidates for a later iterator-focused pass; no further provider split is justified by this review.
+
 ### Review conclusions
 
 - The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
@@ -138,12 +153,12 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 ### `fmt`
 
-- [ ] `lib/std/fmt/formatter.nia`
-- [ ] `lib/std/fmt/integer.nia`
-- [ ] `lib/std/fmt/primitive.nia`
-- [ ] `lib/std/fmt/spec.nia`
-- [ ] `lib/std/fmt/template.nia`
-- [ ] `lib/std/fmt/traits.nia`
+- [x] `lib/std/fmt/formatter.nia`
+- [x] `lib/std/fmt/integer.nia`
+- [x] `lib/std/fmt/primitive.nia`
+- [x] `lib/std/fmt/spec.nia`
+- [x] `lib/std/fmt/template.nia`
+- [x] `lib/std/fmt/traits.nia`
 
 ### `fs`
 
@@ -273,6 +288,10 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 - [ ] `lib/std/string/hash.nia`
 
+### `slice`
+
+- [x] `lib/std/slice/order.nia`
+
 ### `top-level`
 
 - [ ] `lib/std/atomic.nia`
@@ -284,7 +303,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/crypto.nia`
 - [ ] `lib/std/cstring.nia`
 - [ ] `lib/std/error.nia`
-- [ ] `lib/std/fmt.nia`
+- [x] `lib/std/fmt.nia`
 - [ ] `lib/std/fs.nia`
 - [x] `lib/std/hash.nia`
 - [ ] `lib/std/io.nia`

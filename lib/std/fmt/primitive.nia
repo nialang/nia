@@ -3,6 +3,17 @@ using super::integer;
 using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};
 using super::traits::{Error, Format};
 
+fun radixFor(presentation: FormatPresentation) Error!u128 {
+    match presentation {
+        .Display => !10,
+        .LowerHex => !16,
+        .UpperHex => !16,
+        .Binary => !2,
+        .Octal => !8,
+        _ => .InvalidTemplate!,
+    }
+}
+
 fun formatSignedSpec(
     value: i128,
     formatter: &mut Formatter,
@@ -11,14 +22,13 @@ fun formatSignedSpec(
     if spec.hasPrecision() {
         return .InvalidTemplate!;
     }
-    match spec.presentation() {
-        .Display => formatter.writeSignedRadixSpec(value, 10, false, spec),
-        .LowerHex => formatter.writeSignedRadixSpec(value, 16, false, spec),
-        .UpperHex => formatter.writeSignedRadixSpec(value, 16, true, spec),
-        .Binary => formatter.writeSignedRadixSpec(value, 2, false, spec),
-        .Octal => formatter.writeSignedRadixSpec(value, 8, false, spec),
-        _ => .InvalidTemplate!,
-    }
+    let presentation = spec.presentation();
+    formatter.writeSignedRadixSpec(
+        value,
+        radixFor(presentation).?,
+        presentation == FormatPresentation::UpperHex,
+        spec,
+    )
 }
 
 fun formatUnsignedSpec(
@@ -29,14 +39,13 @@ fun formatUnsignedSpec(
     if spec.signPlus() or spec.hasPrecision() {
         return .InvalidTemplate!;
     }
-    match spec.presentation() {
-        .Display => formatter.writeUnsignedRadixSpec(value, 10, false, spec),
-        .LowerHex => formatter.writeUnsignedRadixSpec(value, 16, false, spec),
-        .UpperHex => formatter.writeUnsignedRadixSpec(value, 16, true, spec),
-        .Binary => formatter.writeUnsignedRadixSpec(value, 2, false, spec),
-        .Octal => formatter.writeUnsignedRadixSpec(value, 8, false, spec),
-        _ => .InvalidTemplate!,
-    }
+    let presentation = spec.presentation();
+    formatter.writeUnsignedRadixSpec(
+        value,
+        radixFor(presentation).?,
+        presentation == FormatPresentation::UpperHex,
+        spec,
+    )
 }
 
 fun formatTextSpec(
