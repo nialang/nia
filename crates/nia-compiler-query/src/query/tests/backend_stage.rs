@@ -2,6 +2,51 @@
 use super::*;
 
 #[test]
+fn backend_trait_headers_reuse_normalized_provider_facts() {
+    use nia_backend_lower::BackendProgramFacts;
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+trait Hash[H] { fun hash(&self, hasher: &mut H) (); }
+struct Sip[C: usize] {}
+type DefaultHasher = Sip[2];
+trait Accept { fun accept(&self) (); }
+struct Table[K] { key: K }
+extend[K] Table[K] : Accept where K: Hash[DefaultHasher] {
+    fun accept(&self) () {}
+}
+pub fun main() i32 { 0 }
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let db = query_db(fixture.freestanding_program());
+    let provider = db.expect_get(ExtensionTraitSolvingModuleFactsQuery(module_id));
+    let inputs = db.expect_get(BackendLoweringInputsQuery);
+    let inputs = inputs.semantic.as_ref().expect("valid backend inputs");
+    assert_eq!(inputs.trait_impls(), provider.trait_impls.as_slice());
+    let header = inputs.trait_impls().first().expect("Table implementation");
+    let predicate = header.where_predicates.first().expect("key constraint");
+    let type_store = &db.context().type_store;
+    let nia_ty::TyKind::Nominal { args, .. } =
+        type_store.get(predicate.bounds[0].trait_ty).unwrap()
+    else {
+        panic!("expected Hash trait");
+    };
+    let nia_ty::TyKind::Nominal { const_args, .. } = type_store.get(args[0]).unwrap() else {
+        panic!("expected canonical Sip target");
+    };
+    assert_eq!(
+        const_args.len(),
+        1,
+        "DefaultHasher must be expanded in published headers"
+    );
+    assert_eq!(
+        inputs.trait_impl_index().indexes_for_trait(header.trait_id),
+        &[0]
+    );
+}
+
+#[test]
 fn backend_lowering_uses_executable_per_item_ir() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

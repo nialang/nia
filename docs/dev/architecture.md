@@ -434,6 +434,27 @@ callee carries the complete identity required for instance planning; trait
 arguments, method arguments, const arguments, and receiver substitutions remain
 separate fields.
 
+Extension call instances carry the full declaration-order binder, including
+inherited extension parameters and method-owned parameters. Type and const
+arguments use independent cursors when reconstructing substitutions; a concrete
+type alias retains its own declaration binder rather than inheriting the binder
+of its expanded target.
+
+Source trait dispatch uses the trait solver to select an implementation. Backend
+materialization looks up the witness by the selected module, implementation,
+trait, and method identity; it does not repeat applicability or specificity
+selection. Body checking, reachability, and executable lowering consume the same
+provider-owned normalized implementation headers. Raw declaration facts are
+not a second source of solver input, and backend lowering does not merge local
+alias tables to repair unnormalized headers.
+
+Trait method contracts compare binders by position and parameter kind, including
+const parameter types. Method-owned binders are alpha-normalized before owner
+arguments are substituted, so impl arguments cannot be captured by identically
+named method parameters. Substitution covers parameters, return types, predicates,
+trait arguments, and associated type bindings. Predicate comparison ignores
+source spans and declaration order while preserving the required constraints.
+
 Expected-type adaptations are semantic facts as well. In particular, implicit
 address formation is recorded separately from pointer-array-to-slice views:
 `T -> &T` may create storage, while `&[T; N] -> &[T]` creates a slice view.

@@ -312,7 +312,7 @@ impl BackendValidator<'_> {
         let Some(module) = self.index.written_module(id.module_id) else {
             return;
         };
-        if !module.const_eval.array_lengths.contains_key(&id) {
+        if !module.const_eval.array_lengths.contains_key(id) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,

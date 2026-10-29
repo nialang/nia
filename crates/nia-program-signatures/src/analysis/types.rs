@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ids::{GlobalDefId, InternedTyId, TraitId};
-use nia_item_signatures::{FunctionSignature, ParamSignature, TraitImplSignature};
-use nia_symbol::SymbolMap;
+use nia_item_signatures::{FunctionSignature, GenericParamSignatureKind, TraitImplSignature};
+use nia_symbol::{SymbolId, SymbolMap, stable_hash};
 use nia_ty::{ArrayLenTy, ConstExprSummary, TyKind, TypeEquivalence, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 
@@ -182,6 +182,65 @@ impl SignatureTypeEquivalence<'_> {
     }
 }
 
+/// Binder names cannot capture inherited impl or trait parameters: these
+/// internal symbols cannot be written as Nia identifiers.
+fn alpha_normalize_trait_method_signature(
+    append: &TypeStoreAppend,
+    module: &ExtensionModuleInput<'_>,
+    type_store: &TypeStore,
+    signature: &FunctionSignature,
+) -> nia_ice::IceResult<FunctionSignature> {
+    let mut substitutions = SymbolMap::default();
+    let mut const_substitutions = SymbolMap::default();
+    let canonical_names = (0..signature.generic_params.len())
+        .map(|index| {
+            SymbolId::from_stable_hash(stable_hash(&format!("$trait-method-parameter:{index}")))
+        })
+        .collect::<Vec<_>>();
+    for (param, canonical) in signature.generic_params.iter().zip(&canonical_names) {
+        match param.kind {
+            GenericParamSignatureKind::Type => {
+                substitutions.insert(param.name, append.intern(TyKind::GenericParam(*canonical))?);
+            }
+            GenericParamSignatureKind::Const { ty } => {
+                const_substitutions.insert(
+                    param.name,
+                    nia_ty::ConstGenericArg {
+                        ty,
+                        value: nia_ty::ConstGenericValue::GenericParam(*canonical),
+                    },
+                );
+            }
+        }
+    }
+    let original_consts = const_substitutions.clone();
+    for arg in const_substitutions.values_mut() {
+        arg.ty = substitute_type(
+            append,
+            module,
+            type_store,
+            arg.ty,
+            &substitutions,
+            &original_consts,
+            TypeSubstitutionTarget::default(),
+        )?;
+    }
+    let mut normalized = substitute_function_signature(
+        append,
+        module,
+        type_store,
+        signature,
+        &substitutions,
+        &const_substitutions,
+        TypeSubstitutionTarget::default(),
+    )?;
+    for (param, canonical) in normalized.generic_params.iter_mut().zip(&canonical_names) {
+        param.name = *canonical;
+    }
+    normalized.generics = canonical_names;
+    Ok(normalized)
+}
+
 pub(super) fn lower_trait_method_signature(
     input: TraitMethodSubstitution<'_>,
 ) -> nia_ice::IceResult<Option<FunctionSignature>> {
@@ -202,37 +261,24 @@ pub(super) fn lower_trait_method_signature(
         }),
         self_ty: Some(input.self_ty),
     };
-    let mut signature = input.signature.clone();
-    signature.params = signature
-        .params
-        .iter()
-        .map(|param| {
-            Ok(ParamSignature {
-                name: param.name,
-                receiver: param.receiver,
-                ty: substitute_type(
-                    input.append,
-                    input.module,
-                    input.type_store,
-                    param.ty,
-                    &substitutions,
-                    &const_substitutions,
-                    target,
-                )?,
-                span: param.span,
-            })
-        })
-        .collect::<nia_ice::IceResult<_>>()?;
-    signature.return_type = substitute_type(
+    // Rename method-owned binders before substituting the owner environment.
+    // Otherwise an impl argument with the same spelling can be captured.
+    let signature = alpha_normalize_trait_method_signature(
         input.append,
         input.module,
         input.type_store,
-        signature.return_type,
+        input.signature,
+    )?;
+    substitute_function_signature(
+        input.append,
+        input.module,
+        input.type_store,
+        &signature,
         &substitutions,
         &const_substitutions,
         target,
-    )?;
-    Ok(Some(signature))
+    )
+    .map(Some)
 }
 
 pub(super) fn normalize_impl_method_signature(
@@ -250,36 +296,66 @@ pub(super) fn normalize_impl_method_signature(
         }),
         self_ty: Some(input.self_ty),
     };
-    let mut signature = input.signature.clone();
-    signature.params = signature
-        .params
-        .iter()
-        .map(|param| {
-            Ok(ParamSignature {
-                name: param.name,
-                receiver: param.receiver,
-                ty: substitute_type(
-                    input.append,
-                    input.module,
-                    input.type_store,
-                    param.ty,
-                    &substitutions,
-                    &const_substitutions,
-                    target,
-                )?,
-                span: param.span,
-            })
-        })
-        .collect::<nia_ice::IceResult<_>>()?;
-    signature.return_type = substitute_type(
+    // Rename method-owned binders before substituting the owner environment.
+    // Otherwise an impl argument with the same spelling can be captured.
+    let signature = alpha_normalize_trait_method_signature(
         input.append,
         input.module,
         input.type_store,
-        signature.return_type,
+        input.signature,
+    )?;
+    substitute_function_signature(
+        input.append,
+        input.module,
+        input.type_store,
+        &signature,
         &substitutions,
         &const_substitutions,
         target,
-    )?;
+    )
+}
+
+/// Applies one environment to every type-bearing part of a callable contract.
+/// Bounds and const parameter types must use the same environment as values.
+pub(super) fn substitute_function_signature(
+    append: &TypeStoreAppend,
+    module: &ExtensionModuleInput<'_>,
+    type_store: &TypeStore,
+    signature: &FunctionSignature,
+    substitutions: &SymbolMap<InternedTyId>,
+    const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    target: TypeSubstitutionTarget<'_>,
+) -> nia_ice::IceResult<FunctionSignature> {
+    let substitute = |ty| {
+        substitute_type(
+            append,
+            module,
+            type_store,
+            ty,
+            substitutions,
+            const_substitutions,
+            target,
+        )
+    };
+    let mut signature = signature.clone();
+    for param in &mut signature.generic_params {
+        if let GenericParamSignatureKind::Const { ty } = &mut param.kind {
+            *ty = substitute(*ty)?;
+        }
+    }
+    for param in &mut signature.params {
+        param.ty = substitute(param.ty)?;
+    }
+    signature.return_type = substitute(signature.return_type)?;
+    for predicate in &mut signature.where_predicates {
+        predicate.ty = substitute(predicate.ty)?;
+        for bound in &mut predicate.bounds {
+            bound.trait_ty = substitute(bound.trait_ty)?;
+            for binding in &mut bound.associated_type_bindings {
+                binding.ty = substitute(binding.ty)?;
+            }
+        }
+    }
     Ok(signature)
 }
 

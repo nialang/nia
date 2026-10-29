@@ -22,8 +22,6 @@ pub struct ModuleProgramSignatureFacts {
     pub traits: HashMap<GlobalDefId, ProgramTraitSignature>,
     /// Type-alias signatures keyed by global definition id.
     pub type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-    /// Program-qualified trait implementations.
-    pub trait_impls: Vec<ProgramTraitImplSignature>,
 }
 
 /// Collects all program-qualified signature facts for one module.
@@ -50,7 +48,6 @@ pub fn collect_module_program_signature_facts(
         enums: collect_program_enums(&modules),
         traits: collect_program_traits(&modules),
         type_aliases: collect_program_type_aliases(&modules),
-        trait_impls: collect_program_trait_impls(&modules),
     }
 }
 
@@ -286,7 +283,7 @@ pub fn collect_program_type_aliases(
 }
 
 /// Collects non-builtin trait implementations from the supplied modules.
-pub fn collect_program_trait_impls(
+pub(super) fn collect_program_trait_impls(
     modules: &[ModuleSignatureInput<'_>],
 ) -> Vec<ProgramTraitImplSignature> {
     let mut trait_impls = Vec::new();

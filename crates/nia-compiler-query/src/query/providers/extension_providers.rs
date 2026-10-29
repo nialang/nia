@@ -56,7 +56,7 @@ pub(super) fn provide_extension_provider_discovery_index(
     }
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
-        let mut nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
+        let mut nominal_summaries = Vec::new();
         let mut method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         let mut trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
@@ -65,12 +65,7 @@ pub(super) fn provide_extension_provider_discovery_index(
                 continue;
             }
             provider_modules.push(module_id);
-            for name in summary.nominal_provider_index_names() {
-                nominal_candidates_by_name
-                    .entry(name)
-                    .or_default()
-                    .push(module_id);
-            }
+            nominal_summaries.push((module_id, summary.as_ref().clone()));
             for name in summary.method_index_names() {
                 method_candidates_by_name
                     .entry(name)
@@ -86,10 +81,8 @@ pub(super) fn provide_extension_provider_discovery_index(
         }
         provider_modules.sort();
         provider_modules.dedup();
-        for modules in nominal_candidates_by_name.values_mut() {
-            modules.sort();
-            modules.dedup();
-        }
+        let nominal_candidates =
+            nia_provider_summary::NominalProviderCandidateIndex::from_summaries(nominal_summaries);
         for modules in method_candidates_by_name.values_mut() {
             modules.sort();
             modules.dedup();
@@ -100,7 +93,7 @@ pub(super) fn provide_extension_provider_discovery_index(
         }
         Ok(ExtensionProviderDiscoveryIndexQueryValue {
             provider_modules,
-            nominal_candidates_by_name,
+            nominal_candidates,
             method_candidates_by_name,
             trait_impl_candidates_by_name,
         })
@@ -493,14 +486,7 @@ pub(super) fn provide_extension_provider_nominal_candidate_modules(
         "extension_provider_nominal_candidate_modules",
         || {
             let discovery = db.get(ExtensionProviderDiscoveryIndexQuery)?;
-            let mut modules = Vec::new();
-            for name in names.0 {
-                if let Some(candidates) = discovery.nominal_candidates_by_name.get(&name) {
-                    modules.extend(candidates.iter().copied());
-                }
-            }
-            modules.sort();
-            modules.dedup();
+            let modules = discovery.nominal_candidates.candidates(names.as_slice());
             Ok(ExtensionProviderNominalCandidateModulesQueryValue { modules })
         },
     )

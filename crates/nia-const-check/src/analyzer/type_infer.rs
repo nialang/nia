@@ -1761,11 +1761,11 @@ impl Analyzer<'_> {
 
     pub(super) fn eval_array_len_const_expr_id(&mut self, id: &GlobalConstExprId) -> Option<u64> {
         let expr = if id.module_id == self.input.defs.module_id {
-            self.input.module.const_exprs().get(&id)?.clone()
+            self.input.module.const_exprs().get(id)?.clone()
         } else {
             (self.input.program.module?)(id.module_id)?
                 .const_exprs()
-                .get(&id)?
+                .get(id)?
                 .clone()
         };
         let value = self.with_execution_module(id.module_id, |this| {
@@ -2516,18 +2516,18 @@ impl Analyzer<'_> {
             Some(TyKind::Primitive(PrimitiveTy::Usize))
         ) && let Some(value) = self
             .array_lengths
-            .get(&id)
+            .get(id)
             .copied()
-            .or_else(|| self.eval_array_len_const_expr_id(&id))
+            .or_else(|| self.eval_array_len_const_expr_id(id))
         {
             return Some(ConstGenericValue::Int(IntConst::unsigned(value.into())));
         }
         let expr = if id.module_id == self.input.defs.module_id {
-            self.input.module.const_exprs().get(&id)?.clone()
+            self.input.module.const_exprs().get(id)?.clone()
         } else {
             (self.input.program.module?)(id.module_id)?
                 .const_exprs()
-                .get(&id)?
+                .get(id)?
                 .clone()
         };
         self.with_execution_module(id.module_id, |this| {

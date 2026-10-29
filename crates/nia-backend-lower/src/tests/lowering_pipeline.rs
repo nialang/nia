@@ -261,13 +261,21 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         .iter()
         .map(|(def_id, init)| (*def_id, init.as_ref()))
         .collect::<HashMap<_, _>>();
-    let program = TestBackendProgramFacts::new(
+    mutate_signatures(&mut signatures, &defs);
+    let mut program = TestBackendProgramFacts::new(
         module_id,
         program_const,
         program_function_bodies,
         program_static_inits,
     );
-    mutate_signatures(&mut signatures, &defs);
+    program.set_signature_facts(
+        module_id,
+        &type_store,
+        &defs,
+        &type_lowering,
+        &signatures,
+        &normalization,
+    );
 
     let input = BackendLowerModuleInput {
         module_id,

@@ -6,6 +6,117 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn emit_exe_const_generic_alias_extensions_keep_trait_instances_distinct() {
+    let root = temp_dir("emit_exe_const_generic_alias_extensions");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        root.join("hashing.nia"),
+        r#"
+using root::traits::{Hasher, Hash};
+pub struct Sip[C: usize, D: usize] { value: u64 }
+pub type One = Sip[1, 3];
+pub type Two = Sip[2, 4];
+extend[C: usize, D: usize] Sip[C, D] {
+    pub fun init() Self { .{ value: 0 } }
+    pub fun identity(value: Self) Self { value }
+    pub fun hash[T](value: T) u64 where T: Hash[Sip[C, D]] {
+        let mut hasher: Self = .init();
+        value.hash(hasher);
+        hasher.finish()
+    }
+}
+extend[C: usize, D: usize] Sip[C, D] : Hasher {
+    pub fun write(&mut self, value: u64) () { self.value += value + C as u64; }
+    pub fun finish(&self) u64 { self.value + D as u64 }
+    pub fun tagged[T, N: usize](&self, value: &T) u64 where T: Sized {
+        _ = value;
+        self.value + N as u64 + C as u64 + D as u64
+    }
+}
+"#,
+    )
+    .expect("write hashing module");
+    std::fs::write(
+        root.join("traits.nia"),
+        r#"
+pub trait Hasher {
+    fun write(&mut self, value: u64) ();
+    fun finish(&self) u64;
+    fun tagged[U, M: usize](&self, value: &U) u64 where U: Sized;
+}
+pub trait Hash[H] where H: Hasher { fun hash(&self, hasher: &mut H) (); }
+"#,
+    )
+    .expect("write traits module");
+    std::fs::write(
+        root.join("impls.nia"),
+        r#"
+using root::traits::{Hasher, Hash};
+extend[H] u64 : Hash[H] where H: Hasher {
+    pub fun hash(&self, hasher: &mut H) () { hasher.write(self.*); }
+}
+pub fun tag[H, T, N: usize](hasher: &H, value: &T) u64 where H: Hasher {
+    hasher.tagged[T, N](value)
+}
+"#,
+    )
+    .expect("write impls module");
+    std::fs::write(
+        &main,
+        r#"
+module hashing;
+module facade;
+module traits;
+module impls;
+using root::facade as hashing;
+using std::process;
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut one = hashing::One::identity(hashing::One::init());
+    one.write(3);
+    let mut two = hashing::Two::init();
+    two.write(4);
+    if one.finish() != 7 or two.finish() != 10 { return process::ExitCode(2)!; }
+    if impls::tag[hashing::One, i32, 5](one, 0) != 13
+        or impls::tag[hashing::Two, i32, 5](two, 0) != 17
+    {
+        return process::ExitCode(3)!;
+    }
+    if hashing::One::hash(3u64) != 7 or hashing::Two::hash(4u64) != 10 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write entry");
+    std::fs::write(
+        root.join("facade.nia"),
+        "pub using root::hashing::{One, Two};",
+    )
+    .expect("write facade");
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit const generic alias extensions");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        Command::new(&exe)
+            .status_timeout("run const generic alias extensions")
+            .code(),
+        Some(0)
+    );
+}
+
+#[test]
 fn emit_exe_specializes_user_trait_impls_independent_of_declaration_order() {
     let root = temp_dir("emit_exe_specializes_user_trait_impls");
     let main = root.join("main.nia");

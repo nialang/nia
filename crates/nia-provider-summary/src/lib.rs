@@ -83,6 +83,7 @@ pub enum NominalProviderCandidate {
 /// Stable module index keyed by definite nominal provider names.
 pub struct NominalProviderCandidateIndex<M> {
     named: SymbolMap<Vec<M>>,
+    conservative: Vec<M>,
 }
 
 impl<M> NominalProviderCandidateIndex<M>
@@ -94,10 +95,14 @@ where
         summaries: impl IntoIterator<Item = (M, ProviderSummary)>,
     ) -> NominalProviderCandidateIndex<M> {
         let mut named: SymbolMap<Vec<M>> = SymbolMap::default();
+        let mut conservative = Vec::new();
         for (module, summary) in summaries {
-            for provider in &summary.providers {
-                if let Some(name) = provider.target.ty.nominal_provider_index_name() {
-                    named.entry(*name).or_default().push(module);
+            for candidate in summary.nominal_provider_candidates() {
+                match candidate {
+                    NominalProviderCandidate::Named(name) => {
+                        named.entry(name).or_default().push(module);
+                    }
+                    NominalProviderCandidate::Conservative => conservative.push(module),
                 }
             }
         }
@@ -105,12 +110,29 @@ where
             modules.sort();
             modules.dedup();
         }
-        NominalProviderCandidateIndex { named }
+        conservative.sort();
+        conservative.dedup();
+        NominalProviderCandidateIndex {
+            named,
+            conservative,
+        }
     }
 
     /// Returns modules that may provide the requested nominal name.
     pub fn named(&self, name: &SymbolId) -> &[M] {
         self.named.get(name).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Returns every possible module for these names. Syntax cannot exclude
+    /// unresolved aliases; semantic facts decide their canonical identity.
+    pub fn candidates(&self, names: &[SymbolId]) -> Vec<M> {
+        let mut modules = self.conservative.clone();
+        for name in names {
+            modules.extend_from_slice(self.named(name));
+        }
+        modules.sort();
+        modules.dedup();
+        modules
     }
 
     /// Iterates all indexed modules in key order.
@@ -244,18 +266,6 @@ impl ProviderSummary {
             }
         });
         candidates
-    }
-
-    /// Returns sorted definite names used by the nominal provider index.
-    pub fn nominal_provider_index_names(&self) -> Vec<SymbolId> {
-        let mut names = self
-            .providers
-            .iter()
-            .filter_map(|provider| provider.target.ty.nominal_provider_index_name().cloned())
-            .collect::<Vec<_>>();
-        names.sort();
-        names.dedup();
-        names
     }
 
     /// Returns sorted method names declared by providers.
@@ -565,19 +575,15 @@ impl ProviderTypeRef {
     }
 
     fn semantic_nominal_provider_candidate(&self) -> NominalProviderCandidate {
-        if self.semantic_is_conservative {
+        // A qualified path is useful as a loading hint, but its terminal
+        // name cannot establish canonical nominal identity: it may name
+        // an alias or reexport in another module.
+        if self.semantic_is_conservative || !self.target_is_local_nominal {
             return NominalProviderCandidate::Conservative;
         }
         self.last_name
             .map(NominalProviderCandidate::Named)
             .unwrap_or(NominalProviderCandidate::Conservative)
-    }
-
-    fn nominal_provider_index_name(&self) -> Option<&SymbolId> {
-        if self.is_generic_or_structural_target {
-            return None;
-        }
-        self.last_name.as_ref()
     }
 
     fn is_definite_semantic_name(&self) -> bool {
@@ -913,8 +919,6 @@ extend[T] Values[T] : Show {}
             "using dep::types; using dep::traits; extend types::Widget : traits::Show {}",
         );
         assert!(summary.defines_trait_impl(Some(&sym("Widget")), &sym("Show"), &[], None));
-        // Qualified paths retain their terminal identity; only imported
-        // single-segment aliases remain conservative.
         assert!(!summary.defines_trait_impl(None, &sym("Show"), &[], None));
         assert!(!summary.defines_trait_impl(Some(&sym("Other")), &sym("Show"), &[], None));
         assert!(!summary.defines_trait_impl(Some(&sym("Widget")), &sym("Other"), &[], None));
@@ -1022,6 +1026,23 @@ extend Alias {
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
         assert!(index.named(&sym("Alias")).is_empty());
         assert_eq!(index.named(&sym("Used")), &[0usize]);
+    }
+
+    #[test]
+    fn nominal_candidates_preserve_unresolved_aliases_and_deduplicate_modules() {
+        let qualified = summary_for("extend types::Alias { pub fun make() () {} }");
+        let imported = summary_for("extend Alias { pub fun make() () {} }");
+        let local = summary_for("struct Used {} extend Used { pub fun make() () {} }");
+        let unrelated = summary_for("struct Other {} extend Other { pub fun make() () {} }");
+        let index = NominalProviderCandidateIndex::from_summaries([
+            (3usize, qualified.clone()),
+            (1, imported),
+            (2, local),
+            (4, unrelated),
+            (3, qualified),
+        ]);
+        assert_eq!(index.candidates(&[sym("Used"), sym("Used")]), vec![1, 2, 3]);
+        assert_eq!(index.candidates(&[sym("Unknown")]), vec![1, 3]);
     }
 
     #[test]

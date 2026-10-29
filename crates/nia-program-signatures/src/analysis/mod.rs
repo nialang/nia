@@ -35,6 +35,7 @@ mod tests;
 mod types;
 mod visible;
 
+use facts::collect_program_trait_impls;
 pub use facts::*;
 use types::*;
 pub use visible::*;
@@ -2257,13 +2258,17 @@ fn trait_method_signature_matches(
             nia_item_signatures::FunctionAttribute::TrackCaller
         )
     });
-    if input.required.generics != input.actual.generics
-        || input.required.where_predicates != input.actual.where_predicates
-        || input.required.params.len() != input.actual.params.len()
+    let required = input.required;
+    let actual = input.actual;
+    if !trait_method_generic_params_match(
+        &mut solver,
+        &required.generic_params,
+        &actual.generic_params,
+    )? || required.params.len() != actual.params.len()
     {
         return Ok(false);
     }
-    for (required, actual) in input.required.params.iter().zip(input.actual.params.iter()) {
+    for (required, actual) in required.params.iter().zip(actual.params.iter()) {
         if required.receiver != actual.receiver
             || !solver.types_equivalent(required.ty, actual.ty)?
         {
@@ -2271,10 +2276,131 @@ fn trait_method_signature_matches(
         }
     }
     Ok(
-        solver.types_equivalent(input.required.return_type, input.actual.return_type)?
-            && input.required.is_variadic == input.actual.is_variadic
+        solver.types_equivalent(required.return_type, actual.return_type)?
+            && trait_method_where_predicates_match(
+                &mut solver,
+                &required.where_predicates,
+                &actual.where_predicates,
+            )?
+            && required.is_variadic == actual.is_variadic
             && (!actual_tracks_caller || required_tracks_caller),
     )
+}
+
+fn trait_method_generic_params_match(
+    solver: &mut nia_trait_solve::TraitSolver<'_>,
+    required: &[GenericParamSignature],
+    actual: &[GenericParamSignature],
+) -> nia_ice::IceResult<bool> {
+    if required.len() != actual.len() {
+        return Ok(false);
+    }
+    for (required, actual) in required.iter().zip(actual) {
+        match (&required.kind, &actual.kind) {
+            (GenericParamSignatureKind::Type, GenericParamSignatureKind::Type) => {}
+            (
+                GenericParamSignatureKind::Const { ty: required_ty },
+                GenericParamSignatureKind::Const { ty: actual_ty },
+            ) if solver.types_equivalent(*required_ty, *actual_ty)? => {}
+            _ => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+fn trait_method_where_predicates_match(
+    solver: &mut nia_trait_solve::TraitSolver<'_>,
+    required: &[WherePredicateSignature],
+    actual: &[WherePredicateSignature],
+) -> nia_ice::IceResult<bool> {
+    if required.len() != actual.len() {
+        return Ok(false);
+    }
+    let mut matched = vec![false; actual.len()];
+    for required_predicate in required {
+        let mut found = None;
+        for (index, actual_predicate) in actual.iter().enumerate() {
+            if matched[index]
+                || !solver.types_equivalent(required_predicate.ty, actual_predicate.ty)?
+                || !trait_method_where_bounds_match(
+                    solver,
+                    &required_predicate.bounds,
+                    &actual_predicate.bounds,
+                )?
+            {
+                continue;
+            }
+            found = Some(index);
+            break;
+        }
+        let Some(index) = found else {
+            return Ok(false);
+        };
+        matched[index] = true;
+    }
+    Ok(true)
+}
+
+fn trait_method_where_bounds_match(
+    solver: &mut nia_trait_solve::TraitSolver<'_>,
+    required: &[WhereBoundSignature],
+    actual: &[WhereBoundSignature],
+) -> nia_ice::IceResult<bool> {
+    if required.len() != actual.len() {
+        return Ok(false);
+    }
+    let mut matched = vec![false; actual.len()];
+    for required_bound in required {
+        let mut found = None;
+        for (index, actual_bound) in actual.iter().enumerate() {
+            if matched[index]
+                || !solver.types_equivalent(required_bound.trait_ty, actual_bound.trait_ty)?
+                || !trait_method_associated_bindings_match(
+                    solver,
+                    &required_bound.associated_type_bindings,
+                    &actual_bound.associated_type_bindings,
+                )?
+            {
+                continue;
+            }
+            found = Some(index);
+            break;
+        }
+        let Some(index) = found else {
+            return Ok(false);
+        };
+        matched[index] = true;
+    }
+    Ok(true)
+}
+
+fn trait_method_associated_bindings_match(
+    solver: &mut nia_trait_solve::TraitSolver<'_>,
+    required: &[AssociatedTypeBindingSignature],
+    actual: &[AssociatedTypeBindingSignature],
+) -> nia_ice::IceResult<bool> {
+    if required.len() != actual.len() {
+        return Ok(false);
+    }
+    let mut matched = vec![false; actual.len()];
+    for required_binding in required {
+        let mut found = None;
+        for (index, actual_binding) in actual.iter().enumerate() {
+            if matched[index]
+                || required_binding.name != actual_binding.name
+                || !solver.types_equivalent(required_binding.ty, actual_binding.ty)?
+            {
+                continue;
+            }
+            found = Some(index);
+            break;
+        }
+        let Some(index) = found else {
+            return Ok(false);
+        };
+        matched[index] = true;
+    }
+    Ok(true)
 }
 
 #[derive(Clone, Copy)]

@@ -171,13 +171,6 @@ impl<'input> BackendTypeContext<'input> {
             .flatten()
     }
 
-    pub(crate) fn type_substitutions(
-        &self,
-        substitutions: TypeSubstitutionId,
-    ) -> Option<&SymbolMap<InternedTyId>> {
-        self.type_substitutions.get(substitutions.0)
-    }
-
     pub(crate) fn const_substitution(
         &self,
         substitutions: TypeSubstitutionId,

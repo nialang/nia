@@ -764,25 +764,25 @@ impl<'a> ModuleLowerer<'a> {
             .collect()
     }
 
-    pub(crate) fn substitute_where_predicate(
+    pub(crate) fn instantiate_where_predicate(
         &mut self,
         predicate: &nia_item_signatures::WherePredicateSignature,
-        substitutions: &SymbolMap<InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> nia_item_signatures::WherePredicateSignature {
         nia_item_signatures::WherePredicateSignature {
-            ty: self.instantiate_ty(predicate.ty, substitutions),
+            ty: self.instantiate_ty_with_id(predicate.ty, substitutions),
             bounds: predicate
                 .bounds
                 .iter()
                 .map(|bound| nia_item_signatures::WhereBoundSignature {
-                    trait_ty: self.instantiate_ty(bound.trait_ty, substitutions),
+                    trait_ty: self.instantiate_ty_with_id(bound.trait_ty, substitutions),
                     associated_type_bindings: bound
                         .associated_type_bindings
                         .iter()
                         .map(
                             |binding| nia_item_signatures::AssociatedTypeBindingSignature {
                                 name: binding.name,
-                                ty: self.instantiate_ty(binding.ty, substitutions),
+                                ty: self.instantiate_ty_with_id(binding.ty, substitutions),
                                 span: binding.span,
                             },
                         )

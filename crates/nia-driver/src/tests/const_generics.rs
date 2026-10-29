@@ -2,6 +2,66 @@
 use super::common::*;
 
 #[test]
+fn generic_nominal_extension_methods_materialize_const_instances() {
+    let root = temp_dir("generic_nominal_extension_methods_materialize_const_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+module hashing;
+using root::hashing;
+
+fun main() u64 {
+    let mut one = hashing::One::identity(hashing::One::init());
+    one.write(3);
+    let mut two = hashing::Two::init();
+    two.write(4);
+    _ = one.finish() + two.finish();
+    hashing::One::hash(3u64) + hashing::Two::hash(4u64)
+}
+"#,
+    );
+    write(
+        &root.join("hashing.nia"),
+        r#"
+pub trait Hasher { fun write(&mut self, value: u64) (); fun finish(&self) u64; }
+pub trait Hash[H] where H: Hasher { fun hash(&self, hasher: &mut H) (); }
+pub struct Sip[C: usize, D: usize] { value: u64 }
+pub type One = Sip[1, 3];
+pub type Two = Sip[2, 4];
+
+extend[C: usize, D: usize] Sip[C, D] {
+    pub fun init() Self { .{ value: 0 } }
+    pub fun identity(value: Self) Self { value }
+    pub fun hash[T](value: T) u64 where T: Hash[Sip[C, D]] {
+        let mut hasher: Self = .init();
+        value.hash(hasher);
+        hasher.finish()
+    }
+}
+extend[C: usize, D: usize] Sip[C, D] : Hasher {
+    pub fun write(&mut self, value: u64) () { self.value += value + C as u64; }
+    pub fun finish(&self) u64 { self.value + D as u64 }
+}
+extend[H] u64 : Hash[H] where H: Hasher {
+    pub fun hash(&self, hasher: &mut H) () { hasher.write(self.*); }
+}
+"#,
+    );
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+    let hashes = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.function_instances)
+        .filter(|instance| instance.name == sym("hash") && instance.const_args.len() == 2)
+        .collect::<Vec<_>>();
+    assert_eq!(hashes.len(), 2, "{hashes:?}");
+    assert_ne!(hashes[0].const_args, hashes[1].const_args);
+}
+
+#[test]
 fn const_generic_supertrait_projection_substitutes_array_lengths() {
     let root = temp_dir("const_generic_supertrait_projection_substitutes_array_lengths");
     write(

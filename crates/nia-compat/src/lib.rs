@@ -485,10 +485,10 @@ pub mod formats {
         PersistedFormat::new("frontend-module-dependencies", b"NIAFMD\0\x03");
     /// Persisted provider candidate summary.
     pub const FRONTEND_PROVIDER_SUMMARY: PersistedFormat =
-        PersistedFormat::new("frontend-provider-summary", b"NIAFPS\0\x05");
+        PersistedFormat::new("frontend-provider-summary", b"NIAFPS\0\x06");
     /// Persisted fixed-point provider demand plan.
     pub const FRONTEND_PROVIDER_DEMAND_PLAN: PersistedFormat =
-        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD\0\x04");
+        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD\0\x05");
     /// Persisted module public-surface facts.
     pub const FRONTEND_PUBLIC_SURFACE_FACTS: PersistedFormat =
         PersistedFormat::new("frontend-public-surface-facts", b"NIAFPF\0\0");

@@ -234,15 +234,8 @@ impl<'a> BodyChecker<'a> {
                 const_args,
             } => {
                 let signature = self.resolved_function_signature(def_id)?.signature;
-                let (mut substitutions, const_substitutions) =
-                    self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
-                if substitutions.len() < args.len() {
-                    // Some callable definitions inherit effective type
-                    // parameters from their owner. Def-local parameters alone
-                    // cannot map every resolved argument in that case.
-                    let effective_generics = self.effective_generics_for_def(def_id);
-                    substitutions = self.generic_substitutions(&effective_generics, &args);
-                }
+                let (substitutions, const_substitutions) =
+                    self.call_substitutions(def_id, &signature, &args, &const_args);
                 Some(
                     signature
                         .params
@@ -265,14 +258,18 @@ impl<'a> BodyChecker<'a> {
             } => {
                 let signature = self.resolved_function_signature(def_id)?.signature;
                 let (mut substitutions, const_substitutions) =
-                    self.method_substitutions(def_id, &signature, &args, &const_args);
+                    self.call_substitutions(def_id, &signature, &args, &const_args);
                 let receiver_ty = signature
                     .params
                     .first()
                     .and_then(|param| param.receiver)
                     .and_then(|receiver| {
-                        let self_ty =
-                            self.method_self_target_ty(def_id, &signature, &substitutions)?;
+                        let self_ty = self.method_self_target_ty(
+                            def_id,
+                            &signature,
+                            &substitutions,
+                            &const_substitutions,
+                        )?;
                         let receiver_ty = self.receiver_ty_for_target(self_ty, receiver);
                         self.non_error_ty(receiver_ty)
                     });
@@ -358,7 +355,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn method_substitutions(
+    /// Rebuilds the full callable binder, including inherited extension
+    /// parameters. Instance arguments are split by kind, not declaration slot.
+    fn call_substitutions(
         &mut self,
         def_id: nia_ids::GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
@@ -368,19 +367,22 @@ impl<'a> BodyChecker<'a> {
         SymbolMap<nia_ids::InternedTyId>,
         SymbolMap<nia_ty::ConstGenericArg>,
     ) {
-        let mut result = self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
         let generics = self.effective_generics_for_def(def_id);
-        if result.0.len() < args.len() {
-            result.0 = self.generic_substitutions(&generics, args);
-            for (generic, arg) in signature
-                .generics
-                .iter()
-                .zip(args.iter().skip(generics.len()))
-            {
-                result.0.entry(*generic).or_insert(*arg);
+        let effective_const_generics = self.effective_const_generics_for_def(def_id, signature);
+        let mut type_args = args.iter().copied();
+        let mut const_args = const_args.iter().cloned();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
+        for generic in generics {
+            if effective_const_generics.contains(&generic) {
+                if let Some(arg) = const_args.next() {
+                    const_substitutions.insert(generic, arg);
+                }
+            } else if let Some(arg) = type_args.next() {
+                substitutions.insert(generic, arg);
             }
         }
-        result
+        (substitutions, const_substitutions)
     }
 
     fn method_self_target_ty(
@@ -388,15 +390,17 @@ impl<'a> BodyChecker<'a> {
         def_id: nia_ids::GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
         substitutions: &SymbolMap<nia_ids::InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) -> Option<nia_ids::InternedTyId> {
         if let Some(owner_ty) = self.method_owner_type_by_global(def_id) {
-            let ty = self.substitute_generics(owner_ty, substitutions);
+            let ty =
+                self.substitute_generics_and_consts(owner_ty, substitutions, const_substitutions);
             let ty = self.normalize_projection(ty);
             let ty = self.normalize_aliases_in_type(ty);
             return self.non_error_ty(ty);
         }
         let ty = signature.params.first()?.ty;
-        let ty = self.substitute_generics(ty, substitutions);
+        let ty = self.substitute_generics_and_consts(ty, substitutions, const_substitutions);
         self.non_error_ty(ty)
     }
 

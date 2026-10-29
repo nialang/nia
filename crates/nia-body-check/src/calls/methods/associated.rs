@@ -558,6 +558,7 @@ impl<'a> BodyChecker<'a> {
         let (nominal_def_id, mut type_args, mut const_args) = self.type_prefix_instance(ty_expr)?;
         if type_args.is_empty()
             && const_args.is_empty()
+            && !self.nominal_type_prefix_has_no_generics(nominal_def_id)
             && let Some(expected) = expected
             && let Some(prefix_ty) = self.associated_nominal_generic_target_ty(nominal_def_id)
             && let Some(nia_ty::TyKind::Nominal {
@@ -718,8 +719,13 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: GlobalDefId,
     ) -> bool {
-        self.nominal_type_generics(def_id)
-            .map(|generics| generics.is_empty())
+        // `nominal_type_generics` is a resolved layout view and intentionally
+        // does not describe aliases.  Associated-call inference needs the
+        // declaration binder: a non-generic alias such as `One = Sip[1, 3]`
+        // is already a concrete target and must not be mistaken for an
+        // omitted generic nominal.
+        self.generic_params_for_nominal_def(def_id)
+            .map(|params| params.is_empty())
             .unwrap_or(false)
     }
 

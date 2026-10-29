@@ -309,11 +309,19 @@ pub fun main() i32 {
         .iter()
         .map(|(def_id, init)| (*def_id, init.as_ref()))
         .collect::<HashMap<_, _>>();
-    let program = TestBackendProgramFacts::new(
+    let mut program = TestBackendProgramFacts::new(
         module_id,
         program_const,
         program_function_bodies,
         program_static_inits,
+    );
+    program.set_signature_facts(
+        module_id,
+        &type_store,
+        &defs,
+        &type_lowering,
+        &signatures,
+        &normalization,
     );
     let function_instance_plan = Vec::new();
 

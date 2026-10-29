@@ -2,6 +2,95 @@
 use super::common::*;
 
 #[test]
+fn trait_method_contracts_use_semantic_binders_and_substituted_bounds() {
+    let root = temp_dir("trait_method_semantic_contracts");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Related[T] {}
+trait Convert[A] {
+    fun convert[U, N: usize](&self, value: [U; N]) [U; N]
+    where U: Sized + Related[A];
+}
+struct Converter {}
+extend Converter : Convert[i32] {
+    fun convert[T, M: usize](&self, value: [T; M]) [T; M]
+    where T: Related[i32] + Sized { value }
+}
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn trait_method_binders_do_not_capture_impl_arguments() {
+    let root = temp_dir("trait_method_binder_capture");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Convert[A, L: usize] {
+    fun convert[T, N: usize](&self, value: T, outer: [A; L]) [T; N];
+}
+struct Converter[T, N: usize] {}
+extend[T, N: usize] Converter[T, N] : Convert[T, N] {
+    fun convert[U, M: usize](&self, value: U, outer: [T; N]) [U; M] {
+        _ = outer;
+        [value; M]
+    }
+}
+fun main() i32 {
+    let converter: Converter[u8, 2] = .{};
+    let result = converter.convert[i32, 3](7, [1u8; 2]);
+    result[0]
+}
+"#,
+    );
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn trait_method_contracts_reject_different_bounds_kinds_and_const_types() {
+    let root = temp_dir("trait_method_contract_mismatches");
+    for (required, actual) in [
+        (
+            "fun check[T](&self) () where T: Sized;",
+            "fun check[T](&self) () where T: Sized + Marker {}",
+        ),
+        (
+            "fun check[N: usize](&self) ();",
+            "fun check[N: u32](&self) () {}",
+        ),
+        (
+            "fun check[T](&self) ();",
+            "fun check[T: usize](&self) () {}",
+        ),
+        (
+            "fun check[T](&self, value: T) T;",
+            "fun check[T](&self, value: T) i32 { _ = value; 0 }",
+        ),
+    ] {
+        write(
+            &root.join("main.nia"),
+            &format!(
+                "trait Marker {{}} trait Contract {{ {required} }} struct S {{}} extend S : Contract {{ {actual} }} fun main() i32 {{ 0 }}"
+            ),
+        );
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("does not match the trait signature")),
+            "required: {required}, actual: {actual}, diagnostics: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
 fn trait_impl_methods_are_checked_against_trait_requirements() {
     let root = temp_dir("trait_impl_methods_are_checked_against_trait_requirements");
     write(

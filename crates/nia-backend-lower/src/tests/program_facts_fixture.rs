@@ -53,6 +53,56 @@ impl<'a> TestBackendProgramFacts<'a> {
             trait_impl_index: nia_item_signatures::ProgramTraitImplIndex::default(),
         }
     }
+
+    pub(super) fn set_signature_facts(
+        &mut self,
+        module_id: ModuleId,
+        type_store: &nia_ty::TypeStore,
+        defs: &DefCollection,
+        lowering: &TypeLowering,
+        signatures: &ItemSignatures,
+        normalization: &nia_type_normalize::TypeNormalization,
+    ) {
+        let signature_input = nia_program_signatures::ModuleSignatureInput {
+            module_id,
+            type_store,
+            signatures,
+        };
+        let facts = nia_program_signatures::collect_module_program_signature_facts(signature_input);
+        let extension_input = nia_program_signatures::ExtensionModuleInput {
+            module_id,
+            type_store,
+            defs,
+            lowering,
+            signatures,
+            function_signatures: signatures,
+            type_signatures: signatures,
+            normalization,
+        };
+        self.trait_impls =
+            nia_program_signatures::collect_valid_program_trait_impls(&[extension_input]);
+        self.trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
+            &self.trait_impls,
+            type_store,
+        );
+        self.extension_methods = nia_program_signatures::collect_extension_method_index_for_module(
+            &nia_program_signatures::ExtensionMethodIndexModuleInput {
+                module_id,
+                type_store,
+                defs,
+                lowering,
+                signatures,
+                normalization,
+            },
+            &facts.trait_defs,
+        );
+        self.functions = facts.functions;
+        self.structs = facts.structs;
+        self.unions = facts.unions;
+        self.enums = facts.enums;
+        self.traits = facts.traits;
+        self.type_aliases = facts.type_aliases;
+    }
 }
 
 impl BackendProgramFacts for TestBackendProgramFacts<'_> {

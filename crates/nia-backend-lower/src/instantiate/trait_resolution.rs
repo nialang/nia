@@ -6,142 +6,6 @@ use nia_symbol::ToSymbolId;
 use nia_trait_solve::TraitSelection;
 
 impl<'a> ModuleLowerer<'a> {
-    pub(super) fn current_impl_trait_method(
-        &mut self,
-        key: &ExtensionTraitMethodKey,
-        trait_args: &[InternedTyId],
-        trait_const_args: &[nia_ty::ConstGenericArg],
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let current = self.instantiation.function?;
-        if current.module_id != self.input.module_id {
-            return None;
-        }
-        let current_impl_index = self.trait_impl_index_for_method(current)?;
-        let impl_signature = self.input.program.trait_impls().get(current_impl_index)?;
-        if impl_signature.trait_id != key.trait_id {
-            return None;
-        }
-        let target_ty =
-            self.normalized_type_from_module(impl_signature.module_id, impl_signature.target_ty);
-        let mut substitutions = SymbolMap::default();
-        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
-            return None;
-        }
-        if impl_signature.trait_args.len() != trait_args.len() {
-            return None;
-        }
-        if !self.const_trait_args_match(&impl_signature.trait_const_args, trait_const_args) {
-            return None;
-        }
-        let impl_trait_args = impl_signature
-            .trait_args
-            .iter()
-            .map(|arg| self.normalized_type_from_module(impl_signature.module_id, *arg))
-            .collect::<Vec<_>>();
-        if !impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
-            self.match_extension_type_pattern(*left, *right, &mut substitutions)
-        }) {
-            return None;
-        }
-        self.input
-            .extensions
-            .targets()
-            .iter()
-            .flat_map(|target| target.methods.iter())
-            .find(|method| {
-                method.is_trait_witness
-                    && self
-                        .trait_impl_index_for_method(method.def_id)
-                        .is_some_and(|impl_index| impl_index == current_impl_index)
-                    && method.trait_id == Some(key.trait_id)
-                    && method.name == key.method_name
-                    && method.trait_args.len() == key.trait_arg_count
-            })
-            .and_then(|method| {
-                let args = method
-                    .effective_generics
-                    .iter()
-                    .map(|generic| substitutions.get(generic).copied())
-                    .collect::<Option<Vec<_>>>()?;
-                Some((method.def_id, args))
-            })
-    }
-
-    pub(super) fn trait_impl_method_for_candidate(
-        &mut self,
-        candidate: &ExtensionTraitMethodCandidate,
-        trait_args: &[InternedTyId],
-        trait_const_args: &[nia_ty::ConstGenericArg],
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let substitutions = self.match_extension_trait_impl_candidate(
-            candidate,
-            trait_args,
-            trait_const_args,
-            self_ty,
-        )?;
-        let args = self
-            .candidate_impl_generics(candidate)
-            .iter()
-            .map(|generic| substitutions.get(generic).copied())
-            .collect::<Option<Vec<_>>>()?;
-        Some((candidate.method_def_id, args))
-    }
-
-    pub(super) fn global_trait_method_impl_candidate(
-        &mut self,
-        key: &ExtensionTraitMethodKey,
-        trait_args: &[InternedTyId],
-        trait_const_args: &[nia_ty::ConstGenericArg],
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let mut matches = Vec::new();
-        for method in self.input.program.extension_methods().all_methods() {
-            if method.trait_id != Some(key.trait_id)
-                || method.name != key.method_name
-                || method.trait_args.len() != key.trait_arg_count
-            {
-                continue;
-            }
-            let Some(impl_signature) =
-                self.input
-                    .program
-                    .trait_impls()
-                    .iter()
-                    .find(|impl_signature| {
-                        impl_signature.module_id == method.def_id.module_id
-                            && impl_signature.impl_id == method.impl_id
-                    })
-            else {
-                continue;
-            };
-            let candidate = ExtensionTraitMethodCandidate {
-                module_id: impl_signature.module_id,
-                target_ty: impl_signature.target_ty,
-                method_def_id: method.def_id,
-                trait_args: impl_signature.trait_args.clone(),
-                trait_const_args: impl_signature.trait_const_args.clone(),
-                where_predicates: impl_signature.where_predicates.clone(),
-                effective_generics: impl_signature.generics.clone(),
-            };
-            if let Some(resolved) = self.trait_impl_method_for_candidate(
-                &candidate,
-                trait_args,
-                trait_const_args,
-                self_ty,
-            ) {
-                matches.push((candidate, resolved));
-            }
-        }
-        matches.sort_by_key(|(_, resolved)| resolved.clone());
-        matches.dedup_by(|(_, left), (_, right)| left == right);
-        match matches.as_slice() {
-            [(_, resolved)] => Some(resolved.clone()),
-            _ => None,
-        }
-    }
-
     pub(super) fn selected_user_trait_method_impl(
         &mut self,
         key: &ExtensionTraitMethodKey,
@@ -149,6 +13,7 @@ impl<'a> ModuleLowerer<'a> {
         trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
+        let assumptions = self.current_trait_assumptions();
         let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
@@ -162,7 +27,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&[]);
+        let mut solver = context.solver(&assumptions);
         let selection = match solver.select_user_impl(TraitGoal {
             self_ty,
             trait_id: key.trait_id,
@@ -179,61 +44,36 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         };
         let impl_signature = self.input.program.trait_impls().get(user_impl.impl_index)?;
-        for method in self.input.program.extension_methods().all_methods() {
-            if method.def_id.module_id != impl_signature.module_id
-                || method.impl_id != impl_signature.impl_id
-                || method.trait_id != Some(key.trait_id)
-                || method.name != key.method_name
-                || method.trait_args.len() != key.trait_arg_count
-                || method.effective_const_generics.len() != key.trait_const_arg_count
-            {
-                continue;
-            }
-            let args = method
-                .effective_generics
-                .iter()
-                .filter_map(|generic| user_impl.substitutions.get(generic).copied())
-                .collect::<Vec<_>>();
-            let const_args = method
-                .effective_const_generics
-                .iter()
-                .filter_map(|generic| user_impl.const_substitutions.get(generic))
-                .map(|arg| self.canonicalize_instance_const_arg(arg))
-                .collect::<Vec<_>>();
-            if args.len() + const_args.len() != method.effective_generics.len() {
-                return None;
-            }
-            return Some((method.def_id, args, const_args));
-        }
-        for target in self.input.extensions.targets() {
-            for method in &target.methods {
-                if !method.is_trait_witness
-                    || method.def_id.module_id != impl_signature.module_id
-                    || method.impl_id != impl_signature.impl_id
-                    || method.trait_id != Some(key.trait_id)
-                    || method.name != key.method_name
-                    || method.trait_args.len() != key.trait_arg_count
-                {
-                    continue;
+        // Selection owns applicability and specificity. Materialization only
+        // finds the selected impl's witness and preserves its complete binder.
+        // Method-owned parameters are appended separately by the call site.
+        let def_id = self
+            .input
+            .program
+            .extension_methods()
+            .all_methods()
+            .find(|method| {
+                method.def_id.module_id == impl_signature.module_id
+                    && method.impl_id == impl_signature.impl_id
+                    && method.trait_id == Some(key.trait_id)
+                    && method.name == key.method_name
+            })?
+            .def_id;
+        let mut args = Vec::new();
+        let mut const_args = Vec::new();
+        for param in &impl_signature.generic_params {
+            match param.kind {
+                nia_item_signatures::GenericParamSignatureKind::Type => {
+                    args.push(*user_impl.substitutions.get(&param.name)?);
                 }
-                let args = method
-                    .effective_generics
-                    .iter()
-                    .filter_map(|generic| user_impl.substitutions.get(generic).copied())
-                    .collect::<Vec<_>>();
-                let const_args = method
-                    .effective_const_generics
-                    .iter()
-                    .filter_map(|generic| user_impl.const_substitutions.get(generic))
-                    .map(|arg| self.canonicalize_instance_const_arg(arg))
-                    .collect::<Vec<_>>();
-                if args.len() + const_args.len() != method.effective_generics.len() {
-                    return None;
+                nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
+                    const_args.push(self.canonicalize_instance_const_arg(
+                        user_impl.const_substitutions.get(&param.name)?,
+                    ));
                 }
-                return Some((method.def_id, args, const_args));
             }
         }
-        None
+        Some((def_id, args, const_args))
     }
 
     pub(super) fn candidate_where_predicates_hold(
@@ -243,9 +83,10 @@ impl<'a> ModuleLowerer<'a> {
     ) -> bool {
         let predicates =
             self.normalize_where_predicates(&candidate.where_predicates, candidate.module_id);
+        let substitutions = self.intern_type_substitutions(substitutions);
         let predicates = predicates
             .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
+            .map(|predicate| self.instantiate_where_predicate(predicate, substitutions))
             .collect::<Vec<_>>();
         self.where_predicates_hold(&predicates)
     }
@@ -341,16 +182,11 @@ impl<'a> ModuleLowerer<'a> {
             return Vec::new();
         };
         let mut assumptions = self.current_method_owner_trait_assumptions(current);
-        let substitutions = self
-            .type_context
-            .type_substitutions(substitutions)
-            .cloned()
-            .unwrap_or_default();
         for (predicates, module_id) in self.current_where_predicate_sources(current) {
             let predicates = self.normalize_where_predicates(&predicates, module_id);
             let predicates = predicates
                 .iter()
-                .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+                .map(|predicate| self.instantiate_where_predicate(predicate, substitutions))
                 .collect::<Vec<_>>();
             for predicate in predicates {
                 for bound in predicate.bounds {
@@ -415,8 +251,21 @@ impl<'a> ModuleLowerer<'a> {
                     return None;
                 }
             };
+        let substitutions = self.instantiation.type_substitutions?;
+        let self_ty = self.type_context.intern(TyKind::SelfParam);
+        let self_ty = self.instantiate_ty_with_id(self_ty, substitutions);
+        let trait_args = trait_args
+            .into_iter()
+            .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+            .collect();
+        let trait_const_args = trait_const_args
+            .iter()
+            .map(|arg| {
+                self.instantiate_const_generic_arg_with_id(arg, substitutions, &mut Vec::new())
+            })
+            .collect();
         Some(TraitGoal {
-            self_ty: self.type_context.intern(TyKind::SelfParam),
+            self_ty,
             trait_id: TraitId::Source(trait_def_id),
             trait_args,
             trait_const_args,
@@ -455,7 +304,12 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<(Vec<nia_item_signatures::WherePredicateSignature>, ModuleId)> {
         let source = self.extension_method_source(current)?.clone();
         let target_ty = self.normalized_type_from_module(source.module_id, source.target_ty);
-        let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(target_ty).cloned() else {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.ty_kind(target_ty).cloned()
+        else {
             return None;
         };
         let args = args
@@ -467,25 +321,13 @@ impl<'a> ModuleLowerer<'a> {
                 .signatures
                 .structs
                 .get(&def_id.def_id)
-                .map(|signature| {
-                    (
-                        signature.generics.clone(),
-                        signature.where_predicates.clone(),
-                        def_id.module_id,
-                    )
-                })
+                .map(|signature| (signature.where_predicates.clone(), def_id.module_id))
                 .or_else(|| {
                     self.input
                         .signatures
                         .unions
                         .get(&def_id.def_id)
-                        .map(|signature| {
-                            (
-                                signature.generics.clone(),
-                                signature.where_predicates.clone(),
-                                def_id.module_id,
-                            )
-                        })
+                        .map(|signature| (signature.where_predicates.clone(), def_id.module_id))
                 })?
         } else {
             self.input
@@ -494,7 +336,6 @@ impl<'a> ModuleLowerer<'a> {
                 .get(&def_id)
                 .map(|signature| {
                     (
-                        signature.signature.generics.clone(),
                         signature.signature.where_predicates.clone(),
                         def_id.module_id,
                     )
@@ -502,23 +343,20 @@ impl<'a> ModuleLowerer<'a> {
                 .or_else(|| {
                     self.input.program.unions().get(&def_id).map(|signature| {
                         (
-                            signature.signature.generics.clone(),
                             signature.signature.where_predicates.clone(),
                             def_id.module_id,
                         )
                     })
                 })?
         };
-        let substitutions = predicates
-            .0
-            .iter()
-            .cloned()
-            .zip(args)
-            .collect::<SymbolMap<_>>();
-        let normalized_predicates = self.normalize_where_predicates(&predicates.1, predicates.2);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        let substitutions =
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
+        let normalized_predicates = self.normalize_where_predicates(&predicates.0, predicates.1);
         let predicates = normalized_predicates
             .iter()
-            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .map(|predicate| self.instantiate_where_predicate(predicate, substitutions))
             .collect();
         Some((predicates, self.input.module_id))
     }

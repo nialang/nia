@@ -227,7 +227,7 @@ pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderDiscoveryIndexQueryValue {
     pub(super) provider_modules: Vec<ModuleId>,
-    pub(super) nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
+    pub(super) nominal_candidates: nia_provider_summary::NominalProviderCandidateIndex<ModuleId>,
     pub(super) method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
     pub(super) trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
 }

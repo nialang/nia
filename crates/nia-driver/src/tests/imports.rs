@@ -2591,6 +2591,53 @@ extend[T] types::RawBag[T] {
 }
 
 #[test]
+fn const_generic_alias_associated_methods_keep_nominal_identity() {
+    let root = temp_dir("const_generic_alias_associated_methods_keep_nominal_identity");
+    write(
+        &root.join("main.nia"),
+        r#"
+module facade;
+module impls;
+module types;
+using root::facade;
+
+fun main() u64 {
+    facade::One::hash(3) + facade::Two::hash(4)
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"pub using root::types::{One, Two};"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Sip[C: usize, D: usize] { value: u64 }
+pub type One = Sip[1, 3];
+pub type Two = Sip[2, 4];
+"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using root::types;
+
+extend types::One {
+    pub fun hash(value: u64) u64 { value + 1 }
+}
+
+extend types::Two {
+    pub fun hash(value: u64) u64 { value + 2 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
 fn imports_generic_structural_extension_methods() {
     let root = temp_dir("imports_generic_structural_extension_methods");
     write(

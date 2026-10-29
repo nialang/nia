@@ -234,13 +234,20 @@ fn collect_type_aliases(
         .collect()
 }
 
+// Executable lowering consumes the same normalized, validated impl headers as
+// body checking and reachability. Raw declaration facts are not solver input.
 fn collect_trait_impls(
-    facts: &[Arc<ModuleProgramSignatureFactsValue>],
-) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
-    facts
-        .iter()
-        .flat_map(|facts| facts.trait_impls.iter().cloned())
-        .collect()
+    db: &QueryDb<CompilerContext>,
+    module_ids: impl IntoIterator<Item = ModuleId>,
+) -> QueryResult<Vec<nia_item_signatures::ProgramTraitImplSignature>> {
+    let mut trait_impls = Vec::new();
+    for module_id in module_ids {
+        if *db.get(ExtensionProviderModuleEligibilityQuery(module_id))? {
+            let facts = db.get(ExtensionTraitSolvingModuleFactsQuery(module_id))?;
+            trait_impls.extend(facts.trait_impls.iter().cloned());
+        }
+    }
+    Ok(trait_impls)
 }
 
 pub(super) fn provide_program_trait_method_index(
@@ -260,7 +267,10 @@ pub(super) fn executable_program_non_function_signatures(
     let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits)?;
     let traits = collect_traits(&trait_facts);
     let trait_method_index = ProgramTraitMethodIndex::from_traits(&traits);
-    let trait_impls = collect_trait_impls(&trait_facts);
+    let trait_modules = db.get(ProgramSignatureModuleIdsQuery(
+        nia_item_tree::SignatureItemSet::Traits,
+    ))?;
+    let trait_impls = collect_trait_impls(db, resolve_stable_module_sequence(db, &trait_modules)?)?;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new_with_type_store(
         &trait_impls,
         &db.context().type_store,
@@ -313,11 +323,9 @@ pub(super) fn executable_program_non_function_signatures_for_modules(
         ))?;
         signatures.traits.extend(traits.traits.clone());
         signatures.trait_impls.extend(
-            traits
-                .trait_impls
-                .iter()
-                .filter(|signature| seen_impls.insert((signature.module_id, signature.impl_id)))
-                .cloned(),
+            collect_trait_impls(db, [module_id])?
+                .into_iter()
+                .filter(|signature| seen_impls.insert((signature.module_id, signature.impl_id))),
         );
     }
 
