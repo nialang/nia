@@ -12,8 +12,8 @@ pub fun main(init: Init) ExitCode!() {
     let ptr = &answer;
 
     stdout.print(
-        &"name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
-        &[&name, &answer, &byte, &ptr],
+        "name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
+        [name, answer, byte, ptr],
     ).?;
     stdout.flush().?;
     !()

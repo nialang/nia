@@ -246,12 +246,14 @@ let bytes =
     b"a\0";
 ```
 
-A string literal does not convert to a slice by itself. Take its address; the
-array-pointer-to-slice coercion then applies:
+A string literal is an array value. Where a slice is expected, implicit address
+formation followed by array-pointer-to-slice coercion allows the literal to be
+passed directly. Taking its address explicitly is also supported:
 
 ```nia
-let text: &[char] = &"nia";
-let bytes: &[u8] = &b"nia";
+let text: &[char] = "nia";
+let bytes: &[u8] = b"nia";
+let explicit: &[char] = &"nia";
 ```
 
 ### Boolean And Null Literals
