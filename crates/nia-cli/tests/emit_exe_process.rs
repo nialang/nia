@@ -3762,6 +3762,18 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if not 4096usize.isPowerOfTwo() {
         return process::ExitCode(2)!;
     }
+    if not 1usize.isPowerOfTwo() {
+        return process::ExitCode(15)!;
+    }
+    if 3usize.isPowerOfTwo() {
+        return process::ExitCode(16)!;
+    }
+    if not (usize::MAX / 2usize + 1usize).isPowerOfTwo() {
+        return process::ExitCode(3)!;
+    }
+    if usize::MAX.isPowerOfTwo() {
+        return process::ExitCode(4)!;
+    }
     match 10usize.checkedAdd(5usize) {
         ?value => { if value != 15usize {
                     return process::ExitCode(3)!;
@@ -3793,6 +3805,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
     match 17usize.alignForward(3usize) {
         ?value => { _ = value;
                 return process::ExitCode(11)!; },
+        null => { },
+    }
+    match usize::MAX.alignForward(2usize) {
+        ?value => { _ = value;
+                return process::ExitCode(12)!; },
         null => { },
     }
     !()
@@ -3834,6 +3851,24 @@ fun addCheckedSame[T](lhs: T, rhs: T) ?T
 where T: math::CheckedAdd[T, Output = T]
 {
     lhs.checkedAdd(rhs)
+}
+
+fun negationOverflows[T](value: T) bool
+where T: math::CheckedNeg[Output = T]
+{
+    match value.checkedNeg() {
+        null => true,
+        ?result => { _ = result; false },
+    }
+}
+
+fun absoluteValueOverflows[T](value: T) bool
+where T: math::CheckedAbs[Output = T]
+{
+    match value.checkedAbs() {
+        null => true,
+        ?result => { _ = result; false },
+    }
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -3888,17 +3923,27 @@ pub fun main(init: process::Init) process::ExitCode!() {
         ?value => { if value != 5i8 { return process::ExitCode(18)!; } },
         null => { return process::ExitCode(19)!; },
     }
-    match i8::MIN.checkedNeg() {
-        ?value => { _ = value; return process::ExitCode(20)!; },
-        null => { },
-    }
     match (-123i16).checkedAbs() {
         ?value => { if value != 123i16 { return process::ExitCode(21)!; } },
         null => { return process::ExitCode(22)!; },
     }
-    match i16::MIN.checkedAbs() {
-        ?value => { _ = value; return process::ExitCode(23)!; },
-        null => { },
+    if not negationOverflows[i8](i8::MIN)
+        or not negationOverflows[i16](i16::MIN)
+        or not negationOverflows[i32](i32::MIN)
+        or not negationOverflows[i64](i64::MIN)
+        or not negationOverflows[i128](i128::MIN)
+        or not negationOverflows[isize](isize::MIN)
+    {
+        return process::ExitCode(23)!;
+    }
+    if not absoluteValueOverflows[i8](i8::MIN)
+        or not absoluteValueOverflows[i16](i16::MIN)
+        or not absoluteValueOverflows[i32](i32::MIN)
+        or not absoluteValueOverflows[i64](i64::MIN)
+        or not absoluteValueOverflows[i128](i128::MIN)
+        or not absoluteValueOverflows[isize](isize::MIN)
+    {
+        return process::ExitCode(24)!;
     }
     match i32::MAX.checkedAdd(1i32) {
         ?value => { _ = value; return process::ExitCode(24)!; },
@@ -3934,6 +3979,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     match (-9isize).checkedRem(0isize) {
         ?value => { _ = value; return process::ExitCode(36)!; },
+        null => { },
+    }
+    match isize::MIN.checkedRem(-1isize) {
+        ?value => { _ = value; return process::ExitCode(25)!; },
         null => { },
     }
 

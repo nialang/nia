@@ -1,4 +1,9 @@
 // Checked arithmetic traits shared by primitive implementations.
+//
+// Each operation is a separate trait so generic code can require only the
+// operation it uses. `Output` keeps the result type independent of the input
+// types. An operation returns null when its inputs make it undefined or its
+// result cannot be represented by `Output`.
 
 pub trait CheckedAdd[Rhs] {
     type Output;

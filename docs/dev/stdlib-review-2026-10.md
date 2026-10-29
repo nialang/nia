@@ -58,12 +58,35 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: all 18 `emit_exe_io` tests pass, including primitive radices, sign/prefix padding, pointers, template errors, and invalid open-enum values.
 - Status: completed.
 
+### H7 — Use a bit-mask power-of-two predicate
+
+- Files: `lib/std/math/alignment.nia`
+- Evidence: `isPowerOfTwo` divided a nonzero `usize` repeatedly by two until it reached one. The result only depends on whether the value has exactly one set bit, so the loop obscured the invariant and made the common alignment check proportional to the integer width.
+- Result: keep the zero guard and use the standard `value & (value - 1) == 0` predicate. This stays within Nia's checked arithmetic because the subtraction is performed only after the zero case is excluded.
+- Validation: `emit_exe_can_use_std_math_usize_helpers` now exercises zero, one, a large power of two, the maximum non-power-of-two value, and alignment overflow. The existing checked integer helper test still passes.
+- Status: completed.
+
+### H8 — Keep checked arithmetic contracts explicit
+
+- Files: `lib/std/math/checked.nia`
+- Evidence: the seven traits intentionally separate operations and expose an associated `Output`, allowing generic callers to require one operation and implementations to choose the result type.
+- Result: document this contract at the trait boundary; merging the methods would make otherwise independent operations mandatory together.
+- Validation: the checked integer executable test now also exercises generic `CheckedNeg` and `CheckedAbs` dispatch for every signed primitive and the `MIN % -1` boundary.
+- Status: completed as a documentation review; no compiler or standard-library correctness bug confirmed.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
 - Keep the open-enum validation matches in `FormatSpec::validate` and the alignment output matches: they enumerate supported states or select distinct effects. They are not optional/result plumbing.
 - Keep the template parser's indices: they represent character positions and argument-consumption order. Its decimal accumulation already composes checked operations with `andThen` and converts the error once.
 - No compiler defect was confirmed in this batch. Remaining counter-based output loops are candidates for a later iterator-focused pass; no further provider split is justified by this review.
+
+### Math review conclusions
+
+- `math.nia` is a clear facade over alignment, checked-operation contracts, and signed/unsigned providers. Keep the concrete arithmetic per primitive: its overflow predicates depend on that primitive's bounds, and factoring them would hide the proof immediately before the trapping operator.
+- The unsigned provider imported `CheckedNeg` and `CheckedAbs` without implementing or using either trait; those names were removed from its import group.
+- Checked signed operations explicitly cover every trapping case before evaluating the operator. Their formulas matched exhaustive `i8` operand pairs and representative boundaries for wider widths; no arithmetic defect was confirmed.
+- Added executable checks for `isPowerOfTwo` and the least-tested `CheckedNeg`, `CheckedAbs`, and `MIN % -1` boundaries.
 
 ### Review conclusions
 
@@ -194,10 +217,10 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 ### `math`
 
-- [ ] `lib/std/math/alignment.nia`
-- [ ] `lib/std/math/checked.nia`
-- [ ] `lib/std/math/signed.nia`
-- [ ] `lib/std/math/unsigned.nia`
+- [x] `lib/std/math/alignment.nia`
+- [x] `lib/std/math/checked.nia`
+- [x] `lib/std/math/signed.nia`
+- [x] `lib/std/math/unsigned.nia`
 
 ### `mem`
 
@@ -308,7 +331,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/hash.nia`
 - [ ] `lib/std/io.nia`
 - [x] `lib/std/iter.nia`
-- [ ] `lib/std/math.nia`
+- [x] `lib/std/math.nia`
 - [ ] `lib/std/mem.nia`
 - [x] `lib/std/option.nia`
 - [ ] `lib/std/os.nia`

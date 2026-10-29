@@ -5,14 +5,8 @@ extend usize {
         if self == 0 {
             false
         } else {
-            let mut n = self;
-            while n > 1 {
-                if n % 2 != 0 {
-                    return false;
-                }
-                n = n / 2;
-            }
-            true
+            // Clearing the lowest set bit leaves zero only for powers of two.
+            (self & (self - 1)) == 0
         }
     }
 

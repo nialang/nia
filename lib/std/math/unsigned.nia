@@ -6,8 +6,6 @@ using root::math::checked::{
     CheckedMul,
     CheckedDiv,
     CheckedRem,
-    CheckedNeg,
-    CheckedAbs,
 };
 
 extend u8 : CheckedAdd[u8] {
