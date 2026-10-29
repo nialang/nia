@@ -1,0 +1,288 @@
+# Standard Library Refactor Review
+
+Status: active working checklist. Remove or archive after the file-by-file review is complete.
+Scope: every `*.nia` source file under `lib/std/` (161 files at creation).
+
+A checked item means the current file has received a read-only review of its behavior, error/ownership boundaries, Nia idioms, module responsibilities, and test coverage. Findings are recorded below with source locations; a checked item does not mean no follow-up is needed.
+
+Potential language/compiler issues require a minimal reproducer and a contract comparison before a std workaround is considered. Implementations stay untouched during each review batch unless a confirmed correctness defect needs immediate repair.
+
+## Findings
+
+### H1 — Store SHA-256 round constants as protocol data
+
+- Files: `lib/std/crypto/hash/sha256.nia`
+- Evidence: `roundConstant` maps every index from 0 through 63 and returns zero for all other values; its only call is inside the 64-round compression loop.
+- Direction: replace the dispatch match with a 64-entry `u32` constant table and direct indexed lookup. This makes the defined domain explicit and removes a fallback that could hide an invalid caller.
+- Validation: existing FIPS vectors, multi-block input, streaming boundary sweep, and million-byte vector.
+- Status: ready for implementation.
+
+### H2 — Preserve element-oriented serialization in wide integer hashing
+
+- Files: `lib/std/hash/impls.nia`
+- Evidence: the `u128` implementation writes exactly 16 little-endian bytes by indexing a fixed local array while shifting the value.
+- Direction: iterate over the mutable destination bytes and assign each successive low byte. Keep the explicit width and endianness visible.
+- Validation: existing wide positive and signed `i128` vectors.
+- Status: ready for implementation.
+
+### H3 — Revisit Wyhash streaming length saturation
+
+- Files: `lib/std/hash/wyhash.nia`, `docs/architecture.md`
+- Evidence: `update` saturates the cumulative `usize` length on overflow, and `finishValue` folds that value into the digest. The policy was explicitly introduced as overflow hardening and documented in the architecture notes.
+- Question: should streaming length follow Wyhash's low-64-bit length input modulo the algorithm width, or should the Nia API promise saturation after an unrepresentable cumulative stream length?
+- Direction: preserve current behavior during this pass; settle the contract and a testable length abstraction before changing it.
+- Status: open design review, no confirmed bug.
+
+### Review conclusions
+
+- The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
+- Keep index-based loops where an index is the algorithm's word, lane, or serialization position; replace only cases where iteration expresses intent more directly.
+- Checked widening and narrowing in hash arithmetic are necessary under Nia's trapping integer semantics and remain explicit reference code.
+
+## File checklist
+
+### `build`
+
+- [ ] `lib/std/build/commands.nia`
+- [ ] `lib/std/build/core.nia`
+- [ ] `lib/std/build/dependencies.nia`
+- [ ] `lib/std/build/diagnostics.nia`
+- [ ] `lib/std/build/error.nia`
+- [ ] `lib/std/build/handles.nia`
+- [ ] `lib/std/build/lifecycle.nia`
+- [ ] `lib/std/build/modules.nia`
+- [ ] `lib/std/build/ownership.nia`
+- [ ] `lib/std/build/paths.nia`
+- [ ] `lib/std/build/plan.nia`
+- [ ] `lib/std/build/probes.nia`
+- [ ] `lib/std/build/queries.nia`
+- [ ] `lib/std/build/records_cleanup.nia`
+- [ ] `lib/std/build/steps.nia`
+- [ ] `lib/std/build/targets.nia`
+- [ ] `lib/std/build/types.nia`
+- [ ] `lib/std/build/validation.nia`
+
+### `builtin`
+
+- [ ] `lib/std/builtin/atomic.nia`
+- [ ] `lib/std/builtin/bits.nia`
+- [ ] `lib/std/builtin/control.nia`
+- [ ] `lib/std/builtin/error.nia`
+- [ ] `lib/std/builtin/iter.nia`
+- [ ] `lib/std/builtin/layout.nia`
+- [ ] `lib/std/builtin/marker.nia`
+- [ ] `lib/std/builtin/mem.nia`
+- [ ] `lib/std/builtin/ops.nia`
+- [ ] `lib/std/builtin/place.nia`
+- [ ] `lib/std/builtin/primitive.nia`
+- [ ] `lib/std/builtin/simd.nia`
+- [ ] `lib/std/builtin/target.nia`
+
+### `checksum`
+
+- [x] `lib/std/checksum/adler32.nia`
+- [x] `lib/std/checksum/crc.nia`
+
+### `collections`
+
+- [ ] `lib/std/collections/array_list.nia`
+- [ ] `lib/std/collections/hash_map.nia`
+- [ ] `lib/std/collections/hash_set.nia`
+- [ ] `lib/std/collections/tree_map.nia`
+- [ ] `lib/std/collections/tree_set.nia`
+
+### `collections/array_list`
+
+- [ ] `lib/std/collections/array_list/format.nia`
+- [ ] `lib/std/collections/array_list/list.nia`
+- [ ] `lib/std/collections/array_list/raw.nia`
+
+### `collections/hash_map`
+
+- [ ] `lib/std/collections/hash_map/context.nia`
+- [ ] `lib/std/collections/hash_map/entries.nia`
+- [ ] `lib/std/collections/hash_map/format.nia`
+- [ ] `lib/std/collections/hash_map/iterators.nia`
+- [ ] `lib/std/collections/hash_map/map.nia`
+- [ ] `lib/std/collections/hash_map/raw.nia`
+- [ ] `lib/std/collections/hash_map/types.nia`
+
+### `crypto`
+
+- [x] `lib/std/crypto/hash.nia`
+
+### `crypto/hash`
+
+- [x] `lib/std/crypto/hash/sha256.nia`
+
+### `error`
+
+- [ ] `lib/std/error/cleanup.nia`
+
+### `fmt`
+
+- [ ] `lib/std/fmt/formatter.nia`
+- [ ] `lib/std/fmt/integer.nia`
+- [ ] `lib/std/fmt/primitive.nia`
+- [ ] `lib/std/fmt/spec.nia`
+- [ ] `lib/std/fmt/template.nia`
+- [ ] `lib/std/fmt/traits.nia`
+
+### `fs`
+
+- [ ] `lib/std/fs/convert.nia`
+- [ ] `lib/std/fs/file.nia`
+- [ ] `lib/std/fs/options.nia`
+- [ ] `lib/std/fs/path.nia`
+- [ ] `lib/std/fs/types.nia`
+
+### `hash`
+
+- [x] `lib/std/hash/block_buffer.nia`
+- [x] `lib/std/hash/fnv.nia`
+- [x] `lib/std/hash/impls.nia`
+- [x] `lib/std/hash/siphash.nia`
+- [x] `lib/std/hash/traits.nia`
+- [x] `lib/std/hash/wyhash.nia`
+- [x] `lib/std/hash/xxhash.nia`
+
+### `io`
+
+- [ ] `lib/std/io/buffered.nia`
+- [ ] `lib/std/io/debug.nia`
+- [ ] `lib/std/io/error.nia`
+- [ ] `lib/std/io/file_adapter.nia`
+- [ ] `lib/std/io/fixed_buffer.nia`
+- [ ] `lib/std/io/limit.nia`
+- [ ] `lib/std/io/traits.nia`
+
+### `iter`
+
+- [ ] `lib/std/iter/range.nia`
+
+### `math`
+
+- [ ] `lib/std/math/alignment.nia`
+- [ ] `lib/std/math/checked.nia`
+- [ ] `lib/std/math/signed.nia`
+- [ ] `lib/std/math/unsigned.nia`
+
+### `mem`
+
+- [ ] `lib/std/mem/allocation.nia`
+- [ ] `lib/std/mem/allocator.nia`
+- [ ] `lib/std/mem/arena_allocator.nia`
+- [ ] `lib/std/mem/error.nia`
+- [ ] `lib/std/mem/fixed_buffer_allocator.nia`
+- [ ] `lib/std/mem/general_purpose_allocator.nia`
+- [ ] `lib/std/mem/layout.nia`
+- [ ] `lib/std/mem/page_allocator.nia`
+- [ ] `lib/std/mem/pool_allocator.nia`
+- [ ] `lib/std/mem/types.nia`
+
+### `os`
+
+- [ ] `lib/std/os/linux.nia`
+- [ ] `lib/std/os/macos.nia`
+- [ ] `lib/std/os/windows.nia`
+
+### `os/linux`
+
+- [ ] `lib/std/os/linux/aarch64.nia`
+- [ ] `lib/std/os/linux/fd.nia`
+- [ ] `lib/std/os/linux/mem.nia`
+- [ ] `lib/std/os/linux/process.nia`
+- [ ] `lib/std/os/linux/random.nia`
+- [ ] `lib/std/os/linux/stat.nia`
+- [ ] `lib/std/os/linux/syscall.nia`
+- [ ] `lib/std/os/linux/types.nia`
+- [ ] `lib/std/os/linux/x86.nia`
+- [ ] `lib/std/os/linux/x86_64.nia`
+
+### `os/linux/aarch64`
+
+- [ ] `lib/std/os/linux/aarch64/syscall.nia`
+
+### `os/linux/x86`
+
+- [ ] `lib/std/os/linux/x86/syscall.nia`
+
+### `os/linux/x86_64`
+
+- [ ] `lib/std/os/linux/x86_64/syscall.nia`
+
+### `os/macos`
+
+- [ ] `lib/std/os/macos/bindings.nia`
+
+### `os/windows`
+
+- [ ] `lib/std/os/windows/bindings.nia`
+- [ ] `lib/std/os/windows/command.nia`
+- [ ] `lib/std/os/windows/directory.nia`
+- [ ] `lib/std/os/windows/encoding.nia`
+- [ ] `lib/std/os/windows/error.nia`
+- [ ] `lib/std/os/windows/fd.nia`
+- [ ] `lib/std/os/windows/mem.nia`
+- [ ] `lib/std/os/windows/path.nia`
+- [ ] `lib/std/os/windows/process.nia`
+- [ ] `lib/std/os/windows/random.nia`
+- [ ] `lib/std/os/windows/stat.nia`
+- [ ] `lib/std/os/windows/types.nia`
+
+### `os/windows/process`
+
+- [ ] `lib/std/os/windows/process/executable.nia`
+- [ ] `lib/std/os/windows/process/stdio.nia`
+
+### `parse`
+
+- [ ] `lib/std/parse/core.nia`
+
+### `process`
+
+- [ ] `lib/std/process/args.nia`
+- [ ] `lib/std/process/child.nia`
+- [ ] `lib/std/process/command.nia`
+- [ ] `lib/std/process/convert.nia`
+- [ ] `lib/std/process/env.nia`
+- [ ] `lib/std/process/exit_code.nia`
+- [ ] `lib/std/process/init.nia`
+- [ ] `lib/std/process/pipe.nia`
+- [ ] `lib/std/process/term.nia`
+- [ ] `lib/std/process/types.nia`
+
+### `string`
+
+- [ ] `lib/std/string/hash.nia`
+
+### `top-level`
+
+- [ ] `lib/std/atomic.nia`
+- [ ] `lib/std/build.nia`
+- [ ] `lib/std/builtin.nia`
+- [x] `lib/std/checksum.nia`
+- [ ] `lib/std/cmp.nia`
+- [ ] `lib/std/collections.nia`
+- [x] `lib/std/crypto.nia`
+- [ ] `lib/std/cstring.nia`
+- [ ] `lib/std/error.nia`
+- [ ] `lib/std/fmt.nia`
+- [ ] `lib/std/fs.nia`
+- [x] `lib/std/hash.nia`
+- [ ] `lib/std/io.nia`
+- [ ] `lib/std/iter.nia`
+- [ ] `lib/std/math.nia`
+- [ ] `lib/std/mem.nia`
+- [ ] `lib/std/option.nia`
+- [ ] `lib/std/os.nia`
+- [ ] `lib/std/parse.nia`
+- [ ] `lib/std/process.nia`
+- [ ] `lib/std/result.nia`
+- [ ] `lib/std/root.nia`
+- [ ] `lib/std/slice.nia`
+- [ ] `lib/std/source.nia`
+- [ ] `lib/std/string.nia`
+- [ ] `lib/std/test.nia`
+- [ ] `lib/std/unicode.nia`
+
