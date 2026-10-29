@@ -8,75 +8,24 @@
 using root::slice;
 using root::hash::block_buffer::BlockBuffer;
 
-fun roundConstant(index: usize) u32 {
-    match index {
-        0 => 0x428a2f98,
-        1 => 0x71374491,
-        2 => 0xb5c0fbcf,
-        3 => 0xe9b5dba5,
-        4 => 0x3956c25b,
-        5 => 0x59f111f1,
-        6 => 0x923f82a4,
-        7 => 0xab1c5ed5,
-        8 => 0xd807aa98,
-        9 => 0x12835b01,
-        10 => 0x243185be,
-        11 => 0x550c7dc3,
-        12 => 0x72be5d74,
-        13 => 0x80deb1fe,
-        14 => 0x9bdc06a7,
-        15 => 0xc19bf174,
-        16 => 0xe49b69c1,
-        17 => 0xefbe4786,
-        18 => 0x0fc19dc6,
-        19 => 0x240ca1cc,
-        20 => 0x2de92c6f,
-        21 => 0x4a7484aa,
-        22 => 0x5cb0a9dc,
-        23 => 0x76f988da,
-        24 => 0x983e5152,
-        25 => 0xa831c66d,
-        26 => 0xb00327c8,
-        27 => 0xbf597fc7,
-        28 => 0xc6e00bf3,
-        29 => 0xd5a79147,
-        30 => 0x06ca6351,
-        31 => 0x14292967,
-        32 => 0x27b70a85,
-        33 => 0x2e1b2138,
-        34 => 0x4d2c6dfc,
-        35 => 0x53380d13,
-        36 => 0x650a7354,
-        37 => 0x766a0abb,
-        38 => 0x81c2c92e,
-        39 => 0x92722c85,
-        40 => 0xa2bfe8a1,
-        41 => 0xa81a664b,
-        42 => 0xc24b8b70,
-        43 => 0xc76c51a3,
-        44 => 0xd192e819,
-        45 => 0xd6990624,
-        46 => 0xf40e3585,
-        47 => 0x106aa070,
-        48 => 0x19a4c116,
-        49 => 0x1e376c08,
-        50 => 0x2748774c,
-        51 => 0x34b0bcb5,
-        52 => 0x391c0cb3,
-        53 => 0x4ed8aa4a,
-        54 => 0x5b9cca4f,
-        55 => 0x682e6ff3,
-        56 => 0x748f82ee,
-        57 => 0x78a5636f,
-        58 => 0x84c87814,
-        59 => 0x8cc70208,
-        60 => 0x90befffa,
-        61 => 0xa4506ceb,
-        62 => 0xbef9a3f7,
-        63 => 0xc67178f2,
-        _ => 0,
-    }
-}
+const roundConstants: [u32; 64] = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
 
 pub struct Sha256 {
     state: [u32; 8],
@@ -166,7 +115,7 @@ fun compress(hashState: &mut [u32], block: &[u8]) () {
         let t1 = (h as u64)
             + (bigSigma1(e) as u64)
             + (choice(e, f, g) as u64)
-            + (roundConstant(index) as u64)
+            + (roundConstants[index] as u64)
             + (schedule[index % 16] as u64);
         let t2 = (bigSigma0(a) as u64) + (majority(a, b, c) as u64);
         h = g;

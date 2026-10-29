@@ -82,8 +82,8 @@ where H: Hasher
     pub fun hash(&self, hasher: &mut H) () {
         let mut bytes: [u8; 16] = [0; 16];
         let mut value = self.*;
-        for index in 0..16 {
-            bytes[index] = value as u8;
+        for byte in (&mut bytes[..]).iterMut() {
+            byte.* = value as u8;
             value >>= 8;
         }
         hasher.write(&bytes[..])
