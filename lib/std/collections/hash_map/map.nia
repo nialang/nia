@@ -59,30 +59,18 @@ fun storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
 where K: Sized, V: Sized
 {
     let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-    let keyBytes = match root::builtin::size[K]().checkedMul(capacity) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let valueBytes = match root::builtin::size[V]().checkedMul(capacity) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let keysOffset = match ctrlLen.alignForward(root::builtin::align[K]()) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let afterKeys = match keysOffset.checkedAdd(keyBytes) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let valuesOffset = match afterKeys.alignForward(root::builtin::align[V]()) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let totalSize = match valuesOffset.checkedAdd(valueBytes) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
+    let keyBytes = root::builtin::size[K]().checkedMul(capacity)
+        .okOr(mem::Error::OutOfMemory).?;
+    let valueBytes = root::builtin::size[V]().checkedMul(capacity)
+        .okOr(mem::Error::OutOfMemory).?;
+    let keysOffset = ctrlLen.alignForward(root::builtin::align[K]())
+        .okOr(mem::Error::OutOfMemory).?;
+    let afterKeys = keysOffset.checkedAdd(keyBytes)
+        .okOr(mem::Error::OutOfMemory).?;
+    let valuesOffset = afterKeys.alignForward(root::builtin::align[V]())
+        .okOr(mem::Error::OutOfMemory).?;
+    let totalSize = valuesOffset.checkedAdd(valueBytes)
+        .okOr(mem::Error::OutOfMemory).?;
     let blockAlign = cmp::max(
         root::builtin::align[u8](),
         cmp::max(root::builtin::align[K](), root::builtin::align[V]()),
@@ -573,14 +561,8 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if additional <= self.growthLeft {
             return !();
         }
-        let needed = match self.len.checkedAdd(additional) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let needed = self.len.checkedAdd(additional)
+            .okOr(mem::Error::OutOfMemory).?;
         if needed <= self.capacity() {
             self.rehashToBuckets(allocator, self.bucketCapacity()).?;
             return !();
