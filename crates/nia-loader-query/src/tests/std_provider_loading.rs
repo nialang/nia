@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn query_loader_loads_slice_order_provider_for_sorting_demand() {
+    let root = temp_dir("query_loader_loads_slice_order_provider_for_sorting_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::slice;
+
+fun sort(values: &mut [i32]) () {
+    values.sort();
+}
+"#,
+    );
+
+    let program =
+        load_program_with_provider_demand(&main_path, ModuleMap::default(), Some("[i32]"), "sort");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/slice.nia");
+    assert_module_loaded(&program, "lib/std/slice/order.nia");
+}
+
+#[test]
 fn query_loader_loads_len_trait_provider_on_explicit_demand() {
     let root = temp_dir("query_loader_loads_len_trait_provider_on_explicit_demand");
     let main_path = root.join("main.nia");

@@ -155,6 +155,7 @@
     "std/process/types.nia",
     "std/result.nia",
     "std/slice.nia",
+    "std/slice/order.nia",
     "std/source.nia",
     "std/string.nia",
     "std/string/hash.nia",
