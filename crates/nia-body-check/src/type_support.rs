@@ -120,6 +120,12 @@ impl<'a> BodyChecker<'a> {
         if let Some(target_ty) = self.coerce_pointer_to_trait_object(expr, expected, actual) {
             return Some(target_ty);
         }
+        if allow_auto_address
+            && let Some(target_ty) =
+                self.coerce_auto_address_to_trait_object(expr, expected, actual)
+        {
+            return Some(target_ty);
+        }
         self.materialize_inferred_array_type(expected, actual)
     }
 
@@ -171,15 +177,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => return None,
             };
-        if !is_readonly {
-            if !self.is_place_expr(expr) || self.not_assignable_reason(expr).is_some() {
-                return None;
-            }
-        } else if self.is_place_expr(expr) {
-            if self.not_addressable_reason(expr).is_some() {
-                return None;
-            }
-        } else if self.not_materializable_reason(Some(actual)).is_some() {
+        if !self.can_form_implicit_address(expr, actual, is_readonly) {
             return None;
         }
 
@@ -239,6 +237,21 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(expected)
+    }
+
+    pub(crate) fn can_form_implicit_address(
+        &mut self,
+        expr: &Expr,
+        actual: InternedTyId,
+        is_readonly: bool,
+    ) -> bool {
+        if !is_readonly {
+            self.is_place_expr(expr) && self.not_assignable_reason(expr).is_none()
+        } else if self.is_place_expr(expr) {
+            self.not_addressable_reason(expr).is_none()
+        } else {
+            self.not_materializable_reason(Some(actual)).is_none()
+        }
     }
 
     pub(crate) fn coerce_auto_closure_callable_view(

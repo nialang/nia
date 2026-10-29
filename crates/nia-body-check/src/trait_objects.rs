@@ -388,6 +388,39 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
+    pub(crate) fn coerce_auto_address_to_trait_object(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let Some(TyKind::TraitObject { is_readonly, .. }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        let actual = self.normalization.normalize(actual);
+        if !self.can_form_implicit_address(expr, actual, is_readonly) {
+            return None;
+        }
+        let source = self.interner.intern(TyKind::Pointer {
+            is_readonly,
+            elem: actual,
+        });
+        let target = self
+            .coerce_pointer_array_to_slice_trait_object(expr, expected, source)
+            .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, source))?;
+        self.record_address_of_coercion(
+            expr,
+            nia_sema_ir::AddressOfCoercion {
+                source_ty: actual,
+                target_ty: source,
+                is_readonly,
+            },
+        );
+        Some(target)
+    }
+
     pub(crate) fn coerce_method_receiver_to_trait_object(
         &mut self,
         expr: &Expr,

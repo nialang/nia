@@ -18,6 +18,34 @@ using std::process;
 struct Source { value: i32 }
 struct Target { value: i32 }
 struct Runner {}
+struct Number { value: i32 }
+
+trait Describe {
+    fun value(&self) i32;
+}
+
+trait Bump {
+    fun bump(&mut self) i32;
+}
+
+trait Elements {
+    fun count(&self) i32;
+}
+
+extend Number : Describe {
+    fun value(&self) i32 { self.value }
+}
+
+extend Number : Bump {
+    fun bump(&mut self) i32 {
+        self.value += 1;
+        self.value
+    }
+}
+
+extend [Number] : Elements {
+    fun count(&self) i32 { 1 }
+}
 
 fun makeSource() Source { Source { value: 20 } }
 
@@ -33,6 +61,18 @@ fun verifyImplicitAdjustments() i32 {
     replaceGeneric(value, 8);
     readGeneric(value) + firstGeneric([5, 6]) + firstReferenceGeneric([value, value])
 }
+
+fun describe(value: &Describe) i32 { value.value() }
+fun describeMany(values: &[&Describe]) i32 { values[0].value() }
+fun countElements(values: &Elements) i32 { values.count() }
+
+fun verifyTraitObjectAdjustments() i32 {
+    let mut number = Number { value: 7 };
+    let numbers: [Number; 1] = [number];
+    describe(number) + describeMany([number]) + countElements(numbers) + bump(number)
+}
+
+fun bump(value: &mut Bump) i32 { value.bump() }
 
 extend Source {
     fun intoTarget(self) Target { Target { value: self.value * 2 } }
@@ -70,6 +110,7 @@ fun transform[Context](context: Context, offset: i32) i32 {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     if verifyImplicitAdjustments() != 21 { return process::ExitCode(3)!; }
+    if verifyTraitObjectAdjustments() != 23 { return process::ExitCode(4)!; }
     if transform(1i32, 2) != 84 { return process::ExitCode(1)!; }
     if transform(true, 3) != 86 { return process::ExitCode(2)!; }
     !()

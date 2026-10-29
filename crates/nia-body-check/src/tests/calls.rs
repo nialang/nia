@@ -635,6 +635,144 @@ fun main() i32 {
 }
 
 #[test]
+fn automatically_addresses_values_before_trait_object_coercion() {
+    let checked = pipeline(
+        r#"
+trait Describe {
+    fun value(&self) i32;
+}
+
+trait Bump {
+    fun bump(&mut self) i32;
+}
+
+struct Number {
+    value: i32,
+}
+
+trait Elements {
+    fun count(&self) i32;
+}
+
+extend Number : Describe {
+    fun value(&self) i32 {
+        self.value
+    }
+}
+
+extend Number : Bump {
+    fun bump(&mut self) i32 {
+        self.value += 1;
+        self.value
+    }
+}
+
+extend [Number] : Elements {
+    fun count(&self) i32 {
+        1
+    }
+}
+
+fun describe(value: &Describe) i32 {
+    value.value()
+}
+
+fun bump(value: &mut Bump) i32 {
+    value.bump()
+}
+
+fun describeMany(values: &[&Describe]) i32 {
+    values[0].value()
+}
+
+fun countElements(values: &Elements) i32 {
+    values.count()
+}
+
+fun main() i32 {
+    let mut number = Number { value: 7 };
+    let numbers: [Number; 1] = [number];
+    describe(number) + describeMany([number]) + countElements(numbers) + bump(number)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked.facts.iter_node_expr_adjustments().any(|(_, plan)| {
+            matches!(
+                plan.steps.as_slice(),
+                [ExprAdjustment::AddressOf(_), ExprAdjustment::TraitObject(_)]
+            )
+        }),
+        "{:?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        checked.facts.iter_node_expr_adjustments().any(|(_, plan)| {
+            matches!(
+                plan.steps.as_slice(),
+                [
+                    ExprAdjustment::AddressOf(_),
+                    ExprAdjustment::PointerArrayToSlice(_),
+                    ExprAdjustment::TraitObject(_)
+                ]
+            )
+        }),
+        "{:?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn failed_implicit_trait_address_does_not_record_a_partial_adjustment() {
+    let checked = pipeline(
+        r#"
+trait Marker {}
+
+struct Number {}
+
+fun accept(value: &Marker) () {
+    _ = value;
+}
+
+fun main() () {
+    let number = Number {};
+    accept(number);
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("type mismatch in call argument 1")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .all(|(_, plan)| !plan
+                .steps
+                .iter()
+                .any(|step| matches!(step, ExprAdjustment::AddressOf(_)))),
+        "{:?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"

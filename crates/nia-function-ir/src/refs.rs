@@ -287,6 +287,29 @@ fn collect_function_refs_from_expr(
     refs: &mut FunctionBodyRefs,
 ) {
     refs.types.insert(expr.ty);
+    if let Some(TyKind::FunctionItem {
+        def_id,
+        arg_module_id,
+        self_arg,
+        args,
+        const_args,
+        ..
+    }) = types.get(expr.ty)
+    {
+        collect_function_instance_types(*self_arg, args, const_args, refs);
+        if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
+            refs.functions.insert(*def_id);
+        } else {
+            refs.function_instances.push(FunctionInstanceRef {
+                def_id: *def_id,
+                arg_module_id: *arg_module_id,
+                self_arg: *self_arg,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                span: expr.span,
+            });
+        }
+    }
     if let Some(TyKind::ClosureState { closure_id, .. }) = types.get(expr.ty) {
         refs.closure_ids.insert(*closure_id);
     }
@@ -296,6 +319,9 @@ fn collect_function_refs_from_expr(
         }
         FunctionExprKind::Function(def_id) => {
             refs.functions.insert(*def_id);
+        }
+        FunctionExprKind::FunctionCallable { function } => {
+            collect_function_refs_from_expr(function, types, refs);
         }
         FunctionExprKind::FunctionInstance {
             def_id,
@@ -349,9 +375,6 @@ fn collect_function_refs_from_expr(
         } => {
             refs.closure_ids.insert(*closure_id);
             collect_function_refs_from_expr(state, types, refs);
-        }
-        FunctionExprKind::FunctionCallable { function } => {
-            collect_function_refs_from_expr(function, types, refs);
         }
         FunctionExprKind::StaticArrayPointer {
             allocation, array, ..
@@ -1008,6 +1031,47 @@ mod tests {
                 const_args: Vec::new(),
             }])
         );
+    }
+
+    #[test]
+    fn function_item_types_keep_static_callable_targets_reachable() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let types = TypeStore::new().expect("create type store");
+        let i32_ty = primitive(&types, module_id, PrimitiveTy::I32);
+        let target = global(module_id, 42);
+        let function_ty = types
+            .append_for_module(module_id)
+            .intern(TyKind::FunctionItem {
+                def_id: target,
+                arg_module_id: module_id,
+                self_arg: None,
+                args: Vec::new(),
+                const_args: Vec::new(),
+                params: vec![i32_ty],
+                return_type: i32_ty,
+                is_variadic: false,
+            })
+            .expect("intern function item type");
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: Vec::new(),
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![FunctionOp::Expr(expr(function_ty, FunctionExprKind::Null))],
+                terminator: FunctionTerminator::Tail {
+                    value: None,
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        };
+        let refs = body.value_refs(&types);
+        assert!(refs.functions.contains(&target));
     }
 
     #[test]
