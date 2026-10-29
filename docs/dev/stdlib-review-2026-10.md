@@ -15,7 +15,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Evidence: `roundConstant` maps every index from 0 through 63 and returns zero for all other values; its only call is inside the 64-round compression loop.
 - Direction: replace the dispatch match with a 64-entry `u32` constant table and direct indexed lookup. This makes the defined domain explicit and removes a fallback that could hide an invalid caller.
 - Validation: existing FIPS vectors, multi-block input, streaming boundary sweep, and million-byte vector.
-- Status: ready for implementation.
+- Status: completed in `9f4fc81ba`.
 
 ### H2 — Preserve element-oriented serialization in wide integer hashing
 
@@ -23,7 +23,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Evidence: the `u128` implementation writes exactly 16 little-endian bytes by indexing a fixed local array while shifting the value.
 - Direction: iterate over the mutable destination bytes and assign each successive low byte. Keep the explicit width and endianness visible.
 - Validation: existing wide positive and signed `i128` vectors.
-- Status: ready for implementation.
+- Status: completed in `9f4fc81ba`.
 
 ### H3 — Revisit Wyhash streaming length saturation
 
@@ -285,4 +285,3 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [ ] `lib/std/string.nia`
 - [ ] `lib/std/test.nia`
 - [ ] `lib/std/unicode.nia`
-
