@@ -11,6 +11,7 @@
 
 using root::mem;
 using root::error;
+using root::option;
 using root::slice;
 using root::collections::array_list::raw;
 
@@ -249,14 +250,8 @@ where T: Sized
         if start > len {
             return .Invalid!;
         }
-        let end = match start.checkedAdd(count) {
-            ?value => {
-                value
-            },
-            null => {
-                return .Invalid!;
-            },
-        };
+        let end = start.checkedAdd(count)
+            .okOr(mem::Error::Invalid).?;
         if end > len {
             return .Invalid!;
         }
@@ -306,14 +301,8 @@ where T: Sized
         if start > self.len() {
             return .Invalid!;
         }
-        let end = match start.checkedAdd(count) {
-            ?value => {
-                value
-            },
-            null => {
-                return .Invalid!;
-            },
-        };
+        let end = start.checkedAdd(count)
+            .okOr(mem::Error::Invalid).?;
         if end > self.len() {
             return .Invalid!;
         }
@@ -370,14 +359,8 @@ where T: Sized
         }
 
         let added = replacementLen - count;
-        let newLen = match len.checkedAdd(added) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let newLen = len.checkedAdd(added)
+            .okOr(mem::Error::OutOfMemory).?;
         self.ensureTotalCapacity(allocator, newLen).?;
         let mut items = self.allocatedItems();
         if end < len {
@@ -394,27 +377,15 @@ where T: Sized
 
     pub fun reserveExact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
-        let needed = match len.checkedAdd(additional) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let needed = len.checkedAdd(additional)
+            .okOr(mem::Error::OutOfMemory).?;
         self.ensureTotalCapacityPrecise(allocator, needed)
     }
 
     fun ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
-        let needed = match len.checkedAdd(additional) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let needed = len.checkedAdd(additional)
+            .okOr(mem::Error::OutOfMemory).?;
         self.ensureTotalCapacity(allocator, needed)
     }
 
@@ -478,14 +449,8 @@ where T: Sized
 
     fun addManyUninitialized(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
         let oldLen = self.len();
-        let newLen = match oldLen.checkedAdd(count) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let newLen = oldLen.checkedAdd(count)
+            .okOr(mem::Error::OutOfMemory).?;
         self.resizeUninitialized(allocator, newLen).?;
         let mut items = self.allocatedItems();
         !&mut items[oldLen..newLen]
@@ -513,14 +478,8 @@ where T: Sized
         if index > self.len() {
             return .Invalid!;
         }
-        let newLen = match self.len().checkedAdd(count) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let newLen = self.len().checkedAdd(count)
+            .okOr(mem::Error::OutOfMemory).?;
         if self.capacity() < newLen {
             let betterCapacity = self.grownCapacity(newLen).?;
             self.growToCapacity(allocator, betterCapacity).?;
@@ -611,22 +570,11 @@ where T: Sized
             initCapacity = 1;
         }
         let half = needed / 2;
-        let extra = match half.checkedAdd(initCapacity) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
-        match needed.checkedAdd(extra) {
-            ?capacity => {
-                !capacity
-            },
-            null => {
-                .OutOfMemory!
-            },
-        }
+        let extra = half.checkedAdd(initCapacity)
+            .okOr(mem::Error::OutOfMemory).?;
+        let capacity = needed.checkedAdd(extra)
+            .okOr(mem::Error::OutOfMemory).?;
+        !capacity
     }
 
     fun growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
