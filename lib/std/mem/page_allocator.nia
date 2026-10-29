@@ -11,7 +11,9 @@ using root::mem::types;
 using root::os;
 
 using allocator::Allocator;
-using types::{Block, Layout};
+using root::mem::error::Error;
+using types::Block;
+using super::layout::Layout;
 
 pub struct PageAllocator {}
 
@@ -22,7 +24,7 @@ extend PageAllocator {
 }
 
 extend PageAllocator : Allocator {
-    pub fun alloc(&mut self, layout: Layout) types::Error!Block {
+    pub fun alloc(&mut self, layout: Layout) Error!Block {
         _ = self;
         if layout.isEmpty() {
             !.empty(layout)
@@ -64,7 +66,7 @@ extend PageAllocator : Allocator {
         }
     }
 
-    pub fun free(&mut self, block: Block) types::Error!() {
+    pub fun free(&mut self, block: Block) Error!() {
         _ = self;
         if block.layout().isEmpty() {
             !()
@@ -74,8 +76,8 @@ extend PageAllocator : Allocator {
     }
 }
 
-extend os::Error : builtin::IntoError[types::Error] {
-    const fun intoError(self) types::Error {
+extend os::Error : builtin::IntoError[Error] {
+    const fun intoError(self) Error {
         match self {
             .Invalid => .Invalid,
             .OutOfMemory => .OutOfMemory,

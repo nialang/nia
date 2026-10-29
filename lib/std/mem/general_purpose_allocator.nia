@@ -38,7 +38,9 @@ using root::option;
 using root::os;
 
 using allocator::Allocator;
-using types::{Block, Error, Layout};
+using root::mem::error::Error;
+using types::Block;
+using super::layout::Layout;
 
 const maxSmallSize: usize = 2048;
 const minSlotSize: usize = 16;

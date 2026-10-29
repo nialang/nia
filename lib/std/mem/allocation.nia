@@ -2,7 +2,9 @@ using root::mem::allocator;
 using root::mem::types;
 
 using allocator::Allocator;
-using types::{Block, Error, Layout};
+using root::mem::error::Error;
+using types::Block;
+using super::layout::Layout;
 
 // The value pointer may be an aligned interior address, and an allocator may
 // attach real storage to a zero-sized value. Keep the returned Block layout and

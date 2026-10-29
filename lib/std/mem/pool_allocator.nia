@@ -9,10 +9,13 @@ using root::cmp;
 using root::error;
 using root::mem::allocator;
 using root::mem::types;
+using root::mem::layout::LayoutBuilder;
 using root::option;
 
 using allocator::Allocator;
-using types::{Block, Error, Layout};
+using root::mem::error::Error;
+using types::Block;
+using super::layout::Layout;
 
 struct PoolSlot {
     size: usize,
@@ -68,7 +71,6 @@ where T: Sized
         }
 
         let objectLayout = Layout::of[T]().?;
-        let slotSize = root::builtin::size[PoolSlot]();
         let slotAlign = root::builtin::align[PoolSlot]();
         let pageAlign = cmp::max(
             cmp::max(objectLayout.align(), root::builtin::align[PoolPage]()),
@@ -84,19 +86,15 @@ where T: Sized
             slotStride = objectLayout.size()
                 .alignForward(objectLayout.align())
                 .okOr(Error::OutOfMemory).?;
-            slotMetadataOffset = root::builtin::size[PoolPage]()
-                .alignForward(slotAlign)
-                .okOr(Error::OutOfMemory).?;
-            slotMetadataSize = slotSize.checkedMul(slotsPerPage)
-                .okOr(Error::OutOfMemory).?;
-            let metadataEnd = slotMetadataOffset.checkedAdd(slotMetadataSize)
-                .okOr(Error::OutOfMemory).?;
-            slotsOffset = metadataEnd.alignForward(objectLayout.align())
-                .okOr(Error::OutOfMemory).?;
+            let mut page = LayoutBuilder::of[PoolPage]().?;
+            let metadataLayout = Layout::array[PoolSlot](slotsPerPage).?;
             let slotBytes = slotStride.checkedMul(slotsPerPage)
                 .okOr(Error::OutOfMemory).?;
-            pageSize = slotsOffset.checkedAdd(slotBytes)
-                .okOr(Error::OutOfMemory).?;
+            let slotsLayout = Layout::init(slotBytes, objectLayout.align()).?;
+            slotMetadataOffset = page.append(metadataLayout).?;
+            slotsOffset = page.append(slotsLayout).?;
+            slotMetadataSize = metadataLayout.size();
+            pageSize = page.layout().size();
         }
 
         !.{

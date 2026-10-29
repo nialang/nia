@@ -1,69 +1,10 @@
-using root::math;
-
-pub enum Error: i32 {
-    Invalid = 1,
-    InvalidAlignment = 2,
-    OutOfMemory = 3,
-    System = 4,
-    Leak = 5,
-    _,
-}
-
-pub struct Layout {
-    size: usize,
-    align: usize,
-}
+using super::layout::Layout;
 
 pub struct Block {
     ptr: &mut u8,
     layout: Layout,
     releasePtr: &mut u8,
     releaseSize: usize,
-}
-
-extend Layout {
-    pub fun init(size: usize, align: usize) Error!Layout {
-        if align == 0 {
-            .InvalidAlignment!
-        } else if not align.isPowerOfTwo() {
-            .InvalidAlignment!
-        } else {
-            !.{ size, align }
-        }
-    }
-
-    pub fun of[T]() Error!Layout
-    where T: Sized
-    {
-        Layout::init(root::builtin::size[T](), root::builtin::align[T]())
-    }
-
-    pub fun array[T](count: usize) Error!Layout
-    where T: Sized
-    {
-        let elemLen = root::builtin::size[T]();
-        let size = match elemLen.checkedMul(count) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
-        Layout::init(size, root::builtin::align[T]())
-    }
-
-    pub fun size(&self) usize {
-        self.size
-    }
-
-    pub fun align(&self) usize {
-        self.align
-    }
-
-    pub fun isEmpty(&self) bool {
-        self.size == 0
-    }
 }
 
 extend Block {

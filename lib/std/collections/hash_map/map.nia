@@ -16,6 +16,7 @@ using root::error;
 using root::hash;
 using root::iter::range;
 using root::mem;
+using root::mem::layout::LayoutBuilder;
 using root::option;
 using root::os;
 using root::collections::hash_map::context;
@@ -59,24 +60,11 @@ fun storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
 where K: Sized, V: Sized
 {
     let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-    let keyBytes = root::builtin::size[K]().checkedMul(capacity)
-        .okOr(mem::Error::OutOfMemory).?;
-    let valueBytes = root::builtin::size[V]().checkedMul(capacity)
-        .okOr(mem::Error::OutOfMemory).?;
-    let keysOffset = ctrlLen.alignForward(root::builtin::align[K]())
-        .okOr(mem::Error::OutOfMemory).?;
-    let afterKeys = keysOffset.checkedAdd(keyBytes)
-        .okOr(mem::Error::OutOfMemory).?;
-    let valuesOffset = afterKeys.alignForward(root::builtin::align[V]())
-        .okOr(mem::Error::OutOfMemory).?;
-    let totalSize = valuesOffset.checkedAdd(valueBytes)
-        .okOr(mem::Error::OutOfMemory).?;
-    let blockAlign = cmp::max(
-        root::builtin::align[u8](),
-        cmp::max(root::builtin::align[K](), root::builtin::align[V]()),
-    );
+    let mut storage = LayoutBuilder::init(mem::Layout::array[u8](ctrlLen).?);
+    let keysOffset = storage.appendArray[K](capacity).?;
+    let valuesOffset = storage.appendArray[V](capacity).?;
     !.{
-        layout: mem::Layout::init(totalSize, blockAlign).?,
+        layout: storage.layout(),
         ctrlLen,
         keysOffset,
         valuesOffset,

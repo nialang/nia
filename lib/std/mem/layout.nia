@@ -1,0 +1,84 @@
+// Checked allocation layouts and ordered storage composition.
+//
+// A composed layout covers its regions without trailing padding. Each append
+// aligns the next region and raises the block alignment as needed, including
+// for an empty region. Failed appends leave the builder unchanged.
+
+using root::cmp;
+using root::math;
+using root::option;
+using root::mem::error::Error;
+
+pub struct Layout {
+    size: usize,
+    align: usize,
+}
+
+pub struct LayoutBuilder {
+    layout: Layout,
+}
+
+struct LayoutAppend {
+    layout: Layout,
+    offset: usize,
+}
+
+fun checkedAppend(base: Layout, next: Layout) ?LayoutAppend {
+    let offset = base.size.alignForward(next.align).?;
+    let size = offset.checkedAdd(next.size).?;
+    ?.{ layout: .{ size, align: cmp::max(base.align, next.align) }, offset }
+}
+
+extend Layout {
+    pub fun init(size: usize, align: usize) Error!Layout {
+        if align == 0 or not align.isPowerOfTwo() {
+            .InvalidAlignment!
+        } else {
+            !.{ size, align }
+        }
+    }
+
+    pub fun of[T]() Error!Layout
+    where T: Sized
+    {
+        Layout::init(root::builtin::size[T](), root::builtin::align[T]())
+    }
+
+    pub fun array[T](count: usize) Error!Layout
+    where T: Sized
+    {
+        let size = root::builtin::size[T]().checkedMul(count).okOr(Error::OutOfMemory).?;
+        Layout::init(size, root::builtin::align[T]())
+    }
+
+    pub fun size(&self) usize { self.size }
+
+    pub fun align(&self) usize { self.align }
+
+    pub fun isEmpty(&self) bool { self.size == 0 }
+}
+
+extend LayoutBuilder {
+    pub fun init(layout: Layout) LayoutBuilder { .{ layout } }
+
+    pub fun of[T]() Error!LayoutBuilder
+    where T: Sized
+    {
+        !.init(Layout::of[T]().?)
+    }
+
+    pub fun layout(&self) Layout { self.layout }
+
+    // The returned offset is relative to the beginning of the final block.
+    pub fun append(&mut self, next: Layout) Error!usize {
+        let appended = checkedAppend(self.layout, next).okOr(Error::OutOfMemory).?;
+        self.layout = appended.layout;
+        !appended.offset
+    }
+
+    pub fun appendArray[T](&mut self, count: usize) Error!usize
+    where T: Sized
+    {
+        self.append(Layout::array[T](count).?)
+    }
+}

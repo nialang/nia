@@ -108,3 +108,30 @@ match CStringView::fromBytes(b"nia\0") {
     assert_module_not_loaded(&program, "lib/std/build.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
 }
+
+#[test]
+fn query_loader_keeps_memory_layout_and_error_modules_decoupled_from_block_types() {
+    let root =
+        temp_dir("query_loader_keeps_memory_layout_and_error_modules_decoupled_from_block_types");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::mem::{Error, LayoutBuilder};
+
+fun main() Error!usize {
+    let mut layout = LayoutBuilder::of[u32]().?;
+    let valuesOffset = layout.appendArray[u8](3).?;
+    !(layout.layout().size() + valuesOffset)
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/mem.nia");
+    assert_module_loaded(&program, "lib/std/mem/error.nia");
+    assert_module_loaded(&program, "lib/std/mem/layout.nia");
+    assert_module_not_loaded(&program, "lib/std/mem/types.nia");
+}

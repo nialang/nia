@@ -9,6 +9,7 @@
 using root::cmp;
 using root::error;
 using root::mem;
+using root::mem::layout::LayoutBuilder;
 using root::iter;
 using root::option;
 
@@ -104,35 +105,12 @@ where K: Sized, V: Sized
 fun nodeStoragePlan[K, V]() mem::Error!NodeStoragePlan
 where K: Sized, V: Sized
 {
-    let headerSize = root::builtin::size[TreeMapNode]();
-    let headerAlign = root::builtin::align[TreeMapNode]();
-    let keyBytes = root::builtin::size[K]().checkedMul(maxKeys)
-        .okOr(mem::Error::OutOfMemory).?;
-    let valueBytes = root::builtin::size[V]().checkedMul(maxKeys)
-        .okOr(mem::Error::OutOfMemory).?;
-    let childBytes = root::builtin::size[?&mut TreeMapNode]().checkedMul(maxChildren)
-        .okOr(mem::Error::OutOfMemory).?;
-    let keysOffset = headerSize.alignForward(root::builtin::align[K]())
-        .okOr(mem::Error::OutOfMemory).?;
-    let afterKeys = keysOffset.checkedAdd(keyBytes)
-        .okOr(mem::Error::OutOfMemory).?;
-    let valuesOffset = afterKeys.alignForward(root::builtin::align[V]())
-        .okOr(mem::Error::OutOfMemory).?;
-    let afterValues = valuesOffset.checkedAdd(valueBytes)
-        .okOr(mem::Error::OutOfMemory).?;
-    let childrenOffset = afterValues.alignForward(root::builtin::align[?&mut TreeMapNode]())
-        .okOr(mem::Error::OutOfMemory).?;
-    let totalSize = childrenOffset.checkedAdd(childBytes)
-        .okOr(mem::Error::OutOfMemory).?;
-    let blockAlign = cmp::max(
-        headerAlign,
-        cmp::max(
-            root::builtin::align[K](),
-            cmp::max(root::builtin::align[V](), root::builtin::align[?&mut TreeMapNode]()),
-        ),
-    );
+    let mut storage = LayoutBuilder::of[TreeMapNode]().?;
+    let keysOffset = storage.appendArray[K](maxKeys).?;
+    let valuesOffset = storage.appendArray[V](maxKeys).?;
+    let childrenOffset = storage.appendArray[?&mut TreeMapNode](maxChildren).?;
     !.{
-        layout: mem::Layout::init(totalSize, blockAlign).?,
+        layout: storage.layout(),
         keysOffset,
         valuesOffset,
         childrenOffset,

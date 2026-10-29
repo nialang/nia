@@ -13,7 +13,9 @@ using root::mem::allocator;
 using root::mem::types;
 
 using allocator::Allocator;
-using types::{Block, Error, Layout};
+using root::mem::error::Error;
+using types::Block;
+using super::layout::Layout;
 
 struct ArenaChunk {
     block: Block,

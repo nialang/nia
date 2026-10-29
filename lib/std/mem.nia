@@ -11,20 +11,26 @@
 pub(root) module arena_allocator;
 pub(root) module allocation;
 pub(root) module allocator;
+pub(root) module error;
 pub(root) module fixed_buffer_allocator;
 pub(root) module general_purpose_allocator;
+pub(root) module layout;
 pub(root) module page_allocator;
 pub(root) module pool_allocator;
 pub(root) module types;
 
 using root::mem::arena_allocator;
 using root::mem::allocation;
+using root::mem::error;
 using root::mem::fixed_buffer_allocator;
 using root::mem::general_purpose_allocator;
+using root::mem::layout;
 using root::mem::page_allocator;
 using root::mem::pool_allocator;
 
-pub using types::{Block, Error, Layout};
+pub using error::Error;
+pub using layout::{Layout, LayoutBuilder};
+pub using types::Block;
 pub using allocation::{Allocated, CallableAllocation};
 pub using arena_allocator::ArenaAllocator;
 pub using allocator::{Allocator, ReallocError, SliceAllocation};
