@@ -42,6 +42,8 @@ fun read8(bytes: &[u8]) u64 {
 }
 
 fun addWrap64(left: u64, right: u64) u64 {
+    // SipHash's state additions wrap modulo 2^64. Nia traps on overflow, so
+    // perform the addition in a wider type and explicitly keep its low word.
     ((left as u128) + (right as u128)) as u64
 }
 

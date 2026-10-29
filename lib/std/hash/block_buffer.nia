@@ -12,6 +12,7 @@ pub struct BlockBuffer[N: usize] {
 
 extend[N: usize] BlockBuffer[N] {
     pub fun init() Self {
+        // A zero-sized block would make update unable to consume input.
         if N == 0 { root::builtin::trap(); }
         .{ bytes: [0; N], len: 0 }
     }

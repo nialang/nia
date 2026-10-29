@@ -9,6 +9,8 @@ pub struct Adler32 {
 }
 
 const modulus: u64 = 65521;
+// Bound each update chunk so `second` stays within u32 before reduction. This
+// is the Adler-32 NMAX bound; larger inputs are processed in multiple chunks.
 const maxBlockLength: usize = 5552;
 
 extend Adler32 {

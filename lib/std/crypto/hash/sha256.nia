@@ -131,6 +131,8 @@ fun smallSigma1(value: u32) u32 {
 }
 
 fun addWrap32(left: u32, right: u32) u32 {
+    // SHA-256 adds words modulo 2^32. Nia traps on overflow, so widen first
+    // and truncate explicitly to keep the algorithm's required wraparound.
     ((left as u64) + (right as u64)) as u32
 }
 
@@ -151,12 +153,16 @@ fun compress(hashState: &mut [u32], block: &[u8]) () {
 
     for index in 0usize..64 {
         if index >= 16 {
+            // Four u32 terms fit in u64; truncating publishes the low 32 bits
+            // required by the SHA-256 message schedule.
             let sum = (smallSigma1(schedule[(index + 14) % 16]) as u64)
                 + (schedule[(index + 9) % 16] as u64)
                 + (smallSigma0(schedule[(index + 1) % 16]) as u64)
                 + (schedule[index % 16] as u64);
             schedule[index % 16] = sum as u32;
         }
+        // The five-word sum also fits in u64. Its low word is the algorithm's
+        // modulo-2^32 result, without relying on trapping u32 arithmetic.
         let t1 = (h as u64)
             + (bigSigma1(e) as u64)
             + (choice(e, f, g) as u64)

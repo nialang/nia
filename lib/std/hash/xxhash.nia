@@ -26,14 +26,20 @@ fun rotateLeft(value: u64, amount: usize) u64 {
 }
 
 fun addWrap64(left: u64, right: u64) u64 {
+    // XXH64 arithmetic is modulo 2^64. Widening keeps Nia's checked u64
+    // arithmetic from trapping; narrowing selects the low 64 bits.
     ((left as u128) + (right as u128)) as u64
 }
 
 fun subWrap64(left: u64, right: u64) u64 {
+    // Add the modulus before subtracting so the widened intermediate stays
+    // nonnegative, then reduce to the low 64 bits.
     ((left as u128) + (1u128 << 64) - (right as u128)) as u64
 }
 
 fun mulWrap64(left: u64, right: u64) u64 {
+    // A product of two u64 values fits in u128; narrowing implements the
+    // modulo-2^64 multiplication used throughout XXH64.
     ((left as u128) * (right as u128)) as u64
 }
 
