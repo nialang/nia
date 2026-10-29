@@ -21,6 +21,31 @@ fun sort(values: &mut [i32]) () {
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/slice.nia");
     assert_module_loaded(&program, "lib/std/slice/order.nia");
+    let ordering = module_by_suffix(&program, "lib/std/slice/order.nia");
+    assert!(ordering.semantic_selected, "{ordering:?}");
+    assert!(ordering.process_used_paths, "{ordering:?}");
+}
+
+#[test]
+fn query_loader_does_not_load_slice_order_provider_without_ordering_demand() {
+    let root = temp_dir("query_loader_does_not_load_slice_order_provider_without_ordering_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::slice;
+
+fun main(values: &[i32]) ?&i32 {
+    values.first()
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/slice.nia");
+    assert_module_not_loaded(&program, "lib/std/slice/order.nia");
 }
 
 #[test]

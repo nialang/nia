@@ -3987,3 +3987,106 @@ fn creating_a_missing_child_module_matches_a_clean_check() {
     assert!(clean.diagnostics.is_empty(), "{:?}", clean.diagnostics);
     assert_eq!(incremental.diagnostics, clean.diagnostics);
 }
+
+#[test]
+fn slice_access_keeps_ordering_provider_out_of_compiler_work() {
+    let root = temp_dir("slice_import_spelling_keeps_unneeded_ordering_out_of_compiler_work");
+    let broad_path = root.join("broad.nia");
+    let aliased_path = root.join("aliased.nia");
+    write(
+        &broad_path,
+        "using std::slice;\nfun main(values: &[i32]) ?&i32 { values.first() }\n",
+    );
+    write(
+        &aliased_path,
+        "using std::slice as slices;\nfun main(values: &[i32]) ?&i32 { values.first() }\n",
+    );
+
+    let broad = codegen_program(broad_path.to_string_lossy().into_owned());
+    let aliased = codegen_program(aliased_path.to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&broad.diagnostics);
+    assert_no_error_diagnostics(&aliased.diagnostics);
+    let broad_work = toolchain_compiler_work(&broad);
+    let aliased_work = toolchain_compiler_work(&aliased);
+    assert_eq!(
+        broad_work, aliased_work,
+        "renaming a module import must not change compiler work for the same extension call"
+    );
+    let ordering_node = broad
+        .graph
+        .modules()
+        .find(|module| module.path.identity().normalized_path() == "toolchain:/std/slice/order.nia")
+        .expect("ordering module should be discoverable in the import graph");
+    assert!(!ordering_node.semantic_selected, "{ordering_node:?}");
+    assert!(!ordering_node.process_used_paths, "{ordering_node:?}");
+    assert!(
+        broad_work
+            .0
+            .iter()
+            .any(|path| path == "toolchain:/std/slice.nia"),
+        "slice access must select slice semantic work: {broad_work:#?}"
+    );
+    assert!(
+        broad_work
+            .1
+            .iter()
+            .any(|path| path == "toolchain:/std/slice.nia"),
+        "slice access must check slice body: {broad_work:#?}"
+    );
+    assert!(
+        broad_work
+            .2
+            .iter()
+            .any(|path| path == "toolchain:/std/slice.nia"),
+        "slice access must lower slice backend: {broad_work:#?}"
+    );
+    for (phase, modules) in [
+        ("semantic", &broad_work.0),
+        ("body", &broad_work.1),
+        ("backend", &broad_work.2),
+    ] {
+        assert!(
+            !modules
+                .iter()
+                .any(|path| path == "toolchain:/std/slice/order.nia"),
+            "slice access selected ordering {phase} work: {broad_work:#?}"
+        );
+    }
+}
+
+#[test]
+fn slice_sorting_demand_activates_ordering_provider_compiler_work() {
+    let root = temp_dir("slice_sorting_demand_activates_ordering_provider_compiler_work");
+    let broad_path = root.join("broad.nia");
+    let aliased_path = root.join("aliased.nia");
+    write(
+        &broad_path,
+        "using std::slice;\nfun main(values: &mut [i32]) () { values.sort(); }\n",
+    );
+    write(
+        &aliased_path,
+        "using std::slice as slices;\nfun main(values: &mut [i32]) () { values.sort(); }\n",
+    );
+    let broad = codegen_program(broad_path.to_string_lossy().into_owned());
+    let aliased = codegen_program(aliased_path.to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&broad.diagnostics);
+    assert_no_error_diagnostics(&aliased.diagnostics);
+    let broad_work = toolchain_compiler_work(&broad);
+    let aliased_work = toolchain_compiler_work(&aliased);
+    assert_eq!(
+        broad_work, aliased_work,
+        "renaming a module import must not change compiler work for a sorting demand"
+    );
+    for (phase, modules) in [
+        ("semantic", &broad_work.0),
+        ("body", &broad_work.1),
+        ("backend", &broad_work.2),
+    ] {
+        assert!(
+            modules
+                .iter()
+                .any(|path| path == "toolchain:/std/slice/order.nia"),
+            "sorting demand must activate ordering {phase} work: {broad_work:#?}"
+        );
+    }
+}

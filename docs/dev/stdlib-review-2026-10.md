@@ -46,9 +46,9 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Files: `lib/std/slice.nia` (724 lines)
 - Evidence: the file contains general slice access/search/split APIs, iterator implementations, and a self-contained stable rotation merge plus unstable heap sort.
 - Direction: consider moving sort helpers and sort methods behind a dedicated provider module after confirming provider-loading and visibility behavior. Indexing in comparison/sort/search remains intentional because it represents positions and bounds.
-- Result: moved sorting/search helpers and the comparator/`Ord` extensions to `lib/std/slice/order.nia`; `slice.nia` retains slice access, splitting, and iteration. The explicit sibling import is required for the existing `std::slice` API to expose these methods, so selecting the slice provider also loads `order.nia`; this is a source-organization boundary, not a lazy-loading optimization.
-- Validation: `std_sort` and the loader's method-provider demand test confirm the public sorting API still resolves through `using std::slice`.
-- Status: completed as a focused source split; eager provider loading is an accepted consequence of the current import model.
+- Result: moved sorting/search helpers and the comparator/`Ord` extensions to `lib/std/slice/order.nia`; `slice.nia` retains slice access, splitting, and iteration. The explicit sibling import keeps the existing `std::slice` extension scope intact.
+- Validation: with `first`, `order.nia` can appear as a candidate in the compiler graph but is absent from the final loaded modules and from semantic, body, and backend work. With `sort`, it is loaded and enters all three work sets. Both namespace and aliased imports produce the same work sets in each case.
+- Status: completed as a source and lazy-loading split; the earlier claim that selecting `std::slice` eagerly loads the ordering provider was incorrect and has been withdrawn.
 
 ### H6 — Share integer presentation decoding
 
