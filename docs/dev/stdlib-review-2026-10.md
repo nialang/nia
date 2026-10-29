@@ -82,6 +82,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: existing command-cache, build-target, ownership-failure, configured-build, and invalid-diagnostic tests cover the behavior that a later split must retain.
 - Status: review complete; structural split queued for the build-module refactor pass.
 
+### H10 — Keep logical build paths free of host-specific syntax
+
+- Files: `lib/std/build/paths.nia`, `crates/nia-build-plan/src/lib.rs`
+- Evidence: both path validators accepted `:`. On Windows, joining a logical component such as `C:outside` can replace the typed root with a drive-relative path; colons also select alternate data streams. Local package roots are joined component by component, so std-only validation would leave the protocol boundary exposed to hand-built or decoded plans.
+- Result: reject colons in both the std build-path API and canonical `LogicalPath` constructor, and document the portable path contract. This is a build path-model defect, not a compiler or lazy-loading defect.
+- Validation: all 84 `nia-build-plan` unit tests and the Nia build-target conformance test pass, including `C:/outside` and `result.txt:stream` rejection.
+- Status: completed.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -115,7 +123,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [ ] `lib/std/build/lifecycle.nia`
 - [ ] `lib/std/build/modules.nia`
 - [ ] `lib/std/build/ownership.nia`
-- [ ] `lib/std/build/paths.nia`
+- [x] `lib/std/build/paths.nia`
 - [ ] `lib/std/build/plan.nia`
 - [ ] `lib/std/build/probes.nia`
 - [ ] `lib/std/build/queries.nia`

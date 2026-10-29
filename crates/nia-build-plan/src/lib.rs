@@ -229,6 +229,8 @@ pub enum LogicalPathError {
     ParentDirectory,
     /// Backslash is not the protocol separator.
     Backslash,
+    /// A colon can introduce a host drive prefix or alternate data stream.
+    Colon,
     /// NUL is not representable in a plan path.
     Nul,
 }
@@ -241,6 +243,7 @@ impl fmt::Display for LogicalPathError {
             Self::CurrentDirectory => "logical path contains a `.` component",
             Self::ParentDirectory => "logical path contains a `..` component",
             Self::Backslash => "logical path must use `/` as its protocol separator",
+            Self::Colon => "logical path cannot contain `:`",
             Self::Nul => "logical path contains a NUL byte",
         })
     }
@@ -256,6 +259,9 @@ impl LogicalPath {
         }
         if path.contains('\\') {
             return Err(LogicalPathError::Backslash);
+        }
+        if path.contains(':') {
+            return Err(LogicalPathError::Colon);
         }
         if path.contains('\0') {
             return Err(LogicalPathError::Nul);
@@ -1552,6 +1558,17 @@ mod tests {
         assert_eq!(
             LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "src\\a"),
             Err(LogicalPathError::Backslash)
+        );
+        assert_eq!(
+            LogicalPath::new(LogicalPathRoot::Build, "C:/outside"),
+            Err(LogicalPathError::Colon)
+        );
+        assert_eq!(
+            LogicalPath::new(
+                LogicalPathRoot::Package(PackageKey::root()),
+                "assets:payload/file"
+            ),
+            Err(LogicalPathError::Colon)
         );
     }
 

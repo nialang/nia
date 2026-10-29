@@ -490,8 +490,11 @@ script that has no default step can still be used with an explicit step name.
 the default, without running any.
 
 Paths written with `build::BuildPathView::init(path)` are relative to
-`build/out/`. A module or import whose root is a generated file depends on
-the step that writes it, so it needs no explicit `dependOn`.
+`build/out/`. Use slash-separated relative paths without `.` or `..` components,
+backslashes, colons, or NUL characters. Colons are excluded because Windows
+interprets them as drive-prefix or alternate-data-stream syntax. A module or
+import whose root is a generated file depends on the step that writes it, so it
+needs no explicit `dependOn`.
 
 This script combines a second package, a generated module, several steps, and
 an aggregate default:

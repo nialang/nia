@@ -356,6 +356,23 @@ pub fun main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(11)!;
     }
     if not rejectsInvalidStep(
+        api.addGeneratedFileStep(
+            &"drive-prefixed-output",
+            build::BuildPathView::init(&"C:/outside"),
+            &b"contents"[..],
+        ),
+        1usize,
+    ) or not rejectsInvalidStep(
+        api.addGeneratedFileStep(
+            &"stream-output",
+            build::BuildPathView::init(&"result.txt:stream"),
+            &b"contents"[..],
+        ),
+        1usize,
+    ) {
+        return process::ExitCode(40)!;
+    }
+    if not rejectsInvalidStep(
         api.addInstallExecutableStep(
             &"invalid-install",
             executable,

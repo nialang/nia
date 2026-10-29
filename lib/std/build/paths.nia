@@ -70,7 +70,7 @@ pub(root) fun isValidBuildPath(text: &[char]) bool {
                 return false;
             }
             componentStart = index + 1;
-        } else if text[index] == '\\' or text[index] == '\0' {
+        } else if text[index] == '\\' or text[index] == ':' or text[index] == '\0' {
             return false;
         }
         index += 1;
