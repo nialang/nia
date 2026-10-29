@@ -1782,7 +1782,7 @@ each member.
 
 Method calls resolve statically; `.` never implies dynamic dispatch except on
 [trait objects](#trait-object-coercion-and-dispatch). Candidates are the
-methods of visible `extend` blocks for the receiver type: public methods from
+methods declared in `extend` blocks for the receiver type: public methods from
 modules reached through `using`, and private methods in their own module. Two
 visible methods with the same name for the same receiver type make a call
 ambiguous.

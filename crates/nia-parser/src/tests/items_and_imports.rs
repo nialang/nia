@@ -262,14 +262,25 @@ extend Value {
 
 #[test]
 fn rejects_visibility_on_extend_blocks() {
-    for source in ["pub extend Value {}", "pub(super) extend Value {}"] {
-        let (_, errors) = parse_module(source);
-        assert!(
-            errors.iter().any(|error| error
-                .message
-                .contains("`extend` blocks do not have visibility")),
-            "source: {source}\n{errors:?}"
-        );
+    for visibility in ["pub", "pub(root)", "pub(super)"] {
+        for target in ["Value", "Value : Report", "[T] Value[T] where T: Report"] {
+            let source = format!("{visibility} extend {target} {{}}\nfun following() () {{}}");
+            let (module, errors) = parse_module(&source);
+            assert_eq!(errors.len(), 1, "source: {source}\n{errors:?}");
+            assert!(
+                errors[0]
+                    .message
+                    .contains("`extend` blocks do not have visibility"),
+                "source: {source}\n{errors:?}"
+            );
+            assert!(
+                module.items.iter().any(|item| matches!(
+                    &item.kind,
+                    ItemKind::Function(function) if function.name == sym("following")
+                )),
+                "source: {source}\n{module:?}"
+            );
+        }
     }
 }
 
