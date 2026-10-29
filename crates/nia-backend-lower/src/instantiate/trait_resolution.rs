@@ -95,23 +95,6 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         predicates: &[nia_item_signatures::WherePredicateSignature],
     ) -> bool {
-        let mut checks = Vec::new();
-        for predicate in predicates {
-            for bound in &predicate.bounds {
-                let Some((trait_id, trait_args, trait_const_args)) =
-                    self.trait_id_and_args(bound.trait_ty)
-                else {
-                    return false;
-                };
-                checks.push((
-                    predicate.ty,
-                    trait_id,
-                    trait_args,
-                    trait_const_args,
-                    bound.associated_type_bindings.clone(),
-                ));
-            }
-        }
         let assumptions = self.current_trait_assumptions();
         let associated_type_assumptions =
             self.current_associated_type_assumptions_without_active_projections();
@@ -130,43 +113,59 @@ impl<'a> ModuleLowerer<'a> {
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        for (self_ty, trait_id, trait_args, trait_const_args, associated_type_bindings) in checks {
-            let proven = match solver.proves(TraitGoal {
-                self_ty,
-                trait_id,
-                trait_args: trait_args.clone(),
-                trait_const_args: trait_const_args.clone(),
-            }) {
-                Ok(proven) => proven,
-                Err(error) => {
-                    self.type_context.record_internal(error);
-                    return false;
+        for predicate in predicates {
+            for bound in &predicate.bounds {
+                match solver.satisfies_static_callable_bound(predicate.ty, bound.trait_ty) {
+                    Ok(Some(true)) => continue,
+                    Ok(Some(false)) => return false,
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.type_context.record_internal(error);
+                        return false;
+                    }
                 }
-            };
-            if !proven {
-                return false;
-            }
-            for binding in associated_type_bindings {
-                let actual_ty = match solver.resolve_associated_type(
-                    self_ty,
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    self.trait_id_and_args(bound.trait_ty)
+                else {
+                    return false;
+                };
+                let proven = match solver.proves(TraitGoal {
+                    self_ty: predicate.ty,
                     trait_id,
-                    &trait_args,
-                    &trait_const_args,
-                    &binding.name,
-                ) {
-                    Ok(Some(actual_ty)) => actual_ty,
-                    Ok(None) => return false,
+                    trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
+                }) {
+                    Ok(proven) => proven,
                     Err(error) => {
                         self.type_context.record_internal(error);
                         return false;
                     }
                 };
-                match solver.types_equivalent(actual_ty, binding.ty) {
-                    Ok(true) => {}
-                    Ok(false) => return false,
-                    Err(error) => {
-                        self.type_context.record_internal(error);
-                        return false;
+                if !proven {
+                    return false;
+                }
+                for binding in &bound.associated_type_bindings {
+                    let actual_ty = match solver.resolve_associated_type(
+                        predicate.ty,
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        &binding.name,
+                    ) {
+                        Ok(Some(actual_ty)) => actual_ty,
+                        Ok(None) => return false,
+                        Err(error) => {
+                            self.type_context.record_internal(error);
+                            return false;
+                        }
+                    };
+                    match solver.types_equivalent(actual_ty, binding.ty) {
+                        Ok(true) => {}
+                        Ok(false) => return false,
+                        Err(error) => {
+                            self.type_context.record_internal(error);
+                            return false;
+                        }
                     }
                 }
             }

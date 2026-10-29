@@ -781,6 +781,37 @@ fun main() i32 {
 }
 
 #[test]
+fn callable_bounds_keep_generic_extension_methods_available() {
+    let checked = pipeline(
+        r#"
+struct Adapter[Mapper, Output] { mapper: Mapper }
+
+extend[Mapper, Output] Adapter[Mapper, Output]
+where Mapper: Fun(i32) Output
+{
+    fun apply(self) i32 {
+        1
+    }
+}
+
+fun increment(value: i32) i64 { value as i64 + 1 }
+
+fun make[Mapper, Output](mapper: Mapper) Adapter[Mapper, Output]
+where Mapper: Fun(i32) Output
+{
+    Adapter[Mapper, Output] { mapper }
+}
+
+fun main() i64 {
+    make(increment).apply() as i64
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn attributes_provider_demand_to_calling_function() {
     let checked = pipeline_without_visible_extensions(
         r#"

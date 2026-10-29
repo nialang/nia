@@ -32,6 +32,71 @@ fn const_param(ty: InternedTyId, name: SymbolId) -> ConstGenericArg {
 }
 
 #[test]
+fn static_callable_bounds_accept_function_items_and_reject_function_pointers() {
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let module_id = module_ids.allocate().expect("allocate module ID");
+    let type_store = TypeStore::new().expect("create type store");
+    let append = type_store.append_for_module(module_id);
+    let i32_ty = append.test_primitive(PrimitiveTy::I32);
+    let def_id = nia_ids::GlobalDefId {
+        module_id,
+        def_id: nia_ids::DefId(1),
+    };
+    let function_item = append.test_intern(TyKind::FunctionItem {
+        def_id,
+        arg_module_id: module_id,
+        self_arg: None,
+        args: Vec::new(),
+        const_args: Vec::new(),
+        params: vec![i32_ty],
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let function_pointer = append.test_intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+        is_variadic: false,
+        abi: nia_ty::FunctionPointerAbi::Nia,
+    });
+    let callable_bound = append.test_intern(TyKind::CallablePointee {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+
+    assert_eq!(
+        solver
+            .satisfies_static_callable_bound(function_item, callable_bound)
+            .expect("solve static function-item bound"),
+        Some(true)
+    );
+    assert_eq!(
+        solver
+            .satisfies_static_callable_bound(function_pointer, callable_bound)
+            .expect("solve static function-pointer bound"),
+        Some(false)
+    );
+}
+
+#[test]
 fn structural_equivalence_resolves_const_expression_array_lengths() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let left_module = module_ids.allocate().expect("allocate module ID");

@@ -796,11 +796,11 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         ty: InternedTyId,
     ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
-        let current = self.current_def_id?;
-        let signature = self.resolved_function_signature(current)?.signature;
+        self.current_def_id?;
+        let predicates = self.current_function_where_predicates();
         self.static_callable_bound_from_predicates(
             ty,
-            &signature.where_predicates,
+            &predicates,
             &SymbolMap::default(),
             &SymbolMap::default(),
         )
@@ -917,6 +917,33 @@ impl<'a> BodyChecker<'a> {
         return_type: InternedTyId,
     ) -> bool {
         let actual = self.normalize_aliases_in_type(actual);
+        let expected_params = params
+            .iter()
+            .map(|param| self.normalize_projection(*param))
+            .collect::<Vec<_>>();
+        let expected_return = self.normalize_projection(return_type);
+        if let Some(TyKind::GenericParam(_)) = self.interner.get(actual)
+            && self.current_def_id.is_some()
+            && let predicates = self.current_function_where_predicates()
+            && let Some((actual_params, actual_return)) = self.callable_bound_for_generic_parameter(
+                actual,
+                &predicates,
+                &SymbolMap::default(),
+                &SymbolMap::default(),
+            )
+        {
+            let actual_params = actual_params
+                .into_iter()
+                .map(|param| self.normalize_projection(param))
+                .collect::<Vec<_>>();
+            let actual_return = self.normalize_projection(actual_return);
+            return expected_params.len() == actual_params.len()
+                && expected_params
+                    .iter()
+                    .zip(actual_params)
+                    .all(|(left, right)| self.types_match(*left, right))
+                && self.types_match(expected_return, actual_return);
+        }
         let (actual_params, actual_return) = match self.interner.get(actual).cloned() {
             Some(TyKind::FunctionItem {
                 params,
@@ -931,12 +958,17 @@ impl<'a> BodyChecker<'a> {
             }) => (params, return_type),
             _ => return false,
         };
-        params.len() == actual_params.len()
-            && params
+        let actual_params = actual_params
+            .into_iter()
+            .map(|param| self.normalize_projection(param))
+            .collect::<Vec<_>>();
+        let actual_return = self.normalize_projection(actual_return);
+        expected_params.len() == actual_params.len()
+            && expected_params
                 .iter()
                 .zip(actual_params)
                 .all(|(expected, actual)| self.types_match(*expected, actual))
-            && self.types_match(return_type, actual_return)
+            && self.types_match(expected_return, actual_return)
     }
 
     pub(crate) fn infer_generics_from_static_callable_shape(
@@ -1238,7 +1270,7 @@ impl<'a> BodyChecker<'a> {
                 });
             let expected = self.generic_argument_expected(
                 Some(substituted_param),
-                callable_pattern,
+                callable_pattern.filter(|_| matches!(arg.kind, ExprKind::Closure { .. })),
                 &signature.generic_params,
                 &substitutions.types,
             );
@@ -2691,21 +2723,21 @@ impl<'a> BodyChecker<'a> {
         );
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
-                let contextual_expected = signature
-                    .params
-                    .get(index)
-                    .and_then(|param| {
-                        self.callable_bound_for_generic_parameter(
-                            param.ty,
-                            &signature.where_predicates,
-                            substitutions,
-                            const_substitutions,
-                        )
-                    })
+                let callable_bound = signature.params.get(index).and_then(|param| {
+                    self.callable_bound_for_generic_parameter(
+                        param.ty,
+                        &signature.where_predicates,
+                        substitutions,
+                        const_substitutions,
+                    )
+                });
+                let contextual_expected = callable_bound
+                    .as_ref()
+                    .filter(|_| matches!(arg.kind, ExprKind::Closure { .. }))
                     .map(|(params, return_type)| {
                         self.interner.intern(TyKind::CallablePointee {
-                            params,
-                            return_type,
+                            params: params.clone(),
+                            return_type: *return_type,
                         })
                     })
                     .unwrap_or(expected);

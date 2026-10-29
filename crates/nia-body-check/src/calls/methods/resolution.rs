@@ -2045,7 +2045,7 @@ impl<'a> BodyChecker<'a> {
             });
             let expected = self.generic_argument_expected(
                 substituted_param,
-                callable_pattern,
+                callable_pattern.filter(|_| matches!(arg.kind, ExprKind::Closure { .. })),
                 generic_params,
                 substitutions,
             );

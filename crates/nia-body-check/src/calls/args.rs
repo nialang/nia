@@ -55,12 +55,15 @@ impl<'a> BodyChecker<'a> {
                 // `where F: Fn(...)` bound. Expose that shape while checking
                 // the argument so closure parameters can be inferred without
                 // requiring redundant annotations.
-                let expected = self
-                    .static_callable_bound(expected)
+                let callable_bound = self.static_callable_bound(expected);
+                let contextual = matches!(arg.kind, nia_ast::ExprKind::Closure { .. });
+                let expected = callable_bound
+                    .as_ref()
+                    .filter(|_| contextual)
                     .map(|(params, return_type)| {
                         self.interner.intern(nia_ty::TyKind::CallablePointee {
-                            params,
-                            return_type,
+                            params: params.clone(),
+                            return_type: *return_type,
                         })
                     })
                     .unwrap_or(expected);

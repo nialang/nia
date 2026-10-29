@@ -264,6 +264,26 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default()
     }
 
+    pub(crate) fn current_function_where_predicates(&mut self) -> Vec<WherePredicateSignature> {
+        let Some(def_id) = self
+            .current_def_id
+            .filter(|def_id| def_id.module_id == self.defs.module_id)
+            .map(|def_id| def_id.def_id)
+        else {
+            return Vec::new();
+        };
+        let mut predicates = self
+            .signatures
+            .functions
+            .get(&def_id)
+            .map(|signature| signature.where_predicates.clone())
+            .unwrap_or_default();
+        if let Some(context) = self.trait_impl_context_for_method(self.global_def_id(def_id)) {
+            predicates.extend(self.instantiate_impl_where_predicates_for_method(def_id, &context));
+        }
+        predicates
+    }
+
     fn def_trait_obligations(&mut self, def_id: DefId) -> Vec<TraitObligation> {
         if let Some(obligations) = self.def_trait_obligations_cache.get(&def_id) {
             return obligations.clone();
@@ -1519,25 +1539,36 @@ impl<'a> BodyChecker<'a> {
                     substitutions,
                     const_substitutions,
                 );
-                if this.type_contains_generic_param(predicate.ty) {
+                let predicate_ty = this.normalize_aliases_in_type(predicate.ty);
+                if matches!(
+                    this.interner.get(predicate_ty),
+                    Some(TyKind::GenericParam(_) | TyKind::SelfParam)
+                ) {
+                    // The subject itself is still abstract. Keep the candidate
+                    // available until its caller supplies the missing type.
                     return true;
                 }
                 predicate.bounds.iter().all(|bound| {
+                    if let Some(holds) = this.static_callable_bound_holds(
+                        predicate_ty,
+                        bound.trait_ty,
+                        &SymbolMap::default(),
+                        &SymbolMap::default(),
+                    ) {
+                        return holds;
+                    }
                     let bound_ty = this.substitute_generics_and_consts(
                         bound.trait_ty,
                         substitutions,
                         const_substitutions,
                     );
-                    if this.type_contains_generic_param(bound_ty) {
-                        return true;
-                    }
                     let Some((trait_id, trait_args, trait_const_args)) =
                         this.trait_id_and_args(bound_ty)
                     else {
                         return false;
                     };
                     if !this.current_context_proves_trait_obligation_with_const_args(
-                        predicate.ty,
+                        predicate_ty,
                         trait_id,
                         trait_args.clone(),
                         trait_const_args.clone(),
@@ -1545,7 +1576,7 @@ impl<'a> BodyChecker<'a> {
                         return false;
                     }
                     this.where_bound_associated_type_bindings_hold(
-                        predicate.ty,
+                        predicate_ty,
                         trait_id,
                         &trait_args,
                         &trait_const_args,

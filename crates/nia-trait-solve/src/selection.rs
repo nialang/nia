@@ -194,6 +194,12 @@ impl TraitSolver<'_> {
                     substitutions,
                     const_substitutions,
                 );
+                if let Some(holds) = self.satisfies_static_callable_bound_inner(self_ty, trait_ty) {
+                    if !holds {
+                        return false;
+                    }
+                    continue;
+                }
                 let Some((trait_id, trait_args, trait_const_args)) =
                     self.trait_id_and_args(trait_ty)
                 else {
@@ -229,6 +235,54 @@ impl TraitSolver<'_> {
             }
         }
         true
+    }
+
+    /// Checks a static callable-shape bound, returning `None` for ordinary trait bounds.
+    pub fn satisfies_static_callable_bound(
+        &mut self,
+        actual_ty: InternedTyId,
+        bound_ty: InternedTyId,
+    ) -> nia_ice::IceResult<Option<bool>> {
+        let result = self.satisfies_static_callable_bound_inner(actual_ty, bound_ty);
+        self.finish_operation(result)
+    }
+
+    fn satisfies_static_callable_bound_inner(
+        &mut self,
+        actual_ty: InternedTyId,
+        bound_ty: InternedTyId,
+    ) -> Option<bool> {
+        let bound_ty = self.normalize(bound_ty);
+        let TyKind::CallablePointee {
+            params: expected_params,
+            return_type: expected_return,
+        } = self.interner.get(bound_ty).cloned()?
+        else {
+            return None;
+        };
+        let actual_ty = self.normalize(actual_ty);
+        let (actual_params, actual_return) = match self.interner.get(actual_ty).cloned()? {
+            TyKind::FunctionItem {
+                params,
+                return_type,
+                is_variadic: false,
+                ..
+            }
+            | TyKind::ClosureState {
+                params,
+                return_type,
+                ..
+            } => (params, return_type),
+            _ => return Some(false),
+        };
+        Some(
+            expected_params.len() == actual_params.len()
+                && expected_params
+                    .iter()
+                    .zip(actual_params)
+                    .all(|(expected, actual)| self.types_equivalent_inner(*expected, actual))
+                && self.types_equivalent_inner(expected_return, actual_return),
+        )
     }
 
     pub(crate) fn match_impl_pattern_with_consts(
