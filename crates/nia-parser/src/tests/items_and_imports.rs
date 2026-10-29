@@ -261,6 +261,19 @@ extend Value {
 }
 
 #[test]
+fn rejects_visibility_on_extend_blocks() {
+    for source in ["pub extend Value {}", "pub(super) extend Value {}"] {
+        let (_, errors) = parse_module(source);
+        assert!(
+            errors.iter().any(|error| error
+                .message
+                .contains("`extend` blocks do not have visibility")),
+            "source: {source}\n{errors:?}"
+        );
+    }
+}
+
+#[test]
 fn rejects_bare_at_item_attribute_without_brackets() {
     let (_, errors) = parse_module(
         r#"

@@ -1777,7 +1777,8 @@ extend Vec2 {
 `Self` names the extended type inside the block (and the implementing type
 inside a trait). `extend` blocks contain `fun`, `const fun`, and `const` members;
 inherent blocks cannot define associated types, and `let` members are not
-allowed. Visibility is written on each member.
+allowed. An `extend` block itself has no visibility; visibility is written on
+each member.
 
 Method calls resolve statically; `.` never implies dynamic dispatch except on
 [trait objects](#trait-object-coercion-and-dispatch). Candidates are the

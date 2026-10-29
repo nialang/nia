@@ -10,7 +10,7 @@ using root::math::checked::{
     CheckedAbs,
 };
 
-pub extend i8 : CheckedAdd[i8] {
+extend i8 : CheckedAdd[i8] {
     type Output = i8;
 
     fun checkedAdd(self, rhs: i8) ?i8 {
@@ -24,7 +24,7 @@ pub extend i8 : CheckedAdd[i8] {
     }
 }
 
-pub extend i8 : CheckedSub[i8] {
+extend i8 : CheckedSub[i8] {
     type Output = i8;
 
     fun checkedSub(self, rhs: i8) ?i8 {
@@ -38,7 +38,7 @@ pub extend i8 : CheckedSub[i8] {
     }
 }
 
-pub extend i8 : CheckedMul[i8] {
+extend i8 : CheckedMul[i8] {
     type Output = i8;
 
     fun checkedMul(self, rhs: i8) ?i8 {
@@ -56,7 +56,7 @@ pub extend i8 : CheckedMul[i8] {
     }
 }
 
-pub extend i8 : CheckedDiv[i8] {
+extend i8 : CheckedDiv[i8] {
     type Output = i8;
 
     fun checkedDiv(self, rhs: i8) ?i8 {
@@ -68,7 +68,7 @@ pub extend i8 : CheckedDiv[i8] {
     }
 }
 
-pub extend i8 : CheckedRem[i8] {
+extend i8 : CheckedRem[i8] {
     type Output = i8;
 
     fun checkedRem(self, rhs: i8) ?i8 {
@@ -80,7 +80,7 @@ pub extend i8 : CheckedRem[i8] {
     }
 }
 
-pub extend i8 : CheckedNeg {
+extend i8 : CheckedNeg {
     type Output = i8;
 
     fun checkedNeg(self) ?i8 {
@@ -92,7 +92,7 @@ pub extend i8 : CheckedNeg {
     }
 }
 
-pub extend i8 : CheckedAbs {
+extend i8 : CheckedAbs {
     type Output = i8;
 
     fun checkedAbs(self) ?i8 {
@@ -104,7 +104,7 @@ pub extend i8 : CheckedAbs {
     }
 }
 
-pub extend i16 : CheckedAdd[i16] {
+extend i16 : CheckedAdd[i16] {
     type Output = i16;
 
     fun checkedAdd(self, rhs: i16) ?i16 {
@@ -118,7 +118,7 @@ pub extend i16 : CheckedAdd[i16] {
     }
 }
 
-pub extend i16 : CheckedSub[i16] {
+extend i16 : CheckedSub[i16] {
     type Output = i16;
 
     fun checkedSub(self, rhs: i16) ?i16 {
@@ -132,7 +132,7 @@ pub extend i16 : CheckedSub[i16] {
     }
 }
 
-pub extend i16 : CheckedMul[i16] {
+extend i16 : CheckedMul[i16] {
     type Output = i16;
 
     fun checkedMul(self, rhs: i16) ?i16 {
@@ -150,7 +150,7 @@ pub extend i16 : CheckedMul[i16] {
     }
 }
 
-pub extend i16 : CheckedDiv[i16] {
+extend i16 : CheckedDiv[i16] {
     type Output = i16;
 
     fun checkedDiv(self, rhs: i16) ?i16 {
@@ -162,7 +162,7 @@ pub extend i16 : CheckedDiv[i16] {
     }
 }
 
-pub extend i16 : CheckedRem[i16] {
+extend i16 : CheckedRem[i16] {
     type Output = i16;
 
     fun checkedRem(self, rhs: i16) ?i16 {
@@ -174,7 +174,7 @@ pub extend i16 : CheckedRem[i16] {
     }
 }
 
-pub extend i16 : CheckedNeg {
+extend i16 : CheckedNeg {
     type Output = i16;
 
     fun checkedNeg(self) ?i16 {
@@ -186,7 +186,7 @@ pub extend i16 : CheckedNeg {
     }
 }
 
-pub extend i16 : CheckedAbs {
+extend i16 : CheckedAbs {
     type Output = i16;
 
     fun checkedAbs(self) ?i16 {
@@ -198,7 +198,7 @@ pub extend i16 : CheckedAbs {
     }
 }
 
-pub extend i32 : CheckedAdd[i32] {
+extend i32 : CheckedAdd[i32] {
     type Output = i32;
 
     fun checkedAdd(self, rhs: i32) ?i32 {
@@ -212,7 +212,7 @@ pub extend i32 : CheckedAdd[i32] {
     }
 }
 
-pub extend i32 : CheckedSub[i32] {
+extend i32 : CheckedSub[i32] {
     type Output = i32;
 
     fun checkedSub(self, rhs: i32) ?i32 {
@@ -226,7 +226,7 @@ pub extend i32 : CheckedSub[i32] {
     }
 }
 
-pub extend i32 : CheckedMul[i32] {
+extend i32 : CheckedMul[i32] {
     type Output = i32;
 
     fun checkedMul(self, rhs: i32) ?i32 {
@@ -244,7 +244,7 @@ pub extend i32 : CheckedMul[i32] {
     }
 }
 
-pub extend i32 : CheckedDiv[i32] {
+extend i32 : CheckedDiv[i32] {
     type Output = i32;
 
     fun checkedDiv(self, rhs: i32) ?i32 {
@@ -256,7 +256,7 @@ pub extend i32 : CheckedDiv[i32] {
     }
 }
 
-pub extend i32 : CheckedRem[i32] {
+extend i32 : CheckedRem[i32] {
     type Output = i32;
 
     fun checkedRem(self, rhs: i32) ?i32 {
@@ -268,7 +268,7 @@ pub extend i32 : CheckedRem[i32] {
     }
 }
 
-pub extend i32 : CheckedNeg {
+extend i32 : CheckedNeg {
     type Output = i32;
 
     fun checkedNeg(self) ?i32 {
@@ -280,7 +280,7 @@ pub extend i32 : CheckedNeg {
     }
 }
 
-pub extend i32 : CheckedAbs {
+extend i32 : CheckedAbs {
     type Output = i32;
 
     fun checkedAbs(self) ?i32 {
@@ -292,7 +292,7 @@ pub extend i32 : CheckedAbs {
     }
 }
 
-pub extend i64 : CheckedAdd[i64] {
+extend i64 : CheckedAdd[i64] {
     type Output = i64;
 
     fun checkedAdd(self, rhs: i64) ?i64 {
@@ -306,7 +306,7 @@ pub extend i64 : CheckedAdd[i64] {
     }
 }
 
-pub extend i64 : CheckedSub[i64] {
+extend i64 : CheckedSub[i64] {
     type Output = i64;
 
     fun checkedSub(self, rhs: i64) ?i64 {
@@ -320,7 +320,7 @@ pub extend i64 : CheckedSub[i64] {
     }
 }
 
-pub extend i64 : CheckedMul[i64] {
+extend i64 : CheckedMul[i64] {
     type Output = i64;
 
     fun checkedMul(self, rhs: i64) ?i64 {
@@ -338,7 +338,7 @@ pub extend i64 : CheckedMul[i64] {
     }
 }
 
-pub extend i64 : CheckedDiv[i64] {
+extend i64 : CheckedDiv[i64] {
     type Output = i64;
 
     fun checkedDiv(self, rhs: i64) ?i64 {
@@ -350,7 +350,7 @@ pub extend i64 : CheckedDiv[i64] {
     }
 }
 
-pub extend i64 : CheckedRem[i64] {
+extend i64 : CheckedRem[i64] {
     type Output = i64;
 
     fun checkedRem(self, rhs: i64) ?i64 {
@@ -362,7 +362,7 @@ pub extend i64 : CheckedRem[i64] {
     }
 }
 
-pub extend i64 : CheckedNeg {
+extend i64 : CheckedNeg {
     type Output = i64;
 
     fun checkedNeg(self) ?i64 {
@@ -374,7 +374,7 @@ pub extend i64 : CheckedNeg {
     }
 }
 
-pub extend i64 : CheckedAbs {
+extend i64 : CheckedAbs {
     type Output = i64;
 
     fun checkedAbs(self) ?i64 {
@@ -386,7 +386,7 @@ pub extend i64 : CheckedAbs {
     }
 }
 
-pub extend i128 : CheckedAdd[i128] {
+extend i128 : CheckedAdd[i128] {
     type Output = i128;
 
     fun checkedAdd(self, rhs: i128) ?i128 {
@@ -400,7 +400,7 @@ pub extend i128 : CheckedAdd[i128] {
     }
 }
 
-pub extend i128 : CheckedSub[i128] {
+extend i128 : CheckedSub[i128] {
     type Output = i128;
 
     fun checkedSub(self, rhs: i128) ?i128 {
@@ -414,7 +414,7 @@ pub extend i128 : CheckedSub[i128] {
     }
 }
 
-pub extend i128 : CheckedMul[i128] {
+extend i128 : CheckedMul[i128] {
     type Output = i128;
 
     fun checkedMul(self, rhs: i128) ?i128 {
@@ -432,7 +432,7 @@ pub extend i128 : CheckedMul[i128] {
     }
 }
 
-pub extend i128 : CheckedDiv[i128] {
+extend i128 : CheckedDiv[i128] {
     type Output = i128;
 
     fun checkedDiv(self, rhs: i128) ?i128 {
@@ -444,7 +444,7 @@ pub extend i128 : CheckedDiv[i128] {
     }
 }
 
-pub extend i128 : CheckedRem[i128] {
+extend i128 : CheckedRem[i128] {
     type Output = i128;
 
     fun checkedRem(self, rhs: i128) ?i128 {
@@ -456,7 +456,7 @@ pub extend i128 : CheckedRem[i128] {
     }
 }
 
-pub extend i128 : CheckedNeg {
+extend i128 : CheckedNeg {
     type Output = i128;
 
     fun checkedNeg(self) ?i128 {
@@ -468,7 +468,7 @@ pub extend i128 : CheckedNeg {
     }
 }
 
-pub extend i128 : CheckedAbs {
+extend i128 : CheckedAbs {
     type Output = i128;
 
     fun checkedAbs(self) ?i128 {
@@ -480,7 +480,7 @@ pub extend i128 : CheckedAbs {
     }
 }
 
-pub extend isize : CheckedAdd[isize] {
+extend isize : CheckedAdd[isize] {
     type Output = isize;
 
     fun checkedAdd(self, rhs: isize) ?isize {
@@ -494,7 +494,7 @@ pub extend isize : CheckedAdd[isize] {
     }
 }
 
-pub extend isize : CheckedSub[isize] {
+extend isize : CheckedSub[isize] {
     type Output = isize;
 
     fun checkedSub(self, rhs: isize) ?isize {
@@ -508,7 +508,7 @@ pub extend isize : CheckedSub[isize] {
     }
 }
 
-pub extend isize : CheckedMul[isize] {
+extend isize : CheckedMul[isize] {
     type Output = isize;
 
     fun checkedMul(self, rhs: isize) ?isize {
@@ -526,7 +526,7 @@ pub extend isize : CheckedMul[isize] {
     }
 }
 
-pub extend isize : CheckedDiv[isize] {
+extend isize : CheckedDiv[isize] {
     type Output = isize;
 
     fun checkedDiv(self, rhs: isize) ?isize {
@@ -538,7 +538,7 @@ pub extend isize : CheckedDiv[isize] {
     }
 }
 
-pub extend isize : CheckedRem[isize] {
+extend isize : CheckedRem[isize] {
     type Output = isize;
 
     fun checkedRem(self, rhs: isize) ?isize {
@@ -550,7 +550,7 @@ pub extend isize : CheckedRem[isize] {
     }
 }
 
-pub extend isize : CheckedNeg {
+extend isize : CheckedNeg {
     type Output = isize;
 
     fun checkedNeg(self) ?isize {
@@ -562,7 +562,7 @@ pub extend isize : CheckedNeg {
     }
 }
 
-pub extend isize : CheckedAbs {
+extend isize : CheckedAbs {
     type Output = isize;
 
     fun checkedAbs(self) ?isize {

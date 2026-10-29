@@ -1,6 +1,6 @@
 // Power-of-two and checked alignment helpers for usize.
 
-pub extend usize {
+extend usize {
     pub fun isPowerOfTwo(self) bool {
         if self == 0 {
             false

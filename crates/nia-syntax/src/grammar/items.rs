@@ -53,7 +53,8 @@ fn item(p: &mut Parser<'_>) -> Option<Parsed> {
     p.node(|p| {
         let attributes = attributes(p);
         let start = attributes.start.unwrap_or(p.span().start);
-        if p.at(TokenKind::Pub) {
+        let has_visibility = p.at(TokenKind::Pub);
+        if has_visibility {
             visibility(p, &mut false)?;
         }
         if p.at(TokenKind::Module) {
@@ -81,6 +82,9 @@ fn item(p: &mut Parser<'_>) -> Option<Parsed> {
         } else if p.at(TokenKind::Trait) {
             trait_decl(p)?;
         } else if p.at(TokenKind::Extend) {
+            if has_visibility {
+                p.error_here("`extend` blocks do not have visibility; mark members individually");
+            }
             extend_decl(p, attributes.builtin)?;
         } else if p.at(TokenKind::Enum) {
             enum_decl(p)?;
