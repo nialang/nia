@@ -759,7 +759,7 @@ extend Build {
         let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).withBuildContext(Operation::Publish, Subject::BuildPlan).?;
         let mut primary: ?Error = null;
         let mut buffer: [u8; 4096] = [0; 4096];
-        let mut writer = match file.writer(&mut buffer).withBuildContext(Operation::Publish, Subject::BuildPlan) {
+        let mut writer = match file.writer(buffer).withBuildContext(Operation::Publish, Subject::BuildPlan) {
             !value => value,
             error! => {
                 _ = file.close().withBuildContext(Operation::Release, Subject::BuildPlan);

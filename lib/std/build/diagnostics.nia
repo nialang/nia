@@ -14,17 +14,17 @@ using error::ErrorSubject as Subject;
 
 pub(root) fun reportBuildError(error: Error) Error!() {
     let mut buffer: [u8; 1024] = [0; 1024];
-    let mut stderr = io::FileWriter::stderr(&mut buffer);
+    let mut stderr = io::FileWriter::stderr(buffer);
     stderr.print(
         &"build error: {}\n",
-        &[&error],
+        &[error],
     ).withBuildContext(Operation::Report, Subject::Diagnostic).?;
     stderr.flush().withBuildContext(Operation::Report, Subject::Diagnostic)
 }
 
 pub(root) fun reportUnknownBuildStep(step: &[char]) Error!() {
     let mut buffer: [u8; 256] = [0; 256];
-    let mut stderr = io::FileWriter::stderr(&mut buffer);
+    let mut stderr = io::FileWriter::stderr(buffer);
     stderr.print(
         &"unknown build step `{}`\n",
         &[step],
