@@ -1,0 +1,229 @@
+// Integer magnitude, sign, radix prefix, and padding share one output path.
+// Invalid radices and specifications fail before writing any bytes.
+
+using root::option;
+using super::formatter::Formatter;
+using super::spec::{FormatAlignment, FormatSpec};
+using super::traits::Error;
+
+fun validateRadix(radix: u128) Error!() {
+    if radix == 2 or radix == 8 or radix == 10 or radix == 16 {
+        !()
+    } else {
+        .InvalidTemplate!
+    }
+}
+
+struct IntegerPrefix {
+    bytes: [u8; 2],
+    len: usize,
+}
+
+fun integerPrefix(radix: u128, uppercase: bool, alternate: bool) Error!IntegerPrefix {
+    if not alternate {
+        !.{ bytes: [0, 0], len: 0 }
+    } else if radix == 16 {
+        let marker: u8 = if uppercase { b'X' } else { b'x' };
+        !.{ bytes: [b'0', marker], len: 2 }
+    } else if radix == 2 {
+        !.{ bytes: [b'0', b'b'], len: 2 }
+    } else if radix == 8 {
+        !.{ bytes: [b'0', 0], len: 1 }
+    } else {
+        .InvalidTemplate!
+    }
+}
+
+fun digitCount(value: u128, radix: u128) usize {
+    if value == 0 {
+        1
+    } else {
+        let mut count: usize = 0;
+        let mut n = value;
+        while n != 0 {
+            n = n / radix;
+            count += 1;
+        }
+        count
+    }
+}
+
+fun signedMagnitude(value: i128) u128 {
+    if value < 0 {
+        ((0 - (value + 1)) as u128) + 1
+    } else {
+        value as u128
+    }
+}
+
+extend Formatter {
+    pub fun writeUnsigned(&mut self, value: u128) Error!() {
+        self.writeUnsignedRadix(value, 10, false)
+    }
+
+    pub fun writePointer(&mut self, value: usize) Error!() {
+        self.writePointerSpec(value, FormatSpec::pointer())
+    }
+
+    pub fun writePointerSpec(&mut self, value: usize, spec: FormatSpec) Error!() {
+        spec.validate().?;
+        if spec.signPlus() or spec.alternate() or spec.hasPrecision() {
+            return .InvalidTemplate!;
+        }
+        let pointerSpec = FormatSpec::init(
+            .LowerHex,
+            spec.width(),
+            null,
+            spec.fill(),
+            spec.alignment(),
+            false,
+            true,
+        );
+        self.writeUnsignedRadixSpec(value as u128, 16, false, pointerSpec)
+    }
+
+    pub fun writeUnsignedRadix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
+        validateRadix(radix).?;
+        if radix == 10 {
+            self.writeUnsignedBase10(value)
+        } else if radix == 16 {
+            self.writeUnsignedPowerOfTwo(value, 124, 4, 15, uppercase)
+        } else if radix == 2 {
+            self.writeUnsignedPowerOfTwo(value, 127, 1, 1, uppercase)
+        } else if radix == 8 {
+            self.writeUnsignedPowerOfTwo(value, 126, 3, 7, uppercase)
+        } else {
+            .InvalidTemplate!
+        }
+    }
+
+    pub fun writeUnsignedRadixSpec(
+        &mut self,
+        value: u128,
+        radix: u128,
+        uppercase: bool,
+        spec: FormatSpec,
+    ) Error!() {
+        self.writeIntegerSpec(value, null, radix, uppercase, spec)
+    }
+
+    fun writeIntegerSpec(
+        &mut self,
+        magnitude: u128,
+        sign: ?u8,
+        radix: u128,
+        uppercase: bool,
+        spec: FormatSpec,
+    ) Error!() {
+        spec.validate().?;
+        validateRadix(radix).?;
+        let prefix = integerPrefix(radix, uppercase, spec.alternate()).?;
+        let signWidth: usize = if sign.isPresent() { 1 } else { 0 };
+        let contentWidth = digitCount(magnitude, radix) + prefix.len + signWidth;
+        let zeroPadding = spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > contentWidth;
+
+        if not zeroPadding {
+            self.writePaddingBefore(contentWidth, spec).?;
+        }
+        if sign is ?byte {
+            self.writeByte(byte).?;
+        }
+        if prefix.len != 0 {
+            self.writeBytes(&prefix.bytes[0..prefix.len]).?;
+        }
+        if zeroPadding {
+            self.writeFill('0', spec.width() - contentWidth).?;
+        }
+        self.writeUnsignedRadix(magnitude, radix, uppercase).?;
+        if zeroPadding { !() } else { self.writePaddingAfter(contentWidth, spec) }
+    }
+
+    fun writeUnsignedDigit(&mut self, digit: u128, uppercase: bool) Error!() {
+        if digit < 10 {
+            self.writeByte((digit as u8) + b'0')
+        } else if uppercase {
+            self.writeByte(((digit - 10) as u8) + b'A')
+        } else {
+            self.writeByte(((digit - 10) as u8) + b'a')
+        }
+    }
+
+    fun writeUnsignedBase10(&mut self, value: u128) Error!() {
+        if value == 0 {
+            self.writeByte(b'0')
+        } else {
+            let mut digits: [u8; 39] = [0; 39];
+            let mut count: usize = 0;
+            let mut n = value;
+            while n != 0 {
+                let digit = n % 10;
+                digits[count] = (digit as u8) + b'0';
+                n = n / 10;
+                count += 1;
+            }
+            while count != 0 {
+                count -= 1;
+                self.writeByte(digits[count]).?;
+            }
+            !()
+        }
+    }
+
+    fun writeUnsignedPowerOfTwo(
+        &mut self,
+        value: u128,
+        startShift: u32,
+        step: u32,
+        mask: u128,
+        uppercase: bool,
+    ) Error!() {
+        if value == 0 {
+            self.writeByte(b'0')
+        } else {
+            let mut shift = startShift;
+            let mut started = false;
+            while shift != 0 {
+                let digit = (value >> shift) & mask;
+                if digit != 0 or started {
+                    self.writeUnsignedDigit(digit, uppercase).?;
+                    started = true;
+                }
+                shift -= step;
+            }
+            let digit = value & mask;
+            if digit != 0 or started {
+                self.writeUnsignedDigit(digit, uppercase).?;
+            }
+            !()
+        }
+    }
+
+    pub fun writeSigned(&mut self, value: i128) Error!() {
+        self.writeSignedRadix(value, 10, false)
+    }
+
+    pub fun writeSignedRadix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
+        validateRadix(radix).?;
+        if value < 0 {
+            self.writeByte(b'-').?;
+        }
+        self.writeUnsignedRadix(signedMagnitude(value), radix, uppercase)
+    }
+
+    pub fun writeSignedRadixSpec(
+        &mut self,
+        value: i128,
+        radix: u128,
+        uppercase: bool,
+        spec: FormatSpec,
+    ) Error!() {
+        let sign: ?u8 = if value < 0 {
+            ?b'-'
+        } else if spec.signPlus() {
+            ?b'+'
+        } else {
+            null
+        };
+        self.writeIntegerSpec(signedMagnitude(value), sign, radix, uppercase, spec)
+    }
+}

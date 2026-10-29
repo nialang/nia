@@ -1,0 +1,122 @@
+// Format specifications validate both open-enum fields before output.
+
+using root::option;
+using super::traits::Error;
+
+pub enum FormatPresentation: i32 {
+    Display = 0,
+    LowerHex = 1,
+    UpperHex = 2,
+    Binary = 3,
+    Octal = 4,
+    Pointer = 5,
+    _,
+}
+
+pub enum FormatAlignment: i32 {
+    None = 0,
+    Left = 1,
+    Right = 2,
+    Center = 3,
+    _,
+}
+
+pub struct FormatSpec {
+    presentation: FormatPresentation,
+    width: usize,
+    precision: ?usize,
+    fill: char,
+    alignment: FormatAlignment,
+    signPlus: bool,
+    alternate: bool,
+}
+
+extend FormatSpec {
+    pub fun init(
+        presentation: FormatPresentation,
+        width: usize,
+        precision: ?usize,
+        fill: char,
+        alignment: FormatAlignment,
+        signPlus: bool,
+        alternate: bool,
+    ) FormatSpec {
+        .{ presentation, width, precision, fill, alignment, signPlus, alternate }
+    }
+
+    pub fun display() FormatSpec {
+        .init(.Display, 0, null, ' ', .None, false, false)
+    }
+
+    pub fun lowerHex() FormatSpec {
+        .init(.LowerHex, 0, null, ' ', .None, false, false)
+    }
+
+    pub fun upperHex() FormatSpec {
+        .init(.UpperHex, 0, null, ' ', .None, false, false)
+    }
+
+    pub fun binary() FormatSpec {
+        .init(.Binary, 0, null, ' ', .None, false, false)
+    }
+
+    pub fun octal() FormatSpec {
+        .init(.Octal, 0, null, ' ', .None, false, false)
+    }
+
+    pub fun pointer() FormatSpec {
+        .init(.Pointer, 0, null, ' ', .None, false, false)
+    }
+
+    pub fun presentation(&self) FormatPresentation {
+        self.presentation
+    }
+
+    pub fun width(&self) usize {
+        self.width
+    }
+
+    pub fun precision(&self) ?usize {
+        self.precision
+    }
+
+    pub fun hasPrecision(&self) bool {
+        self.precision.isPresent()
+    }
+
+    pub fun fill(&self) char {
+        self.fill
+    }
+
+    pub fun alignment(&self) FormatAlignment {
+        self.alignment
+    }
+
+    pub fun signPlus(&self) bool {
+        self.signPlus
+    }
+
+    pub fun alternate(&self) bool {
+        self.alternate
+    }
+
+    pub fun validate(&self) Error!() {
+        match self.presentation {
+            .Display => {},
+            .LowerHex => {},
+            .UpperHex => {},
+            .Binary => {},
+            .Octal => {},
+            .Pointer => {},
+            _ => return .InvalidTemplate!,
+        }
+        match self.alignment {
+            .None => {},
+            .Left => {},
+            .Right => {},
+            .Center => {},
+            _ => return .InvalidTemplate!,
+        }
+        !()
+    }
+}

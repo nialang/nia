@@ -1,0 +1,80 @@
+// Byte and Unicode output, text precision, and alignment.
+
+using root::cmp;
+using root::slice;
+using root::unicode;
+using super::spec::{FormatAlignment, FormatSpec};
+using super::traits::{Error, FormatWriter};
+
+pub struct Formatter {
+    writer: &mut FormatWriter,
+}
+
+fun paddingWidth(contentWidth: usize, spec: FormatSpec) usize {
+    if spec.width() > contentWidth { spec.width() - contentWidth } else { 0 }
+}
+
+extend Formatter {
+    pub fun init(writer: &mut FormatWriter) Formatter {
+        .{ writer }
+    }
+
+    pub fun writeBytes(&mut self, bytes: &[u8]) Error!() {
+        self.writer.writeFmtBytes(bytes)
+    }
+
+    pub fun writeByte(&mut self, byte: u8) Error!() {
+        let bytes: [u8; 1] = [byte];
+        self.writeBytes(bytes)
+    }
+
+    pub fun writeChar(&mut self, ch: char) Error!() {
+        let encoded = ch.encodeUtf8();
+        self.writeBytes(encoded.bytes())
+    }
+
+    pub fun writeText(&mut self, text: &[char]) Error!() {
+        for &ch in text {
+            self.writeChar(ch).?;
+        }
+        !()
+    }
+
+    pub fun writeTextPrefix(&mut self, text: &[char], count: usize) Error!() {
+        self.writeText(&text[0..cmp::min(count, text.len())])
+    }
+
+    pub fun precisionWidth(&mut self, contentWidth: usize, spec: FormatSpec) usize {
+        _ = self;
+        if spec.precision() is ?precision { cmp::min(contentWidth, precision) } else { contentWidth }
+    }
+
+    pub fun writeFill(&mut self, fill: char, count: usize) Error!() {
+        let mut index: usize = 0;
+        while index < count {
+            self.writeChar(fill).?;
+            index += 1;
+        }
+        !()
+    }
+
+    pub fun writePaddingBefore(&mut self, contentWidth: usize, spec: FormatSpec) Error!() {
+        spec.validate().?;
+        let padding = paddingWidth(contentWidth, spec);
+        match spec.alignment() {
+            .Left => !(),
+            .Center => self.writeFill(spec.fill(), padding / 2),
+            _ => self.writeFill(spec.fill(), padding),
+        }
+    }
+
+    pub fun writePaddingAfter(&mut self, contentWidth: usize, spec: FormatSpec) Error!() {
+        spec.validate().?;
+        let padding = paddingWidth(contentWidth, spec);
+        match spec.alignment() {
+            .Left => self.writeFill(spec.fill(), padding),
+            .Center => self.writeFill(spec.fill(), padding - (padding / 2)),
+            _ => !(),
+        }
+    }
+}

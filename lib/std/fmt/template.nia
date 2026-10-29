@@ -1,15 +1,18 @@
-using root::fmt::core;
 using root::io;
 using root::math;
+using root::option;
+using super::formatter::Formatter;
+using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};
+using super::traits::{Error, Format};
 
 struct ParsedSpec {
-    spec: core::FormatSpec,
+    spec: FormatSpec,
     nextIndex: usize,
     dynamicWidth: bool,
     dynamicPrecision: bool,
 }
 
-fun parsePresentation(ch: char) ?core::FormatPresentation {
+fun parsePresentation(ch: char) ?FormatPresentation {
     if ch == 'x' {
         ?.LowerHex
     } else if ch == 'X' {
@@ -25,7 +28,7 @@ fun parsePresentation(ch: char) ?core::FormatPresentation {
     }
 }
 
-fun parseAlignment(ch: char) ?core::FormatAlignment {
+fun parseAlignment(ch: char) ?FormatAlignment {
     if ch == '<' {
         ?.Left
     } else if ch == '>' {
@@ -45,30 +48,25 @@ fun digitValue(ch: char) ?usize {
     }
 }
 
-fun appendDecimalDigit(value: usize, digit: usize) core::Error!usize {
-    let scaled = match value.checkedMul(10) {
-        ?scaled => scaled,
-        null => return .InvalidTemplate!,
-    };
-    match scaled.checkedAdd(digit) {
-        ?next => !next,
-        null => .InvalidTemplate!,
-    }
+fun appendDecimalDigit(value: usize, digit: usize) Error!usize {
+    value.checkedMul(10)
+        .andThen(\[digit] scaled -> scaled.checkedAdd(digit))
+        .okOr(Error::InvalidTemplate)
 }
 
 fun parseSpecEnd(
     template: &[char],
     index: usize,
-    presentation: core::FormatPresentation,
+    presentation: FormatPresentation,
     width: usize,
     precision: ?usize,
     dynamicWidth: bool,
     dynamicPrecision: bool,
     fill: char,
-    alignment: core::FormatAlignment,
+    alignment: FormatAlignment,
     signPlus: bool,
     alternate: bool,
-) core::Error!ParsedSpec {
+) Error!ParsedSpec {
     if index >= template.len() or template[index] != '}' {
         return .InvalidTemplate!;
     }
@@ -80,10 +78,10 @@ fun parseSpecEnd(
     }
 }
 
-fun parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
+fun parseExtendedSpec(template: &[char], start: usize) Error!ParsedSpec {
     let mut index = start;
     let mut fill = ' ';
-    let mut alignment = core::FormatAlignment::None;
+    let mut alignment = FormatAlignment::None;
     let mut signPlus = false;
     let mut alternate = false;
 
@@ -103,7 +101,7 @@ fun parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
             index += 1;
         } else if ch == '0' {
             fill = '0';
-            alignment = core::FormatAlignment::Right;
+            alignment = FormatAlignment::Right;
             index += 1;
         } else if ch == '+' and not signPlus {
             signPlus = true;
@@ -158,7 +156,7 @@ fun parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
         }
     }
 
-    let mut presentation = core::FormatPresentation::Display;
+    let mut presentation = FormatPresentation::Display;
     if index < template.len() {
         if parsePresentation(template[index]) is ?parsed {
             presentation = parsed;
@@ -181,24 +179,20 @@ fun parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
     )
 }
 
-fun nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize {
+fun nextUsizeArg(args: &[&Format], argIndex: &mut usize) Error!usize {
     if argIndex.* >= args.len() {
         return .MissingArgument!;
     }
-    let value = if args[argIndex.*].formatUsizeArg() is ?value {
-        value
-    } else {
-        return .InvalidTemplate!;
-    };
+    let value = args[argIndex.*].formatUsizeArg().okOr(Error::InvalidTemplate).?;
     argIndex.* += 1;
     !value
 }
 
 fun resolveDynamicSpec(
     parsed: ParsedSpec,
-    args: &[&core::Format],
+    args: &[&Format],
     argIndex: &mut usize,
-) core::Error!core::FormatSpec {
+) Error!FormatSpec {
     let mut width = parsed.spec.width();
     let mut precision = parsed.spec.precision();
     if parsed.dynamicWidth {
@@ -221,11 +215,11 @@ fun resolveDynamicSpec(
 fun printTemplate[W](
     writer: &mut W,
     template: &[char],
-    args: &[&core::Format],
-) core::Error!()
+    args: &[&Format],
+) Error!()
 where W: io::Writer
 {
-    let mut formatter = core::Formatter::init(writer);
+    let mut formatter = Formatter::init(writer);
     let mut index: usize = 0;
     let mut argIndex: usize = 0;
     while index < template.len() {
@@ -239,7 +233,7 @@ where W: io::Writer
                 if argIndex >= args.len() {
                     return .MissingArgument!;
                 }
-                args[argIndex].formatSpec(formatter, core::FormatSpec::display()).?;
+                args[argIndex].formatSpec(formatter, FormatSpec::display()).?;
                 argIndex += 1;
                 index += 2;
             } else if next == '{' {
@@ -279,8 +273,8 @@ where W: io::Writer
 pub fun printChecked[W](
     writer: &mut W,
     template: &[char],
-    args: &[&core::Format],
-) core::Error!()
+    args: &[&Format],
+) Error!()
 where W: io::Writer
 {
     printTemplate(writer, template, args)
@@ -292,8 +286,8 @@ where W: io::Writer
     pub fun print(
         &mut self,
         template: &[char],
-        args: &[&core::Format],
-    ) core::Error!() {
+        args: &[&Format],
+    ) Error!() {
         printChecked(self, template, args)
     }
 }

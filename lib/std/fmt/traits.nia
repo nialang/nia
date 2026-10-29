@@ -1,0 +1,46 @@
+// Formatting contracts and the checked I/O writer adapter.
+
+using root::io;
+using root::result;
+using super::formatter::Formatter;
+using super::spec::{FormatPresentation, FormatSpec};
+
+pub enum Error: i32 {
+    Write = 1,
+    InvalidTemplate = 2,
+    MissingArgument = 3,
+    ExtraArgument = 4,
+    _,
+}
+
+pub trait FormatWriter {
+    fun writeFmtBytes(&mut self, bytes: &[u8]) Error!();
+}
+
+pub trait Format {
+    fun format(&self, formatter: &mut Formatter) Error!();
+
+    fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+        spec.validate().?;
+        if spec.presentation() == FormatPresentation::Display {
+            self.format(formatter)
+        } else {
+            .InvalidTemplate!
+        }
+    }
+
+    fun formatUsizeArg(&self) ?usize {
+        null
+    }
+}
+
+extend[W] W : FormatWriter
+where W: io::Writer
+{
+    fun writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
+        self.writeAll(bytes).mapError(\cause: [W as io::Writer]::Error -> {
+            _ = cause;
+            Error::Write
+        })
+    }
+}

@@ -1,12 +1,20 @@
-// Formatting traits, template parsing, and checked writer dispatch.
+// Formatting contracts, specifications, and checked writer dispatch.
 
-pub(root) module core;
+pub(root) module formatter;
+pub(root) module integer;
 pub(root) module primitive;
+pub(root) module spec;
+pub(root) module traits;
 pub module template;
 
-using root::fmt::core;
+using root::fmt::formatter;
+using root::fmt::integer;
 using root::fmt::primitive;
+using root::fmt::spec;
 using root::fmt::template;
+using root::fmt::traits;
 
-pub using core::{Error, FormatWriter, Format, FormatAlignment, FormatPresentation, FormatSpec, Formatter};
+pub using traits::{Error, FormatWriter, Format};
+pub using spec::{FormatAlignment, FormatPresentation, FormatSpec};
+pub using formatter::Formatter;
 pub using template::printChecked;

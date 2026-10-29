@@ -86,7 +86,7 @@ match CStringView::fromBytes(b"nia\0") {
         .expect("std package root");
     let std_root = program.graph.get(std_root).expect("std root module");
     let fmt = module_by_suffix(&program, "lib/std/fmt.nia");
-    let fmt_core = module_by_suffix(&program, "lib/std/fmt/core.nia");
+    let fmt_traits = module_by_suffix(&program, "lib/std/fmt/traits.nia");
     assert!(cstring.process_used_paths);
     assert!(
         std_root
@@ -99,10 +99,12 @@ match CStringView::fromBytes(b"nia\0") {
         !fmt.process_used_paths,
         "fmt facade should stay shallow while selected exports load their source modules: {fmt:?}"
     );
-    assert!(fmt_core.process_used_paths);
+    assert!(fmt_traits.process_used_paths);
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_loaded(&program, "lib/std/fmt.nia");
-    assert_module_loaded(&program, "lib/std/fmt/core.nia");
+    assert_module_loaded(&program, "lib/std/fmt/traits.nia");
+    assert_module_loaded(&program, "lib/std/fmt/spec.nia");
+    assert_module_loaded(&program, "lib/std/fmt/formatter.nia");
     assert_module_not_loaded(&program, "lib/std/build.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
 }
