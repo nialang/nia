@@ -32,6 +32,12 @@ struct PoolPage {
     nextAvailable: ?&mut PoolPage,
 }
 
+struct PoolPageLayout {
+    pageAddress: usize,
+    metadataAddress: usize,
+    slotsAddress: usize,
+}
+
 pub struct PoolAllocator[T]
 where T: Sized
 {
@@ -75,48 +81,22 @@ where T: Sized
         let mut pageSize: usize = 0;
 
         if not objectLayout.isEmpty() {
-            slotStride = match objectLayout.size().alignForward(objectLayout.align()) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
-            slotMetadataOffset = match root::builtin::size[PoolPage]().alignForward(slotAlign) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
-            slotMetadataSize = match slotSize.checkedMul(slotsPerPage) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
-            let metadataEnd = match slotMetadataOffset.checkedAdd(slotMetadataSize) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
-            slotsOffset = match metadataEnd.alignForward(objectLayout.align()) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
-            let slotBytes = match slotStride.checkedMul(slotsPerPage) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
-            pageSize = match slotsOffset.checkedAdd(slotBytes) {
-                ?value => value,
-                null => {
-                    return .OutOfMemory!;
-                },
-            };
+            slotStride = objectLayout.size()
+                .alignForward(objectLayout.align())
+                .okOr(Error::OutOfMemory).?;
+            slotMetadataOffset = root::builtin::size[PoolPage]()
+                .alignForward(slotAlign)
+                .okOr(Error::OutOfMemory).?;
+            slotMetadataSize = slotSize.checkedMul(slotsPerPage)
+                .okOr(Error::OutOfMemory).?;
+            let metadataEnd = slotMetadataOffset.checkedAdd(slotMetadataSize)
+                .okOr(Error::OutOfMemory).?;
+            slotsOffset = metadataEnd.alignForward(objectLayout.align())
+                .okOr(Error::OutOfMemory).?;
+            let slotBytes = slotStride.checkedMul(slotsPerPage)
+                .okOr(Error::OutOfMemory).?;
+            pageSize = slotsOffset.checkedAdd(slotBytes)
+                .okOr(Error::OutOfMemory).?;
         }
 
         !.{
@@ -263,76 +243,19 @@ where T: Sized
     fun allocatePage(&mut self) Error!() {
         let layout = Layout::init(self.pageSize, self.pageAlign).?;
         let backing = self.child.alloc(layout).?;
-        let base = backing.ptr() as usize;
-        if backing.size() < self.pageSize {
-            self.releaseUnpublished(backing);
-            return .Invalid!;
-        }
-        let pageEnd = match base.checkedAdd(self.pageSize) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        let slotsAddress = match base.checkedAdd(self.slotsOffset) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        let metadataAddress = match base.checkedAdd(self.slotMetadataOffset) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        let metadataEnd = match metadataAddress.checkedAdd(self.slotMetadataSize) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        let slotDataSize = match self.slotStride.checkedMul(self.slotsPerPage) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        let slotsEnd = match slotsAddress.checkedAdd(slotDataSize) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        let headerEnd = match base.checkedAdd(root::builtin::size[PoolPage]()) {
-            ?value => value,
-            null => {
-                self.releaseUnpublished(backing);
-                return .OutOfMemory!;
-            },
-        };
-        if base % self.pageAlign != 0
-            or metadataAddress < headerEnd
-            or metadataEnd > pageEnd
-            or slotsAddress < metadataEnd
-            or slotsEnd > pageEnd
-        {
-            self.releaseUnpublished(backing);
-            return .InvalidAlignment!;
-        }
+        let allocator = self;
+        let pageLayout = self.validatePageLayout(backing)
+            .inspectError(\[allocator, backing] error -> {
+                _ = error;
+                allocator.releaseUnpublished(backing);
+            }).?;
 
-        let mut page = base as &mut PoolPage;
+        let mut page = pageLayout.pageAddress as &mut PoolPage;
         page.* = .{
             backing,
-            slots: metadataAddress as &mut PoolSlot,
+            slots: pageLayout.metadataAddress as &mut PoolSlot,
             freeSlots: null,
-            slotData: slotsAddress as &mut u8,
+            slotData: pageLayout.slotsAddress as &mut u8,
             slotCount: self.slotsPerPage,
             usedCount: 0,
             usedBytes: 0,
@@ -342,7 +265,7 @@ where T: Sized
 
         let mut index: usize = 0;
         while index < self.slotsPerPage {
-            let slotAddress = metadataAddress + index * root::builtin::size[PoolSlot]();
+            let slotAddress = pageLayout.metadataAddress + index * root::builtin::size[PoolSlot]();
             let mut slot = slotAddress as &mut PoolSlot;
             slot.* = .{
                 size: 0,
@@ -355,6 +278,29 @@ where T: Sized
         self.pages = ?page;
         self.availablePages = ?page;
         !()
+    }
+
+    fun validatePageLayout(&self, backing: Block) Error!PoolPageLayout {
+        if backing.size() < self.pageSize {
+            return .Invalid!;
+        }
+        let base = backing.ptr() as usize;
+        let pageEnd = base.checkedAdd(self.pageSize).okOr(Error::OutOfMemory).?;
+        let slotsAddress = base.checkedAdd(self.slotsOffset).okOr(Error::OutOfMemory).?;
+        let metadataAddress = base.checkedAdd(self.slotMetadataOffset).okOr(Error::OutOfMemory).?;
+        let metadataEnd = metadataAddress.checkedAdd(self.slotMetadataSize).okOr(Error::OutOfMemory).?;
+        let slotDataSize = self.slotStride.checkedMul(self.slotsPerPage).okOr(Error::OutOfMemory).?;
+        let slotsEnd = slotsAddress.checkedAdd(slotDataSize).okOr(Error::OutOfMemory).?;
+        let headerEnd = base.checkedAdd(root::builtin::size[PoolPage]()).okOr(Error::OutOfMemory).?;
+        if base % self.pageAlign != 0
+            or metadataAddress < headerEnd
+            or metadataEnd > pageEnd
+            or slotsAddress < metadataEnd
+            or slotsEnd > pageEnd
+        {
+            return .InvalidAlignment!;
+        }
+        !.{ pageAddress: base, metadataAddress, slotsAddress }
     }
 
     fun releaseUnpublished(&mut self, block: Block) () {

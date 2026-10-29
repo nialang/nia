@@ -4,6 +4,13 @@ pub enum Ordering: i32 {
     Greater = 3,
 }
 
+// Return the lesser value, preserving `left` when the values compare equal.
+pub fun min[T](left: T, right: T) T
+where T: Sized + Ord[T]
+{
+    if right < left { right } else { left }
+}
+
 // Return the greater value, preserving `left` when the values compare equal.
 pub fun max[T](left: T, right: T) T
 where T: Sized + Ord[T]

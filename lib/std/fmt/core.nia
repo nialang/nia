@@ -515,7 +515,7 @@ extend[W] W : FormatWriter
 where W: io::Writer
 {
     fun writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
-        self.writeAll(bytes).mapError(&\cause: [W as io::Writer]::Error -> {
+        self.writeAll(bytes).mapError(\cause: [W as io::Writer]::Error -> {
             _ = cause;
             Error::Write
         })

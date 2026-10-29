@@ -71,6 +71,7 @@
     "std/fs/path.nia",
     "std/fs/types.nia",
     "std/hash.nia",
+    "std/hash/block_buffer.nia",
     "std/hash/fnv.nia",
     "std/hash/impls.nia",
     "std/hash/siphash.nia",

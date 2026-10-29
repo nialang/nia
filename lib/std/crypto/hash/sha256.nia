@@ -2,8 +2,11 @@
 //
 // The digest is a stable 32-byte value in network byte order. Finalization is
 // non-mutating, so callers may inspect a digest and continue updating state.
+// SHA-256 alone is not a password hashing function or a message authentication
+// code.
 
 using root::slice;
+using root::hash::block_buffer::BlockBuffer;
 
 fun roundConstant(index: usize) u32 {
     match index {
@@ -78,8 +81,7 @@ fun roundConstant(index: usize) u32 {
 pub struct Sha256 {
     state: [u32; 8],
     totalLen: u64,
-    buffer: [u8; 64],
-    bufferLen: usize,
+    buffer: BlockBuffer[64],
 }
 
 fun rotateRight(value: u32, amount: usize) u32 {
@@ -134,10 +136,8 @@ fun addWrap32(left: u32, right: u32) u32 {
 
 fun compress(hashState: &mut [u32], block: &[u8]) () {
     let mut schedule: [u32; 16] = [0; 16];
-    let mut index: usize = 0;
-    while index < 16 {
+    for index in 0usize..16 {
         schedule[index] = readBig32(&block[(index * 4)..]);
-        index += 1;
     }
 
     let mut a: u32 = hashState[0];
@@ -149,8 +149,7 @@ fun compress(hashState: &mut [u32], block: &[u8]) () {
     let mut g: u32 = hashState[6];
     let mut h: u32 = hashState[7];
 
-    index = 0;
-    while index < 64 {
+    for index in 0usize..64 {
         if index >= 16 {
             let sum = (smallSigma1(schedule[(index + 14) % 16]) as u64)
                 + (schedule[(index + 9) % 16] as u64)
@@ -172,7 +171,6 @@ fun compress(hashState: &mut [u32], block: &[u8]) () {
         c = b;
         b = a;
         a = addWrap32(t1 as u32, t2 as u32);
-        index += 1;
     }
 
     hashState[0] = addWrap32(hashState[0], a);
@@ -193,44 +191,23 @@ extend Sha256 {
                 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
             ],
             totalLen: 0,
-            buffer: [0; 64],
-            bufferLen: 0,
+            buffer: .init(),
         }
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
         self.totalLen = ((self.totalLen as u128) + (bytes.len() as u128)) as u64;
-        let mut index: usize = 0;
-
-        if self.bufferLen > 0 {
-            let needed = 64 - self.bufferLen;
-            if bytes.len() < needed {
-                _ = (&mut self.buffer[self.bufferLen..(self.bufferLen + bytes.len())]).copyFrom(bytes);
-                self.bufferLen += bytes.len();
-                return;
-            }
-            _ = (&mut self.buffer[self.bufferLen..64]).copyFrom(&bytes[0..needed]);
-            compress(&mut self.state[..], &self.buffer[..]);
-            self.bufferLen = 0;
-            index = needed;
-        }
-
-        while bytes.len() - index >= 64 {
-            compress(&mut self.state[..], &bytes[index..]);
-            index += 64;
-        }
-
-        let remaining = &bytes[index..];
-        _ = (&mut self.buffer[0..remaining.len()]).copyFrom(remaining);
-        self.bufferLen = remaining.len();
+        let state = &mut self.state;
+        self.buffer.update(bytes, \[state] block -> compress(state, block));
     }
 
     pub fun finish(&self) [u8; 32] {
+        let tail = self.buffer.pending();
         let mut finalBlocks: [u8; 128] = [0; 128];
-        _ = (&mut finalBlocks[0..self.bufferLen]).copyFrom(&self.buffer[0..self.bufferLen]);
-        finalBlocks[self.bufferLen] = 0x80;
+        _ = (&mut finalBlocks[0..tail.len()]).copyFrom(tail);
+        finalBlocks[tail.len()] = 0x80;
 
-        let paddedLen: usize = if self.bufferLen < 56 { 64 } else { 128 };
+        let paddedLen: usize = if tail.len() < 56 { 64 } else { 128 };
         let lengthBits = ((self.totalLen as u128) << 3) as u64;
         writeBig64(&mut finalBlocks[(paddedLen - 8)..paddedLen], lengthBits);
 
@@ -241,14 +218,12 @@ extend Sha256 {
         }
 
         let mut digest: [u8; 32] = [0; 32];
-        let mut index: usize = 0;
-        while index < digest.len() / 4 {
+        for index in 0..finalState.len() {
             let word = finalState[index];
             digest[index * 4] = (word >> 24) as u8;
             digest[index * 4 + 1] = (word >> 16) as u8;
             digest[index * 4 + 2] = (word >> 8) as u8;
             digest[index * 4 + 3] = word as u8;
-            index += 1;
         }
         digest
     }

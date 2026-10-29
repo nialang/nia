@@ -1,9 +1,8 @@
 // Reflected CRC-32/ISO-HDLC and CRC-32C/Castagnoli checksums.
 //
-// Both variants use the standard reflected polynomials, an all-ones initial
-// state, and a final all-ones xor. A 256-entry lookup table keeps the portable
-// implementation to one table access per byte, with no allocation or hardware
-// dispatch. These are error-detection checksums, not cryptographic hashes.
+// Both use the standard reflected polynomials, an all-ones initial state, and
+// a final all-ones xor. The lookup tables keep updates allocation-free. These
+// checksums detect accidental corruption; they are not cryptographic.
 
 const crc32Table: [u32; 256] = [
     0x00000000u32, 0x77073096u32, 0xee0e612cu32, 0x990951bau32,
@@ -148,8 +147,8 @@ pub struct Crc32C {
 }
 
 fun updateState(state: &mut u32, bytes: &[u8], table: &[u32]) () {
-    for index in 0..bytes.len() {
-        let slot = ((state.* ^ bytes[index] as u32) & 0xffu32) as usize;
+    for &byte in bytes {
+        let slot = ((state.* ^ byte as u32) & 0xffu32) as usize;
         state.* = (state.* >> 8) ^ table[slot];
     }
 }
@@ -158,7 +157,7 @@ extend Crc32 {
     pub fun init() Crc32 { .{ state: u32::MAX } }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        updateState(&mut self.state, bytes, &crc32Table[..]);
+        updateState(self.state, bytes, &crc32Table[..]);
     }
 
     pub fun finish(&self) u32 { self.state ^ u32::MAX }
@@ -174,7 +173,7 @@ extend Crc32C {
     pub fun init() Crc32C { .{ state: u32::MAX } }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        updateState(&mut self.state, bytes, &crc32cTable[..]);
+        updateState(self.state, bytes, &crc32cTable[..]);
     }
 
     pub fun finish(&self) u32 { self.state ^ u32::MAX }

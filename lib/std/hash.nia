@@ -1,3 +1,4 @@
+pub(root) module block_buffer;
 pub(root) module impls;
 pub(root) module fnv;
 pub(root) module siphash;

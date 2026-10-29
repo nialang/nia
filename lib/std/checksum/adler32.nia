@@ -1,4 +1,7 @@
-// Adler-32 streaming checksum from RFC 1950.
+// Adler-32 rolling checksum as specified in RFC 1950.
+//
+// This checksum detects accidental corruption; it is not cryptographic and
+// must not be used for authentication.
 
 pub struct Adler32 {
     first: u32,
@@ -21,14 +24,13 @@ extend Adler32 {
             } else {
                 maxBlockLength
             };
-            let end = offset + count;
             let mut first = self.first as u64;
             let mut second = self.second as u64;
-            while offset < end {
-                first += bytes[offset] as u64;
+            for &byte in &bytes[offset..(offset + count)] {
+                first += byte as u64;
                 second += first;
-                offset += 1;
             }
+            offset += count;
             self.first = (first % modulus) as u32;
             self.second = (second % modulus) as u32;
         }

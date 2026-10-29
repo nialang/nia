@@ -19,7 +19,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
     pub fun hash(&self, seed: u64, key: &K) u64 {
         _ = self;
         let mut hasher = hash::Wyhash::init(seed);
-        key.hash(&mut hasher);
+        key.hash(hasher);
         hasher.finish()
     }
 
@@ -61,7 +61,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::SipHash24]
 {
     pub fun hash(&self, seed: u64, key: &K) u64 {
         let mut hasher = hash::SipHash24::init(self.key0 ^ seed, self.key1);
-        key.hash(&mut hasher);
+        key.hash(hasher);
         hasher.finish()
     }
 

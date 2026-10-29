@@ -463,7 +463,7 @@ fun appendCStringPointers(
 
 extend[T] os::Error!T {
     fun withSpawnSetupContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .SpawnSetup(cause.intoError()))
+        self.mapError(\cause: os::Error -> .SpawnSetup(cause.intoError()))
     }
 }
 

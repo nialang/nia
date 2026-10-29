@@ -5,7 +5,7 @@
 // purpose message authentication API.
 
 using root::hash::traits;
-using root::slice;
+using root::hash::block_buffer::BlockBuffer;
 
 using traits::Hasher;
 
@@ -15,8 +15,7 @@ pub struct SipHash[C: usize, D: usize] {
     v2: u64,
     v3: u64,
     totalLen: usize,
-    tail: [u8; 8],
-    tailLen: usize,
+    buffer: BlockBuffer[8],
 }
 
 pub type SipHash13 = SipHash[1, 3];
@@ -76,14 +75,13 @@ fun finish[compressRounds: usize, finalRounds: usize](
     v3: u64,
     totalLen: usize,
     tail: &[u8],
-    tailLen: usize,
 ) u64 {
     let mut a = v0;
     let mut b = v1;
     let mut c = v2;
     let mut d = v3;
     let mut last: u64 = (((totalLen as u128) << 56) as u64);
-    for index in 0..tailLen {
+    for index in 0..tail.len() {
         last |= (tail[index] as u64) << (index * 8);
     }
     compress[compressRounds](a, b, c, d, last);
@@ -92,45 +90,24 @@ fun finish[compressRounds: usize, finalRounds: usize](
     a ^ b ^ c ^ d
 }
 
-fun updateState[rounds: usize](
-    v0: &mut u64,
-    v1: &mut u64,
-    v2: &mut u64,
-    v3: &mut u64,
-    tail: &mut [u8],
-    tailLen: &mut usize,
-    bytes: &[u8],
-) () {
-    let mut index: usize = 0;
-    if tailLen.* > 0 and bytes.len() >= 8 - tailLen.* {
-        let needed = 8 - tailLen.*;
-        _ = (&mut tail[tailLen.*..8]).copyFrom(&bytes[0..needed]);
-        compress[rounds](v0, v1, v2, v3, read8(&tail[..]));
-        tailLen.* = 0;
-        index = needed;
-    }
-    while bytes.len() - index >= 8 {
-        compress[rounds](v0, v1, v2, v3, read8(&bytes[index..]));
-        index += 8;
-    }
-    let remaining = &bytes[index..];
-    _ = (&mut tail[tailLen.*..(tailLen.* + remaining.len())]).copyFrom(remaining);
-    tailLen.* += remaining.len();
-}
-
 extend[C: usize, D: usize] SipHash[C, D] {
     pub fun init(key0: u64, key1: u64) Self {
         let (v0, v1, v2, v3) = initState(key0, key1);
-        .{ v0, v1, v2, v3, totalLen: 0, tail: [0; 8], tailLen: 0 }
+        .{ v0, v1, v2, v3, totalLen: 0, buffer: .init() }
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
         self.totalLen = (self.totalLen + bytes.len() % 256) % 256;
-        updateState[C](self.v0, self.v1, self.v2, self.v3, self.tail, self.tailLen, bytes);
+        let v0 = &mut self.v0;
+        let v1 = &mut self.v1;
+        let v2 = &mut self.v2;
+        let v3 = &mut self.v3;
+        self.buffer.update(bytes, \[v0, v1, v2, v3] block ->
+            compress[C](v0, v1, v2, v3, read8(block)));
     }
 
     pub fun finishValue(&self) u64 {
-        finish[C, D](self.v0, self.v1, self.v2, self.v3, self.totalLen, self.tail, self.tailLen)
+        finish[C, D](self.v0, self.v1, self.v2, self.v3, self.totalLen, self.buffer.pending())
     }
 
     pub fun hash(key0: u64, key1: u64, bytes: &[u8]) u64 {

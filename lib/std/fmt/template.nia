@@ -239,7 +239,7 @@ where W: io::Writer
                 if argIndex >= args.len() {
                     return .MissingArgument!;
                 }
-                args[argIndex].formatSpec(&mut formatter, core::FormatSpec::display()).?;
+                args[argIndex].formatSpec(formatter, core::FormatSpec::display()).?;
                 argIndex += 1;
                 index += 2;
             } else if next == '{' {
@@ -252,8 +252,8 @@ where W: io::Writer
                 }
                 let valueIndex = argIndex;
                 argIndex += 1;
-                let spec = resolveDynamicSpec(parsed, args, &mut argIndex).?;
-                args[valueIndex].formatSpec(&mut formatter, spec).?;
+                let spec = resolveDynamicSpec(parsed, args, argIndex).?;
+                args[valueIndex].formatSpec(formatter, spec).?;
                 index = parsed.nextIndex;
             } else {
                 return .InvalidTemplate!;

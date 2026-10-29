@@ -194,24 +194,24 @@ extend ExitedChild {
 
 extend[T] io::Error!T {
     fun withCloseContext(self, stream: StdStream) Error!T {
-        self.mapError(&\[stream] cause: io::Error -> .Close { stream, cause })
+        self.mapError(\[stream] cause: io::Error -> .Close { stream, cause })
     }
 }
 
 extend[T] os::Error!T {
     fun withWaitContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .Wait(cause.intoError()))
+        self.mapError(\cause: os::Error -> .Wait(cause.intoError()))
     }
 }
 
 extend[T] os::Error!T {
     fun withTryWaitContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .TryWait(cause.intoError()))
+        self.mapError(\cause: os::Error -> .TryWait(cause.intoError()))
     }
 }
 
 extend[T] os::Error!T {
     fun withKillContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> .Kill(cause.intoError()))
+        self.mapError(\cause: os::Error -> .Kill(cause.intoError()))
     }
 }

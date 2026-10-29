@@ -1,0 +1,44 @@
+// Internal streaming buffer shared by fixed-block hash algorithms.
+// N is nonzero. Complete input blocks are passed directly to the callback;
+// only the unfinished suffix is copied into the inline buffer.
+
+using root::cmp;
+using root::slice;
+
+pub struct BlockBuffer[N: usize] {
+    bytes: [u8; N],
+    len: usize,
+}
+
+extend[N: usize] BlockBuffer[N] {
+    pub fun init() Self {
+        if N == 0 { root::builtin::trap(); }
+        .{ bytes: [0; N], len: 0 }
+    }
+
+    pub fun pending(&self) &[u8] { &self.bytes[0..self.len] }
+
+    // The callback runs synchronously and is never retained. It consumes each
+    // full block before the buffer advances; pending() always contains < N bytes.
+    pub fun update[Process](&mut self, bytes: &[u8], process: Process) ()
+    where Process: Fun(&[u8]) ()
+    {
+        let mut remaining = bytes;
+        if self.len > 0 {
+            let count = cmp::min(N - self.len, remaining.len());
+            _ = (&mut self.bytes[self.len..(self.len + count)])
+                .copyFrom(&remaining[0..count]);
+            self.len += count;
+            remaining = &remaining[count..];
+            if self.len < N { return; }
+            process(&self.bytes[..]);
+            self.len = 0;
+        }
+        while remaining.len() >= N {
+            process(&remaining[0..N]);
+            remaining = &remaining[N..];
+        }
+        _ = (&mut self.bytes[0..remaining.len()]).copyFrom(remaining);
+        self.len = remaining.len();
+    }
+}

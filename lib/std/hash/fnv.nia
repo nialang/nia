@@ -1,8 +1,8 @@
 // Fowler-Noll-Vo 1a hashers.
 //
 // FNV-1a is a small, deterministic non-cryptographic hash. It is useful for
-// stable file formats and compact indexes; callers should prefer a keyed
-// hasher such as SipHash when the input is attacker-controlled.
+// stable identifiers; callers should prefer a keyed hasher such as SipHash
+// when hashing attacker-controlled input.
 
 using root::hash::traits;
 
@@ -22,8 +22,8 @@ extend Fnv1a32 {
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        for index in 0..bytes.len() {
-            self.state = (((self.state ^ bytes[index] as u32) as u64) * 0x01000193u64) as u32;
+        for &byte in bytes {
+            self.state = (((self.state ^ byte as u32) as u64) * 0x01000193u64) as u32;
         }
     }
 
@@ -54,8 +54,8 @@ extend Fnv1a64 {
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        for index in 0..bytes.len() {
-            let product = ((self.state ^ bytes[index] as u64) as u128) * 0x100000001b3u128;
+        for &byte in bytes {
+            let product = ((self.state ^ byte as u64) as u128) * 0x100000001b3u128;
             self.state = product as u64;
         }
     }
