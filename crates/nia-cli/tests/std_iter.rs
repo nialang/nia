@@ -42,6 +42,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     !()
 }
+
 "#,
     )
     .expect("write test source");
@@ -53,6 +54,104 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .arg("-o")
         .arg(&exe)
         .output_timeout_for_build("run nia emit --exe std iterator forEach");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_iterator_map_lazily_transforms_items() {
+    let root = temp_dir("emit_exe_std_iterator_map_lazily_transforms_items");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+fun square(value: i32) i32 { value * value }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut squares = (1..5).iter().map(square);
+    match squares.next() {
+        ?value => if value != 1 { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
+    }
+    let sum = squares.fold(0, &\acc, value -> acc + value);
+    if sum != 29 { return process::ExitCode(3)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe lazy iterator map");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_iterator_map_is_lazy_and_infers_closure_output() {
+    let root = temp_dir("emit_exe_std_iterator_map_is_lazy_and_infers_closure_output");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+static mut mappedCount: i32 = 0;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let offset: i64 = 1;
+    let mut incremented = (1..4).iter().map(\[offset] value: i32 -> {
+        mappedCount += 1;
+        value as i64 + offset
+    });
+    if mappedCount != 0 { return process::ExitCode(1)!; }
+    match incremented.next() {
+        ?value => if value != 2 { return process::ExitCode(2)!; },
+        null => return process::ExitCode(3)!,
+    }
+    if mappedCount != 1 { return process::ExitCode(4)!; }
+    let rest = incremented.fold(0i64, &\acc, value -> acc + value);
+    if rest != 7 or mappedCount != 3 { return process::ExitCode(5)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe lazy map closure");
 
     assert!(
         output.status.success(),

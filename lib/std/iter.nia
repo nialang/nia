@@ -1,7 +1,7 @@
 // Iterator adapters and eager callback consumers.
 //
-// `forEach`, `fold`, `tryFold`, and `position` borrow callbacks only for the
-// active call. Lazy adapters own their iterator state but no borrowed callback.
+// `forEach`, `fold`, `tryFold`, and `position` borrow callbacks for one call.
+// Lazy adapters such as `Map` own their callback and iterator state.
 
 pub(root) module range;
 
@@ -22,6 +22,13 @@ pub struct Rev[I]
 where I: DoubleEndedIterator
 {
     iter: I,
+}
+
+pub struct Map[I, Mapper, Mapped]
+where I: Iterator
+{
+    iter: I,
+    mapper: Mapper,
 }
 
 extend[I] Take[I]
@@ -75,9 +82,36 @@ where I: DoubleEndedIterator
     }
 }
 
+extend[I, Mapper, Mapped] Map[I, Mapper, Mapped]
+where I: Iterator, Mapper: Fun([I as Iterator]::Item) Mapped
+{
+    pub fun init(iter: I, mapper: Mapper) Map[I, Mapper, Mapped] {
+        .{ iter, mapper }
+    }
+}
+
+extend[I, Mapper, Mapped] Map[I, Mapper, Mapped] : Iterator
+where I: Iterator, Mapper: Fun([I as Iterator]::Item) Mapped
+{
+    type Item = Mapped;
+
+    pub fun next(&mut self) ?Mapped {
+        if self.iter.next() is ?value {
+            return ?self.mapper(value);
+        }
+        null
+    }
+}
+
 extend[I] I
 where I: Iterator
 {
+    pub fun map[Mapper, Mapped](self, mapper: Mapper) Map[I, Mapper, Mapped]
+    where Mapper: Fun([I as Iterator]::Item) Mapped
+    {
+        .init(self, mapper)
+    }
+
     pub fun take(self, limit: usize) Take[I] {
         .init(self, limit)
     }
