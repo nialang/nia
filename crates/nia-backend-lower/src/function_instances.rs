@@ -879,11 +879,8 @@ impl<'a> ModuleLowerer<'a> {
             ..
         } = kind
             && self
-                .input
-                .program
-                .functions()
-                .get(&closure_id.owner)
-                .is_some_and(|function| !function.signature.generics.is_empty())
+                .effective_generic_params_for_def(closure_id.owner)
+                .is_some_and(|params| !params.is_empty())
         {
             return true;
         }
