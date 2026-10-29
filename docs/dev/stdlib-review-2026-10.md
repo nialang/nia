@@ -74,6 +74,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: the checked integer executable test now also exercises generic `CheckedNeg` and `CheckedAbs` dispatch for every signed primitive and the `MIN % -1` boundary.
 - Status: completed as a documentation review; no compiler or standard-library correctness bug confirmed.
 
+### H9 — Separate external command policy from owned command storage
+
+- Files: `lib/std/build/commands.nia` (552 lines)
+- Evidence: the module combines typed argument constructors, cache/environment/command validation, value-style option builders, borrowed-to-owned conversion, and retryable allocator cleanup for retained command records.
+- Direction: review the build sibling modules and public provider closure before splitting these responsibilities. Preserve the existing `ExternalCommandOptions` method scope and the validation entry points used by `Build`.
+- Validation: existing command-cache, build-target, ownership-failure, configured-build, and invalid-diagnostic tests cover the behavior that a later split must retain.
+- Status: review complete; structural split queued for the build-module refactor pass.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -98,7 +106,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 ### `build`
 
-- [ ] `lib/std/build/commands.nia`
+- [x] `lib/std/build/commands.nia`
 - [ ] `lib/std/build/core.nia`
 - [ ] `lib/std/build/dependencies.nia`
 - [ ] `lib/std/build/diagnostics.nia`
