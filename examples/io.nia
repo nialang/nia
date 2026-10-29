@@ -13,7 +13,7 @@ pub fun main(init: Init) ExitCode!() {
 
     stdout.print(
         "name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
-        [name, answer, byte, ptr],
+        [name, answer, byte, &ptr],
     ).?;
     stdout.flush().?;
     !()
