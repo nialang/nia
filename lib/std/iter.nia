@@ -117,26 +117,16 @@ where I: Iterator
     }
 
     pub fun count(self) usize {
-        let mut iter = self;
         let mut total: usize = 0;
-        while true {
-            if iter.next() is ?_ {
-                total += 1;
-            } else {
-                break;
-            }
+        for _ in self {
+            total += 1;
         }
         total
     }
 
     pub fun forEach(self, callback: &Fun([I as Iterator]::Item) ()) () {
-        let mut iter = self;
-        while true {
-            if iter.next() is ?value {
-                callback(value);
-            } else {
-                break;
-            }
+        for value in self {
+            callback(value);
         }
     }
 
@@ -145,14 +135,9 @@ where I: Iterator
         initial: Accumulator,
         callback: &Fun(Accumulator, [I as Iterator]::Item) Accumulator,
     ) Accumulator {
-        let mut iter = self;
         let mut accumulator = initial;
-        while true {
-            if iter.next() is ?value {
-                accumulator = callback(accumulator, value);
-            } else {
-                break;
-            }
+        for value in self {
+            accumulator = callback(accumulator, value);
         }
         accumulator
     }
@@ -162,30 +147,20 @@ where I: Iterator
         initial: Accumulator,
         callback: &Fun(Accumulator, [I as Iterator]::Item) Error!Accumulator,
     ) Error!Accumulator {
-        let mut iter = self;
         let mut accumulator = initial;
-        while true {
-            if iter.next() is ?value {
-                accumulator = callback(accumulator, value).?;
-            } else {
-                break;
-            }
+        for value in self {
+            accumulator = callback(accumulator, value).?;
         }
         !accumulator
     }
 
     pub fun position(self, predicate: &Fun([I as Iterator]::Item) bool) ?usize {
-        let mut iter = self;
         let mut index: usize = 0;
-        while true {
-            if iter.next() is ?value {
-                if predicate(value) {
-                    return ?index;
-                }
-                index += 1;
-            } else {
-                break;
+        for value in self {
+            if predicate(value) {
+                return ?index;
             }
+            index += 1;
         }
         null
     }

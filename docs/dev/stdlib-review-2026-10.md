@@ -33,6 +33,21 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Direction: preserve current behavior during this pass; settle the contract and a testable length abstraction before changing it.
 - Status: open design review, no confirmed bug.
 
+### H4 — Express iterator terminal consumers with `for`
+
+- Files: `lib/std/iter.nia`
+- Evidence: `count`, `forEach`, `fold`, `tryFold`, and `position` each manually repeat `while true` plus `next()` optional-state handling.
+- Direction: iterate the owned iterator directly with `for`; keep accumulator updates, callback borrowing, `.?` propagation, and early return in each consumer.
+- Validation: `std_iter` covers borrowed/capturing callbacks, lazy map, early error stop, position, and custom iterator implementations; `std_slice` covers split counts.
+- Status: completed; iterator test suites pass.
+
+### H5 — Consider a focused slice sorting module
+
+- Files: `lib/std/slice.nia` (724 lines)
+- Evidence: the file contains general slice access/search/split APIs, iterator implementations, and a self-contained stable rotation merge plus unstable heap sort.
+- Direction: consider moving sort helpers and sort methods behind a dedicated provider module after confirming provider-loading and visibility behavior. Indexing in comparison/sort/search remains intentional because it represents positions and bounds.
+- Status: architecture candidate; keep current implementation intact until module-boundary experiment is reviewed.
+
 ### Review conclusions
 
 - The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
@@ -158,7 +173,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 ### `iter`
 
-- [ ] `lib/std/iter/range.nia`
+- [x] `lib/std/iter/range.nia`
 
 ### `math`
 
@@ -271,16 +286,16 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [ ] `lib/std/fs.nia`
 - [x] `lib/std/hash.nia`
 - [ ] `lib/std/io.nia`
-- [ ] `lib/std/iter.nia`
+- [x] `lib/std/iter.nia`
 - [ ] `lib/std/math.nia`
 - [ ] `lib/std/mem.nia`
-- [ ] `lib/std/option.nia`
+- [x] `lib/std/option.nia`
 - [ ] `lib/std/os.nia`
 - [ ] `lib/std/parse.nia`
 - [ ] `lib/std/process.nia`
-- [ ] `lib/std/result.nia`
+- [x] `lib/std/result.nia`
 - [ ] `lib/std/root.nia`
-- [ ] `lib/std/slice.nia`
+- [x] `lib/std/slice.nia`
 - [ ] `lib/std/source.nia`
 - [ ] `lib/std/string.nia`
 - [ ] `lib/std/test.nia`
