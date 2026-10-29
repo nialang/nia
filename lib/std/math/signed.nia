@@ -1,0 +1,575 @@
+// Checked arithmetic for signed integers.
+
+using root::math::checked::{
+    CheckedAdd,
+    CheckedSub,
+    CheckedMul,
+    CheckedDiv,
+    CheckedRem,
+    CheckedNeg,
+    CheckedAbs,
+};
+
+pub extend i8 : CheckedAdd[i8] {
+    type Output = i8;
+
+    fun checkedAdd(self, rhs: i8) ?i8 {
+        if rhs > 0 and self > i8::MAX - rhs {
+            null
+        } else if rhs < 0 and self < i8::MIN - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend i8 : CheckedSub[i8] {
+    type Output = i8;
+
+    fun checkedSub(self, rhs: i8) ?i8 {
+        if rhs > 0 and self < i8::MIN + rhs {
+            null
+        } else if rhs < 0 and self > i8::MAX + rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend i8 : CheckedMul[i8] {
+    type Output = i8;
+
+    fun checkedMul(self, rhs: i8) ?i8 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
+            if self > i8::MAX / rhs { null } else { ?(self * rhs) }
+        } else if self > 0 and rhs < 0 {
+            if rhs < i8::MIN / self { null } else { ?(self * rhs) }
+        } else if self < 0 and rhs > 0 {
+            if self < i8::MIN / rhs { null } else { ?(self * rhs) }
+        } else {
+            if self < i8::MAX / rhs { null } else { ?(self * rhs) }
+        }
+    }
+}
+
+pub extend i8 : CheckedDiv[i8] {
+    type Output = i8;
+
+    fun checkedDiv(self, rhs: i8) ?i8 {
+        if rhs == 0 or (self == i8::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend i8 : CheckedRem[i8] {
+    type Output = i8;
+
+    fun checkedRem(self, rhs: i8) ?i8 {
+        if rhs == 0 or (self == i8::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend i8 : CheckedNeg {
+    type Output = i8;
+
+    fun checkedNeg(self) ?i8 {
+        if self == i8::MIN {
+            null
+        } else {
+            ?(0 - self)
+        }
+    }
+}
+
+pub extend i8 : CheckedAbs {
+    type Output = i8;
+
+    fun checkedAbs(self) ?i8 {
+        if self < 0 {
+            self.checkedNeg()
+        } else {
+            ?self
+        }
+    }
+}
+
+pub extend i16 : CheckedAdd[i16] {
+    type Output = i16;
+
+    fun checkedAdd(self, rhs: i16) ?i16 {
+        if rhs > 0 and self > i16::MAX - rhs {
+            null
+        } else if rhs < 0 and self < i16::MIN - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend i16 : CheckedSub[i16] {
+    type Output = i16;
+
+    fun checkedSub(self, rhs: i16) ?i16 {
+        if rhs > 0 and self < i16::MIN + rhs {
+            null
+        } else if rhs < 0 and self > i16::MAX + rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend i16 : CheckedMul[i16] {
+    type Output = i16;
+
+    fun checkedMul(self, rhs: i16) ?i16 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
+            if self > i16::MAX / rhs { null } else { ?(self * rhs) }
+        } else if self > 0 and rhs < 0 {
+            if rhs < i16::MIN / self { null } else { ?(self * rhs) }
+        } else if self < 0 and rhs > 0 {
+            if self < i16::MIN / rhs { null } else { ?(self * rhs) }
+        } else {
+            if self < i16::MAX / rhs { null } else { ?(self * rhs) }
+        }
+    }
+}
+
+pub extend i16 : CheckedDiv[i16] {
+    type Output = i16;
+
+    fun checkedDiv(self, rhs: i16) ?i16 {
+        if rhs == 0 or (self == i16::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend i16 : CheckedRem[i16] {
+    type Output = i16;
+
+    fun checkedRem(self, rhs: i16) ?i16 {
+        if rhs == 0 or (self == i16::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend i16 : CheckedNeg {
+    type Output = i16;
+
+    fun checkedNeg(self) ?i16 {
+        if self == i16::MIN {
+            null
+        } else {
+            ?(0 - self)
+        }
+    }
+}
+
+pub extend i16 : CheckedAbs {
+    type Output = i16;
+
+    fun checkedAbs(self) ?i16 {
+        if self < 0 {
+            self.checkedNeg()
+        } else {
+            ?self
+        }
+    }
+}
+
+pub extend i32 : CheckedAdd[i32] {
+    type Output = i32;
+
+    fun checkedAdd(self, rhs: i32) ?i32 {
+        if rhs > 0 and self > i32::MAX - rhs {
+            null
+        } else if rhs < 0 and self < i32::MIN - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend i32 : CheckedSub[i32] {
+    type Output = i32;
+
+    fun checkedSub(self, rhs: i32) ?i32 {
+        if rhs > 0 and self < i32::MIN + rhs {
+            null
+        } else if rhs < 0 and self > i32::MAX + rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend i32 : CheckedMul[i32] {
+    type Output = i32;
+
+    fun checkedMul(self, rhs: i32) ?i32 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
+            if self > i32::MAX / rhs { null } else { ?(self * rhs) }
+        } else if self > 0 and rhs < 0 {
+            if rhs < i32::MIN / self { null } else { ?(self * rhs) }
+        } else if self < 0 and rhs > 0 {
+            if self < i32::MIN / rhs { null } else { ?(self * rhs) }
+        } else {
+            if self < i32::MAX / rhs { null } else { ?(self * rhs) }
+        }
+    }
+}
+
+pub extend i32 : CheckedDiv[i32] {
+    type Output = i32;
+
+    fun checkedDiv(self, rhs: i32) ?i32 {
+        if rhs == 0 or (self == i32::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend i32 : CheckedRem[i32] {
+    type Output = i32;
+
+    fun checkedRem(self, rhs: i32) ?i32 {
+        if rhs == 0 or (self == i32::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend i32 : CheckedNeg {
+    type Output = i32;
+
+    fun checkedNeg(self) ?i32 {
+        if self == i32::MIN {
+            null
+        } else {
+            ?(0 - self)
+        }
+    }
+}
+
+pub extend i32 : CheckedAbs {
+    type Output = i32;
+
+    fun checkedAbs(self) ?i32 {
+        if self < 0 {
+            self.checkedNeg()
+        } else {
+            ?self
+        }
+    }
+}
+
+pub extend i64 : CheckedAdd[i64] {
+    type Output = i64;
+
+    fun checkedAdd(self, rhs: i64) ?i64 {
+        if rhs > 0 and self > i64::MAX - rhs {
+            null
+        } else if rhs < 0 and self < i64::MIN - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend i64 : CheckedSub[i64] {
+    type Output = i64;
+
+    fun checkedSub(self, rhs: i64) ?i64 {
+        if rhs > 0 and self < i64::MIN + rhs {
+            null
+        } else if rhs < 0 and self > i64::MAX + rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend i64 : CheckedMul[i64] {
+    type Output = i64;
+
+    fun checkedMul(self, rhs: i64) ?i64 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
+            if self > i64::MAX / rhs { null } else { ?(self * rhs) }
+        } else if self > 0 and rhs < 0 {
+            if rhs < i64::MIN / self { null } else { ?(self * rhs) }
+        } else if self < 0 and rhs > 0 {
+            if self < i64::MIN / rhs { null } else { ?(self * rhs) }
+        } else {
+            if self < i64::MAX / rhs { null } else { ?(self * rhs) }
+        }
+    }
+}
+
+pub extend i64 : CheckedDiv[i64] {
+    type Output = i64;
+
+    fun checkedDiv(self, rhs: i64) ?i64 {
+        if rhs == 0 or (self == i64::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend i64 : CheckedRem[i64] {
+    type Output = i64;
+
+    fun checkedRem(self, rhs: i64) ?i64 {
+        if rhs == 0 or (self == i64::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend i64 : CheckedNeg {
+    type Output = i64;
+
+    fun checkedNeg(self) ?i64 {
+        if self == i64::MIN {
+            null
+        } else {
+            ?(0 - self)
+        }
+    }
+}
+
+pub extend i64 : CheckedAbs {
+    type Output = i64;
+
+    fun checkedAbs(self) ?i64 {
+        if self < 0 {
+            self.checkedNeg()
+        } else {
+            ?self
+        }
+    }
+}
+
+pub extend i128 : CheckedAdd[i128] {
+    type Output = i128;
+
+    fun checkedAdd(self, rhs: i128) ?i128 {
+        if rhs > 0 and self > i128::MAX - rhs {
+            null
+        } else if rhs < 0 and self < i128::MIN - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend i128 : CheckedSub[i128] {
+    type Output = i128;
+
+    fun checkedSub(self, rhs: i128) ?i128 {
+        if rhs > 0 and self < i128::MIN + rhs {
+            null
+        } else if rhs < 0 and self > i128::MAX + rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend i128 : CheckedMul[i128] {
+    type Output = i128;
+
+    fun checkedMul(self, rhs: i128) ?i128 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
+            if self > i128::MAX / rhs { null } else { ?(self * rhs) }
+        } else if self > 0 and rhs < 0 {
+            if rhs < i128::MIN / self { null } else { ?(self * rhs) }
+        } else if self < 0 and rhs > 0 {
+            if self < i128::MIN / rhs { null } else { ?(self * rhs) }
+        } else {
+            if self < i128::MAX / rhs { null } else { ?(self * rhs) }
+        }
+    }
+}
+
+pub extend i128 : CheckedDiv[i128] {
+    type Output = i128;
+
+    fun checkedDiv(self, rhs: i128) ?i128 {
+        if rhs == 0 or (self == i128::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend i128 : CheckedRem[i128] {
+    type Output = i128;
+
+    fun checkedRem(self, rhs: i128) ?i128 {
+        if rhs == 0 or (self == i128::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend i128 : CheckedNeg {
+    type Output = i128;
+
+    fun checkedNeg(self) ?i128 {
+        if self == i128::MIN {
+            null
+        } else {
+            ?(0 - self)
+        }
+    }
+}
+
+pub extend i128 : CheckedAbs {
+    type Output = i128;
+
+    fun checkedAbs(self) ?i128 {
+        if self < 0 {
+            self.checkedNeg()
+        } else {
+            ?self
+        }
+    }
+}
+
+pub extend isize : CheckedAdd[isize] {
+    type Output = isize;
+
+    fun checkedAdd(self, rhs: isize) ?isize {
+        if rhs > 0 and self > isize::MAX - rhs {
+            null
+        } else if rhs < 0 and self < isize::MIN - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend isize : CheckedSub[isize] {
+    type Output = isize;
+
+    fun checkedSub(self, rhs: isize) ?isize {
+        if rhs > 0 and self < isize::MIN + rhs {
+            null
+        } else if rhs < 0 and self > isize::MAX + rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend isize : CheckedMul[isize] {
+    type Output = isize;
+
+    fun checkedMul(self, rhs: isize) ?isize {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
+            if self > isize::MAX / rhs { null } else { ?(self * rhs) }
+        } else if self > 0 and rhs < 0 {
+            if rhs < isize::MIN / self { null } else { ?(self * rhs) }
+        } else if self < 0 and rhs > 0 {
+            if self < isize::MIN / rhs { null } else { ?(self * rhs) }
+        } else {
+            if self < isize::MAX / rhs { null } else { ?(self * rhs) }
+        }
+    }
+}
+
+pub extend isize : CheckedDiv[isize] {
+    type Output = isize;
+
+    fun checkedDiv(self, rhs: isize) ?isize {
+        if rhs == 0 or (self == isize::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend isize : CheckedRem[isize] {
+    type Output = isize;
+
+    fun checkedRem(self, rhs: isize) ?isize {
+        if rhs == 0 or (self == isize::MIN and rhs == -1) {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend isize : CheckedNeg {
+    type Output = isize;
+
+    fun checkedNeg(self) ?isize {
+        if self == isize::MIN {
+            null
+        } else {
+            ?(0 - self)
+        }
+    }
+}
+
+pub extend isize : CheckedAbs {
+    type Output = isize;
+
+    fun checkedAbs(self) ?isize {
+        if self < 0 {
+            self.checkedNeg()
+        } else {
+            ?self
+        }
+    }
+}

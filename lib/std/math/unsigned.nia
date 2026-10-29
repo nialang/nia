@@ -1,0 +1,383 @@
+// Checked arithmetic for unsigned integers.
+
+using root::math::checked::{
+    CheckedAdd,
+    CheckedSub,
+    CheckedMul,
+    CheckedDiv,
+    CheckedRem,
+    CheckedNeg,
+    CheckedAbs,
+};
+
+pub extend u8 : CheckedAdd[u8] {
+    type Output = u8;
+
+    fun checkedAdd(self, rhs: u8) ?u8 {
+        if self > u8::MAX - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend u8 : CheckedSub[u8] {
+    type Output = u8;
+
+    fun checkedSub(self, rhs: u8) ?u8 {
+        if self < rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend u8 : CheckedMul[u8] {
+    type Output = u8;
+
+    fun checkedMul(self, rhs: u8) ?u8 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > u8::MAX / rhs {
+            null
+        } else {
+            ?(self * rhs)
+        }
+    }
+}
+
+pub extend u8 : CheckedDiv[u8] {
+    type Output = u8;
+
+    fun checkedDiv(self, rhs: u8) ?u8 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend u8 : CheckedRem[u8] {
+    type Output = u8;
+
+    fun checkedRem(self, rhs: u8) ?u8 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend u16 : CheckedAdd[u16] {
+    type Output = u16;
+
+    fun checkedAdd(self, rhs: u16) ?u16 {
+        if self > u16::MAX - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend u16 : CheckedSub[u16] {
+    type Output = u16;
+
+    fun checkedSub(self, rhs: u16) ?u16 {
+        if self < rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend u16 : CheckedMul[u16] {
+    type Output = u16;
+
+    fun checkedMul(self, rhs: u16) ?u16 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > u16::MAX / rhs {
+            null
+        } else {
+            ?(self * rhs)
+        }
+    }
+}
+
+pub extend u16 : CheckedDiv[u16] {
+    type Output = u16;
+
+    fun checkedDiv(self, rhs: u16) ?u16 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend u16 : CheckedRem[u16] {
+    type Output = u16;
+
+    fun checkedRem(self, rhs: u16) ?u16 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend u32 : CheckedAdd[u32] {
+    type Output = u32;
+
+    fun checkedAdd(self, rhs: u32) ?u32 {
+        if self > u32::MAX - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend u32 : CheckedSub[u32] {
+    type Output = u32;
+
+    fun checkedSub(self, rhs: u32) ?u32 {
+        if self < rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend u32 : CheckedMul[u32] {
+    type Output = u32;
+
+    fun checkedMul(self, rhs: u32) ?u32 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > u32::MAX / rhs {
+            null
+        } else {
+            ?(self * rhs)
+        }
+    }
+}
+
+pub extend u32 : CheckedDiv[u32] {
+    type Output = u32;
+
+    fun checkedDiv(self, rhs: u32) ?u32 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend u32 : CheckedRem[u32] {
+    type Output = u32;
+
+    fun checkedRem(self, rhs: u32) ?u32 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend u64 : CheckedAdd[u64] {
+    type Output = u64;
+
+    fun checkedAdd(self, rhs: u64) ?u64 {
+        if self > u64::MAX - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend u64 : CheckedSub[u64] {
+    type Output = u64;
+
+    fun checkedSub(self, rhs: u64) ?u64 {
+        if self < rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend u64 : CheckedMul[u64] {
+    type Output = u64;
+
+    fun checkedMul(self, rhs: u64) ?u64 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > u64::MAX / rhs {
+            null
+        } else {
+            ?(self * rhs)
+        }
+    }
+}
+
+pub extend u64 : CheckedDiv[u64] {
+    type Output = u64;
+
+    fun checkedDiv(self, rhs: u64) ?u64 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend u64 : CheckedRem[u64] {
+    type Output = u64;
+
+    fun checkedRem(self, rhs: u64) ?u64 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend u128 : CheckedAdd[u128] {
+    type Output = u128;
+
+    fun checkedAdd(self, rhs: u128) ?u128 {
+        if self > u128::MAX - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend u128 : CheckedSub[u128] {
+    type Output = u128;
+
+    fun checkedSub(self, rhs: u128) ?u128 {
+        if self < rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend u128 : CheckedMul[u128] {
+    type Output = u128;
+
+    fun checkedMul(self, rhs: u128) ?u128 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > u128::MAX / rhs {
+            null
+        } else {
+            ?(self * rhs)
+        }
+    }
+}
+
+pub extend u128 : CheckedDiv[u128] {
+    type Output = u128;
+
+    fun checkedDiv(self, rhs: u128) ?u128 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend u128 : CheckedRem[u128] {
+    type Output = u128;
+
+    fun checkedRem(self, rhs: u128) ?u128 {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}
+
+pub extend usize : CheckedAdd[usize] {
+    type Output = usize;
+
+    fun checkedAdd(self, rhs: usize) ?usize {
+        if self > usize::MAX - rhs {
+            null
+        } else {
+            ?(self + rhs)
+        }
+    }
+}
+
+pub extend usize : CheckedSub[usize] {
+    type Output = usize;
+
+    fun checkedSub(self, rhs: usize) ?usize {
+        if self < rhs {
+            null
+        } else {
+            ?(self - rhs)
+        }
+    }
+}
+
+pub extend usize : CheckedMul[usize] {
+    type Output = usize;
+
+    fun checkedMul(self, rhs: usize) ?usize {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > usize::MAX / rhs {
+            null
+        } else {
+            ?(self * rhs)
+        }
+    }
+}
+
+pub extend usize : CheckedDiv[usize] {
+    type Output = usize;
+
+    fun checkedDiv(self, rhs: usize) ?usize {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self / rhs)
+        }
+    }
+}
+
+pub extend usize : CheckedRem[usize] {
+    type Output = usize;
+
+    fun checkedRem(self, rhs: usize) ?usize {
+        if rhs == 0 {
+            null
+        } else {
+            ?(self % rhs)
+        }
+    }
+}

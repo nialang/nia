@@ -1,0 +1,30 @@
+// Power-of-two and checked alignment helpers for usize.
+
+pub extend usize {
+    pub fun isPowerOfTwo(self) bool {
+        if self == 0 {
+            false
+        } else {
+            let mut n = self;
+            while n > 1 {
+                if n % 2 != 0 {
+                    return false;
+                }
+                n = n / 2;
+            }
+            true
+        }
+    }
+
+    pub fun alignForward(self, align: usize) ?usize {
+        if align == 0 or not align.isPowerOfTwo() {
+            return null;
+        }
+        let remainder = self % align;
+        if remainder == 0 {
+            ?self
+        } else {
+            self.checkedAdd(align - remainder)
+        }
+    }
+}

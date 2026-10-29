@@ -1,0 +1,44 @@
+// Checked arithmetic traits shared by primitive implementations.
+
+pub trait CheckedAdd[Rhs] {
+    type Output;
+
+    fun checkedAdd(self, rhs: Rhs) ?[Self as CheckedAdd[Rhs]]::Output;
+}
+
+pub trait CheckedSub[Rhs] {
+    type Output;
+
+    fun checkedSub(self, rhs: Rhs) ?[Self as CheckedSub[Rhs]]::Output;
+}
+
+pub trait CheckedMul[Rhs] {
+    type Output;
+
+    fun checkedMul(self, rhs: Rhs) ?[Self as CheckedMul[Rhs]]::Output;
+}
+
+pub trait CheckedDiv[Rhs] {
+    type Output;
+
+    fun checkedDiv(self, rhs: Rhs) ?[Self as CheckedDiv[Rhs]]::Output;
+}
+
+pub trait CheckedRem[Rhs] {
+    type Output;
+
+    fun checkedRem(self, rhs: Rhs) ?[Self as CheckedRem[Rhs]]::Output;
+}
+
+pub trait CheckedNeg {
+    type Output;
+
+    fun checkedNeg(self) ?[Self as CheckedNeg]::Output;
+}
+
+pub trait CheckedAbs {
+    type Output;
+
+    fun checkedAbs(self) ?[Self as CheckedAbs]::Output;
+}
+
