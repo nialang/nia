@@ -360,6 +360,57 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_fmt_keeps_sign_and_radix_prefix_before_zero_padding() {
+    let root = temp_dir("emit_exe_std_fmt_keeps_sign_and_radix_prefix_before_zero_padding");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut raw: [u8; 256] = [0; 256];
+    let mut stdout = io::FileWriter::stdout(&mut raw);
+    let positive = 42i128;
+    let negative = -42i128;
+    let unsigned = 42u128;
+    let zero = 0i128;
+    stdout.print("", []).?;
+    stdout.print("{:#0>8x}|{:#0>8x}|{:+#08X}|{:#08b}|{:#08o}|{:#08x}|{:#08x}|{:#3x}|{:#<8x}|{:*^9x}\n", [
+        positive, negative, positive, positive, positive,
+        unsigned, zero, positive, positive, negative,
+    ]).?;
+    stdout.flush().?;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "0x00002a|-0x0002a|+0X0002A|0b101010|00000052|0x00002a|0x000000|0x2a|2a######|***-2a***\n"
+    );
+}
+
+#[test]
 fn emit_exe_std_fmt_formats_byte_slices_as_bytes() {
     let root = temp_dir("emit_exe_std_fmt_formats_byte_slices_as_bytes");
     let main = root.join("main.nia");

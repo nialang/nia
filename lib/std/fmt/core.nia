@@ -169,6 +169,26 @@ fun validateRadix(radix: u128) Error!() {
     }
 }
 
+struct IntegerPrefix {
+    bytes: [u8; 2],
+    len: usize,
+}
+
+fun integerPrefix(radix: u128, uppercase: bool, alternate: bool) Error!IntegerPrefix {
+    if not alternate {
+        !.{ bytes: [0, 0], len: 0 }
+    } else if radix == 16 {
+        let marker: u8 = if uppercase { b'X' } else { b'x' };
+        !.{ bytes: [b'0', marker], len: 2 }
+    } else if radix == 2 {
+        !.{ bytes: [b'0', b'b'], len: 2 }
+    } else if radix == 8 {
+        !.{ bytes: [b'0', 0], len: 1 }
+    } else {
+        .InvalidTemplate!
+    }
+}
+
 extend Formatter {
     pub fun init(writer: &mut FormatWriter) Formatter {
         .{ writer }
@@ -322,52 +342,38 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!() {
-        spec.validate().?;
-        validateRadix(radix).?;
-        let mut prefixWidth: usize = 0;
-        if spec.alternate() {
-            if radix == 16 or radix == 2 {
-                prefixWidth = 2;
-            } else if radix == 8 {
-                prefixWidth = 1;
-            } else {
-                return .InvalidTemplate!;
-            }
-        }
-        let contentWidth = self.unsignedDigitCount(value, radix) + prefixWidth;
-        if spec.alternate() and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > contentWidth {
-            self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
-            self.writeFill('0', spec.width() - contentWidth).?;
-            self.writeUnsignedRadix(value, radix, uppercase)
-        } else {
-            self.writePaddingBefore(contentWidth, spec).?;
-            self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
-            self.writeUnsignedRadix(value, radix, uppercase).?;
-            self.writePaddingAfter(contentWidth, spec)
-        }
+        self.writeIntegerSpec(value, null, radix, uppercase, spec)
     }
 
-    fun writeUnsignedPrefix(
+    fun writeIntegerSpec(
         &mut self,
+        magnitude: u128,
+        sign: ?u8,
         radix: u128,
         uppercase: bool,
-        alternate: bool,
+        spec: FormatSpec,
     ) Error!() {
-        if not alternate {
-            !()
-        } else if radix == 16 {
-            if uppercase {
-                self.writeText(&"0X")
-            } else {
-                self.writeText(&"0x")
-            }
-        } else if radix == 2 {
-            self.writeText(&"0b")
-        } else if radix == 8 {
-            self.writeByte(b'0')
-        } else {
-            .InvalidTemplate!
+        spec.validate().?;
+        validateRadix(radix).?;
+        let prefix = integerPrefix(radix, uppercase, spec.alternate()).?;
+        let signWidth: usize = if sign.isPresent() { 1 } else { 0 };
+        let contentWidth = self.unsignedDigitCount(magnitude, radix) + prefix.len + signWidth;
+        let zeroPadding = spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > contentWidth;
+
+        if not zeroPadding {
+            self.writePaddingBefore(contentWidth, spec).?;
         }
+        if sign is ?byte {
+            self.writeByte(byte).?;
+        }
+        if prefix.len != 0 {
+            self.writeBytes(&prefix.bytes[0..prefix.len]).?;
+        }
+        if zeroPadding {
+            self.writeFill('0', spec.width() - contentWidth).?;
+        }
+        self.writeUnsignedRadix(magnitude, radix, uppercase).?;
+        if zeroPadding { !() } else { self.writePaddingAfter(contentWidth, spec) }
     }
 
     fun writeUnsignedDigit(&mut self, digit: u128, uppercase: bool) Error!() {
@@ -444,10 +450,8 @@ extend Formatter {
         validateRadix(radix).?;
         if value < 0 {
             self.writeByte(b'-').?;
-            self.writeUnsignedRadix(((0 - (value + 1)) as u128) + 1, radix, uppercase)
-        } else {
-            self.writeUnsignedRadix(value as u128, radix, uppercase)
         }
+        self.writeUnsignedRadix(self.signedAbs(value), radix, uppercase)
     }
 
     fun signedAbs(&mut self, value: i128) u128 {
@@ -466,47 +470,14 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!() {
-        spec.validate().?;
-        validateRadix(radix).?;
-        let abs = self.signedAbs(value);
-        let mut prefixWidth: usize = 0;
-        if spec.alternate() {
-            if radix == 16 or radix == 2 {
-                prefixWidth = 2;
-            } else if radix == 8 {
-                prefixWidth = 1;
-            } else {
-                return .InvalidTemplate!;
-            }
-        }
-        let mut contentWidth = self.unsignedDigitCount(abs, radix) + prefixWidth;
-        if value < 0 or spec.signPlus() {
-            contentWidth += 1;
-        }
-        if (value < 0 or spec.signPlus()) and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > contentWidth {
-            if value < 0 {
-                self.writeByte(b'-').?;
-            } else {
-                self.writeByte(b'+').?;
-            }
-            self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
-            self.writeFill('0', spec.width() - contentWidth).?;
-            self.writeUnsignedRadix(abs, radix, uppercase)
+        let sign: ?u8 = if value < 0 {
+            ?b'-'
+        } else if spec.signPlus() {
+            ?b'+'
         } else {
-            self.writePaddingBefore(contentWidth, spec).?;
-            if value < 0 {
-                self.writeByte(b'-').?;
-                self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
-                self.writeUnsignedRadix(abs, radix, uppercase).?;
-            } else {
-                if spec.signPlus() {
-                    self.writeByte(b'+').?;
-                }
-                self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
-                self.writeUnsignedRadix(abs, radix, uppercase).?;
-            }
-            self.writePaddingAfter(contentWidth, spec)
-        }
+            null
+        };
+        self.writeIntegerSpec(self.signedAbs(value), sign, radix, uppercase, spec)
     }
 
 }
