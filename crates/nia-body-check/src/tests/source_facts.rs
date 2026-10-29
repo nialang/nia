@@ -501,11 +501,14 @@ fun main() i32 {
     assert!(
         checked
             .facts
-            .iter_node_pointer_array_to_slice_coercions()
-            .any(|(key, _)| {
+            .iter_node_expr_adjustments()
+            .any(|(key, plan)| {
                 key.source_version() == version
                     && key.kind() == SyntaxKind::Expr
                     && matches!(key.position(), NodePosition::ChildPathRange { .. })
+                    && plan.steps.iter().any(|step| {
+                        matches!(step, nia_sema_ir::ExprAdjustment::PointerArrayToSlice(_))
+                    })
             })
     );
 }

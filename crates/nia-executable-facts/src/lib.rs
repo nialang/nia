@@ -16,7 +16,7 @@ use nia_body_ir::{
 use nia_defs::{DefCollection, DefKind};
 use nia_function_ir::FunctionBodyRefs;
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
-use nia_sema_ir::{GenericInstantiation, ResolvedCall, SemanticFacts};
+use nia_sema_ir::{ExprAdjustment, GenericInstantiation, ResolvedCall, SemanticFacts};
 use nia_static_ir::StaticInit;
 use nia_symbol::{SymbolId, known};
 use std::collections::{HashMap, HashSet};
@@ -408,13 +408,17 @@ pub fn executable_module_refs_from_semantic_facts(
                 reference.trait_const_args.clone(),
             );
         }
-        for coercion in facts.node_trait_object_coercions.values().copied() {
-            collect_trait_object_vtable_ref(
-                module,
-                coercion.target_ty,
-                coercion.self_ty,
-                function_refs,
-            );
+        for plan in facts.node_expr_adjustments.values() {
+            for adjustment in &plan.steps {
+                if let ExprAdjustment::TraitObject(coercion) = adjustment {
+                    collect_trait_object_vtable_ref(
+                        module,
+                        coercion.target_ty,
+                        coercion.self_ty,
+                        function_refs,
+                    );
+                }
+            }
         }
     }
     refs
@@ -1290,11 +1294,7 @@ pub fn filter_semantic_facts_for_reachable_items(
     reachable_facts.node_builtin_associated_values = facts.node_builtin_associated_values;
     reachable_facts.node_expr_types = facts.node_expr_types;
     reachable_facts.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
-    reachable_facts.node_pointer_array_to_slice_coercions =
-        facts.node_pointer_array_to_slice_coercions;
-    reachable_facts.node_address_of_coercions = facts.node_address_of_coercions;
-    reachable_facts.node_trait_object_coercions = facts.node_trait_object_coercions;
-    reachable_facts.node_trait_object_upcasts = facts.node_trait_object_upcasts;
+    reachable_facts.node_expr_adjustments = facts.node_expr_adjustments;
     reachable_facts.node_builtin_values = facts.node_builtin_values;
     reachable_facts.node_associated_const_projections = facts.node_associated_const_projections;
     reachable_facts.node_array_repeat_counts = facts.node_array_repeat_counts;

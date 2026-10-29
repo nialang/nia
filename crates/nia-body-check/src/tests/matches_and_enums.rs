@@ -61,9 +61,11 @@ enum Event {
 fun make() {
     let data: &fun(i32) Event = &Event::Data;
     let omitted: &fun(i32) Event = &.Data;
+    let omitted_ref: &fun(i32) Event = &.Data;
     let resize: &fun(i32, i32) Event = &Event::Resize;
     _ = data(1);
     _ = omitted(2);
+    _ = omitted_ref(5);
     _ = resize(3, 4);
 }
 "#,
@@ -85,7 +87,7 @@ fun make() {
             )
         })
         .count();
-    assert_eq!(constructors, 3, "{:#?}", checked.ir.function_bodies);
+    assert_eq!(constructors, 4, "{:#?}", checked.ir.function_bodies);
 }
 
 #[test]
@@ -115,6 +117,94 @@ fun convert(value: SourceError!i32) TargetError!i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
+fn adapts_enum_constructors_to_expected_callable_parameters() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed(i32),
+}
+
+enum ReallocError {
+    Allocation(SourceError),
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun convertQualified(value: SourceError!i32) ReallocError!i32 {
+    let mapped = value.mapError(ReallocError::Allocation).?;
+    !mapped
+}
+
+fun convertOmitted(value: SourceError!i32) ReallocError!i32 {
+    let mapped = value.mapError(.Allocation).?;
+    !mapped
+}
+
+fun convertExplicit(value: SourceError!i32) ReallocError!i32 {
+    let mapped = value.mapError(&ReallocError::Allocation).?;
+    !mapped
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+
+    let constructor_count = checked
+        .ir
+        .function_bodies
+        .values()
+        .map(|body| format!("{body:#?}").matches("EnumConstructor(").count())
+        .sum::<usize>();
+    assert_eq!(constructor_count, 3, "{:#?}", checked.ir.function_bodies);
+}
+
+#[test]
+fn rejects_enum_constructor_callable_signature_mismatches() {
+    let checked = pipeline(
+        r#"
+enum SourceError { Missing }
+enum ExpectedError { Allocation(SourceError) }
+enum OtherError { Failed(SourceError) }
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun invalidParameter(value: SourceError!i32) ExpectedError!i32 {
+    value.mapError(ExpectedError::Allocation)
+}
+
+fun invalidResult(value: SourceError!i32) ExpectedError!i32 {
+    value.mapError(OtherError::Failed)
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("type mismatch")),
+        "{:#?}",
+        checked.diagnostics
+    );
 }
 
 #[test]

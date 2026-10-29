@@ -97,14 +97,7 @@ impl<'a> BodyChecker<'a> {
             .collect();
         self.node_expr_types = facts.node_expr_types;
         self.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
-        self.node_pointer_array_to_slice_coercions = facts.node_pointer_array_to_slice_coercions;
-        self.node_address_of_coercions = facts.node_address_of_coercions;
-        self.node_closure_callable_view_coercions = facts.node_closure_callable_view_coercions;
-        self.node_mutable_to_readonly_coercions = facts.node_mutable_to_readonly_coercions;
-        self.node_function_pointer_to_callable_coercions =
-            facts.node_function_pointer_to_callable_coercions;
-        self.node_trait_object_coercions = facts.node_trait_object_coercions;
-        self.node_trait_object_upcasts = facts.node_trait_object_upcasts;
+        self.node_expr_adjustments = facts.node_expr_adjustments;
         self.node_builtin_values = facts.node_builtin_values;
         self.node_associated_const_projections = facts.node_associated_const_projections;
         self.node_array_repeat_counts = facts.node_array_repeat_counts;

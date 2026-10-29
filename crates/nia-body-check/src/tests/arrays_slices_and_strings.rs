@@ -1075,15 +1075,11 @@ fun make() i32 {
         checked.diagnostics
     );
     assert!(
-        checked
-            .facts
-            .iter_node_pointer_array_to_slice_coercions()
-            .count()
-            >= 3,
+        pointer_array_to_slice_adjustment_count(&checked.facts) >= 3,
         "{:?}",
         checked
             .facts
-            .iter_node_pointer_array_to_slice_coercions()
+            .iter_node_expr_adjustments()
             .collect::<Vec<_>>()
     );
 }
@@ -1141,15 +1137,11 @@ fun main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
-        checked
-            .facts
-            .iter_node_pointer_array_to_slice_coercions()
-            .count()
-            >= 2,
+        pointer_array_to_slice_adjustment_count(&checked.facts) >= 2,
         "{:?}",
         checked
             .facts
-            .iter_node_pointer_array_to_slice_coercions()
+            .iter_node_expr_adjustments()
             .collect::<Vec<_>>()
     );
 }
@@ -1175,15 +1167,11 @@ fun main() usize {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
-        checked
-            .facts
-            .iter_node_pointer_array_to_slice_coercions()
-            .count()
-            >= 4,
+        pointer_array_to_slice_adjustment_count(&checked.facts) >= 4,
         "{:?}",
         checked
             .facts
-            .iter_node_pointer_array_to_slice_coercions()
+            .iter_node_expr_adjustments()
             .collect::<Vec<_>>()
     );
 }

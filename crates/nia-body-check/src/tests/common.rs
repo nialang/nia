@@ -13,7 +13,9 @@ pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 pub(super) use nia_parser::parse_module_with_symbols;
 pub(super) use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
-pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue, SemanticUseTable};
+pub(super) use nia_sema_ir::{
+    BracketSuffixResolution, BuiltinValue, ExprAdjustment, SemanticFacts, SemanticUseTable,
+};
 pub(super) use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
 pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_symbol_table::SymbolTable;
@@ -26,6 +28,14 @@ pub(super) use std::collections::HashMap;
 
 pub(super) fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
+}
+
+pub(super) fn pointer_array_to_slice_adjustment_count(facts: &SemanticFacts) -> usize {
+    facts
+        .iter_node_expr_adjustments()
+        .flat_map(|(_, plan)| plan.steps.iter())
+        .filter(|step| matches!(step, ExprAdjustment::PointerArrayToSlice(_)))
+        .count()
 }
 
 pub(super) struct EmptyBodyProgramSignatures {

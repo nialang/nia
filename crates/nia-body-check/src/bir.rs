@@ -17,7 +17,9 @@ use nia_body_ir::{
 use nia_ids::{BuiltinFunction, InternedTyId};
 use nia_item_signatures::FunctionAttribute;
 use nia_local_resolve::{LocalBindingName, LocalKind, LocalUse};
-use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
+use nia_sema_ir::{
+    BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ExprAdjustment, ResolvedCall,
+};
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, TyKind};
@@ -78,33 +80,6 @@ impl<'a> BodyChecker<'a> {
         };
         self.materialize_inferred_array_type(forced_ty, actual)
             .or(Some(forced_ty))
-    }
-
-    fn lower_trait_object_coercion_source_expr(
-        &mut self,
-        expr: &Expr,
-        source_ty: nia_ids::InternedTyId,
-    ) -> TypedExpr {
-        let source_ty = self.normalization.normalize(source_ty);
-        if let Some(TyKind::Pointer { is_readonly, elem }) = self.interner.get(source_ty).cloned()
-            && self
-                .expr_ty(expr)
-                .is_some_and(|actual| self.types_match(elem, actual))
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: source_ty,
-                kind: TypedExprKind::Unary {
-                    op: if is_readonly {
-                        UnaryOp::RefReadOnly
-                    } else {
-                        UnaryOp::Ref
-                    },
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(elem))),
-                },
-            };
-        }
-        self.lower_expr_with_ty(expr, Some(source_ty))
     }
 
     fn numeric_literal_suffix_type(&mut self, expr: &Expr) -> Option<nia_ids::InternedTyId> {
@@ -644,138 +619,105 @@ impl<'a> BodyChecker<'a> {
         self.lower_expr_with_ty(expr, None)
     }
 
+    fn lower_expr_adjustment_plan(
+        &mut self,
+        expr: &Expr,
+        plan: &nia_sema_ir::ExprAdjustmentPlan,
+    ) -> TypedExpr {
+        let mut value = self.lower_expr_with_ty(expr, Some(plan.source_ty));
+        for adjustment in &plan.steps {
+            value = match adjustment {
+                ExprAdjustment::AddressOf(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.target_ty,
+                    kind: TypedExprKind::Unary {
+                        op: if coercion.is_readonly {
+                            UnaryOp::RefReadOnly
+                        } else {
+                            UnaryOp::Ref
+                        },
+                        expr: Box::new(value),
+                    },
+                },
+                ExprAdjustment::ClosureCallableView(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.target_ty,
+                    kind: TypedExprKind::CallableCoercion {
+                        state: Box::new(TypedExpr {
+                            span: expr.span,
+                            ty: coercion.state_ty,
+                            kind: TypedExprKind::Unary {
+                                op: if coercion.is_readonly {
+                                    UnaryOp::RefReadOnly
+                                } else {
+                                    UnaryOp::Ref
+                                },
+                                expr: Box::new(value),
+                            },
+                        }),
+                        closure_id: coercion.closure_id,
+                    },
+                },
+                ExprAdjustment::PointerArrayToSlice(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.slice_ty,
+                    kind: TypedExprKind::Slice {
+                        lhs: Box::new(value),
+                        range: TypedSliceRange {
+                            start: None,
+                            end: None,
+                            inclusive: false,
+                        },
+                        is_readonly: coercion.is_readonly,
+                    },
+                },
+                ExprAdjustment::MutableToReadonly(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.target_ty,
+                    kind: TypedExprKind::Cast {
+                        expr: Box::new(value),
+                        ty: coercion.target_ty,
+                    },
+                },
+                ExprAdjustment::FunctionPointerToCallable(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.callable_ty,
+                    kind: TypedExprKind::FunctionCallable {
+                        function: Box::new(value),
+                    },
+                },
+                ExprAdjustment::TraitObject(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.target_ty,
+                    kind: TypedExprKind::TraitObjectCoercion {
+                        expr: Box::new(value),
+                        target_ty: coercion.target_ty,
+                        self_ty: coercion.self_ty,
+                    },
+                },
+                ExprAdjustment::TraitObjectUpcast(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.target_ty,
+                    kind: TypedExprKind::TraitObjectUpcast {
+                        expr: Box::new(value),
+                        source_ty: coercion.source_ty,
+                        target_ty: coercion.target_ty,
+                    },
+                },
+            };
+        }
+        value
+    }
+
     fn lower_expr_with_ty(
         &mut self,
         expr: &Expr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
-        if let Some(coercion) = self
-            .node_closure_callable_view_coercions
-            .get(&expr.node_key)
-            .copied()
-            .filter(|coercion| forced_ty.is_none_or(|ty| ty == coercion.target_ty))
+        if let Some(plan) = self.node_expr_adjustments.get(&expr.node_key).cloned()
+            && forced_ty.is_none_or(|ty| ty == plan.target_ty)
         {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.target_ty,
-                kind: TypedExprKind::CallableCoercion {
-                    state: Box::new(TypedExpr {
-                        span: expr.span,
-                        ty: coercion.state_ty,
-                        kind: TypedExprKind::Unary {
-                            op: if coercion.is_readonly {
-                                UnaryOp::RefReadOnly
-                            } else {
-                                UnaryOp::Ref
-                            },
-                            expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
-                        },
-                    }),
-                    closure_id: coercion.closure_id,
-                },
-            };
-        }
-        if let Some(coercion) = self
-            .node_mutable_to_readonly_coercions
-            .get(&expr.node_key)
-            .copied()
-            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.target_ty))
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.target_ty,
-                kind: TypedExprKind::Cast {
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
-                    ty: coercion.target_ty,
-                },
-            };
-        }
-        if let Some(upcast) = self
-            .node_trait_object_upcasts
-            .get(&expr.node_key)
-            .copied()
-            .filter(|upcast| forced_ty.is_none_or(|forced_ty| forced_ty == upcast.target_ty))
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: upcast.target_ty,
-                kind: TypedExprKind::TraitObjectUpcast {
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(upcast.source_ty))),
-                    source_ty: upcast.source_ty,
-                    target_ty: upcast.target_ty,
-                },
-            };
-        }
-        if let Some(coercion) = self
-            .node_trait_object_coercions
-            .get(&expr.node_key)
-            .copied()
-            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.target_ty))
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.target_ty,
-                kind: TypedExprKind::TraitObjectCoercion {
-                    expr: Box::new(
-                        self.lower_trait_object_coercion_source_expr(expr, coercion.source_ty),
-                    ),
-                    target_ty: coercion.target_ty,
-                    self_ty: coercion.self_ty,
-                },
-            };
-        }
-        if let Some(coercion) = self
-            .node_pointer_array_to_slice_coercions
-            .get(&expr.node_key)
-            .copied()
-            && forced_ty.is_none_or(|forced_ty| forced_ty == coercion.slice_ty)
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.slice_ty,
-                kind: TypedExprKind::Slice {
-                    lhs: Box::new(self.lower_expr_with_ty(expr, Some(coercion.pointer_ty))),
-                    range: TypedSliceRange {
-                        start: None,
-                        end: None,
-                        inclusive: false,
-                    },
-                    is_readonly: coercion.is_readonly,
-                },
-            };
-        }
-        if let Some(coercion) = self
-            .node_address_of_coercions
-            .get(&expr.node_key)
-            .copied()
-            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.target_ty))
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.target_ty,
-                kind: TypedExprKind::Unary {
-                    op: if coercion.is_readonly {
-                        UnaryOp::RefReadOnly
-                    } else {
-                        UnaryOp::Ref
-                    },
-                    expr: Box::new(self.lower_expr_with_ty(expr, Some(coercion.source_ty))),
-                },
-            };
-        }
-        if let Some(coercion) = self
-            .node_function_pointer_to_callable_coercions
-            .get(&expr.node_key)
-            .copied()
-            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.callable_ty))
-        {
-            return TypedExpr {
-                span: expr.span,
-                ty: coercion.callable_ty,
-                kind: TypedExprKind::FunctionCallable {
-                    function: Box::new(self.lower_expr_with_ty(expr, Some(coercion.function_ty))),
-                },
-            };
+            return self.lower_expr_adjustment_plan(expr, &plan);
         }
         let forced_ty = self
             .materialize_forced_expr_ty(expr, forced_ty)
@@ -791,6 +733,15 @@ impl<'a> BodyChecker<'a> {
                 self.global_const_value(def_id),
                 self.global_const_allocation(def_id, expr.span),
             );
+        }
+        if matches!(self.interner.get(ty), Some(TyKind::FunctionPointer { .. }))
+            && let Some(variant) = self.enum_constructor_variant(expr, Some(ty))
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty,
+                kind: TypedExprKind::EnumConstructor(variant),
+            };
         }
         if let Some(variant_id) = self.qualified_enum_variant(expr) {
             return TypedExpr {
@@ -1814,9 +1765,14 @@ impl<'a> BodyChecker<'a> {
 
     fn lower_deref_pointer(&mut self, expr: &Expr) -> Option<TypedExpr> {
         let ty = self
-            .node_mutable_to_readonly_coercions
+            .node_expr_adjustments
             .get(&expr.node_key)
-            .map(|coercion| coercion.source_ty)
+            .and_then(|plan| {
+                plan.steps.iter().find_map(|step| match step {
+                    ExprAdjustment::MutableToReadonly(coercion) => Some(coercion.source_ty),
+                    _ => None,
+                })
+            })
             .unwrap_or_else(|| self.expr_runtime_ty(expr));
         self.lower_builtin_deref_method_call(expr, ty, false)
     }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_sema_ir::ExprAdjustment;
 
 fn add_reachable_type_module(module_id: ModuleId, type_modules: &mut HashSet<ModuleId>) {
     type_modules.insert(module_id);
@@ -107,14 +108,32 @@ fn collect_function_fact_owner_modules(
         type_ids.extend(instantiation.const_args.iter().map(|arg| arg.ty));
         collect_const_arg_owner_modules(&instantiation.const_args, type_modules);
     }
-    for coercion in facts.node_pointer_array_to_slice_coercions.values() {
-        type_ids.extend([coercion.pointer_ty, coercion.array_ty, coercion.slice_ty]);
-    }
-    for coercion in facts.node_trait_object_coercions.values() {
-        type_ids.extend([coercion.source_ty, coercion.target_ty, coercion.self_ty]);
-    }
-    for upcast in facts.node_trait_object_upcasts.values() {
-        type_ids.extend([upcast.source_ty, upcast.target_ty]);
+    for plan in facts.node_expr_adjustments.values() {
+        for adjustment in &plan.steps {
+            match adjustment {
+                ExprAdjustment::AddressOf(value) => {
+                    type_ids.extend([value.source_ty, value.target_ty])
+                }
+                ExprAdjustment::ClosureCallableView(value) => {
+                    type_ids.extend([value.source_ty, value.state_ty, value.target_ty])
+                }
+                ExprAdjustment::PointerArrayToSlice(value) => {
+                    type_ids.extend([value.pointer_ty, value.array_ty, value.slice_ty])
+                }
+                ExprAdjustment::MutableToReadonly(value) => {
+                    type_ids.extend([value.source_ty, value.target_ty])
+                }
+                ExprAdjustment::FunctionPointerToCallable(value) => {
+                    type_ids.extend([value.function_ty, value.callable_ty])
+                }
+                ExprAdjustment::TraitObject(value) => {
+                    type_ids.extend([value.source_ty, value.target_ty, value.self_ty])
+                }
+                ExprAdjustment::TraitObjectUpcast(value) => {
+                    type_ids.extend([value.source_ty, value.target_ty])
+                }
+            }
+        }
     }
     for value in facts.node_builtin_values.values() {
         match value {

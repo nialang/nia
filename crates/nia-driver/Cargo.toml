@@ -49,6 +49,7 @@ nia-layout.workspace = true
 nia-mangle.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
+nia-sema-ir.workspace = true
 nia-ty.workspace = true
 
 [lib]

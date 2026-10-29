@@ -70,9 +70,18 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
         if self
-            .node_address_of_coercions
+            .node_expr_adjustments
             .get(&expr.node_key)
-            .is_some_and(|coercion| coercion.target_ty == ty)
+            .is_some_and(|plan| {
+                plan.target_ty == ty
+                    && plan.steps.iter().any(|step| {
+                        matches!(
+                            step,
+                            nia_sema_ir::ExprAdjustment::AddressOf(adjustment)
+                                if adjustment.target_ty == ty
+                        )
+                    })
+            })
         {
             return self.lower_static_address_init(expr);
         }

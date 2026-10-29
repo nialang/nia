@@ -74,6 +74,12 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_node_type(expr, ty);
             return ty;
         }
+        if let Some(expected) = expected
+            && let Some(ty) = self.check_contextual_expr(expr, expected)
+        {
+            self.record_expr_node_type(expr, ty);
+            return ty;
+        }
         let ty = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) => self.error(),
             ExprKind::Integer(_) => self.integer_literal_type(expr),
@@ -518,29 +524,7 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = if let Some(expected) = adaptation_expected {
             let actual = ty;
-            self.coerce_auto_address(expr, expected, actual)
-                .or_else(|| {
-                    allow_closure_view
-                        .then(|| self.coerce_auto_closure_callable_view(expr, expected, actual))
-                        .flatten()
-                })
-                .or_else(|| self.coerce_pointer_array_to_slice(expr, expected, actual))
-                .or_else(|| {
-                    self.coerce_mutable_pointer_to_readonly(expected, actual)
-                        .inspect(|target_ty| {
-                            self.record_mutable_to_readonly_coercion(
-                                expr,
-                                nia_sema_ir::MutableToReadonlyCoercion {
-                                    source_ty: actual,
-                                    target_ty: *target_ty,
-                                },
-                            );
-                        })
-                })
-                .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, actual))
-                .or_else(|| self.coerce_pointer_array_to_slice_trait_object(expr, expected, actual))
-                .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, actual))
-                .or_else(|| self.materialize_inferred_array_type(expected, actual))
+            self.adapt_expr_to_expected_type(expr, expected, actual, true, allow_closure_view)
                 .unwrap_or(actual)
         } else {
             ty
@@ -689,7 +673,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn callable_signature(
+    pub(crate) fn callable_signature(
         &mut self,
         ty: InternedTyId,
     ) -> Option<(Vec<InternedTyId>, InternedTyId)> {

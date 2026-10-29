@@ -39,6 +39,90 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn check_contextual_expr(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+    ) -> Option<InternedTyId> {
+        if !matches!(
+            expr.kind,
+            ExprKind::Qualified { .. } | ExprKind::OmittedMember { .. }
+        ) {
+            return None;
+        }
+        let actual = self.check_enum_constructor_callable(expr, expected)?;
+        Some(
+            self.adapt_expr_to_expected_type(expr, expected, actual, false, false)
+                .unwrap_or(actual),
+        )
+    }
+
+    pub(crate) fn adapt_expr_to_expected_type(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+        allow_auto_address: bool,
+        allow_implicit_views: bool,
+    ) -> Option<InternedTyId> {
+        if allow_auto_address
+            && let Some(target_ty) = self.coerce_auto_address(expr, expected, actual)
+        {
+            return Some(target_ty);
+        }
+        if allow_implicit_views
+            && let Some(target_ty) = self.coerce_auto_closure_callable_view(expr, expected, actual)
+        {
+            return Some(target_ty);
+        }
+        if let Some(target_ty) = self.coerce_pointer_array_to_slice(expr, expected, actual) {
+            return Some(target_ty);
+        }
+        if let Some(target_ty) = self.coerce_mutable_pointer_to_readonly(expected, actual) {
+            self.record_mutable_to_readonly_coercion(
+                expr,
+                MutableToReadonlyCoercion {
+                    source_ty: actual,
+                    target_ty,
+                },
+            );
+            return Some(target_ty);
+        }
+        if matches!(
+            expr.kind,
+            ExprKind::Unary {
+                op: UnaryOp::Ref | UnaryOp::RefReadOnly,
+                ..
+            }
+        ) && let Some(target_ty) = self.coerce_closure_pointer_to_callable(expected, actual)
+        {
+            return Some(target_ty);
+        }
+        if let Some(target_ty) = self.coerce_function_pointer_to_callable(expected, actual) {
+            let function_ty = self.normalize_aliases_in_type(actual);
+            self.record_function_pointer_to_callable_coercion(
+                expr,
+                FunctionPointerToCallableCoercion {
+                    function_ty,
+                    callable_ty: target_ty,
+                },
+            );
+            return Some(target_ty);
+        }
+        if let Some(target_ty) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
+            return Some(target_ty);
+        }
+        if let Some(target_ty) =
+            self.coerce_pointer_array_to_slice_trait_object(expr, expected, actual)
+        {
+            return Some(target_ty);
+        }
+        if let Some(target_ty) = self.coerce_pointer_to_trait_object(expr, expected, actual) {
+            return Some(target_ty);
+        }
+        self.materialize_inferred_array_type(expected, actual)
+    }
+
     pub(crate) fn expected_literal_type_for_auto_address(
         &mut self,
         expr: &Expr,
@@ -806,55 +890,9 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
-        if let Some(coerced) = self.coerce_pointer_array_to_slice(expr, expected, actual) {
-            self.record_expr_node_type(expr, coerced);
-            return;
-        }
-        if let Some(coerced) = self.coerce_mutable_pointer_to_readonly(expected, actual) {
-            self.record_mutable_to_readonly_coercion(
-                expr,
-                MutableToReadonlyCoercion {
-                    source_ty: actual,
-                    target_ty: coerced,
-                },
-            );
-            self.record_expr_node_type(expr, coerced);
-            return;
-        }
-        if let Some(coerced) = self.coerce_function_pointer_to_callable(expected, actual) {
-            let function_ty = self.normalize_aliases_in_type(actual);
-            self.record_function_pointer_to_callable_coercion(
-                expr,
-                FunctionPointerToCallableCoercion {
-                    function_ty,
-                    callable_ty: coerced,
-                },
-            );
-            self.record_expr_node_type(expr, coerced);
-            return;
-        }
-        if matches!(
-            expr.kind,
-            ExprKind::Unary {
-                op: UnaryOp::Ref | UnaryOp::RefReadOnly,
-                ..
-            }
-        ) && let Some(coerced) = self.coerce_closure_pointer_to_callable(expected, actual)
-        {
-            self.record_expr_node_type(expr, coerced);
-            return;
-        }
-        if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
-            self.record_expr_node_type(expr, coerced);
-            return;
-        }
         if let Some(coerced) =
-            self.coerce_pointer_array_to_slice_trait_object(expr, expected, actual)
+            self.adapt_expr_to_expected_type(expr, expected, actual, false, false)
         {
-            self.record_expr_node_type(expr, coerced);
-            return;
-        }
-        if let Some(coerced) = self.coerce_pointer_to_trait_object(expr, expected, actual) {
             self.record_expr_node_type(expr, coerced);
             return;
         }
@@ -2007,13 +2045,7 @@ impl<'a> BodyChecker<'a> {
             provider_demands_by_function: self.provider_demands_by_function.clone(),
             node_expr_types: FastHashMap::default(),
             node_bracket_suffix_resolutions: FastHashMap::default(),
-            node_pointer_array_to_slice_coercions: FastHashMap::default(),
-            node_address_of_coercions: FastHashMap::default(),
-            node_closure_callable_view_coercions: FastHashMap::default(),
-            node_mutable_to_readonly_coercions: FastHashMap::default(),
-            node_function_pointer_to_callable_coercions: FastHashMap::default(),
-            node_trait_object_coercions: FastHashMap::default(),
-            node_trait_object_upcasts: FastHashMap::default(),
+            node_expr_adjustments: FastHashMap::default(),
             node_builtin_values: FastHashMap::default(),
             node_associated_const_projections: FastHashMap::default(),
             node_array_repeat_counts: FastHashMap::default(),

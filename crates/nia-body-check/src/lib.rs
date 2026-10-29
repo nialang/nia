@@ -100,7 +100,7 @@ use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
     AddressOfCoercion, AssociatedConstProjection, BracketSuffixResolution, BuiltinValue,
-    ClosureCallableViewCoercion, FunctionPointerToCallableCoercion, FunctionReference,
+    ExprAdjustment, ExprAdjustmentPlan, FunctionPointerToCallableCoercion, FunctionReference,
     FunctionSemanticFactsBuilder, GenericInstantiation, MutableToReadonlyCoercion,
     PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts, SemanticFactsBuilder,
     SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
@@ -236,16 +236,7 @@ struct BodyChecker<'a> {
     provider_demands_by_function: Rc<RefCell<HashMap<GlobalDefId, HashSet<ProviderDemand>>>>,
     node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
-    node_pointer_array_to_slice_coercions:
-        FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
-    node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
-    node_closure_callable_view_coercions:
-        FastHashMap<VersionedNodeKey, ClosureCallableViewCoercion>,
-    node_mutable_to_readonly_coercions: FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
-    node_function_pointer_to_callable_coercions:
-        FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
-    node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,
-    node_trait_object_upcasts: FastHashMap<VersionedNodeKey, TraitObjectUpcast>,
+    node_expr_adjustments: FastHashMap<VersionedNodeKey, ExprAdjustmentPlan>,
     node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
     node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
     node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,

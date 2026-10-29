@@ -1093,6 +1093,7 @@ dependencies = [
  "nia-package-metadata",
  "nia-parser",
  "nia-query",
+ "nia-sema-ir",
  "nia-source",
  "nia-span",
  "nia-static-ir",

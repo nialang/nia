@@ -406,20 +406,8 @@ pub struct SemanticFacts {
     pub node_expr_types: NodeMap<InternedTyId>,
     /// Bracket suffix classifications owned by module-level expressions.
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
-    /// Pointer-to-array coercions owned by module-level expressions.
-    pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
-    /// Implicit address formation owned by module-level expressions.
-    pub node_address_of_coercions: NodeMap<AddressOfCoercion>,
-    /// Closure-state address formation and conversion to callable views.
-    pub node_closure_callable_view_coercions: NodeMap<ClosureCallableViewCoercion>,
-    /// Mutable-pointer to readonly-pointer coercions owned by module-level expressions.
-    pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
-    /// Function-pointer to callable-view coercions owned by module-level expressions.
-    pub node_function_pointer_to_callable_coercions: NodeMap<FunctionPointerToCallableCoercion>,
-    /// Trait-object coercions owned by module-level expressions.
-    pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
-    /// Trait-object upcasts owned by module-level expressions.
-    pub node_trait_object_upcasts: NodeMap<TraitObjectUpcast>,
+    /// Ordered contextual adjustments owned by module-level expressions.
+    pub node_expr_adjustments: NodeMap<ExprAdjustmentPlan>,
     /// Compiler builtin values owned by module-level expressions.
     pub node_builtin_values: NodeMap<BuiltinValue>,
     /// Compiler builtin associated values owned by module-level expressions.
@@ -451,24 +439,8 @@ pub struct SemanticFactsBuilder {
     pub node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
     /// Module-level bracket suffix classifications.
     pub node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
-    /// Module-level pointer-to-array coercions.
-    pub node_pointer_array_to_slice_coercions:
-        FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
-    /// Module-level implicit address formation.
-    pub node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
-    /// Module-level closure-state address formation and callable-view conversion.
-    pub node_closure_callable_view_coercions:
-        FastHashMap<VersionedNodeKey, ClosureCallableViewCoercion>,
-    /// Module-level mutable-pointer to readonly-pointer coercions.
-    pub node_mutable_to_readonly_coercions:
-        FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
-    /// Module-level function-pointer to callable-view coercions.
-    pub node_function_pointer_to_callable_coercions:
-        FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
-    /// Module-level trait-object coercions.
-    pub node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,
-    /// Module-level trait-object upcasts.
-    pub node_trait_object_upcasts: FastHashMap<VersionedNodeKey, TraitObjectUpcast>,
+    /// Module-level ordered contextual adjustments.
+    pub node_expr_adjustments: FastHashMap<VersionedNodeKey, ExprAdjustmentPlan>,
     /// Module-level compiler builtin values.
     pub node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
     /// Module-level compiler builtin associated values.
@@ -525,34 +497,7 @@ impl SemanticFacts {
             &mut self.node_bracket_suffix_resolutions,
             facts.node_bracket_suffix_resolutions,
         );
-        extend_node_map(
-            &mut self.node_pointer_array_to_slice_coercions,
-            facts.node_pointer_array_to_slice_coercions,
-        );
-        extend_node_map(
-            &mut self.node_address_of_coercions,
-            facts.node_address_of_coercions,
-        );
-        extend_node_map(
-            &mut self.node_closure_callable_view_coercions,
-            facts.node_closure_callable_view_coercions,
-        );
-        extend_node_map(
-            &mut self.node_mutable_to_readonly_coercions,
-            facts.node_mutable_to_readonly_coercions,
-        );
-        extend_node_map(
-            &mut self.node_function_pointer_to_callable_coercions,
-            facts.node_function_pointer_to_callable_coercions,
-        );
-        extend_node_map(
-            &mut self.node_trait_object_coercions,
-            facts.node_trait_object_coercions,
-        );
-        extend_node_map(
-            &mut self.node_trait_object_upcasts,
-            facts.node_trait_object_upcasts,
-        );
+        extend_node_map(&mut self.node_expr_adjustments, facts.node_expr_adjustments);
         extend_node_map(&mut self.node_builtin_values, facts.node_builtin_values);
         extend_node_map(
             &mut self.node_builtin_associated_values,
@@ -586,25 +531,7 @@ impl SemanticFacts {
                 .node_bracket_suffix_resolutions
                 .into_entries()
                 .collect(),
-            node_pointer_array_to_slice_coercions: self
-                .node_pointer_array_to_slice_coercions
-                .into_entries()
-                .collect(),
-            node_address_of_coercions: self.node_address_of_coercions.into_entries().collect(),
-            node_closure_callable_view_coercions: self
-                .node_closure_callable_view_coercions
-                .into_entries()
-                .collect(),
-            node_mutable_to_readonly_coercions: self
-                .node_mutable_to_readonly_coercions
-                .into_entries()
-                .collect(),
-            node_function_pointer_to_callable_coercions: self
-                .node_function_pointer_to_callable_coercions
-                .into_entries()
-                .collect(),
-            node_trait_object_coercions: self.node_trait_object_coercions.into_entries().collect(),
-            node_trait_object_upcasts: self.node_trait_object_upcasts.into_entries().collect(),
+            node_expr_adjustments: self.node_expr_adjustments.into_entries().collect(),
             node_builtin_values: self.node_builtin_values.into_entries().collect(),
             node_builtin_associated_values: self
                 .node_builtin_associated_values
@@ -661,58 +588,14 @@ impl SemanticFacts {
         )
     }
 
-    /// Iterates pointer-to-array coercions across all ownership domains.
-    pub fn iter_node_pointer_array_to_slice_coercions(
+    /// Iterates ordered expression adjustments across all ownership domains.
+    pub fn iter_node_expr_adjustments(
         &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &PointerArrayToSliceCoercion)> + '_ {
-        self.node_pointer_array_to_slice_coercions.iter().chain(
+    ) -> impl Iterator<Item = (VersionedNodeKey, &ExprAdjustmentPlan)> + '_ {
+        self.node_expr_adjustments.iter().chain(
             self.function_facts
                 .values()
-                .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
-        )
-    }
-
-    /// Iterates implicit address formation across all ownership domains.
-    pub fn iter_node_address_of_coercions(
-        &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &AddressOfCoercion)> + '_ {
-        self.node_address_of_coercions.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_address_of_coercions.iter()),
-        )
-    }
-
-    /// Iterates closure-to-callable-view conversions across all ownership domains.
-    pub fn iter_node_closure_callable_view_coercions(
-        &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &ClosureCallableViewCoercion)> + '_ {
-        self.node_closure_callable_view_coercions.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_closure_callable_view_coercions.iter()),
-        )
-    }
-
-    /// Iterates trait-object coercions across all ownership domains.
-    pub fn iter_node_trait_object_coercions(
-        &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectCoercion)> + '_ {
-        self.node_trait_object_coercions.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_trait_object_coercions.iter()),
-        )
-    }
-
-    /// Iterates trait-object upcasts across all ownership domains.
-    pub fn iter_node_trait_object_upcasts(
-        &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectUpcast)> + '_ {
-        self.node_trait_object_upcasts.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_trait_object_upcasts.iter()),
+                .flat_map(|facts| facts.node_expr_adjustments.iter()),
         )
     }
 
@@ -796,23 +679,8 @@ impl SemanticFactsBuilder {
             for key in facts.node_bracket_suffix_resolutions.keys() {
                 self.node_bracket_suffix_resolutions.remove(&key);
             }
-            for key in facts.node_pointer_array_to_slice_coercions.keys() {
-                self.node_pointer_array_to_slice_coercions.remove(&key);
-            }
-            for key in facts.node_address_of_coercions.keys() {
-                self.node_address_of_coercions.remove(&key);
-            }
-            for key in facts.node_closure_callable_view_coercions.keys() {
-                self.node_closure_callable_view_coercions.remove(&key);
-            }
-            for key in facts.node_mutable_to_readonly_coercions.keys() {
-                self.node_mutable_to_readonly_coercions.remove(&key);
-            }
-            for key in facts.node_trait_object_coercions.keys() {
-                self.node_trait_object_coercions.remove(&key);
-            }
-            for key in facts.node_trait_object_upcasts.keys() {
-                self.node_trait_object_upcasts.remove(&key);
+            for key in facts.node_expr_adjustments.keys() {
+                self.node_expr_adjustments.remove(&key);
             }
             for key in facts.node_builtin_values.keys() {
                 self.node_builtin_values.remove(&key);
@@ -851,28 +719,7 @@ impl SemanticFactsBuilder {
                 store,
                 self.node_bracket_suffix_resolutions,
             ),
-            node_pointer_array_to_slice_coercions: node_map_from_entries(
-                store,
-                self.node_pointer_array_to_slice_coercions,
-            ),
-            node_address_of_coercions: node_map_from_entries(store, self.node_address_of_coercions),
-            node_closure_callable_view_coercions: node_map_from_entries(
-                store,
-                self.node_closure_callable_view_coercions,
-            ),
-            node_mutable_to_readonly_coercions: node_map_from_entries(
-                store,
-                self.node_mutable_to_readonly_coercions,
-            ),
-            node_function_pointer_to_callable_coercions: node_map_from_entries(
-                store,
-                self.node_function_pointer_to_callable_coercions,
-            ),
-            node_trait_object_coercions: node_map_from_entries(
-                store,
-                self.node_trait_object_coercions,
-            ),
-            node_trait_object_upcasts: node_map_from_entries(store, self.node_trait_object_upcasts),
+            node_expr_adjustments: node_map_from_entries(store, self.node_expr_adjustments),
             node_builtin_values: node_map_from_entries(store, self.node_builtin_values),
             node_builtin_associated_values: node_map_from_entries(
                 store,
@@ -903,20 +750,8 @@ pub struct FunctionSemanticFacts {
     pub node_expr_types: NodeMap<InternedTyId>,
     /// Bracket suffix classifications.
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
-    /// Pointer-to-array coercions.
-    pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
-    /// Implicit address formation.
-    pub node_address_of_coercions: NodeMap<AddressOfCoercion>,
-    /// Closure-state address formation and conversion to callable views.
-    pub node_closure_callable_view_coercions: NodeMap<ClosureCallableViewCoercion>,
-    /// Mutable-pointer to readonly-pointer coercions.
-    pub node_mutable_to_readonly_coercions: NodeMap<MutableToReadonlyCoercion>,
-    /// Function-pointer to callable-view coercions.
-    pub node_function_pointer_to_callable_coercions: NodeMap<FunctionPointerToCallableCoercion>,
-    /// Trait-object coercions.
-    pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
-    /// Trait-object upcasts.
-    pub node_trait_object_upcasts: NodeMap<TraitObjectUpcast>,
+    /// Ordered contextual adjustments.
+    pub node_expr_adjustments: NodeMap<ExprAdjustmentPlan>,
     /// Compiler builtin values.
     pub node_builtin_values: NodeMap<BuiltinValue>,
     /// Associated-const projections.
@@ -946,24 +781,8 @@ pub struct FunctionSemanticFactsBuilder {
     pub node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
     /// Bracket suffix classifications.
     pub node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
-    /// Pointer-to-array coercions.
-    pub node_pointer_array_to_slice_coercions:
-        FastHashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
-    /// Implicit address formation.
-    pub node_address_of_coercions: FastHashMap<VersionedNodeKey, AddressOfCoercion>,
-    /// Function-body closure-state address formation and callable-view conversion.
-    pub node_closure_callable_view_coercions:
-        FastHashMap<VersionedNodeKey, ClosureCallableViewCoercion>,
-    /// Mutable-pointer to readonly-pointer coercions.
-    pub node_mutable_to_readonly_coercions:
-        FastHashMap<VersionedNodeKey, MutableToReadonlyCoercion>,
-    /// Function-pointer to callable-view coercions.
-    pub node_function_pointer_to_callable_coercions:
-        FastHashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
-    /// Trait-object coercions.
-    pub node_trait_object_coercions: FastHashMap<VersionedNodeKey, TraitObjectCoercion>,
-    /// Trait-object upcasts.
-    pub node_trait_object_upcasts: FastHashMap<VersionedNodeKey, TraitObjectUpcast>,
+    /// Ordered contextual adjustments by stable locator.
+    pub node_expr_adjustments: FastHashMap<VersionedNodeKey, ExprAdjustmentPlan>,
     /// Compiler builtin values.
     pub node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
     /// Associated-const projections.
@@ -1003,25 +822,7 @@ impl FunctionSemanticFacts {
                 .node_bracket_suffix_resolutions
                 .into_entries()
                 .collect(),
-            node_pointer_array_to_slice_coercions: self
-                .node_pointer_array_to_slice_coercions
-                .into_entries()
-                .collect(),
-            node_address_of_coercions: self.node_address_of_coercions.into_entries().collect(),
-            node_closure_callable_view_coercions: self
-                .node_closure_callable_view_coercions
-                .into_entries()
-                .collect(),
-            node_mutable_to_readonly_coercions: self
-                .node_mutable_to_readonly_coercions
-                .into_entries()
-                .collect(),
-            node_function_pointer_to_callable_coercions: self
-                .node_function_pointer_to_callable_coercions
-                .into_entries()
-                .collect(),
-            node_trait_object_coercions: self.node_trait_object_coercions.into_entries().collect(),
-            node_trait_object_upcasts: self.node_trait_object_upcasts.into_entries().collect(),
+            node_expr_adjustments: self.node_expr_adjustments.into_entries().collect(),
             node_builtin_values: self.node_builtin_values.into_entries().collect(),
             node_associated_const_projections: self
                 .node_associated_const_projections
@@ -1052,13 +853,7 @@ impl FunctionSemanticFactsBuilder {
             && self.generic_instantiations.is_empty()
             && self.node_expr_types.is_empty()
             && self.node_bracket_suffix_resolutions.is_empty()
-            && self.node_pointer_array_to_slice_coercions.is_empty()
-            && self.node_address_of_coercions.is_empty()
-            && self.node_closure_callable_view_coercions.is_empty()
-            && self.node_mutable_to_readonly_coercions.is_empty()
-            && self.node_function_pointer_to_callable_coercions.is_empty()
-            && self.node_trait_object_coercions.is_empty()
-            && self.node_trait_object_upcasts.is_empty()
+            && self.node_expr_adjustments.is_empty()
             && self.node_builtin_values.is_empty()
             && self.node_associated_const_projections.is_empty()
             && self.node_array_repeat_counts.is_empty()
@@ -1079,28 +874,7 @@ impl FunctionSemanticFactsBuilder {
                 store,
                 self.node_bracket_suffix_resolutions,
             ),
-            node_pointer_array_to_slice_coercions: node_map_from_entries(
-                store,
-                self.node_pointer_array_to_slice_coercions,
-            ),
-            node_address_of_coercions: node_map_from_entries(store, self.node_address_of_coercions),
-            node_closure_callable_view_coercions: node_map_from_entries(
-                store,
-                self.node_closure_callable_view_coercions,
-            ),
-            node_mutable_to_readonly_coercions: node_map_from_entries(
-                store,
-                self.node_mutable_to_readonly_coercions,
-            ),
-            node_function_pointer_to_callable_coercions: node_map_from_entries(
-                store,
-                self.node_function_pointer_to_callable_coercions,
-            ),
-            node_trait_object_coercions: node_map_from_entries(
-                store,
-                self.node_trait_object_coercions,
-            ),
-            node_trait_object_upcasts: node_map_from_entries(store, self.node_trait_object_upcasts),
+            node_expr_adjustments: node_map_from_entries(store, self.node_expr_adjustments),
             node_builtin_values: node_map_from_entries(store, self.node_builtin_values),
             node_associated_const_projections: node_map_from_entries(
                 store,
@@ -1257,6 +1031,87 @@ pub struct TraitObjectUpcast {
     pub source_ty: InternedTyId,
     /// Target supertrait-object type.
     pub target_ty: InternedTyId,
+}
+
+/// A single contextual expression adjustment selected by type checking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExprAdjustment {
+    AddressOf(AddressOfCoercion),
+    ClosureCallableView(ClosureCallableViewCoercion),
+    PointerArrayToSlice(PointerArrayToSliceCoercion),
+    MutableToReadonly(MutableToReadonlyCoercion),
+    FunctionPointerToCallable(FunctionPointerToCallableCoercion),
+    TraitObject(TraitObjectCoercion),
+    TraitObjectUpcast(TraitObjectUpcast),
+}
+
+impl ExprAdjustment {
+    pub fn source_ty(self) -> InternedTyId {
+        match self {
+            Self::AddressOf(value) => value.source_ty,
+            Self::ClosureCallableView(value) => value.source_ty,
+            Self::PointerArrayToSlice(value) => value.pointer_ty,
+            Self::MutableToReadonly(value) => value.source_ty,
+            Self::FunctionPointerToCallable(value) => value.function_ty,
+            Self::TraitObject(value) => value.source_ty,
+            Self::TraitObjectUpcast(value) => value.source_ty,
+        }
+    }
+
+    pub fn target_ty(self) -> InternedTyId {
+        match self {
+            Self::AddressOf(value) => value.target_ty,
+            Self::ClosureCallableView(value) => value.target_ty,
+            Self::PointerArrayToSlice(value) => value.slice_ty,
+            Self::MutableToReadonly(value) => value.target_ty,
+            Self::FunctionPointerToCallable(value) => value.callable_ty,
+            Self::TraitObject(value) => value.target_ty,
+            Self::TraitObjectUpcast(value) => value.target_ty,
+        }
+    }
+}
+
+/// Ordered contextual adjustments for one expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExprAdjustmentPlan {
+    pub source_ty: InternedTyId,
+    pub target_ty: InternedTyId,
+    pub steps: Vec<ExprAdjustment>,
+}
+
+impl ExprAdjustmentPlan {
+    pub fn from_step(step: ExprAdjustment) -> Self {
+        Self {
+            source_ty: step.source_ty(),
+            target_ty: step.target_ty(),
+            steps: vec![step],
+        }
+    }
+
+    pub fn connect_step(&mut self, step: ExprAdjustment) -> bool {
+        if self.steps.contains(&step) {
+            return true;
+        }
+        if step.target_ty() == self.source_ty {
+            self.steps.insert(0, step);
+            self.source_ty = step.source_ty();
+            return true;
+        }
+        if self.target_ty == step.source_ty() {
+            self.steps.push(step);
+            self.target_ty = step.target_ty();
+            return true;
+        }
+        for index in 1..self.steps.len() {
+            if self.steps[index - 1].target_ty() == step.source_ty()
+                && step.target_ty() == self.steps[index].source_ty()
+            {
+                self.steps.insert(index, step);
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// Concrete generic instantiation requested by semantic analysis.
@@ -1716,15 +1571,7 @@ mod tests {
             facts.node_bracket_suffix_resolutions.store_id(),
             first_store.id()
         );
-        assert_eq!(
-            facts.node_pointer_array_to_slice_coercions.store_id(),
-            first_store.id()
-        );
-        assert_eq!(
-            facts.node_trait_object_coercions.store_id(),
-            first_store.id()
-        );
-        assert_eq!(facts.node_trait_object_upcasts.store_id(), first_store.id());
+        assert_eq!(facts.node_expr_adjustments.store_id(), first_store.id());
         assert_eq!(facts.node_builtin_values.store_id(), first_store.id());
         assert_eq!(
             facts.node_associated_const_projections.store_id(),
@@ -1776,15 +1623,7 @@ mod tests {
             facts.node_bracket_suffix_resolutions.store_id(),
             first_store.id()
         );
-        assert_eq!(
-            facts.node_pointer_array_to_slice_coercions.store_id(),
-            first_store.id()
-        );
-        assert_eq!(
-            facts.node_trait_object_coercions.store_id(),
-            first_store.id()
-        );
-        assert_eq!(facts.node_trait_object_upcasts.store_id(), first_store.id());
+        assert_eq!(facts.node_expr_adjustments.store_id(), first_store.id());
         assert_eq!(facts.node_builtin_values.store_id(), first_store.id());
         assert_eq!(
             facts.node_builtin_associated_values.store_id(),

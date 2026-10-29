@@ -4,16 +4,25 @@ use super::common::*;
 fn has_trait_object_coercion(module: &nia_compiler_query::CheckedModule) -> bool {
     module
         .semantic_facts
-        .iter_node_trait_object_coercions()
-        .next()
-        .is_some()
+        .iter_node_expr_adjustments()
+        .any(|(_, plan)| {
+            plan.steps
+                .iter()
+                .any(|step| matches!(step, nia_sema_ir::ExprAdjustment::TraitObject(_)))
+        })
 }
 
 fn trait_object_upcast_count(module: &nia_compiler_query::CheckedModule) -> usize {
     module
         .semantic_facts
-        .iter_node_trait_object_upcasts()
-        .count()
+        .iter_node_expr_adjustments()
+        .map(|(_, plan)| {
+            plan.steps
+                .iter()
+                .filter(|step| matches!(step, nia_sema_ir::ExprAdjustment::TraitObjectUpcast(_)))
+                .count()
+        })
+        .sum()
 }
 
 #[test]
@@ -202,7 +211,7 @@ fun use_child(child: & Child) () {
             .map(|module| {
                 module
                     .semantic_facts
-                    .iter_node_trait_object_upcasts()
+                    .iter_node_expr_adjustments()
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>()

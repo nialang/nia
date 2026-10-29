@@ -269,13 +269,11 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         coercion: PointerArrayToSliceCoercion,
     ) {
-        self.node_pointer_array_to_slice_coercions
-            .insert(expr.node_key.clone(), coercion);
+        self.record_expr_adjustment(expr, ExprAdjustment::PointerArrayToSlice(coercion));
     }
 
     pub(super) fn record_address_of_coercion(&mut self, expr: &Expr, coercion: AddressOfCoercion) {
-        self.node_address_of_coercions
-            .insert(expr.node_key.clone(), coercion);
+        self.record_expr_adjustment(expr, ExprAdjustment::AddressOf(coercion));
     }
 
     pub(super) fn record_closure_callable_view_coercion(
@@ -283,8 +281,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         coercion: nia_sema_ir::ClosureCallableViewCoercion,
     ) {
-        self.node_closure_callable_view_coercions
-            .insert(expr.node_key.clone(), coercion);
+        self.record_expr_adjustment(expr, ExprAdjustment::ClosureCallableView(coercion));
     }
 
     pub(super) fn record_function_pointer_to_callable_coercion(
@@ -292,8 +289,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         coercion: FunctionPointerToCallableCoercion,
     ) {
-        self.node_function_pointer_to_callable_coercions
-            .insert(expr.node_key.clone(), coercion);
+        self.record_expr_adjustment(expr, ExprAdjustment::FunctionPointerToCallable(coercion));
     }
 
     pub(super) fn record_mutable_to_readonly_coercion(
@@ -301,8 +297,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         coercion: MutableToReadonlyCoercion,
     ) {
-        self.node_mutable_to_readonly_coercions
-            .insert(expr.node_key.clone(), coercion);
+        self.record_expr_adjustment(expr, ExprAdjustment::MutableToReadonly(coercion));
     }
 
     pub(super) fn record_trait_object_node_coercion(
@@ -310,8 +305,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         coercion: TraitObjectCoercion,
     ) {
-        self.node_trait_object_coercions
-            .insert(expr.node_key.clone(), coercion);
+        self.record_expr_adjustment(expr, ExprAdjustment::TraitObject(coercion));
     }
 
     pub(super) fn record_trait_object_node_upcast(
@@ -319,8 +313,31 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         upcast: TraitObjectUpcast,
     ) {
-        self.node_trait_object_upcasts
-            .insert(expr.node_key.clone(), upcast);
+        self.record_expr_adjustment(expr, ExprAdjustment::TraitObjectUpcast(upcast));
+    }
+
+    fn record_expr_adjustment(&mut self, expr: &Expr, adjustment: ExprAdjustment) {
+        let key = expr.node_key.clone();
+        let failure = if let Some(plan) = self.node_expr_adjustments.get_mut(&key) {
+            if plan.connect_step(adjustment) {
+                None
+            } else {
+                Some((plan.source_ty, plan.target_ty))
+            }
+        } else {
+            self.node_expr_adjustments
+                .insert(key, ExprAdjustmentPlan::from_step(adjustment));
+            None
+        };
+        if let Some((source_ty, target_ty)) = failure {
+            self.record_internal(Ice::new(format!(
+                "expression adjustment {:?} -> {:?} does not connect to {:?} -> {:?}",
+                adjustment.source_ty(),
+                adjustment.target_ty(),
+                source_ty,
+                target_ty,
+            )));
+        }
     }
 
     pub(super) fn record_builtin_node_value(&mut self, expr: &Expr, value: BuiltinValue) {
@@ -374,32 +391,8 @@ impl<'a> BodyChecker<'a> {
             &mut facts.node_bracket_suffix_resolutions,
         );
         std::mem::swap(
-            &mut self.node_pointer_array_to_slice_coercions,
-            &mut facts.node_pointer_array_to_slice_coercions,
-        );
-        std::mem::swap(
-            &mut self.node_address_of_coercions,
-            &mut facts.node_address_of_coercions,
-        );
-        std::mem::swap(
-            &mut self.node_closure_callable_view_coercions,
-            &mut facts.node_closure_callable_view_coercions,
-        );
-        std::mem::swap(
-            &mut self.node_mutable_to_readonly_coercions,
-            &mut facts.node_mutable_to_readonly_coercions,
-        );
-        std::mem::swap(
-            &mut self.node_function_pointer_to_callable_coercions,
-            &mut facts.node_function_pointer_to_callable_coercions,
-        );
-        std::mem::swap(
-            &mut self.node_trait_object_coercions,
-            &mut facts.node_trait_object_coercions,
-        );
-        std::mem::swap(
-            &mut self.node_trait_object_upcasts,
-            &mut facts.node_trait_object_upcasts,
+            &mut self.node_expr_adjustments,
+            &mut facts.node_expr_adjustments,
         );
         std::mem::swap(
             &mut self.node_builtin_values,

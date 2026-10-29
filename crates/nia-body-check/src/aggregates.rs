@@ -873,12 +873,7 @@ impl<'a> BodyChecker<'a> {
             });
         }
         let expected = self.normalize_aliases_in_type(expected?);
-        let return_type = match self.interner.get(expected) {
-            Some(
-                TyKind::FunctionPointer { return_type, .. } | TyKind::Callable { return_type, .. },
-            ) => *return_type,
-            _ => return None,
-        };
+        let (_, return_type) = self.callable_signature(expected)?;
         let (enum_id, def_id) = self.omitted_enum_variant_info(expr, return_type)?;
         Some(GlobalDefId {
             module_id: enum_id.module_id,
@@ -915,6 +910,36 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         }
         let return_type = self.enum_ty(enum_id);
+        let ty = self.interner.intern(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic: false,
+            abi: nia_ty::FunctionPointerAbi::Nia,
+        });
+        self.record_expr_node_type(expr, ty);
+        Some(ty)
+    }
+
+    pub(crate) fn check_enum_constructor_callable(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+    ) -> Option<InternedTyId> {
+        self.callable_signature(expected)?;
+        let variant_id = self.enum_constructor_variant(expr, Some(expected))?;
+        let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
+        let params = match variant.payload {
+            EnumVariantPayloadSignature::Unit => return None,
+            EnumVariantPayloadSignature::Tuple(params) => params,
+            EnumVariantPayloadSignature::Named(fields) => {
+                fields.into_iter().map(|field| field.ty).collect()
+            }
+        };
+        let return_type = self.enum_ty(enum_id);
+        self.reject_const_operation(
+            expr.span,
+            "function pointer values are not available during const evaluation",
+        );
         let ty = self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -1195,7 +1220,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn enum_ty(&mut self, enum_id: GlobalDefId) -> InternedTyId {
+    pub(crate) fn enum_ty(&mut self, enum_id: GlobalDefId) -> InternedTyId {
         self.interner.intern(TyKind::Nominal {
             def_id: enum_id,
             args: Vec::new(),

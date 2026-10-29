@@ -1032,13 +1032,7 @@ fun main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert_eq!(
-        checked
-            .facts
-            .iter_node_pointer_array_to_slice_coercions()
-            .count(),
-        4
-    );
+    assert_eq!(pointer_array_to_slice_adjustment_count(&checked.facts), 4);
 }
 
 #[test]

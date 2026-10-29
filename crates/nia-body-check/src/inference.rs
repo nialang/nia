@@ -42,6 +42,7 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{BinaryOp, Block, Expr, ExprKind, Pattern, PatternKind, Stmt, StmtKind, UnaryOp};
+use nia_defs::DefKind;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{InternedTyId, LocalId};
 use nia_node_id::VersionedNodeKey;
@@ -217,10 +218,17 @@ struct TryObligation {
     propagation_target: Option<InferId>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
+struct OmittedEnumConstructorObligation {
+    name: SymbolId,
+    callable: InferId,
+}
+
+#[derive(Clone, Debug)]
 enum InferenceObligation {
     Operator(OperatorObligation),
     Try(TryObligation),
+    OmittedEnumConstructor(OmittedEnumConstructorObligation),
 }
 
 /// Constraint state for one function body.
@@ -310,6 +318,39 @@ impl BodyChecker<'_> {
 }
 
 impl FunctionInference {
+    fn enum_constructor_signature(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        expr: &Expr,
+        expected: Option<InferId>,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let expected = expected?;
+        match self.expanded_shape(checker, expected) {
+            Some(InferShape::Callable { .. }) => {}
+            Some(InferShape::Known(ty))
+                if matches!(
+                    checker.interner.get(ty),
+                    Some(
+                        TyKind::Callable { .. }
+                            | TyKind::CallablePointee { .. }
+                            | TyKind::FunctionPointer { .. }
+                    )
+                ) => {}
+            _ => return None,
+        }
+        let expected_ty = self.resolve(checker, expected);
+        let variant_id = checker.enum_constructor_variant(expr, expected_ty);
+        let (enum_id, variant) = checker.resolved_enum_variant(variant_id?)?;
+        let params = match variant.payload {
+            nia_item_signatures::EnumVariantPayloadSignature::Tuple(params) => params,
+            nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                fields.into_iter().map(|field| field.ty).collect()
+            }
+            nia_item_signatures::EnumVariantPayloadSignature::Unit => return None,
+        };
+        Some((params, checker.enum_ty(enum_id)))
+    }
+
     fn closure_local(&self, checker: &BodyChecker<'_>, expr: &Expr) -> Option<LocalId> {
         match &expr.kind {
             ExprKind::Ident(_) => match checker.local_use(expr) {
@@ -1377,6 +1418,41 @@ impl FunctionInference {
                     }
                 }
             }
+            ExprKind::Qualified { .. } | ExprKind::OmittedMember { .. } => {
+                if let Some((params, return_type)) =
+                    self.enum_constructor_signature(checker, expr, expected)
+                {
+                    let param_terms = params.into_iter().map(|param| self.known(param)).collect();
+                    let return_term = self.known(return_type);
+                    let callable = self.with_shape(InferShape::Callable {
+                        params: param_terms,
+                        return_type: return_term,
+                    });
+                    if let Some(expected) = expected {
+                        self.unify(checker, callable, expected);
+                    }
+                    callable
+                } else if let ExprKind::OmittedMember { name } = &expr.kind
+                    && let Some(expected) = expected
+                    && matches!(
+                        self.expanded_shape(checker, expected),
+                        Some(InferShape::Callable { .. })
+                    )
+                {
+                    self.obligations
+                        .push(InferenceObligation::OmittedEnumConstructor(
+                            OmittedEnumConstructorObligation {
+                                name: *name,
+                                callable: expected,
+                            },
+                        ));
+                    expected
+                } else if let Some(ty) = checker.inference_enum_variant_type(expr) {
+                    self.known(ty)
+                } else {
+                    expected.unwrap_or_else(|| self.fresh())
+                }
+            }
             ExprKind::Closure {
                 captures,
                 params,
@@ -1826,14 +1902,106 @@ impl FunctionInference {
         let mut pending = std::mem::take(&mut self.obligations);
         loop {
             let before = pending.len();
-            pending.retain(|obligation| !match *obligation {
-                InferenceObligation::Operator(operator) => self.solve_operator(checker, operator),
-                InferenceObligation::Try(propagation) => self.solve_try(checker, propagation),
+            pending.retain(|obligation| !match obligation {
+                InferenceObligation::Operator(operator) => self.solve_operator(checker, *operator),
+                InferenceObligation::Try(propagation) => self.solve_try(checker, *propagation),
+                InferenceObligation::OmittedEnumConstructor(constructor) => {
+                    self.solve_omitted_enum_constructor(checker, constructor)
+                }
             });
             if pending.len() == before {
                 break;
             }
         }
+    }
+
+    fn solve_omitted_enum_constructor(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        obligation: &OmittedEnumConstructorObligation,
+    ) -> bool {
+        let Some(InferShape::Callable {
+            params: expected_params,
+            return_type,
+        }) = self.expanded_shape(checker, obligation.callable)
+        else {
+            return false;
+        };
+        let known_return = self
+            .resolve(checker, return_type)
+            .and_then(|return_type| checker.enum_global_def_id(return_type));
+        let expected_params = expected_params
+            .into_iter()
+            .map(|param| self.resolve(checker, param))
+            .collect::<Vec<_>>();
+        let enum_ids = if let Some(enum_id) = known_return {
+            vec![enum_id]
+        } else {
+            checker
+                .defs
+                .defs
+                .iter()
+                .filter_map(|(def_id, def)| {
+                    (def.kind == DefKind::Enum).then_some(nia_ids::GlobalDefId {
+                        module_id: def.module_id,
+                        def_id,
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut candidates = Vec::new();
+        for enum_id in enum_ids {
+            let Some(variant_def) = checker
+                .enum_variant_scope(enum_id)
+                .into_iter()
+                .flatten()
+                .find(|(variant_name, _)| variant_name == &obligation.name)
+                .map(|(_, def_id)| def_id)
+            else {
+                continue;
+            };
+            let variant_id = nia_ids::GlobalDefId {
+                module_id: enum_id.module_id,
+                def_id: variant_def,
+            };
+            let Some((_, variant)) = checker.resolved_enum_variant(variant_id) else {
+                continue;
+            };
+            let params = match variant.payload {
+                nia_item_signatures::EnumVariantPayloadSignature::Tuple(params) => params,
+                nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                    fields.into_iter().map(|field| field.ty).collect()
+                }
+                nia_item_signatures::EnumVariantPayloadSignature::Unit => continue,
+            };
+            if params.len() != expected_params.len()
+                || params
+                    .iter()
+                    .zip(&expected_params)
+                    .any(|(actual, expected)| {
+                        expected.is_some_and(|expected| !checker.types_match(*actual, expected))
+                    })
+            {
+                continue;
+            }
+            candidates.push((enum_id, params));
+        }
+        let [(enum_id, params)] = candidates.as_slice() else {
+            return false;
+        };
+        let return_ty = checker.enum_ty(*enum_id);
+        let return_term = self.known(return_ty);
+        let compatible = params
+            .iter()
+            .zip(expected_params)
+            .all(|(actual, expected)| {
+                expected.is_none_or(|expected| {
+                    let expected = self.known(expected);
+                    let actual = self.known(*actual);
+                    self.unify(checker, expected, actual)
+                })
+            });
+        compatible && self.unify(checker, return_type, return_term)
     }
 
     /// Discharge an operator obligation through the canonical trait solver.

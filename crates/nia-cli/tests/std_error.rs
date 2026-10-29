@@ -191,6 +191,83 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_error_map_error_accepts_enum_constructor_views() {
+    let root = temp_dir("emit_exe_std_error_map_error_accepts_enum_constructor_views");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+using std::result;
+
+enum SourceError { Missing }
+enum TargetError { Allocation(SourceError) }
+
+fun source(fail: bool) SourceError!i32 {
+    if fail { SourceError::Missing! } else { !7 }
+}
+
+fun qualified(value: SourceError!i32) TargetError!i32 {
+    let mapped = value.mapError(TargetError::Allocation).?;
+    !mapped
+}
+
+fun omitted(value: SourceError!i32) TargetError!i32 {
+    let mapped = value.mapError(.Allocation).?;
+    !mapped
+}
+
+fun explicit(value: SourceError!i32) TargetError!i32 {
+    let mapped = value.mapError(&TargetError::Allocation).?;
+    !mapped
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    match qualified(source(true)) {
+        TargetError::Allocation(SourceError::Missing)! => {},
+        _ => return process::ExitCode(1)!,
+    }
+    match omitted(source(true)) {
+        TargetError::Allocation(SourceError::Missing)! => {},
+        _ => return process::ExitCode(2)!,
+    }
+    match explicit(source(true)) {
+        TargetError::Allocation(SourceError::Missing)! => {},
+        _ => return process::ExitCode(3)!,
+    }
+    match qualified(source(false)) {
+        !value => {
+            if value != 7 {
+                return process::ExitCode(4)!;
+            }
+        },
+        _ => return process::ExitCode(5)!,
+    }
+    !()
+}
+"#,
+    )
+    .expect("write enum constructor callable source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run enum constructor callable views");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run = Command::new(&exe).status_timeout("run enum constructor callable views");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_error_or_else_recovers_or_replaces_failure() {
     let root = temp_dir("emit_exe_std_error_or_else_recovers_or_replaces_failure");
     let main = root.join("main.nia");

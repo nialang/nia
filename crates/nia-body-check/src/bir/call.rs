@@ -96,9 +96,16 @@ impl<'a> BodyChecker<'a> {
             .enumerate()
             .map(|(index, arg)| {
                 let expected = param_tys.get(index).copied().or_else(|| {
-                    self.node_pointer_array_to_slice_coercions
+                    self.node_expr_adjustments
                         .get(&arg.node_key)
-                        .map(|coercion| coercion.slice_ty)
+                        .and_then(|plan| {
+                            plan.steps.iter().find_map(|step| match step {
+                                nia_sema_ir::ExprAdjustment::PointerArrayToSlice(coercion) => {
+                                    Some(coercion.slice_ty)
+                                }
+                                _ => None,
+                            })
+                        })
                 });
                 let expected = expected.and_then(|ty| self.non_error_ty(ty));
                 self.lower_expr_with_ty(arg, expected)

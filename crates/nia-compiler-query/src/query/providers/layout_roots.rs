@@ -24,19 +24,42 @@ pub(super) fn collect_semantic_layout_roots(
             roots.add(arg.ty);
         }
     }
-    for (_, coercion) in semantic_facts.iter_node_pointer_array_to_slice_coercions() {
-        roots.add(coercion.pointer_ty);
-        roots.add(coercion.array_ty);
-        roots.add(coercion.slice_ty);
-    }
-    for (_, coercion) in semantic_facts.iter_node_trait_object_coercions() {
-        roots.add(coercion.source_ty);
-        roots.add(coercion.target_ty);
-        roots.add(coercion.self_ty);
-    }
-    for (_, upcast) in semantic_facts.iter_node_trait_object_upcasts() {
-        roots.add(upcast.source_ty);
-        roots.add(upcast.target_ty);
+    for (_, plan) in semantic_facts.iter_node_expr_adjustments() {
+        for adjustment in &plan.steps {
+            match adjustment {
+                nia_sema_ir::ExprAdjustment::AddressOf(value) => {
+                    roots.add(value.source_ty);
+                    roots.add(value.target_ty);
+                }
+                nia_sema_ir::ExprAdjustment::ClosureCallableView(value) => {
+                    roots.add(value.source_ty);
+                    roots.add(value.state_ty);
+                    roots.add(value.target_ty);
+                }
+                nia_sema_ir::ExprAdjustment::PointerArrayToSlice(value) => {
+                    roots.add(value.pointer_ty);
+                    roots.add(value.array_ty);
+                    roots.add(value.slice_ty);
+                }
+                nia_sema_ir::ExprAdjustment::MutableToReadonly(value) => {
+                    roots.add(value.source_ty);
+                    roots.add(value.target_ty);
+                }
+                nia_sema_ir::ExprAdjustment::FunctionPointerToCallable(value) => {
+                    roots.add(value.function_ty);
+                    roots.add(value.callable_ty);
+                }
+                nia_sema_ir::ExprAdjustment::TraitObject(value) => {
+                    roots.add(value.source_ty);
+                    roots.add(value.target_ty);
+                    roots.add(value.self_ty);
+                }
+                nia_sema_ir::ExprAdjustment::TraitObjectUpcast(value) => {
+                    roots.add(value.source_ty);
+                    roots.add(value.target_ty);
+                }
+            }
+        }
     }
     for (_, value) in semantic_facts.iter_node_builtin_values() {
         collect_builtin_value_layout_roots(value, roots);

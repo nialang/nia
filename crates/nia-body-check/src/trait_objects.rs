@@ -444,6 +444,19 @@ impl<'a> BodyChecker<'a> {
         ) {
             return None;
         }
+        if self
+            .expr_ty(expr)
+            .is_some_and(|actual| self.types_match(actual, actual_receiver_ty))
+        {
+            self.record_address_of_coercion(
+                expr,
+                nia_sema_ir::AddressOfCoercion {
+                    source_ty: actual_receiver_ty,
+                    target_ty: source_ty,
+                    is_readonly: actual_const,
+                },
+            );
+        }
         self.record_trait_object_node_coercion(
             expr,
             TraitObjectCoercion {
