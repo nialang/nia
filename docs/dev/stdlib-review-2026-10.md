@@ -342,6 +342,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all four `std_mem_allocator_core` tests and all 14 `std_mem_allocators` tests pass.
 - Status: completed.
 
+### H32 - Compose large-allocation header sizing through checked Option results
+
+- Files: `lib/std/mem/general_purpose_allocator.nia`
+- Evidence: the large-allocation path expanded the header-plus-alignment and total backing-size checks into matches whose only failure action was `Error::OutOfMemory`. The later address checks intentionally retain explicit matches because a failed alignment calculation must first retain the unpublished backing block for retry.
+- Result: use `okOr(Error::OutOfMemory).?` for the pure sizing steps while preserving the rollback-aware address validation and owner retention path.
+- Validation: all 14 `std_mem_allocators` tests pass, including small and large allocations, over-aligned reallocations, wrapped-header rejection, invalid free/resize, and owner-class cleanup retries.
+- Status: completed as a focused general-purpose allocator cleanup; the remaining provider review stays queued.
+
 ### Memory allocator contract review
 
 - Reviewed `lib/std/mem/allocator.nia` and `lib/std/mem/page_allocator.nia`. The allocator trait keeps remapping separate from allocation and preserves each block's release range through logical layout changes. `realloc` makes the old-free/replacement-free rollback state explicit and does not hide either owner after a failed cleanup.
