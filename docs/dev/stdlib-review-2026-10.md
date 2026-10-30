@@ -254,6 +254,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - The existing array-list executable suites cover growth, aliasing, shrink/replace rollback, zero-sized elements, owned-slice transfer, cleanup retries, and allocator integration. No compiler or standard-library correctness defect was confirmed in this review.
 - Status: review complete; no source change required.
 
+### H21 - Use optional predicates for presence-only branches
+
+- Files: `lib/std/collections/tree_map.nia`, `lib/std/build/probes.nia`
+- Evidence: `TreeMap::containsKey` and build-environment probe encoding converted an optional value to a boolean with a two-arm `if` that carried no branch-specific work.
+- Result: use `Option::isPresent()` directly. The change preserves the distinction between presence and payload extraction while making the intent visible and keeping the option provider explicit at both call sites.
+- Validation: all three `std_tree_map` tests and all nine `std_build_probes` tests pass.
+- Status: completed.
+
 ## File checklist
 
 ### `build`
