@@ -246,6 +246,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: the hash-set executable regression now creates a custom-context `HashSetWithContext`, iterates it through the public `Iterable` contract, and verifies both elements. Existing hash-set and tree-map/tree-set executable tests pass.
 - Status: completed in the current std collections batch.
 
+### Collections array-list review
+
+- Reviewed `lib/std/collections/array_list.nia` and its `list`, `raw`, and `format` providers. The split follows actual ownership boundaries: the facade exports the list type, `list.nia` owns allocation and mutation, `raw.nia` contains the two pointer-to-slice primitives, and `format.nia` supplies the optional formatting capability.
+- Keep the explicit allocator and cleanup state in `list.nia`. `storageBlock`, `replacementBlock`, and `aliasBlock` represent distinct owners needed for retryable failure paths; collapsing them into capacity-derived state would reintroduce the ownership defects already covered by the fault-injection tests.
+- Keep the checked arithmetic and trap matches in assume-capacity helpers. Their contracts are infallible only after the caller has established capacity, so the match makes impossible overflow and capacity violations trap at the unsafe boundary rather than silently changing the list state.
+- The existing array-list executable suites cover growth, aliasing, shrink/replace rollback, zero-sized elements, owned-slice transfer, cleanup retries, and allocator integration. No compiler or standard-library correctness defect was confirmed in this review.
+- Status: review complete; no source change required.
+
 ## File checklist
 
 ### `build`
@@ -295,7 +303,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `collections`
 
-- [ ] `lib/std/collections/array_list.nia`
+- [x] `lib/std/collections/array_list.nia`
 - [ ] `lib/std/collections/hash_map.nia`
 - [x] `lib/std/collections/hash_set.nia`
 - [ ] `lib/std/collections/tree_map.nia`
@@ -303,9 +311,9 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `collections/array_list`
 
-- [ ] `lib/std/collections/array_list/format.nia`
-- [ ] `lib/std/collections/array_list/list.nia`
-- [ ] `lib/std/collections/array_list/raw.nia`
+- [x] `lib/std/collections/array_list/format.nia`
+- [x] `lib/std/collections/array_list/list.nia`
+- [x] `lib/std/collections/array_list/raw.nia`
 
 ### `collections/hash_map`
 
