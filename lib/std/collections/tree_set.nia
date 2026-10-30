@@ -1,6 +1,7 @@
 using root::collections::tree_map;
 using root::mem;
 using root::iter;
+using root::option;
 
 pub struct TreeSet[K]
 where K: Sized + Ord[K]
@@ -41,11 +42,12 @@ where K: Sized + Ord[K]
     pub fun contains(&self, key: &K) bool { self.map.containsKey(key) }
 
     pub fun insert(&mut self, allocator: &mut mem::Allocator, key: K) mem::Error!bool {
-        if self.map.insert(allocator, key, 0u8).? is ?_ { !false } else { !true }
+        let replaced = self.map.insert(allocator, key, 0u8).?;
+        !replaced.isNull()
     }
 
     pub fun remove(&mut self, key: &K) bool {
-        if self.map.remove(key) is ?_ { true } else { false }
+        self.map.remove(key).isPresent()
     }
 
     pub fun lowerBound(&self, key: &K) usize { self.map.lowerBound(key) }

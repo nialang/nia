@@ -28,7 +28,7 @@ using root::collections::tree_map;
 using root::collections::tree_set;
 
 pub using array_list::ArrayList;
-pub using hash_set::{HashSet, HashSetIter, HashSetWithContext};
+pub using hash_set::{HashSet, HashSetIter, HashSetIterWithContext, HashSetWithContext};
 pub using tree_map::{TreeMap, TreeMapEntry, TreeMapEntryMut, TreeMapEntryRef, TreeMapIter, TreeMapIterMut};
 pub using tree_set::{TreeSet, TreeSetIter};
 pub using hash_map::{

@@ -17,6 +17,21 @@ using std::collections;
 using std::mem;
 using std::process;
 
+struct ConstantContext {}
+
+extend ConstantContext : collections::HashMapContext[i32] {
+    fun hash(&self, seed: u64, key: &i32) u64 {
+        _ = self;
+        _ = seed;
+        key.* as u64
+    }
+
+    fun eql(&self, left: &i32, right: &i32) bool {
+        _ = self;
+        left.* == right.*
+    }
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut allocator = mem::PageAllocator::init();
@@ -56,6 +71,21 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if count != 2 or set.len() != 3 {
         return process::ExitCode(5)!;
     }
+
+    let mut custom = collections::HashSetWithContext[i32, ConstantContext]::initContext(.{});
+    _ = custom.insert(&mut allocator, 21).?;
+    _ = custom.insert(&mut allocator, 34).?;
+    let mut customCount = 0;
+    for value in custom.iter() {
+        if value.* == 21 or value.* == 34 {
+            customCount += 1;
+        }
+    }
+    if customCount != 2 {
+        return process::ExitCode(8)!;
+    }
+    custom.deinit(&mut allocator).?;
+
     set.clear();
     if not set.isEmpty() or set.len() != 0 {
         return process::ExitCode(6)!;

@@ -17,7 +17,9 @@ where K: Sized, C: hash_map::HashMapContext[K]
 
 pub type HashSet[K] = HashSetWithContext[K, hash_map::DefaultHashMapContext];
 
-pub type HashSetIter[K] = hash_map::HashMapKeys[K, u8];
+pub type HashSetIterWithContext[K, C] = hash_map::HashMapKeysWithContext[K, u8, C];
+
+pub type HashSetIter[K] = HashSetIterWithContext[K, hash_map::DefaultHashMapContext];
 
 extend[K] HashSetWithContext[K, hash_map::DefaultHashMapContext]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash]
@@ -95,27 +97,17 @@ where K: Sized, C: hash_map::HashMapContext[K]
         allocator: &mut mem::Allocator,
         key: K,
     ) mem::Error!bool {
-        if self.map.insert(allocator, key, 0u8).? is ?_ {
-            !false
-        } else {
-            !true
-        }
+        let replaced = self.map.insert(allocator, key, 0u8).?;
+        !replaced.isNull()
     }
 
     pub fun insertAssumeCapacity(&mut self, key: K) bool {
-        if self.map.insertAssumeCapacity(key, 0u8) is ?_ {
-            false
-        } else {
-            true
-        }
+        let replaced = self.map.insertAssumeCapacity(key, 0u8);
+        replaced.isNull()
     }
 
     pub fun remove(&mut self, key: &K) bool {
-        if self.map.remove(key) is ?_ {
-            true
-        } else {
-            false
-        }
+        self.map.remove(key).isPresent()
     }
 
     pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
@@ -132,9 +124,9 @@ extend[K, C] HashSetWithContext[K, C] : Iterable
 where K: Sized, C: hash_map::HashMapContext[K]
 {
     type Item = &K;
-    type Iter = hash_map::HashMapKeysWithContext[K, u8, C];
+    type Iter = HashSetIterWithContext[K, C];
 
-    pub fun iter(&self) hash_map::HashMapKeysWithContext[K, u8, C] {
+    pub fun iter(&self) HashSetIterWithContext[K, C] {
         self.map.keys()
     }
 }
