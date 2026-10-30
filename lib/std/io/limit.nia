@@ -70,9 +70,7 @@ where R: Reader
             if n > count {
                 return self.invalidRead()!;
             }
-            if self.limit.remaining is ?current {
-                self.limit = .limited(current - n);
-            }
+            self.limit = .limited(remaining - n);
             return !n;
         }
 
