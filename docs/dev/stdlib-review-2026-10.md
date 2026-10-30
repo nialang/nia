@@ -342,6 +342,13 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all four `std_mem_allocator_core` tests and all 14 `std_mem_allocators` tests pass.
 - Status: completed.
 
+### Memory allocator contract review
+
+- Reviewed `lib/std/mem/allocator.nia` and `lib/std/mem/page_allocator.nia`. The allocator trait keeps remapping separate from allocation and preserves each block's release range through logical layout changes. `realloc` makes the old-free/replacement-free rollback state explicit and does not hide either owner after a failed cleanup.
+- `SliceAllocation` is the typed owner boundary for allocated slices; its borrowed views never reconstruct ownership, and `deinit` resets the owner only after the exact block is released. `PageAllocator` follows the same empty-block and release-range rules while mapping only the OS errors that belong to the memory facade.
+- No arithmetic, ownership, compiler, or provider-loading defect was confirmed. No source change was required in this review.
+- Status: review complete.
+
 ### Memory layout and ownership boundary review
 
 - Reviewed `lib/std/mem/allocation.nia`, `lib/std/mem/error.nia`, `lib/std/mem/layout.nia`, and `lib/std/mem/types.nia`. `LayoutBuilder` is already the single checked composition boundary: `checkedAppend` computes alignment and size before mutating the builder, and failed appends leave it unchanged.
@@ -491,13 +498,13 @@ This is a source survey, not evidence that production workloads exercise overflo
 ### `mem`
 
 - [x] `lib/std/mem/allocation.nia`
-- [ ] `lib/std/mem/allocator.nia`
+- [x] `lib/std/mem/allocator.nia`
 - [x] `lib/std/mem/arena_allocator.nia`
 - [x] `lib/std/mem/error.nia`
 - [x] `lib/std/mem/fixed_buffer_allocator.nia`
 - [ ] `lib/std/mem/general_purpose_allocator.nia`
 - [x] `lib/std/mem/layout.nia`
-- [ ] `lib/std/mem/page_allocator.nia`
+- [x] `lib/std/mem/page_allocator.nia`
 - [ ] `lib/std/mem/pool_allocator.nia`
 - [x] `lib/std/mem/types.nia`
 
