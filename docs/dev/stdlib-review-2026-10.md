@@ -146,6 +146,13 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: build ownership and target-isolation integration tests pass; the atomic executable test confirms the compare-exchange optional-result contract. No compiler change was needed.
 - Status: review complete.
 
+### Build record cleanup review conclusions
+
+- Seven typed cleanup functions duplicated the same reverse-order traversal and the invariant that list storage is released only after every element succeeds. Replaced them with one `releaseRecords` algorithm parameterized by an internal `OwnedBuildRecord` capability; each record type keeps its own deinitializer and target-specific error context.
+- Kept the collection subject as an explicit argument so collection-release failures retain their precise diagnostics. The generic element bound explicitly includes `Sized`, which is required by `ArrayList[T]`; the compiler diagnostic identified the missing contract, not a compiler defect.
+- Failure-injection ownership, build-target, all 20 build-case, and all six test-step tests pass. Formatting and repository audits pass.
+- Status: review complete.
+
 ### Review conclusions
 
 - The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
@@ -168,6 +175,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/lifecycle.nia`
 - [x] `lib/std/build/modules.nia`
 - [x] `lib/std/build/ownership.nia`
+- [x] `lib/std/build/records_cleanup.nia`
 - [x] `lib/std/build/paths.nia`
 - [ ] `lib/std/build/plan.nia`
 - [ ] `lib/std/build/probes.nia`

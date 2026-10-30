@@ -13,15 +13,7 @@ using root::build::error;
 using root::build::artifacts;
 using root::build::handles;
 using root::build::ownership::allocateBuildOwnerId;
-using root::build::records_cleanup::{
-    releaseExecutables,
-    releaseModules,
-    releaseObjects,
-    releasePackages,
-    releaseStaticArchives,
-    releaseSteps,
-    releaseTargets,
-};
+using root::build::records_cleanup::releaseRecords;
 using root::build::step_registration;
 using root::build::steps;
 using root::build::types;
@@ -204,14 +196,14 @@ extend Build {
         cleanup.attempt(self.cleanupPendingStaticArchive());
         cleanup.attempt(self.cleanupPendingExecutable());
         cleanup.attempt(self.cleanupPendingStep());
-        cleanup.attempt(releaseSteps(self.allocator, &mut self.steps));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.steps, Subject::Steps));
         cleanup.attempt(self.dependencies.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        cleanup.attempt(releasePackages(self.allocator, &mut self.packages));
-        cleanup.attempt(releaseExecutables(self.allocator, &mut self.executables));
-        cleanup.attempt(releaseObjects(self.allocator, &mut self.objects));
-        cleanup.attempt(releaseStaticArchives(self.allocator, &mut self.staticArchives));
-        cleanup.attempt(releaseModules(self.allocator, &mut self.modules));
-        cleanup.attempt(releaseTargets(self.allocator, &mut self.targets));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.packages, Subject::Packages));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.executables, Subject::Executables));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.objects, Subject::Objects));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.staticArchives, Subject::StaticArchives));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.modules, Subject::Modules));
+        cleanup.attempt(releaseRecords(self.allocator, &mut self.targets, Subject::Targets));
         cleanup.attempt(self.requestedStep.deinit(self.allocator).withBuildContext(
             Operation::Release,
             Subject::RequestedStep,

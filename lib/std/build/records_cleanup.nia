@@ -2,10 +2,11 @@
 //
 // A list is deinitialized only after every element released successfully. If
 // one element fails, the list remains attached so a later cleanup attempt can
-// reach the residual owner. Each helper still attempts every element and
-// returns the first cleanup error, matching Build's aggregate policy.
+// reach the residual owner. The shared helper still attempts every element
+// and returns the first cleanup error, matching Build's aggregate policy.
 
 using root::collections;
+using root::builtin::Sized;
 using root::mem;
 using root::error::CleanupAccumulator;
 using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
@@ -19,114 +20,72 @@ using root::build::types::{
     TargetStorage,
 };
 
-pub(root) fun releaseSteps(
-    allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[Step],
-) Error!() {
-    let mut cleanup: CleanupAccumulator[Error] = .init();
-    let mut index = records.len();
-    while index != 0 {
-        index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
-    }
-    if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Steps));
-    }
-    cleanup.finish()
+pub(root) trait OwnedBuildRecord {
+    fun deinitOwned(
+        &mut self,
+        allocator: &mut mem::Allocator,
+    ) Error!();
 }
 
-pub(root) fun releasePackages(
-    allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[Package],
-) Error!() {
-    let mut cleanup: CleanupAccumulator[Error] = .init();
-    let mut index = records.len();
-    while index != 0 {
-        index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
+extend Step : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator)
     }
-    if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Packages));
-    }
-    cleanup.finish()
 }
 
-pub(root) fun releaseExecutables(
-    allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[ExecutableTarget],
-) Error!() {
-    let mut cleanup: CleanupAccumulator[Error] = .init();
-    let mut index = records.len();
-    while index != 0 {
-        index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
+extend Package : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator)
     }
-    if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Executables));
-    }
-    cleanup.finish()
 }
 
-pub(root) fun releaseObjects(
-    allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[ObjectTarget],
-) Error!() {
-    let mut cleanup: CleanupAccumulator[Error] = .init();
-    let mut index = records.len();
-    while index != 0 {
-        index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
+extend ExecutableTarget : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator)
     }
-    if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Objects));
-    }
-    cleanup.finish()
 }
 
-pub(root) fun releaseStaticArchives(
-    allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[StaticArchiveTarget],
-) Error!() {
-    let mut cleanup: CleanupAccumulator[Error] = .init();
-    let mut index = records.len();
-    while index != 0 {
-        index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
+extend ObjectTarget : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator)
     }
-    if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::StaticArchives));
-    }
-    cleanup.finish()
 }
 
-pub(root) fun releaseModules(
-    allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[Module],
-) Error!() {
-    let mut cleanup: CleanupAccumulator[Error] = .init();
-    let mut index = records.len();
-    while index != 0 {
-        index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
+extend StaticArchiveTarget : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator)
     }
-    if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Modules));
-    }
-    cleanup.finish()
 }
 
-pub(root) fun releaseTargets(
+extend Module : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator)
+    }
+}
+
+extend TargetStorage : OwnedBuildRecord {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+        self.deinit(allocator, Subject::Targets)
+    }
+}
+
+// Reverse release keeps parent storage alive until every record is clean. If
+// one field fails to release, the caller can retry against the same list.
+pub(root) fun releaseRecords[T](
     allocator: &mut mem::Allocator,
-    records: &mut collections::ArrayList[TargetStorage],
-) Error!() {
+    records: &mut collections::ArrayList[T],
+    subject: Subject,
+) Error!()
+where T: Sized + OwnedBuildRecord
+{
     let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinit(allocator, Subject::Targets));
+        cleanup.attempt(records.asMutSlice()[index].deinitOwned(allocator));
     }
     if cleanup.isClean() {
-        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Targets));
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, subject));
     }
     cleanup.finish()
 }
