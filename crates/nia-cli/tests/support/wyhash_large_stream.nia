@@ -1,0 +1,52 @@
+// Manual runtime regression; reference generation is documented in
+// docs/dev/wyhash-runtime-validation.md.
+using std::hash;
+using std::process;
+using std::io;
+using std::builtin;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut data: [u8; 65536] = [0; 65536];
+    for index in 0..data.len() {
+        let j = index as u64;
+        data[index] = ((j * j + 17 * j + (j >> 8)) ^ 0xa5) as u8;
+    }
+    let offsets: [i32; 15] = [-49, -48, -17, -16, -1, 0, 1, 15, 16, 17, 47, 48, 49, 65, 65537];
+    let expected: [u64; 15] = [
+        7834977721392187978, 16362618541956799062, 7535049391559130419,
+        10645362085841499217, 11024905888264751097, 8441974071370843655,
+        8157748985417731844, 15873183753767182491, 16797347420238650290,
+        9472718320268385701, 9937978572515941641, 46142124001654139,
+        8133260129401543944, 15651466669452651576, 10154811334751508130,
+    ];
+    let chunks: [usize; 8] = [1, 7, 47, 48, 49, 4093, 65521, 65536];
+    for mode in 0..2usize {
+        let mut hasher = hash::Wyhash::init(9);
+        let mut fed = 0u64;
+        let mut chunkIndex = 0usize;
+        for checkpoint in 0..offsets.len() {
+            let length = (0x100000000i64 + offsets[checkpoint] as i64) as u64;
+            while fed < length {
+                let offset = (fed % 65536) as usize;
+                let requested = if mode == 0 { 65536usize } else { chunks[chunkIndex] };
+                let available = data.len() - offset;
+                let remaining = length - fed;
+                let mut amount = if requested < available { requested } else { available };
+                if remaining < amount as u64 { amount = remaining as usize; }
+                hasher.update(&data[offset..offset + amount]);
+                fed += amount as u64;
+                chunkIndex = (chunkIndex + 1) % chunks.len();
+            }
+            hasher.update(&data[0..0]);
+            if hasher.finish() != expected[checkpoint] or hasher.finish() != expected[checkpoint] {
+                _ = io::debugPrint("FAIL width={} mode={} length={} actual={} expected={}\n",
+                    [builtin::target::pointerWidth, mode, fed, hasher.finish(), expected[checkpoint]]);
+                return process::ExitCode(1)!;
+            }
+        }
+        _ = io::debugPrint("PASS width={} mode={} bytes={} checkpoints={}\n",
+            [builtin::target::pointerWidth, mode, fed, offsets.len()]);
+    }
+    !()
+}

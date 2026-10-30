@@ -313,6 +313,29 @@ pub fun main(init: process::Init) process::ExitCode!() {{
 }
 
 #[test]
+#[ignore = "hashes more than 8 GiB; run explicitly for streaming-length validation"]
+fn emit_exe_std_wyhash_real_stream_crosses_4gib() {
+    let root = temp_dir("emit_exe_std_wyhash_real_stream_crosses_4gib");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&main, include_str!("support/wyhash_large_stream.nia"))
+        .expect("write real-stream test source");
+    let output = support::nia_command()
+        .args(["-O2", "emit", "--exe"])
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit wyhash real-stream test");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run wyhash real-stream test");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_hash_map_initialization_is_ergonomic_and_typed() {
     let root = temp_dir("emit_exe_std_hash_map_initialization_is_ergonomic_and_typed");
     let main = root.join("main.nia");
