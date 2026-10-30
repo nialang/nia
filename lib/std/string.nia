@@ -13,6 +13,7 @@ using root::fmt;
 using root::io;
 using root::iter;
 using root::mem;
+using root::option;
 using root::result;
 using root::slice;
 using root::unicode;
@@ -80,10 +81,7 @@ extend String {
 
     pub fun appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
         let oldLen = self.len();
-        let newLen = match oldLen.checkedAdd(view.scalarCount()) {
-            ?value => value,
-            null => return .OutOfMemory!,
-        };
+        let newLen = oldLen.checkedAdd(view.scalarCount()).okOr(mem::Error::OutOfMemory).?;
         self.text.ensureTotalCapacity(allocator, newLen).?;
         for scalar in view {
             self.text.appendAssumeCapacity(scalar);
@@ -235,15 +233,10 @@ extend [&[char]] {
         separator: &[char],
     ) mem::Error!String {
         let separatorCount = if self.isEmpty() { 0 } else { self.len() - 1 };
-        let mut outputLen = match separator.len().checkedMul(separatorCount) {
-            ?value => value,
-            null => return .OutOfMemory!,
-        };
+        let mut outputLen = separator.len().checkedMul(separatorCount)
+            .okOr(mem::Error::OutOfMemory).?;
         for &part in self {
-            outputLen = match outputLen.checkedAdd(part.len()) {
-                ?value => value,
-                null => return .OutOfMemory!,
-            };
+            outputLen = outputLen.checkedAdd(part.len()).okOr(mem::Error::OutOfMemory).?;
         }
 
         let mut out = String::initCapacity(allocator, outputLen).?;
@@ -264,18 +257,10 @@ fun replaceAllText(
     replacement: &[char],
 ) mem::Error!String {
     let matchCount = source.split(needle).count() - 1;
-    let removed = match needle.len().checkedMul(matchCount) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let added = match replacement.len().checkedMul(matchCount) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
-    let outputLen = match (source.len() - removed).checkedAdd(added) {
-        ?value => value,
-        null => return .OutOfMemory!,
-    };
+    let removed = needle.len().checkedMul(matchCount).okOr(mem::Error::OutOfMemory).?;
+    let added = replacement.len().checkedMul(matchCount).okOr(mem::Error::OutOfMemory).?;
+    let outputLen = (source.len() - removed).checkedAdd(added)
+        .okOr(mem::Error::OutOfMemory).?;
 
     let mut out = String::initCapacity(allocator, outputLen).?;
     let mut firstPart = true;

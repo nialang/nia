@@ -3,6 +3,7 @@ using root::builtin;
 using root::fmt;
 using root::math;
 using root::mem;
+using root::option;
 using root::parse;
 using root::slice;
 
@@ -45,10 +46,7 @@ extend CString {
                 return .ContainsNul!;
             }
         }
-        let capacity = match bytes.len().checkedAdd(1) {
-            ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
-        };
+        let capacity = bytes.len().checkedAdd(1).okOr(mem::Error::OutOfMemory).?;
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         output.appendSliceAssumeCapacity(bytes);
         output.appendAssumeCapacity(0);
@@ -65,15 +63,10 @@ extend CString {
             if ch.codepoint() == 0 {
                 return .ContainsNul!;
             }
-            byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
-                ?value => value,
-                null => return .Allocation(.OutOfMemory)!,
-            };
+            byteLen = byteLen.checkedAdd(ch.encodeUtf8().byteLen())
+                .okOr(mem::Error::OutOfMemory).?;
         }
-        let capacity = match byteLen.checkedAdd(1) {
-            ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
-        };
+        let capacity = byteLen.checkedAdd(1).okOr(mem::Error::OutOfMemory).?;
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         for &ch in text {
             output.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
