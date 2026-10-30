@@ -2,6 +2,7 @@ using root::os::windows::types::{
     maxPathBytes,
     Errno,
 };
+using root::option;
 using root::os::windows::encoding::{
     cStringLen,
     utf8ToWide,
@@ -89,12 +90,12 @@ extend EnvironmentBlock {
         let mut entry = envp;
         if envp != 0usize as &&u8 {
             while entry.* != 0usize as &u8 {
-                let bytes = match cStringLen(entry.*).checkedAdd(1) { ?value => value, null => return .TooLong! };
-                capacity = match capacity.checkedAdd(bytes) { ?value => value, null => return .TooLong! };
+                let bytes = cStringLen(entry.*).checkedAdd(1).okOr(Errno::TooLong).?;
+                capacity = capacity.checkedAdd(bytes).okOr(Errno::TooLong).?;
                 entry = ((entry as usize) + pointerSize) as &&u8;
             }
         }
-        let size = match capacity.checkedMul(root::builtin::size[u16]()) { ?value => value, null => return .TooLong! };
+        let size = capacity.checkedMul(root::builtin::size[u16]()).okOr(Errno::TooLong).?;
         let pages = mapPages(size, root::builtin::align[u16]()).?;
         let mut block: EnvironmentBlock = .{ pages };
         if block.fill(envp, capacity) is error! {
