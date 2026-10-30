@@ -202,6 +202,23 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Keep index-based loops where an index is the algorithm's word, lane, or serialization position; replace only cases where iteration expresses intent more directly.
 - Checked widening and narrowing in hash arithmetic are necessary under Nia's trapping integer semantics and remain explicit reference code.
 
+### H17 ? Resolve foreign Sized facts independently of local layout roots
+
+- Trigger: `nia-driver::tests::builtin_traits::len_needs_no_import` failed even on the earlier `468212d8d` baseline. That comparison established provenance, not a resolution.
+- Root cause: trait solving treated the current module's layout roots as a complete account of sized types. Types reached only through another module's slice/pointer fields need not have a local layout root. This falsely rejected `Sized` prerequisites, removed entire `ArrayList` method groups from selection, and cascaded into unrelated std diagnostics.
+- Result: the shared solver context now accepts the existing lazy module-layout provider. When local evidence is absent, nominal sizedness queries the defining module using the complete type and const argument identity. Body constraints, associated type/const projection, and trait-object coercion all supply this capability. Const evaluation supplies its existing layout producer through the same solver input, including nested `Sized` prerequisites during associated-item resolution. Layout computation still owns representation validity; no nominal declaration is presumed sized and no std import or bound is added to hide the error.
+- Validation: the original test passes. A separate two-module regression covers direct bounds, nested impl prerequisites, associated type/const projection and trait objects in all-module and entry analysis and code generation (the associated constant is evaluated in a const declaration). A temporary Windows x64 executable checks the combined result at `-O0` and `-O2`. Solver tests cover owner-only queries, both solver constructors, const instance identity, open/missing instances, local ID collisions, and unsized pointees.
+- Status: completed in `2437ce0bf`; validation and independent baseline failures are recorded in [Sized/provider validation](sized-provider-validation.md).
+
+### H18 ? Dispatch generic intrinsic calls after resolving the signature
+
+- Trigger: the H17 code-generation regression exposed a second error when `std::builtin::size` was imported under a bare name: the call checked successfully but produced an error expression during function lowering.
+- Root cause: early generic-call paths for bare identifiers and existing function references instantiated the signature as an ordinary function. Only later syntax-specific branches recognized builtin attributes, so intrinsic value facts were missing.
+- Result: builtin dispatch now lives at the common instantiated-signature call entry. The redundant later branch checks are removed, and a focused code-generation regression uses renamed `size` and `align` imports inside a generic function.
+- Status: completed in `7a2ac4032`; covered by the H17 executable probe as well as the dedicated regression.
+
+Independent issue observed while expanding H17: a raw runtime expression such as `[Payload as Project]::Tag` is accepted by semantic checking but has no associated-const projection representation in Body IR. A const declaration using the same projection evaluates correctly. Completing the raw runtime form requires preserving the projection through generic instantiation; eagerly evaluating only concrete projections would leave a second incomplete path. This is separate from missing layout evidence and is not claimed fixed by H17/H18.
+
 ## File checklist
 
 ### `build`
