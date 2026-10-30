@@ -482,22 +482,8 @@ extend GeneralPurposeAllocator {
 
     fun allocLarge(&mut self, layout: Layout) Error!Block {
         let headerSize = root::builtin::size[LargeHeader]();
-        let withHeader = match headerSize.checkedAdd(layout.align()) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
-        let totalSize = match withHeader.checkedAdd(layout.size()) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let withHeader = headerSize.checkedAdd(layout.align()).okOr(Error::OutOfMemory).?;
+        let totalSize = withHeader.checkedAdd(layout.size()).okOr(Error::OutOfMemory).?;
         let blockAlign = cmp::max(root::builtin::align[LargeHeader](), layout.align());
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
