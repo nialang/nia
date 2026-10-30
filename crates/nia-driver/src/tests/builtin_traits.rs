@@ -1553,3 +1553,20 @@ fun main() i32 { 0 }
         program.diagnostics
     );
 }
+
+#[test]
+fn imported_layout_intrinsics_use_common_generic_call_checking() {
+    let root = temp_dir("imported_layout_intrinsics_use_common_generic_call_checking");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::builtin::{size as bytes, align as alignment};
+fun measure[T]() usize where T: Sized {
+    bytes[T]() + alignment[T]()
+}
+fun main() usize { measure[i32]() }
+"#,
+    );
+    let generated = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&generated.diagnostics);
+}

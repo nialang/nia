@@ -603,19 +603,6 @@ impl<'a> BodyChecker<'a> {
                 bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
-            if let Some(builtin) = builtin_function(&resolved.signature) {
-                return self.check_builtin_function_call(
-                    expr.span,
-                    bracket_expr.span,
-                    expr,
-                    builtin,
-                    Some(resolved.signature.return_type),
-                    BuiltinCallArguments {
-                        type_args: BuiltinCallTypeArgs::Bracket(type_args),
-                        args,
-                    },
-                );
-            }
             return self.check_instantiated_function_call(
                 expr,
                 resolved.def_id,
@@ -630,19 +617,6 @@ impl<'a> BodyChecker<'a> {
                 bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
-            if let Some(builtin) = builtin_function(&resolved.signature) {
-                return self.check_builtin_function_call(
-                    expr.span,
-                    bracket_expr.span,
-                    expr,
-                    builtin,
-                    Some(resolved.signature.return_type),
-                    BuiltinCallArguments {
-                        type_args: BuiltinCallTypeArgs::Bracket(type_args),
-                        args,
-                    },
-                );
-            }
             return self.check_instantiated_function_call(
                 expr,
                 resolved.def_id,
@@ -1028,6 +1002,19 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        if let Some(builtin) = builtin_function(signature) {
+            return self.check_builtin_function_call(
+                expr.span,
+                Self::call_callee_span(expr),
+                expr,
+                builtin,
+                Some(signature.return_type),
+                BuiltinCallArguments {
+                    type_args: BuiltinCallTypeArgs::Bracket(type_args),
+                    args,
+                },
+            );
+        }
         let span = expr.span;
         let Some(lowered_args) = self.lower_call_bracket_args_for_generic_params(
             span,
