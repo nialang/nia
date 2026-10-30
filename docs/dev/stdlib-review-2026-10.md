@@ -94,7 +94,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 - Files: `lib/std/build/core.nia`, `lib/std/build/artifacts.nia`
 - Evidence: `core.nia` combined package and module declarations, all step constructors, executable/object/archive registration, target lookup, and complete-graph validation. Artifact registration is a cohesive state transition from borrowed options to pending owned records and uses validation/query providers already separated from `Build` mutation.
-- Result: moved target lookup and executable/object/static-archive registration, including pending-record cleanup, into `artifacts.nia`. `core.nia` retains package/module/step orchestration and dependency-graph validation; the public facade imports both providers, and lifecycle cleanup imports the artifact provider explicitly.
+- Result: moved target views and lookup plus executable/object/static-archive registration, including pending-record cleanup, into `artifacts.nia`. `core.nia` retains package/module declarations, manifest orchestration, and dependency-graph validation; step APIs live in `step_registration.nia`.
 - Validation: build-target, ownership rollback, build-case, and command-cache integration tests pass; no compiler defect or behavior change was found.
 - Status: completed.
 

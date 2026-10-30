@@ -41,6 +41,16 @@ using types::{
 };
 
 extend Build {
+    // The host target runs tools during this build; the artifact target is the
+    // invocation-selected default for emitted products.
+    pub fun hostTarget(&self) TargetView {
+        self.targets.asSlice()[self.hostTarget].view()
+    }
+
+    pub fun artifactTarget(&self) TargetView {
+        self.targets.asSlice()[self.artifactTarget].view()
+    }
+
     pub fun target(&self, name: &[char]) Error!TargetView {
         if self.findTarget(name) is ?index {
             return !self.targets.asSlice()[index].view();
