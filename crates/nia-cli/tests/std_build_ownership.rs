@@ -1017,6 +1017,48 @@ fun checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!
     !()
 }
 
+fun checkArtifactOptionCleanupRetry(kind: usize, failCount: usize) process::ExitCode!() {
+    let mut allocator = FaultAllocator::init();
+    let emptyPath = fs::PathView::init(&"");
+    let target = testTarget(&"");
+    let mut initialization = build::Build::init(
+        &mut allocator, emptyPath, emptyPath, emptyPath, emptyPath, emptyPath,
+        &[target], 0usize, 0usize, build::OptimizationMode::O0, 1u32, null, false,
+    );
+    let mut api = initialization.finish().?;
+    let moduleHandle = api.addModule(
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia")),
+    ).?;
+    let defines = [build::ArtifactDefine::init(&"FIRST"), build::ArtifactDefine::init(&"SECOND")];
+    let libraries = [
+        build::SystemLibrary::init(&"first", build::SystemLibraryMode::Default),
+        build::SystemLibrary::init(&"second", build::SystemLibraryMode::Default),
+    ];
+    if kind == 0 {
+        _ = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)
+            .withLinkage(build::Linkage::Static).withDebugInfo(build::DebugInfo::None)
+            .withPanicStrategy(build::PanicStrategy::Abort).withLto(build::LtoMode::Off)
+            .withDefines(&defines[..]).withSystemLibraries(&libraries[..])).?;
+    } else if kind == 1 {
+        _ = api.addObject(build::ObjectOptions::init(&"app", moduleHandle)
+            .withDefines(&defines[..]).withSystemLibraries(&libraries[..])).?;
+    } else {
+        _ = api.addStaticArchive(build::StaticArchiveOptions::init(&"app", moduleHandle)
+            .withDefines(&defines[..]).withSystemLibraries(&libraries[..])).?;
+    }
+    allocator.failNextRetainedFrees(failCount);
+    if api.deinit() is !success {
+        _ = success;
+        return process::ExitCode(60)!;
+    }
+    // Retry must still reach every failed string through both containing lists.
+    api.deinit().?;
+    if allocator.activeAllocations != 0 {
+        return process::ExitCode(61)!;
+    }
+    !()
+}
+
 fun checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
@@ -1094,6 +1136,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
     checkPendingExternalEnvironment(init).?;
     checkArgAssemblyRollback(init).?;
     checkCleanupRetryRetainsNestedOwners(init).?;
+    for kind in 0usize..3usize {
+        for count in 1usize..5usize {
+            checkArtifactOptionCleanupRetry(kind, count).?;
+        }
+    }
     checkValidationScratchCleanupRetry(init).?;
     !()
 }

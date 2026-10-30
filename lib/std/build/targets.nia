@@ -7,6 +7,7 @@ using root::mem;
 using root::string;
 using root::error::CleanupAccumulator;
 using root::build::error;
+using root::build::records_cleanup::releaseOwnedValues;
 using root::build::types;
 
 using error::Error;
@@ -99,18 +100,8 @@ extend ExecutableTarget {
 
     pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
-        let mut libraries = self.systemLibraries.len();
-        while libraries != 0 {
-            libraries -= 1;
-            cleanup.attempt(self.systemLibraries.asMutSlice()[libraries].name.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
-        }
-        cleanup.attempt(self.systemLibraries.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
-        let mut defines = self.defines.len();
-        while defines != 0 {
-            defines -= 1;
-            cleanup.attempt(self.defines.asMutSlice()[defines].deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
-        }
-        cleanup.attempt(self.defines.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        cleanup.attempt(releaseOwnedValues(allocator, &mut self.systemLibraries, .Executable(self.index)));
+        cleanup.attempt(releaseOwnedValues(allocator, &mut self.defines, .Executable(self.index)));
         cleanup.attempt(self.staticArchives.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
@@ -162,12 +153,8 @@ extend ObjectTarget {
 
     pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
-        let mut libraries = self.systemLibraries.len();
-        while libraries != 0 { libraries -= 1; cleanup.attempt(self.systemLibraries.asMutSlice()[libraries].name.deinit(allocator).withBuildContext(.Release, .Object(self.index))); }
-        cleanup.attempt(self.systemLibraries.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
-        let mut defines = self.defines.len();
-        while defines != 0 { defines -= 1; cleanup.attempt(self.defines.asMutSlice()[defines].deinit(allocator).withBuildContext(.Release, .Object(self.index))); }
-        cleanup.attempt(self.defines.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
+        cleanup.attempt(releaseOwnedValues(allocator, &mut self.systemLibraries, .Object(self.index)));
+        cleanup.attempt(releaseOwnedValues(allocator, &mut self.defines, .Object(self.index)));
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
         cleanup.finish()
@@ -218,12 +205,8 @@ extend StaticArchiveTarget {
 
     pub(root) fun deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
-        let mut libraries = self.systemLibraries.len();
-        while libraries != 0 { libraries -= 1; cleanup.attempt(self.systemLibraries.asMutSlice()[libraries].name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index))); }
-        cleanup.attempt(self.systemLibraries.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
-        let mut defines = self.defines.len();
-        while defines != 0 { defines -= 1; cleanup.attempt(self.defines.asMutSlice()[defines].deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index))); }
-        cleanup.attempt(self.defines.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
+        cleanup.attempt(releaseOwnedValues(allocator, &mut self.systemLibraries, .StaticArchive(self.index)));
+        cleanup.attempt(releaseOwnedValues(allocator, &mut self.defines, .StaticArchive(self.index)));
         cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
         cleanup.finish()

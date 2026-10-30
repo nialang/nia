@@ -1,4 +1,4 @@
-// Reverse-order release for Build-owned record lists.
+// Reverse-order release for Build-owned value lists, including nested owners.
 //
 // A list is deinitialized only after every element released successfully. If
 // one element fails, the list remains attached so a later cleanup attempt can
@@ -8,81 +8,102 @@
 using root::collections;
 using root::builtin::Sized;
 using root::mem;
+using root::string;
 using root::error::CleanupAccumulator;
 using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
 using root::build::types::{
     ExecutableTarget,
     Module,
     ObjectTarget,
+    OwnedSystemLibrary,
     Package,
     StaticArchiveTarget,
     Step,
     TargetStorage,
 };
 
-pub(root) trait OwnedBuildRecord {
+pub(root) trait OwnedBuildValue {
     fun deinitOwned(
         &mut self,
         allocator: &mut mem::Allocator,
+        subject: Subject,
     ) Error!();
 }
 
-extend Step : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+extend string::String : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        self.deinit(allocator).withBuildContext(Operation::Release, subject)
+    }
+}
+
+extend OwnedSystemLibrary : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        self.name.deinit(allocator).withBuildContext(Operation::Release, subject)
+    }
+}
+
+extend Step : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        _ = subject;
         self.deinit(allocator)
     }
 }
 
-extend Package : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+extend Package : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        _ = subject;
         self.deinit(allocator)
     }
 }
 
-extend ExecutableTarget : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+extend ExecutableTarget : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        _ = subject;
         self.deinit(allocator)
     }
 }
 
-extend ObjectTarget : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+extend ObjectTarget : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        _ = subject;
         self.deinit(allocator)
     }
 }
 
-extend StaticArchiveTarget : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+extend StaticArchiveTarget : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        _ = subject;
         self.deinit(allocator)
     }
 }
 
-extend Module : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
+extend Module : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        _ = subject;
         self.deinit(allocator)
     }
 }
 
-extend TargetStorage : OwnedBuildRecord {
-    fun deinitOwned(&mut self, allocator: &mut mem::Allocator) Error!() {
-        self.deinit(allocator, Subject::Targets)
+extend TargetStorage : OwnedBuildValue {
+    fun deinitOwned(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        self.deinit(allocator, subject)
     }
 }
 
 // Reverse release keeps parent storage alive until every record is clean. If
 // one field fails to release, the caller can retry against the same list.
-pub(root) fun releaseRecords[T](
+pub(root) fun releaseOwnedValues[T](
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[T],
     subject: Subject,
 ) Error!()
-where T: Sized + OwnedBuildRecord
+where T: Sized + OwnedBuildValue
 {
     let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        cleanup.attempt(records.asMutSlice()[index].deinitOwned(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinitOwned(allocator, subject));
     }
     if cleanup.isClean() {
         cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, subject));

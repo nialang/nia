@@ -141,6 +141,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: build-target, build-case, test-step, ownership, and plan integration suites pass. No compiler or handle-domain defect was confirmed.
 - Status: completed.
 
+### H16 — Preserve nested artifact configuration owners on cleanup failure
+
+- Files: `lib/std/build/targets.nia`, `lib/std/build/records_cleanup.nia`, `lib/std/build/lifecycle.nia`, `lib/std/build.nia`, `crates/nia-cli/tests/std_build_ownership.rs`
+- Evidence: all three artifact record destructors released the defines/system-library list backing even if a nested string failed to release, making that owner unreachable on retry. A new fault-injection regression reproduced a residual allocation after the second `deinit`. The previous tests did not populate these lists. The fixture also exposed missing public facade exports for the documented configuration types.
+- Result: generalize the existing record cleanup mechanism into `OwnedBuildValue` and `releaseOwnedValues`, carrying error subject context through nested values. Artifact configuration lists now use the same reverse-order, retain-on-failure rule as Build's record tables. Remove the old trait/helper names and export the seven public configuration types through `std::build`.
+- Validation: for executable, object, and static-archive records, inject one through four consecutive release failures with two defines and two system libraries; a retry must release every allocation. This test failed with exit code 61 before the cleanup fix and passes afterwards. Existing rollback scenarios remain covered.
+- Status: completed; supersedes H15's initial conclusion that target record teardown had no defect.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -183,7 +191,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### Build record cleanup review conclusions
 
-- Seven typed cleanup functions duplicated the same reverse-order traversal and the invariant that list storage is released only after every element succeeds. Replaced them with one `releaseRecords` algorithm parameterized by an internal `OwnedBuildRecord` capability; each record type keeps its own deinitializer and target-specific error context.
+- Seven typed cleanup functions duplicated the same reverse-order traversal and the invariant that list storage is released only after every element succeeds. They now use `releaseOwnedValues` and the internal `OwnedBuildValue` capability; each record type keeps its own deinitializer and error context. The same mechanism protects nested artifact configuration lists (H16).
 - Kept the collection subject as an explicit argument so collection-release failures retain their precise diagnostics. The generic element bound explicitly includes `Sized`, which is required by `ArrayList[T]`; the compiler diagnostic identified the missing contract, not a compiler defect.
 - Failure-injection ownership, build-target, all 20 build-case, and all six test-step tests pass. Formatting and repository audits pass.
 - Status: review complete.
