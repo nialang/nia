@@ -278,6 +278,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all 21 `emit_exe_fs` tests pass, including bounded path encoding, relative-path validation, owned path construction, and invalid-path cases.
 - Status: completed.
 
+### Filesystem provider review
+
+- Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
+- `types.nia` keeps descriptor ownership and invalid-handle transitions in the capability types. `borrowHandle`/`takeHandle` are intentionally separate: close consumes the handle before the syscall so a close failure cannot trigger a second close. `DirIterator` retains the borrowed directory and reports per-entry errors without losing the iterator close path.
+- `file.nia` keeps path encoding on the caller stack and applies the operation context at every syscall boundary. Parent splitting is shared between delete/create/rename paths and preserves the lexical relative-path contract; no safe abstraction would remove the meaningful per-operation parameters.
+- Existing filesystem tests cover descriptor cleanup, path bounds, symlink policy, rename/delete containment, metadata, directory iteration, and allocator-rejection APIs. No compiler or standard-library correctness defect was confirmed in this review.
+- Status: review complete; only the arithmetic cleanup in H23 required source changes.
+
 ## File checklist
 
 ### `build`
@@ -372,11 +380,11 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `fs`
 
-- [ ] `lib/std/fs/convert.nia`
-- [ ] `lib/std/fs/file.nia`
-- [ ] `lib/std/fs/options.nia`
+- [x] `lib/std/fs/convert.nia`
+- [x] `lib/std/fs/file.nia`
+- [x] `lib/std/fs/options.nia`
 - [x] `lib/std/fs/path.nia`
-- [ ] `lib/std/fs/types.nia`
+- [x] `lib/std/fs/types.nia`
 
 ### `hash`
 
