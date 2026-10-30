@@ -57,7 +57,6 @@
     "std/collections/hash_map/iterators.nia",
     "std/collections/hash_map/map.nia",
     "std/collections/hash_map/raw.nia",
-    "std/collections/hash_map/storage.nia",
     "std/collections/hash_map/types.nia",
     "std/collections/hash_set.nia",
     "std/collections/tree_map.nia",

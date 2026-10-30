@@ -156,23 +156,12 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Keep the template parser's indices: they represent character positions and argument-consumption order. Its decimal accumulation already composes checked operations with `andThen` and converts the error once.
 - No compiler defect was confirmed in this batch. Remaining counter-based output loops are candidates for a later iterator-focused pass; no further provider split is justified by this review.
 
-### HashMap and HashSet review conclusions
-
-- Reviewed the HashMap facade and all seven original providers plus HashSet. Extracted allocation layout, capacity changes, clone/rehash, and active/retired block cleanup into `hash_map/storage.nia`. Constructors remain beside the nominal type definition; the facade explicitly imports the storage provider to preserve public extension scope. Sibling collaboration uses `pub(super)` methods.
-- Query wrappers use optional propagation (`.?`) rather than repeating present/null branches. Ordinary and heterogeneous entry deletion plus drain now share one occupied-slot removal transition. Keys/values adapters reuse the entry iterator initializer. HashSet uses optional presence predicates for its boolean result contract.
-- Rehash now transfers the complete replacement map and attaches the previous block as its retired owner. Cleanup retains independently failed owners, and storage reset has one implementation. Existing allocation/free failure tests cover published replacements, repeated rehash attempts, and later deinit.
-- Found a real capacity conversion defect: forming `capacity * 8` before division rejected representable bucket counts and layouts. The formula now uses `capacity + ceil(capacity / 7)` with checked final addition and checked power-of-two rounding. A recording allocator regression fails before the fix (exit 4) and passes afterwards; it checks every target-width power-of-two boundary without allocating large buffers. It also executed successfully as a Linux i686 binary under WSL. Fix committed separately in `bde5b1483`.
-- The probe cursor's validated capacities and visited counts are multiples of eight. Advancing a non-exhausted cursor therefore cannot cross capacity or overflow; removed the redundant saturating match and documented that invariant. Keep probing offsets, masks, and group loops explicit: they express the hash table algorithm rather than optional/result plumbing.
-- Splitting constructors into a provider over an imported type initially caused the loader to select that conservative provider for an unrelated ArrayList `init` demand. Investigation confirmed `ProviderTypeRef` deliberately treats imported names and aliases conservatively; removing facade imports instead made public constructors invisible and was rejected. Keeping type initialization beside the definition restores the existing loading contract. This batch makes no claim that cross-module alias summaries have become precise; improving that requires resolving canonical type identity, not filtering by the imported spelling.
-- Validation: HashMap, HashSet, string, build ownership, and std loader tests cover the split. The read-only HashMap import-work check exposed an existing compiler issue: a type signature whose selected impl has an unloaded nested trait prerequisite reports only the outer failure and stops provider loading. A minimal pre-refactor reproduction confirms this predates the split; the compiler fix is deliberately separate and remains pending. The expensive Wyhash stream regression stays ignored in ordinary runs; no hash implementation changed here.
-- Status: review and refactor complete; tree collections remain pending.
-
 ### ArrayList review conclusions
 
 - Reviewed the facade, element operations, raw views, and formatter. The former 766-line `list.nia` mixed element mutation with allocation ownership, capacity changes, transfers, and retryable cleanup. These now live in `storage.nia`; element operations and iteration remain in `list.nia`. The sibling providers use `super`, with internal collaboration limited to `pub(super)` methods.
 - Consolidated append/insert/replace alias stabilization behind a borrowed callback. The storage provider owns the temporary copy throughout the operation, preserves the primary error, and retains a failed copy release separately from failed replacement storage. Ordinary `defer` would not preserve those retry owners.
 - Removed redundant checked-add-to-trap matches from assume-capacity paths: Nia's ordinary addition already traps on overflow. Capacity growth composes optional checked operations and converts to `OutOfMemory` once. Storage reset now has one owner-state transition; alias detection uses conditional pattern binding instead of nested optional matches.
-- Validation: all six ArrayList, 14 allocator, three string, 18 I/O/formatting, and build ownership integration tests pass. The alias failure test now also covers insertion and replacement after both committed writes and failed growth, checking retained-owner free counts. All 36 selected std loader tests pass; broad and narrow ArrayList imports select identical compiler work, and `len` selects no storage/raw body or backend work. The contextual nested generic `.init()` case also passes after constructors were kept beside the nominal definition. The build-host source closure adds only the new storage provider.
+- Validation: all six ArrayList, 14 allocator, three string, 18 I/O/formatting, and build ownership integration tests pass. The alias failure test now also covers insertion and replacement after both committed writes and failed growth, checking retained-owner free counts. All 36 selected std loader tests pass; broad and narrow ArrayList imports select identical compiler work, and `len` selects no storage/raw body or backend work. The build-host source closure adds only the new storage provider.
 - No new compiler or collection correctness defect was confirmed in this batch. Keep overlapping element shifts explicit: `copyFrom` implements memmove semantics, while each index expresses a validated range boundary.
 - Status: review and refactor complete.
 
@@ -272,8 +261,8 @@ This is a source survey, not evidence that production workloads exercise overflo
 ### `collections`
 
 - [x] `lib/std/collections/array_list.nia`
-- [x] `lib/std/collections/hash_map.nia`
-- [x] `lib/std/collections/hash_set.nia`
+- [ ] `lib/std/collections/hash_map.nia`
+- [ ] `lib/std/collections/hash_set.nia`
 - [ ] `lib/std/collections/tree_map.nia`
 - [ ] `lib/std/collections/tree_set.nia`
 
@@ -286,14 +275,13 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `collections/hash_map`
 
-- [x] `lib/std/collections/hash_map/context.nia`
-- [x] `lib/std/collections/hash_map/entries.nia`
-- [x] `lib/std/collections/hash_map/format.nia`
-- [x] `lib/std/collections/hash_map/iterators.nia`
-- [x] `lib/std/collections/hash_map/map.nia`
-- [x] `lib/std/collections/hash_map/raw.nia`
-- [x] `lib/std/collections/hash_map/storage.nia`
-- [x] `lib/std/collections/hash_map/types.nia`
+- [ ] `lib/std/collections/hash_map/context.nia`
+- [ ] `lib/std/collections/hash_map/entries.nia`
+- [ ] `lib/std/collections/hash_map/format.nia`
+- [ ] `lib/std/collections/hash_map/iterators.nia`
+- [ ] `lib/std/collections/hash_map/map.nia`
+- [ ] `lib/std/collections/hash_map/raw.nia`
+- [ ] `lib/std/collections/hash_map/types.nia`
 
 ### `crypto`
 

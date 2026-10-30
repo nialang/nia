@@ -4,14 +4,12 @@ pub(root) module format;
 pub(root) module iterators;
 pub(root) module map;
 pub(root) module raw;
-pub(root) module storage;
 pub(root) module types;
 
 using root::collections::hash_map::context;
 using root::collections::hash_map::format;
 using root::collections::hash_map::iterators;
 using root::collections::hash_map::map;
-using root::collections::hash_map::storage;
 
 pub using context::{DefaultHashMapContext, SipHashMapContext};
 pub using entries::{
