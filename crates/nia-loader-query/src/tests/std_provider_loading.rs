@@ -527,6 +527,11 @@ _ = list;
             .modules
             .iter()
             .any(|module| module.path.as_str().contains("/collections/hash_map")),
-        "following the selected ArrayList provider chain must not load the HashMap subtree"
+        "following the selected ArrayList provider chain must not load the HashMap subtree: {:?}",
+        program
+            .modules
+            .iter()
+            .map(|module| module.path.as_str())
+            .collect::<Vec<_>>()
     );
 }

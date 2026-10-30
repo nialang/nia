@@ -8,6 +8,7 @@ using root::collections::hash_map;
 using root::mem;
 using root::hash;
 using root::iter;
+using root::option;
 
 pub struct HashSetWithContext[K, C]
 where K: Sized, C: hash_map::HashMapContext[K]
@@ -95,27 +96,15 @@ where K: Sized, C: hash_map::HashMapContext[K]
         allocator: &mut mem::Allocator,
         key: K,
     ) mem::Error!bool {
-        if self.map.insert(allocator, key, 0u8).? is ?_ {
-            !false
-        } else {
-            !true
-        }
+        !self.map.insert(allocator, key, 0u8).?.isNull()
     }
 
     pub fun insertAssumeCapacity(&mut self, key: K) bool {
-        if self.map.insertAssumeCapacity(key, 0u8) is ?_ {
-            false
-        } else {
-            true
-        }
+        self.map.insertAssumeCapacity(key, 0u8).isNull()
     }
 
     pub fun remove(&mut self, key: &K) bool {
-        if self.map.remove(key) is ?_ {
-            true
-        } else {
-            false
-        }
+        self.map.remove(key).isPresent()
     }
 
     pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
@@ -125,7 +114,6 @@ where K: Sized, C: hash_map::HashMapContext[K]
     pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
         self.map.ensureTotalCapacity(allocator, capacity)
     }
-
 }
 
 extend[K, C] HashSetWithContext[K, C] : Iterable

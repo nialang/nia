@@ -76,15 +76,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fun keys(&self) HashMapKeysWithContext[K, V, C] {
-        .{
-            iter: .{ map: self, index: 0, remaining: self.len },
-        }
+        .{ iter: self.iter() }
     }
 
     pub fun values(&self) HashMapValuesWithContext[K, V, C] {
-        .{
-            iter: .{ map: self, index: 0, remaining: self.len },
-        }
+        .{ iter: self.iter() }
     }
 
     pub fun valuesMut(&mut self) HashMapValuesMutWithContext[K, V, C] {
@@ -261,15 +257,12 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             let index = self.index;
             self.index += 1;
             if raw::isFull(self.map.ctrl[index]) {
-                let key = self.map.keys[index];
-                let value = self.map.values[index];
-                self.map.setCtrl(index, raw::ctrlDeleted);
-                self.map.len -= 1;
+                let entry = self.map.removeIndex(index);
                 self.remaining -= 1;
                 if self.remaining == 0 {
                     self.map.clear();
                 }
-                return ?.{ key, value };
+                return ?entry;
             }
         }
         null
