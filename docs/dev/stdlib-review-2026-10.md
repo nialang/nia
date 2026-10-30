@@ -129,6 +129,15 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Simplified the consumer exclusion to compare `step.index` directly. Targeted build-target tests and formatting checks pass.
 - Status: review complete.
 
+### Build diagnostics, error, and handle review conclusions
+
+- Keep the two diagnostic entry points separate: one formats a structured `Error`, the other reports a requested step name directly. Their shared writer setup is small, while the buffer sizes and context labels are meaningfully different.
+- Split the large error provider at its presentation boundary. `error.nia` now owns error types, operation context, and exit-code policy; `error_format.nia` owns `Format` implementations and nested cause text. The build facade explicitly imports the formatter provider so the public `Error` retains its formatting behavior.
+- Keep variant matches in the formatter: they translate open OS and library error enums to stable diagnostic text, and fallback arms intentionally cover unknown values. Similar-looking system-error mappings consume distinct Nia enum types and should remain explicit.
+- Handle accessors repeat a tiny shape across nominal capability types; a generic trait would add an import and abstraction burden without simplifying their typed use. `BuildInitAttempt::finish` correctly preserves the primary initialization error while keeping cleanup retryable.
+- The build-host closure snapshot was already missing the artifact and step-registration modules added by the preceding split; it now includes those existing providers and the new formatter provider. Error diagnostics and build-target integration tests pass; no compiler defect was found.
+- Status: review complete.
+
 ### Review conclusions
 
 - The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
@@ -144,9 +153,10 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/artifacts.nia`
 - [x] `lib/std/build/step_registration.nia`
 - [x] `lib/std/build/dependencies.nia`
-- [ ] `lib/std/build/diagnostics.nia`
-- [ ] `lib/std/build/error.nia`
-- [ ] `lib/std/build/handles.nia`
+- [x] `lib/std/build/diagnostics.nia`
+- [x] `lib/std/build/error.nia`
+- [x] `lib/std/build/error_format.nia`
+- [x] `lib/std/build/handles.nia`
 - [ ] `lib/std/build/lifecycle.nia`
 - [ ] `lib/std/build/modules.nia`
 - [ ] `lib/std/build/ownership.nia`

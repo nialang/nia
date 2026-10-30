@@ -15,6 +15,7 @@ pub(root) module core;
 pub(root) module dependencies;
 pub(root) module diagnostics;
 pub(root) module error;
+pub(root) module error_format;
 pub(root) module handles;
 pub(root) module lifecycle;
 pub(root) module modules;
@@ -32,6 +33,7 @@ pub(root) module validation;
 
 using root::build::artifacts;
 using root::build::core;
+using root::build::error_format;
 using root::build::lifecycle;
 using root::build::plan;
 using root::build::probes;
