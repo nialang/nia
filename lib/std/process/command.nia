@@ -11,6 +11,7 @@ using root::builtin;
 using root::error;
 using root::fs;
 using root::mem;
+using root::option;
 using root::os;
 using root::process::convert;
 using root::process::types;
@@ -361,10 +362,7 @@ fun appendText(
         if ch.codepoint() == 0 {
             return containsNul!;
         }
-        byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
-            ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
-        };
+        byteLen = byteLen.checkedAdd(ch.encodeUtf8().byteLen()).okOr(mem::Error::OutOfMemory).?;
     }
     bytes.reserve(allocator, byteLen).?;
     for &ch in text {
@@ -415,21 +413,12 @@ fun appendEnvironmentEntry(
 ) Error!() {
     let mut byteLen: usize = 1;
     for &ch in entry.name() {
-        byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
-            ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
-        };
+        byteLen = byteLen.checkedAdd(ch.encodeUtf8().byteLen()).okOr(mem::Error::OutOfMemory).?;
     }
     for &ch in entry.value() {
-        byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
-            ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
-        };
+        byteLen = byteLen.checkedAdd(ch.encodeUtf8().byteLen()).okOr(mem::Error::OutOfMemory).?;
     }
-    let needed = match byteLen.checkedAdd(1) {
-        ?value => value,
-        null => return .Allocation(.OutOfMemory)!,
-    };
+    let needed = byteLen.checkedAdd(1).okOr(mem::Error::OutOfMemory).?;
     bytes.reserve(allocator, needed).?;
     for &ch in entry.name() {
         bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
