@@ -1,3 +1,6 @@
+// Streaming lengths retain their low 64 bits, independently of pointer width.
+// The length mixed into the digest and the long-input state are separate:
+// wrapping the former must never select the short-input path again.
 using root::hash::traits;
 using root::slice;
 
@@ -14,7 +17,7 @@ pub struct Wyhash {
     state0: u64,
     state1: u64,
     state2: u64,
-    totalLen: usize,
+    totalLen: u64,
     longInput: bool,
     buf: [u8; 48],
     bufLen: usize,
@@ -42,11 +45,11 @@ extend Wyhash {
 
     pub fun update(&mut self, bytes: &[u8]) () {
         if not self.longInput
-            and (self.totalLen > 16 or bytes.len() > 16 - self.totalLen)
+            and bytes.len() > 16 - self.totalLen as usize
         {
             self.longInput = true;
         }
-        self.totalLen = addWrapSize(self.totalLen, bytes.len());
+        self.totalLen = addWrap64(self.totalLen, bytes.len() as u64);
 
         if bytes.len() <= 48 - self.bufLen {
             _ = (&mut self.buf[self.bufLen..(self.bufLen + bytes.len())]).copyFrom(bytes);
@@ -62,14 +65,8 @@ extend Wyhash {
             self.bufLen = 0;
         }
 
-        while true {
-            let next = match index.checkedAdd(48) {
-                ?value => value,
-                null => break,
-            };
-            if next >= bytes.len() {
-                break;
-            }
+        while bytes.len() - index > 48 {
+            let next = index + 48;
             self.round(&bytes[index..next]);
             index = next;
         }
@@ -163,7 +160,7 @@ extend Wyhash {
         let product = (self.a as u128) * (self.b as u128);
         self.a = product as u64;
         self.b = (product >> 64) as u64;
-        mix(self.a ^ wyhashSecret0 ^ (self.totalLen as u64), self.b ^ wyhashSecret1)
+        mix(self.a ^ wyhashSecret0 ^ self.totalLen, self.b ^ wyhashSecret1)
     }
 }
 
@@ -183,15 +180,10 @@ pub fun wyhash(seed: u64, bytes: &[u8]) u64 {
     hasher.finishValue()
 }
 
-fun addWrapSize(left: usize, right: usize) usize {
-    // Wyhash mixes the low machine-word length, matching its size_t input.
-    // Nia integer addition traps, so spell out modulo 2^usize without relying
-    // on a wider integer type that may not exist on every target.
-    if left > usize::MAX - right {
-        left - (usize::MAX - right) - 1
-    } else {
-        left + right
-    }
+fun addWrap64(left: u64, right: u64) u64 {
+    // Finalization mixes a u64 length. Widen before adding because Nia traps
+    // on overflow, then explicitly retain the low 64 bits.
+    ((left as u128) + (right as u128)) as u64
 }
 
 fun mix(a: u64, b: u64) u64 {

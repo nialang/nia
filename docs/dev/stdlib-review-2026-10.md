@@ -27,11 +27,22 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 ### H3 — Revisit Wyhash streaming length saturation
 
-- Files: `lib/std/hash/wyhash.nia`, `docs/architecture.md`
-- Evidence: the official wyhash API accepts a `size_t len` and mixes that value directly; the reviewed Rust streaming implementation also stores a plain `usize` length and does not saturate it. Saturation therefore changes the algorithm's length input after the first host-word overflow. A direct switch to wrapping would introduce a second defect because the old `totalLen <= 16` check also selects the short-input algorithm path.
-- Result: keep `totalLen` as the low machine-word length and update it with an explicit checked-free modulo helper. Add a monotonic `longInput` state so a wrapped length can never re-enter the short-input path. The helper uses only `usize` operations, preserving the contract on targets where `usize` is wider than `u128`.
-- Validation: official and public Rust implementation sources were compared; wyhash vectors, one-shot/streaming boundary splits, bytewise updates, and hash-map integration pass. The 16-byte boundary remains covered after separating the branch state from the folded length.
-- Status: completed in the current refactor batch.
+- Files: `lib/std/hash/wyhash.nia`, `crates/nia-cli/tests/std_hash_map.rs`
+- Evidence: the official one-shot API accepts `size_t len` and mixes its conversion to `u64`. It defines no cumulative overflow policy. Zig std and `wyhash-final4` use ordinary `usize` addition; `wyhash-rs` v1 uses ordinary `u64` addition, but its write-boundary semantics differ. None of the inspected implementations saturates; their ordinary additions do not establish an explicit, mode-independent overflow contract either. See the source comparison below.
+- Result: Nia explicitly defines cumulative length modulo 2^64, matching the word mixed into finalization and keeping streams independent of pointer width. A separate monotonic `longInput` flag prevents wrapped lengths from re-entering the short-input path. Saturating to `usize::MAX` is removed rather than retained as an alternative. The chunk loop compares remaining bytes before adding its bounded chunk size.
+- Validation: an executable test seeds the actual implementation near `u64::MAX`, then checks 66 tail lengths against an independent one-shot final4 reference with the final length word overridden. It also checks repeated finish, continuation, 25 wrapping-add boundary pairs, and accumulation across 2^32. Ordinary vectors, hash-map, and string tests pass; the seeded test also type-checks for `x86-unknown-linux` (32-bit), without claiming 32-bit execution.
+- Status: completed; fixed-width contract and overflow regression supersede the initial machine-word implementation in `21646b4fe`.
+
+Source comparison inspected on 2026-10-30:
+
+| Implementation | Length handling | What the source establishes |
+| --- | --- | --- |
+| [Official C](https://github.com/wangyi-fudan/wyhash/blob/e4764a0b637d34d3421a7760affada9288b625a8/wyhash.h) | One-shot `size_t`, converted through final `u64` mixing | No streaming overflow contract; current default secrets differ from Nia's final4 vectors |
+| [Zig std](https://github.com/ziglang/zig/blob/738d2be9d6b6ef3ff3559130c05159ef53336224/lib/std/hash/wyhash.zig) | `total_len: usize`, ordinary `+=` | No saturation or explicit wrapping; checked modes can reject overflow; length also controls the short branch |
+| [Rust wyhash-final4](https://github.com/thynson/wyhash-final4/blob/b1d06c5337cf2c41483664997912f6b9b4407ea2/src/generics.rs) | `StreamedWyHasher.len: usize`, ordinary `+=`, cast to `u64` at finish | No saturation; overflow behavior depends on Rust overflow checks; length also controls the short branch |
+| [Rust wyhash-rs v1](https://github.com/eldruin/wyhash-rs/blob/acb4e4f5bbd2ba2216ac8ca1a6309513d251db5f/src/v1/traits.rs) | `size: u64`, ordinary `+=` | Fixed algorithm width, no saturation; a different algorithm version and write-boundary contract, not a final4 streaming oracle |
+
+This is a source survey, not evidence that production workloads exercise overflow. Modulo 2^64 is Nia's explicit extension for unbounded streaming, not a promise retroactively attributed to the official one-shot algorithm. A 32-bit `size_t` limits a single input's addressable size; it need not limit cumulative input across calls.
 
 ### H4 — Express iterator terminal consumers with `for`
 
@@ -204,7 +215,6 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/plan.nia`
 - [x] `lib/std/build/probes.nia`
 - [x] `lib/std/build/queries.nia`
-- [ ] `lib/std/build/steps.nia`
 - [x] `lib/std/build/steps.nia`
 - [x] `lib/std/build/targets.nia`
 - [x] `lib/std/build/types.nia`

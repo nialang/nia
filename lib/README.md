@@ -44,6 +44,12 @@ are also re-exported at the root: `std::String`, `std::ArrayList`,
 
 ## Conventions
 
+`std::hash::Wyhash` accepts incremental input without depending on write
+boundaries. Its cumulative length is mixed modulo 2^64 on every target, and
+`finish` does not consume or reset the state. A length wrap never returns the
+hasher to its short-input path. This defines the streaming extension beyond
+the single-slice length accepted by the reference one-shot algorithm.
+
 - Explicit allocators. Owned values such as `String`, `fs::Path`, and the
   collections take the allocator at every call that allocates, grows, copies,
   or releases. There is no implicit destruction and no hidden allocator state.

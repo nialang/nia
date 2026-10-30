@@ -190,6 +190,129 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_wyhash_preserves_long_input_after_length_wrap() {
+    let root = temp_dir("emit_exe_std_wyhash_preserves_long_input_after_length_wrap");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+
+    // Independent one-shot final4 reference: only the final length word is
+    // overridden. Boundary seeding tests unreachable-in-practice word overflow
+    // without adding state-mutation hooks to the public standard-library API.
+    let reference = |input: &[u8], length: u64| {
+        let secret = [
+            0xa0761d6478bd642fu64,
+            0xe7037ed1a0b428db,
+            0x8ebc6af09c88c6e3,
+            0x589965cc75374cc3,
+        ];
+        let mix = |a: u64, b: u64| {
+            let product = u128::from(a) * u128::from(b);
+            product as u64 ^ (product >> 64) as u64
+        };
+        let read =
+            |offset: usize| u64::from_le_bytes(input[offset..offset + 8].try_into().unwrap());
+        let mut seed = 9 ^ mix(9 ^ secret[0], secret[1]);
+        let mut other1 = seed;
+        let mut other2 = seed;
+        let mut cursor = 0;
+        while input.len() - cursor > 48 {
+            seed = mix(read(cursor) ^ secret[1], read(cursor + 8) ^ seed);
+            other1 = mix(read(cursor + 16) ^ secret[2], read(cursor + 24) ^ other1);
+            other2 = mix(read(cursor + 32) ^ secret[3], read(cursor + 40) ^ other2);
+            cursor += 48;
+        }
+        seed ^= other1 ^ other2;
+        while input.len() - cursor > 16 {
+            seed = mix(read(cursor) ^ secret[1], read(cursor + 8) ^ seed);
+            cursor += 16;
+        }
+        let product = u128::from(read(input.len() - 16) ^ secret[1])
+            * u128::from(read(input.len() - 8) ^ seed);
+        mix(
+            product as u64 ^ secret[0] ^ length,
+            (product >> 64) as u64 ^ secret[1],
+        )
+    };
+    let data: Vec<u8> = (0..160).collect();
+    let expected = (0..66)
+        .map(|length| format!("{}u64", reference(&data[..88 + length], length as u64)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // Compile the actual implementation in a test-local module scope so the
+    // test can seed private state. Only its two package imports are relocated.
+    let mut source = include_str!("../../../lib/std/hash/wyhash.nia")
+        .replace("using root::hash::traits;", "using std::hash as traits;")
+        .replace("using root::slice;", "using std::slice;");
+    let beyond_u32 = reference(&data[..88], 1u64 << 32);
+    source.push_str(&format!(
+        r#"
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {{
+    _ = init;
+    let expected: [u64; 66] = [{expected}];
+    let mut data: [u8; 160] = [0; 160];
+    for index in 0..data.len() {{ data[index] = index as u8; }}
+    for length in 0..expected.len() {{
+        let mut hasher = Wyhash::init(9);
+        hasher.update(&data[0..80]);
+        hasher.totalLen = u64::MAX - 7;
+        hasher.update(&data[80..88]);
+        if hasher.totalLen != 0 or not hasher.longInput {{
+            return process::ExitCode(1)!;
+        }}
+        hasher.update(&data[88..88 + length]);
+        if hasher.totalLen != length as u64 or hasher.finish() != expected[length]
+            or hasher.finish() != expected[length]
+        {{
+            return process::ExitCode(2)!;
+        }}
+    }}
+    let mut beyond32 = Wyhash::init(9);
+    beyond32.update(&data[0..80]);
+    beyond32.totalLen = 0xfffffff8u64;
+    beyond32.update(&data[80..88]);
+    if beyond32.totalLen != 0x100000000u64 or beyond32.finish() != {beyond_u32}u64 {{
+        return process::ExitCode(4)!;
+    }}
+"#
+    ));
+    let boundaries = [0u64, 1, 16, u64::MAX - 1, u64::MAX];
+    for left in boundaries {
+        for right in boundaries {
+            source.push_str(&format!(
+                "    if addWrap64({left}u64, {right}u64) != {}u64 {{ return process::ExitCode(3)!; }}\n",
+                left.wrapping_add(right)
+            ));
+        }
+    }
+    source.push_str("    !()\n}\n");
+    std::fs::write(&main, source).expect("write overflow-state test source");
+    let output = support::nia_command()
+        .args(["emit", "--exe"])
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit wyhash overflow-state test");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run wyhash overflow-state test");
+    assert_eq!(status.code(), Some(0));
+    let checked = support::nia_command()
+        .args(["--target", "x86-unknown-linux", "check"])
+        .arg(&main)
+        .output_timeout_for_build("check fixed-width wyhash state on a 32-bit target");
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+}
+
+#[test]
 fn emit_exe_std_hash_map_initialization_is_ergonomic_and_typed() {
     let root = temp_dir("emit_exe_std_hash_map_initialization_is_ergonomic_and_typed");
     let main = root.join("main.nia");
