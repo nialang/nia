@@ -10,6 +10,7 @@
 // so failed cleanup can be retried without losing the original error.
 
 pub(root) module commands;
+pub(root) module artifacts;
 pub(root) module core;
 pub(root) module dependencies;
 pub(root) module diagnostics;
@@ -28,6 +29,7 @@ pub(root) module targets;
 pub(root) module types;
 pub(root) module validation;
 
+using root::build::artifacts;
 using root::build::core;
 using root::build::lifecycle;
 using root::build::plan;

@@ -10,6 +10,7 @@ using root::mem;
 using root::string;
 using root::error::CleanupAccumulator;
 using root::build::error;
+using root::build::artifacts;
 using root::build::handles;
 using root::build::ownership::allocateBuildOwnerId;
 using root::build::records_cleanup::{

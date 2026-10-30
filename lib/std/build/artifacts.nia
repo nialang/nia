@@ -1,0 +1,298 @@
+// Artifact declarations and maintained-target selection for Build.
+//
+// This provider owns the transition from borrowed artifact options to
+// allocator-owned records; step construction stays in core.nia.
+
+using root::build::error;
+using root::build::queries::{
+    findExecutable as findExecutableRecord,
+    findObject as findObjectRecord,
+    findStaticArchive as findStaticArchiveRecord,
+};
+using root::build::targets::{
+    executableOutputName,
+    isValidOutputName,
+    isValidStableName,
+    objectOutputName,
+    staticArchiveOutputName,
+};
+using root::build::types;
+using root::build::validation::{
+    validateModuleHandle as validateModuleHandleValue,
+    validateStaticArchiveHandle as validateStaticArchiveHandleValue,
+};
+
+using error::Error;
+using error::ErrorOperation as Operation;
+using error::ErrorSubject as Subject;
+using types::{
+    Build,
+    ExecutableHandle,
+    ExecutableOptions,
+    ExecutableTarget,
+    ModuleHandle,
+    ObjectHandle,
+    ObjectOptions,
+    ObjectTarget,
+    StaticArchiveHandle,
+    StaticArchiveOptions,
+    StaticArchiveTarget,
+    TargetView,
+};
+
+extend Build {
+    pub fun target(&self, name: &[char]) Error!TargetView {
+        if self.findTarget(name) is ?index {
+            return !self.targets.asSlice()[index].view();
+        }
+        .Invalid { operation: .Validate, subject: .Targets }!
+    }
+
+    fun findTarget(&self, name: &[char]) ?usize {
+        let mut index: usize = 0;
+        while index < self.targets.len() {
+            if self.targets.asSlice()[index].name.text().equals(name) {
+                return ?index;
+            }
+            index += 1;
+        }
+        null
+    }
+
+    // An artifact without a target uses the invocation artifact target. A
+    // selected view must name a member of this build's target matrix.
+    fun resolveArtifactTarget(&self, target: ?TargetView, subject: Subject) Error!usize {
+        match target {
+            null => !self.artifactTarget,
+            ?view => if self.findTarget(view.name) is ?index {
+                !index
+            } else {
+                .Invalid { operation: .Validate, subject }!
+            },
+        }
+    }
+
+    pub fun addExecutable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
+        self.cleanupPendingExecutable().?;
+        let handle = ExecutableHandle::init(self.ownerId, self.executables.len());
+        if not isValidStableName(options.name) {
+            return .Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Executable(handle.index()),
+            }!;
+        }
+        validateModuleHandleValue(self.ownerId, self.modules.len(), options.rootModule).?;
+        let targetIndex = self.resolveArtifactTarget(options.target, .Executable(handle.index())).?;
+        if options.staticArchives is ?archives {
+            let mut archiveIndex: usize = 0;
+            while archiveIndex < archives.len() {
+                let archive = archives[archiveIndex];
+                validateStaticArchiveHandleValue(self.ownerId, self.staticArchives.len(), archive).?;
+                let archiveTarget = self.staticArchives.asSlice()[archive.index()];
+                if archiveTarget.targetIndex != targetIndex {
+                    return .Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Executable(handle.index()),
+                    }!;
+                }
+                let mut previous: usize = 0;
+                while previous < archiveIndex {
+                    if archives[previous].index() == archive.index() {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Executable(handle.index()),
+                        }!;
+                    }
+                    previous += 1;
+                }
+                archiveIndex += 1;
+            }
+        }
+        let outputName = executableOutputName(options);
+        if not isValidOutputName(outputName) {
+            return .Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Executable(handle.index()),
+            }!;
+        }
+        if findExecutableRecord(self.executables.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .Executable(handle.index()),
+            }!;
+        }
+        if findObjectRecord(self.objects.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .Executable(handle.index()),
+            }!;
+        }
+        if findStaticArchiveRecord(self.staticArchives.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .Executable(handle.index()),
+            }!;
+        }
+        self.executables.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Executables).?;
+        self.pendingExecutable = .init(
+            handle.index(),
+            options.rootModule,
+            targetIndex,
+        );
+        self.pendingExecutable.runtime = options.runtime;
+        self.hasPendingExecutable = true;
+        if self.pendingExecutable.initialize(
+            self.allocator,
+            options.name,
+            outputName,
+            options.staticArchives,
+            options.linkage,
+            options.debugInfo,
+            options.panicStrategy,
+            options.lto,
+            options.defines,
+            options.systemLibraries,
+        ) is primary! {
+            _ = self.cleanupPendingExecutable();
+            return primary!;
+        }
+        self.executables.appendAssumeCapacity(self.pendingExecutable);
+        self.hasPendingExecutable = false;
+        self.planValidated = false;
+        !handle
+    }
+
+    pub(root) fun cleanupPendingExecutable(&mut self) Error!() {
+        if not self.hasPendingExecutable {
+            return !();
+        }
+        self.pendingExecutable.deinit(self.allocator).?;
+        self.hasPendingExecutable = false;
+        !()
+    }
+
+    pub fun addObject(&mut self, options: ObjectOptions) Error!ObjectHandle {
+        self.cleanupPendingObject().?;
+        let handle = ObjectHandle::init(self.ownerId, self.objects.len());
+        if not isValidStableName(options.name) {
+            return .Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
+        }
+        validateModuleHandleValue(self.ownerId, self.modules.len(), options.rootModule).?;
+        let targetIndex = self.resolveArtifactTarget(options.target, .Object(handle.index())).?;
+        let outputName = objectOutputName(options);
+        if not isValidOutputName(outputName) {
+            return .Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
+        }
+        if findObjectRecord(self.objects.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .Object(handle.index()),
+            }!;
+        }
+        if findExecutableRecord(self.executables.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .Object(handle.index()),
+            }!;
+        }
+        if findStaticArchiveRecord(self.staticArchives.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .Object(handle.index()),
+            }!;
+        }
+        self.objects.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Objects).?;
+        self.pendingObject = .init(
+            handle.index(),
+            options.rootModule,
+            targetIndex,
+        );
+        self.hasPendingObject = true;
+        if self.pendingObject.initialize(self.allocator, options.name, outputName, options.linkage, options.debugInfo, options.panicStrategy, options.lto, options.defines, options.systemLibraries) is primary! {
+            _ = self.cleanupPendingObject();
+            return primary!;
+        }
+        self.objects.appendAssumeCapacity(self.pendingObject);
+        self.hasPendingObject = false;
+        self.planValidated = false;
+        !handle
+    }
+
+    pub(root) fun cleanupPendingObject(&mut self) Error!() {
+        if not self.hasPendingObject {
+            return !();
+        }
+        self.pendingObject.deinit(self.allocator).?;
+        self.hasPendingObject = false;
+        !()
+    }
+
+    pub fun addStaticArchive(&mut self, options: StaticArchiveOptions) Error!StaticArchiveHandle {
+        self.cleanupPendingStaticArchive().?;
+        let handle = StaticArchiveHandle::init(self.ownerId, self.staticArchives.len());
+        if not isValidStableName(options.name) {
+            return .Invalid {
+                operation: Operation::Validate,
+                subject: Subject::StaticArchive(handle.index()),
+            }!;
+        }
+        validateModuleHandleValue(self.ownerId, self.modules.len(), options.rootModule).?;
+        let targetIndex = self.resolveArtifactTarget(options.target, .StaticArchive(handle.index())).?;
+        let outputName = staticArchiveOutputName(options);
+        if not isValidOutputName(outputName) {
+            return .Invalid {
+                operation: Operation::Validate,
+                subject: Subject::StaticArchive(handle.index()),
+            }!;
+        }
+        if findStaticArchiveRecord(self.staticArchives.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .StaticArchive(handle.index()),
+            }!;
+        }
+        if findExecutableRecord(self.executables.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .StaticArchive(handle.index()),
+            }!;
+        }
+        if findObjectRecord(self.objects.asSlice(), options.name) is ?_ {
+            return .Invalid {
+                operation: .Validate,
+                subject: .StaticArchive(handle.index()),
+            }!;
+        }
+        self.staticArchives.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::StaticArchives).?;
+        self.pendingStaticArchive = .init(
+            handle.index(),
+            options.rootModule,
+            targetIndex,
+        );
+        self.hasPendingStaticArchive = true;
+        if self.pendingStaticArchive.initialize(self.allocator, options.name, outputName, options.linkage, options.debugInfo, options.panicStrategy, options.lto, options.defines, options.systemLibraries) is primary! {
+            _ = self.cleanupPendingStaticArchive();
+            return primary!;
+        }
+        self.staticArchives.appendAssumeCapacity(self.pendingStaticArchive);
+        self.hasPendingStaticArchive = false;
+        self.planValidated = false;
+        !handle
+    }
+
+    pub(root) fun cleanupPendingStaticArchive(&mut self) Error!() {
+        if not self.hasPendingStaticArchive {
+            return !();
+        }
+        self.pendingStaticArchive.deinit(self.allocator).?;
+        self.hasPendingStaticArchive = false;
+        !()
+    }
+
+}

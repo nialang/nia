@@ -84,10 +84,18 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 
 ### H10 — Keep logical build paths free of host-specific syntax
 
-- Files: `lib/std/build/paths.nia`, `crates/nia-build-plan/src/lib.rs`
+- Files: `lib/std/build/paths.nia`, `lib/std/build/plan.nia`, `crates/nia-build-plan/src/lib.rs`
 - Evidence: both path validators accepted `:`. On Windows, joining a logical component such as `C:outside` can replace the typed root with a drive-relative path; colons also select alternate data streams. Local package roots are joined component by component, so std-only validation would leave the protocol boundary exposed to hand-built or decoded plans.
-- Result: reject colons in both the std build-path API and canonical `LogicalPath` constructor, and document the portable path contract. This is a build path-model defect, not a compiler or lazy-loading defect.
+- Result: reject colons in the std build-path API, plan encoder, and canonical `LogicalPath` constructor, and document the portable path contract. This is a build path-model defect, not a compiler or lazy-loading defect.
 - Validation: all 84 `nia-build-plan` unit tests and the Nia build-target conformance test pass, including `C:/outside` and `result.txt:stream` rejection.
+- Status: completed.
+
+### H11 — Separate artifact registration from step orchestration
+
+- Files: `lib/std/build/core.nia`, `lib/std/build/artifacts.nia`
+- Evidence: `core.nia` combined package and module declarations, all step constructors, executable/object/archive registration, target lookup, and complete-graph validation. Artifact registration is a cohesive state transition from borrowed options to pending owned records and uses validation/query providers already separated from `Build` mutation.
+- Result: moved target lookup and executable/object/static-archive registration, including pending-record cleanup, into `artifacts.nia`. `core.nia` retains package/module/step orchestration and dependency-graph validation; the public facade imports both providers, and lifecycle cleanup imports the artifact provider explicitly.
+- Validation: build-target, ownership rollback, build-case, and command-cache integration tests pass; no compiler defect or behavior change was found.
 - Status: completed.
 
 ### Formatting review conclusions
@@ -115,7 +123,8 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 ### `build`
 
 - [x] `lib/std/build/commands.nia`
-- [ ] `lib/std/build/core.nia`
+- [x] `lib/std/build/core.nia`
+- [x] `lib/std/build/artifacts.nia`
 - [ ] `lib/std/build/dependencies.nia`
 - [ ] `lib/std/build/diagnostics.nia`
 - [ ] `lib/std/build/error.nia`
