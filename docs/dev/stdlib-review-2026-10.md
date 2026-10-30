@@ -278,6 +278,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all 21 `emit_exe_fs` tests pass, including bounded path encoding, relative-path validation, owned path construction, and invalid-path cases.
 - Status: completed.
 
+### H24 - Preserve the established limit after a bounded read
+
+- Files: `lib/std/io/limit.nia`, `lib/std/io/fixed_buffer.nia`
+- Evidence: `LimitedReader::read` re-probed its optional limit after the wrapped reader returned, even though the limited branch had already established the same state and no operation could change it. That nested match added noise around the key invariant `n <= count <= remaining`.
+- Result: update the limit directly from the branch's `remaining` binding after validating the wrapped reader's transfer count. Keep `DiscardingWriter`'s saturating length behavior and fixed-buffer subtraction checks explicit because they define their adapter contracts.
+- Validation: all 18 `emit_exe_io` tests pass, including limited-reader, invalid-transfer, partial-read, and fixed-buffer cases.
+- Status: completed.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
@@ -402,8 +410,8 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/io/debug.nia`
 - [ ] `lib/std/io/error.nia`
 - [ ] `lib/std/io/file_adapter.nia`
-- [ ] `lib/std/io/fixed_buffer.nia`
-- [ ] `lib/std/io/limit.nia`
+- [x] `lib/std/io/fixed_buffer.nia`
+- [x] `lib/std/io/limit.nia`
 - [ ] `lib/std/io/traits.nia`
 
 ### `iter`
