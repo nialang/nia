@@ -334,6 +334,13 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all four `std_mem_allocator_core` tests and all 14 `std_mem_allocators` tests pass.
 - Status: completed as a focused allocator cleanup; the remaining memory providers stay queued for full review.
 
+### Memory layout and ownership boundary review
+
+- Reviewed `lib/std/mem/allocation.nia`, `lib/std/mem/error.nia`, `lib/std/mem/layout.nia`, and `lib/std/mem/types.nia`. `LayoutBuilder` is already the single checked composition boundary: `checkedAppend` computes alignment and size before mutating the builder, and failed appends leave it unchanged.
+- `Allocated`, `CallableAllocation`, and `Block` retain the allocator's actual release pointer and release range instead of reconstructing them from typed views. The sentinel state after ownership transfer is deliberate and keeps repeated cleanup from freeing the same allocation.
+- `Block::asSlice` handles zero-sized elements before division; `Block::empty` preserves the layout alignment for empty blocks. No arithmetic, ownership, compiler, or provider-loading defect was confirmed in this review.
+- Status: review complete; only the fixed-buffer allocation arithmetic cleanup in H30 required source changes.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
@@ -475,16 +482,16 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `mem`
 
-- [ ] `lib/std/mem/allocation.nia`
+- [x] `lib/std/mem/allocation.nia`
 - [ ] `lib/std/mem/allocator.nia`
 - [ ] `lib/std/mem/arena_allocator.nia`
-- [ ] `lib/std/mem/error.nia`
+- [x] `lib/std/mem/error.nia`
 - [x] `lib/std/mem/fixed_buffer_allocator.nia`
 - [ ] `lib/std/mem/general_purpose_allocator.nia`
-- [ ] `lib/std/mem/layout.nia`
+- [x] `lib/std/mem/layout.nia`
 - [ ] `lib/std/mem/page_allocator.nia`
 - [ ] `lib/std/mem/pool_allocator.nia`
-- [ ] `lib/std/mem/types.nia`
+- [x] `lib/std/mem/types.nia`
 
 ### `os`
 
