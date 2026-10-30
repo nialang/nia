@@ -28,10 +28,10 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 ### H3 — Revisit Wyhash streaming length saturation
 
 - Files: `lib/std/hash/wyhash.nia`, `docs/architecture.md`
-- Evidence: `update` saturates the cumulative `usize` length on overflow, and `finishValue` folds that value into the digest. The policy was explicitly introduced as overflow hardening and documented in the architecture notes.
-- Question: should streaming length follow Wyhash's low-64-bit length input modulo the algorithm width, or should the Nia API promise saturation after an unrepresentable cumulative stream length?
-- Direction: preserve current behavior during this pass; settle the contract and a testable length abstraction before changing it.
-- Status: open design review, no confirmed bug.
+- Evidence: the official wyhash API accepts a `size_t len` and mixes that value directly; the reviewed Rust streaming implementation also stores a plain `usize` length and does not saturate it. Saturation therefore changes the algorithm's length input after the first host-word overflow. A direct switch to wrapping would introduce a second defect because the old `totalLen <= 16` check also selects the short-input algorithm path.
+- Result: keep `totalLen` as the low machine-word length and update it with an explicit checked-free modulo helper. Add a monotonic `longInput` state so a wrapped length can never re-enter the short-input path. The helper uses only `usize` operations, preserving the contract on targets where `usize` is wider than `u128`.
+- Validation: official and public Rust implementation sources were compared; wyhash vectors, one-shot/streaming boundary splits, bytewise updates, and hash-map integration pass. The 16-byte boundary remains covered after separating the branch state from the folded length.
+- Status: completed in the current refactor batch.
 
 ### H4 — Express iterator terminal consumers with `for`
 

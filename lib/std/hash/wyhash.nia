@@ -1,5 +1,4 @@
 using root::hash::traits;
-using root::math;
 using root::slice;
 
 using traits::Hasher;
@@ -16,6 +15,7 @@ pub struct Wyhash {
     state1: u64,
     state2: u64,
     totalLen: usize,
+    longInput: bool,
     buf: [u8; 48],
     bufLen: usize,
 }
@@ -23,7 +23,17 @@ pub struct Wyhash {
 extend Wyhash {
     pub fun init(seed: u64) Wyhash {
         let state = seed ^ mix(seed ^ wyhashSecret0, wyhashSecret1);
-        .{ a: 0, b: 0, state0: state, state1: state, state2: state, totalLen: 0, buf: [0; 48], bufLen: 0 }
+        .{
+            a: 0,
+            b: 0,
+            state0: state,
+            state1: state,
+            state2: state,
+            totalLen: 0,
+            longInput: false,
+            buf: [0; 48],
+            bufLen: 0,
+        }
     }
 
     pub fun hash(seed: u64, bytes: &[u8]) u64 {
@@ -31,10 +41,12 @@ extend Wyhash {
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        self.totalLen = match self.totalLen.checkedAdd(bytes.len()) {
-            ?value => value,
-            null => usize::MAX,
-        };
+        if not self.longInput
+            and (self.totalLen > 16 or bytes.len() > 16 - self.totalLen)
+        {
+            self.longInput = true;
+        }
+        self.totalLen = addWrapSize(self.totalLen, bytes.len());
 
         if bytes.len() <= 48 - self.bufLen {
             _ = (&mut self.buf[self.bufLen..(self.bufLen + bytes.len())]).copyFrom(bytes);
@@ -73,7 +85,7 @@ extend Wyhash {
 
     fun finishValue(&self) u64 {
         let mut copy = self.shallowCopy();
-        if self.totalLen <= 16 {
+        if not self.longInput {
             copy.smallKey(&self.buf[0..self.bufLen]);
         } else {
             let mut offset: usize = 0;
@@ -102,6 +114,7 @@ extend Wyhash {
             state1: self.state1,
             state2: self.state2,
             totalLen: self.totalLen,
+            longInput: self.longInput,
             buf: [0; 48],
             bufLen: 0,
         }
@@ -168,6 +181,17 @@ pub fun wyhash(seed: u64, bytes: &[u8]) u64 {
     let mut hasher = Wyhash::init(seed);
     hasher.update(bytes);
     hasher.finishValue()
+}
+
+fun addWrapSize(left: usize, right: usize) usize {
+    // Wyhash mixes the low machine-word length, matching its size_t input.
+    // Nia integer addition traps, so spell out modulo 2^usize without relying
+    // on a wider integer type that may not exist on every target.
+    if left > usize::MAX - right {
+        left - (usize::MAX - right) - 1
+    } else {
+        left + right
+    }
 }
 
 fun mix(a: u64, b: u64) u64 {
