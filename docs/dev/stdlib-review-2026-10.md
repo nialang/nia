@@ -270,6 +270,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: the CString/process integration executable and all three `std_string` tests pass.
 - Status: completed.
 
+### H23 - Keep path arithmetic in the option combinator path
+
+- Files: `lib/std/fs/path.nia`
+- Evidence: path encoding, component joining, and alias-range validation repeated the same checked arithmetic matches even though each null arm mapped directly to the enclosing path or memory error.
+- Result: import the option provider and use `okOr(...).?` for the conversion. The alias check still returns an optional offset for the valid/invalid range distinction, while arithmetic overflow remains a typed `mem::Error::Invalid`.
+- Validation: all 21 `emit_exe_fs` tests pass, including bounded path encoding, relative-path validation, owned path construction, and invalid-path cases.
+- Status: completed.
+
 ## File checklist
 
 ### `build`
@@ -367,7 +375,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/fs/convert.nia`
 - [ ] `lib/std/fs/file.nia`
 - [ ] `lib/std/fs/options.nia`
-- [ ] `lib/std/fs/path.nia`
+- [x] `lib/std/fs/path.nia`
 - [ ] `lib/std/fs/types.nia`
 
 ### `hash`
