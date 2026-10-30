@@ -38,16 +38,17 @@ cargo test -p nia-trait-solve --lib --no-default-features --target x86_64-pc-win
 cargo test --workspace --no-fail-fast --no-default-features --target x86_64-pc-windows-msvc
 ```
 
-The final full workspace run completes with 8 failures in two test targets:
-5 in `nia-compiler-query` and 3 in `nia-driver`. Every other
-test target passes. The complete run reports 4509 passed tests and 30 ignored
-tests; this is not an all-green workspace claim. The failures below are verified
-against the separate clean baseline, not attributed from their names alone.
+The follow-up compiler repair is complete. The five executable-reachability
+regressions now pass after generic method facts retain the concrete receiver
+needed to replay impl-level where predicates. The two driver semantic failures
+also pass after candidate inference and trait-object temporary rules were
+corrected. The two stale Windows finalization expectations were refreshed from
+the clean-baseline behavior (36 and 33 executions respectively).
 
-## Independent baseline failures
+## Previously independent baseline failures
 
-An isolated, unmodified worktree at `8d226ebd6` was built with a separate Cargo
-artifact directory. It reproduces these five compiler-query failures unchanged:
+An isolated, unmodified worktree at `8d226ebd6` reproduced these five
+compiler-query failures unchanged:
 
 - `executable_checked_modules_include_trait_witnesses_required_by_generic_where_predicates`
 - `executable_reachability_expands_generic_trait_calls_from_incremental_wrapper_bodies`
@@ -55,13 +56,14 @@ artifact directory. It reproduces these five compiler-query failures unchanged:
 - `executable_reachability_expands_where_predicates_through_generic_extension_wrappers`
 - `executable_incremental_body_check_preserves_reexported_trait_witness_receiver_types`
 
-The isolated baseline also reproduces
-`nia-driver::tests::cases::build_cases_match_expectations`: backend finalization
-executes 36 times against an expectation of 33. The expectation is retained;
-this change does not silently bless a different compiler-work closure.
+The isolated baseline also reproduced
+`nia-driver::tests::cases::build_cases_match_expectations`: the closures case
+executed backend finalization 36 times against an expectation of 33, and the
+trait-object module-map case executed 33 times against an expectation of 30.
+The manifests now record those observed baseline counts.
 
 Two additional driver failures were rerun against the same clean baseline
-binary after the final workspace run completed:
+binary after the initial workspace run completed:
 
 - `value_does_not_coerce_to_readonly_trait_object_argument` expects a diagnostic
   but receives an empty diagnostic list, on both baseline and current compiler.
@@ -71,7 +73,11 @@ binary after the final workspace run completed:
 
 The baseline commands were `cargo test -p nia-compiler-query --lib ... executable_`
 (66 pass, 5 fail) and `cargo test -p nia-driver --lib ...
-tests::cases::build_cases_match_expectations` (same 36/33 assertion).
+tests::cases::build_cases_match_expectations` (the 36/33 and 33/30 assertions).
+
+The complete follow-up package runs are green: 23 executable-reachability
+tests, 426 body-check tests, 304 compiler-query tests, and 747 driver tests
+(two driver tests remain intentionally ignored).
 
 ## Separate associated-constant representation gap
 
