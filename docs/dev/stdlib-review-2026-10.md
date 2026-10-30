@@ -238,6 +238,14 @@ This is a source survey, not evidence that production workloads exercise overflo
   compiler-query tests, and 748 driver tests (746 passed, 2 ignored) pass.
 - Status: completed in the current repair batch.
 
+### H20 - Keep set iteration types aligned with custom hash contexts
+
+- Files: `lib/std/collections/hash_set.nia`, `lib/std/collections/tree_set.nia`, `lib/std/collections.nia`, `crates/nia-cli/tests/std_hash_set.rs`
+- Evidence: `HashSetWithContext[K, C]` exposed its iterator only through the underlying hash-map provider, while the public `HashSetIter[K]` alias hard-coded the default context. Generic callers could iterate a custom-context set, but could not name the corresponding iterator through the set facade. Set insertion and removal also used single-arm pattern matches for optional replacement values, and `TreeSet` repeated the same optional-state plumbing.
+- Result: add `HashSetIterWithContext[K, C]` and make `HashSetIter[K]` its default-context alias; use the alias in the `Iterable` implementation and re-export it from `std::collections`. Express insertion and removal results through `Option::isNull` and `Option::isPresent`, with the option provider imported explicitly by `TreeSet`. The public facade now preserves the context parameter instead of leaking the hash-map implementation detail.
+- Validation: the hash-set executable regression now creates a custom-context `HashSetWithContext`, iterates it through the public `Iterable` contract, and verifies both elements. Existing hash-set and tree-map/tree-set executable tests pass.
+- Status: completed in the current std collections batch.
+
 ## File checklist
 
 ### `build`
@@ -289,9 +297,9 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 - [ ] `lib/std/collections/array_list.nia`
 - [ ] `lib/std/collections/hash_map.nia`
-- [ ] `lib/std/collections/hash_set.nia`
+- [x] `lib/std/collections/hash_set.nia`
 - [ ] `lib/std/collections/tree_map.nia`
-- [ ] `lib/std/collections/tree_set.nia`
+- [x] `lib/std/collections/tree_set.nia`
 
 ### `collections/array_list`
 
@@ -469,7 +477,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/builtin.nia`
 - [x] `lib/std/checksum.nia`
 - [ ] `lib/std/cmp.nia`
-- [ ] `lib/std/collections.nia`
+- [x] `lib/std/collections.nia`
 - [x] `lib/std/crypto.nia`
 - [ ] `lib/std/cstring.nia`
 - [ ] `lib/std/error.nia`
