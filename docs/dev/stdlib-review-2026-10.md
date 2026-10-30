@@ -318,6 +318,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all 26 `emit_exe_process` tests pass.
 - Status: completed as a focused command-provider cleanup; the remaining process providers stay queued for full review.
 
+### H29 - Compose Windows environment block sizing with checked Option results
+
+- Files: `lib/std/os/windows/command.nia`
+- Evidence: environment block sizing repeated compact checked-arithmetic matches for UTF-8 entry length, cumulative capacity, and UTF-16 allocation size. Every null arm mapped directly to the same `Errno::TooLong` error.
+- Result: import the option provider and use `okOr(Errno::TooLong).?` at each sizing boundary. The environment pointer walk and command-line quoting loops remain explicit because they encode Windows ABI rules.
+- Validation: the three Windows process executable tests covering spawn environment, pipe ownership, and termination semantics pass.
+- Status: completed as a focused platform-provider cleanup; the remaining Windows providers stay queued for full review.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
