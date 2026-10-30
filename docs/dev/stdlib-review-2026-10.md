@@ -138,6 +138,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - The build-host closure snapshot was already missing the artifact and step-registration modules added by the preceding split; it now includes those existing providers and the new formatter provider. Error diagnostics and build-target integration tests pass; no compiler defect was found.
 - Status: review complete.
 
+### Build lifecycle, modules, and ownership review conclusions
+
+- `Build::init` keeps partial ownership inside `BuildInitAttempt`; `finish` preserves the primary initialization error and leaves cleanup failures retryable. `Build::deinit` attempts every scratch, pending, retained, and path release, while record-list cleanup runs in reverse order.
+- Module options distinguish package-rooted and build-rooted paths explicitly. Import validation checks stable names, build-path validity, and duplicate aliases before the retained module is published; position counters also provide precise failing-import subjects.
+- Found an owner-identity exhaustion race: `fetch-add` could wrap `usize::MAX` while a delayed caller that had already observed the separate exhaustion flag still entered the allocator, allowing an old ID to be reused. Replaced the split state with a strong compare-exchange loop and a permanent `usize::MAX` sentinel, so allocation stops before wraparound and contending callers retry from the observed counter value.
+- Validation: build ownership and target-isolation integration tests pass; the atomic executable test confirms the compare-exchange optional-result contract. No compiler change was needed.
+- Status: review complete.
+
 ### Review conclusions
 
 - The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
@@ -157,9 +165,9 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/error.nia`
 - [x] `lib/std/build/error_format.nia`
 - [x] `lib/std/build/handles.nia`
-- [ ] `lib/std/build/lifecycle.nia`
-- [ ] `lib/std/build/modules.nia`
-- [ ] `lib/std/build/ownership.nia`
+- [x] `lib/std/build/lifecycle.nia`
+- [x] `lib/std/build/modules.nia`
+- [x] `lib/std/build/ownership.nia`
 - [x] `lib/std/build/paths.nia`
 - [ ] `lib/std/build/plan.nia`
 - [ ] `lib/std/build/probes.nia`

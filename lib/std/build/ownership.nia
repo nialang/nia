@@ -7,22 +7,25 @@ using root::atomic;
 using root::builtin::atomic as atomicBuiltin;
 
 static mut nextBuildOwnerId: usize = 1;
-static mut buildOwnerIdExhausted: usize = 0;
 
 pub(root) fun allocateBuildOwnerId() ?usize {
-    if atomicBuiltin::atomicLoad[usize](&buildOwnerIdExhausted, atomic::SeqCst) != 0 {
-        return null;
-    }
-    let ownerId = atomicBuiltin::atomicRmw[usize](
-        &mut nextBuildOwnerId,
-        atomic::Add,
-        1,
+    let mut candidate = atomicBuiltin::atomicLoad[usize](
+        &nextBuildOwnerId,
         atomic::Monotonic,
     );
-    if ownerId == 0 or ownerId == usize::MAX {
-        atomicBuiltin::atomicStore[usize](&mut buildOwnerIdExhausted, 1, atomic::SeqCst);
-        null
-    } else {
-        ?ownerId
+    // Keep MAX as a permanent exhausted sentinel. A compare-exchange loop
+    // prevents both wraparound and duplicate IDs when callers race at the end.
+    while candidate != usize::MAX {
+        match atomicBuiltin::cmpxchgStrong[usize](
+            &mut nextBuildOwnerId,
+            candidate,
+            candidate + 1,
+            atomic::Monotonic,
+            atomic::Monotonic,
+        ) {
+            null => return ?candidate,
+            ?observed => candidate = observed,
+        }
     }
+    null
 }
