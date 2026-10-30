@@ -1,6 +1,7 @@
 using root::math;
 using root::mem::allocator;
 using root::mem::types;
+using root::option;
 
 using allocator::Allocator;
 using root::mem::error::Error;
@@ -93,31 +94,10 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let base = self.buffer.ptrMut() as usize;
-        let current = match base.checkedAdd(self.endIndex) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
-        let aligned = match current.alignForward(layout.align()) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let current = base.checkedAdd(self.endIndex).okOr(Error::OutOfMemory).?;
+        let aligned = current.alignForward(layout.align()).okOr(Error::OutOfMemory).?;
         let offset = aligned - base;
-        let newEnd = match offset.checkedAdd(layout.size()) {
-            ?value => {
-                value
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        let newEnd = offset.checkedAdd(layout.size()).okOr(Error::OutOfMemory).?;
         if newEnd > self.buffer.len() {
             return .OutOfMemory!;
         }
