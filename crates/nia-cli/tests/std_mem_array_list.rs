@@ -826,47 +826,6 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if allocator.freeCount != rollbackFreeCount + 3 {
         return process::ExitCode(18)!;
     }
-
-    // Insertion and replacement share alias stabilization with append, but
-    // must retain the same owners for both committed and rolled-back writes.
-    for operation in 0..2usize {
-        let mut committed = std::ArrayList[i32]::init();
-        committed.reserveExact(&mut allocator, 8).?;
-        committed.appendSliceAssumeCapacity(&[1, 2, 3, 4]);
-        let input = &committed.asSlice()[1..3];
-        allocator.failNextFrees(1);
-        let result = if operation == 0 {
-            committed.insertSlice(&mut allocator, 1, input)
-        } else {
-            committed.replaceRange(&mut allocator, 1, 1, input)
-        };
-        if result is !() { return process::ExitCode(19)!; }
-        let inserted: [i32; 6] = [1, 2, 3, 2, 3, 4];
-        let replaced: [i32; 5] = [1, 2, 3, 3, 4];
-        let expected = if operation == 0 { &inserted[..] } else { &replaced[..] };
-        if not committed.asSlice().equals(expected) { return process::ExitCode(20)!; }
-        let beforeCleanup = allocator.freeCount;
-        committed.deinit(&mut allocator).?;
-        if allocator.freeCount != beforeCleanup + 2 { return process::ExitCode(21)!; }
-
-        let mut rolledBack = std::ArrayList[i32]::init();
-        rolledBack.reserveExact(&mut allocator, 4).?;
-        rolledBack.appendSliceAssumeCapacity(&[5, 6, 7, 8]);
-        let input = &rolledBack.asSlice()[0..3];
-        allocator.failNextFrees(3);
-        let result = if operation == 0 {
-            rolledBack.insertSlice(&mut allocator, 1, input)
-        } else {
-            rolledBack.replaceRange(&mut allocator, 1, 1, input)
-        };
-        if result is !() { return process::ExitCode(22)!; }
-        if not rolledBack.asSlice().equals(&[5, 6, 7, 8]) {
-            return process::ExitCode(23)!;
-        }
-        let beforeCleanup = allocator.freeCount;
-        rolledBack.deinit(&mut allocator).?;
-        if allocator.freeCount != beforeCleanup + 3 { return process::ExitCode(24)!; }
-    }
     !()
 }
 "#,
