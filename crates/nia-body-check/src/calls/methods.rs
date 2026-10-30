@@ -515,6 +515,7 @@ impl<'a> BodyChecker<'a> {
         let viable_candidates = self.profile_stage("body_check.profile.method.viable", |this| {
             this.viable_method_candidates(&call, &candidates)
         });
+        let mut provider_demand_recorded = false;
         let trait_candidates = if !trait_candidates_searched
             && trait_candidates.is_empty()
             && viable_candidates.is_empty()
@@ -540,6 +541,10 @@ impl<'a> BodyChecker<'a> {
             });
         }
         if viable_candidates.is_empty() && !visible_trait_candidates.is_empty() {
+            // A builtin or imported trait candidate does not rule out an
+            // inherent provider for the same spelling. Keep provider loading
+            // orthogonal to the first candidate family we inspect.
+            self.record_method_provider_demand(receiver_ty, *call.name);
             return self.profile_stage("body_check.profile.method.trait_call", |this| {
                 this.check_trait_method_call_with_receiver_ty(call, visible_trait_candidates)
             });
@@ -608,27 +613,36 @@ impl<'a> BodyChecker<'a> {
             && candidates.is_empty()
             && !self.is_error_recovery_ty(receiver_ty)
             && !matches!(self.interner.get(receiver_ty), Some(TyKind::ConstOnly))
-            && !self.supports_field_access(receiver_ty)
         {
-            self.record_method_provider_demand(receiver_ty, *call.name);
-            let name = self.symbol_name(*call.name);
-            let receiver_name = self.ty_name(receiver_ty);
-            let summary = format!("unknown method `{name}`");
-            self.diagnostics.push(
-                Diagnostic::user_error(codes::NAME_RESOLUTION, summary.clone())
-                    .primary(call.callee_span, format!("no method named `{name}` is available here"))
-                    .note(format!("the receiver has type `{receiver_name}`"))
-                    .help(format!(
-                        "check the method name, import a trait that provides `{name}`, or use a field access"
-                    ))
-                    .finish(),
-            );
-            for arg in call.args {
-                self.check_expr(arg);
+            provider_demand_recorded = self.record_method_provider_demand(receiver_ty, *call.name);
+            // Method lookup and field-call fallback are independent. A
+            // nominal receiver can still expose a callable field even when
+            // no extension candidate is currently loaded, so provider
+            // discovery must not turn a provisional method miss into a
+            // diagnostic before the ordinary field checker gets a chance.
+            if !self.supports_field_access(receiver_ty) {
+                let name = self.symbol_name(*call.name);
+                let receiver_name = self.ty_name(receiver_ty);
+                let summary = format!("unknown method `{name}`");
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::NAME_RESOLUTION, summary.clone())
+                        .primary(
+                            call.callee_span,
+                            format!("no method named `{name}` is available here"),
+                        )
+                        .note(format!("the receiver has type `{receiver_name}`"))
+                        .help(format!(
+                            "check the method name, import a trait that provides `{name}`, or use a field access"
+                        ))
+                        .finish(),
+                );
+                for arg in call.args {
+                    self.check_expr(arg);
+                }
+                return Some(self.error());
             }
-            return Some(self.error());
         }
-        if viable_candidates.is_empty() {
+        if viable_candidates.is_empty() && !provider_demand_recorded {
             self.record_method_provider_demand(receiver_ty, *call.name);
         }
         let candidate = self.profile_stage("body_check.profile.method.single_candidate", |this| {

@@ -343,23 +343,28 @@ impl ProviderSummary {
         method_name: &SymbolId,
     ) -> bool {
         self.providers.iter().any(|provider| {
-            provider.trait_ref.is_some()
-                && match (target_type_name, provider.target.ty.last_name) {
-                    // A named target, even one imported under that name,
-                    // matches by name, so default and supertrait methods of
-                    // its impl are found.
-                    (Some(receiver), Some(target)) => receiver == &target,
-                    // A blanket or unresolved target may be any receiver; it
-                    // matches only when its block defines the method, or every
-                    // such provider in the package would load for any call.
-                    (Some(_), None) => provider.has_associated_item(method_name),
-                    (None, _) => true,
+            (match (target_type_name, provider.target.ty.last_name) {
+                // A named target, even one imported under that name,
+                // matches by name, so default and supertrait methods of
+                // its impl are found.
+                (Some(receiver), Some(target)) => {
+                    receiver == &target
+                        && (provider.trait_ref.is_some()
+                            || provider.has_associated_item(method_name))
                 }
-                && provider.may_target(
+                // A blanket or unresolved target may be any receiver; it
+                // matches only when its block defines the method, or every
+                // such provider in the package would load for any call.
+                (Some(_), None) => provider.has_associated_item(method_name),
+                (None, _) => {
+                    provider.trait_ref.is_some() || provider.has_associated_item(method_name)
+                }
+            }) && (provider.trait_ref.is_none()
+                || provider.may_target(
                     target_type_name,
                     target_module_segments,
                     provider_module_segments,
-                )
+                ))
         })
     }
 

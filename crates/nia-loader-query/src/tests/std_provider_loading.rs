@@ -49,6 +49,25 @@ fun main(values: &[i32]) ?&i32 {
 }
 
 #[test]
+fn query_loader_loads_array_list_inherent_provider_for_len() {
+    let root = temp_dir("query_loader_loads_array_list_inherent_provider_for_len");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections;
+
+fun main(values: collections::ArrayList[i32]) usize {
+    values.len()
+}
+"#,
+    );
+    let program = load_program(main_path.to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/collections/array_list/list.nia");
+}
+
+#[test]
 fn query_loader_loads_len_trait_provider_on_explicit_demand() {
     let root = temp_dir("query_loader_loads_len_trait_provider_on_explicit_demand");
     let main_path = root.join("main.nia");

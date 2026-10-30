@@ -488,9 +488,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         receiver_ty: InternedTyId,
         method_name: SymbolId,
-    ) {
+    ) -> bool {
         if self.provider_demand_target_is_error(receiver_ty) {
-            return;
+            return false;
         }
         let target_type_name = self.provider_target_type_name(receiver_ty);
         self.record_provider_demand(crate::ProviderDemand {
@@ -506,6 +506,7 @@ impl<'a> BodyChecker<'a> {
                 method_name,
             },
         });
+        true
     }
 
     pub(crate) fn record_trait_provider_demand(
