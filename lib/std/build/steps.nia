@@ -228,7 +228,7 @@ extend Step {
         output: BuildPathView,
         contents: &[u8],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.initializeName(allocator, name).?;
         self.payload.generatedFile.initialize(allocator, output, contents, self.index)
     }
 
@@ -238,7 +238,7 @@ extend Step {
         name: &[char],
         description: &[char],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.initializeName(allocator, name).?;
         self.payload.uncacheable.initialize(allocator, description, self.index)
     }
 
@@ -248,7 +248,7 @@ extend Step {
         name: &[char],
         arguments: ?&[&[char]],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.initializeName(allocator, name).?;
         self.payload.runExecutable.initialize(allocator, arguments, self.index)
     }
 
@@ -258,7 +258,7 @@ extend Step {
         name: &[char],
         destination: BuildPathView,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.initializeName(allocator, name).?;
         self.payload.installExecutable.initialize(allocator, destination, self.index)
     }
 
@@ -268,7 +268,7 @@ extend Step {
         name: &[char],
         destination: BuildPathView,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.initializeName(allocator, name).?;
         self.payload.installStaticArchive.initialize(allocator, destination, self.index)
     }
 
@@ -278,7 +278,7 @@ extend Step {
         name: &[char],
         options: ExternalCommandOptions,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.initializeName(allocator, name).?;
         self.payload.externalCommand.initialize(allocator, options, self.index)
     }
 

@@ -122,6 +122,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: build-plan codec and Nia build-target/plan integration suites pass; no compiler or lazy-loading defect was involved.
 - Status: completed.
 
+### H15 — Keep build record initialization and handle domains explicit
+
+- Files: `lib/std/build/steps.nia`, `lib/std/build/targets.nia`, `lib/std/build/types.nia`, `lib/std/build/validation.nia`
+- Evidence: step payload initialization repeated the same owned-name transition in every variant; target option builders intentionally remain value-style because each artifact kind has a different valid field set. Package handles use index `0` for the root and `1..count` for retained dependencies, while all other handles use `0..count-1`.
+- Result: route every step payload initializer through the existing `initializeName` boundary. Keep the target option copies and validation split explicit; collapsing them would either expose invalid fields or erase the package/root index distinction.
+- Validation: build-target, build-case, test-step, ownership, and plan integration suites pass. No compiler or handle-domain defect was confirmed.
+- Status: completed.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -197,9 +205,10 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/probes.nia`
 - [x] `lib/std/build/queries.nia`
 - [ ] `lib/std/build/steps.nia`
-- [ ] `lib/std/build/targets.nia`
-- [ ] `lib/std/build/types.nia`
-- [ ] `lib/std/build/validation.nia`
+- [x] `lib/std/build/steps.nia`
+- [x] `lib/std/build/targets.nia`
+- [x] `lib/std/build/types.nia`
+- [x] `lib/std/build/validation.nia`
 
 ### `builtin`
 
