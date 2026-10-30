@@ -1598,6 +1598,28 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_hash_map_capacity_checks_final_layout_without_intermediate_overflow() {
+    let root = temp_dir("emit_exe_std_hash_map_capacity_checks_final_layout");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&main, include_str!("support/hash_map_capacity.nia"))
+        .expect("write capacity boundary source");
+    let output = support::nia_command()
+        .args(["emit", "--exe"])
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit hash map capacity boundary test");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run hash map capacity boundary test");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_hash_map_model_churn_and_clone() {
     let root = temp_dir("emit_exe_std_hash_map_model_churn_and_clone");
     let main = root.join("main.nia");

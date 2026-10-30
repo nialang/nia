@@ -1,0 +1,71 @@
+using std::builtin;
+using std::collections;
+using std::mem;
+using std::process;
+
+struct Marker {}
+struct Context {}
+struct RecordingAllocator {
+    attempts: usize,
+    size: usize,
+    align: usize,
+}
+
+extend Context : collections::HashMapContext[Marker] {
+    fun hash(&self, seed: u64, key: &Marker) u64 { 0 }
+    fun eql(&self, left: &Marker, right: &Marker) bool { true }
+}
+
+extend RecordingAllocator : mem::Allocator {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.attempts += 1;
+        self.size = layout.size();
+        self.align = layout.align();
+        .OutOfMemory!
+    }
+
+    fun free(&mut self, block: mem::Block) mem::Error!() { .Invalid! }
+}
+
+fun expectCapacity(requested: usize, buckets: usize) process::ExitCode!() {
+    let mut allocator = RecordingAllocator { attempts: 0, size: 0, align: 0 };
+    let mut map = collections::HashMapWithContext[Marker, Marker, Context]::initContextSeed({}, 9);
+    let result = map.ensureTotalCapacity(&mut allocator, requested);
+    if result is error! {
+        if error as i32 != mem::Error::OutOfMemory as i32 {
+            return process::ExitCode(1)!;
+        }
+    } else {
+        return process::ExitCode(2)!;
+    }
+    if buckets == 0 {
+        if allocator.attempts != 0 { return process::ExitCode(3)!; }
+    } else if allocator.attempts != 1 or allocator.size != buckets + 7 or allocator.align != 1 {
+        return process::ExitCode(4)!;
+    }
+    if not map.isEmpty() or map.capacity() != 0 { return process::ExitCode(5)!; }
+    map.deinit(&mut allocator).?;
+    !()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let width = builtin::target::pointerWidth as usize;
+    // This input used to overflow the intermediate capacity * 8 even though
+    // its bucket count and combined allocation layout are representable.
+    expectCapacity(1usize << (width - 3), 1usize << (width - 2)).?;
+    for exponent in 3usize..width {
+        let buckets = 1usize << exponent;
+        let capacity = (buckets / 8) * 7;
+        expectCapacity(capacity - 1, buckets).?;
+        expectCapacity(capacity, buckets).?;
+        if exponent < width - 1 {
+            expectCapacity(capacity + 1, buckets * 2).?;
+        } else {
+            expectCapacity(capacity + 1, 0).?;
+        }
+    }
+    expectCapacity(1, 8).?;
+    expectCapacity(usize::MAX, 0).?;
+    !()
+}

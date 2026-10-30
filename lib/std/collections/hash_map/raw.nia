@@ -2,6 +2,8 @@ using root::iter::range;
 using root::math;
 using root::mem;
 using root::os;
+using root::option;
+using root::slice;
 
 pub const ctrlEmpty: u8 = 0xff;
 pub const ctrlDeleted: u8 = 0x80;
@@ -63,14 +65,9 @@ extend ProbeCursor {
         }
         self.stride = addMod(self.stride, groupWidth, self.capacity);
         self.pos = addMod(self.pos, self.stride, self.capacity);
-        self.visited = match self.visited.checkedAdd(groupWidth) {
-            ?value => {
-                if value > self.capacity { self.capacity } else { value }
-            },
-            null => {
-                self.capacity
-            },
-        };
+        // Valid capacities and the visited count are multiples of groupWidth;
+        // this step cannot pass capacity or overflow while hasRemaining holds.
+        self.visited += groupWidth;
     }
 }
 
@@ -139,14 +136,7 @@ pub fun ctrlAllocationLen(capacity: usize) mem::Error!usize {
     if capacity == 0 {
         return !0;
     }
-    match capacity.checkedAdd(groupWidth - 1) {
-        ?value => {
-            !value
-        },
-        null => {
-            .OutOfMemory!
-        },
-    }
+    capacity.checkedAdd(groupWidth - 1).okOr(mem::Error::OutOfMemory)
 }
 
 pub fun mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) () {
@@ -159,8 +149,8 @@ pub fun mirrorCtrlTail(ctrl: &mut [u8], bucketCount: usize) () {
 }
 
 pub fun fillCtrl(ctrl: &mut [u8], value: u8) () {
-    for index in 0..ctrl.len() {
-        ctrl[index] = value;
+    for slot in ctrl.iterMut() {
+        slot.* = value;
     }
 }
 
@@ -185,37 +175,18 @@ pub fun capacityToBuckets(capacity: usize) mem::Error!usize {
         return !16;
     }
 
-    let multiplied = match capacity.checkedMul(8) {
-        ?value => {
-            value
-        },
-        null => {
-            return .OutOfMemory!;
-        },
-    };
-    let biased = match multiplied.checkedAdd(6) {
-        ?value => {
-            value
-        },
-        null => {
-            return .OutOfMemory!;
-        },
-    };
-    let adjusted = biased / 7;
+    // ceil(capacity * 8 / 7) = capacity + ceil(capacity / 7).
+    // Divide first so a representable bucket count is not rejected because
+    // the intermediate product overflows. The quotient plus one always fits.
+    let extra = capacity / 7 + if capacity % 7 == 0 { 0usize } else { 1usize };
+    let adjusted = capacity.checkedAdd(extra).okOr(mem::Error::OutOfMemory).?;
     nextPowerOfTwo(adjusted)
 }
 
 pub fun nextPowerOfTwo(value: usize) mem::Error!usize {
     let mut n: usize = 1;
     while n < value {
-        n = match n.checkedMul(2) {
-            ?next => {
-                next
-            },
-            null => {
-                return .OutOfMemory!;
-            },
-        };
+        n = n.checkedMul(2).okOr(mem::Error::OutOfMemory).?;
     }
     !n
 }
