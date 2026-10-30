@@ -12,6 +12,8 @@
 // retry path. `if value is pattern` follows the same ownership model as
 // `match`.
 
+using root::option;
+
 pub struct CleanupAccumulator[Failure] {
     firstFailure: ?Failure,
 }
@@ -31,7 +33,7 @@ extend[Failure] CleanupAccumulator[Failure] {
 
     // Query whether every attempted cleanup has succeeded so far.
     pub fun isClean(&self) bool {
-        if self.firstFailure is ?_ { false } else { true }
+        self.firstFailure.isNull()
     }
 
     // Return the first recorded failure after all cleanup attempts are complete.
