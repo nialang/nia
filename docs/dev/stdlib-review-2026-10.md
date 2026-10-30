@@ -302,6 +302,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all nine non-ignored `std_hash_map` tests pass; the 8 GiB streaming test remains intentionally ignored.
 - Status: completed as a focused map review item; the remaining hash-map providers stay queued for the full module review.
 
+### H27 - Express cleanup accumulator state through Option
+
+- Files: `lib/std/error/cleanup.nia`
+- Evidence: `CleanupAccumulator::isClean` converted the optional first failure to a boolean with a branch that did no work in either arm.
+- Result: import the option provider and use `isNull()` directly. Failure capture and first-failure ordering remain explicit in `attempt` and `finish` because they carry ownership and error precedence semantics.
+- Validation: all nine `std_error` tests and the build ownership rollback test pass.
+- Status: completed.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
@@ -391,7 +399,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `error`
 
-- [ ] `lib/std/error/cleanup.nia`
+- [x] `lib/std/error/cleanup.nia`
 
 ### `fmt`
 
