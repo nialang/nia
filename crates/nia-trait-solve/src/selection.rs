@@ -212,7 +212,12 @@ impl TraitSolver<'_> {
                     trait_const_args: trait_const_args.clone(),
                 };
                 if !self.proves_inner(dependency.clone()) {
-                    if matches!(dependency.trait_id, TraitId::Source(_))
+                    let is_cycle = (0..self.active_goals.len()).any(|index| {
+                        let active = self.active_goals[index].clone();
+                        self.goals_equivalent(&active, &dependency)
+                    });
+                    if !is_cycle
+                        && matches!(dependency.trait_id, TraitId::Source(_))
                         && !self.unresolved_dependencies.contains(&dependency)
                     {
                         self.unresolved_dependencies.push(dependency);

@@ -1721,17 +1721,24 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
     };
     let mut solver = context.solver(&[]);
 
+    let goal_a = TraitGoal {
+        self_ty: target,
+        trait_id: trait_a,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    };
+    let goal_b = TraitGoal {
+        trait_id: trait_b,
+        ..goal_a.clone()
+    };
     assert_eq!(
         solver
-            .resolve(TraitGoal {
-                self_ty: target,
-                trait_id: trait_a,
-                trait_args: Vec::new(),
-                trait_const_args: Vec::new(),
-            })
+            .resolve(goal_a.clone())
             .expect("resolve cyclic where goal"),
         TraitResolution::Unsatisfied
     );
+    assert_eq!(solver.unresolved_dependencies(), &[goal_b]);
+    assert!(!solver.unresolved_dependencies().contains(&goal_a));
 }
 
 #[test]
