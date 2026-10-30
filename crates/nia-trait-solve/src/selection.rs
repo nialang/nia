@@ -205,12 +205,18 @@ impl TraitSolver<'_> {
                 else {
                     return false;
                 };
-                if !self.proves_inner(TraitGoal {
+                let dependency = TraitGoal {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
                     trait_const_args: trait_const_args.clone(),
-                }) {
+                };
+                if !self.proves_inner(dependency.clone()) {
+                    if matches!(dependency.trait_id, TraitId::Source(_))
+                        && !self.unresolved_dependencies.contains(&dependency)
+                    {
+                        self.unresolved_dependencies.push(dependency);
+                    }
                     return false;
                 }
                 for binding in &bound.associated_type_bindings {

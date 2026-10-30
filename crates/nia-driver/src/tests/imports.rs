@@ -1906,6 +1906,45 @@ fun main() mem::Error!usize {
 }
 
 #[test]
+fn signature_trait_impl_loads_nested_provider_dependency() {
+    let root = temp_dir("signature_trait_impl_loads_nested_provider_dependency");
+    fs::create_dir_all(root.join("dep")).unwrap();
+    write(
+        &root.join("main.nia"),
+        "using dep::{Box, Widget}; fun consume(value: Box[Widget]) () { _ = value; }",
+    );
+    write(
+        &root.join("dep/root.nia"),
+        "pub module api; module outer; module middle; module leaf; pub using api::{Box, Widget};",
+    );
+    write(
+        &root.join("dep/api.nia"),
+        "pub trait Outer {} pub trait Middle {} pub trait Leaf {} pub struct Widget {} pub struct Box[T] where T: Outer { value: T }",
+    );
+    write(
+        &root.join("dep/outer.nia"),
+        "using root::api; extend[T] T : api::Outer where T: api::Middle {}",
+    );
+    write(
+        &root.join("dep/middle.nia"),
+        "using root::api; extend[T] T : api::Middle where T: api::Leaf {}",
+    );
+    write(
+        &root.join("dep/leaf.nia"),
+        "using root::api; extend api::Widget : api::Leaf {}",
+    );
+    let mut module_map = nia_imports::ModuleMap::new();
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep/root.nia").to_string_lossy()),
+        )
+        .unwrap();
+    let program = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
 fn package_owned_trait_impl_in_private_modules_satisfies_external_obligations() {
     let root = temp_dir("package_owned_trait_impl_in_private_modules");
     write(

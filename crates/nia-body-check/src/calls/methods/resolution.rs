@@ -543,6 +543,15 @@ impl<'a> BodyChecker<'a> {
         });
     }
 
+    pub(crate) fn record_trait_solver_dependencies(
+        &self,
+        solver: &nia_trait_solve::TraitSolver<'_>,
+    ) {
+        for goal in solver.unresolved_dependencies() {
+            self.record_trait_provider_demand(goal.self_ty, goal.trait_id, &goal.trait_args);
+        }
+    }
+
     fn provider_target_type_name(&self, ty: InternedTyId) -> Option<SymbolId> {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),

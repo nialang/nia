@@ -175,6 +175,9 @@ pub struct UserAssociatedConst {
 pub struct TraitSolver<'a> {
     interner: TraitSolverTypeCx<'a>,
     active_goals: Vec<TraitGoal>,
+    /// Concrete source-trait prerequisites encountered while checking impl
+    /// where-clauses. The outer query is intentionally never recorded here.
+    unresolved_dependencies: Vec<TraitGoal>,
     normalization: &'a TypeNormalization,
     trait_impls: &'a [ProgramTraitImplSignature],
     trait_impl_index: Option<&'a ProgramTraitImplIndex>,
@@ -191,6 +194,11 @@ pub struct TraitSolver<'a> {
 }
 
 impl TraitSolver<'_> {
+    /// Returns the provider facts needed to complete candidate selection.
+    pub fn unresolved_dependencies(&self) -> &[TraitGoal] {
+        &self.unresolved_dependencies
+    }
+
     /// Returns the current session counters without changing solver state.
     pub fn stats(&self) -> TraitSolverStats {
         self.stats
@@ -280,6 +288,7 @@ impl<'a> TraitSolverContext<'a> {
                 internal_error: parking_lot::Mutex::new(None),
             },
             active_goals: Vec::new(),
+            unresolved_dependencies: Vec::new(),
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: self.trait_impl_index,
@@ -310,6 +319,7 @@ impl<'a> TraitSolverContext<'a> {
                 internal_error: parking_lot::Mutex::new(None),
             },
             active_goals: Vec::new(),
+            unresolved_dependencies: Vec::new(),
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: self.trait_impl_index,

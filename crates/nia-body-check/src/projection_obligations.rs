@@ -2031,6 +2031,11 @@ impl<'a> BodyChecker<'a> {
                 return TraitResolution::Unsatisfied;
             }
         };
+        if matches!(resolution, TraitResolution::Unsatisfied)
+            && matches!(required.trait_id, TraitId::Source(_))
+        {
+            self.record_trait_solver_dependencies(&solver);
+        }
         if self.timing {
             let stats = solver.stats();
             nia_timing::emit_counter("body_check.trait_solver.goals", stats.goals);
