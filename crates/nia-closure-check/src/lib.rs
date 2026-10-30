@@ -775,6 +775,7 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::Null
             | TypedExprKind::Global(_)
             | TypedExprKind::ConstGeneric(_)
+            | TypedExprKind::AssociatedConstProjection(_)
             | TypedExprKind::Function(_)
             | TypedExprKind::EnumConstructor(_)
             | TypedExprKind::FunctionInstance { .. }

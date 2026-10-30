@@ -1214,6 +1214,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::Bool(_)
                 | TypedExprKind::Null
                 | TypedExprKind::ConstGeneric(_)
+                | TypedExprKind::AssociatedConstProjection(_)
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::EnumConstructor(_)

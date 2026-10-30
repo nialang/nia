@@ -13,7 +13,10 @@ use nia_function_ir::{
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
+use nia_trait_solve::{
+    AssociatedConstResolution, AssociatedTypeProjectionEq, TraitGoal, TraitResolution,
+    TraitSolverContext,
+};
 use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 
 mod function_body_instantiation;
@@ -1816,6 +1819,41 @@ impl<'a> ModuleLowerer<'a> {
         let mut solver =
             context.solver_with_associated_type_assumptions(&[], &associated_type_assumptions);
         match solver.resolve_associated_type(
+            projection.self_ty,
+            projection.trait_id,
+            &projection.trait_args,
+            &projection.trait_const_args,
+            &projection.name,
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                self.type_context.record_internal(error);
+                None
+            }
+        }
+    }
+
+    fn resolve_associated_const_projection(
+        &mut self,
+        projection: &ProjectionInstantiationKey,
+    ) -> Option<AssociatedConstResolution> {
+        let assumptions = self.current_trait_assumptions();
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
+        let context = TraitSolverContext {
+            type_store: self.type_store,
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
+            layouts: Some(self.input.layouts),
+            program_layouts: None,
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_is_enum: Some(&program_is_enum),
+            const_expr_value: None,
+            impl_is_visible: None,
+        };
+        let mut solver = context.solver(&assumptions);
+        match solver.resolve_associated_const(
             projection.self_ty,
             projection.trait_id,
             &projection.trait_args,

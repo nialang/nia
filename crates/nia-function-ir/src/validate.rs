@@ -659,6 +659,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
             | FunctionExprKind::ConstGeneric(_)
+            | FunctionExprKind::AssociatedConstProjection(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)

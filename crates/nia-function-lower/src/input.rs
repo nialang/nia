@@ -334,6 +334,7 @@ impl BodyInputValidator<'_, '_> {
             | TypedExprKind::Bool(_)
             | TypedExprKind::Null
             | TypedExprKind::ConstGeneric(_)
+            | TypedExprKind::AssociatedConstProjection(_)
             | TypedExprKind::Local(_)
             | TypedExprKind::Global(_)
             | TypedExprKind::Function(_)

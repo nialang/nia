@@ -499,6 +499,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         item_signatures,
         const_array_lengths,
         const_enum_values,
+        const_modules,
         visible_extensions,
         extension_methods,
         function_bodies,
@@ -557,6 +558,13 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 .iter()
                 .map(|checked_module| Arc::clone(&checked_module.const_eval.enum_values))
                 .collect::<Vec<_>>();
+            let const_modules = checked_modules
+                .iter()
+                .map(|checked_module| {
+                    db.get(ConstModuleQuery(checked_module.id))
+                        .map(|module| Arc::clone(&module.module))
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
             let visible_extensions = time_provider(
                 timings,
                 "backend_lowering.inputs.visible_extensions",
@@ -590,6 +598,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 item_signatures,
                 const_array_lengths,
                 const_enum_values,
+                const_modules,
                 visible_extensions,
                 extension_methods,
                 function_bodies,
@@ -609,7 +618,26 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         checked_modules.iter().map(|module| module.id),
     )?;
     let runtime = db.get(CompilerRuntimeQuery)?.as_ref().clone();
+    let target = db.get(CompilerTargetQuery)?.as_ref().clone();
     let graph = db.context().loader_facts.module_graph()?;
+    let program_function_signatures = graph
+        .modules()
+        .map(|module| {
+            let functions = db.get(SignatureItemSignaturesQuery(
+                module.id,
+                nia_item_tree::SignatureItemSet::Functions,
+            ))?;
+            let extension_functions = db.get(SignatureItemSignaturesQuery(
+                module.id,
+                nia_item_tree::SignatureItemSet::ExtensionFunctions,
+            ))?;
+            let mut merged = functions.semantic.as_ref().clone();
+            merged
+                .functions
+                .extend(extension_functions.semantic.functions.clone());
+            Ok((module.id, Arc::new(merged)))
+        })
+        .collect::<QueryResult<HashMap<_, _>>>()?;
     let source_identities = graph
         .modules()
         .map(|module| (module.id, module.stable_key.source_identity().clone()))
@@ -629,6 +657,9 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 item_signatures,
                 const_array_lengths,
                 const_enum_values,
+                const_modules,
+                target,
+                type_store: Arc::clone(&db.context().type_store),
                 visible_extensions,
                 extension_methods,
                 function_bodies,
@@ -638,6 +669,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
                 program_defs,
                 non_function_signatures,
                 functions,
+                program_function_signatures,
             })
         },
     )?;

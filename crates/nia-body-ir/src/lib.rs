@@ -349,6 +349,22 @@ pub struct TypedExpr {
     pub kind: TypedExprKind,
 }
 
+/// A source associated-constant projection retained until generic
+/// instantiation can select its implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedAssociatedConstProjection {
+    /// Concrete or symbolic `Self` type.
+    pub self_ty: InternedTyId,
+    /// Trait declaring the associated constant.
+    pub trait_id: TraitId,
+    /// Trait type arguments.
+    pub trait_args: Vec<InternedTyId>,
+    /// Trait const arguments.
+    pub trait_const_args: Vec<ConstGenericArg>,
+    /// Associated constant name.
+    pub name: SymbolId,
+}
+
 /// Expression operation after semantic checking.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExprKind {
@@ -376,6 +392,9 @@ pub enum TypedExprKind {
     Global(GlobalDefId),
     /// Const-generic value reference.
     ConstGeneric(nia_ty::ConstGenericArg),
+    /// Associated constant whose implementation is selected during
+    /// generic instantiation.
+    AssociatedConstProjection(TypedAssociatedConstProjection),
     /// Monomorphic function reference.
     Function(GlobalDefId),
     /// Thin function pointer that constructs a tuple enum variant.

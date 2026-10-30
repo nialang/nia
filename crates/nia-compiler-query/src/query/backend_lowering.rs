@@ -12,6 +12,8 @@ pub(super) struct BackendLoweringInputs {
     item_signatures: Vec<ItemSignatures>,
     const_array_lengths: Vec<Arc<HashMap<GlobalConstExprId, u64>>>,
     const_enum_values: Vec<Arc<HashMap<DefId, nia_const_check::ConstValue>>>,
+    const_values: Vec<Arc<HashMap<GlobalDefId, nia_const_check::ConstValue>>>,
+    associated_const_evaluator: BackendAssociatedConstEvaluator,
     visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     extension_methods: Arc<ExtensionMethodIndexValue>,
     function_bodies: Vec<LoweredFunctionBodyHandle>,
@@ -37,6 +39,9 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) item_signatures: Vec<ItemSignatures>,
     pub(super) const_array_lengths: Vec<Arc<HashMap<GlobalConstExprId, u64>>>,
     pub(super) const_enum_values: Vec<Arc<HashMap<DefId, nia_const_check::ConstValue>>>,
+    pub(super) const_modules: Vec<Arc<nia_const_ir::ResolvedConstModule>>,
+    pub(super) target: nia_target::TargetConfig,
+    pub(super) type_store: Arc<nia_ty::TypeStore>,
     pub(super) visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     pub(super) extension_methods: Arc<ExtensionMethodIndexValue>,
     pub(super) function_bodies: Vec<LoweredFunctionBodyHandle>,
@@ -46,17 +51,246 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) program_defs: Vec<Arc<DefCollection>>,
     pub(super) non_function_signatures: ProgramExecutableNonFunctionSignatures,
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(super) program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
     pub(super) runtime: RuntimeSpec,
+}
+
+struct BackendAssociatedConstModule {
+    module: Arc<nia_const_ir::ResolvedConstModule>,
+    defs: Arc<nia_defs::DefCollection>,
+    values: Arc<nia_value_resolve::ValueResolution>,
+    locals: Arc<nia_local_resolve::LocalResolution>,
+    semantic_uses: Arc<nia_sema_ir::SemanticUseTable>,
+    lowered: Arc<nia_type_lower::TypeLowering>,
+    signatures: Arc<ItemSignatures>,
+    normalization: Arc<nia_type_normalize::TypeNormalization>,
+    const_eval: Arc<nia_const_check::ConstCheck>,
+    const_values: Arc<nia_const_check::ConstValues>,
+    visible_extensions: Arc<nia_defs::VisibleExtensionMethods>,
+    source_path: nia_source::SourcePath,
+    source_text: Arc<str>,
+}
+
+struct BackendAssociatedConstEvaluator {
+    modules: HashMap<ModuleId, BackendAssociatedConstModule>,
+    symbols: nia_symbol_table::SymbolTable,
+    type_store: Arc<nia_ty::TypeStore>,
+    target: nia_target::TargetConfig,
+    program_functions: HashMap<GlobalDefId, nia_item_signatures::ProgramFunctionSignature>,
+    program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
+}
+
+impl BackendAssociatedConstEvaluator {
+    fn new(
+        checked_modules: &[Arc<CheckedModule>],
+        const_modules: Vec<Arc<nia_const_ir::ResolvedConstModule>>,
+        item_signatures: Vec<ItemSignatures>,
+        symbols: nia_symbol_table::SymbolTable,
+        type_store: Arc<nia_ty::TypeStore>,
+        target: nia_target::TargetConfig,
+        visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
+        program_functions: HashMap<GlobalDefId, nia_item_signatures::ProgramFunctionSignature>,
+        program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
+    ) -> QueryResult<Self> {
+        if checked_modules.len() != const_modules.len()
+            || checked_modules.len() != item_signatures.len()
+        {
+            return Err(QueryError::internal(
+                "associated const evaluator inputs do not match checked module count",
+            ));
+        }
+        if checked_modules.len() != visible_extensions.len() {
+            return Err(QueryError::internal(
+                "associated const evaluator visibility inputs do not match checked module count",
+            ));
+        }
+        let program_function_signatures_for_modules = program_function_signatures.clone();
+        let modules = checked_modules
+            .iter()
+            .zip(const_modules)
+            .zip(item_signatures)
+            .zip(visible_extensions)
+            .map(|(((checked, module), signatures), visible_extensions)| {
+                let mut signatures = signatures;
+                if let Some(program_signatures) =
+                    program_function_signatures_for_modules.get(&checked.id)
+                {
+                    signatures
+                        .functions
+                        .extend(program_signatures.functions.clone());
+                }
+                (
+                    checked.id,
+                    BackendAssociatedConstModule {
+                        module,
+                        defs: Arc::clone(&checked.defs),
+                        values: Arc::clone(&checked.value_resolution),
+                        locals: Arc::clone(&checked.local_resolution),
+                        semantic_uses: Arc::clone(&checked.semantic_uses),
+                        lowered: Arc::clone(&checked.type_lowering),
+                        signatures: Arc::new(signatures),
+                        normalization: Arc::clone(&checked.type_normalization),
+                        const_eval: Arc::clone(&checked.const_eval),
+                        const_values: Arc::new(nia_const_check::ConstValues {
+                            values: Arc::clone(&checked.const_eval.values),
+                            typed_values: Arc::clone(&checked.const_eval.typed_values),
+                            provider_demands: Arc::clone(&checked.const_eval.provider_demands),
+                            diagnostics: Vec::new(),
+                        }),
+                        visible_extensions: Arc::clone(&visible_extensions.methods),
+                        source_path: checked.path.clone(),
+                        source_text: Arc::from(""),
+                    },
+                )
+            })
+            .collect();
+        Ok(Self {
+            modules,
+            symbols,
+            type_store,
+            target,
+            program_functions,
+            program_function_signatures,
+        })
+    }
+
+    fn evaluate(
+        &self,
+        user: &nia_trait_solve::UserAssociatedConst,
+    ) -> Option<nia_const_check::ConstValue> {
+        let module = self.modules.get(&user.impl_module_id)?;
+        let module_provider = |module_id| {
+            self.modules
+                .get(&module_id)
+                .map(|module| Arc::clone(&module.module))
+        };
+        let source_path_provider = |module_id| {
+            self.modules
+                .get(&module_id)
+                .map(|module| module.source_path.clone())
+        };
+        let defs_provider = |module_id| {
+            self.modules
+                .get(&module_id)
+                .map(|module| Arc::clone(&module.defs))
+        };
+        let normalization_provider = |module_id| {
+            self.modules
+                .get(&module_id)
+                .map(|module| Arc::clone(&module.normalization))
+        };
+        let signatures_provider = |module_id| {
+            if let Some(module) = self.modules.get(&module_id) {
+                return Some(Arc::clone(&module.signatures));
+            }
+            if let Some(signatures) = self.program_function_signatures.get(&module_id) {
+                return Some(Arc::clone(signatures));
+            }
+            let functions = self
+                .program_functions
+                .iter()
+                .filter(|(def_id, _)| def_id.module_id == module_id)
+                .map(|(def_id, function)| (def_id.def_id, function.signature.clone()))
+                .collect();
+            Some(Arc::new(ItemSignatures {
+                functions,
+                structs: HashMap::new(),
+                unions: HashMap::new(),
+                traits: HashMap::new(),
+                trait_impls: Vec::new(),
+                enums: HashMap::new(),
+                type_aliases: HashMap::new(),
+                globals: HashMap::new(),
+                consts: HashMap::new(),
+                diagnostics: Vec::new(),
+            }))
+        };
+        let const_values_provider = |module_id| {
+            self.modules
+                .get(&module_id)
+                .map(|module| Arc::clone(&module.const_values))
+        };
+        let global_initializer_provider = |def_id: GlobalDefId| {
+            self.modules.get(&def_id.module_id).and_then(|module| {
+                module
+                    .module
+                    .global_initializers()
+                    .get(&def_id)
+                    .or_else(|| module.module.deferred_global_initializers().get(&def_id))
+                    .cloned()
+            })
+        };
+        let enum_provider = |def_id: GlobalDefId| {
+            self.modules
+                .get(&def_id.module_id)
+                .is_some_and(|module| module.defs.defs.get(def_id.def_id).is_some())
+        };
+        let extensions_provider = |module_id| {
+            self.modules
+                .get(&module_id)
+                .map(|module| Arc::clone(&module.visible_extensions))
+        };
+        let input = nia_const_check::ConstInput {
+            module: module.module.as_ref(),
+            defs: module.defs.as_ref(),
+            values: module.values.as_ref(),
+            locals: module.locals.as_ref(),
+            semantic_uses: module.semantic_uses.as_ref(),
+            symbols: &self.symbols,
+            lowered: module.lowered.as_ref(),
+            signatures: module.signatures.as_ref(),
+            type_store: self.type_store.as_ref(),
+            normalization: module.normalization.as_ref(),
+            target: &self.target,
+            source_path: &module.source_path,
+            source_text: &module.source_text,
+            program: nia_const_check::ConstProgramContext {
+                module: Some(&module_provider),
+                source_path: Some(&source_path_provider),
+                module_path: None,
+                source_text: None,
+                defs: Some(&defs_provider),
+                type_normalizations: Some(&normalization_provider),
+                signatures: Some(&signatures_provider),
+                function_signatures: Some(&signatures_provider),
+                value_signatures: Some(&signatures_provider),
+                const_values: Some(&const_values_provider),
+                global_initializer: Some(&global_initializer_provider),
+                program_is_enum: Some(&enum_provider),
+                trait_impls_for_module: None,
+                visible_extensions: Some(&extensions_provider),
+            },
+        };
+        let result = nia_const_check::evaluate_associated_const(
+            input,
+            module.const_eval.as_ref(),
+            nia_span::Span::default(),
+            user.clone(),
+        );
+        result.ok().and_then(Result::ok)
+    }
 }
 
 impl BackendLoweringInputs {
     pub(super) fn new(parts: BackendLoweringInputsParts) -> QueryResult<Self> {
+        let associated_const_evaluator = BackendAssociatedConstEvaluator::new(
+            &parts.checked_modules,
+            parts.const_modules.clone(),
+            parts.item_signatures.clone(),
+            parts.symbols.clone(),
+            parts.type_store.clone(),
+            parts.target.clone(),
+            parts.visible_extensions.clone(),
+            parts.functions.clone(),
+            parts.program_function_signatures.clone(),
+        )?;
         let module_count = parts.checked_modules.len();
         for (name, actual) in [
             ("active item trees", parts.active_item_trees.len()),
             ("item signatures", parts.item_signatures.len()),
             ("const array lengths", parts.const_array_lengths.len()),
             ("const enum values", parts.const_enum_values.len()),
+            ("const modules", parts.const_modules.len()),
             ("visible extensions", parts.visible_extensions.len()),
             ("source item plans", parts.source_item_plans.len()),
             (
@@ -105,6 +339,25 @@ impl BackendLoweringInputs {
             .enumerate()
             .map(|(index, init)| (init.def_id, index))
             .collect();
+        let const_values = parts
+            .checked_modules
+            .iter()
+            .map(|module| {
+                Arc::new(
+                    module
+                        .const_eval
+                        .values
+                        .iter()
+                        .filter_map(|(key, value)| match key {
+                            nia_const_check::ConstKey::Global(def_id) => {
+                                Some((*def_id, value.clone()))
+                            }
+                            nia_const_check::ConstKey::Local(_) => None,
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
         Ok(Self {
             symbols: parts.symbols,
             source_identities: parts.source_identities,
@@ -115,6 +368,8 @@ impl BackendLoweringInputs {
             item_signatures: parts.item_signatures,
             const_array_lengths: parts.const_array_lengths,
             const_enum_values: parts.const_enum_values,
+            const_values,
+            associated_const_evaluator,
             visible_extensions: parts.visible_extensions,
             extension_methods: parts.extension_methods,
             function_bodies: parts.function_bodies,
@@ -228,6 +483,19 @@ impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
         self.module_indices
             .get(&module_id)
             .map(|index| self.const_array_lengths[*index].as_ref())
+    }
+
+    fn const_value(&self, def_id: GlobalDefId) -> Option<&nia_const_check::ConstValue> {
+        self.module_indices
+            .get(&def_id.module_id)
+            .and_then(|index| self.const_values[*index].get(&def_id))
+    }
+
+    fn associated_const_value(
+        &self,
+        user: &nia_trait_solve::UserAssociatedConst,
+    ) -> Option<nia_const_check::ConstValue> {
+        self.associated_const_evaluator.evaluate(user)
     }
 
     fn function_body_ids(&self) -> &[GlobalDefId] {
@@ -468,6 +736,15 @@ mod tests {
             item_signatures: Vec::new(),
             const_array_lengths: Vec::new(),
             const_enum_values: Vec::new(),
+            const_values: Vec::new(),
+            associated_const_evaluator: BackendAssociatedConstEvaluator {
+                modules: HashMap::new(),
+                symbols: nia_symbol_table::SymbolTable::new(),
+                type_store: Arc::new(nia_ty::TypeStore::new().expect("test type store")),
+                target: nia_target::TargetConfig::host().expect("host target"),
+                program_functions: HashMap::new(),
+                program_function_signatures: HashMap::new(),
+            },
             visible_extensions: Vec::new(),
             extension_methods: Arc::new(ExtensionMethodIndexQueryValue {
                 methods: nia_defs::ExtensionMethods::default(),

@@ -1845,7 +1845,7 @@ impl<'a> BodyChecker<'a> {
         arg
     }
 
-    fn resolve_associated_const_projection_for_env(
+    pub(crate) fn resolve_associated_const_projection_for_env(
         &mut self,
         span: Span,
         projection: AssociatedConstProjection,

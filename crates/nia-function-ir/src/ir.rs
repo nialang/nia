@@ -384,6 +384,22 @@ pub struct FunctionExpr {
     pub kind: FunctionExprKind,
 }
 
+/// A source associated-constant projection retained until function
+/// instantiation selects and materializes its implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionAssociatedConstProjection {
+    /// Concrete or symbolic `Self` type.
+    pub self_ty: InternedTyId,
+    /// Trait declaring the associated constant.
+    pub trait_id: TraitId,
+    /// Trait type arguments.
+    pub trait_args: Vec<InternedTyId>,
+    /// Trait const arguments.
+    pub trait_const_args: Vec<ConstGenericArg>,
+    /// Associated constant name.
+    pub name: SymbolId,
+}
+
 /// Expression operation in function IR.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionExprKind {
@@ -416,6 +432,8 @@ pub enum FunctionExprKind {
     Global(nia_ids::GlobalDefId),
     /// Loads a const-generic argument value.
     ConstGeneric(ConstGenericArg),
+    /// Associated constant selected during generic instantiation.
+    AssociatedConstProjection(FunctionAssociatedConstProjection),
     /// Loads one concrete generic global instance through its published storage type.
     GlobalInstance {
         /// Defining global identity.

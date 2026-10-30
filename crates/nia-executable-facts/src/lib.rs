@@ -897,6 +897,7 @@ fn collect_typed_expr_refs(
         | TypedExprKind::Bool(_)
         | TypedExprKind::Null
         | TypedExprKind::ConstGeneric(_)
+        | TypedExprKind::AssociatedConstProjection(_)
         | TypedExprKind::Local(_)
         | TypedExprKind::EnumConstructor(_)
         | TypedExprKind::ClosureFunctionPointer { .. } => {}

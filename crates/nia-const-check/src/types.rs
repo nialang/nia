@@ -187,7 +187,7 @@ pub enum ConstKey {
     Local(LocalId),
 }
 
-pub use nia_const_eval::{ConstPointerValue, ConstValue};
+pub use nia_const_eval::{ConstEnumPayload, ConstPointerValue, ConstValue};
 
 #[derive(Debug, Clone, Copy)]
 /// Borrowed semantic databases required for whole-module const analysis.

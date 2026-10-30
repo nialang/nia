@@ -236,6 +236,9 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionExprKind::CallerLocation(location)
                 }
                 FunctionExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg),
+                FunctionExprKind::AssociatedConstProjection(projection) => {
+                    FunctionExprKind::AssociatedConstProjection(projection)
+                }
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
                 FunctionExprKind::GlobalInstance {

@@ -869,6 +869,14 @@ impl<'a> Encoder<'a> {
                 self.tag(11);
                 self.const_arg(arg);
             }
+            FunctionExprKind::AssociatedConstProjection(projection) => {
+                self.tag(70);
+                self.ty(projection.self_ty);
+                self.trait_id(projection.trait_id);
+                self.types(&projection.trait_args);
+                self.const_args(&projection.trait_const_args);
+                self.symbol(projection.name);
+            }
             FunctionExprKind::GlobalInstance {
                 def_id,
                 arg_module_id,

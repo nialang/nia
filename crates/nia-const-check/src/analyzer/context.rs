@@ -379,11 +379,26 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
-        self.global_defs(global_id.module_id)?
-            .as_ref()
-            .defs
-            .get(global_id.def_id)
-            .map(|def| def.kind)
+        if let Some(kind) = self
+            .global_defs(global_id.module_id)
+            .and_then(|defs| defs.as_ref().defs.get(global_id.def_id).map(|def| def.kind))
+        {
+            return Some(kind);
+        }
+        // Foreign backend evaluation can receive a function signature without
+        // the complete declaration collection. The signature map is still a
+        // sound namespace witness for this query: only function definitions
+        // are published there, so it is sufficient for direct const-call
+        // resolution while preserving the normal DefCollection path when it
+        // is available.
+        self.function_signatures_for_module(global_id.module_id)
+            .and_then(|signatures| {
+                signatures
+                    .as_ref()
+                    .functions
+                    .contains_key(&global_id.def_id)
+                    .then_some(DefKind::Function)
+            })
     }
 
     pub(super) fn extension_method_target_ty(

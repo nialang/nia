@@ -725,6 +725,47 @@ impl<'a> BodyChecker<'a> {
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());
+        if let Some(projection) = self
+            .semantic_uses
+            .node_associated_const_projection(&expr.node_key)
+            .cloned()
+        {
+            if let Ok(value) =
+                self.resolve_associated_const_projection_for_env(expr.span, projection.clone())
+            {
+                return self.lower_const_value_expr_with_origin(
+                    expr.span,
+                    ty,
+                    Some(value),
+                    nia_body_ir::PromotedAllocationId::new(self.defs.module_id, expr.span),
+                );
+            }
+            if self.type_contains_generic_param(projection.self_ty)
+                || self.type_contains_const_generic_param(projection.self_ty)
+                || projection
+                    .trait_args
+                    .iter()
+                    .any(|arg| self.type_contains_generic_param(*arg))
+                || projection.trait_const_args.iter().any(|arg| {
+                    self.type_contains_generic_param(arg.ty)
+                        || matches!(arg.value, nia_ty::ConstGenericValue::GenericParam(_))
+                })
+            {
+                return TypedExpr {
+                    span: expr.span,
+                    ty,
+                    kind: TypedExprKind::AssociatedConstProjection(
+                        nia_body_ir::TypedAssociatedConstProjection {
+                            self_ty: projection.self_ty,
+                            trait_id: projection.trait_id,
+                            trait_args: projection.trait_args,
+                            trait_const_args: projection.trait_const_args,
+                            name: projection.name,
+                        },
+                    ),
+                };
+            }
+        }
         if let Some(def_id) = self.global_const_use(expr) {
             let ty = forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
             return self.lower_const_value_expr_with_origin(

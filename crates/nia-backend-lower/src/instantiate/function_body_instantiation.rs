@@ -212,6 +212,8 @@ impl<'a> ModuleLowerer<'a> {
                     let arg = self.instantiate_const_generic_arg(&arg, substitutions);
                     self.const_generic_expr_from_arg(arg)
                 }
+                FunctionExprKind::AssociatedConstProjection(projection) => self
+                    .instantiate_associated_const_projection(projection, substitutions, ty, span),
                 FunctionExprKind::Global(def_id) => {
                     if let Some((arg_module_id, args, const_args)) =
                         self.global_instance_args_for_def(def_id, substitutions)
@@ -697,6 +699,411 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly,
                 },
             },
+        }
+    }
+
+    fn instantiate_associated_const_projection(
+        &mut self,
+        projection: nia_function_ir::FunctionAssociatedConstProjection,
+        substitutions: TypeSubstitutionId,
+        ty: InternedTyId,
+        span: nia_span::Span,
+    ) -> FunctionExprKind {
+        let projection = ProjectionInstantiationKey {
+            self_ty: self.instantiate_ty_with_id(projection.self_ty, substitutions),
+            trait_id: projection.trait_id,
+            trait_args: projection
+                .trait_args
+                .into_iter()
+                .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                .collect(),
+            trait_const_args: projection
+                .trait_const_args
+                .into_iter()
+                .map(|arg| {
+                    self.instantiate_const_generic_arg_with_id(&arg, substitutions, &mut Vec::new())
+                })
+                .collect(),
+            name: projection.name,
+        };
+        let unresolved = || {
+            FunctionExprKind::AssociatedConstProjection(
+                nia_function_ir::FunctionAssociatedConstProjection {
+                    self_ty: projection.self_ty,
+                    trait_id: projection.trait_id,
+                    trait_args: projection.trait_args.clone(),
+                    trait_const_args: projection.trait_const_args.clone(),
+                    name: projection.name,
+                },
+            )
+        };
+        let Some(resolution) = self.resolve_associated_const_projection(&projection) else {
+            return unresolved();
+        };
+        match resolution {
+            nia_trait_solve::AssociatedConstResolution::Const(arg) => {
+                self.function_expr_kind_from_const_arg(arg)
+            }
+            nia_trait_solve::AssociatedConstResolution::User(user) => {
+                let value = self
+                    .input
+                    .program
+                    .const_value(user.def_id)
+                    .cloned()
+                    .or_else(|| self.input.program.associated_const_value(&user));
+                value
+                    .and_then(|value| self.function_expr_kind_from_const_value(value, ty, span))
+                    .unwrap_or_else(unresolved)
+            }
+        }
+    }
+
+    fn function_expr_kind_from_const_arg(
+        &mut self,
+        arg: nia_ty::ConstGenericArg,
+    ) -> FunctionExprKind {
+        match arg.value {
+            nia_ty::ConstGenericValue::Int(value) => {
+                if matches!(
+                    self.ty_kind(arg.ty),
+                    Some(TyKind::Primitive(PrimitiveTy::Usize))
+                ) {
+                    let Ok(value) = u64::try_from(value.bits()) else {
+                        return FunctionExprKind::Error;
+                    };
+                    FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Usize(
+                        value,
+                    ))
+                } else {
+                    FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Int(
+                        value,
+                    ))
+                }
+            }
+            nia_ty::ConstGenericValue::Bool(value) => FunctionExprKind::Bool(value),
+            nia_ty::ConstGenericValue::Char(value) => FunctionExprKind::Char(value as u32),
+            nia_ty::ConstGenericValue::GenericParam(_)
+            | nia_ty::ConstGenericValue::ConstExpr(_) => FunctionExprKind::Error,
+        }
+    }
+
+    fn function_expr_kind_from_const_value(
+        &mut self,
+        value: nia_const_check::ConstValue,
+        ty: InternedTyId,
+        span: nia_span::Span,
+    ) -> Option<FunctionExprKind> {
+        use nia_const_check::{ConstEnumPayload, ConstPointerValue, ConstValue};
+        use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyKind};
+
+        match value {
+            ConstValue::Int(value) => {
+                if matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Char))) {
+                    Some(FunctionExprKind::Char(u32::try_from(value.bits()).ok()?))
+                } else {
+                    Some(FunctionExprKind::BuiltinValue(
+                        nia_function_ir::FunctionBuiltinValue::Int(value),
+                    ))
+                }
+            }
+            ConstValue::Float(value) => Some(FunctionExprKind::Float(value.to_string())),
+            ConstValue::Bool(value) => Some(FunctionExprKind::Bool(value)),
+            ConstValue::String(value) => Some(FunctionExprKind::String(
+                value.chars().map(u32::from).collect(),
+            )),
+            ConstValue::Tuple(values) => {
+                let TyKind::Tuple(types) = self.ty_kind(ty)?.clone() else {
+                    return None;
+                };
+                (types.len() == values.len()).then_some(())?;
+                Some(FunctionExprKind::Tuple(
+                    values
+                        .into_iter()
+                        .zip(types)
+                        .map(|(value, ty)| {
+                            Some(FunctionExpr {
+                                span,
+                                ty,
+                                kind: self.function_expr_kind_from_const_value(value, ty, span)?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            ConstValue::Array(values) => {
+                let TyKind::Array { elem, len } = self.ty_kind(ty)?.clone() else {
+                    return None;
+                };
+                let expected = match len {
+                    ArrayLenTy::ConstValue(value) => Some(value),
+                    ArrayLenTy::ConstExpr(id) => self
+                        .input
+                        .program
+                        .const_array_lengths(id.module_id)
+                        .and_then(|lengths| lengths.get(&id).copied()),
+                    _ => None,
+                };
+                if expected
+                    .is_some_and(|expected| usize::try_from(expected).ok() != Some(values.len()))
+                {
+                    return None;
+                }
+                Some(FunctionExprKind::ArrayLiteral {
+                    elems: nia_function_ir::FunctionArrayElements::List(
+                        values
+                            .into_iter()
+                            .map(|value| {
+                                Some(FunctionExpr {
+                                    span,
+                                    ty: elem,
+                                    kind: self
+                                        .function_expr_kind_from_const_value(value, elem, span)?,
+                                })
+                            })
+                            .collect::<Option<Vec<_>>>()?,
+                    ),
+                })
+            }
+            ConstValue::Vector(values) => {
+                let TyKind::Vector { elem, lanes } = self.ty_kind(ty)?.clone() else {
+                    return None;
+                };
+                (usize::try_from(lanes).ok()? == values.len()).then_some(())?;
+                let lane_ty = self.type_context.intern(TyKind::Primitive(elem));
+                let mut values = values.into_iter();
+                let first = values.next()?;
+                let first = FunctionExpr {
+                    span,
+                    ty: lane_ty,
+                    kind: self.function_expr_kind_from_const_value(first, lane_ty, span)?,
+                };
+                let mut result = FunctionExprKind::Splat {
+                    value: Box::new(first),
+                };
+                let usize_ty = self
+                    .type_context
+                    .intern(TyKind::Primitive(PrimitiveTy::Usize));
+                for (index, value) in values.enumerate() {
+                    let lane = FunctionExpr {
+                        span,
+                        ty: lane_ty,
+                        kind: self.function_expr_kind_from_const_value(value, lane_ty, span)?,
+                    };
+                    result = FunctionExprKind::InsertElement {
+                        vector: Box::new(FunctionExpr {
+                            span,
+                            ty,
+                            kind: result,
+                        }),
+                        index: Box::new(FunctionExpr {
+                            span,
+                            ty: usize_ty,
+                            kind: FunctionExprKind::BuiltinValue(
+                                nia_function_ir::FunctionBuiltinValue::Usize(
+                                    u64::try_from(index + 1).ok()?,
+                                ),
+                            ),
+                        }),
+                        value: Box::new(lane),
+                    };
+                }
+                Some(result)
+            }
+            ConstValue::Optional(value) => match value {
+                Some(value) => {
+                    let TyKind::Optional { elem } = self.ty_kind(ty)?.clone() else {
+                        return None;
+                    };
+                    Some(FunctionExprKind::OptionalSome {
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty: elem,
+                            kind: self.function_expr_kind_from_const_value(*value, elem, span)?,
+                        }),
+                    })
+                }
+                None => Some(FunctionExprKind::Null),
+            },
+            ConstValue::ErrorUnion(value) => {
+                let TyKind::ErrorUnion {
+                    error,
+                    value: value_ty,
+                } = self.ty_kind(ty)?.clone()
+                else {
+                    return None;
+                };
+                match value {
+                    Ok(value) => Some(FunctionExprKind::ErrorOk {
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty: value_ty,
+                            kind: self
+                                .function_expr_kind_from_const_value(*value, value_ty, span)?,
+                        }),
+                    }),
+                    Err(error_value) => Some(FunctionExprKind::ErrorErr {
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty: error,
+                            kind: self.function_expr_kind_from_const_value(
+                                *error_value,
+                                error,
+                                span,
+                            )?,
+                        }),
+                    }),
+                }
+            }
+            ConstValue::Struct(values) => {
+                let TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                } = self.ty_kind(ty)?.clone()
+                else {
+                    return None;
+                };
+                let signature = self.input.program.structs().get(&def_id)?.signature.clone();
+                let (type_substitutions, const_substitutions) =
+                    self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+                let substitution_id = self
+                    .intern_type_and_const_substitutions(&type_substitutions, &const_substitutions);
+                Some(FunctionExprKind::StructLiteral {
+                    def_id,
+                    fields: signature
+                        .fields
+                        .into_iter()
+                        .map(|field| {
+                            let value = values.get(&field.name)?.clone();
+                            let field_ty = self.instantiate_ty_with_id(field.ty, substitution_id);
+                            Some(nia_function_ir::FunctionFieldInit {
+                                field: Some(GlobalDefId {
+                                    module_id: def_id.module_id,
+                                    def_id: field.def_id,
+                                }),
+                                name: self.symbol_name(field.name),
+                                value: FunctionExpr {
+                                    span,
+                                    ty: field_ty,
+                                    kind: self.function_expr_kind_from_const_value(
+                                        value, field_ty, span,
+                                    )?,
+                                },
+                                span,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                })
+            }
+            ConstValue::Enum { variant, payload } => {
+                let TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                } = self.ty_kind(ty)?.clone()
+                else {
+                    return None;
+                };
+                let signature = self.input.program.enums().get(&def_id)?.signature.clone();
+                let (type_substitutions, const_substitutions) =
+                    self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+                let substitution_id = self
+                    .intern_type_and_const_substitutions(&type_substitutions, &const_substitutions);
+                let variant_signature = signature.variants.into_iter().find(|candidate| {
+                    GlobalDefId {
+                        module_id: def_id.module_id,
+                        def_id: candidate.def_id,
+                    } == variant
+                })?;
+                let fields = match (variant_signature.payload, payload) {
+                    (
+                        nia_item_signatures::EnumVariantPayloadSignature::Unit,
+                        ConstEnumPayload::Unit,
+                    ) => Vec::new(),
+                    (
+                        nia_item_signatures::EnumVariantPayloadSignature::Tuple(types),
+                        ConstEnumPayload::Tuple(values),
+                    ) if types.len() == values.len() => types
+                        .into_iter()
+                        .zip(values)
+                        .map(|(field_ty, value)| {
+                            let field_ty = self.instantiate_ty_with_id(field_ty, substitution_id);
+                            Some(FunctionExpr {
+                                span,
+                                ty: field_ty,
+                                kind: self
+                                    .function_expr_kind_from_const_value(value, field_ty, span)?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                    (
+                        nia_item_signatures::EnumVariantPayloadSignature::Named(fields),
+                        ConstEnumPayload::Named(values),
+                    ) => fields
+                        .into_iter()
+                        .map(|field| {
+                            let value = values.get(&field.name)?.clone();
+                            let field_ty = self.instantiate_ty_with_id(field.ty, substitution_id);
+                            Some(FunctionExpr {
+                                span,
+                                ty: field_ty,
+                                kind: self
+                                    .function_expr_kind_from_const_value(value, field_ty, span)?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                    _ => return None,
+                };
+                Some(FunctionExprKind::EnumVariant { variant, fields })
+            }
+            ConstValue::Range(value) => {
+                let TyKind::Range { kind, bound } = self.ty_kind(ty)?.clone() else {
+                    return None;
+                };
+                let bound = bound?;
+                let bound_expr = |value: nia_ty::IntConst, this: &mut Self| {
+                    Some(Box::new(FunctionExpr {
+                        span,
+                        ty: bound,
+                        kind: this.function_expr_kind_from_const_value(
+                            ConstValue::Int(value),
+                            bound,
+                            span,
+                        )?,
+                    }))
+                };
+                Some(FunctionExprKind::Range(nia_function_ir::FunctionRange {
+                    start: value.start.and_then(|value| bound_expr(value, self)),
+                    end: value.end.and_then(|value| bound_expr(value, self)),
+                    inclusive: matches!(kind, RangeTyKind::Inclusive | RangeTyKind::ToInclusive),
+                }))
+            }
+            ConstValue::Pointer(ConstPointerValue::Frozen {
+                pointee,
+                is_readonly,
+                ..
+            }) => {
+                let TyKind::Pointer { elem, .. } = self.ty_kind(ty)?.clone() else {
+                    return None;
+                };
+                if !matches!(self.ty_kind(elem), Some(TyKind::Array { .. })) {
+                    return None;
+                }
+                let pointee = self.function_expr_kind_from_const_value(*pointee, elem, span)?;
+                Some(FunctionExprKind::StaticArrayPointer {
+                    allocation: nia_function_ir::PromotedAllocationId::new(
+                        self.input.module_id,
+                        span,
+                    ),
+                    array: Box::new(FunctionExpr {
+                        span,
+                        ty: elem,
+                        kind: pointee,
+                    }),
+                    is_readonly,
+                })
+            }
+            ConstValue::Pointer(ConstPointerValue::Place { .. }) | ConstValue::Union(_) => None,
         }
     }
 

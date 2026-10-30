@@ -261,6 +261,7 @@ fn collect_expr_closures<'a>(
         | TypedExprKind::Local(_)
         | TypedExprKind::Global(_)
         | TypedExprKind::ConstGeneric(_)
+        | TypedExprKind::AssociatedConstProjection(_)
         | TypedExprKind::Function(_)
         | TypedExprKind::EnumConstructor(_)
         | TypedExprKind::FunctionInstance { .. }

@@ -452,6 +452,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
             | FunctionExprKind::ConstGeneric(_)
+            | FunctionExprKind::AssociatedConstProjection(_)
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::GlobalInstance { .. }
@@ -1038,6 +1039,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::AssociatedConstProjection(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
@@ -1142,6 +1144,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::AssociatedConstProjection(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)

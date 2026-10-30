@@ -1556,7 +1556,7 @@ fn const_value_from_const_generic_arg(arg: &nia_ty::ConstGenericArg) -> Option<C
 }
 
 impl Analyzer<'_> {
-    fn eval_user_associated_const(
+    pub(crate) fn eval_user_associated_const(
         &mut self,
         span: Span,
         user: nia_trait_solve::UserAssociatedConst,

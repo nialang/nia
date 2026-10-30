@@ -431,6 +431,17 @@ impl FunctionLowerer<'_> {
             }
             TypedExprKind::Global(def_id) => FunctionExprKind::Global(*def_id),
             TypedExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg.clone()),
+            TypedExprKind::AssociatedConstProjection(projection) => {
+                FunctionExprKind::AssociatedConstProjection(
+                    nia_function_ir::FunctionAssociatedConstProjection {
+                        self_ty: projection.self_ty,
+                        trait_id: projection.trait_id,
+                        trait_args: projection.trait_args.clone(),
+                        trait_const_args: projection.trait_const_args.clone(),
+                        name: projection.name,
+                    },
+                )
+            }
             TypedExprKind::Function(def_id) => FunctionExprKind::Function(*def_id),
             TypedExprKind::EnumConstructor(variant) => FunctionExprKind::EnumConstructor(*variant),
             TypedExprKind::FunctionInstance {

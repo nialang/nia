@@ -279,6 +279,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
             | FunctionExprKind::ConstGeneric(_)
+            | FunctionExprKind::AssociatedConstProjection(_)
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::GlobalInstance { .. }

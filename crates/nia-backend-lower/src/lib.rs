@@ -476,6 +476,19 @@ pub trait BackendProgramFacts: Sync {
     fn symbol_package_identities(&self) -> &HashMap<ModuleId, String>;
     /// Returns evaluated array lengths owned by `module_id`.
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
+    /// Returns an evaluated source const value when its initializer is
+    /// available in the checked program snapshot.
+    fn const_value(&self, _def_id: GlobalDefId) -> Option<&nia_const_check::ConstValue> {
+        None
+    }
+    /// Evaluates a deferred associated constant with the impl substitutions
+    /// selected during backend monomorphization.
+    fn associated_const_value(
+        &self,
+        _user: &nia_trait_solve::UserAssociatedConst,
+    ) -> Option<nia_const_check::ConstValue> {
+        None
+    }
     /// Returns all source definitions with available checked function bodies.
     fn function_body_ids(&self) -> &[GlobalDefId];
     /// Looks up the checked function IR for a source definition.

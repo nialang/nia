@@ -95,6 +95,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
             Some(SwitchConstantValue::EnumVariant(*variant))
         }
         FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::AssociatedConstProjection(_)
         | FunctionExprKind::Error
         | FunctionExprKind::Trap
         | FunctionExprKind::Float(_)

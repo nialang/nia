@@ -491,6 +491,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::AssociatedConstProjection(_)
         | FunctionExprKind::Local(_)
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)

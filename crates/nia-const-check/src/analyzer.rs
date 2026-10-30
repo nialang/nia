@@ -350,6 +350,31 @@ pub fn compute_module_const_typed_facts(
     })
 }
 
+/// Evaluates one source associated constant after trait solving has selected
+/// its implementation instance.
+///
+/// Associated constant initializers are kept in the deferred const module
+/// table because they are not independently reachable roots. Backend
+/// monomorphization therefore has to evaluate them with the substitutions
+/// inferred by the trait solver instead of looking only in the ordinary
+/// module const-value cache.
+pub fn evaluate_associated_const(
+    input: ConstInput<'_>,
+    facts: &ConstCheck,
+    span: Span,
+    user: nia_trait_solve::UserAssociatedConst,
+) -> nia_ice::IceResult<Result<ConstValue, ConstError>> {
+    let mut analyzer = Analyzer::new(input);
+    analyzer.array_lengths = (*facts.array_lengths).clone();
+    analyzer.enum_values = (*facts.enum_values).clone();
+    analyzer.typed_enum_values = (*facts.typed_enum_values).clone();
+    analyzer.values = (*facts.values).clone();
+    analyzer.typed_values = (*facts.typed_values).clone();
+    analyzer.provider_demands = (*facts.provider_demands).clone();
+    let result = analyzer.eval_user_associated_const(span, user);
+    analyzer.finish(result)
+}
+
 struct ConstTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
     append: TypeStoreAppend,

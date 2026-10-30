@@ -851,6 +851,13 @@ impl BackendValidator<'_> {
                     ),
                 ));
             }
+            FunctionExprKind::AssociatedConstProjection(_) => {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    expr.span,
+                    "backend IR associated const projection was not instantiated",
+                ));
+            }
             FunctionExprKind::EnumVariant { variant, fields } => {
                 self.validate_enum_variant_expr(expr.ty, *variant, fields, expr.span);
             }

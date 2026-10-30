@@ -150,6 +150,7 @@ fn is_cross_function_constant(expr: &FunctionExpr) -> bool {
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::ConstGeneric(_)
+            | FunctionExprKind::AssociatedConstProjection(_)
             | FunctionExprKind::BuiltinValue(_)
     )
 }
@@ -594,6 +595,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::Bool(_)
         | FunctionExprKind::Null
         | FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::AssociatedConstProjection(_)
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
