@@ -334,6 +334,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all four `std_mem_allocator_core` tests and all 14 `std_mem_allocators` tests pass.
 - Status: completed as a focused allocator cleanup; the remaining memory providers stay queued for full review.
 
+### H31 - Compose arena chunk sizing through the checked Option API
+
+- Files: `lib/std/mem/arena_allocator.nia`
+- Evidence: chunk allocation and minimum payload sizing expanded checked additions into matches whose only failure action was `Error::OutOfMemory`. The other matches in the provider either represent saturating capacity accounting or convert an optional address into a boolean ownership decision.
+- Result: use `okOr(Error::OutOfMemory).?` at the two error-returning sizing boundaries while retaining saturating list totals and pointer-range checks as explicit invariants.
+- Validation: all four `std_mem_allocator_core` tests and all 14 `std_mem_allocators` tests pass.
+- Status: completed.
+
 ### Memory layout and ownership boundary review
 
 - Reviewed `lib/std/mem/allocation.nia`, `lib/std/mem/error.nia`, `lib/std/mem/layout.nia`, and `lib/std/mem/types.nia`. `LayoutBuilder` is already the single checked composition boundary: `checkedAppend` computes alignment and size before mutating the builder, and failed appends leave it unchanged.
@@ -484,7 +492,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 - [x] `lib/std/mem/allocation.nia`
 - [ ] `lib/std/mem/allocator.nia`
-- [ ] `lib/std/mem/arena_allocator.nia`
+- [x] `lib/std/mem/arena_allocator.nia`
 - [x] `lib/std/mem/error.nia`
 - [x] `lib/std/mem/fixed_buffer_allocator.nia`
 - [ ] `lib/std/mem/general_purpose_allocator.nia`
