@@ -350,6 +350,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all 14 `std_mem_allocators` tests pass, including small and large allocations, over-aligned reallocations, wrapped-header rejection, invalid free/resize, and owner-class cleanup retries.
 - Status: completed as a focused general-purpose allocator cleanup; the remaining provider review stays queued.
 
+### H33 - Keep platform page mapping length checks uniform
+
+- Files: `lib/std/os/linux/mem.nia`, `lib/std/os/macos.nia`, `lib/std/os/windows/mem.nia`
+- Evidence: each platform's page mapper performed the same checked addition of the page-aligned length and over-alignment slack, mapping overflow directly to its platform `OutOfRange` error through a local match.
+- Result: use the existing option provider and `okOr(Errno::OutOfRange).?` consistently across Linux, Darwin, and Windows. Mapping-address validation and rollback unmapping remain explicit because those paths retain an already acquired OS mapping before returning the error.
+- Validation: both maintained-target cross-compilation tests pass, as do the three Windows process executable tests.
+- Status: completed as a focused platform memory cleanup; the remaining OS providers stay queued for full review.
+
 ### Memory allocator contract review
 
 - Reviewed `lib/std/mem/allocator.nia` and `lib/std/mem/page_allocator.nia`. The allocator trait keeps remapping separate from allocation and preserves each block's release range through logical layout changes. `realloc` makes the old-free/replacement-free rollback state explicit and does not hide either owner after a failed cleanup.
@@ -526,7 +534,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 - [ ] `lib/std/os/linux/aarch64.nia`
 - [ ] `lib/std/os/linux/fd.nia`
-- [ ] `lib/std/os/linux/mem.nia`
+- [x] `lib/std/os/linux/mem.nia`
 - [ ] `lib/std/os/linux/process.nia`
 - [ ] `lib/std/os/linux/random.nia`
 - [ ] `lib/std/os/linux/stat.nia`
@@ -559,7 +567,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/os/windows/encoding.nia`
 - [ ] `lib/std/os/windows/error.nia`
 - [ ] `lib/std/os/windows/fd.nia`
-- [ ] `lib/std/os/windows/mem.nia`
+- [x] `lib/std/os/windows/mem.nia`
 - [ ] `lib/std/os/windows/path.nia`
 - [ ] `lib/std/os/windows/process.nia`
 - [ ] `lib/std/os/windows/random.nia`
