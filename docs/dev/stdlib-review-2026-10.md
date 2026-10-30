@@ -310,6 +310,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all nine `std_error` tests and the build ownership rollback test pass.
 - Status: completed.
 
+### H28 - Compose process command byte lengths with checked Option results
+
+- Files: `lib/std/process/command.nia`
+- Evidence: command argv and environment staging repeated the same checked UTF-8 length matches, mapping every overflow to `Error::Allocation(OutOfMemory)` even though `mem::Error` already has the enclosing `IntoError[Error]` conversion.
+- Result: import the option provider and use `okOr(mem::Error::OutOfMemory).?` in the shared text and environment append paths. Validation of NULs, duplicate names, and staging order remains separate from arithmetic propagation.
+- Validation: all 26 `emit_exe_process` tests pass.
+- Status: completed as a focused command-provider cleanup; the remaining process providers stay queued for full review.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
