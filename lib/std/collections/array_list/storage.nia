@@ -21,6 +21,35 @@ using list::ArrayList;
 extend[T] ArrayList[T]
 where T: Sized
 {
+    pub fun init() ArrayList[T] {
+        .{
+            items: raw::danglingSlice[T](0),
+            capacity: 0,
+            storageBlock: null,
+            replacementBlock: null,
+            aliasBlock: null,
+        }
+    }
+
+    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
+        let mut list: ArrayList[T] = .init();
+        list.ensureTotalCapacityPrecise(allocator, capacity).?;
+        !list
+    }
+
+    pub fun fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
+        let len = allocation.len();
+        let block = allocation.intoBlock();
+        let items = raw::blockItems[T](block, len);
+        .{
+            items,
+            capacity: len,
+            storageBlock: ?block,
+            replacementBlock: null,
+            aliasBlock: null,
+        }
+    }
+
     pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.freeItems(allocator));
@@ -109,7 +138,7 @@ where T: Sized
         self.ensureTotalCapacityPrecise(allocator, betterCapacity)
     }
 
-    pub(super) fun ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
+    fun ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
         self.freePendingItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();

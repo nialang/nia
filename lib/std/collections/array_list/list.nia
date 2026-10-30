@@ -5,7 +5,6 @@ using root::mem;
 using root::option;
 using root::slice;
 using super::storage;
-using super::raw;
 
 pub struct ArrayList[T]
 where T: Sized
@@ -20,35 +19,6 @@ where T: Sized
 extend[T] ArrayList[T]
 where T: Sized
 {
-    pub fun init() ArrayList[T] {
-        .{
-            items: raw::danglingSlice[T](0),
-            capacity: 0,
-            storageBlock: null,
-            replacementBlock: null,
-            aliasBlock: null,
-        }
-    }
-
-    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
-        let mut list: ArrayList[T] = .init();
-        list.ensureTotalCapacityPrecise(allocator, capacity).?;
-        !list
-    }
-
-    pub fun fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
-        let len = allocation.len();
-        let block = allocation.intoBlock();
-        let items = raw::blockItems[T](block, len);
-        .{
-            items,
-            capacity: len,
-            storageBlock: ?block,
-            replacementBlock: null,
-            aliasBlock: null,
-        }
-    }
-
     pub fun len(&self) usize {
         self.items.len()
     }
