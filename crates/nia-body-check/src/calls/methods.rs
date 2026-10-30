@@ -872,9 +872,11 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         if !instance_args.is_empty() || !const_instance_args.is_empty() {
+            let self_arg =
+                (!candidate.method.where_predicates.is_empty()).then_some(candidate.self_ty);
             self.record_generic_instantiation_with_self_and_const_args(
                 method_id,
-                Some(candidate.self_ty),
+                self_arg,
                 &instance_args,
                 &const_instance_args,
                 call.span,
