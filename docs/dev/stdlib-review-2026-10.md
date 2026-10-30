@@ -120,6 +120,15 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Checked signed operations explicitly cover every trapping case before evaluating the operator. Their formulas matched exhaustive `i8` operand pairs and representative boundaries for wider widths; no arithmetic defect was confirmed.
 - Added executable checks for `isPowerOfTwo` and the least-tested `CheckedNeg`, `CheckedAbs`, and `MIN % -1` boundaries.
 
+### Build dependency and query review conclusions
+
+- `Step.index` is assigned from `steps.len()` before registration, survives append unchanged, and rollback only removes the final step. Generated-source producer lookup can use this canonical identity directly instead of maintaining a second position counter.
+- Keep the executable, object, and static-archive emit lookups explicit: each validates a distinct `StepKind` and reads a different payload variant. Combining them would weaken the type boundary without removing meaningful policy duplication.
+- Name lookups are simple typed scans over different record lists; callback-based factoring would add abstraction without clarifying behavior. Dependency membership is likewise a direct directed-edge query.
+- Generated-source producer lookup excludes the consumer, accepts generated-file and external-command build outputs, and returns no producer for both missing and ambiguous matches. Existing build-plan tests cover the downstream producer closure; the std integration test covers the missing-producer path. No compiler or lazy-loading issue was observed.
+- Simplified the consumer exclusion to compare `step.index` directly. Targeted build-target tests and formatting checks pass.
+- Status: review complete.
+
 ### Review conclusions
 
 - The earlier exploratory suggestions to extract `BlockBuffer` and unify SipHash variants are already implemented.
@@ -134,7 +143,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/core.nia`
 - [x] `lib/std/build/artifacts.nia`
 - [x] `lib/std/build/step_registration.nia`
-- [ ] `lib/std/build/dependencies.nia`
+- [x] `lib/std/build/dependencies.nia`
 - [ ] `lib/std/build/diagnostics.nia`
 - [ ] `lib/std/build/error.nia`
 - [ ] `lib/std/build/handles.nia`
@@ -144,7 +153,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/paths.nia`
 - [ ] `lib/std/build/plan.nia`
 - [ ] `lib/std/build/probes.nia`
-- [ ] `lib/std/build/queries.nia`
+- [x] `lib/std/build/queries.nia`
 - [ ] `lib/std/build/records_cleanup.nia`
 - [ ] `lib/std/build/steps.nia`
 - [ ] `lib/std/build/targets.nia`

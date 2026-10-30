@@ -35,10 +35,8 @@ pub(root) fun findGeneratedSourceProducer(
     consumerIndex: usize,
 ) ?StepHandle {
     let mut found: ?StepHandle = null;
-    let mut index: usize = 0;
     for &step in steps.iter() {
-        if index == consumerIndex {
-            index += 1;
+        if step.index == consumerIndex {
             continue;
         }
         let matches = if step.kind == StepKind::GeneratedFile {
@@ -62,7 +60,6 @@ pub(root) fun findGeneratedSourceProducer(
             }
             found = ?.init(ownerId, step.index);
         }
-        index += 1;
     }
     found
 }
