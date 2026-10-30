@@ -286,6 +286,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all 18 `emit_exe_io` tests pass, including limited-reader, invalid-transfer, partial-read, and fixed-buffer cases.
 - Status: completed.
 
+### H25 - Express environment lookup as iterator consumption
+
+- Files: `lib/std/process/env.nia`, `lib/std/process/args.nia`
+- Evidence: `Env::find` manually spelled the iterator terminal loop with `loop` and a `match` even though the iterator already satisfies the standard `Iterator` contract. Argument and environment value wrappers otherwise share a deliberate borrowed-view boundary and parsing delegation.
+- Result: use a `for` consumer for environment lookup, preserving early return on the first matching name and the existing empty/missing entry behavior. Keep `Args`'s explicit `program` and `skipProgram` entry points because they describe process-specific ownership of argv[0].
+- Validation: both process argument/environment executable tests pass.
+- Status: completed.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
@@ -499,11 +507,11 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `process`
 
-- [ ] `lib/std/process/args.nia`
+- [x] `lib/std/process/args.nia`
 - [ ] `lib/std/process/child.nia`
 - [ ] `lib/std/process/command.nia`
 - [ ] `lib/std/process/convert.nia`
-- [ ] `lib/std/process/env.nia`
+- [x] `lib/std/process/env.nia`
 - [ ] `lib/std/process/exit_code.nia`
 - [ ] `lib/std/process/init.nia`
 - [ ] `lib/std/process/pipe.nia`
