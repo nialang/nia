@@ -1103,7 +1103,48 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly,
                 })
             }
-            ConstValue::Pointer(ConstPointerValue::Place { .. }) | ConstValue::Union(_) => None,
+            ConstValue::Union(value) => {
+                let relocations = value
+                    .relocations()
+                    .iter()
+                    .map(|relocation| {
+                        let ConstPointerValue::Frozen {
+                            origin, pointee, ..
+                        } = relocation.pointer()
+                        else {
+                            return None;
+                        };
+                        let pointee_ty = relocation.pointee();
+                        Some(nia_function_ir::FunctionUnionRelocation {
+                            offset: relocation.offset(),
+                            width: relocation.width(),
+                            allocation: nia_function_ir::PromotedAllocationId::new(
+                                origin.module_id().unwrap_or(self.input.module_id),
+                                origin.span(),
+                            ),
+                            pointee: Box::new(FunctionExpr {
+                                span,
+                                ty: pointee_ty,
+                                kind: self.function_expr_kind_from_const_value(
+                                    (**pointee).clone(),
+                                    pointee_ty,
+                                    span,
+                                )?,
+                            }),
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(FunctionExprKind::UnionStorageLiteral {
+                    bytes: value
+                        .bytes()
+                        .iter()
+                        .zip(value.initialized())
+                        .map(|(byte, initialized)| initialized.then_some(*byte))
+                        .collect(),
+                    relocations,
+                })
+            }
+            ConstValue::Pointer(ConstPointerValue::Place { .. }) => None,
         }
     }
 
