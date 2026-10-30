@@ -180,7 +180,6 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [ ] `lib/std/build/plan.nia`
 - [ ] `lib/std/build/probes.nia`
 - [x] `lib/std/build/queries.nia`
-- [ ] `lib/std/build/records_cleanup.nia`
 - [ ] `lib/std/build/steps.nia`
 - [ ] `lib/std/build/targets.nia`
 - [ ] `lib/std/build/types.nia`
