@@ -49,6 +49,8 @@ const maxPlanBytes: usize = 67108864;
 const maxItems: usize = 100000;
 const maxStringBytes: usize = 1048576;
 const draftMagic: &[u8] = &b"NIADRF\0\0"[..];
+const maxDraftBytes: usize = 83886080;
+const draftHeaderBytes: usize = 48;
 
 struct PlanEncoder {
     allocator: &mut mem::Allocator,
@@ -601,6 +603,8 @@ extend PlanEncoder {
     }
 
     fun writeStep(&mut self, build: &Build, step: Step) Error!() {
+        // Build's public model co-locates one action payload with each named
+        // step, so the step and action identities intentionally share a key.
         self.writeRootNodeKey(step.name.text()).?;
         self.writeRootNodeKey(step.name.text()).?;
         let mut dependencyCount: usize = 0;
@@ -715,6 +719,13 @@ extend Build {
         observations.appendSlice(self.allocator, self.configureObservationBytes.asSlice()).withBuildContext(Operation::Encode, Subject::BuildPlan).?;
         let observationLength = observations.len();
         if observationLength > u32::MAX as usize {
+            return invalidPlan();
+        }
+        let payloadLength = match planLength.checkedAdd(observationLength) {
+            ?value => value,
+            null => return invalidPlan(),
+        };
+        if payloadLength > maxDraftBytes - draftHeaderBytes {
             return invalidPlan();
         }
         let mut envelope: collections::ArrayList[u8] = collections::ArrayList[u8]::init();

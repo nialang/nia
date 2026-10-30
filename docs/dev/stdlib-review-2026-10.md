@@ -114,6 +114,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: all nine `std_build_probes` tests pass, including command/tool/git probes and the strengthened presence semantics.
 - Status: completed.
 
+### H14 — Keep draft envelope limits aligned with the host decoder
+
+- Files: `lib/std/build/plan.nia`, `crates/nia-build-plan/src/observations.rs`
+- Evidence: the runner bounded plan bytes and observation bytes independently, but the host's `MAX_DRAFT_BYTES` includes the 48-byte envelope header. A plan and observation payload at both advertised maxima would therefore be emitted above the host limit.
+- Result: check the combined payload against the complete 80 MiB draft budget before allocating and publishing the envelope. The Nia build model intentionally uses one name for a step and its co-located action; `writeStep` now documents that valid subset of the host model.
+- Validation: build-plan codec and Nia build-target/plan integration suites pass; no compiler or lazy-loading defect was involved.
+- Status: completed.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -185,7 +193,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/ownership.nia`
 - [x] `lib/std/build/records_cleanup.nia`
 - [x] `lib/std/build/paths.nia`
-- [ ] `lib/std/build/plan.nia`
+- [x] `lib/std/build/plan.nia`
 - [x] `lib/std/build/probes.nia`
 - [x] `lib/std/build/queries.nia`
 - [ ] `lib/std/build/steps.nia`
