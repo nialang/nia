@@ -1562,6 +1562,15 @@ impl<'a> BodyChecker<'a> {
                         substitutions,
                         const_substitutions,
                     );
+                    // A method candidate may still infer its generic trait
+                    // arguments from the call's expected return type. Keep
+                    // such a candidate alive until that inference phase;
+                    // the final where-predicate check below remains strict.
+                    if this.type_contains_generic_param(bound_ty)
+                        || this.type_contains_const_generic_param(bound_ty)
+                    {
+                        return true;
+                    }
                     let Some((trait_id, trait_args, trait_const_args)) =
                         this.trait_id_and_args(bound_ty)
                     else {

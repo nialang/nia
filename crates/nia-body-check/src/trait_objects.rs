@@ -394,6 +394,23 @@ impl<'a> BodyChecker<'a> {
         expected: InternedTyId,
         actual: InternedTyId,
     ) -> Option<InternedTyId> {
+        // Trait-object arguments borrow an existing value. Primitive literals
+        // have no source place, so require an explicit `&` for them; this
+        // keeps temporary materialization from silently creating a borrowed
+        // object while still allowing addressable values and aggregate
+        // temporaries to use the ordinary implicit-address rule.
+        if matches!(
+            expr.kind,
+            nia_ast::ExprKind::Integer(_)
+                | nia_ast::ExprKind::Float(_)
+                | nia_ast::ExprKind::Char(_)
+                | nia_ast::ExprKind::ByteChar(_)
+                | nia_ast::ExprKind::Bool(_)
+                | nia_ast::ExprKind::String(_)
+                | nia_ast::ExprKind::ByteString(_)
+        ) {
+            return None;
+        }
         let expected = self.normalization.normalize(expected);
         let Some(TyKind::TraitObject { is_readonly, .. }) = self.interner.get(expected).cloned()
         else {
