@@ -1,6 +1,7 @@
 using root::math;
 using root::os::linux::syscall;
 using root::os::linux::types;
+using root::option;
 
 using types::Errno;
 
@@ -84,14 +85,7 @@ pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     if align > pageSize() {
         extra = align - pageSize();
     }
-    let mapLen = match alignedLen.checkedAdd(extra) {
-        ?value => {
-            value
-        },
-        null => {
-            return .OutOfRange!;
-        },
-    };
+    let mapLen = alignedLen.checkedAdd(extra).okOr(Errno::OutOfRange).?;
     let mapped = rawMapPages(mapLen).?;
     let mappedAddr = mapped as usize;
     if mappedAddr.checkedAdd(mapLen) is null {

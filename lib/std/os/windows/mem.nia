@@ -1,4 +1,5 @@
 using root::math;
+using root::option;
 using root::os::windows::bindings::{
     memCommit,
     memReserve,
@@ -45,7 +46,7 @@ pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
     let aligned = pageAlignedLen(len).?;
     let extra = if align > pageSize() { align - pageSize() } else { 0 };
-    let mapLen = match aligned.checkedAdd(extra) { ?value => value, null => return .OutOfRange!, };
+    let mapLen = aligned.checkedAdd(extra).okOr(Errno::OutOfRange).?;
     let base = VirtualAlloc(0, mapLen, memCommit | memReserve, pageReadWrite);
     if base == 0 { return lastError()!; }
     let result = match (base as usize).alignForward(align) { ?value => value, null => { _ = VirtualFree(base, 0, memRelease); return .OutOfRange!; } };

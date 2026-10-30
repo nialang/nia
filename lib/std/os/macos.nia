@@ -207,10 +207,7 @@ pub fun mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 or align == 0 or not align.isPowerOfTwo() { return .Invalid!; }
     let alignedLen = pageAlignedLen(len).?;
     let extra = if align > pageSize() { align - pageSize() } else { 0 };
-    let mapLen = match alignedLen.checkedAdd(extra) {
-        ?value => value,
-        null => return .OutOfRange!,
-    };
+    let mapLen = alignedLen.checkedAdd(extra).okOr(Errno::OutOfRange).?;
     let mapped = bindings::mmap(0, mapLen, bindings::protRead | bindings::protWrite, bindings::mapPrivate | bindings::mapAnonymous, -1, 0);
     if mapped as usize == usize::MAX { return errno()!; }
     let mappedAddr = mapped as usize;
