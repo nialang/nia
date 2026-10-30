@@ -1125,16 +1125,6 @@ fun consume(values: ArrayList[i32]) usize {
 
     assert_no_error_diagnostics(&broad.diagnostics);
     assert_no_error_diagnostics(&narrow.diagnostics);
-    let raw_dependency = broad
-        .graph
-        .modules()
-        .find(|module| {
-            module.path.identity().normalized_path()
-                == "toolchain:/std/collections/array_list/raw.nia"
-        })
-        .expect("ArrayList semantic dependency");
-    assert!(raw_dependency.semantic_selected, "{raw_dependency:?}");
-    assert!(!raw_dependency.process_used_paths, "{raw_dependency:?}");
     let broad_work = toolchain_compiler_work(&broad);
     assert!(!broad_work.0.is_empty(), "missing semantic std work");
     assert!(!broad_work.1.is_empty(), "missing body std work");
@@ -1145,8 +1135,10 @@ fun consume(values: ArrayList[i32]) usize {
         assert!(
             !module.starts_with("toolchain:/std/build")
                 && !module.starts_with("toolchain:/std/collections/hash_map")
+                && module != "toolchain:/std/collections/array_list/storage.nia"
+                && module != "toolchain:/std/collections/array_list/raw.nia"
                 && !module.starts_with("toolchain:/std/os"),
-            "ArrayList::len must not select unrelated build, hash-map, or OS work: {module}"
+            "ArrayList::len must not select storage, build, hash-map, or OS work: {module}"
         );
     }
     assert_eq!(

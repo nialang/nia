@@ -156,6 +156,15 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Keep the template parser's indices: they represent character positions and argument-consumption order. Its decimal accumulation already composes checked operations with `andThen` and converts the error once.
 - No compiler defect was confirmed in this batch. Remaining counter-based output loops are candidates for a later iterator-focused pass; no further provider split is justified by this review.
 
+### ArrayList review conclusions
+
+- Reviewed the facade, element operations, raw views, and formatter. The former 766-line `list.nia` mixed element mutation with allocation ownership, capacity changes, transfers, and retryable cleanup. These now live in `storage.nia`; element operations and iteration remain in `list.nia`. The sibling providers use `super`, with internal collaboration limited to `pub(super)` methods.
+- Consolidated append/insert/replace alias stabilization behind a borrowed callback. The storage provider owns the temporary copy throughout the operation, preserves the primary error, and retains a failed copy release separately from failed replacement storage. Ordinary `defer` would not preserve those retry owners.
+- Removed redundant checked-add-to-trap matches from assume-capacity paths: Nia's ordinary addition already traps on overflow. Capacity growth composes optional checked operations and converts to `OutOfMemory` once. Storage reset now has one owner-state transition; alias detection uses conditional pattern binding instead of nested optional matches.
+- Validation: all six ArrayList, 14 allocator, three string, 18 I/O/formatting, and build ownership integration tests pass. The alias failure test now also covers insertion and replacement after both committed writes and failed growth, checking retained-owner free counts. All 36 selected std loader tests pass; broad and narrow ArrayList imports select identical compiler work, and `len` selects no storage/raw body or backend work. The build-host source closure adds only the new storage provider.
+- No new compiler or collection correctness defect was confirmed in this batch. Keep overlapping element shifts explicit: `copyFrom` implements memmove semantics, while each index expresses a validated range boundary.
+- Status: review and refactor complete.
+
 ### Math review conclusions
 
 - `math.nia` is a clear facade over alignment, checked-operation contracts, and signed/unsigned providers. Keep the concrete arithmetic per primitive: its overflow predicates depend on that primitive's bounds, and factoring them would hide the proof immediately before the trapping operator.
@@ -251,7 +260,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `collections`
 
-- [ ] `lib/std/collections/array_list.nia`
+- [x] `lib/std/collections/array_list.nia`
 - [ ] `lib/std/collections/hash_map.nia`
 - [ ] `lib/std/collections/hash_set.nia`
 - [ ] `lib/std/collections/tree_map.nia`
@@ -259,9 +268,10 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `collections/array_list`
 
-- [ ] `lib/std/collections/array_list/format.nia`
-- [ ] `lib/std/collections/array_list/list.nia`
-- [ ] `lib/std/collections/array_list/raw.nia`
+- [x] `lib/std/collections/array_list/format.nia`
+- [x] `lib/std/collections/array_list/list.nia`
+- [x] `lib/std/collections/array_list/raw.nia`
+- [x] `lib/std/collections/array_list/storage.nia`
 
 ### `collections/hash_map`
 

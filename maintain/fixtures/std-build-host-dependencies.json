@@ -49,6 +49,7 @@
     "std/collections/array_list/format.nia",
     "std/collections/array_list/list.nia",
     "std/collections/array_list/raw.nia",
+    "std/collections/array_list/storage.nia",
     "std/collections/hash_map.nia",
     "std/collections/hash_map/context.nia",
     "std/collections/hash_map/entries.nia",

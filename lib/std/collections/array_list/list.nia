@@ -1,19 +1,10 @@
-// Allocator-explicit growable array.
-//
-// The active allocation keeps its owner in `storageBlock`, even when the
-// logical length or capacity is zero; later growth replaces that stored owner,
-// not a block inferred from the logical capacity. Replacement growth and
-// shrink retain a failed temporary replacement block for `deinit` retry
-// instead of dropping it after an old-owner release failure. Self-aliasing
-// append, insert, and replace keep failed temporary-copy blocks separately
-// from replacement storage. Borrowed views and capacities are never used to
-// recreate release ownership.
+// Growable-array views, element operations, and borrowed iteration.
+// Storage ownership, capacity changes, and transfers live in `storage`.
 
 using root::mem;
-using root::error;
 using root::option;
 using root::slice;
-using root::collections::array_list::raw;
+using super::storage;
 
 pub struct ArrayList[T]
 where T: Sized
@@ -28,49 +19,6 @@ where T: Sized
 extend[T] ArrayList[T]
 where T: Sized
 {
-    pub fun init() ArrayList[T] {
-        .{
-            items: raw::danglingSlice[T](0),
-            capacity: 0,
-            storageBlock: null,
-            replacementBlock: null,
-            aliasBlock: null,
-        }
-    }
-
-    pub fun initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
-        let mut list: ArrayList[T] = .init();
-        list.ensureTotalCapacityPrecise(allocator, capacity).?;
-        !list
-    }
-
-    pub fun fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
-        let len = allocation.len();
-        let block = allocation.intoBlock();
-        let items = raw::blockItems[T](block, len);
-        .{
-            items,
-            capacity: len,
-            storageBlock: ?block,
-            replacementBlock: null,
-            aliasBlock: null,
-        }
-    }
-
-    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
-        cleanup.attempt(self.freeItems(allocator));
-        cleanup.attempt(self.freeReplacementItems(allocator));
-        cleanup.attempt(self.freeAliasItems(allocator));
-        if not cleanup.isClean() {
-            return cleanup.finish();
-        }
-        self.items = raw::danglingSlice[T](0);
-        self.capacity = 0;
-        self.storageBlock = null;
-        !()
-    }
-
     pub fun len(&self) usize {
         self.items.len()
     }
@@ -126,65 +74,6 @@ where T: Sized
     pub fun clear(&mut self) () {
         let mut ptr = self.items.ptrMut();
         self.items = &mut ptr[0..0];
-    }
-
-    pub fun intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
-        self.freePendingItems(allocator).?;
-        let len = self.len();
-        let layout = mem::Layout::array[T](len).?;
-        if root::builtin::size[T]() == 0 or self.capacity() == 0 {
-            if self.storageBlock is ?block {
-                allocator.free(block).?;
-            }
-            self.items = raw::danglingSlice[T](0);
-            self.capacity = 0;
-            self.storageBlock = null;
-            return !.fromBlock(mem::Block::empty(layout), len);
-        }
-
-        let oldBlock = self.allocatedBlock().?;
-        if len == 0 {
-            allocator.free(oldBlock).?;
-            self.items = raw::danglingSlice[T](0);
-            self.capacity = 0;
-            self.storageBlock = null;
-            return !.fromBlock(mem::Block::empty(layout), 0);
-        }
-
-        if allocator.remap(oldBlock, layout) is ?block {
-            self.items = raw::danglingSlice[T](0);
-            self.capacity = 0;
-            self.storageBlock = null;
-            return !.fromBlock(block, len);
-        }
-
-        let newBlock = allocator.alloc(layout).?;
-        let mut newItems = raw::blockItems[T](newBlock, len);
-        _ = newItems.copyFrom(self.asSlice());
-        self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
-        self.items = raw::danglingSlice[T](0);
-        self.capacity = 0;
-        self.storageBlock = null;
-        !.fromBlock(newBlock, len)
-    }
-
-    pub fun toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
-        let len = self.len();
-        if len == 0 or root::builtin::size[T]() == 0 {
-            return !.fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
-        }
-
-        let layout = mem::Layout::array[T](len).?;
-        let block = allocator.alloc(layout).?;
-        let mut out = raw::blockItems[T](block, len);
-        _ = out.copyFrom(self.asSlice());
-        !.fromBlock(block, len)
-    }
-
-    pub fun clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
-        let mut cloned = ArrayList[T]::initCapacity(allocator, self.capacity()).?;
-        cloned.appendSliceAssumeCapacity(self.asSlice());
-        !cloned
     }
 
     pub fun push(&mut self, allocator: &mut mem::Allocator, value: T) mem::Error!() {
@@ -278,16 +167,9 @@ where T: Sized
         if index > self.len() {
             return .Invalid!;
         }
-        if self.slicePointsIntoAllocation(values) {
-            let copyLayout = mem::Layout::array[T](values.len()).?;
-            let copyBlock = allocator.alloc(copyLayout).?;
-            let mut copy = copyBlock.asSlice[T]();
-            _ = copy.copyFrom(values);
-            let result = self.insertStableSlice(allocator, index, copy);
-            return self.finishAliasCopy(allocator, copyBlock, result);
-        }
-
-        self.insertStableSlice(allocator, index, values)
+        self.withStableSlice(allocator, values,
+            \[index] list: &mut ArrayList[T], allocator: &mut mem::Allocator, stable: &[T]
+                -> list.insertStableSlice(allocator, index, stable))
     }
 
     pub fun replaceRange(
@@ -307,16 +189,9 @@ where T: Sized
             return .Invalid!;
         }
 
-        if self.slicePointsIntoAllocation(values) {
-            let copyLayout = mem::Layout::array[T](values.len()).?;
-            let copyBlock = allocator.alloc(copyLayout).?;
-            let mut copy = copyBlock.asSlice[T]();
-            _ = copy.copyFrom(values);
-            let result = self.replaceRangeStable(allocator, start, count, copy);
-            return self.finishAliasCopy(allocator, copyBlock, result);
-        }
-
-        self.replaceRangeStable(allocator, start, count, values)
+        self.withStableSlice(allocator, values,
+            \[start, count] list: &mut ArrayList[T], allocator: &mut mem::Allocator, stable: &[T]
+                -> list.replaceRangeStable(allocator, start, count, stable))
     }
 
     fun insertStableSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
@@ -371,54 +246,11 @@ where T: Sized
         !()
     }
 
-    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        self.ensureUnusedCapacity(allocator, additional)
-    }
-
-    pub fun reserveExact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        let len = self.len();
-        let needed = len.checkedAdd(additional)
-            .okOr(mem::Error::OutOfMemory).?;
-        self.ensureTotalCapacityPrecise(allocator, needed)
-    }
-
-    fun ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        let len = self.len();
-        let needed = len.checkedAdd(additional)
-            .okOr(mem::Error::OutOfMemory).?;
-        self.ensureTotalCapacity(allocator, needed)
-    }
-
-    pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
-        self.freePendingItems(allocator).?;
-        if newCapacity <= self.capacity() {
-            return !();
-        }
-        let betterCapacity = self.grownCapacity(newCapacity).?;
-        self.ensureTotalCapacityPrecise(allocator, betterCapacity)
-    }
-
-    fun ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
-        self.freePendingItems(allocator).?;
-        if newCapacity <= self.capacity() {
-            return !();
-        }
-        self.growToCapacity(allocator, newCapacity).?;
-        !()
-    }
-
     pub fun appendSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
         self.freePendingItems(allocator).?;
-        if self.slicePointsIntoAllocation(items) {
-            let copyLayout = mem::Layout::array[T](items.len()).?;
-            let copyBlock = allocator.alloc(copyLayout).?;
-            let mut copy = copyBlock.asSlice[T]();
-            _ = copy.copyFrom(items);
-            let result = self.appendStableSlice(allocator, copy);
-            return self.finishAliasCopy(allocator, copyBlock, result);
-        }
-
-        self.appendStableSlice(allocator, items)
+        self.withStableSlice(allocator, items,
+            \list: &mut ArrayList[T], allocator: &mut mem::Allocator, stable: &[T]
+                -> list.appendStableSlice(allocator, stable))
     }
 
     fun appendStableSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
@@ -458,14 +290,7 @@ where T: Sized
 
     fun addManyUninitializedAssumeCapacity(&mut self, count: usize) &mut [T] {
         let oldLen = self.len();
-        let newLen = match oldLen.checkedAdd(count) {
-            ?value => {
-                value
-            },
-            null => {
-                root::builtin::trap()
-            },
-        };
+        let newLen = oldLen + count;
         if newLen > self.capacity() {
             root::builtin::trap()
         }
@@ -480,10 +305,7 @@ where T: Sized
         }
         let newLen = self.len().checkedAdd(count)
             .okOr(mem::Error::OutOfMemory).?;
-        if self.capacity() < newLen {
-            let betterCapacity = self.grownCapacity(newLen).?;
-            self.growToCapacity(allocator, betterCapacity).?;
-        }
+        self.ensureTotalCapacity(allocator, newLen).?;
         !self.addManyAtUninitializedAssumeCapacity(index, count)
     }
 
@@ -492,14 +314,7 @@ where T: Sized
         if index > len {
             root::builtin::trap()
         }
-        let newLen = match len.checkedAdd(count) {
-            ?value => {
-                value
-            },
-            null => {
-                root::builtin::trap()
-            },
-        };
+        let newLen = len + count;
         if newLen > self.capacity() {
             root::builtin::trap()
         }
@@ -516,219 +331,6 @@ where T: Sized
         let mut items = self.allocatedItems();
         self.items = &mut items[0..newLen];
         !()
-    }
-
-    pub fun shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        self.shrinkToCapacity(allocator, self.len())
-    }
-
-    pub fun shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
-        self.freePendingItems(allocator).?;
-        let targetCapacity = if minCapacity > self.len() {
-            minCapacity
-        } else {
-            self.len()
-        };
-        if targetCapacity >= self.capacity() {
-            return !();
-        }
-        if root::builtin::size[T]() == 0 {
-            self.capacity = usize::MAX;
-            return !();
-        }
-
-        let oldBlock = self.allocatedBlock().?;
-        if targetCapacity == 0 {
-            allocator.free(oldBlock).?;
-            self.items = raw::danglingSlice[T](0);
-            self.capacity = 0;
-            self.storageBlock = null;
-            return !();
-        }
-
-        let layout = mem::Layout::array[T](targetCapacity).?;
-        if allocator.remap(oldBlock, layout) is ?block {
-            self.setAllocatedBlock(block, targetCapacity);
-            return !();
-        }
-
-        let newBlock = allocator.alloc(layout).?;
-        let mut newItems = raw::blockItems[T](newBlock, targetCapacity);
-        _ = (&mut newItems[0..self.len()]).copyFrom(self.asSlice());
-        self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
-        self.setAllocatedBlock(newBlock, targetCapacity);
-        !()
-    }
-
-    fun grownCapacity(&self, needed: usize) mem::Error!usize {
-        if root::builtin::size[T]() == 0 {
-            return !usize::MAX;
-        }
-        let elemLen = root::builtin::size[T]();
-        let mut initCapacity = 64 / elemLen;
-        if initCapacity == 0 {
-            initCapacity = 1;
-        }
-        let half = needed / 2;
-        let extra = half.checkedAdd(initCapacity)
-            .okOr(mem::Error::OutOfMemory).?;
-        let capacity = needed.checkedAdd(extra)
-            .okOr(mem::Error::OutOfMemory).?;
-        !capacity
-    }
-
-    fun growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
-        self.freePendingItems(allocator).?;
-        if root::builtin::size[T]() == 0 {
-            self.capacity = usize::MAX;
-            return !();
-        }
-        let oldBlock = self.allocatedBlock().?;
-        let layout = mem::Layout::array[T](capacity).?;
-        if allocator.remap(oldBlock, layout) is ?block {
-            self.setAllocatedBlock(block, capacity);
-            return !();
-        }
-
-        let newBlock = allocator.alloc(layout).?;
-        let mut newItems = raw::blockItems[T](newBlock, capacity);
-        _ = newItems.copyFrom(self.asSlice());
-        self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
-        self.setAllocatedBlock(newBlock, capacity);
-        !()
-    }
-
-    fun freeItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.storageBlock is ?block {
-            allocator.free(block).?;
-            self.items = raw::danglingSlice[T](0);
-            self.capacity = 0;
-            self.storageBlock = null;
-        }
-        !()
-    }
-
-    fun freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.replacementBlock is ?block {
-            allocator.free(block).?;
-            self.replacementBlock = null;
-        }
-        !()
-    }
-
-    fun freePendingItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        self.freeReplacementItems(allocator).?;
-        self.freeAliasItems(allocator)
-    }
-
-    fun freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.aliasBlock is ?block {
-            allocator.free(block).?;
-            self.aliasBlock = null;
-        }
-        !()
-    }
-
-    fun retainReplacementBlock(&mut self, block: mem::Block) () {
-        self.replacementBlock = ?block;
-    }
-
-    fun retainAliasBlock(&mut self, block: mem::Block) () {
-        self.aliasBlock = ?block;
-    }
-
-    // Release the previous storage after a replacement copy. If the old block
-    // cannot be released, discard the replacement when possible and retain it
-    // for a later retry when that cleanup also fails.
-    fun releaseReplacedBlock(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        oldBlock: mem::Block,
-        newBlock: mem::Block,
-    ) mem::Error!() {
-        if allocator.free(oldBlock) is error! {
-            let oldError = error;
-            if allocator.free(newBlock) is error! {
-                self.retainReplacementBlock(newBlock);
-            }
-            return oldError!;
-        }
-        !()
-    }
-
-    // Free an alias-stabilizing copy after its operation has completed. The
-    // operation error remains primary, while a failed free keeps the block
-    // owned by the list so deinit or the next mutating call can retry it.
-    fun finishAliasCopy(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        block: mem::Block,
-        result: mem::Error!(),
-    ) mem::Error!() {
-        let cleanup = allocator.free(block);
-        if cleanup is error! {
-            _ = error;
-            self.retainAliasBlock(block);
-        }
-        result.cleanupAfter(cleanup)
-    }
-
-    fun allocatedItems(&mut self) &mut [T] {
-        let mut ptr = self.items.ptrMut() as &mut T;
-        &mut ptr[0..self.capacity]
-    }
-
-    fun allocatedBlock(&self) mem::Error!mem::Block {
-        if self.storageBlock is ?block {
-            return !block;
-        }
-        if self.capacity == 0 {
-            return !mem::Block::empty(mem::Layout::array[T](0).?);
-        }
-        .Invalid!
-    }
-
-    fun setAllocatedBlock(&mut self, block: mem::Block, capacity: usize) () {
-        let len = self.len();
-        let mut items = raw::blockItems[T](block, capacity);
-        self.items = &mut items[0..len];
-        self.capacity = capacity;
-        self.storageBlock = ?block;
-    }
-
-    fun slicePointsIntoAllocation(&self, items: &[T]) bool {
-        if items.len() == 0 or self.capacity == 0 or root::builtin::size[T]() == 0 {
-            return false;
-        }
-
-        let itemSize = root::builtin::size[T]();
-        let base = self.items.ptrMut() as usize;
-        let ptr = items.ptr() as usize;
-        if ptr < base {
-            return false;
-        }
-
-        let byteOffset = ptr - base;
-        let allocBytes = match self.capacity.checkedMul(itemSize) {
-            ?value => {
-                value
-            },
-            null => {
-                return false;
-            },
-        };
-        let itemBytes = match items.len().checkedMul(itemSize) {
-            ?value => {
-                value
-            },
-            null => {
-                return false;
-            },
-        };
-        if byteOffset > allocBytes {
-            return false;
-        }
-        itemBytes <= allocBytes - byteOffset
     }
 }
 
