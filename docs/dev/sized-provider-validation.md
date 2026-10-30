@@ -93,7 +93,7 @@ fun main() usize { [Payload as Project]::Tag }
 It contains no `Sized` prerequisite. The runtime path now retains the projection
 in Body IR and Function IR until generic instantiation selects the implementation.
 Deferred initializers are evaluated with the impl substitutions, including
-foreign builtin signatures such as `size[T]()`, and scalar and aggregate values
-are recursively materialized into Function IR. The backend regression checks both
+foreign builtin signatures such as `size[T]()`, and scalar, aggregate, and
+union-storage values are recursively materialized into Function IR. The backend regression checks both
 the scalar and `Pair` aggregate forms and asserts that the instantiated bodies
 contain no residual projection.

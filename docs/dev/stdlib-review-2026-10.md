@@ -230,11 +230,12 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Result: Body IR and Function IR preserve the projection through instantiation;
   backend lowering evaluates the selected initializer with its impl substitutions,
   merges ordinary and extension function signatures, and recursively materializes
-  scalar, tuple, array, vector, struct, enum, optional, error-union, range, and
-  frozen array-pointer values. The instantiated regression bodies assert that
+  scalar, tuple, array, vector, struct, enum, union-storage, optional,
+  error-union, range, and frozen array-pointer values. The instantiated
+  regression bodies assert that
   scalar and aggregate projections contain no residual projection nodes.
-- Validation: the focused driver regression and backend/compiler-query checks pass;
-  the complete driver suite remains the required follow-up.
+- Validation: the focused regression, 130 backend-lower tests, 304
+  compiler-query tests, and 748 driver tests (746 passed, 2 ignored) pass.
 - Status: completed in the current repair batch.
 
 ## File checklist
