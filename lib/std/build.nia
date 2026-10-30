@@ -24,6 +24,7 @@ pub(root) module plan;
 pub module probes;
 pub(root) module queries;
 pub(root) module records_cleanup;
+pub(root) module step_registration;
 pub(root) module steps;
 pub(root) module targets;
 pub(root) module types;
@@ -34,6 +35,7 @@ using root::build::core;
 using root::build::lifecycle;
 using root::build::plan;
 using root::build::probes;
+using root::build::step_registration;
 using root::build::targets;
 
 pub using error::{

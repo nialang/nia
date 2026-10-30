@@ -98,6 +98,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: build-target, ownership rollback, build-case, and command-cache integration tests pass; no compiler defect or behavior change was found.
 - Status: completed.
 
+### H12 — Separate step registration from graph validation
+
+- Files: `lib/std/build/core.nia`, `lib/std/build/step_registration.nia`
+- Evidence: `core.nia` combined step constructors, producer lookup and edge insertion, retryable pending-step cleanup, package/module declarations, and graph validation. Step registration is a cohesive mutation boundary; complete graph validation belongs beside its own scratch-state lifecycle.
+- Result: moved public step APIs and their pending-record/rollback helpers into `step_registration.nia`; `core.nia` now retains package and module declarations, manifest orchestration, lookups, and whole-graph validation. The facade and lifecycle provider import registration explicitly.
+- Validation: build-target and ownership rollback tests, all six test-step tests, all 20 build-case tests, and formatting checks pass. The first post-split test run caught missing explicit module imports; those compile-time integration issues were fixed before the passing rerun.
+- Status: completed.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -125,6 +133,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/commands.nia`
 - [x] `lib/std/build/core.nia`
 - [x] `lib/std/build/artifacts.nia`
+- [x] `lib/std/build/step_registration.nia`
 - [ ] `lib/std/build/dependencies.nia`
 - [ ] `lib/std/build/diagnostics.nia`
 - [ ] `lib/std/build/error.nia`

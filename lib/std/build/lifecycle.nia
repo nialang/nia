@@ -22,6 +22,7 @@ using root::build::records_cleanup::{
     releaseSteps,
     releaseTargets,
 };
+using root::build::step_registration;
 using root::build::steps;
 using root::build::types;
 

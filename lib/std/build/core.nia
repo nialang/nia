@@ -1,37 +1,14 @@
-// Build graph mutation: packages, modules, steps, and graph validation.
+// Package and module declarations plus complete build-graph validation.
 //
-// Every insertion reserves its containing list before initializing a
-// `Build`-owned pending record (`pendingPackage`, `pendingModule`,
-// `pendingExecutable`, `pendingObject`, `pendingStaticArchive`,
-// `pendingStep`). A failed field release stays attached to that slot and is
-// retried before the next matching insertion or by `Build::deinit`; no local
-// rollback defer can discard it, hide an owner, or replace a primary error.
+// Insertions reserve the record list before initializing a Build-owned pending
+// package or module. Partial owners remain reachable if initialization or
+// cleanup fails, so retries and `Build::deinit` can release every field without
+// replacing the primary error. Module records retain all import names and
+// paths in allocator-owned storage.
 //
-// - Executable insertion extends the pending target to its static-archive
-//   handle-list backing. Cleanup attempts the list and both strings, retains
-//   every failed owner, and blocks the next executable insertion until retry
-//   succeeds.
-// - Module insertion owns the partial module and all appended import slots.
-//   The outer and nested lists reserve before initialization; failed import
-//   name/path cleanup retains both fields and the imports backing.
-// - Generated-file, uncacheable, aggregate, check, and emit steps use the
-//   pre-reserved, kind-correct pending step; name, output/contents, and
-//   description owners stay reachable across failed rollback cleanup.
-// - Run/test insertion appends empty argument owners to a reserved nested list
-//   before initialization. If dependency insertion fails after step commit,
-//   rollback moves the popped step into the pending slot; cleanup failure
-//   cannot replace the dependency error or discard its name and arguments.
-// - Install steps keep their step name and destination in kind-specific
-//   pending payloads; a producer-edge failure stays primary.
-// - External-command insertion reserves both nested lists and appends
-//   kind-correct argument/environment owners before string retention. A
-//   multi-producer edge failure removes all newly added edges, preserves the
-//   primary error, and moves the step into pending ownership. Emit-executable
-//   archive edges use the same explicit dependency-suffix rollback.
-//
-// Dependency validation stores its indegree and ready-list scratch on `Build`.
-// Both releases are attempted after every pass; a validation error stays
-// primary and failed frees are retried on the next pass or `Build::deinit`.
+// Graph validation stores indegrees and the ready queue on `Build`. Both
+// scratch owners are released after every pass; a validation error remains
+// primary, and failed releases can be retried by the next pass or deinit.
 
 using root::collections;
 using root::fs;
@@ -39,33 +16,22 @@ using root::mem;
 using root::string;
 using root::build::error;
 using root::error::CleanupAccumulator;
-using root::build::commands::{validateExternalCommand, validateRunArguments};
+using root::build::artifacts;
 using root::build::dependencies::{findGeneratedSourceProducer, hasDependency};
 using root::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
 using root::build::handles;
 using root::build::modules::validateModuleImports;
 using root::build::paths::{isValidBuildPath, isValidPackagePath};
 using root::build::queries::{
-    findEmitObjectStep as findEmitObjectStepRecord,
-    findEmitStaticArchiveStep as findEmitStaticArchiveStepRecord,
-    findEmitStep as findEmitStepRecord,
     findExecutable as findExecutableRecord,
     findModule as findModuleRecord,
-    findObject as findObjectRecord,
-    findStaticArchive as findStaticArchiveRecord,
     findStep as findStepRecord,
 };
-using root::build::steps;
+using root::build::step_registration;
 using root::build::targets::isValidStableName;
 using root::build::types;
 using root::build::validation::{
-    validateExecutableHandle as validateExecutableHandleValue,
-    validateModuleHandle as validateModuleHandleValue,
-    validateObjectHandle as validateObjectHandleValue,
     validatePackageHandle as validatePackageHandleValue,
-    validateRunnableTarget,
-    validateStaticArchiveHandle as validateStaticArchiveHandleValue,
-    validateStepHandle as validateStepHandleValue,
 };
 
 using error::Error;
@@ -73,28 +39,17 @@ using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
 using types::{
     Build,
-    Step,
-    StepKind,
     StepHandle,
-    ExecutableHandle,
-    ObjectHandle,
-    StaticArchiveHandle,
     RunOptions,
-    CommandArgument,
-    ExternalCommandOptions,
     Module,
     ModuleSourceRoot,
     ModuleHandle,
     ModuleOptions,
+    ExecutableHandle,
     PackageHandle,
     PackageOptions,
-    TargetView,
     ExecutableOptions,
     ExecutableTarget,
-    ObjectTarget,
-    StaticArchiveTarget,
-    BuildPathView,
-    StepPayload,
 };
 
 extend Build {
@@ -183,481 +138,6 @@ extend Build {
         self.paths.toolchainResourceRoot.view()
     }
 
-    // The target that compiles and runs this build's tools.
-    pub fun hostTarget(&self) TargetView {
-        self.targets.asSlice()[self.hostTarget].view()
-    }
-
-    // The invocation-selected target used by artifacts that name no target.
-    pub fun artifactTarget(&self) TargetView {
-        self.targets.asSlice()[self.artifactTarget].view()
-    }
-
-    // Resolves a canonical maintained target name, such as
-    // `x86_64-apple-macos`, for an artifact's `forTarget` option.
-    // Steps describe graph work. The build runner later performs execution,
-    // output publication, caching, and cancellation for the frozen plan.
-    pub fun addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
-        self.addStepRecord(name, .Aggregate, .{ aggregate: .init() })
-    }
-
-    pub fun addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
-        self.preparePendingStep(name, .Uncacheable).?;
-        if self.pendingStep.initializeUncacheable(self.allocator, name, description) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
-        }
-        self.commitPendingStep()
-    }
-
-    pub fun addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        if not output.isValid() or contents.len() > 67108864 {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(handle.index()),
-            }!;
-        }
-        self.preparePendingStep(name, .GeneratedFile).?;
-        if self.pendingStep.initializeGeneratedFile(
-            self.allocator,
-            name,
-            output,
-            contents,
-        ) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
-        }
-        self.commitPendingStep()
-    }
-
-    pub fun addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
-        self.validateExecutableHandle(target).?;
-        self.addStepRecord(name, .CheckExecutable, .{ executable: .init(target) })
-    }
-
-    pub fun addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
-        self.validateExecutableHandle(target).?;
-        let archiveCount = self.executables.asSlice()[target.index()].staticArchives.len();
-        self.dependencies.reserve(
-            self.allocator,
-            archiveCount,
-        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
-        let mut archiveIndex: usize = 0;
-        while archiveIndex < archiveCount {
-            let archive = self.executables.asSlice()[target.index()]
-                .staticArchives.asSlice()[archiveIndex];
-            if self.findEmitStaticArchiveStep(archive) is null {
-                return .Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Step(self.steps.len()),
-                }!;
-            }
-            archiveIndex += 1;
-        }
-        let result = self.addStepRecord(
-            name,
-            .EmitExecutable,
-            .{ executable: .init(target) },
-        ).?;
-        let dependencyStart = self.dependencies.len();
-        if self.addExecutableArchiveDependencies(result, target) is primary! {
-            while self.dependencies.len() > dependencyStart {
-                _ = self.dependencies.pop();
-            }
-            _ = self.rollbackLastStep();
-            return primary!;
-        }
-        !result
-    }
-
-    fun addExecutableArchiveDependencies(
-        &mut self,
-        step: StepHandle,
-        target: ExecutableHandle,
-    ) Error!() {
-        let archives = self.executables.asSlice()[target.index()].staticArchives.asSlice();
-        for &archive in archives.iter() {
-            let producer = if self.findEmitStaticArchiveStep(archive) is ?producer {
-                producer
-            } else {
-                return .Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Step(step.index()),
-                }!;
-            };
-            self.dependOn(step, producer).?;
-        }
-        !()
-    }
-
-    pub fun addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
-        self.validateObjectHandle(target).?;
-        self.addStepRecord(name, .EmitObject, .{ object: .init(target) })
-    }
-
-    pub fun addEmitStaticArchiveStep(&mut self, name: &[char], target: StaticArchiveHandle) Error!StepHandle {
-        self.validateStaticArchiveHandle(target).?;
-        self.addStepRecord(name, .EmitStaticArchive, .{ staticArchive: .init(target) })
-    }
-
-    pub fun addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
-        self.validateExecutableHandle(options.target).?;
-        let producer = if self.findEmitStep(options.target) is ?producer {
-            producer
-        } else {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        };
-        self.validateRunnableExecutable(options.target, self.steps.len()).?;
-        validateRunArguments(options.arguments, self.steps.len()).?;
-        self.addRunStepRecord(name, options, .RunExecutable, producer)
-    }
-
-    pub fun addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
-        self.validateExecutableHandle(options.target).?;
-        let producer = if self.findEmitStep(options.target) is ?producer {
-            producer
-        } else {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        };
-        self.validateRunnableExecutable(options.target, self.steps.len()).?;
-        validateRunArguments(options.arguments, self.steps.len()).?;
-        self.addRunStepRecord(name, options, .TestExecutable, producer)
-    }
-
-    // A suite is one host executable whose root module may import any number of
-    // test modules. The executable and test action are registered together;
-    // source organization remains an ordinary Nia module concern. The suite's
-    // step has the suite's name, and the `test` step depends on every suite;
-    // the first suite declares it, so a script cannot declare its own `test`.
-    pub fun addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
-        self.addTestSuiteWithRuntime(name, rootModule, .Freestanding)
-    }
-
-    fun addTestSuiteWithRuntime(
-        &mut self,
-        name: &[char],
-        rootModule: ModuleHandle,
-        runtime: types::Runtime,
-    ) Error!StepHandle {
-        let mut compileName = string::String::fromSlice(self.allocator, name)
-            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let result = self.addOwnedTestSuite(name, rootModule, runtime, &mut compileName);
-        let cleanup = compileName.deinit(self.allocator)
-            .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
-        result.cleanupAfter(cleanup)
-    }
-
-    fun addOwnedTestSuite(
-        &mut self,
-        name: &[char],
-        rootModule: ModuleHandle,
-        runtime: types::Runtime,
-        compileName: &mut string::String,
-    ) Error!StepHandle {
-        compileName.append(self.allocator, &".compile")
-            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let executable = self.addExecutable(
-            ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget()).withRuntime(runtime),
-        ).?;
-        self.executables.asMutSlice()[executable.index()].test = true;
-        _ = self.addEmitExecutableStep(compileName.text(), executable).?;
-        let suite = self.addTestExecutableStep(name, .init(executable)).?;
-        let all = if self.testStep is ?step {
-            step
-        } else {
-            let step = self.addAggregateStep(&"test").?;
-            self.testStep = ?step;
-            step
-        };
-        self.dependOn(all, suite).?;
-        !suite
-    }
-
-    fun addRunStepRecord(
-        &mut self,
-        name: &[char],
-        options: RunOptions,
-        kind: StepKind,
-        producer: StepHandle,
-    ) Error!StepHandle {
-        self.preparePendingRunStep(name, kind, options.target).?;
-        if self.pendingStep.initializeRunExecutable(
-            self.allocator,
-            name,
-            options.arguments,
-        ) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
-        }
-        let result = self.commitPendingStep().?;
-        self.finishStepDependency(result, producer)
-    }
-
-    pub fun addInstallExecutableStep(
-        &mut self,
-        name: &[char],
-        target: ExecutableHandle,
-        destination: BuildPathView,
-    ) Error!StepHandle {
-        self.validateExecutableHandle(target).?;
-        if not destination.isValid() {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        }
-        let producer = if self.findEmitStep(target) is ?producer {
-            producer
-        } else {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        };
-        self.prepareInstallExecutableStep(name, target).?;
-        if self.pendingStep.initializeInstallExecutable(
-            self.allocator,
-            name,
-            destination,
-        ) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
-        }
-        let result = self.commitPendingStep().?;
-        self.finishStepDependency(result, producer)
-    }
-
-    pub fun addInstallStaticArchiveStep(
-        &mut self,
-        name: &[char],
-        target: StaticArchiveHandle,
-        destination: BuildPathView,
-    ) Error!StepHandle {
-        self.validateStaticArchiveHandle(target).?;
-        if not destination.isValid() {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        }
-        let producer = if self.findEmitStaticArchiveStep(target) is ?producer {
-            producer
-        } else {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        };
-        self.prepareInstallStaticArchiveStep(name, target).?;
-        if self.pendingStep.initializeInstallStaticArchive(
-            self.allocator,
-            name,
-            destination,
-        ) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
-        }
-        let result = self.commitPendingStep().?;
-        self.finishStepDependency(result, producer)
-    }
-
-    pub fun addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
-        validateExternalCommand(options, self.steps.len()).?;
-        let mut artifactInputCount: usize = 0;
-        if options.arguments is ?arguments {
-            for &argument in arguments.iter() {
-                if argument.kind is (.ArtifactInput) {
-                    let target = argument.payload.artifact;
-                    self.validateExecutableHandle(target).?;
-                    if self.findEmitStep(target) is null {
-                        return .Invalid {
-                            operation: Operation::Validate,
-                            subject: Subject::Step(self.steps.len()),
-                        }!;
-                    }
-                    artifactInputCount += 1;
-                } else if argument.kind is (.ObjectInput) {
-                    let target = argument.payload.object;
-                    self.validateObjectHandle(target).?;
-                    if self.findEmitObjectStep(target) is null {
-                        return .Invalid {
-                            operation: Operation::Validate,
-                            subject: Subject::Step(self.steps.len()),
-                        }!;
-                    }
-                    artifactInputCount += 1;
-                } else if argument.kind is (.StaticArchiveInput) {
-                    let target = argument.payload.staticArchive;
-                    self.validateStaticArchiveHandle(target).?;
-                    if self.findEmitStaticArchiveStep(target) is null {
-                        return .Invalid {
-                            operation: Operation::Validate,
-                            subject: Subject::Step(self.steps.len()),
-                        }!;
-                    }
-                    artifactInputCount += 1;
-                } else if argument.kind is (.PackageInput) {
-                    self.validatePackageHandle(argument.package).?;
-                }
-            }
-        }
-        if options.stdin is ?stdin {
-            if stdin.kind is (.ArtifactInput) {
-                self.validateExecutableHandle(stdin.payload.artifact).?;
-                if self.findEmitStep(stdin.payload.artifact) is null {
-                    return .Invalid {
-                        operation: Operation::Validate,
-                        subject: Subject::Step(self.steps.len()),
-                    }!;
-                }
-                artifactInputCount += 1;
-            } else if stdin.kind is (.ObjectInput) {
-                self.validateObjectHandle(stdin.payload.object).?;
-                if self.findEmitObjectStep(stdin.payload.object) is null {
-                    return .Invalid {
-                        operation: Operation::Validate,
-                        subject: Subject::Step(self.steps.len()),
-                    }!;
-                }
-                artifactInputCount += 1;
-            } else if stdin.kind is (.StaticArchiveInput) {
-                self.validateStaticArchiveHandle(stdin.payload.staticArchive).?;
-                if self.findEmitStaticArchiveStep(stdin.payload.staticArchive) is null {
-                    return .Invalid {
-                        operation: Operation::Validate,
-                        subject: Subject::Step(self.steps.len()),
-                    }!;
-                }
-                artifactInputCount += 1;
-            } else if stdin.kind is (.PackageInput) {
-                self.validatePackageHandle(stdin.package).?;
-            }
-        }
-        self.dependencies.reserve(
-            self.allocator,
-            artifactInputCount,
-        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
-        self.prepareExternalCommandStep(name, options).?;
-        if self.pendingStep.initializeExternalCommand(self.allocator, name, options) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
-        }
-        let result = self.commitPendingStep().?;
-        let dependencyStart = self.dependencies.len();
-        if self.addExternalCommandDependencies(result, options.arguments, options.stdin) is primary! {
-            while self.dependencies.len() > dependencyStart {
-                _ = self.dependencies.pop();
-            }
-            _ = self.rollbackLastStep();
-            return primary!;
-        }
-        !result
-    }
-
-    fun addExternalCommandDependencies(
-        &mut self,
-        step: StepHandle,
-        arguments: ?&[CommandArgument],
-        stdin: ?CommandArgument,
-    ) Error!() {
-        if arguments is ?arguments {
-            for &argument in arguments.iter() {
-                if argument.kind is (.ArtifactInput) {
-                    let producer = if self.findEmitStep(argument.payload.artifact) is ?producer {
-                        producer
-                    } else {
-                        return .Invalid {
-                            operation: Operation::Validate,
-                            subject: Subject::Step(step.index()),
-                        }!;
-                    };
-                    self.dependOn(step, producer).?;
-                } else if argument.kind is (.ObjectInput) {
-                    let producer = if self.findEmitObjectStep(argument.payload.object) is ?producer {
-                        producer
-                    } else {
-                        return .Invalid {
-                            operation: Operation::Validate,
-                            subject: Subject::Step(step.index()),
-                        }!;
-                    };
-                    self.dependOn(step, producer).?;
-                } else if argument.kind is (.StaticArchiveInput) {
-                    let producer = if self.findEmitStaticArchiveStep(argument.payload.staticArchive) is ?producer {
-                        producer
-                    } else {
-                        return .Invalid {
-                            operation: Operation::Validate,
-                            subject: Subject::Step(step.index()),
-                        }!;
-                    };
-                    self.dependOn(step, producer).?;
-                }
-            }
-        }
-        if stdin is ?stdin {
-            if stdin.kind is (.ArtifactInput) {
-                let producer = if self.findEmitStep(stdin.payload.artifact) is ?producer {
-                    producer
-                } else {
-                    return .Invalid { operation: Operation::Validate, subject: Subject::Step(step.index()) }!;
-                };
-                self.dependOn(step, producer).?;
-            } else if stdin.kind is (.ObjectInput) {
-                let producer = if self.findEmitObjectStep(stdin.payload.object) is ?producer {
-                    producer
-                } else {
-                    return .Invalid { operation: Operation::Validate, subject: Subject::Step(step.index()) }!;
-                };
-                self.dependOn(step, producer).?;
-            } else if stdin.kind is (.StaticArchiveInput) {
-                let producer = if self.findEmitStaticArchiveStep(stdin.payload.staticArchive) is ?producer {
-                    producer
-                } else {
-                    return .Invalid { operation: Operation::Validate, subject: Subject::Step(step.index()) }!;
-                };
-                self.dependOn(step, producer).?;
-            }
-        }
-        !()
-    }
-
-    pub fun dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!() {
-        self.validateStepHandle(step).?;
-        self.validateStepHandle(dependency).?;
-        if step.index() == dependency.index() {
-            return .StepCycle {
-                step: step.index(),
-                dependency: dependency.index(),
-            }!;
-        }
-        for &edge in self.dependencies.iter() {
-            if edge.step.index() == step.index() and edge.dependency.index() == dependency.index() {
-                return !();
-            }
-        }
-        self.dependencies.push(
-            self.allocator,
-            .init(step, dependency),
-        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
-        self.planValidated = false;
-        !()
-    }
-
-    pub fun setDefaultStep(&mut self, step: StepHandle) Error!() {
-        self.validateStepHandle(step).?;
-        self.defaultStep = ?step;
-        self.planValidated = false;
-        !()
-    }
-
     // Modules and artifacts retain borrowed descriptors as owned plan records.
     // Build-rooted source paths are generated inputs and gain producer edges
     // during complete-graph validation.
@@ -667,14 +147,14 @@ extend Build {
 
         if options.sourceRoot is (.Package) {
             if options.package is ?package {
-                self.validatePackageHandle(package).?;
+                validatePackageHandleValue(self.ownerId, self.packages.len(), package).?;
             }
         }
         if options.imports is ?imports {
             for &import in imports.iter() {
                 if import.sourceRoot is (.Package) {
                     if import.package is ?package {
-                        self.validatePackageHandle(package).?;
+                        validatePackageHandleValue(self.ownerId, self.packages.len(), package).?;
                     }
                 }
             }
@@ -695,7 +175,7 @@ extend Build {
                 subject: Subject::Module(handle.index()),
             }!;
         }
-        if self.findModule(options.name) is ?_ {
+        if findModuleRecord(self.modules.asSlice(), options.name) is ?_ {
             return .Invalid {
                 operation: .Validate,
                 subject: .Module(handle.index()),
@@ -755,10 +235,10 @@ extend Build {
         }
         self.selectedStep = null;
         if self.requestedStep() is ?step {
-            if self.findStep(step) is ?selected {
+            if findStepRecord(self.steps.asSlice(), step) is ?selected {
                 self.selectedStep = ?.init(self.ownerId, selected.index);
             } else {
-                self.reportUnknownStep(step).?;
+                reportUnknownBuildStep(step).?;
                 return .UnknownStep!;
             }
         } else if self.listSteps {
@@ -1062,227 +542,18 @@ extend Build {
 
     // The handle of an artifact nia.toml declares, for use in build.nia.
     pub fun executable(&self, name: &[char]) Error!ExecutableHandle {
-        let mut index: usize = 0;
-        while index < self.executables.len() {
-            if self.executables.asSlice()[index].name.equals(name) {
-                return !ExecutableHandle::init(self.ownerId, index);
-            }
-            index += 1;
+        if findExecutableRecord(self.executables.asSlice(), name) is ?target {
+            return !ExecutableHandle::init(self.ownerId, target.index);
         }
         .Invalid { operation: Operation::Validate, subject: Subject::Executables }!
     }
 
     // The handle of a declared step, such as `test`, `all`, or `run-<name>`.
     pub fun step(&self, name: &[char]) Error!StepHandle {
-        let mut index: usize = 0;
-        while index < self.steps.len() {
-            if self.steps.asSlice()[index].name.equals(name) {
-                return !StepHandle::init(self.ownerId, index);
-            }
-            index += 1;
+        if findStepRecord(self.steps.asSlice(), name) is ?step {
+            return !StepHandle::init(self.ownerId, step.index);
         }
         .Invalid { operation: Operation::Validate, subject: Subject::Steps }!
     }
 
-    fun findStep(&self, name: &[char]) ?Step {
-        findStepRecord(self.steps.asSlice(), name)
-    }
-
-    fun findExecutable(&self, name: &[char]) ?ExecutableTarget {
-        findExecutableRecord(self.executables.asSlice(), name)
-    }
-
-    fun findObject(&self, name: &[char]) ?ObjectTarget {
-        findObjectRecord(self.objects.asSlice(), name)
-    }
-
-    fun findStaticArchive(&self, name: &[char]) ?StaticArchiveTarget {
-        findStaticArchiveRecord(self.staticArchives.asSlice(), name)
-    }
-
-    fun findModule(&self, name: &[char]) ?Module {
-        findModuleRecord(self.modules.asSlice(), name)
-    }
-
-    fun findEmitStep(&self, target: ExecutableHandle) ?StepHandle {
-        findEmitStepRecord(self.ownerId, self.steps.asSlice(), target)
-    }
-
-    fun findEmitObjectStep(&self, target: ObjectHandle) ?StepHandle {
-        findEmitObjectStepRecord(self.ownerId, self.steps.asSlice(), target)
-    }
-
-    fun findEmitStaticArchiveStep(&self, target: StaticArchiveHandle) ?StepHandle {
-        findEmitStaticArchiveStepRecord(self.ownerId, self.steps.asSlice(), target)
-    }
-
-    fun rollbackLastStep(&mut self) Error!() {
-        match self.steps.pop() {
-            ?step => {
-                self.pendingStep = step;
-                self.hasPendingStep = true;
-                self.cleanupPendingStep()
-            },
-            null => .Invalid {
-                operation: Operation::Release,
-                subject: Subject::Steps,
-            }!,
-        }
-    }
-
-    fun validateExecutableHandle(&self, handle: ExecutableHandle) Error!() {
-        validateExecutableHandleValue(self.ownerId, self.executables.len(), handle)
-    }
-
-    fun validateRunnableExecutable(&self, handle: ExecutableHandle, stepIndex: usize) Error!() {
-        validateRunnableTarget(
-            self.executables.asSlice()[handle.index()].targetIndex,
-            self.hostTarget,
-            stepIndex,
-        )
-    }
-
-    fun validateObjectHandle(&self, handle: ObjectHandle) Error!() {
-        validateObjectHandleValue(self.ownerId, self.objects.len(), handle)
-    }
-
-    fun validateStaticArchiveHandle(&self, handle: StaticArchiveHandle) Error!() {
-        validateStaticArchiveHandleValue(self.ownerId, self.staticArchives.len(), handle)
-    }
-
-    fun validatePackageHandle(&self, handle: PackageHandle) Error!() {
-        validatePackageHandleValue(self.ownerId, self.packages.len(), handle)
-    }
-
-    fun validateModuleHandle(&self, handle: ModuleHandle) Error!() {
-        validateModuleHandleValue(self.ownerId, self.modules.len(), handle)
-    }
-
-    fun validateStepHandle(&self, handle: StepHandle) Error!() {
-        validateStepHandleValue(self.ownerId, self.steps.len(), handle)
-    }
-
-    fun reportUnknownStep(&mut self, step: &[char]) Error!() {
-        reportUnknownBuildStep(step)
-    }
-
-    fun addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = .initSimple(self.steps.len(), kind, payload);
-        self.hasPendingStep = true;
-        match self.pendingStep.initializeName(self.allocator, name) {
-            !ok => _ = ok,
-            primary! => {
-                _ = self.cleanupPendingStep();
-                return primary!;
-            },
-        }
-        self.commitPendingStep()
-    }
-
-    fun preparePendingStep(&mut self, name: &[char], kind: StepKind) Error!() {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = if kind is (.GeneratedFile) {
-            .initGeneratedFile(self.steps.len())
-        } else {
-            .initUncacheable(self.steps.len())
-        };
-        self.hasPendingStep = true;
-        !()
-    }
-
-    fun preparePendingRunStep(
-        &mut self,
-        name: &[char],
-        kind: StepKind,
-        target: ExecutableHandle,
-    ) Error!() {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = .initRunExecutable(self.steps.len(), kind, target);
-        self.hasPendingStep = true;
-        !()
-    }
-
-    fun prepareInstallExecutableStep(
-        &mut self,
-        name: &[char],
-        target: ExecutableHandle,
-    ) Error!() {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = .initInstallExecutable(self.steps.len(), target);
-        self.hasPendingStep = true;
-        !()
-    }
-
-    fun prepareInstallStaticArchiveStep(
-        &mut self,
-        name: &[char],
-        target: StaticArchiveHandle,
-    ) Error!() {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = .initInstallStaticArchive(self.steps.len(), target);
-        self.hasPendingStep = true;
-        !()
-    }
-
-    fun prepareExternalCommandStep(
-        &mut self,
-        name: &[char],
-        options: ExternalCommandOptions,
-    ) Error!() {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = .initExternalCommand(self.steps.len(), options);
-        self.hasPendingStep = true;
-        !()
-    }
-
-    fun prepareStepSlot(&mut self, name: &[char]) Error!() {
-        self.cleanupPendingStep().?;
-        if not isValidStableName(name) {
-            return .Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        }
-        if self.findStep(name) is ?_ {
-            return .Invalid {
-                operation: .Validate,
-                subject: .Step(self.steps.len()),
-            }!;
-        }
-        self.steps.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Steps).?;
-        !()
-    }
-
-    fun commitPendingStep(&mut self) Error!StepHandle {
-        if not self.hasPendingStep {
-            return .Internal(.Initialize)!;
-        }
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        self.steps.appendAssumeCapacity(self.pendingStep);
-        self.hasPendingStep = false;
-        self.planValidated = false;
-        !handle
-    }
-
-    fun finishStepDependency(
-        &mut self,
-        step: StepHandle,
-        dependency: StepHandle,
-    ) Error!StepHandle {
-        if self.dependOn(step, dependency) is primary! {
-            _ = self.rollbackLastStep();
-            return primary!;
-        }
-        !step
-    }
-
-    pub(root) fun cleanupPendingStep(&mut self) Error!() {
-        if not self.hasPendingStep {
-            return !();
-        }
-        self.pendingStep.deinit(self.allocator).?;
-        self.hasPendingStep = false;
-        !()
-    }
 }
