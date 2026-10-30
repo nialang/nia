@@ -357,7 +357,7 @@ where K: Sized + Ord[K], V: Sized
         self.ensureCapacity(allocator, needed)
     }
 
-    pub fun containsKey(&self, key: &K) bool { if self.findNode(key) is ?_ { true } else { false } }
+    pub fun containsKey(&self, key: &K) bool { self.findNode(key).isPresent() }
 
     pub fun get(&self, key: &K) ?&V {
         if self.findNode(key) is ?hit { ?&nodeValues[V](hit.node)[hit.index] } else { null }

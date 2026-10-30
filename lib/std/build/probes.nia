@@ -207,7 +207,7 @@ extend Build {
         } else {
             null
         };
-        let present = if value is ?_ { true } else { false };
+        let present = value.isPresent();
         let valueBytes = match value {
             ?bytes => bytes,
             null => &nameBytes[0..0],
