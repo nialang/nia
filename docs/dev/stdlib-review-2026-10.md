@@ -294,6 +294,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: both process argument/environment executable tests pass.
 - Status: completed.
 
+### H26 - Use the option predicate for hash-map query presence
+
+- Files: `lib/std/collections/hash_map/map.nia`
+- Evidence: `containsKeyBy` converted the result of a generic query lookup into a boolean with an empty two-arm match. The query path already returns an optional bucket index and the option provider is part of the map's explicit imports.
+- Result: return `isPresent()` directly, preserving the lookup context and avoiding a branch that discarded the index in both arms.
+- Validation: all nine non-ignored `std_hash_map` tests pass; the 8 GiB streaming test remains intentionally ignored.
+- Status: completed as a focused map review item; the remaining hash-map providers stay queued for the full module review.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
