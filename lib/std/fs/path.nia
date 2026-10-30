@@ -1,6 +1,7 @@
 using root::fs::types;
 using root::math;
 using root::mem;
+using root::option;
 using root::slice;
 using root::string;
 
@@ -53,10 +54,7 @@ fun encodedPathByteLen(text: &[char]) PathError!usize {
         if ch.codepoint() == 0 {
             return .ContainsNul!;
         }
-        len = match len.checkedAdd(ch.encodeUtf8().byteLen()) {
-            ?value => value,
-            null => return .TooLong!,
-        };
+        len = len.checkedAdd(ch.encodeUtf8().byteLen()).okOr(PathError::TooLong).?;
     }
     !len
 }
@@ -178,14 +176,8 @@ fun appendComponentToString(
             component
         };
         let separatorLen: usize = if needsSeparator { 1 } else { 0 };
-        let appendLen = match appended.len().checkedAdd(separatorLen) {
-            ?value => value,
-            null => return .OutOfMemory!,
-        };
-        let needed = match out.len().checkedAdd(appendLen) {
-            ?value => value,
-            null => return .OutOfMemory!,
-        };
+        let appendLen = appended.len().checkedAdd(separatorLen).okOr(mem::Error::OutOfMemory).?;
+        let needed = out.len().checkedAdd(appendLen).okOr(mem::Error::OutOfMemory).?;
         let sourceOffset = textSliceOffset(out, appended).?;
         out.ensureTotalCapacity(allocator, needed).?;
         let stableAppended: &[char] = match sourceOffset {
@@ -210,22 +202,10 @@ fun textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     if source < base {
         return !null;
     }
-    let outBytes = match out.len().checkedMul(itemSize) {
-        ?value => value,
-        null => return .Invalid!,
-    };
-    let outEnd = match base.checkedAdd(outBytes) {
-        ?value => value,
-        null => return .Invalid!,
-    };
-    let sourceBytes = match text.len().checkedMul(itemSize) {
-        ?value => value,
-        null => return .Invalid!,
-    };
-    let sourceEnd = match source.checkedAdd(sourceBytes) {
-        ?value => value,
-        null => return .Invalid!,
-    };
+    let outBytes = out.len().checkedMul(itemSize).okOr(mem::Error::Invalid).?;
+    let outEnd = base.checkedAdd(outBytes).okOr(mem::Error::Invalid).?;
+    let sourceBytes = text.len().checkedMul(itemSize).okOr(mem::Error::Invalid).?;
+    let sourceEnd = source.checkedAdd(sourceBytes).okOr(mem::Error::Invalid).?;
     if sourceEnd > outEnd {
         return !null;
     }
