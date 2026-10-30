@@ -262,6 +262,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: all three `std_tree_map` tests and all nine `std_build_probes` tests pass.
 - Status: completed.
 
+### H22 - Propagate checked length arithmetic through the option API
+
+- Files: `lib/std/cstring.nia`, `lib/std/string.nia`
+- Evidence: constructors and text-composition helpers converted every `checkedAdd`/`checkedMul` result with a three-arm match even though the null arm always produced the same allocation error. This obscured the arithmetic contract and repeated error plumbing in code users are likely to study.
+- Result: import the option provider and use `okOr(mem::Error::OutOfMemory).?`; the existing `IntoError` implementations preserve the public `CStringBuildError`, `TextError`, and `TextFormatError` domains at the function boundary. The checked operation remains adjacent to the conversion, so overflow behavior stays explicit.
+- Validation: the CString/process integration executable and all three `std_string` tests pass.
+- Status: completed.
+
 ## File checklist
 
 ### `build`
@@ -495,7 +503,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/cmp.nia`
 - [x] `lib/std/collections.nia`
 - [x] `lib/std/crypto.nia`
-- [ ] `lib/std/cstring.nia`
+- [x] `lib/std/cstring.nia`
 - [ ] `lib/std/error.nia`
 - [x] `lib/std/fmt.nia`
 - [ ] `lib/std/fs.nia`
@@ -512,6 +520,6 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/root.nia`
 - [x] `lib/std/slice.nia`
 - [ ] `lib/std/source.nia`
-- [ ] `lib/std/string.nia`
+- [x] `lib/std/string.nia`
 - [ ] `lib/std/test.nia`
 - [ ] `lib/std/unicode.nia`
