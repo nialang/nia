@@ -326,6 +326,14 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: the three Windows process executable tests covering spawn environment, pipe ownership, and termination semantics pass.
 - Status: completed as a focused platform-provider cleanup; the remaining Windows providers stay queued for full review.
 
+### H30 - Keep fixed-buffer allocation arithmetic in the checked Option path
+
+- Files: `lib/std/mem/fixed_buffer_allocator.nia`
+- Evidence: the allocation path expanded three checked arithmetic results into identical matches whose only failure action was `Error::OutOfMemory`. The ownership predicates in `ownsBlock` and `isLastAllocation` still need boolean fallback handling and remain explicit.
+- Result: import the option provider and use `okOr(Error::OutOfMemory).?` for current-address, alignment, and end-offset calculation. The allocator still commits `endIndex` only after the complete bounds check succeeds.
+- Validation: all four `std_mem_allocator_core` tests and all 14 `std_mem_allocators` tests pass.
+- Status: completed as a focused allocator cleanup; the remaining memory providers stay queued for full review.
+
 ### Filesystem provider review
 
 - Reviewed `lib/std/fs/convert.nia`, `lib/std/fs/file.nia`, `lib/std/fs/options.nia`, and `lib/std/fs/types.nia` together with the filesystem executable suite. `convert.nia` keeps explicit enum translation and error-context wrappers; its fallback arms preserve forward compatibility for open OS enums. `options.nia` is a focused value-constructor provider with validation at the OS boundary.
@@ -471,7 +479,7 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [ ] `lib/std/mem/allocator.nia`
 - [ ] `lib/std/mem/arena_allocator.nia`
 - [ ] `lib/std/mem/error.nia`
-- [ ] `lib/std/mem/fixed_buffer_allocator.nia`
+- [x] `lib/std/mem/fixed_buffer_allocator.nia`
 - [ ] `lib/std/mem/general_purpose_allocator.nia`
 - [ ] `lib/std/mem/layout.nia`
 - [ ] `lib/std/mem/page_allocator.nia`
