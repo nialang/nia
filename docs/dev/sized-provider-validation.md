@@ -79,7 +79,7 @@ The complete follow-up package runs are green: 23 executable-reachability
 tests, 426 body-check tests, 304 compiler-query tests, and 747 driver tests
 (two driver tests remain intentionally ignored).
 
-## Separate associated-constant representation gap
+## Associated-constant runtime projection repair
 
 This independent program passes semantic checking but fails function lowering:
 
@@ -90,9 +90,10 @@ extend Payload : Project { const Tag: usize = 7usize; }
 fun main() usize { [Payload as Project]::Tag }
 ```
 
-It contains no `Sized` prerequisite. Body IR does not represent the raw runtime
-projection; the error therefore does not establish a failure of layout evidence
-or of const evaluation. An explicit const declaration using that projection
-works and is exercised by the regression above. A complete implementation must
-retain projections through generic instantiation rather than handle concrete
-projections alone. This separate gap is not claimed fixed by these commits.
+It contains no `Sized` prerequisite. The runtime path now retains the projection
+in Body IR and Function IR until generic instantiation selects the implementation.
+Deferred initializers are evaluated with the impl substitutions, including
+foreign builtin signatures such as `size[T]()`, and scalar and aggregate values
+are recursively materialized into Function IR. The backend regression checks both
+the scalar and `Pair` aggregate forms and asserts that the instantiated bodies
+contain no residual projection.

@@ -217,7 +217,25 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Result: builtin dispatch now lives at the common instantiated-signature call entry. The redundant later branch checks are removed, and a focused code-generation regression uses renamed `size` and `align` imports inside a generic function.
 - Status: completed in `7a2ac4032`; covered by the H17 executable probe as well as the dedicated regression.
 
-Independent issue observed while expanding H17: a raw runtime expression such as `[Payload as Project]::Tag` is accepted by semantic checking but has no associated-const projection representation in Body IR. A const declaration using the same projection evaluates correctly. Completing the raw runtime form requires preserving the projection through generic instantiation; eagerly evaluating only concrete projections would leave a second incomplete path. This is separate from missing layout evidence and is not claimed fixed by H17/H18.
+### H19 ? Materialize runtime associated-constant projections
+
+- Trigger: a raw runtime projection such as `[Payload as Project]::Tag` and a
+  generic projection such as `[Boxed[T] as PairProject]::Value` reached backend
+  lowering without a complete value path. Deferred generic initializers also
+  failed when they called a foreign builtin signature.
+- Root cause: the projection was preserved too late for concrete values and the
+  backend had no substitution-aware evaluator for deferred associated-constant
+  initializers. Foreign function signatures were also incomplete in that
+  evaluator, so `size[T]()` was rejected as non-const.
+- Result: Body IR and Function IR preserve the projection through instantiation;
+  backend lowering evaluates the selected initializer with its impl substitutions,
+  merges ordinary and extension function signatures, and recursively materializes
+  scalar, tuple, array, vector, struct, enum, optional, error-union, range, and
+  frozen array-pointer values. The instantiated regression bodies assert that
+  scalar and aggregate projections contain no residual projection nodes.
+- Validation: the focused driver regression and backend/compiler-query checks pass;
+  the complete driver suite remains the required follow-up.
+- Status: completed in the current repair batch.
 
 ## File checklist
 
