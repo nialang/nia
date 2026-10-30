@@ -106,6 +106,14 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - Validation: build-target and ownership rollback tests, all six test-step tests, all 20 build-case tests, and formatting checks pass. The first post-split test run caught missing explicit module imports; those compile-time integration issues were fixed before the passing rerun.
 - Status: completed.
 
+### H13 — Enforce probe record bounds at the shared append boundary
+
+- Files: `lib/std/build/probes.nia`, `crates/nia-cli/tests/std_build_probes.rs`
+- Evidence: most probe entry points checked `maxObservationRecords` locally, but `probeGitState` and `probeTool` delegated directly to `runProbe`; the common `appendObservationRecord` accepted another record unconditionally. The byte cap still limited storage, but the advertised record-count bound was not a global invariant.
+- Result: enforce the count limit immediately before every observation append and strengthen the file-presence test to assert the `absent`/`present` step names. During review, `!(state == 1)` was confirmed to be Nia's success constructor around a boolean expression, so it was retained rather than misread as logical negation.
+- Validation: all nine `std_build_probes` tests pass, including command/tool/git probes and the strengthened presence semantics.
+- Status: completed.
+
 ### Formatting review conclusions
 
 - Reviewed the facade and all six formatting providers. The existing separation between contracts, specifications, byte/text output, integer rendering, primitive implementations, and template parsing is cohesive.
@@ -178,7 +186,7 @@ Potential language/compiler issues require a minimal reproducer and a contract c
 - [x] `lib/std/build/records_cleanup.nia`
 - [x] `lib/std/build/paths.nia`
 - [ ] `lib/std/build/plan.nia`
-- [ ] `lib/std/build/probes.nia`
+- [x] `lib/std/build/probes.nia`
 - [x] `lib/std/build/queries.nia`
 - [ ] `lib/std/build/steps.nia`
 - [ ] `lib/std/build/targets.nia`

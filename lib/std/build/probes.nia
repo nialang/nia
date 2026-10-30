@@ -416,6 +416,9 @@ fun appendProbeU64(
 }
 
 fun appendObservationRecord(build: &mut Build, record: &collections::ArrayList[u8]) Error!() {
+    if build.configureObservationCount >= maxObservationRecords {
+        return .Invalid { operation: .Validate, subject: Subject::BuildPlan }!;
+    }
     let needed = match build.configureObservationBytes.len().checkedAdd(record.len()) {
         ?value => value,
         null => return .Invalid { operation: .Encode, subject: Subject::BuildPlan }!,

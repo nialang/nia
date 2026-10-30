@@ -818,6 +818,20 @@ pub fun build(b: &mut build::Build) build::Error!() {
         String::from_utf8_lossy(&output.stdout).into_owned()
     };
 
+    let list_steps = |label: &str| {
+        let output = support::nia_command()
+            .args(["build", "--root"])
+            .arg(&root)
+            .arg("--list")
+            .output_timeout_for_build(label);
+        assert!(
+            output.status.success(),
+            "{label}: stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
     let presence_line = |stdout: &str| {
         stdout
             .lines()
@@ -831,6 +845,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
     let first = run("run file presence probe build");
     let absent = presence_line(&first);
+    assert!(list_steps("list absent file presence step").contains("absent"));
     let warm = run("reuse unchanged file presence observation");
     assert!(warm.contains("configure result: reused"), "{warm}");
 
@@ -838,7 +853,9 @@ pub fun build(b: &mut build::Build) build::Error!() {
     std::fs::write(root.join("optional/input"), b"present").expect("create observed file");
     let created = run("rerun file presence probe after creation");
     assert!(created.contains("observation changed"), "{created}");
-    assert_ne!(presence_line(&created), absent);
+    let present = presence_line(&created);
+    assert!(list_steps("list present file presence step").contains("present"));
+    assert_ne!(present, absent);
 
     // Removal restores the absent fact, so the first configuration is valid again.
     std::fs::remove_file(root.join("optional/input")).expect("remove observed file");
