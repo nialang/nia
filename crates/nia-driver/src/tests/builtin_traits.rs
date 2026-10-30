@@ -1610,6 +1610,83 @@ fun main(view: data::View) usize {
 }
 
 #[test]
+fn runtime_trait_associated_const_projection_lowers() {
+    let root = temp_dir("runtime_trait_associated_const_projection_lowers");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Project { const Tag: usize; }
+using std::builtin::size;
+struct Payload {}
+extend Payload : Project { const Tag: usize = 7usize; }
+struct Boxed[T] { value: T }
+extend[T] Boxed[T] : Project where T: Sized { const Tag: usize = size[T](); }
+trait PairProject { const Value: Pair; }
+struct Pair { x: usize }
+extend[T] Boxed[T] : PairProject where T: Sized {
+    const Value: Pair = Pair { x: size[T]() };
+}
+fun read[T]() usize where T: Project { [T as Project]::Tag }
+fun readBox[T]() usize where Boxed[T]: Project { [Boxed[T] as Project]::Tag }
+fun readPair[T]() usize where Boxed[T]: PairProject {
+    [Boxed[T] as PairProject]::Value.x
+}
+fun readAnyPair[T]() Pair where T: PairProject {
+    [T as PairProject]::Value
+}
+fun main() usize {
+    [Payload as Project]::Tag + read[Payload]() + readBox[i32]() + readPair[i32]()
+        + readAnyPair[Boxed[i32]]().x
+}
+"#,
+    );
+    let generated = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&generated.diagnostics);
+    let instances = generated
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| module.function_instances.iter())
+        .collect::<Vec<_>>();
+    let read_pair = instances
+        .iter()
+        .find(|instance| instance.name == sym("readPair"))
+        .and_then(|instance| instance.function_body.as_ref())
+        .and_then(|body| match &body.blocks[0].terminator {
+            nia_function_ir::FunctionTerminator::Tail {
+                value: Some(value), ..
+            } => Some(value),
+            _ => None,
+        })
+        .expect("readPair instance body");
+    assert!(
+        matches!(
+            &read_pair.kind,
+            nia_function_ir::FunctionExprKind::Field { lhs, .. }
+                if matches!(lhs.kind, nia_function_ir::FunctionExprKind::StructLiteral { .. })
+        ),
+        "readPair kind: {:?}",
+        read_pair.kind
+    );
+    let read_any_pair = instances
+        .iter()
+        .find(|instance| instance.name == sym("readAnyPair"))
+        .and_then(|instance| instance.function_body.as_ref())
+        .and_then(|body| match &body.blocks[0].terminator {
+            nia_function_ir::FunctionTerminator::Tail {
+                value: Some(value), ..
+            } => Some(value),
+            _ => None,
+        })
+        .expect("readAnyPair instance body");
+    assert!(matches!(
+        &read_any_pair.kind,
+        nia_function_ir::FunctionExprKind::StructLiteral { .. }
+    ));
+}
+
+#[test]
 fn imported_layout_intrinsics_use_common_generic_call_checking() {
     let root = temp_dir("imported_layout_intrinsics_use_common_generic_call_checking");
     write(
