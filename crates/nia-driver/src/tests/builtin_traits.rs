@@ -1555,6 +1555,61 @@ fun main() i32 { 0 }
 }
 
 #[test]
+fn sized_obligations_query_indirect_foreign_type_layouts() {
+    let root = temp_dir("sized_obligations_query_indirect_foreign_type_layouts");
+    write(
+        &root.join("data.nia"),
+        r#"
+pub struct Payload { value: i32 }
+pub struct View { items: &[Payload] }
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module data;
+using root::data;
+using std::builtin::size;
+
+trait Measure { fun measure(&self) usize; }
+trait Project {
+    type Output;
+    const Tag: usize;
+    fun project(&self) [Self as Project]::Output;
+}
+extend[T] T : Project where T: Sized {
+    type Output = usize;
+    const Tag: usize = 7usize;
+    fun project(&self) usize { size[T]() }
+}
+extend[T] T : Measure where T: Sized {
+    fun measure(&self) usize { size[T]() }
+}
+fun sizeOf[T](value: &T) usize where T: Sized {
+    _ = value;
+    size[T]()
+}
+const PayloadTag: usize = [data::Payload as Project]::Tag;
+fun readObject(value: &Measure) usize { value.measure() }
+fun main(view: data::View) usize {
+    // Payload occurs only through a slice element, so laying out View does
+    // not require its layout. It must be queried when Sized is demanded.
+    let projected: usize = view.items[0].project();
+    sizeOf(&view.items[0]) + view.items[0].measure() + projected
+        + readObject(&view.items[0]) + PayloadTag
+}
+"#,
+    );
+    let path = root.join("main.nia").to_string_lossy().into_owned();
+    let all = check_program(path.clone());
+    assert_no_error_diagnostics(&all.diagnostics);
+    let entry = check_entry_program(path.clone());
+    assert_no_error_diagnostics(&entry.diagnostics);
+    let generated = codegen_program(path);
+    assert_no_error_diagnostics(&generated.diagnostics);
+}
+
+#[test]
 fn imported_layout_intrinsics_use_common_generic_call_checking() {
     let root = temp_dir("imported_layout_intrinsics_use_common_generic_call_checking");
     write(

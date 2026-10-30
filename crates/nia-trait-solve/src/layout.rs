@@ -9,25 +9,46 @@ impl TraitSolver<'_> {
         if self.intrinsic_sized_shape(ty) {
             return true;
         }
-        let Some(layouts) = self.layouts else {
-            return false;
-        };
-        if layouts.types.contains_key(&ty) {
-            return true;
-        }
-        if self.layout_types_contain_equivalent(ty, layouts) {
-            return true;
-        }
-        match self.kind(ty) {
-            Some(TyKind::Nominal {
+        if let Some(layouts) = self.layouts {
+            if layouts.types.contains_key(&ty) || self.layout_types_contain_equivalent(ty, layouts)
+            {
+                return true;
+            }
+            if let Some(TyKind::Nominal {
                 def_id,
                 args,
                 const_args,
-            }) => layouts
-                .nominal_type_layout_with_const_args(*def_id, args, const_args)
-                .is_some(),
-            _ => false,
+            }) = self.kind(ty)
+                && layouts
+                    .nominal_type_layout_with_const_args(*def_id, args, const_args)
+                    .is_some()
+            {
+                return true;
+            }
         }
+        // Local layout roots need not include types reached only through a
+        // foreign slice or pointer. Ask the owning layout product; do not
+        // infer nominal sizedness from the declaration's syntax.
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.kind(ty)
+        else {
+            return false;
+        };
+        if self
+            .layouts
+            .is_some_and(|layouts| layouts.module_id == def_id.module_id)
+        {
+            return false;
+        }
+        self.program_layouts
+            .and_then(|query| query(def_id.module_id))
+            .and_then(|layouts| {
+                layouts.nominal_type_layout_with_const_args(*def_id, args, const_args)
+            })
+            .is_some()
     }
 
     pub(crate) fn intrinsic_sized_shape(&self, ty: InternedTyId) -> bool {

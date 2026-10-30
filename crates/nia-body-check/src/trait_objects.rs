@@ -556,6 +556,7 @@ impl<'a> BodyChecker<'a> {
             trait_impls: self.program_trait_impls,
             trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
+            program_layouts: self.program.layouts,
             local_module_id: self.defs.module_id,
             local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),

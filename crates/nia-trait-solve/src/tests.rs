@@ -74,6 +74,7 @@ fn static_callable_bounds_accept_function_items_and_reject_function_pointers() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -139,6 +140,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: left_module,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -219,6 +221,7 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: Some(&layouts),
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -314,6 +317,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: Some(&layouts),
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -368,6 +372,7 @@ fn enum_classification_reads_new_types_from_canonical_store() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -451,6 +456,7 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
         trait_impls: &trait_impls,
         trait_impl_index: Some(&impl_index),
         layouts: Some(&layouts),
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -536,6 +542,7 @@ fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
         trait_impls: &trait_impls,
         trait_impl_index: Some(&impl_index),
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -610,6 +617,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: Some(&layouts),
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -668,6 +676,7 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: Some(&layouts),
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -711,6 +720,7 @@ fn failed_array_element_match_does_not_publish_const_length_inference() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -758,6 +768,7 @@ fn failed_tuple_match_does_not_publish_earlier_type_inference() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -861,6 +872,7 @@ fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -924,6 +936,7 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -978,6 +991,7 @@ fn builtin_traits_reject_const_arguments() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1044,6 +1058,7 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1132,6 +1147,7 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1227,6 +1243,7 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1370,6 +1387,7 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1454,6 +1472,7 @@ fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1526,6 +1545,7 @@ fn repeated_type_parameter_across_impl_header_is_more_specific() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1620,6 +1640,7 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1713,6 +1734,7 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1809,6 +1831,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1871,6 +1894,7 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -1941,6 +1965,7 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: left_module,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -2008,6 +2033,7 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -2089,6 +2115,7 @@ fn projection_equivalence_recurses_through_tuple_elements() {
         trait_impls: &trait_impls,
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
         program_is_enum: None,
@@ -2101,5 +2128,155 @@ fn projection_equivalence_recurses_through_tuple_elements() {
         solver
             .types_equivalent(left, right)
             .expect("compare tuple projections")
+    );
+}
+
+#[test]
+fn sized_queries_only_the_nominal_owner_and_preserves_instance_identity() {
+    use nia_layout::{Layouts, StructLayout, StructLayoutKey, TargetDataLayout, TypeLayout};
+    use std::{cell::RefCell, sync::Arc};
+
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let local = module_ids.allocate().expect("allocate local module");
+    let foreign = module_ids.allocate().expect("allocate foreign module");
+    let store = TypeStore::new().expect("create type store");
+    let append = store.append_for_module(local);
+    let usize_ty = append.test_primitive(PrimitiveTy::Usize);
+    let definition = DefId(80);
+    let nominal = |module_id, const_args| {
+        append.test_intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: definition,
+            },
+            args: Vec::new(),
+            const_args,
+        })
+    };
+    let plain = nominal(foreign, Vec::new());
+    let concrete = nominal(foreign, vec![const_arg(usize_ty, 3)]);
+    let absent = nominal(foreign, vec![const_arg(usize_ty, 4)]);
+    let open = nominal(
+        foreign,
+        vec![const_param(usize_ty, SymbolId::from_stable_hash(81))],
+    );
+    let local_collision = nominal(local, Vec::new());
+    let pointee = append.test_intern(TyKind::SlicePointee { elem: plain });
+    let optional = append.test_intern(TyKind::Optional { elem: plain });
+    let structure = StructLayout {
+        layout: TypeLayout { size: 4, align: 4 },
+        fields: Vec::new(),
+    };
+    let foreign_layouts = Arc::new(Layouts {
+        module_id: foreign,
+        target: TargetDataLayout::LP64,
+        types: HashMap::new(),
+        structs: HashMap::from([(definition, structure.clone())]),
+        unions: HashMap::new(),
+        enums: HashMap::new(),
+        struct_instances: HashMap::from([(
+            StructLayoutKey {
+                def_id: definition,
+                args: Vec::new(),
+                const_args: vec![const_arg(usize_ty, 3)],
+            },
+            structure,
+        )]),
+        union_instances: HashMap::new(),
+        diagnostics: Vec::new(),
+    });
+    let local_layouts = Layouts {
+        module_id: local,
+        structs: HashMap::new(),
+        struct_instances: HashMap::new(),
+        ..(*foreign_layouts).clone()
+    };
+    let requested = RefCell::new(Vec::new());
+    let program_layouts = |module_id| {
+        requested.borrow_mut().push(module_id);
+        assert_eq!(module_id, foreign, "query only the foreign nominal owner");
+        Some(Arc::clone(&foreign_layouts))
+    };
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &store,
+        normalization: &normalization,
+        trait_impls: &[],
+        trait_impl_index: None,
+        layouts: Some(&local_layouts),
+        program_layouts: Some(&program_layouts),
+        local_module_id: local,
+        local_enums: &enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let goal = |self_ty| TraitGoal {
+        self_ty,
+        trait_id: TraitId::Builtin(BuiltinTrait::Sized),
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    };
+    // Both constructors must carry the same program layout capability.
+    for mut solver in [
+        context.solver(&[]),
+        context.solver_with_associated_type_assumptions(&[], &[]),
+    ] {
+        requested.borrow_mut().clear();
+        assert!(solver.proves(goal(usize_ty)).expect("intrinsic size"));
+        assert!(
+            !solver
+                .proves(goal(local_collision))
+                .expect("local missing layout")
+        );
+        assert!(!solver.proves(goal(pointee)).expect("unsized slice pointee"));
+        assert!(
+            requested.borrow().is_empty(),
+            "intrinsics and local types need no foreign query"
+        );
+        assert!(solver.proves(goal(plain)).expect("foreign struct"));
+        assert!(
+            solver
+                .proves(goal(optional))
+                .expect("composite foreign element")
+        );
+        assert!(
+            solver
+                .proves(goal(concrete))
+                .expect("exact foreign instance")
+        );
+        assert!(
+            !solver
+                .proves(goal(absent))
+                .expect("missing foreign instance")
+        );
+        assert!(!solver.proves(goal(open)).expect("open foreign instance"));
+        assert!(!requested.borrow().is_empty());
+    }
+    // Const evaluation has a layout producer but no precomputed local table.
+    let owner_context = TraitSolverContext {
+        layouts: None,
+        local_module_id: foreign,
+        ..context
+    };
+    assert!(
+        owner_context
+            .solver(&[])
+            .proves(goal(plain))
+            .expect("query uncached local owner")
+    );
+    let unavailable_context = TraitSolverContext {
+        program_layouts: None,
+        ..owner_context
+    };
+    assert!(
+        !unavailable_context
+            .solver(&[])
+            .proves(goal(plain))
+            .expect("missing layout evidence")
     );
 }

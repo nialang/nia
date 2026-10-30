@@ -1272,6 +1272,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_impls: self.input.program.trait_impls(),
             trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
+            program_layouts: None,
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
             program_is_enum: Some(&program_is_enum),

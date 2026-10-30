@@ -184,6 +184,7 @@ pub struct TraitSolver<'a> {
     assumptions: &'a [TraitGoal],
     associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     layouts: Option<&'a Layouts>,
+    program_layouts: Option<&'a dyn Fn(ModuleId) -> Option<std::sync::Arc<Layouts>>>,
     const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     local_module_id: ModuleId,
@@ -217,6 +218,9 @@ pub struct TraitSolverContext<'a> {
     pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,
     /// Concrete layouts used by `Sized` and layout-backed const matching.
     pub layouts: Option<&'a Layouts>,
+    /// Loads layout facts from a nominal type's defining module on demand.
+    /// A missing local root is not evidence that a foreign type is unsized.
+    pub program_layouts: Option<&'a dyn Fn(ModuleId) -> Option<std::sync::Arc<Layouts>>>,
     /// Module that owns synthesized type identities for this session.
     pub local_module_id: ModuleId,
     /// Enum signatures owned by `local_module_id`.
@@ -295,6 +299,7 @@ impl<'a> TraitSolverContext<'a> {
             assumptions,
             associated_type_assumptions: &[],
             layouts: self.layouts,
+            program_layouts: self.program_layouts,
             const_expr_value: self.const_expr_value,
             local_module_id: self.local_module_id,
             local_enums: self.local_enums,
@@ -326,6 +331,7 @@ impl<'a> TraitSolverContext<'a> {
             assumptions,
             associated_type_assumptions,
             layouts: self.layouts,
+            program_layouts: self.program_layouts,
             const_expr_value: self.const_expr_value,
             local_module_id: self.local_module_id,
             local_enums: self.local_enums,
@@ -361,6 +367,7 @@ pub fn trait_impl_headers_are_equivalent(
         trait_impls: &[],
         trait_impl_index: None,
         layouts: None,
+        program_layouts: None,
         local_module_id,
         local_enums,
         program_is_enum: None,

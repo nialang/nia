@@ -1602,6 +1602,7 @@ impl MonoCollector<'_> {
             trait_impls: self.trait_impls,
             trait_impl_index: Some(self.trait_impl_index),
             layouts,
+            program_layouts: None,
             local_module_id: module_id,
             local_enums,
             program_is_enum: Some(&program_is_enum),

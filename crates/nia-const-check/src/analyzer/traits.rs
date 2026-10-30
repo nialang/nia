@@ -198,12 +198,14 @@ impl Analyzer<'_> {
         let layouts = matches!(trait_id, TraitId::Builtin(nia_ty::BuiltinTrait::Sized))
             .then(|| self.compute_program_layout(layout_module_id, &array_lengths))
             .flatten();
+        let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
             layouts: layouts.as_deref(),
+            program_layouts: Some(&program_layouts),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
@@ -374,12 +376,14 @@ impl Analyzer<'_> {
                     })
         };
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
+        let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,
+            program_layouts: Some(&program_layouts),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
@@ -467,12 +471,14 @@ impl Analyzer<'_> {
                     })
         };
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
+        let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,
+            program_layouts: Some(&program_layouts),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
