@@ -6,8 +6,85 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use nia_ids::InternedTyId;
 use nia_span::Span;
-use nia_ty::ArrayLenTy;
+use nia_ty::{ArrayLenTy, TyKind};
+
+/// Type-shape result for implicit address formation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImplicitAddressPlan {
+    /// The value is addressed directly as the expected pointer target.
+    Direct {
+        /// Whether the generated pointer forbids mutation.
+        pointer_is_readonly: bool,
+    },
+    /// The value is addressed as an array and then viewed as a slice.
+    ArrayToSlice {
+        /// Mutability of the temporary pointer to the array.
+        pointer_is_readonly: bool,
+        /// Mutability of the resulting slice view.
+        slice_is_readonly: bool,
+    },
+}
+
+/// Classifies the shared type rule for implicitly addressing a value.
+///
+/// Callers provide normalized type shapes and their phase-specific type
+/// equivalence predicate. Expression-place checks, adjustment recording, and
+/// const-value materialization deliberately remain outside this helper.
+pub fn classify_implicit_address<F>(
+    expected: &TyKind,
+    expected_elem_kind: Option<&TyKind>,
+    actual_ty: InternedTyId,
+    actual: &TyKind,
+    mut types_match: F,
+) -> Option<ImplicitAddressPlan>
+where
+    F: FnMut(InternedTyId, InternedTyId) -> bool,
+{
+    match expected {
+        TyKind::Pointer {
+            is_readonly,
+            elem: expected_elem,
+        } if types_match(actual_ty, *expected_elem) => Some(ImplicitAddressPlan::Direct {
+            pointer_is_readonly: *is_readonly,
+        }),
+        TyKind::Pointer {
+            is_readonly: pointer_is_readonly,
+            ..
+        }
+        | TyKind::Slice {
+            is_readonly: pointer_is_readonly,
+            ..
+        } => {
+            let TyKind::Array {
+                elem: actual_array_elem,
+                ..
+            } = actual
+            else {
+                return None;
+            };
+            let (slice_is_readonly, expected_slice_elem) = match expected {
+                TyKind::Pointer { .. } => match expected_elem_kind? {
+                    TyKind::Slice { is_readonly, elem } => (*is_readonly, *elem),
+                    _ => return None,
+                },
+                TyKind::Slice { is_readonly, elem } => (*is_readonly, *elem),
+                _ => unreachable!(),
+            };
+            if !types_match(*actual_array_elem, expected_slice_elem)
+                || (!*pointer_is_readonly && slice_is_readonly)
+            {
+                return None;
+            }
+            Some(ImplicitAddressPlan::ArrayToSlice {
+                pointer_is_readonly: *pointer_is_readonly,
+                slice_is_readonly,
+            })
+        }
+        _ => None,
+    }
+}
 
 /// Result of reconciling an array literal length with an expected type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -346,6 +423,66 @@ mod tests {
                 actual: 4
             }
         );
+    }
+
+    #[test]
+    fn implicit_address_classification_shares_pointer_and_slice_shapes() {
+        let store = nia_ty::TypeStore::new().expect("create type store");
+        let append = store.append_for_module(module_id_for_test());
+        let usize_ty = append
+            .primitive(nia_ty::PrimitiveTy::Usize)
+            .expect("usize type");
+        let array_ty = append
+            .intern(TyKind::Array {
+                len: ArrayLenTy::ConstValue(2),
+                elem: usize_ty,
+            })
+            .expect("array type");
+        let pointer_ty = append
+            .intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: array_ty,
+            })
+            .expect("pointer type");
+        let slice_ty = append
+            .intern(TyKind::Slice {
+                is_readonly: true,
+                elem: usize_ty,
+            })
+            .expect("slice type");
+
+        assert_eq!(
+            classify_implicit_address(
+                store.get(pointer_ty).unwrap(),
+                Some(store.get(array_ty).unwrap()),
+                array_ty,
+                store.get(array_ty).unwrap(),
+                |left, right| left == right,
+            ),
+            Some(ImplicitAddressPlan::Direct {
+                pointer_is_readonly: true,
+            })
+        );
+        assert_eq!(
+            classify_implicit_address(
+                store.get(slice_ty).unwrap(),
+                None,
+                array_ty,
+                store.get(array_ty).unwrap(),
+                |left, right| left == right,
+            ),
+            Some(ImplicitAddressPlan::ArrayToSlice {
+                pointer_is_readonly: true,
+                slice_is_readonly: true,
+            })
+        );
+    }
+
+    fn module_id_for_test() -> nia_ids::ModuleId {
+        nia_ids::ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID")
     }
 
     #[test]

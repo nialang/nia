@@ -166,6 +166,12 @@ impl Analyzer<'_> {
     ) -> Option<(ArrayLenTy, InternedTyId)> {
         match self.ty_kind(expected)? {
             TyKind::Array { len, elem } => Some((len, elem)),
+            TyKind::Slice { elem, .. } => Some((ArrayLenTy::Infer, elem)),
+            TyKind::Pointer { elem, .. } => match self.ty_kind(elem)? {
+                TyKind::Array { len, elem } => Some((len, elem)),
+                TyKind::SlicePointee { elem } => Some((ArrayLenTy::Infer, elem)),
+                _ => None,
+            },
             _ => None,
         }
     }

@@ -54,6 +54,70 @@ fun main() i32 {
 }
 
 #[test]
+fn auto_addresses_const_string_and_byte_literals() {
+    let root = temp_dir("auto_addresses_const_string_and_byte_literals");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+const text: &[char] = "nia";
+const bytes: &[u8] = b"nia";
+const values: &[usize; 2] = [5, 7];
+
+const fun const_text_len(value: &[char]) usize {
+    3
+}
+
+const fun const_byte_len(value: &[u8]) usize {
+    3
+}
+
+const fun const_value_sum(value: &[usize; 2]) usize {
+    value.*[0] + value.*[1]
+}
+
+const text_len: usize = const_text_len("nia");
+const byte_len: usize = const_byte_len(b"nia");
+const value_sum: usize = const_value_sum([5, 7]);
+const local_value: usize = {
+    let values: &[usize; 2] = [8, 9];
+    const_value_sum(values)
+};
+
+fun take_text(value: &[char]) usize {
+    value.len()
+}
+
+fun take_bytes(value: &[u8]) usize {
+    value.len()
+}
+
+fun take_values(value: &[usize; 2]) usize {
+    value.*[0] + value.*[1]
+}
+
+fun main() usize {
+    take_text(text) + take_bytes(bytes) + take_values(values)
+        + text_len + byte_len + value_sum + local_value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("constant [3 x i32]"), "{ir}");
+    assert!(ir.contains("constant [3 x i8]"), "{ir}");
+    assert!(
+        ir.contains(&format!("constant [2 x {}]", native_llvm_int())),
+        "{ir}"
+    );
+}
+
+#[test]
 fn emits_scalar_promoted_allocation_for_union_relocation() {
     let root = temp_dir("emits_scalar_promoted_allocation_for_union_relocation");
     let main = root.join("main.nia");

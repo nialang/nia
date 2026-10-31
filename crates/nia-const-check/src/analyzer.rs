@@ -776,7 +776,24 @@ impl Analyzer<'_> {
                 let result = nia_const_eval::eval_resolved_const_expr(&expr, this);
                 this.resolved_expr_types.pop();
                 match result {
-                    Ok(value) => Some(value),
+                    Ok(value) => {
+                        if let Some(expected) = expected {
+                            match this.implicit_readonly_address_value(
+                                value,
+                                expected,
+                                expr.span(),
+                                true,
+                            ) {
+                                Ok(value) => Some(value),
+                                Err(err) => {
+                                    this.push_engine_error(err);
+                                    None
+                                }
+                            }
+                        } else {
+                            Some(value)
+                        }
+                    }
                     Err(err) => {
                         this.push_engine_error(err);
                         None
@@ -798,8 +815,9 @@ impl Analyzer<'_> {
             let Some(ty) = this.const_value_type_for_key(key) else {
                 return value;
             };
+            let initializer_span = this.initializer_span_for_key(key);
             let value = this.normalize_typed_const_value(value, &ty);
-            if let Some(span) = this.initializer_span_for_key(key) {
+            if let Some(span) = initializer_span {
                 this.validate_typed_value(span, &value, &ty);
             }
             this.typed_values.insert(
@@ -1056,6 +1074,29 @@ impl Analyzer<'_> {
                 };
                 if let ConstPointerValue::Frozen { pointee, .. } = pointer {
                     self.validate_runtime_typed_value(span, pointee, elem);
+                }
+            }
+            Some(TyKind::Slice { elem, .. }) => {
+                if matches!(value, ConstValue::String(_))
+                    && matches!(
+                        self.ty_kind(elem),
+                        Some(TyKind::Primitive(PrimitiveTy::Char))
+                    )
+                {
+                    return;
+                }
+                let ConstValue::Pointer(pointer) = value else {
+                    self.push_const_type_mismatch(span, "slice");
+                    return;
+                };
+                if let ConstPointerValue::Frozen { pointee, .. } = pointer {
+                    let ConstValue::Array(values) = pointee.as_ref() else {
+                        self.push_const_type_mismatch(span, "slice array");
+                        return;
+                    };
+                    for value in values {
+                        self.validate_runtime_typed_value(span, value, elem);
+                    }
                 }
             }
             Some(TyKind::Optional { elem }) => match value {

@@ -2348,6 +2348,9 @@ impl Analyzer<'_> {
         if expected == actual {
             return true;
         }
+        if self.const_implicit_array_address_matches(expected, actual) {
+            return true;
+        }
         match (self.ty_kind(expected), self.ty_kind(actual)) {
             (
                 Some(TyKind::Array {
@@ -2415,23 +2418,6 @@ impl Analyzer<'_> {
                     && self.const_function_types_match(expected_elem, actual_elem)
             }
             (
-                Some(TyKind::Pointer {
-                    is_readonly: true,
-                    elem: expected_elem,
-                }),
-                Some(TyKind::Array {
-                    elem: actual_elem, ..
-                }),
-            ) => {
-                let Some(TyKind::SlicePointee {
-                    elem: expected_elem,
-                }) = self.ty_kind(expected_elem)
-                else {
-                    return false;
-                };
-                self.const_function_types_match(expected_elem, actual_elem)
-            }
-            (
                 Some(TyKind::ErrorUnion {
                     error: expected_error,
                     value: expected_value,
@@ -2467,6 +2453,42 @@ impl Analyzer<'_> {
                         &actual_const_args,
                     )
             }
+            _ => false,
+        }
+    }
+
+    fn const_implicit_array_address_matches(
+        &mut self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
+        let Some(expected_kind) = self.ty_kind(expected) else {
+            return false;
+        };
+        let Some(actual_kind) = self.ty_kind(actual) else {
+            return false;
+        };
+        let expected_elem_kind = match &expected_kind {
+            TyKind::Pointer { elem, .. } => self.ty_kind(*elem),
+            _ => None,
+        };
+        let Some(plan) = nia_sema::classify_implicit_address(
+            &expected_kind,
+            expected_elem_kind.as_ref(),
+            actual,
+            &actual_kind,
+            |left, right| self.const_function_types_match(left, right),
+        ) else {
+            return false;
+        };
+        match plan {
+            nia_sema::ImplicitAddressPlan::Direct {
+                pointer_is_readonly: true,
+            } => true,
+            nia_sema::ImplicitAddressPlan::ArrayToSlice {
+                pointer_is_readonly: true,
+                slice_is_readonly: true,
+            } => true,
             _ => false,
         }
     }

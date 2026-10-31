@@ -1853,6 +1853,35 @@ const RESULT: usize = inspect(VALUE, 1i32);
 }
 
 #[test]
+fn const_call_rejects_auto_addressed_fixed_array_length_mismatch() {
+    let fixture = check_source(
+        r#"
+const fun inspect(value: &[usize; 2]) usize {
+    let _ = value;
+    7
+}
+
+const fun run() usize {
+    let values: [usize; 3] = [1, 2, 3];
+    inspect(values)
+}
+
+const RESULT: usize = run();
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const call argument does not match expected type")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn const_call_rejects_nested_expected_return_constructor_mismatch() {
     let fixture = check_source(
         r#"

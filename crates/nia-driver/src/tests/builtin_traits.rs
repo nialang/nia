@@ -327,6 +327,71 @@ fun main() usize {
 }
 
 #[test]
+fn memory_intrinsics_expose_their_sized_element_requirement() {
+    let root = temp_dir("memory_intrinsics_expose_their_sized_element_requirement");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::builtin::{loadUnaligned, memcpy, memmove};
+
+fun read[T](ptr: &u8) T {
+    loadUnaligned[T](ptr)
+}
+
+fun copy[T](dest: &mut [T], source: &[T]) () {
+    memcpy(dest, source);
+    memmove(dest, source);
+}
+
+fun main(ptr: &u8, dest: &mut [u8], source: &[u8]) u32 {
+    copy(dest, source);
+    read[u32](ptr)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("Sized")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn memory_intrinsics_accept_sized_generic_elements() {
+    let root = temp_dir("memory_intrinsics_accept_sized_generic_elements");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::builtin::{loadUnaligned, memcpy, memmove};
+
+fun read[T](ptr: &u8) T
+where T: Sized {
+    loadUnaligned[T](ptr)
+}
+
+fun copy[T](dest: &mut [T], source: &[T]) ()
+where T: Sized {
+    memcpy(dest, source);
+    memmove(dest, source);
+}
+
+fun main(ptr: &u8, dest: &mut [u8], source: &[u8]) u32 {
+    copy(dest, source);
+    read[u32](ptr)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn extend_where_clause_allows_generic_layout_builtins_in_methods() {
     let root = temp_dir("extend_where_clause_allows_generic_layout_builtins_in_methods");
     write(

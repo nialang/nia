@@ -90,6 +90,30 @@ const fun pointer(values: [usize; 2]) usize {
 }
 
 #[test]
+fn const_declaration_filter_auto_addresses_string_and_byte_literals() {
+    let checked = pipeline(
+        r#"
+const text: &[char] = "nia";
+const bytes: &[u8] = b"nia";
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked.facts.iter_node_expr_adjustments().any(|(_, plan)| {
+            plan.steps
+                .iter()
+                .any(|step| matches!(step, nia_sema_ir::ExprAdjustment::AddressOf(_)))
+        }),
+        "{:?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn const_declaration_filter_rejects_runtime_only_iteration_witnesses() {
     let checked = pipeline_const_declarations(
         r#"

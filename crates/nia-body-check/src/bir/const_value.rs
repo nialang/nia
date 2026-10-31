@@ -664,6 +664,7 @@ fn pointer_pointee(value: &nia_const_check::ConstValue) -> Option<&nia_const_che
             pointee,
             ..
         }) => Some(pointee),
+        nia_const_check::ConstValue::Array(_) => Some(value),
         nia_const_check::ConstValue::String(_) => Some(value),
         _ => None,
     }

@@ -540,7 +540,11 @@ impl<'a> BodyChecker<'a> {
             let const_expr = this.lower_const_expr(value).ok()?;
             let ty = this.const_expr_type_for_ir_with_expected(&const_expr, expected)?;
             match ty {
-                nia_const_check::ConstValueType::Runtime(ty) => Some(ty),
+                nia_const_check::ConstValueType::Runtime(ty) => expected
+                    .and_then(|expected| {
+                        this.adapt_expr_to_expected_type(value, expected, ty, true, true)
+                    })
+                    .or(Some(ty)),
                 _ => None,
             }
         })

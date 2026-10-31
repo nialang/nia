@@ -8,8 +8,6 @@ license.workspace = true
 [dependencies]
 nia-span.workspace = true
 nia-ty.workspace = true
-
-[dev-dependencies]
 nia-ids.workspace = true
 
 [lib]

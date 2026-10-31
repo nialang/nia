@@ -93,6 +93,9 @@ impl Analyzer<'_> {
         if matches!(pattern_kind, TyKind::GenericParam(_)) {
             return true;
         }
+        if self.inference_implicit_array_address_accepts(pattern, actual) {
+            return true;
+        }
         match (pattern_kind, self.active_ty_kind(actual)) {
             (TyKind::Tuple(patterns), TyKind::Tuple(actuals)) => {
                 patterns.len() == actuals.len()
@@ -195,30 +198,6 @@ impl Analyzer<'_> {
                 readonly_pointer_accepts(pattern_readonly, actual_readonly)
                     && self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
             }
-            (
-                TyKind::Pointer {
-                    is_readonly: true,
-                    elem: pattern_elem,
-                },
-                TyKind::Array {
-                    elem: actual_elem, ..
-                },
-            ) => {
-                let TyKind::SlicePointee { elem: pattern_elem } = self.active_ty_kind(pattern_elem)
-                else {
-                    return false;
-                };
-                self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
-            }
-            (
-                TyKind::Slice {
-                    is_readonly: true,
-                    elem: pattern_elem,
-                },
-                TyKind::Array {
-                    elem: actual_elem, ..
-                },
-            ) => self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem),
             (
                 TyKind::Slice {
                     is_readonly: pattern_readonly,
@@ -489,6 +468,38 @@ impl Analyzer<'_> {
                         })
             }
             _ => self.const_function_types_match(pattern, actual),
+        }
+    }
+
+    fn inference_implicit_array_address_accepts(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
+        let pattern_kind = self.active_ty_kind(pattern);
+        let pattern_elem_kind = match pattern_kind {
+            TyKind::Pointer { elem, .. } => Some(self.active_ty_kind(elem)),
+            _ => None,
+        };
+        let actual_kind = self.active_ty_kind(actual);
+        let Some(plan) = nia_sema::classify_implicit_address(
+            &pattern_kind,
+            pattern_elem_kind.as_ref(),
+            actual,
+            &actual_kind,
+            |left, right| self.inference_pattern_accepts_type_shape(left, right),
+        ) else {
+            return false;
+        };
+        match plan {
+            nia_sema::ImplicitAddressPlan::Direct {
+                pointer_is_readonly: true,
+            } => true,
+            nia_sema::ImplicitAddressPlan::ArrayToSlice {
+                pointer_is_readonly: true,
+                slice_is_readonly: true,
+            } => true,
+            _ => false,
         }
     }
 

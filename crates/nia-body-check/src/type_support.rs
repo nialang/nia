@@ -167,54 +167,57 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
-        let (is_readonly, expected_elem, expected_is_slice) =
-            match self.interner.get(expected).cloned() {
-                Some(TyKind::Pointer { is_readonly, elem }) => {
-                    (is_readonly, self.normalization.normalize(elem), false)
-                }
-                Some(TyKind::Slice { is_readonly, elem }) => {
-                    (is_readonly, self.normalization.normalize(elem), true)
-                }
-                _ => return None,
-            };
-        if !self.can_form_implicit_address(expr, actual, is_readonly) {
-            return None;
-        }
-
-        if !expected_is_slice && self.types_match(actual, expected_elem) {
-            self.record_address_of_coercion(
-                expr,
-                AddressOfCoercion {
-                    source_ty: actual,
-                    target_ty: expected,
-                    is_readonly,
-                },
-            );
-            return Some(expected);
-        }
-
-        let (expected_slice_elem, slice_readonly) = if expected_is_slice {
-            (expected_elem, is_readonly)
-        } else {
-            let Some(TyKind::Slice { elem, is_readonly }) =
-                self.interner.get(expected_elem).cloned()
-            else {
-                return None;
-            };
-            (self.normalization.normalize(elem), is_readonly)
+        let expected_kind = self.interner.get(expected)?.clone();
+        let expected_elem_kind = match &expected_kind {
+            TyKind::Pointer { elem, .. } => Some(
+                self.interner
+                    .get(self.normalization.normalize(*elem))?
+                    .clone(),
+            ),
+            _ => None,
         };
-        let Some(TyKind::Array {
-            elem: actual_array_elem,
-            ..
-        }) = self.interner.get(actual).cloned()
-        else {
-            return None;
+        let actual_kind = self.interner.get(actual)?.clone();
+        let plan = nia_sema::classify_implicit_address(
+            &expected_kind,
+            expected_elem_kind.as_ref(),
+            actual,
+            &actual_kind,
+            |left, right| self.types_match(left, right),
+        )?;
+        let address_is_readonly = match plan {
+            nia_sema::ImplicitAddressPlan::Direct {
+                pointer_is_readonly,
+            } => pointer_is_readonly,
+            nia_sema::ImplicitAddressPlan::ArrayToSlice {
+                pointer_is_readonly,
+                ..
+            } => pointer_is_readonly,
         };
-        if !self.types_match(actual_array_elem, expected_slice_elem)
-            || (!is_readonly && slice_readonly)
-        {
+        if !self.can_form_implicit_address(expr, actual, address_is_readonly) {
             return None;
         }
+        let (is_readonly, slice_readonly) = match plan {
+            nia_sema::ImplicitAddressPlan::Direct {
+                pointer_is_readonly,
+            } => {
+                self.record_address_of_coercion(
+                    expr,
+                    AddressOfCoercion {
+                        source_ty: actual,
+                        target_ty: expected,
+                        is_readonly: pointer_is_readonly,
+                    },
+                );
+                return Some(expected);
+            }
+            nia_sema::ImplicitAddressPlan::ArrayToSlice {
+                pointer_is_readonly,
+                slice_is_readonly,
+            } => (pointer_is_readonly, slice_is_readonly),
+        };
+        let TyKind::Array { .. } = actual_kind else {
+            return None;
+        };
         let pointer_ty = self.interner.intern(TyKind::Pointer {
             is_readonly,
             elem: actual,

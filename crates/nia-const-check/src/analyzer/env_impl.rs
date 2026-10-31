@@ -6,7 +6,8 @@ use crate::{
     },
     support::{
         cast_const_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
-        enum_next_value, is_float_primitive, primitive_integer_layout, validate_assignment_shape,
+        const_string_to_char_array, enum_next_value, is_float_primitive, primitive_integer_layout,
+        validate_assignment_shape,
     },
 };
 use nia_const_eval::{
@@ -406,6 +407,79 @@ impl ConstCommonEnv for Analyzer<'_> {
 }
 
 impl Analyzer<'_> {
+    pub(super) fn implicit_readonly_address_value(
+        &mut self,
+        value: ConstValue,
+        ty: InternedTyId,
+        span: Span,
+        static_initializer: bool,
+    ) -> Result<ConstValue, ConstError> {
+        let Some(kind) = self.ty_kind(ty) else {
+            return Ok(value);
+        };
+        match kind {
+            TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            } => {
+                if matches!(value, ConstValue::Pointer(_)) {
+                    return Ok(value);
+                }
+                let pointee = self.normalize_runtime_typed_const_value(value, elem);
+                if static_initializer {
+                    Ok(ConstValue::Pointer(ConstPointerValue::Frozen {
+                        origin: ConstAllocationOrigin::new(
+                            Some(self.current_execution_module_id()),
+                            span,
+                        ),
+                        is_readonly: true,
+                        pointee: Box::new(pointee),
+                    }))
+                } else {
+                    self.reference_const_value(span, pointee, true)
+                }
+            }
+            TyKind::Slice {
+                is_readonly: true,
+                elem,
+            } => {
+                if matches!(value, ConstValue::Pointer(_)) {
+                    return Ok(value);
+                }
+                let values = match value {
+                    ConstValue::Array(values) => values,
+                    ConstValue::String(value) => const_string_to_char_array(&value),
+                    value => return Ok(value),
+                };
+                let array_ty = self
+                    .intern_current_ty(TyKind::Array {
+                        len: nia_ty::ArrayLenTy::ConstValue(values.len() as u64),
+                        elem,
+                    })
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "failed to construct array type for implicit readonly address"
+                            .to_string(),
+                    })?;
+                let pointee =
+                    self.normalize_runtime_typed_const_value(ConstValue::Array(values), array_ty);
+                if static_initializer {
+                    Ok(ConstValue::Pointer(ConstPointerValue::Frozen {
+                        origin: ConstAllocationOrigin::new(
+                            Some(self.current_execution_module_id()),
+                            span,
+                        ),
+                        is_readonly: true,
+                        pointee: Box::new(pointee),
+                    }))
+                } else {
+                    self.reference_const_value(span, pointee, true)
+                }
+            }
+            _ => Ok(value),
+        }
+    }
+
     fn const_enum_variant_integer_value(
         &mut self,
         span: Span,
@@ -1074,6 +1148,12 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 )
             }) {
                 let return_ty = ConstValueType::Runtime(return_ty);
+                let value = match &return_ty {
+                    ConstValueType::Runtime(runtime_ty) => {
+                        self.implicit_readonly_address_value(value, *runtime_ty, span, false)?
+                    }
+                    _ => value,
+                };
                 let value = self.normalize_typed_const_value(value, &return_ty);
                 self.validate_typed_value(span, &value, &return_ty);
                 return Ok(value);
@@ -1109,7 +1189,13 @@ impl ResolvedConstEnv for Analyzer<'_> {
             nia_const_eval::write_resolved_const_place(span, receiver_place, receiver, self)?;
         }
         let return_ty = ConstValueType::Runtime(return_ty);
-        let value = self.normalize_typed_const_value(output.value, &return_ty);
+        let value = match &return_ty {
+            ConstValueType::Runtime(runtime_ty) => {
+                self.implicit_readonly_address_value(output.value, *runtime_ty, span, false)?
+            }
+            _ => output.value,
+        };
+        let value = self.normalize_typed_const_value(value, &return_ty);
         self.validate_typed_value(span, &value, &return_ty);
         Ok(value)
     }
@@ -1536,6 +1622,12 @@ impl Analyzer<'_> {
                 message: "cannot resolve const trait method return type".to_string(),
             })?;
         let return_ty = ConstValueType::Runtime(return_ty);
+        output.value = match &return_ty {
+            ConstValueType::Runtime(runtime_ty) => {
+                self.implicit_readonly_address_value(output.value, *runtime_ty, span, false)?
+            }
+            _ => output.value,
+        };
         output.value = self.normalize_typed_const_value(output.value, &return_ty);
         self.validate_typed_value(span, &output.value, &return_ty);
         Ok(output)
@@ -1601,6 +1693,12 @@ impl Analyzer<'_> {
             this.resolved_expr_types.pop();
             let value = evaluated?;
             let value = if let Some(expected) = expected {
+                let value = match &expected {
+                    ConstValueType::Runtime(runtime_ty) => {
+                        this.implicit_readonly_address_value(value, *runtime_ty, span, false)?
+                    }
+                    _ => value,
+                };
                 let value = this.normalize_typed_const_value(value, &expected);
                 this.validate_typed_value(span, &value, &expected);
                 value
@@ -2360,6 +2458,12 @@ impl Analyzer<'_> {
         ty: Option<ConstValueType>,
     ) -> Result<(), ConstError> {
         let (value, ty) = if let Some(ty) = ty {
+            let value = match &ty {
+                ConstValueType::Runtime(runtime_ty) => {
+                    self.implicit_readonly_address_value(value, *runtime_ty, span, false)?
+                }
+                _ => value,
+            };
             let value = self.normalize_typed_const_value(value, &ty);
             self.validate_typed_value(span, &value, &ty);
             (value, Some(ty))
@@ -2412,6 +2516,12 @@ impl Analyzer<'_> {
             let previous_ty = self.call_locals[index].local_types.get(&local_id).cloned();
             let previous_value = self.call_locals[index].locals.get(&local_id).cloned();
             let value = if let Some(previous_ty) = previous_ty.as_ref() {
+                let value = match previous_ty {
+                    ConstValueType::Runtime(runtime_ty) => {
+                        self.implicit_readonly_address_value(value, *runtime_ty, span, false)?
+                    }
+                    _ => value,
+                };
                 let value = self.normalize_typed_const_value(value, previous_ty);
                 self.validate_typed_value(span, &value, previous_ty);
                 value
