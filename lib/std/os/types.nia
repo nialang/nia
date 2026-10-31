@@ -255,5 +255,3 @@ extend DirectoryEntry {
         self.size
     }
 }
-
-\n

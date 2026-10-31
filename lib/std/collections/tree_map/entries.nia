@@ -44,5 +44,3 @@ where K: Sized, V: Sized
     pub fun value(&self) &V { self.value }
     pub fun valueMut(&mut self) &mut V { self.value }
 }
-
-\n

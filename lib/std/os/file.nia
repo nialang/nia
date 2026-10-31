@@ -341,5 +341,3 @@ extend FileHandle {
         !n
     }
 }
-
-\n

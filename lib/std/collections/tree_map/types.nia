@@ -36,5 +36,3 @@ where K: Sized + Ord[K], V: Sized
     depth: usize,
     remaining: usize,
 }
-
-\n
