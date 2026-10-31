@@ -50,7 +50,7 @@ pub fun main(init: Init) ExitCode!() {
         return process::ExitCode(1)!;
     }
 
-    io::debugPrint(&"Nia is running\n", &[]).?;
+    io::debugPrint("Nia is running\n", []).?;
     !()
 }
 ```
