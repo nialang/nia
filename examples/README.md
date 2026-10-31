@@ -1,60 +1,120 @@
 # Nia Examples
 
-The examples are small, complete programs that use the current language and
-standard library together. They are organized by the kind of program a reader
-is trying to understand, not by the date a feature was added. No example is an
-exhaustive language test; the specification and the compiler test suites define
-the complete surface.
+Complete programs demonstrating Nia language features and standard library usage. Each example is self-contained and builds with `nia emit --exe`.
 
-Every executable uses the same entry point:
+## Learning Path
 
-```nia
-pub fun main(init: process::Init) process::ExitCode!()
+### Beginner: Core Language Features
+
+Start here to understand Nia's syntax and basic concepts.
+
+- **`hello.nia`** - Minimal executable with the standard entry point
+- **`data.nia`** - Arrays, slices, string literals, `const`, and `static` storage
+- **`basics.nia`** - Functions, structs, methods, enums, `match`, ranges, loops, and `defer`
+
+**What you'll learn:** Entry points, value types, control flow, pattern matching, and resource cleanup with `defer`.
+
+### Intermediate: Standard Library and Patterns
+
+Once comfortable with the language, explore standard library patterns.
+
+- **`errors.nia`** - Optional values (`?T`), error unions (`E!T`), pattern matching, and `.?` propagation
+- **`generic.nia`** - Trait implementations, operator overloading, generic bounds, and borrowed iterator closures
+- **`collections.nia`** - Explicit allocators, `ArrayList`, `HashMap`, mutation, `defer`-based cleanup
+- **`io.nia`** - Formatted output through `std::io`
+- **`process.nia`** - Starting child processes with piped streams (POSIX hosts only)
+- **`modules/`** - Multi-file programs with public modules, imports, and re-exported APIs
+
+**What you'll learn:** Error handling without exceptions, explicit memory management, allocator ownership, trait-based generics, and module organization.
+
+### Advanced: Language Semantics
+
+Deep dives into advanced language features.
+
+- **`closure_inference/`** - Generic callable closure inference without annotations
+
+**What you'll learn:** How Nia infers closure types through generic callable parameters.
+
+## Running Examples
+
+Check a single example:
+```sh
+cargo run -p nia-cli -- --resource-root lib check examples/beginner/hello.nia --runtime freestanding
 ```
 
-The examples use `std::io::debugPrint` for compact diagnostic output. `io.nia`
-shows the explicit stdout path. Errors are propagated with `.?`, and mutable
-resources are released with `defer` in the order required by their owners.
-`collections.nia` shows the usual ownership arrangement: containers borrow a
-general-purpose allocator and release their storage before the allocator is
-deinitialized.
-
-## Reading Order
-
-1. `hello.nia` introduces an executable and the standard entry contract.
-2. `basics.nia` combines functions, structs, methods, enums, `match`, ranges,
-   slices, loops, and `defer` in one small calculation.
-3. `data.nia` develops arrays, slice views, mutable slices, text and byte
-   literals, `const`, and static storage.
-4. `errors.nia` uses optional values, error unions, pattern matching, and
-   propagation to handle a missing element.
-5. `generic.nia` combines trait implementations, operator overloading, generic
-   bounds, and borrowed iterator closures.
-6. `collections.nia` puts explicit allocator ownership together with
-   `ArrayList`, `HashMap`, mutation, lookup, and cleanup.
-7. `io.nia` writes formatted application output through `std::io`.
-8. `process.nia` starts a child process with typed arguments, environment
-   entries, a piped stdout handle, and a termination status. It runs `/bin/sh`,
-   so it needs a POSIX host.
-9. `modules/main.nia` is a multi-file program with public modules, aliases,
-   selected imports, and a facade that re-exports an API.
-
-Run one example from the repository root:
-
+Build and run:
 ```sh
-cargo run -p nia-cli -- --resource-root lib check examples/hello.nia --runtime freestanding
-cargo run -p nia-cli -- --resource-root lib emit --exe examples/io.nia -o build/nia-io
+cargo run -p nia-cli -- --resource-root lib emit --exe examples/beginner/hello.nia -o build/hello
+./build/hello
 ```
 
-Check the complete example set:
-
+Check all beginner examples:
 ```sh
-for file in examples/*.nia; do
+for file in examples/beginner/*.nia; do
   cargo run -p nia-cli -- --resource-root lib check "$file" --runtime freestanding
 done
-cargo run -p nia-cli -- --resource-root lib check examples/modules/main.nia --runtime freestanding
 ```
 
-The examples intentionally favor explicit ownership and ordinary library APIs.
-They are executable reading material, while edge cases and rejected forms
-belong in focused compiler and standard-library tests.
+Multi-file examples need their main entry point:
+```sh
+cargo run -p nia-cli -- --resource-root lib check examples/intermediate/modules/main.nia --runtime freestanding
+```
+
+## Key Patterns Demonstrated
+
+### Resource Management
+All examples follow the same pattern: acquire resources, register `defer` cleanup in reverse order, use resources, let `defer` clean up automatically on any exit path.
+
+```nia
+let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+defer allocator.deinit().?;
+
+let mut values: std::ArrayList[i32] = .init();
+defer values.deinit(&mut allocator).?;
+```
+
+### Error Handling
+Nia has no exceptions. Operations return `?T` for optionals or `E!T` for error unions. Use `.?` to propagate errors up the call stack:
+
+```nia
+fun parseDigits(text: &[char]) ParseError!u32 {
+    if text.len() == 0 {
+        return ParseError::Empty!;
+    }
+    // ... parse and return !value on success
+}
+
+fun caller() ParseError!() {
+    let value = parseDigits(&"42").?;  // propagates errors
+    !()
+}
+```
+
+### Explicit Allocation
+Containers take an allocator argument for every operation that may allocate:
+
+```nia
+values.push(&mut allocator, 10).?;
+scores.insert(&mut allocator, key, value).?;
+```
+
+### Closures and Iterators
+Closures capture explicitly and compose through iterator adapters:
+
+```nia
+let step = 10;
+let addStep = \[step] x -> x + step;  // captures by value
+
+let squares = (1..5).iter().map(\value -> value * value);
+let sum = squares.fold(0, &\total, value -> total + value);
+```
+
+## What These Examples Are Not
+
+These are readable, complete programs that demonstrate current language and library features. They are not:
+- Exhaustive language tests (see compiler test suites)
+- Performance benchmarks
+- Edge case demonstrations
+- Historical feature snapshots
+
+The [language tour](../docs/guide/tour.md) provides a narrative introduction. The [language reference](../docs/reference/language.md) defines complete rules.
