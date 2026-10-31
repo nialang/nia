@@ -97,7 +97,7 @@ Rust, LLVM, and LLD inputs:
 
 ```sh
 cargo build --release -p nia-cli
-target/release/nia --resource-root "$PWD/lib" check examples/hello.nia --runtime freestanding
+target/release/nia --resource-root "$PWD/lib" check examples/beginner/hello.nia --runtime freestanding
 ```
 
 [Getting started](docs/guide/getting-started.md) walks through a first package
@@ -122,7 +122,7 @@ entry points are:
 - `crates/nia-*/`: compiler, query, build-system, backend, and support libraries.
 - `lib/`: the standard library and runtime resources.
 - `docs/`: user guide, reference, and contributor documentation.
-- `examples/`: complete Nia programs arranged as reading material.
+- `examples/`: complete Nia programs arranged by learning progression.
 - `benchmarks/`: performance workloads.
 - `maintain/`: repository audits, fixtures, and performance infrastructure.
 - `tools/`: the development launcher, LLVM toolchain, and release scripts.

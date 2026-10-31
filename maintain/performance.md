@@ -48,16 +48,16 @@ remaining sources live in `benchmarks/` or reuse maintained examples.
 | Workload | Command | Source | Purpose and acceptance |
 | --- | --- | --- | --- |
 | `minimal` | `check` | `benchmarks/minimal.nia` | Minimal check. |
-| `std_hello_check` | `check` | `examples/hello.nia` | Cold standard-library boundary; requires non-trivial checked-body and query-execution counts. |
-| `std_hello_exe` | `emit --exe` | `examples/hello.nia` | As above, and must use the live multi-unit LLVM path. |
-| `strings_slices` | `check` | `examples/data.nia` | Strings and slices. |
-| `array_list` | `check` | `examples/collections.nia` | ArrayList. |
-| `traits` | `check` | `examples/generic.nia` | Trait-heavy code. |
+| `std_hello_check` | `check` | `examples/beginner/hello.nia` | Cold standard-library boundary; requires non-trivial checked-body and query-execution counts. |
+| `std_hello_exe` | `emit --exe` | `examples/beginner/hello.nia` | As above, and must use the live multi-unit LLVM path. |
+| `strings_slices` | `check` | `examples/beginner/data.nia` | Strings and slices. |
+| `array_list` | `check` | `examples/intermediate/collections.nia` | ArrayList. |
+| `traits` | `check` | `examples/intermediate/generic.nia` | Trait-heavy code. |
 | `const_eval` | `check` | `benchmarks/const_heavy.nia` | Const-eval-heavy code. |
-| `module_backend` | `emit --backend` | `examples/modules/main.nia` | Multi-module backend lowering; records a process-wide live-allocation window around parallel finalization. |
+| `module_backend` | `emit --backend` | `examples/intermediate/modules/main.nia` | Multi-module backend lowering; records a process-wide live-allocation window around parallel finalization. |
 | `codegen_buckets` | `emit --obj` | `benchmarks/codegen_buckets.nia` | One source with eight reachable definitions; must compile at least two LLVM units. |
 | `codegen_buckets_large` | `emit --obj` | generated | Sixteen reachable 1 MiB static definitions and one small function body; must compile at least four LLVM units. |
-| `emit_exe` | `emit --exe` | `examples/collections.nia` | Larger full executable emission. |
+| `emit_exe` | `emit --exe` | `examples/intermediate/collections.nia` | Larger full executable emission. |
 | `source_volume_{16,64,256,1024}` | `check` | generated | Single-module curve growing top-level declarations. |
 | `source_text_{1,4,16,64}k` | `check` | generated | Comment padding that grows source bytes without semantic items. |
 | `synthetic_{10,50,100,500}_modules` | `emit --exe` | generated | Flat/star executable scales from the competitive matrix's Nia generator. |
@@ -162,7 +162,7 @@ build, Cargo, and Zig build. The Nia-only `project_planner_build` workload
 builds the source-owned application under `benchmarks/apps/project-planner`.
 The sources under `benchmarks/competitive/` are
 maintained language-native Rust and Zig counterparts to
-`benchmarks/minimal.nia` and `examples/hello.nia`. Check modes are deliberately
+`benchmarks/minimal.nia` and `examples/beginner/hello.nia`. Check modes are deliberately
 described precisely:
 
 - Nia uses `nia check` without native output.

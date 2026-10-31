@@ -18,7 +18,7 @@ use nia_test_support::CommandStatusExt;
 fn coff_executables_have_reproducible_timestamps_and_bytes() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = nia_test_support::test_dir("coff-reproducibility");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/hello.nia");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/beginner/hello.nia");
     let mut artifacts = Vec::new();
     for name in ["first.exe", "second.exe"] {
         let executable = root.join(name);

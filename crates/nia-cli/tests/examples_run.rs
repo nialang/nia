@@ -10,12 +10,21 @@ use nia_test_support::{CommandExt, test_dir as temp_dir};
 
 fn examples() -> Vec<PathBuf> {
     let root = nia_test_support::workspace_root().join("examples");
-    let mut paths = std::fs::read_dir(&root)
-        .expect("read examples")
-        .map(|entry| entry.expect("example entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "nia"))
-        .collect::<Vec<_>>();
-    paths.push(root.join("modules/main.nia"));
+    let mut paths = [
+        "beginner/basics.nia",
+        "beginner/data.nia",
+        "beginner/hello.nia",
+        "intermediate/collections.nia",
+        "intermediate/errors.nia",
+        "intermediate/generic.nia",
+        "intermediate/io.nia",
+        "intermediate/modules/main.nia",
+        "intermediate/process.nia",
+        "advanced/closure_inference/main.nia",
+    ]
+    .into_iter()
+    .map(|path| root.join(path))
+    .collect::<Vec<_>>();
     paths.sort();
     paths
 }

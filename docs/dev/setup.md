@@ -119,7 +119,7 @@ raise the WSL memory and swap allocation.
 Run the compiler with the checkout's standard-library resources:
 
 ```sh
-cargo run -p nia-cli -- --resource-root lib check examples/hello.nia --runtime freestanding
+cargo run -p nia-cli -- --resource-root lib check examples/beginner/hello.nia --runtime freestanding
 ```
 
 For repeated use, build the release binary and use the development launcher,
@@ -127,7 +127,7 @@ which always pairs `target/release/nia` with this checkout's `lib`:
 
 ```sh
 cargo build --release -p nia-cli
-tools/nia-dev check examples/hello.nia --runtime freestanding
+tools/nia-dev check examples/beginner/hello.nia --runtime freestanding
 ```
 
 `tools/nia-dev` is a Bash script; on Windows run the binary directly with

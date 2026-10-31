@@ -366,15 +366,16 @@ fn repository_examples_parse_and_check() {
         .expect("nia-cli lives under crates/")
         .join("examples");
     let examples = [
-        "hello.nia",
-        "basics.nia",
-        "data.nia",
-        "errors.nia",
-        "generic.nia",
-        "collections.nia",
-        "io.nia",
-        "process.nia",
-        "modules/main.nia",
+        "beginner/hello.nia",
+        "beginner/basics.nia",
+        "beginner/data.nia",
+        "intermediate/errors.nia",
+        "intermediate/generic.nia",
+        "intermediate/collections.nia",
+        "intermediate/io.nia",
+        "intermediate/process.nia",
+        "intermediate/modules/main.nia",
+        "advanced/closure_inference/main.nia",
     ];
 
     for example in examples {

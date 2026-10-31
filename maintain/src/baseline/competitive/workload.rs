@@ -166,7 +166,9 @@ impl Workload {
             (Self::MinimalCheck, Language::Nia) => Some("benchmarks/minimal.nia"),
             (Self::MinimalCheck, Language::Rust) => Some("benchmarks/competitive/minimal.rs"),
             (Self::MinimalCheck, Language::Zig) => Some("benchmarks/competitive/minimal.zig"),
-            (Self::HelloCheck | Self::HelloExecutable, Language::Nia) => Some("examples/hello.nia"),
+            (Self::HelloCheck | Self::HelloExecutable, Language::Nia) => {
+                Some("examples/beginner/hello.nia")
+            }
             (Self::HelloCheck | Self::HelloExecutable, Language::Rust) => {
                 Some("benchmarks/competitive/hello.rs")
             }
