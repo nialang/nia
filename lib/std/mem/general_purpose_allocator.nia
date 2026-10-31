@@ -384,6 +384,11 @@ extend GeneralPurposeAllocator {
         if page.usedCount == 0 {
             return .Invalid!;
         }
+        if page.usedCount == 1 {
+            // Keep the user's allocation live if releasing its page fails, so
+            // the caller still owns a block it can retry freeing.
+            return self.releaseEmptySmallPage(page);
+        }
         slot.allocated = false;
         slot.size = 0;
         slot.align = 0;
@@ -391,9 +396,6 @@ extend GeneralPurposeAllocator {
         page.freeList = ?slot;
         page.usedCount -= 1;
         page.usedBytes -= block.size();
-        if page.usedCount == 0 {
-            self.releaseEmptySmallPage(page).?;
-        }
         !()
     }
 
@@ -401,18 +403,13 @@ extend GeneralPurposeAllocator {
         let pageSize = os::pageSize();
         let blockLayout = Layout::init(pageSize, pageSize).?;
         let block = self.child.alloc(blockLayout).?;
-        let mut page = block.ptr() as &mut SmallPage;
-        page.* = .{
-            block: block,
-            slotSize: slotSize,
-            slotCount: 0,
-            usedCount: 0,
-            usedBytes: 0,
-            freeList: null,
-            next: self.smallPages,
-        };
+        let base = block.ptr() as usize;
+        if block.size() < pageSize or base % pageSize != 0 {
+            self.releaseOrRetain(block);
+            return .OutOfMemory!;
+        }
 
-        let payloadBase = match smallPagePayloadBase(page) {
+        let payloadBase = match smallPagePayloadBase(block, slotSize) {
             ?value => {
                 value
             },
@@ -421,7 +418,6 @@ extend GeneralPurposeAllocator {
                 return .OutOfMemory!;
             },
         };
-        let base = block.ptr() as usize;
         let payloadOffset = payloadBase - base;
         if payloadOffset >= block.size() {
             self.releaseOrRetain(block);
@@ -434,6 +430,42 @@ extend GeneralPurposeAllocator {
             self.releaseOrRetain(block);
             return .OutOfMemory!;
         }
+        let slotBytes = match slotCount.checkedMul(slotSize) {
+            ?value => value,
+            null => {
+                self.releaseOrRetain(block);
+                return .OutOfMemory!;
+            },
+        };
+        let payloadEnd = match payloadBase.checkedAdd(slotBytes) {
+            ?value => value,
+            null => {
+                self.releaseOrRetain(block);
+                return .OutOfMemory!;
+            },
+        };
+        let blockEnd = match base.checkedAdd(block.size()) {
+            ?value => value,
+            null => {
+                self.releaseOrRetain(block);
+                return .OutOfMemory!;
+            },
+        };
+        if payloadEnd > blockEnd {
+            self.releaseOrRetain(block);
+            return .OutOfMemory!;
+        }
+
+        let mut page = block.ptr() as &mut SmallPage;
+        page.* = .{
+            block: block,
+            slotSize: slotSize,
+            slotCount: 0,
+            usedCount: 0,
+            usedBytes: 0,
+            freeList: null,
+            next: self.smallPages,
+        };
 
         for index in 0..slotCount {
             let addr = payloadBase + index * slotSize;
@@ -488,6 +520,17 @@ extend GeneralPurposeAllocator {
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
         let base = backing.ptr() as usize;
+        if backing.size() < totalSize or base % blockAlign != 0 {
+            self.releaseOrRetain(backing);
+            return .OutOfMemory!;
+        }
+        let backingEnd = match base.checkedAdd(backing.size()) {
+            ?value => value,
+            null => {
+                self.releaseOrRetain(backing);
+                return .OutOfMemory!;
+            },
+        };
         let afterHeader = match base.checkedAdd(headerSize) {
             ?value => value,
             null => {
@@ -505,7 +548,11 @@ extend GeneralPurposeAllocator {
             },
         };
         let headerAddr = userAddr - headerSize;
-        let userCapacity = backing.size() - (userAddr - base);
+        if userAddr > backingEnd or layout.size() > backingEnd - userAddr {
+            self.releaseOrRetain(backing);
+            return .OutOfMemory!;
+        }
+        let userCapacity = backingEnd - userAddr;
         let mut header = headerAddr as &mut LargeHeader;
         header.* = .{
             magic: largeMagic,
@@ -694,8 +741,8 @@ fun smallSlotSize(layout: Layout) ?usize {
     }
 }
 
-fun smallPagePayloadBase(page: &mut SmallPage) ?usize {
-    let base = page.block.ptr() as usize;
+fun smallPagePayloadBase(block: Block, slotSize: usize) ?usize {
+    let base = block.ptr() as usize;
     let afterHeader = match base.checkedAdd(root::builtin::size[SmallPage]()) {
         ?value => {
             value
@@ -704,11 +751,22 @@ fun smallPagePayloadBase(page: &mut SmallPage) ?usize {
             return null;
         },
     };
-    afterHeader.alignForward(page.slotSize)
+    let payloadBase = match afterHeader.alignForward(slotSize) {
+        ?value => value,
+        null => return null,
+    };
+    let blockEnd = match base.checkedAdd(block.size()) {
+        ?value => value,
+        null => return null,
+    };
+    if payloadBase >= blockEnd {
+        return null;
+    }
+    ?payloadBase
 }
 
 fun smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
-    let payloadBase = match smallPagePayloadBase(page) {
+    let payloadBase = match smallPagePayloadBase(page.block, page.slotSize) {
         ?value => {
             value
         },
@@ -739,7 +797,7 @@ fun smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
     if not smallPageContainsPtr(page, ptr) {
         return null;
     }
-    let payloadBase = match smallPagePayloadBase(page) {
+    let payloadBase = match smallPagePayloadBase(page.block, page.slotSize) {
         ?value => {
             value
         },

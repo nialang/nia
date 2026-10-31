@@ -488,6 +488,92 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_mem_general_allocator_preserves_block_when_empty_page_release_fails() {
+    let root = temp_dir(
+        "emit_exe_std_mem_general_allocator_preserves_block_when_empty_page_release_fails",
+    );
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::mem;
+using std::process;
+
+struct FailOnceAllocator {
+    page: mem::PageAllocator,
+    failures: usize,
+}
+
+extend FailOnceAllocator {
+    fun init() FailOnceAllocator {
+        Self { page: mem::PageAllocator::init(), failures: 1 }
+    }
+}
+
+extend FailOnceAllocator : mem::Allocator {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.page.alloc(layout)
+    }
+
+    fun free(&mut self, block: mem::Block) mem::Error!() {
+        if self.failures != 0 {
+            self.failures -= 1;
+            return mem::Error::System!;
+        }
+        self.page.free(block)
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut child = FailOnceAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
+    let layout = mem::Layout::init(32, 8).?;
+    let block = allocator.alloc(layout).?;
+    if allocator.used() != block.size() {
+        return process::ExitCode(1)!;
+    }
+
+    match allocator.free(block) {
+        !ok => { _ = ok; return process::ExitCode(2)!; },
+        mem::Error::System! => {},
+        error! => { _ = error; return process::ExitCode(3)!; },
+    }
+    if allocator.used() != block.size() or allocator.isEmpty() {
+        return process::ExitCode(4)!;
+    }
+
+    allocator.free(block).?;
+    if allocator.used() != 0 or not allocator.isEmpty() {
+        return process::ExitCode(5)!;
+    }
+    allocator.deinit().?;
+    !()
+}
+"#,
+    )
+    .expect("write general allocator failed-release source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile general allocator failed-release fixture");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status =
+        Command::new(&exe).status_timeout("run general allocator failed-release executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list() {
     let root = temp_dir(
         "emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list",
@@ -1296,8 +1382,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_std_mem_general_allocator_rejects_wrapped_large_header_base() {
-    let root = temp_dir("emit_exe_std_mem_general_allocator_rejects_wrapped_large_header_base");
+fn emit_exe_std_mem_general_allocator_rejects_malformed_backing_blocks() {
+    let root = temp_dir("emit_exe_std_mem_general_allocator_rejects_malformed_backing_blocks");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -1308,11 +1394,12 @@ using std::process;
 
 struct MalformedAllocator {
     failNextFree: bool,
+    ptr: usize,
 }
 
 extend MalformedAllocator {
-    fun init() MalformedAllocator {
-        Self { failNextFree: true }
+    fun init(ptr: usize) MalformedAllocator {
+        Self { failNextFree: true, ptr }
     }
 }
 
@@ -1321,7 +1408,7 @@ extend MalformedAllocator : mem::Allocator {
         if layout.isEmpty() {
             return !mem::Block::empty(layout);
         }
-        !mem::Block::init((usize::MAX - 1usize) as &mut u8, layout)
+        !mem::Block::init(self.ptr as &mut u8, layout)
     }
 
     fun free(&mut self, block: mem::Block) mem::Error!() {
@@ -1348,7 +1435,7 @@ extend MalformedAllocator : mem::Allocator {
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut child = MalformedAllocator::init();
+    let mut child = MalformedAllocator::init(usize::MAX - 1usize);
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
     let layout = mem::Layout::init(4096, 8).?;
     match allocator.alloc(layout) {
@@ -1364,6 +1451,51 @@ pub fun main(init: process::Init) process::ExitCode!() {
     allocator.deinitWithoutLeakCheck().?;
     if not allocator.isEmpty() {
         return process::ExitCode(4)!;
+    }
+
+    let mut smallChild = MalformedAllocator::init(usize::MAX - 4095usize);
+    let mut smallAllocator = mem::GeneralPurposeAllocator::init(&mut smallChild);
+    match smallAllocator.alloc(mem::Layout::init(32, 8).?) {
+        !block => { _ = block; return process::ExitCode(5)!; },
+        mem::Error::OutOfMemory! => {},
+        error! => { _ = error; return process::ExitCode(6)!; },
+    }
+    if smallAllocator.isEmpty() or smallAllocator.capacity() == 0 {
+        return process::ExitCode(7)!;
+    }
+    smallAllocator.deinitWithoutLeakCheck().?;
+    if not smallAllocator.isEmpty() {
+        return process::ExitCode(8)!;
+    }
+
+    let mut wrappedRangeChild = MalformedAllocator::init(usize::MAX - 127usize);
+    let mut wrappedRangeAllocator = mem::GeneralPurposeAllocator::init(&mut wrappedRangeChild);
+    match wrappedRangeAllocator.alloc(mem::Layout::init(4096, 8).?) {
+        !block => { _ = block; return process::ExitCode(9)!; },
+        mem::Error::OutOfMemory! => {},
+        error! => { _ = error; return process::ExitCode(10)!; },
+    }
+    if wrappedRangeAllocator.isEmpty() or wrappedRangeAllocator.capacity() == 0 {
+        return process::ExitCode(11)!;
+    }
+    wrappedRangeAllocator.deinitWithoutLeakCheck().?;
+    if not wrappedRangeAllocator.isEmpty() {
+        return process::ExitCode(12)!;
+    }
+
+    let mut unalignedChild = MalformedAllocator::init(1usize);
+    let mut unalignedAllocator = mem::GeneralPurposeAllocator::init(&mut unalignedChild);
+    match unalignedAllocator.alloc(mem::Layout::init(4096, 8).?) {
+        !block => { _ = block; return process::ExitCode(13)!; },
+        mem::Error::OutOfMemory! => {},
+        error! => { _ = error; return process::ExitCode(14)!; },
+    }
+    if unalignedAllocator.isEmpty() or unalignedAllocator.capacity() == 0 {
+        return process::ExitCode(15)!;
+    }
+    unalignedAllocator.deinitWithoutLeakCheck().?;
+    if not unalignedAllocator.isEmpty() {
+        return process::ExitCode(16)!;
     }
     !()
 }
