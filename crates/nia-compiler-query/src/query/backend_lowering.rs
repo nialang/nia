@@ -80,18 +80,31 @@ struct BackendAssociatedConstEvaluator {
     program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
 }
 
+struct BackendAssociatedConstInputs<'a> {
+    checked_modules: &'a [Arc<CheckedModule>],
+    const_modules: Vec<Arc<nia_const_ir::ResolvedConstModule>>,
+    item_signatures: Vec<ItemSignatures>,
+    symbols: nia_symbol_table::SymbolTable,
+    type_store: Arc<nia_ty::TypeStore>,
+    target: nia_target::TargetConfig,
+    visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
+    program_functions: HashMap<GlobalDefId, nia_item_signatures::ProgramFunctionSignature>,
+    program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
+}
+
 impl BackendAssociatedConstEvaluator {
-    fn new(
-        checked_modules: &[Arc<CheckedModule>],
-        const_modules: Vec<Arc<nia_const_ir::ResolvedConstModule>>,
-        item_signatures: Vec<ItemSignatures>,
-        symbols: nia_symbol_table::SymbolTable,
-        type_store: Arc<nia_ty::TypeStore>,
-        target: nia_target::TargetConfig,
-        visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
-        program_functions: HashMap<GlobalDefId, nia_item_signatures::ProgramFunctionSignature>,
-        program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
-    ) -> QueryResult<Self> {
+    fn new(input: BackendAssociatedConstInputs<'_>) -> QueryResult<Self> {
+        let BackendAssociatedConstInputs {
+            checked_modules,
+            const_modules,
+            item_signatures,
+            symbols,
+            type_store,
+            target,
+            visible_extensions,
+            program_functions,
+            program_function_signatures,
+        } = input;
         if checked_modules.len() != const_modules.len()
             || checked_modules.len() != item_signatures.len()
         {
@@ -273,17 +286,18 @@ impl BackendAssociatedConstEvaluator {
 
 impl BackendLoweringInputs {
     pub(super) fn new(parts: BackendLoweringInputsParts) -> QueryResult<Self> {
-        let associated_const_evaluator = BackendAssociatedConstEvaluator::new(
-            &parts.checked_modules,
-            parts.const_modules.clone(),
-            parts.item_signatures.clone(),
-            parts.symbols.clone(),
-            parts.type_store.clone(),
-            parts.target.clone(),
-            parts.visible_extensions.clone(),
-            parts.functions.clone(),
-            parts.program_function_signatures.clone(),
-        )?;
+        let associated_const_evaluator =
+            BackendAssociatedConstEvaluator::new(BackendAssociatedConstInputs {
+                checked_modules: &parts.checked_modules,
+                const_modules: parts.const_modules.clone(),
+                item_signatures: parts.item_signatures.clone(),
+                symbols: parts.symbols.clone(),
+                type_store: parts.type_store.clone(),
+                target: parts.target,
+                visible_extensions: parts.visible_extensions.clone(),
+                program_functions: parts.functions.clone(),
+                program_function_signatures: parts.program_function_signatures.clone(),
+            })?;
         let module_count = parts.checked_modules.len();
         for (name, actual) in [
             ("active item trees", parts.active_item_trees.len()),

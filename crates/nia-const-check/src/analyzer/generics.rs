@@ -491,16 +491,15 @@ impl Analyzer<'_> {
         ) else {
             return false;
         };
-        match plan {
+        matches!(
+            plan,
             nia_sema::ImplicitAddressPlan::Direct {
                 pointer_is_readonly: true,
-            } => true,
-            nia_sema::ImplicitAddressPlan::ArrayToSlice {
+            } | nia_sema::ImplicitAddressPlan::ArrayToSlice {
                 pointer_is_readonly: true,
                 slice_is_readonly: true,
-            } => true,
-            _ => false,
-        }
+            }
+        )
     }
 
     fn inference_array_len_pattern_accepts(

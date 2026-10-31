@@ -618,7 +618,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         checked_modules.iter().map(|module| module.id),
     )?;
     let runtime = db.get(CompilerRuntimeQuery)?.as_ref().clone();
-    let target = db.get(CompilerTargetQuery)?.as_ref().clone();
+    let target = *db.get(CompilerTargetQuery)?.as_ref();
     let graph = db.context().loader_facts.module_graph()?;
     let program_function_signatures = graph
         .modules()
