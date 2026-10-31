@@ -28,11 +28,12 @@ pub fun initDirectoryReader() DirectoryReader {
 }
 
 pub fun closeDirectoryReader(reader: &mut DirectoryReader) Errno!() {
+    let search = reader.search;
+    reader.search = invalidHandle;
     reader.done = true;
     reader.pendingError = null;
-    if reader.search != invalidHandle {
-        if FindClose(reader.search) == 0 { return lastError()!; }
-        reader.search = invalidHandle;
+    if search != invalidHandle and FindClose(search) == 0 {
+        return lastError()!;
     }
     !()
 }

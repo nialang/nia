@@ -1,0 +1,345 @@
+// File services.
+@[if os == "linux"]
+using root::os::linux as platform;
+@[if os == "windows"]
+using root::os::windows as platform;
+@[if os == "macos"]
+using root::os::macos as platform;
+using super::types;
+using types::{DirectoryEntry, DirectoryReader, Error, FileHandle, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
+
+pub fun pageSize() usize {
+    platform::pageSize()
+}
+
+pub fun pageAlignedLen(len: usize) Error!usize {
+    !(platform::pageAlignedLen(len).?)
+}
+
+pub fun cwd() FileHandle {
+    .fromPlatform(platform::cwd())
+}
+
+pub fun getCwd(buffer: &mut [u8]) Error!&[u8] {
+    !(platform::getCwd(buffer).?)
+}
+
+pub fun openAt(
+    dir: FileHandle,
+    path: &u8,
+    mode: OpenMode,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+) Error!FileHandle {
+    let platformMode = mode.asPlatformOpenMode().?;
+    let handle = platform::openAt(
+        dir.platform(),
+        path,
+        platformMode,
+        create,
+        truncate,
+        exclusive,
+        permissions,
+    ).?;
+    !.fromPlatform(handle)
+}
+
+pub fun openAtBeneath(
+    dir: FileHandle,
+    path: &u8,
+    mode: OpenMode,
+    directory: bool,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+    followSymlinks: bool,
+) Error!FileHandle {
+    let platformMode = mode.asPlatformOpenMode().?;
+    let handle = platform::openAtBeneath(
+        dir.platform(),
+        path,
+        platformMode,
+        directory,
+        create,
+        truncate,
+        exclusive,
+        permissions,
+        followSymlinks,
+    ).?;
+    !.fromPlatform(handle)
+}
+
+pub fun createDirAtBeneath(
+    dir: FileHandle,
+    parent: &u8,
+    name: &u8,
+    permissions: u32,
+) Error!() {
+    !(platform::createDirAtBeneath(
+        dir.platform(),
+        parent,
+        name,
+        permissions,
+    ).?)
+}
+
+pub fun deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: bool) Error!() {
+    !(platform::deleteAtBeneath(dir.platform(), parent, name, directory).?)
+}
+
+pub fun renameAtBeneath(
+    oldDir: FileHandle,
+    oldParent: &u8,
+    oldName: &u8,
+    newDir: FileHandle,
+    newParent: &u8,
+    newName: &u8,
+) Error!() {
+    !(platform::renameAtBeneath(
+        oldDir.platform(),
+        oldParent,
+        oldName,
+        newDir.platform(),
+        newParent,
+        newName,
+    ).?)
+}
+
+pub fun metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {
+    let metadata = platform::metadataAtBeneath(
+        dir.platform(),
+        path,
+        followSymlinks,
+    ).?;
+    !metadata.asOsMetadata()
+}
+
+pub(root) fun initPlatformDirectoryReader() platform::DirectoryReader {
+    platform::initDirectoryReader()
+}
+
+pub fun mapPages(len: usize, align: usize) Error!platform::MappedPages {
+    !(platform::mapPages(len, align).?)
+}
+
+pub fun unmapPages(ptr: &mut u8, len: usize) Error!() {
+    !(platform::unmapPages(ptr, len).?)
+}
+
+pub fun random(bytes: &mut [u8]) Error!() {
+    !(platform::random(bytes).?)
+}
+
+
+extend OpenMode {
+    fun asPlatformOpenMode(self) Error!platform::OpenMode {
+        match self {
+            .ReadOnly => !.ReadOnly,
+            .WriteOnly => !.WriteOnly,
+            .ReadWrite => !.ReadWrite,
+            _ => .Invalid!,
+        }
+    }
+}
+
+extend SeekWhence {
+    fun asPlatformSeekWhence(self) Error!platform::SeekWhence {
+        match self {
+            .Start => !.Start,
+            .Current => !.Current,
+            .End => !.End,
+            _ => .Invalid!,
+        }
+    }
+}
+
+
+extend DirectoryReader {
+    pub fun init(buffer: &mut [u8]) DirectoryReader {
+        .{ buffer, start: 0, end: 0, done: false, platform: initPlatformDirectoryReader() }
+    }
+
+    pub fun close(&mut self) Error!() {
+        self.done = true;
+        self.start = 0;
+        self.end = 0;
+        !(platform::closeDirectoryReader(&mut self.platform).?)
+    }
+
+    pub fun isDone(&self) bool {
+        self.done
+    }
+
+    pub fun next(&mut self, handle: FileHandle) ?(Error!DirectoryEntry) {
+        if self.done {
+            return null;
+        }
+        if self.start >= self.end {
+            let result = handle.readDirEntries(&mut self.platform, self.buffer);
+            if result is !value {
+                self.start = 0;
+                self.end = value;
+            }
+            if result is err! {
+                _ = self.close();
+                return ?(err!);
+            }
+            if self.end == 0 {
+                self.done = true;
+                return null;
+            }
+        }
+
+        let entry = match platform::dirEntryAt(handle.platform(), &self.buffer[0..self.end], self.start) {
+            !value => value.asOsDirectoryEntry(),
+            error! => {
+                _ = self.close();
+                return ?(error.intoError()!);
+            },
+        };
+        if platform::dirEntryNextOffset(&self.buffer[0..self.end], self.start) is ?value {
+            self.start = value;
+        } else {
+            _ = self.close();
+            return ?(Error::Invalid!);
+        }
+        ?(!entry)
+    }
+}
+
+extend FileMetadata {
+    pub fun init(
+        kind: FileKind,
+        fileId: ?u64,
+        linkCount: ?u32,
+        size: u64,
+        permissions: u32,
+        preferredBlockSize: u32,
+        accessed: ?Timestamp,
+        modified: Timestamp,
+        statusChanged: ?Timestamp,
+    ) FileMetadata {
+        .{ kind, fileId, linkCount, size, permissions, preferredBlockSize, accessed, modified, statusChanged }
+    }
+
+    pub fun kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fun fileId(&self) ?u64 {
+        self.fileId
+    }
+
+    pub fun linkCount(&self) ?u32 {
+        self.linkCount
+    }
+
+    pub fun size(&self) u64 {
+        self.size
+    }
+
+    pub fun permissions(&self) u32 {
+        self.permissions
+    }
+
+    pub fun preferredBlockSize(&self) u32 {
+        self.preferredBlockSize
+    }
+
+    pub fun accessed(&self) ?Timestamp {
+        self.accessed
+    }
+
+    pub fun modified(&self) Timestamp {
+        self.modified
+    }
+
+    pub fun statusChanged(&self) ?Timestamp {
+        self.statusChanged
+    }
+}
+
+
+extend FileHandle {
+    pub(super) fun fromPlatform(platform: platform::FileDescriptor) FileHandle {
+        .{ platform }
+    }
+
+    pub(super) fun platform(&self) platform::FileDescriptor {
+        self.platform
+    }
+
+    pub fun stdin() FileHandle {
+        .fromPlatform(platform::FileDescriptor::stdin())
+    }
+
+    pub fun stdout() FileHandle {
+        .fromPlatform(platform::FileDescriptor::stdout())
+    }
+
+    pub fun stderr() FileHandle {
+        .fromPlatform(platform::FileDescriptor::stderr())
+    }
+
+    pub fun writeSome(&self, bytes: &[u8]) Error!usize {
+        let n = self.platform().writeSome(bytes).?;
+        if n > bytes.len() {
+            return .Invalid!;
+        }
+        !n
+    }
+
+    pub fun readSome(&self, bytes: &mut [u8]) Error!usize {
+        let n = self.platform().readSome(bytes).?;
+        if n > bytes.len() {
+            return .Invalid!;
+        }
+        !n
+    }
+
+    pub fun close(&self) Error!() {
+        !(self.platform().close().?)
+    }
+
+    pub fun seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
+        let platformWhence = whence.asPlatformSeekWhence().?;
+        !(self.platform().seek(
+            offset,
+            platformWhence,
+        ).?)
+    }
+
+    pub fun truncate(&self, len: u64) Error!() {
+        !(self.platform().truncate(len).?)
+    }
+
+    pub fun setPermissions(&self, permissions: u32) Error!() {
+        !(self.platform().setPermissions(permissions).?)
+    }
+
+    pub fun sync(&self) Error!() {
+        !(self.platform().sync().?)
+    }
+
+    pub fun syncData(&self) Error!() {
+        !(self.platform().syncData().?)
+    }
+
+    pub fun metadata(&self) Error!FileMetadata {
+        let metadata = self.platform().metadata().?;
+        !metadata.asOsMetadata()
+    }
+
+    fun readDirEntries(&self, reader: &mut platform::DirectoryReader, buffer: &mut [u8]) Error!usize {
+        let n = platform::readDirEntries(reader, self.platform(), buffer).?;
+        if n > buffer.len() {
+            return .Invalid!;
+        }
+        !n
+    }
+}
+
+\n

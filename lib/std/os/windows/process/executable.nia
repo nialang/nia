@@ -48,14 +48,14 @@ pub(root) fun resolveExecutable(
         return wideCandidate(&candidate[..], cursor, storage);
     }
 
-    let searchPath = match environmentValue(envp, &b"PATH") {
+    let searchPath = match environmentValue(envp, b"PATH") {
         ?value => value,
         null => return .NoEntry!,
     };
     let extensions = if hasExtension(name) {
         &b""[..]
     } else {
-        match environmentValue(envp, &b"PATHEXT") {
+        match environmentValue(envp, b"PATHEXT") {
             ?value => value,
             null => defaultPathExt,
         }
@@ -208,7 +208,7 @@ fun appendSeparator(candidate: &mut [u8], cursor: &mut usize) Errno!() {
     if cursor.* != 0 and isSeparator(candidate[cursor.* - 1]) {
         return !();
     }
-    appendBytes(candidate, cursor, &b"\x5c")
+    appendBytes(candidate, cursor, b"\x5c")
 }
 
 // Leaves one byte for the terminator that `utf8ToWide` reads.

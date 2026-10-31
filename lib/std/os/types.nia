@@ -1,0 +1,259 @@
+// Portable OS values.
+@[if os == "linux"]
+using root::os::linux as platform;
+@[if os == "windows"]
+using root::os::windows as platform;
+@[if os == "macos"]
+using root::os::macos as platform;
+using root::builtin;
+
+pub const maxPathBytes: usize = platform::maxPathBytes;
+
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    NoChild = 10,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
+    Invalid = 22,
+    NoSpace = 28,
+    ReadOnly = 30,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    Unsupported = 38,
+    SymlinkLoop = 40,
+    NotEmpty = 39,
+    System = 255,
+    _,
+}
+
+pub enum SpawnError {
+    Setup(Error),
+    Stdio(Error),
+    Cwd(Error),
+    Exec(Error),
+    Reap {
+        stage: SpawnStage,
+        primary: Error,
+        cause: Error,
+        pid: ProcessId,
+    },
+}
+
+pub enum SpawnStage: i32 {
+    Setup = 1,
+    Stdio = 2,
+    Cwd = 3,
+    Exec = 4,
+    _,
+}
+
+pub enum OpenMode: i32 {
+    ReadOnly = 0,
+    WriteOnly = 1,
+    ReadWrite = 2,
+    _,
+}
+
+pub enum SeekWhence: usize {
+    Start = 0,
+    Current = 1,
+    End = 2,
+    _,
+}
+
+pub enum StdIo: i32 {
+    Inherit = 1,
+    Ignore = 2,
+    Pipe = 3,
+}
+
+pub enum FileKind: i32 {
+    BlockDevice = 1,
+    CharacterDevice = 2,
+    Directory = 3,
+    NamedPipe = 4,
+    Symlink = 5,
+    File = 6,
+    UnixSocket = 7,
+    Unknown = 255,
+    _,
+}
+
+pub struct Timestamp {
+    seconds: i64,
+    nanos: u32,
+}
+
+pub struct FileMetadata {
+    kind: FileKind,
+    fileId: ?u64,
+    linkCount: ?u32,
+    size: u64,
+    permissions: u32,
+    preferredBlockSize: u32,
+    accessed: ?Timestamp,
+    modified: Timestamp,
+    statusChanged: ?Timestamp,
+}
+
+pub struct DirectoryEntry {
+    kind: FileKind,
+    name: &[u8],
+    size: u64,
+}
+
+pub struct DirectoryReader {
+    buffer: &mut [u8],
+    start: usize,
+    end: usize,
+    done: bool,
+    platform: platform::DirectoryReader,
+}
+
+pub struct FileHandle {
+    platform: platform::FileDescriptor,
+}
+
+pub struct ProcessId {
+    platform: platform::ProcessId,
+}
+
+pub struct WaitStatus {
+    platform: platform::WaitStatus,
+}
+
+pub struct SpawnResult {
+    platform: platform::SpawnResult,
+}
+
+pub struct SpawnAttempt {
+    platform: platform::SpawnAttempt,
+}
+
+pub struct SpawnOptions {
+    platform: platform::SpawnOptions,
+}
+
+
+extend platform::Errno : builtin::IntoError[Error] {
+    const fun intoError(self) Error {
+        match self {
+            .PermissionDenied => .PermissionDenied,
+            .NoEntry => .NotFound,
+            .Interrupted => .Interrupted,
+            .Io => .Io,
+            .BadFd => .BadFd,
+            .NoChild => .NoChild,
+            .Again => .Again,
+            .NoMemory => .OutOfMemory,
+            .Access => .Access,
+            .Fault => .Fault,
+            .Busy => .Busy,
+            .Exists => .AlreadyExists,
+            .CrossDevice => .CrossDevice,
+            .NotDir => .NotDir,
+            .IsDir => .IsDir,
+            .Invalid => .Invalid,
+            .NoSpace => .NoSpace,
+            .ReadOnly => .ReadOnly,
+            .BrokenPipe => .BrokenPipe,
+            .OutOfRange => .OutOfRange,
+            .TooLong => .TooLong,
+            .Unsupported => .Unsupported,
+            .SymlinkLoop => .SymlinkLoop,
+            .NotEmpty => .NotEmpty,
+            _ => .System,
+        }
+    }
+}
+
+
+extend platform::FileKind {
+    pub(super) fun asOsFileKind(self) FileKind {
+        match self {
+            .BlockDevice => .BlockDevice,
+            .CharacterDevice => .CharacterDevice,
+            .Directory => .Directory,
+            .NamedPipe => .NamedPipe,
+            .Symlink => .Symlink,
+            .File => .File,
+            .UnixSocket => .UnixSocket,
+            _ => .Unknown,
+        }
+    }
+}
+
+extend platform::Timestamp {
+    pub(super) fun asOsTimestamp(&self) Timestamp {
+        .init(self.seconds(), self.nanos())
+    }
+}
+
+extend platform::FileMetadata {
+    pub(super) fun asOsMetadata(&self) FileMetadata {
+        .init(
+            self.kind().asOsFileKind(),
+            ?self.inode(),
+            ?self.nlink(),
+            self.size(),
+            self.mode() & 0o7777,
+            self.blockSize(),
+            self.atime().map[Timestamp, _](\value: platform::Timestamp -> value.asOsTimestamp()),
+            self.mtime().asOsTimestamp(),
+            self.ctime().map[Timestamp, _](\value: platform::Timestamp -> value.asOsTimestamp()),
+        )
+    }
+}
+
+extend platform::DirectoryEntry {
+    pub(super) fun asOsDirectoryEntry(&self) DirectoryEntry {
+        .init(self.kind().asOsFileKind(), self.name(), self.size())
+    }
+}
+
+
+extend Timestamp {
+    pub fun init(seconds: i64, nanos: u32) Timestamp {
+        .{ seconds, nanos }
+    }
+
+    pub fun seconds(&self) i64 {
+        self.seconds
+    }
+
+    pub fun nanos(&self) u32 {
+        self.nanos
+    }
+}
+
+extend DirectoryEntry {
+    pub fun init(kind: FileKind, name: &[u8], size: u64) DirectoryEntry {
+        .{ kind, name, size }
+    }
+
+    pub fun kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fun name(&self) &[u8] {
+        self.name
+    }
+
+    pub fun size(&self) u64 {
+        self.size
+    }
+}
+
+\n

@@ -1,0 +1,197 @@
+// Process services.
+@[if os == "linux"]
+using root::os::linux as platform;
+@[if os == "windows"]
+using root::os::windows as platform;
+@[if os == "macos"]
+using root::os::macos as platform;
+using root::builtin;
+using super::types;
+using types::{Error, FileHandle, ProcessId, SpawnAttempt, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
+
+pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+    .fromPlatform(platform::spawn(path, argv, envp, options.platform()))
+}
+
+pub fun wait(pid: ProcessId) Error!WaitStatus {
+    let status = platform::wait(pid.platform()).?;
+    !.fromPlatform(status)
+}
+
+pub fun tryWait(pid: ProcessId) Error! ?WaitStatus {
+    let status = platform::tryWait(pid.platform()).?;
+    !status.map(\value: platform::WaitStatus -> WaitStatus::fromPlatform(value))
+}
+
+pub fun killWith(pid: ProcessId, signal: i32) Error!() {
+    !(platform::killWith(pid.platform(), signal).?)
+}
+
+// Public runtime primitive used by the toolchain-owned startup template.
+pub fun exit(code: i32) () {
+    platform::exit(code);
+}
+
+
+extend platform::SpawnError : builtin::IntoError[SpawnError] {
+    const fun intoError(self) SpawnError {
+        match self {
+            .Setup(cause) => .Setup(cause.intoError()),
+            .Stdio(cause) => .Stdio(cause.intoError()),
+            .Cwd(cause) => .Cwd(cause.intoError()),
+            .Exec(cause) => .Exec(cause.intoError()),
+            .Reap { stage, primary, cause, pid } => .Reap {
+                stage: stage.asSpawnStage(),
+                primary: primary.intoError(),
+                cause: cause.intoError(),
+                pid: ProcessId::fromPlatform(pid),
+            },
+        }
+    }
+}
+
+extend platform::SpawnStage {
+    const fun asSpawnStage(self) SpawnStage {
+        match self {
+            .Setup => .Setup,
+            .Stdio => .Stdio,
+            .Cwd => .Cwd,
+            .Exec => .Exec,
+            _ => .Setup,
+        }
+    }
+}
+
+extend SpawnAttempt {
+    pub(super) fun fromPlatform(platform: platform::SpawnAttempt) SpawnAttempt {
+        .{ platform }
+    }
+
+    pub fun finish(&mut self) SpawnError!SpawnResult {
+        let result = self.platform.finish().?;
+        !.fromPlatform(result)
+    }
+}
+
+
+extend ProcessId {
+    pub(super) const fun fromPlatform(platform: platform::ProcessId) ProcessId {
+        .{ platform }
+    }
+
+    pub(super) const fun platform(&self) platform::ProcessId {
+        self.platform
+    }
+
+    pub const fun raw(&self) i32 {
+        self.platform().raw()
+    }
+
+    pub const fun fromRaw(raw: i32) ProcessId {
+        .fromPlatform(platform::ProcessId::init(raw))
+    }
+}
+
+extend WaitStatus {
+    pub(super) fun fromPlatform(platform: platform::WaitStatus) WaitStatus {
+        .{ platform }
+    }
+
+    pub(super) fun platform(&self) platform::WaitStatus {
+        self.platform
+    }
+
+    pub fun raw(&self) i32 {
+        self.platform().raw()
+    }
+
+    pub fun exited(&self) bool {
+        self.platform().exited()
+    }
+
+    pub fun signaled(&self) bool {
+        self.platform().signaled()
+    }
+
+    pub fun stopped(&self) bool {
+        self.platform().stopped()
+    }
+
+    pub fun exitCode(&self) ?i32 {
+        self.platform().exitCode()
+    }
+
+    pub fun signal(&self) ?i32 {
+        self.platform().signal()
+    }
+
+    pub fun stopSignal(&self) ?i32 {
+        self.platform().stopSignal()
+    }
+}
+
+extend SpawnResult {
+    pub(super) fun fromPlatform(platform: platform::SpawnResult) SpawnResult {
+        .{ platform }
+    }
+
+    pub(super) fun platform(&self) platform::SpawnResult {
+        self.platform
+    }
+
+    pub fun pid(&self) ProcessId {
+        .fromPlatform(self.platform().pid())
+    }
+
+    pub fun stdin(&self) ?FileHandle {
+        self.platform().stdin().map[FileHandle, _](\handle: platform::FileDescriptor -> FileHandle::fromPlatform(handle))
+    }
+
+    pub fun stdout(&self) ?FileHandle {
+        self.platform().stdout().map[FileHandle, _](\handle: platform::FileDescriptor -> FileHandle::fromPlatform(handle))
+    }
+
+    pub fun stderr(&self) ?FileHandle {
+        self.platform().stderr().map[FileHandle, _](\handle: platform::FileDescriptor -> FileHandle::fromPlatform(handle))
+    }
+}
+
+
+extend StdIo {
+    fun asPlatformStdio(self) Error!platform::StdIo {
+        match self {
+            .Inherit => !.Inherit,
+            .Ignore => !.Ignore,
+            .Pipe => !.Pipe,
+        }
+    }
+}
+
+extend SpawnOptions {
+    pub fun init() SpawnOptions {
+        .{ platform: .init() }
+    }
+
+    fun platform(&self) platform::SpawnOptions {
+        self.platform
+    }
+
+    pub fun setStdin(&mut self, behavior: StdIo) Error!() {
+        self.platform.setStdin(behavior.asPlatformStdio().?);
+        !()
+    }
+
+    pub fun setStdout(&mut self, behavior: StdIo) Error!() {
+        self.platform.setStdout(behavior.asPlatformStdio().?);
+        !()
+    }
+
+    pub fun setStderr(&mut self, behavior: StdIo) Error!() {
+        self.platform.setStderr(behavior.asPlatformStdio().?);
+        !()
+    }
+
+    pub fun setCwd(&mut self, path: &u8) () {
+        self.platform.setCwd(path);
+    }
+}

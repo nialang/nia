@@ -42,6 +42,7 @@ using root::os::windows::bindings::{
     RemoveDirectoryW,
     MoveFileExW,
 };
+using root::error;
 using root::os::windows::types::{
     Errno,
     OpenMode,
