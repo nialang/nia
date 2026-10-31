@@ -129,7 +129,7 @@ extend PlanEncoder {
     }
 
     fun writeRootPackage(&mut self) Error!() {
-        self.writeString(&"root")
+        self.writeString("root")
     }
 
     fun writePackageKey(&mut self, package: PackageHandle, packages: &[types::Package]) Error!() {
@@ -173,13 +173,13 @@ extend PlanEncoder {
     fun writeArtifactPath(&mut self, name: &[char]) Error!() {
         self.writeU8(4).?;
         self.writeRootNodeKey(name).?;
-        self.writeString(&"")
+        self.writeString("")
     }
 
     fun writePackageRootPath(&mut self) Error!() {
         self.writeU8(0).?;
         self.writeRootPackage().?;
-        self.writeString(&"")
+        self.writeString("")
     }
 
     fun writeLogicalPathText(&mut self, path: &[char]) Error!() {
@@ -641,7 +641,7 @@ extend PlanEncoder {
         self.writeCount(packageCount).?;
         self.writeRootPackage().?;
         self.writeU8(1).?;
-        self.writeString(&"").?;
+        self.writeString("").?;
         for &package in build.packages.iter() {
             self.writeString(package.name.text()).?;
             if package.manifestDependency {

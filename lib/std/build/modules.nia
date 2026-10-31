@@ -98,7 +98,7 @@ extend PackageOptions {
     }
 
     pub(root) fun dependency(name: &[char]) PackageOptions {
-        .{ name, path: fs::PathView::init(&""), manifestDependency: true }
+        .{ name, path: fs::PathView::init(""), manifestDependency: true }
     }
 }
 
@@ -272,7 +272,7 @@ fun isValidModuleImportName(name: &[char]) bool {
     if name.len() == 0 {
         return false;
     }
-    if name.equals(&"entry") or name.equals(&"root") {
+    if name.equals("entry") or name.equals("root") {
         return false;
     }
     for &ch in name.iter() {

@@ -21,11 +21,20 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if cmp::max(3i32, 7i32) != 7i32 {
         return process::ExitCode(1)!;
     }
+    if cmp::min(3i32, 7i32) != 3i32 {
+        return process::ExitCode(4)!;
+    }
     if cmp::max(12usize, 5usize) != 12usize {
         return process::ExitCode(2)!;
     }
+    if cmp::min(12usize, 5usize) != 5usize {
+        return process::ExitCode(5)!;
+    }
     if cmp::max(9u64, 9u64) != 9u64 {
         return process::ExitCode(3)!;
+    }
+    if cmp::min(9u64, 9u64) != 9u64 {
+        return process::ExitCode(6)!;
     }
     !()
 }

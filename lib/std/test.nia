@@ -18,15 +18,15 @@ extend Error : fmt::Format {
         match self.* {
             .AssertionFailed(location) => {
                 location.format(formatter).?;
-                formatter.writeText(&": assertion failed")
+                formatter.writeText(": assertion failed")
             },
             .ValuesEqual(location) => {
                 location.format(formatter).?;
-                formatter.writeText(&": values are equal")
+                formatter.writeText(": values are equal")
             },
             .ValuesNotEqual(location) => {
                 location.format(formatter).?;
-                formatter.writeText(&": values are not equal")
+                formatter.writeText(": values are not equal")
             },
         }
     }

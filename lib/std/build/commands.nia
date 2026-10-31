@@ -224,7 +224,7 @@ extend ExternalCommandOptions {
         .{
             program,
             arguments: null,
-            workingDirectory: .init(&""),
+            workingDirectory: .init(""),
             resourceClass: .Conservative,
             environmentPolicy: .Inherit,
             cachePolicy: .Uncacheable,

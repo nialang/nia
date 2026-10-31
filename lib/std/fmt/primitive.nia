@@ -239,17 +239,17 @@ where T: Sized
 extend bool : Format {
     fun format(&self, formatter: &mut Formatter) Error!() {
         if self.* {
-            formatter.writeText(&"true")
+            formatter.writeText("true")
         } else {
-            formatter.writeText(&"false")
+            formatter.writeText("false")
         }
     }
 
     fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
         if self.* {
-            formatTextSpec(formatter, &"true", spec)
+            formatTextSpec(formatter, "true", spec)
         } else {
-            formatTextSpec(formatter, &"false", spec)
+            formatTextSpec(formatter, "false", spec)
         }
     }
 }
@@ -300,7 +300,7 @@ where T: Sized + Format
         let mut index: usize = 0;
         while index < self.len() {
             if index != 0 {
-                formatter.writeText(&", ").?;
+                formatter.writeText(", ").?;
             }
             self[index].format(formatter).?;
             index += 1;

@@ -264,7 +264,7 @@ extend Build {
 
     /// Records `git status --porcelain=v1 --branch` from the package root.
     pub fun probeGitState(&mut self, buffer: &mut [u8]) Error!&[u8] {
-        let arguments: [&[char]; 3] = [&"status", &"--porcelain=v1", &"--branch"];
+        let arguments: [&[char]; 3] = ["status", "--porcelain=v1", "--branch"];
         let mut request = collections::ArrayList[u8]::initCapacity(self.allocator, 0)
             .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
         defer request.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;
@@ -273,7 +273,7 @@ extend Build {
 
     /// Resolves a tool through the host environment and records its version.
     pub fun probeTool(&mut self, name: fs::PathView, buffer: &mut [u8]) Error!&[u8] {
-        let arguments: [&[char]; 1] = [&"--version"];
+        let arguments: [&[char]; 1] = ["--version"];
         let mut request = collections::ArrayList[u8]::initCapacity(self.allocator, name.text().len() * 4)
             .withBuildContext(Operation::Retain, Subject::BuildPlan).?;
         defer request.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan).?;

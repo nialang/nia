@@ -220,7 +220,7 @@ extend Build {
         runtime: types::Runtime,
         compileName: &mut string::String,
     ) Error!StepHandle {
-        compileName.append(self.allocator, &".compile")
+        compileName.append(self.allocator, ".compile")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         let executable = self.addExecutable(
             ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget()).withRuntime(runtime),
@@ -231,7 +231,7 @@ extend Build {
         let all = if self.testStep is ?step {
             step
         } else {
-            let step = self.addAggregateStep(&"test").?;
+            let step = self.addAggregateStep("test").?;
             self.testStep = ?step;
             step
         };

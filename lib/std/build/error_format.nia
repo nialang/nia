@@ -20,15 +20,15 @@ using error::{
 extend ErrorOperation : fmt::Format {
     fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         formatter.writeText(match self.* {
-            .Initialize => &"initialize",
-            .Retain => &"retain",
-            .Release => &"release",
-            .Validate => &"validate",
-            .Encode => &"encode",
-            .Publish => &"publish",
-            .AssembleCommand => &"assemble command",
-            .ExecuteCommand => &"execute command",
-            .Report => &"report",
+            .Initialize => "initialize",
+            .Retain => "retain",
+            .Release => "release",
+            .Validate => "validate",
+            .Encode => "encode",
+            .Publish => "publish",
+            .AssembleCommand => "assemble command",
+            .ExecuteCommand => "execute command",
+            .Report => "report",
         })
     }
 }
@@ -36,35 +36,35 @@ extend ErrorOperation : fmt::Format {
 extend ErrorSubject : fmt::Format {
     fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
-            .Build => formatter.writeText(&"build"),
-            .PackageRoot => formatter.writeText(&"package root"),
-            .BuildDir => formatter.writeText(&"build directory"),
-            .CacheDir => formatter.writeText(&"cache directory"),
-            .ToolchainExecutable => formatter.writeText(&"toolchain executable"),
-            .ToolchainResourceRoot => formatter.writeText(&"toolchain resource root"),
-            .RunnerConfiguration => formatter.writeText(&"build runner configuration"),
-            .HostTarget => formatter.writeText(&"host target"),
-            .ArtifactTarget => formatter.writeText(&"artifact target"),
-            .Targets => formatter.writeText(&"target collection"),
-            .BuildPlan => formatter.writeText(&"build plan"),
-            .Steps => formatter.writeText(&"step collection"),
-            .Dependencies => formatter.writeText(&"dependency collection"),
-            .Packages => formatter.writeText(&"package collection"),
-            .Modules => formatter.writeText(&"module collection"),
-            .Executables => formatter.writeText(&"executable collection"),
-            .Objects => formatter.writeText(&"object collection"),
-            .StaticArchives => formatter.writeText(&"static archive collection"),
-            .Step(index) => writeIndexedSubject(formatter, &"step", index),
-            .Package(index) => writeIndexedSubject(formatter, &"package", index),
-            .Module(index) => writeIndexedSubject(formatter, &"module", index),
-            .Executable(index) => writeIndexedSubject(formatter, &"executable", index),
-            .Object(index) => writeIndexedSubject(formatter, &"object", index),
-            .StaticArchive(index) => writeIndexedSubject(formatter, &"static archive", index),
-            .ModuleImport(index) => writeIndexedSubject(formatter, &"module import", index),
-            .Output => formatter.writeText(&"output"),
-            .Compiler => formatter.writeText(&"compiler"),
-            .Diagnostic => formatter.writeText(&"diagnostic"),
-            .RequestedStep => formatter.writeText(&"requested step"),
+            .Build => formatter.writeText("build"),
+            .PackageRoot => formatter.writeText("package root"),
+            .BuildDir => formatter.writeText("build directory"),
+            .CacheDir => formatter.writeText("cache directory"),
+            .ToolchainExecutable => formatter.writeText("toolchain executable"),
+            .ToolchainResourceRoot => formatter.writeText("toolchain resource root"),
+            .RunnerConfiguration => formatter.writeText("build runner configuration"),
+            .HostTarget => formatter.writeText("host target"),
+            .ArtifactTarget => formatter.writeText("artifact target"),
+            .Targets => formatter.writeText("target collection"),
+            .BuildPlan => formatter.writeText("build plan"),
+            .Steps => formatter.writeText("step collection"),
+            .Dependencies => formatter.writeText("dependency collection"),
+            .Packages => formatter.writeText("package collection"),
+            .Modules => formatter.writeText("module collection"),
+            .Executables => formatter.writeText("executable collection"),
+            .Objects => formatter.writeText("object collection"),
+            .StaticArchives => formatter.writeText("static archive collection"),
+            .Step(index) => writeIndexedSubject(formatter, "step", index),
+            .Package(index) => writeIndexedSubject(formatter, "package", index),
+            .Module(index) => writeIndexedSubject(formatter, "module", index),
+            .Executable(index) => writeIndexedSubject(formatter, "executable", index),
+            .Object(index) => writeIndexedSubject(formatter, "object", index),
+            .StaticArchive(index) => writeIndexedSubject(formatter, "static archive", index),
+            .ModuleImport(index) => writeIndexedSubject(formatter, "module import", index),
+            .Output => formatter.writeText("output"),
+            .Compiler => formatter.writeText("compiler"),
+            .Diagnostic => formatter.writeText("diagnostic"),
+            .RequestedStep => formatter.writeText("requested step"),
         }
     }
 }
@@ -73,27 +73,27 @@ extend ErrorCause : fmt::Format {
     fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
             .Memory(cause) => {
-                writeCausePrefix(formatter, &"memory").?;
+                writeCausePrefix(formatter, "memory").?;
                 writeMemoryCause(formatter, cause)
             },
             .Format(cause) => {
-                writeCausePrefix(formatter, &"format").?;
+                writeCausePrefix(formatter, "format").?;
                 writeFormatCause(formatter, cause)
             },
             .Io(cause) => {
-                writeCausePrefix(formatter, &"I/O").?;
+                writeCausePrefix(formatter, "I/O").?;
                 writeIoCause(formatter, cause)
             },
             .FileSystem(cause) => {
-                writeCausePrefix(formatter, &"filesystem").?;
+                writeCausePrefix(formatter, "filesystem").?;
                 writeFileSystemCause(formatter, cause)
             },
             .FileSystemOperation(cause) => {
-                writeCausePrefix(formatter, &"filesystem").?;
+                writeCausePrefix(formatter, "filesystem").?;
                 writeFileSystemOperationCause(formatter, cause)
             },
             .Process(cause) => {
-                writeCausePrefix(formatter, &"process").?;
+                writeCausePrefix(formatter, "process").?;
                 writeProcessCause(formatter, cause)
             },
             .Exit(cause) => writeTermCause(formatter, cause),
@@ -104,35 +104,35 @@ extend ErrorCause : fmt::Format {
 extend Error : fmt::Format {
     fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
-            .UnknownStep => formatter.writeText(&"unknown requested step"),
+            .UnknownStep => formatter.writeText("unknown requested step"),
             .Invalid { operation, subject } => {
-                formatter.writeText(&"invalid ").?;
+                formatter.writeText("invalid ").?;
                 subject.format(formatter).?;
-                formatter.writeText(&" during ").?;
+                formatter.writeText(" during ").?;
                 operation.format(formatter)
             },
             .Failure { operation, subject, cause } => {
                 operation.format(formatter).?;
-                formatter.writeText(&" ").?;
+                formatter.writeText(" ").?;
                 subject.format(formatter).?;
-                formatter.writeText(&": ").?;
+                formatter.writeText(": ").?;
                 cause.format(formatter)
             },
             .Internal(operation) => {
-                formatter.writeText(&"internal build failure during ").?;
+                formatter.writeText("internal build failure during ").?;
                 operation.format(formatter)
             },
             .StepCycle { step, dependency } => {
-                formatter.writeText(&"step cycle between ").?;
+                formatter.writeText("step cycle between ").?;
                 formatter.writeUnsigned(step as u128).?;
-                formatter.writeText(&" and ").?;
+                formatter.writeText(" and ").?;
                 formatter.writeUnsigned(dependency as u128)
             },
             .StepFailed(step) => {
-                formatter.writeText(&"previously failed step ").?;
+                formatter.writeText("previously failed step ").?;
                 formatter.writeUnsigned(step as u128)
             },
-            .MissingDefaultStep => formatter.writeText(&"build declares steps without a default"),
+            .MissingDefaultStep => formatter.writeText("build declares steps without a default"),
         }
     }
 }
@@ -143,61 +143,61 @@ fun writeIndexedSubject(
     index: usize,
 ) fmt::Error!() {
     formatter.writeText(name).?;
-    formatter.writeText(&"[").?;
+    formatter.writeText("[").?;
     formatter.writeUnsigned(index as u128).?;
-    formatter.writeText(&"]")
+    formatter.writeText("]")
 }
 
 fun writeCausePrefix(formatter: &mut fmt::Formatter, domain: &[char]) fmt::Error!() {
     formatter.writeText(domain).?;
-    formatter.writeText(&"/")
+    formatter.writeText("/")
 }
 
 fun writeTermCause(formatter: &mut fmt::Formatter, cause: process::Term) fmt::Error!() {
-    formatter.writeText(&"command/").?;
+    formatter.writeText("command/").?;
     formatter.writeText(match cause.kind() {
-        .Exited => &"exit code ",
-        .Signal => &"signal ",
-        .Stopped => &"stopped by signal ",
-        .Unknown => &"unknown status ",
+        .Exited => "exit code ",
+        .Signal => "signal ",
+        .Stopped => "stopped by signal ",
+        .Unknown => "unknown status ",
     }).?;
     formatter.writeSigned(cause.code() as i128)
 }
 
 fun writeMemoryCause(formatter: &mut fmt::Formatter, cause: mem::Error) fmt::Error!() {
     match cause {
-        .Invalid => formatter.writeText(&"invalid"),
-        .InvalidAlignment => formatter.writeText(&"invalid alignment"),
-        .OutOfMemory => formatter.writeText(&"out of memory"),
-        .Leak => formatter.writeText(&"memory leak"),
-        .System => formatter.writeText(&"system"),
-        _ => formatter.writeText(&"unknown"),
+        .Invalid => formatter.writeText("invalid"),
+        .InvalidAlignment => formatter.writeText("invalid alignment"),
+        .OutOfMemory => formatter.writeText("out of memory"),
+        .Leak => formatter.writeText("memory leak"),
+        .System => formatter.writeText("system"),
+        _ => formatter.writeText("unknown"),
     }
 }
 
 fun writeFormatCause(formatter: &mut fmt::Formatter, cause: fmt::Error) fmt::Error!() {
     match cause {
-        .Write => formatter.writeText(&"write"),
-        .InvalidTemplate => formatter.writeText(&"invalid template"),
-        .MissingArgument => formatter.writeText(&"missing argument"),
-        .ExtraArgument => formatter.writeText(&"extra argument"),
-        _ => formatter.writeText(&"unknown"),
+        .Write => formatter.writeText("write"),
+        .InvalidTemplate => formatter.writeText("invalid template"),
+        .MissingArgument => formatter.writeText("missing argument"),
+        .ExtraArgument => formatter.writeText("extra argument"),
+        _ => formatter.writeText("unknown"),
     }
 }
 
 fun writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::Error!() {
     match cause {
-        .PermissionDenied => formatter.writeText(&"permission denied"),
-        .NotFound => formatter.writeText(&"not found"),
-        .OutOfMemory => formatter.writeText(&"out of memory"),
-        .AlreadyExists => formatter.writeText(&"already exists"),
-        .NotDir => formatter.writeText(&"not a directory"),
-        .IsDir => formatter.writeText(&"is a directory"),
-        .Invalid => formatter.writeText(&"invalid"),
-        .NoSpace => formatter.writeText(&"no space"),
-        .TooLong => formatter.writeText(&"too long"),
-        .Io => formatter.writeText(&"I/O"),
-        _ => formatter.writeText(&"system"),
+        .PermissionDenied => formatter.writeText("permission denied"),
+        .NotFound => formatter.writeText("not found"),
+        .OutOfMemory => formatter.writeText("out of memory"),
+        .AlreadyExists => formatter.writeText("already exists"),
+        .NotDir => formatter.writeText("not a directory"),
+        .IsDir => formatter.writeText("is a directory"),
+        .Invalid => formatter.writeText("invalid"),
+        .NoSpace => formatter.writeText("no space"),
+        .TooLong => formatter.writeText("too long"),
+        .Io => formatter.writeText("I/O"),
+        _ => formatter.writeText("system"),
     }
 }
 
@@ -205,12 +205,12 @@ fun writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::Ope
     match cause {
         .Path { operation, cause } => {
             writeFileSystemOperation(formatter, operation).?;
-            formatter.writeText(&"/path/").?;
+            formatter.writeText("/path/").?;
             writePathCause(formatter, cause)
         },
         .System { operation, cause } => {
             writeFileSystemOperation(formatter, operation).?;
-            formatter.writeText(&"/").?;
+            formatter.writeText("/").?;
             writeFileSystemCause(formatter, cause)
         },
     }
@@ -218,62 +218,62 @@ fun writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::Ope
 
 fun writeFileSystemOperation(formatter: &mut fmt::Formatter, operation: fs::Operation) fmt::Error!() {
     formatter.writeText(match operation {
-        .OpenFile => &"open file",
-        .OpenDir => &"open directory",
-        .CreateFile => &"create file",
-        .CreateDir => &"create directory",
-        .DeleteFile => &"delete file",
-        .DeleteDir => &"delete directory",
-        .Rename => &"rename",
-        .Metadata => &"metadata",
+        .OpenFile => "open file",
+        .OpenDir => "open directory",
+        .CreateFile => "create file",
+        .CreateDir => "create directory",
+        .DeleteFile => "delete file",
+        .DeleteDir => "delete directory",
+        .Rename => "rename",
+        .Metadata => "metadata",
     })
 }
 
 fun writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!() {
     match cause {
         .Allocation(cause) => {
-            writeCausePrefix(formatter, &"allocation").?;
+            writeCausePrefix(formatter, "allocation").?;
             writeMemoryCause(formatter, cause)
         },
         .Path(cause) => {
-            writeCausePrefix(formatter, &"path").?;
+            writeCausePrefix(formatter, "path").?;
             writePathCause(formatter, cause)
         },
         .ArgumentContainsNul(index) => {
-            formatter.writeText(&"argument[").?;
+            formatter.writeText("argument[").?;
             formatter.writeUnsigned(index as u128).?;
-            formatter.writeText(&"]/contains NUL")
+            formatter.writeText("]/contains NUL")
         },
         .Environment { index, cause } => {
-            formatter.writeText(&"environment[").?;
+            formatter.writeText("environment[").?;
             formatter.writeUnsigned(index as u128).?;
-            formatter.writeText(&"]/").?;
+            formatter.writeText("]/").?;
             writeEnvEntryCause(formatter, cause)
         },
         .SpawnSetup(cause) => {
-            writeCausePrefix(formatter, &"spawn setup").?;
+            writeCausePrefix(formatter, "spawn setup").?;
             writeSystemCause(formatter, cause)
         },
         .Spawn(cause) => {
-            writeCausePrefix(formatter, &"spawn").?;
+            writeCausePrefix(formatter, "spawn").?;
             writeSpawnCause(formatter, cause)
         },
         .Wait(cause) => {
-            writeCausePrefix(formatter, &"wait").?;
+            writeCausePrefix(formatter, "wait").?;
             writeSystemCause(formatter, cause)
         },
         .TryWait(cause) => {
-            writeCausePrefix(formatter, &"try wait").?;
+            writeCausePrefix(formatter, "try wait").?;
             writeSystemCause(formatter, cause)
         },
         .Kill(cause) => {
-            writeCausePrefix(formatter, &"kill").?;
+            writeCausePrefix(formatter, "kill").?;
             writeSystemCause(formatter, cause)
         },
         .Close { stream, cause } => {
-            writeCausePrefix(formatter, &"close").?;
+            writeCausePrefix(formatter, "close").?;
             writeStdStream(formatter, stream).?;
-            formatter.writeText(&"/").?;
+            formatter.writeText("/").?;
             writeIoCause(formatter, cause)
         },
     }
@@ -281,95 +281,95 @@ fun writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt
 
 fun writeEnvEntryCause(formatter: &mut fmt::Formatter, cause: process::EnvEntryError) fmt::Error!() {
     match cause {
-        .EmptyName => formatter.writeText(&"empty name"),
-        .NameContainsEquals => formatter.writeText(&"name contains '='"),
-        .NameContainsNul => formatter.writeText(&"name contains NUL"),
-        .ValueContainsNul => formatter.writeText(&"value contains NUL"),
+        .EmptyName => formatter.writeText("empty name"),
+        .NameContainsEquals => formatter.writeText("name contains '='"),
+        .NameContainsNul => formatter.writeText("name contains NUL"),
+        .ValueContainsNul => formatter.writeText("value contains NUL"),
         .DuplicateName(firstIndex) => {
-            formatter.writeText(&"duplicates environment[").?;
+            formatter.writeText("duplicates environment[").?;
             formatter.writeUnsigned(firstIndex as u128).?;
-            formatter.writeText(&"]")
+            formatter.writeText("]")
         },
     }
 }
 
 fun writePathCause(formatter: &mut fmt::Formatter, cause: fs::PathError) fmt::Error!() {
     match cause {
-        .ContainsNul => formatter.writeText(&"contains NUL"),
-        .Absolute => formatter.writeText(&"is absolute"),
-        .ParentTraversal => formatter.writeText(&"contains parent traversal"),
-        .MissingTerminator => formatter.writeText(&"missing terminator"),
-        .TooLong => formatter.writeText(&"too long"),
-        _ => formatter.writeText(&"unknown"),
+        .ContainsNul => formatter.writeText("contains NUL"),
+        .Absolute => formatter.writeText("is absolute"),
+        .ParentTraversal => formatter.writeText("contains parent traversal"),
+        .MissingTerminator => formatter.writeText("missing terminator"),
+        .TooLong => formatter.writeText("too long"),
+        _ => formatter.writeText("unknown"),
     }
 }
 
 fun writeStdStream(formatter: &mut fmt::Formatter, stream: process::StdStream) fmt::Error!() {
     formatter.writeText(match stream {
-        .Stdin => &"stdin",
-        .Stdout => &"stdout",
-        .Stderr => &"stderr",
+        .Stdin => "stdin",
+        .Stdout => "stdout",
+        .Stderr => "stderr",
     })
 }
 
 fun writeSystemCause(formatter: &mut fmt::Formatter, cause: process::SystemError) fmt::Error!() {
     formatter.writeText(match cause {
-        .PermissionDenied => &"permission denied",
-        .NotFound => &"not found",
-        .Interrupted => &"interrupted",
-        .Io => &"I/O",
-        .BadFd => &"bad file descriptor",
-        .NoChild => &"no child process",
-        .Again => &"try again",
-        .OutOfMemory => &"out of memory",
-        .Access => &"access denied",
-        .Fault => &"bad address",
-        .Busy => &"busy",
-        .AlreadyExists => &"already exists",
-        .CrossDevice => &"cross device",
-        .NotDir => &"not a directory",
-        .IsDir => &"is a directory",
-        .Invalid => &"invalid",
-        .NoSpace => &"no space",
-        .ReadOnly => &"read only",
-        .BrokenPipe => &"broken pipe",
-        .OutOfRange => &"out of range",
-        .TooLong => &"too long",
-        .NotEmpty => &"not empty",
-        .System => &"system",
-        _ => &"unknown",
+        .PermissionDenied => "permission denied",
+        .NotFound => "not found",
+        .Interrupted => "interrupted",
+        .Io => "I/O",
+        .BadFd => "bad file descriptor",
+        .NoChild => "no child process",
+        .Again => "try again",
+        .OutOfMemory => "out of memory",
+        .Access => "access denied",
+        .Fault => "bad address",
+        .Busy => "busy",
+        .AlreadyExists => "already exists",
+        .CrossDevice => "cross device",
+        .NotDir => "not a directory",
+        .IsDir => "is a directory",
+        .Invalid => "invalid",
+        .NoSpace => "no space",
+        .ReadOnly => "read only",
+        .BrokenPipe => "broken pipe",
+        .OutOfRange => "out of range",
+        .TooLong => "too long",
+        .NotEmpty => "not empty",
+        .System => "system",
+        _ => "unknown",
     })
 }
 
 fun writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!() {
     match cause {
-        .EndOfStream => formatter.writeText(&"end of stream"),
-        .ShortWrite => formatter.writeText(&"short write"),
-        .Closed => formatter.writeText(&"closed"),
+        .EndOfStream => formatter.writeText("end of stream"),
+        .ShortWrite => formatter.writeText("short write"),
+        .Closed => formatter.writeText("closed"),
         .System(system) => formatter.writeText(match system {
-            .PermissionDenied => &"permission denied",
-            .NotFound => &"not found",
-            .Interrupted => &"interrupted",
-            .Io => &"I/O",
-            .BadFd => &"bad file descriptor",
-            .Again => &"try again",
-            .OutOfMemory => &"out of memory",
-            .Access => &"access denied",
-            .Fault => &"bad address",
-            .Busy => &"busy",
-            .AlreadyExists => &"already exists",
-            .CrossDevice => &"cross device",
-            .NotDir => &"not a directory",
-            .IsDir => &"is a directory",
-            .Invalid => &"invalid",
-            .NoSpace => &"no space",
-            .ReadOnly => &"read only",
-            .BrokenPipe => &"broken pipe",
-            .OutOfRange => &"out of range",
-            .TooLong => &"too long",
-            .NotEmpty => &"not empty",
-            .System => &"system",
-            _ => &"unknown",
+            .PermissionDenied => "permission denied",
+            .NotFound => "not found",
+            .Interrupted => "interrupted",
+            .Io => "I/O",
+            .BadFd => "bad file descriptor",
+            .Again => "try again",
+            .OutOfMemory => "out of memory",
+            .Access => "access denied",
+            .Fault => "bad address",
+            .Busy => "busy",
+            .AlreadyExists => "already exists",
+            .CrossDevice => "cross device",
+            .NotDir => "not a directory",
+            .IsDir => "is a directory",
+            .Invalid => "invalid",
+            .NoSpace => "no space",
+            .ReadOnly => "read only",
+            .BrokenPipe => "broken pipe",
+            .OutOfRange => "out of range",
+            .TooLong => "too long",
+            .NotEmpty => "not empty",
+            .System => "system",
+            _ => "unknown",
         }),
     }
 }
@@ -377,35 +377,35 @@ fun writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!()
 fun writeSpawnCause(formatter: &mut fmt::Formatter, cause: process::SpawnError) fmt::Error!() {
     match cause {
         .Setup(system) => {
-            formatter.writeText(&"setup/").?;
+            formatter.writeText("setup/").?;
             writeSystemCause(formatter, system)
         },
         .Stdio(system) => {
-            formatter.writeText(&"standard I/O/").?;
+            formatter.writeText("standard I/O/").?;
             writeSystemCause(formatter, system)
         },
         .Cwd(system) => {
-            formatter.writeText(&"working directory/").?;
+            formatter.writeText("working directory/").?;
             writeSystemCause(formatter, system)
         },
         .Exec(system) => {
-            formatter.writeText(&"executable/").?;
+            formatter.writeText("executable/").?;
             writeSystemCause(formatter, system)
         },
         .Reap { stage, primary, cause, pid } => {
-            formatter.writeText(&"child reap pid ").?;
+            formatter.writeText("child reap pid ").?;
             formatter.writeSigned(pid.raw() as i128).?;
-            formatter.writeText(&" after ").?;
+            formatter.writeText(" after ").?;
             formatter.writeText(match stage {
-                .Setup => &"setup",
-                .Stdio => &"standard I/O",
-                .Cwd => &"working directory",
-                .Exec => &"executable",
-                _ => &"unknown stage",
+                .Setup => "setup",
+                .Stdio => "standard I/O",
+                .Cwd => "working directory",
+                .Exec => "executable",
+                _ => "unknown stage",
             }).?;
-            formatter.writeText(&"/").?;
+            formatter.writeText("/").?;
             writeSystemCause(formatter, primary).?;
-            formatter.writeText(&": ").?;
+            formatter.writeText(": ").?;
             writeSystemCause(formatter, cause)
         },
     }

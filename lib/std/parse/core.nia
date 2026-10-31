@@ -200,9 +200,9 @@ where U: AsciiUnit
 fun parseBool[U](input: &[U]) Error!bool
 where U: AsciiUnit
 {
-    if asciiEquals[U](input, &"true") {
+    if asciiEquals[U](input, "true") {
         !true
-    } else if asciiEquals[U](input, &"false") {
+    } else if asciiEquals[U](input, "false") {
         !false
     } else if input.len() == 0 {
         .Empty!

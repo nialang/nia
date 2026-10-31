@@ -72,7 +72,7 @@ extend Build {
             }!,
         };
         let handle = PackageHandle::init(self.ownerId, packageIndex);
-        if options.name.equals(&"root")
+        if options.name.equals("root")
             or not isValidStableName(options.name)
             or (not options.manifestDependency and not isValidPackagePath(options.path.text(), false))
         {
@@ -493,7 +493,7 @@ extend Build {
         let rootModule = self.addModule(ModuleOptions::init(name, rootSource)).?;
         let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).withRuntime(runtime)).?;
         let emit = self.addEmitExecutableStep(name, executable).?;
-        let mut runName = string::String::fromSlice(self.allocator, &"run-")
+        let mut runName = string::String::fromSlice(self.allocator, "run-")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         let result = self.declareManifestRun(&mut runName, name, executable);
         let cleanup = runName.deinit(self.allocator)
@@ -532,7 +532,7 @@ extend Build {
         let all = if self.allStep is ?existing {
             existing
         } else {
-            let created = self.addAggregateStep(&"all").?;
+            let created = self.addAggregateStep("all").?;
             self.allStep = ?created;
             self.defaultStep = ?created;
             created
