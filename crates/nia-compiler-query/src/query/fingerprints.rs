@@ -373,7 +373,7 @@ pub(super) fn provider_type_ref_fingerprint(
     } else {
         builder.write_u8(0);
     }
-    if let Some(module) = type_ref.target_module_name {
+    if let Some(module) = type_ref.target_module_hint {
         builder.write_u8(1);
         builder.write_u64(module.raw());
     } else {

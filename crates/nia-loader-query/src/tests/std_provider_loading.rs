@@ -65,6 +65,60 @@ fun main(values: collections::ArrayList[i32]) usize {
     let program = load_program(main_path.to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/collections/array_list/list.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/tree_map/map.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/tree_map/storage.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/tree_map/iterators.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/hash_map/map.nia");
+}
+
+#[test]
+fn query_loader_loads_tree_map_storage_for_inherent_demand() {
+    let root = temp_dir("query_loader_loads_tree_map_storage_for_inherent_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections;
+
+fun main(values: collections::TreeMap[i32, i32]) usize {
+    values.len()
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/collections/tree_map.nia");
+    assert_module_loaded(&program, "lib/std/collections/tree_map/map.nia");
+    assert_module_loaded(&program, "lib/std/collections/tree_map/storage.nia");
+    assert_module_loaded(&program, "lib/std/collections/tree_map/iterators.nia");
+}
+
+#[test]
+fn query_loader_loads_tree_map_iterator_for_iterable_demand() {
+    let root = temp_dir("query_loader_loads_tree_map_iterator_for_iterable_demand");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections;
+
+fun main(values: collections::TreeMap[i32, i32]) usize {
+    let mut count: usize = 0;
+    for _ in values {
+        count += 1;
+    }
+    count
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/collections/tree_map/map.nia");
+    assert_module_loaded(&program, "lib/std/collections/tree_map/iterators.nia");
 }
 
 #[test]
@@ -547,5 +601,159 @@ _ = list;
             .iter()
             .any(|module| module.path.as_str().contains("/collections/hash_map")),
         "following the selected ArrayList provider chain must not load the HashMap subtree"
+    );
+}
+
+#[test]
+fn query_loader_supports_facade_types_with_separate_file_and_process_providers() {
+    let root =
+        temp_dir("query_loader_supports_facade_types_with_separate_file_and_process_providers");
+    let main_path = root.join("main.nia");
+    let pkg_root = root.join("dep/root.nia");
+    write(
+        &main_path,
+        r#"
+using dep::facade;
+
+fun main(file: facade::FileHandle) i32 {
+    file.write()
+}
+"#,
+    );
+    write(&pkg_root, "pub module facade;");
+    write(
+        &root.join("dep/facade.nia"),
+        r#"
+pub(root) module types;
+pub(root) module file;
+pub(root) module process;
+
+using self::types;
+using self::file;
+using self::process;
+
+pub using types::{FileHandle, ProcessId};
+"#,
+    );
+    write(
+        &root.join("dep/facade/types.nia"),
+        r#"
+pub struct FileHandle { raw: i32 }
+pub struct ProcessId { raw: i32 }
+"#,
+    );
+    write(
+        &root.join("dep/facade/file.nia"),
+        r#"
+using self::types;
+
+extend types::FileHandle {
+    pub fun write(&self) i32 { self.raw }
+}
+"#,
+    );
+    write(
+        &root.join("dep/facade/process.nia"),
+        r#"
+using self::types;
+
+extend types::ProcessId {
+    pub fun raw(&self) i32 { self.raw }
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
+        .expect("insert dependency package");
+
+    let program =
+        load_program_with_provider_demand(&main_path, module_map, Some("FileHandle"), "write");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(
+        &program,
+        root.join("dep/facade/file.nia").to_string_lossy().as_ref(),
+    );
+    assert_module_not_loaded(
+        &program,
+        root.join("dep/facade/process.nia")
+            .to_string_lossy()
+            .as_ref(),
+    );
+}
+
+#[test]
+fn query_loader_loads_cross_provider_into_error_fact() {
+    let root = temp_dir("query_loader_loads_cross_provider_into_error_fact");
+    let main_path = root.join("main.nia");
+    let pkg_root = root.join("dep/root.nia");
+    write(&main_path, "using dep::facade; fun main() () {}\n");
+    write(&pkg_root, "pub module facade;");
+    write(
+        &root.join("dep/facade.nia"),
+        r#"
+pub(root) module types;
+pub(root) module convert;
+pub(root) module adapter;
+using self::types;
+using self::convert;
+using self::adapter;
+pub using types::{SourceError, TargetError};
+"#,
+    );
+    write(
+        &root.join("dep/facade/types.nia"),
+        r#"
+pub enum SourceError: i32 { Failed = 1, _ }
+pub enum TargetError: i32 { Converted = 2, _ }
+"#,
+    );
+    write(
+        &root.join("dep/facade/convert.nia"),
+        r#"
+using self::types;
+using root::facade;
+using root::builtin;
+extend facade::SourceError : builtin::IntoError[facade::TargetError] {
+    const fun intoError(self) types::TargetError { .Converted }
+}
+"#,
+    );
+    write(
+        &root.join("dep/facade/adapter.nia"),
+        r#"
+using self::types;
+pub fun convert(value: types::SourceError!i32) types::TargetError!i32 {
+    !(value.?)
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
+        .expect("insert dependency package");
+    let target_module_segments = vec![sym("facade"), sym("types")];
+    let program = load_program_with_trait_provider_demand_for_package_and_module(
+        &main_path,
+        module_map,
+        Some("SourceError"),
+        Some(sym("dep")),
+        "IntoError",
+        &[Some("TargetError")],
+        target_module_segments,
+    );
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(
+        &program,
+        root.join("dep/facade/convert.nia")
+            .to_string_lossy()
+            .as_ref(),
+    );
+    assert_module_not_loaded(
+        &program,
+        root.join("dep/facade/adapter.nia")
+            .to_string_lossy()
+            .as_ref(),
     );
 }

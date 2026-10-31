@@ -54,9 +54,11 @@ pub struct ProviderTypeRef {
     pub type_argument_names: Vec<Option<SymbolId>>,
     /// Whether the target is generic or structurally shaped.
     pub is_generic_or_structural_target: bool,
-    /// Final segment of the module a qualified target names through this
-    /// file's imports (`string` for `stringPackage::String`), when known.
-    pub target_module_name: Option<SymbolId>,
+    /// Syntactic final segment of the module a qualified target names through
+    /// this file's imports (`string` for `stringPackage::String`), when
+    /// known. This is only a loading hint; it is never a canonical defining
+    /// module identity because the path may name a re-export or alias.
+    pub target_module_hint: Option<SymbolId>,
     /// Whether an unqualified target resolves to a nominal type in this module.
     pub target_is_local_nominal: bool,
     /// Whether matching must conservatively account for aliases or imports.
@@ -440,8 +442,9 @@ impl Provider {
 
     /// Whether this provider's target may be the demanded type. A demand
     /// without a nominal name matches generic, structural, and unresolved
-    /// targets; module segments narrow a nominal match when both sides know
-    /// them.
+    /// targets. Module segments narrow a match only when this summary has a
+    /// canonical local nominal identity; syntax-only qualified paths remain
+    /// conservative because they may pass through a re-export or alias.
     fn may_target(
         &self,
         target_type_name: Option<&SymbolId>,
@@ -453,16 +456,17 @@ impl Provider {
             ty.is_generic_or_structural_target || ty.semantic_is_conservative,
             |name| ty.may_match_demand_nominal_name(name),
         );
-        // A local nominal target is defined in the provider's own module. A
-        // qualified path such as `os::Error` or `stringPackage::String` names
-        // its module through an import; the summary keeps the imported
-        // module's final segment, which must match the demanded type's module
-        // when both are known.
+        // Only a local nominal target gives the summary a canonical module
+        // identity. A qualified target such as `facade::SourceError` may
+        // pass through a re-export or alias; its syntax-only module segment
+        // must never be used to reject a demand whose type resolver already
+        // knows the canonical defining module. The package and nominal name
+        // filters remain active, so this is a conservative over-approximation
+        // that cannot hide a valid provider.
         let module_matches = if ty.target_is_local_nominal {
             provider_module_segments == target_module_segments
         } else {
-            ty.target_module_name
-                .is_none_or(|module| target_module_segments.last() == Some(&module))
+            true
         };
         name_matches && (target_module_segments.is_empty() || module_matches)
     }
@@ -505,13 +509,13 @@ impl ProviderTypeRef {
                 last_name: None,
                 type_argument_names: Vec::new(),
                 is_generic_or_structural_target: true,
-                target_module_name: None,
+                target_module_hint: None,
                 semantic_is_conservative: true,
                 target_is_local_nominal: false,
             };
         }
         let last_name = type_ref_last_name(ty);
-        let target_module_name = match &ty.kind {
+        let target_module_hint = match &ty.kind {
             TypeKind::Path { segments } if segments.len() >= 2 => {
                 match segments[segments.len() - 2].kind {
                     PathSegmentKind::Name(name) if segments.len() == 2 => {
@@ -544,7 +548,7 @@ impl ProviderTypeRef {
                 argument_definite_names,
             ),
             is_generic_or_structural_target,
-            target_module_name,
+            target_module_hint,
             semantic_is_conservative,
             target_is_local_nominal,
         }
@@ -1165,6 +1169,33 @@ extend Error : IntoError {}
             Some(&sym("Error")),
             &[sym("os")],
             &[sym("process"), sym("types")],
+            &sym("IntoError"),
+            &[],
+            None,
+        ));
+    }
+
+    #[test]
+    fn qualified_targets_do_not_treat_reexport_segments_as_canonical_modules() {
+        let summary = summary_for(
+            r#"
+module facade;
+using root::facade;
+using root::facade::types;
+trait IntoError {}
+
+extend facade::SourceError : IntoError {}
+"#,
+        );
+
+        // `facade` is the path spelling visible in the provider source. The
+        // demanded type is canonically owned by `facade::types`; a summary
+        // cannot resolve that re-export by syntax alone and must keep the
+        // provider as a candidate for semantic matching.
+        assert!(summary.defines_trait_impl_at_module(
+            Some(&sym("SourceError")),
+            &[sym("facade"), sym("types")],
+            &[sym("facade"), sym("convert")],
             &sym("IntoError"),
             &[],
             None,
