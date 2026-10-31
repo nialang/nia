@@ -1,0 +1,159 @@
+// Borrowed ordered-map iterators.
+
+using root::iter;
+using super::entries;
+using super::storage;
+using super::map;
+using super::types;
+
+using entries::{TreeMapEntryRef, TreeMapEntryMut};
+using map::TreeMap;
+using types::{TreeMapIter, TreeMapIterMut, TreeMapNode, maxIteratorDepth};
+using storage::{nodeKeys, nodeValues, nodeKeysMut, nodeValuesMut, nodeChildren, nodeChildrenMut, requiredChild, requiredChildMut};
+
+extend[K, V] TreeMap[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun iter(&self) TreeMapIter[K, V] {
+        let mut result = TreeMapIter[K, V] {
+            stack: [null; maxIteratorDepth], state: [0; maxIteratorDepth], depth: 0, remaining: self.len,
+        };
+        if self.rootNode is ?rootNode {
+            result.pushLeft(rootNode);
+        }
+        result
+    }
+    pub fun iterMut(&mut self) TreeMapIterMut[K, V] {
+        let mut result = TreeMapIterMut[K, V] {
+            stack: [null; maxIteratorDepth], state: [0; maxIteratorDepth], depth: 0, remaining: self.len,
+        };
+        if self.rootNode is ?rootNode {
+            result.pushLeft(rootNode);
+        }
+        result
+    }
+}
+
+extend[K, V] TreeMapIter[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun len(&self) usize { self.remaining }
+    pub fun isEmpty(&self) bool { self.remaining == 0 }
+
+    fun pushLeft(&mut self, nodeArg: &TreeMapNode) () {
+        let mut node = nodeArg;
+        while self.depth < maxIteratorDepth {
+            self.stack[self.depth] = ?node;
+            self.state[self.depth] = 0;
+            self.depth += 1;
+            if node.leaf { return; }
+            self.state[self.depth - 1] = 1;
+            node = requiredChild(node, 0);
+        }
+        root::builtin::trap();
+    }
+}
+
+extend[K, V] TreeMapIter[K, V] : Iterator
+where K: Sized + Ord[K], V: Sized
+{
+    type Item = TreeMapEntryRef[K, V];
+    pub fun next(&mut self) ?TreeMapEntryRef[K, V] {
+        while self.depth > 0 {
+            let frame = self.depth - 1;
+            let node = self.stack[frame].?;
+            if node.leaf {
+                if self.state[frame] < node.len {
+                    let index = self.state[frame];
+                    self.state[frame] += 1;
+                    self.remaining -= 1;
+                    return ?.{ key: &nodeKeys[K](node)[index], value: &nodeValues[V](node)[index] };
+                }
+                self.depth -= 1;
+                continue;
+            }
+            if self.state[frame] >= node.len * 2 + 1 { self.depth -= 1; continue; }
+            if self.state[frame] % 2 == 0 {
+                let childIndex = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.pushLeft(requiredChild(node, childIndex));
+            } else {
+                let index = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.remaining -= 1;
+                return ?.{ key: &nodeKeys[K](node)[index], value: &nodeValues[V](node)[index] };
+            }
+        }
+        null
+    }
+}
+
+extend[K, V] TreeMapIterMut[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun len(&self) usize { self.remaining }
+    pub fun isEmpty(&self) bool { self.remaining == 0 }
+
+    fun pushLeft(&mut self, nodeArg: &mut TreeMapNode) () {
+        let mut node = nodeArg;
+        while self.depth < maxIteratorDepth {
+            self.stack[self.depth] = ?node;
+            self.state[self.depth] = 0;
+            self.depth += 1;
+            if node.leaf { return; }
+            self.state[self.depth - 1] = 1;
+            node = requiredChildMut(node, 0);
+        }
+        root::builtin::trap();
+    }
+}
+
+extend[K, V] TreeMapIterMut[K, V] : Iterator
+where K: Sized + Ord[K], V: Sized
+{
+    type Item = TreeMapEntryMut[K, V];
+    pub fun next(&mut self) ?TreeMapEntryMut[K, V] {
+        while self.depth > 0 {
+            let frame = self.depth - 1;
+            let mut node = self.stack[frame].?;
+            if node.leaf {
+                if self.state[frame] < node.len {
+                    let index = self.state[frame];
+                    self.state[frame] += 1;
+                    self.remaining -= 1;
+                    return ?.{ key: &nodeKeys[K](node)[index], value: &mut nodeValuesMut[V](node)[index] };
+                }
+                self.depth -= 1;
+                continue;
+            }
+            if self.state[frame] >= node.len * 2 + 1 { self.depth -= 1; continue; }
+            if self.state[frame] % 2 == 0 {
+                let childIndex = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.pushLeft(requiredChildMut(node, childIndex));
+            } else {
+                let index = self.state[frame] / 2;
+                self.state[frame] += 1;
+                self.remaining -= 1;
+                return ?.{ key: &nodeKeys[K](node)[index], value: &mut nodeValuesMut[V](node)[index] };
+            }
+        }
+        null
+    }
+}
+
+extend[K, V] TreeMap[K, V] : Iterable
+where K: Sized + Ord[K], V: Sized
+{
+    type Item = TreeMapEntryRef[K, V];
+    type Iter = TreeMapIter[K, V];
+    pub fun iter(&self) TreeMapIter[K, V] {
+        let mut result = TreeMapIter[K, V] {
+            stack: [null; maxIteratorDepth], state: [0; maxIteratorDepth], depth: 0, remaining: self.len,
+        };
+        if self.rootNode is ?rootNode {
+            result.pushLeft(rootNode);
+        }
+        result
+    }
+}

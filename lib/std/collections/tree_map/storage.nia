@@ -1,0 +1,235 @@
+// Allocator-owned B-tree node layout and reusable-node lifecycle.
+
+using root::error;
+using root::mem;
+using root::mem::layout::LayoutBuilder;
+using super::map;
+using super::types;
+
+using map::TreeMap;
+using types::{TreeMapNode, minKeys, maxKeys, maxChildren};
+
+struct NodeStoragePlan {
+    layout: mem::Layout,
+    keysOffset: usize,
+    valuesOffset: usize,
+    childrenOffset: usize,
+}
+
+fun nodeStoragePlan[K, V]() mem::Error!NodeStoragePlan
+where K: Sized, V: Sized
+{
+    let mut storage = LayoutBuilder::of[TreeMapNode]().?;
+    let keysOffset = storage.appendArray[K](maxKeys).?;
+    let valuesOffset = storage.appendArray[V](maxKeys).?;
+    let childrenOffset = storage.appendArray[?&mut TreeMapNode](maxChildren).?;
+    !.{
+        layout: storage.layout(),
+        keysOffset,
+        valuesOffset,
+        childrenOffset,
+    }
+}
+
+fun nodeItems[T](block: mem::Block, offset: usize, len: usize) &[T]
+where T: Sized
+{
+    let ptr = ((block.ptr() as usize) + offset) as &T;
+    &ptr[0..len]
+}
+
+fun nodeItemsMut[T](block: mem::Block, offset: usize, len: usize) &mut [T]
+where T: Sized
+{
+    let mut ptr = ((block.ptr() as usize) + offset) as &mut T;
+    &mut ptr[0..len]
+}
+
+pub(super) fun nodeKeys[K](node: &TreeMapNode) &[K]
+where K: Sized
+{
+    nodeItems[K](node.block, node.keysOffset, maxKeys)
+}
+
+pub(super) fun nodeKeysMut[K](node: &mut TreeMapNode) &mut [K]
+where K: Sized
+{
+    nodeItemsMut[K](node.block, node.keysOffset, maxKeys)
+}
+
+pub(super) fun nodeValues[V](node: &TreeMapNode) &[V]
+where V: Sized
+{
+    nodeItems[V](node.block, node.valuesOffset, maxKeys)
+}
+
+pub(super) fun nodeValuesMut[V](node: &mut TreeMapNode) &mut [V]
+where V: Sized
+{
+    nodeItemsMut[V](node.block, node.valuesOffset, maxKeys)
+}
+
+pub(super) fun nodeChildren(node: &TreeMapNode) &[?&mut TreeMapNode]
+{
+    nodeItems[?&mut TreeMapNode](node.block, node.childrenOffset, maxChildren)
+}
+
+pub(super) fun nodeChildrenMut(node: &mut TreeMapNode) &mut [?&mut TreeMapNode]
+{
+    nodeItemsMut[?&mut TreeMapNode](node.block, node.childrenOffset, maxChildren)
+}
+
+pub(super) fun requiredChild(node: &TreeMapNode, index: usize) &TreeMapNode {
+    if nodeChildren(node)[index] is ?child { child } else { root::builtin::trap() }
+}
+
+pub(super) fun requiredChildMut(node: &mut TreeMapNode, index: usize) &mut TreeMapNode {
+    if nodeChildrenMut(node)[index] is ?child { child } else { root::builtin::trap() }
+}
+
+fun resetNode(node: &mut TreeMapNode, leaf: bool) ()
+{
+    node.freeNext = null;
+    node.leaf = leaf;
+    node.len = 0;
+    node.subtreeLen = 0;
+    for index in 0..maxChildren {
+        nodeChildrenMut(node)[index] = null;
+    }
+}
+
+pub(super) fun nodeSubtreeLen(node: &TreeMapNode) usize
+{
+    if node.leaf {
+        return node.len;
+    }
+    let mut total = node.len;
+    for index in 0..(node.len + 1) {
+        total += requiredChild(node, index).subtreeLen;
+    }
+    total
+}
+
+
+extend[K, V] TreeMap[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        let mut current = self.allNodes;
+        self.allNodes = null;
+        self.rootNode = null;
+        self.freeNodes = null;
+        self.len = 0;
+        self.capacity = 0;
+        self.allocatedNodes = 0;
+        let mut failed: ?&mut TreeMapNode = null;
+        let mut failedFree: ?&mut TreeMapNode = null;
+        let mut failedCount: usize = 0;
+        let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
+        loop {
+            if current is mut ?node {
+                let next = node.allNext;
+                node.allNext = failed;
+                if allocator.free(node.block) is error! {
+                    failed = ?node;
+                    node.freeNext = failedFree;
+                    failedFree = ?node;
+                    failedCount += 1;
+                    cleanup.attempt(error!);
+                }
+                current = next;
+            } else {
+                break;
+            }
+        }
+        self.allNodes = failed;
+        self.freeNodes = failedFree;
+        self.allocatedNodes = failedCount;
+        if not cleanup.isClean() {
+            return cleanup.finish();
+        }
+        !()
+    }
+    pub fun len(&self) usize { self.len }
+    pub fun capacity(&self) usize { self.capacity }
+    pub fun isEmpty(&self) bool { self.len == 0 }
+    pub fun clear(&mut self) () {
+        if self.rootNode is ?rootNode {
+            self.recycleTree(rootNode);
+            self.rootNode = null;
+        }
+        self.len = 0;
+    }
+    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
+        let needed = self.len.checkedAdd(additional)
+            .okOr(mem::Error::OutOfMemory).?;
+        if needed <= self.capacity {
+            return !();
+        }
+        self.ensureCapacity(allocator, needed)
+    }
+    pub(super) fun ensureCapacity(&mut self, allocator: &mut mem::Allocator, needed: usize) mem::Error!() {
+        if needed <= self.capacity { return !(); }
+        // For more than one node, a degree-four B-tree with N entries needs at
+        // most ceil(N / 3) nodes. Keep the reservation conservative so a later
+        // insertion can split its entire search path without allocating.
+        let requiredNodes = if needed <= maxKeys {
+            1
+        } else {
+            let rounded = match needed.checkedAdd(2) {
+                ?value => value,
+                null => return .OutOfMemory!,
+            };
+            rounded / 3
+        };
+        while self.allocatedNodes < requiredNodes {
+            let mut node = self.allocateNode(allocator, true).?;
+            node.freeNext = self.freeNodes;
+            self.freeNodes = ?node;
+        }
+        self.capacity = needed;
+        !()
+    }
+    pub(super) fun acquireNode(&mut self, allocator: &mut mem::Allocator, leaf: bool) mem::Error!&mut TreeMapNode {
+        if self.freeNodes is mut ?node {
+            self.freeNodes = node.freeNext;
+            resetNode(node, leaf);
+            return !node;
+        }
+        self.allocateNode(allocator, leaf)
+    }
+    pub(super) fun allocateNode(&mut self, allocator: &mut mem::Allocator, leaf: bool) mem::Error!&mut TreeMapNode {
+        let nextNodeCount = match self.allocatedNodes.checkedAdd(1) {
+            ?value => value,
+            null => return .OutOfMemory!,
+        };
+        let plan = nodeStoragePlan[K, V]().?;
+        let block = allocator.alloc(plan.layout).?;
+        let mut node = block.ptr() as &mut TreeMapNode;
+        node.* = .{
+            block, allNext: self.allNodes, freeNext: null, leaf, len: 0, subtreeLen: 0,
+            keysOffset: plan.keysOffset, valuesOffset: plan.valuesOffset, childrenOffset: plan.childrenOffset,
+        };
+        self.allNodes = ?node;
+        self.allocatedNodes = nextNodeCount;
+        for index in 0..maxChildren { nodeChildrenMut(node)[index] = null; }
+        !node
+    }
+    pub(super) fun recycleNode(&mut self, node: &mut TreeMapNode) () {
+        resetNode(node, true);
+        node.freeNext = self.freeNodes;
+        self.freeNodes = ?node;
+    }
+    pub(super) fun recycleTree(&mut self, node: &mut TreeMapNode) () {
+        if not node.leaf {
+            let count = node.len + 1;
+            for index in 0..count {
+                if nodeChildrenMut(node)[index] is ?child {
+                    self.recycleTree(child);
+                    nodeChildrenMut(node)[index] = null;
+                }
+            }
+        }
+        self.recycleNode(node);
+    }
+}

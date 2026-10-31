@@ -1299,8 +1299,18 @@ fun run(init: process::Init) mem::Error!() {
         key += 1;
     }
     rehashFreeCountAllocator.clearFailures();
+    rehashFreeCountAllocator.failFreeAt = rehashFreeCountAllocator.freeCount + 2;
+    match rehashFreeCountMap.deinit(&mut rehashFreeCountAllocator) {
+        !ok => { _ = ok;
+                return mem::Error::Invalid!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return err!;
+            } },
+    }
+    // A failed deinit is cleanup-only; retry it without using the map.
+    rehashFreeCountAllocator.clearFailures();
     rehashFreeCountMap.deinit(&mut rehashFreeCountAllocator).?;
-    if rehashFreeCountAllocator.freeCount != rehashFreeCountAfterFailure + 2 {
+    if rehashFreeCountAllocator.freeCount != rehashFreeCountAfterFailure + 3 {
         return mem::Error::Invalid!;
     }
 

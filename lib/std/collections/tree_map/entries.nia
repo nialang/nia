@@ -1,0 +1,48 @@
+// Owned and borrowed entry values returned by ordered-map operations.
+
+pub struct TreeMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    key: K,
+    value: V,
+}
+
+pub struct TreeMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &V,
+}
+
+pub struct TreeMapEntryMut[K, V]
+where K: Sized, V: Sized
+{
+    key: &K,
+    value: &mut V,
+}
+
+extend[K, V] TreeMapEntry[K, V]
+where K: Sized, V: Sized
+{
+    pub fun key(&self) &K { &self.key }
+    pub fun value(&self) &V { &self.value }
+    pub fun keyMut(&mut self) &mut K { &mut self.key }
+    pub fun valueMut(&mut self) &mut V { &mut self.value }
+}
+
+extend[K, V] TreeMapEntryRef[K, V]
+where K: Sized, V: Sized
+{
+    pub fun key(&self) &K { self.key }
+    pub fun value(&self) &V { self.value }
+}
+
+extend[K, V] TreeMapEntryMut[K, V]
+where K: Sized, V: Sized
+{
+    pub fun key(&self) &K { self.key }
+    pub fun value(&self) &V { self.value }
+    pub fun valueMut(&mut self) &mut V { self.value }
+}
+
+\n

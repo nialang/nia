@@ -16,10 +16,10 @@ where K: Sized + fmt::Format, V: Sized + fmt::Format, C: HashMapContext[K]
             if first {
                 first = false;
             } else {
-                formatter.writeText(&", ").?;
+                formatter.writeText(", ").?;
             }
             entry.key().*.format(formatter).?;
-            formatter.writeText(&": ").?;
+            formatter.writeText(": ").?;
             entry.value().*.format(formatter).?;
         }
         formatter.writeByte(b'}')

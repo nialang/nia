@@ -1,0 +1,40 @@
+// B-tree node metadata and iterator state types.
+
+using root::mem;
+
+pub(super) const minKeys: usize = 3;
+pub(super) const maxKeys: usize = 7;
+pub(super) const maxChildren: usize = 8;
+pub(super) const maxIteratorDepth: usize = 128;
+
+pub(super) struct TreeMapNode {
+    block: mem::Block,
+    allNext: ?&mut TreeMapNode,
+    freeNext: ?&mut TreeMapNode,
+    leaf: bool,
+    len: usize,
+    subtreeLen: usize,
+    keysOffset: usize,
+    valuesOffset: usize,
+    childrenOffset: usize,
+}
+
+pub struct TreeMapIter[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    stack: [?&TreeMapNode; maxIteratorDepth],
+    state: [usize; maxIteratorDepth],
+    depth: usize,
+    remaining: usize,
+}
+
+pub struct TreeMapIterMut[K, V]
+where K: Sized + Ord[K], V: Sized
+{
+    stack: [?&mut TreeMapNode; maxIteratorDepth],
+    state: [usize; maxIteratorDepth],
+    depth: usize,
+    remaining: usize,
+}
+
+\n

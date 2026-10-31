@@ -1,28 +1,14 @@
-// Open-addressing hash map with allocator-explicit storage.
-//
-// Control bytes, keys, and values share one aligned storage block. Rehash
-// keeps the replaced block as a map-owned retired allocation until its release
-// succeeds; a failed release leaves the active table usable but requires
-// cleanup retry before a later rehash or the final `deinit`.
-//
-// Capacity counts logical entries, including slots made reusable by deletion.
-// `insertAssumeCapacity` therefore requires `len < capacity`, not an unused
-// physical empty-slot budget; it may reuse an empty or a deleted control slot
-// without allocating.
+// Open-addressing hash map: key/value operations and probing.
+// Allocation ownership, capacity policy, and rehash live in `storage`.
 
-using root::cmp;
-using root::builtin;
-using root::error;
 using root::hash;
-using root::iter::range;
 using root::mem;
-using root::mem::layout::LayoutBuilder;
 using root::option;
-using root::os;
-using root::collections::hash_map::context;
-using root::collections::hash_map::entries;
-using root::collections::hash_map::raw;
-using root::collections::hash_map::types;
+using super::context;
+using super::entries;
+using super::raw;
+using super::storage;
+using super::types;
 
 using context::DefaultHashMapContext;
 using entries::{
@@ -47,37 +33,6 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     retiredStorageBlock: ?mem::Block,
     seed: u64,
     context: C,
-}
-
-struct StoragePlan {
-    layout: mem::Layout,
-    ctrlLen: usize,
-    keysOffset: usize,
-    valuesOffset: usize,
-}
-
-fun storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
-where K: Sized, V: Sized
-{
-    let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-    let mut storage = LayoutBuilder::init(mem::Layout::array[u8](ctrlLen).?);
-    let keysOffset = storage.appendArray[K](capacity).?;
-    let valuesOffset = storage.appendArray[V](capacity).?;
-    !.{
-        layout: storage.layout(),
-        ctrlLen,
-        keysOffset,
-        valuesOffset,
-    }
-}
-
-// Offsets are produced by `storagePlan` and stay within the one allocated
-// block. The block alignment is the maximum alignment of every typed view.
-fun storageItems[T](block: mem::Block, offset: usize, len: usize) &mut [T]
-where T: Sized
-{
-    let mut ptr = ((block.ptr() as usize) + offset) as &mut T;
-    &mut ptr[0..len]
 }
 
 extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
@@ -154,22 +109,6 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !map
     }
 
-    pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
-        cleanup.attempt(self.freeAllocations(allocator));
-        cleanup.attempt(self.freeRetiredAllocations(allocator));
-        if not cleanup.isClean() {
-            return cleanup.finish();
-        }
-        self.ctrl = raw::danglingSlice[u8]();
-        self.keys = raw::danglingSlice[K]();
-        self.values = raw::danglingSlice[V]();
-        self.bucketCount = 0;
-        self.len = 0;
-        self.growthLeft = 0;
-        !()
-    }
-
     pub fun len(&self) usize {
         self.len
     }
@@ -189,85 +128,37 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         self.growthLeft = self.capacity();
     }
 
-    pub fun shrinkToFit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        self.shrinkToCapacity(allocator, self.len())
-    }
-
-    pub fun shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
-        let targetCapacity = cmp::max(self.len(), minCapacity);
-        if targetCapacity >= self.capacity() {
-            return !();
-        }
-        if targetCapacity == 0 {
-            self.deinit(allocator).?;
-            return !();
-        }
-
-        let target = raw::capacityToBuckets(targetCapacity).?;
-        self.rehashToBuckets(allocator, target)
-    }
-
-    pub fun compact(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.bucketCapacity() == 0 {
-            return !();
-        }
-        if self.len() == 0 {
-            self.clear();
-            return !();
-        }
-        self.rehashToBuckets(allocator, self.bucketCapacity())
-    }
-
     pub fun containsKey(&self, key: &K) bool {
         self.findIndex(key, self.hashKey(key)).isPresent()
     }
 
     pub fun get(&self, key: &K) ?&V {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            ?&self.values[index]
-        } else {
-            null
-        }
+        let index = self.findIndex(key, self.hashKey(key)).?;
+        ?&self.values[index]
     }
 
     pub fun getMut(&mut self, key: &K) ?&mut V {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            ?&mut self.values[index]
-        } else {
-            null
-        }
+        let index = self.findIndex(key, self.hashKey(key)).?;
+        ?&mut self.values[index]
     }
 
     pub fun getEntry(&self, key: &K) ?HashMapEntryRef[K, V] {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            ?.{
-                key: &self.keys[index],
-                value: &self.values[index],
-            }
-        } else {
-            null
-        }
+        let index = self.findIndex(key, self.hashKey(key)).?;
+        ?.{ key: &self.keys[index], value: &self.values[index] }
     }
 
     pub fun getEntryMut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            return ?.{
-                key: &self.keys[index],
-                value: &mut self.values[index],
-            };
-        }
-        null
+        let index = self.findIndex(key, self.hashKey(key)).?;
+        ?.{ key: &self.keys[index], value: &mut self.values[index] }
     }
 
     pub fun getKey(&self, key: &K) ?&K {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            return ?&self.keys[index];
-        }
-        null
+        let index = self.findIndex(key, self.hashKey(key)).?;
+        ?&self.keys[index]
     }
 
     pub fun containsKeyBy[Q](&self, query: Q) bool
-        where Q: Sized, C: HashMapLookupContext[K, Q]
+    where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).isPresent()
     }
@@ -275,67 +166,36 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     pub fun getBy[Q](&self, query: Q) ?&V
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?&self.values[index]
-        } else {
-            null
-        }
+        let index = self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).?;
+        ?&self.values[index]
     }
 
     pub fun getMutBy[Q](&mut self, query: Q) ?&mut V
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?&mut self.values[index]
-        } else {
-            null
-        }
+        let index = self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).?;
+        ?&mut self.values[index]
     }
 
     pub fun getEntryBy[Q](&self, query: Q) ?HashMapEntryRef[K, V]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?.{ key: &self.keys[index], value: &self.values[index] }
-        } else {
-            null
-        }
+        let index = self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).?;
+        ?.{ key: &self.keys[index], value: &self.values[index] }
     }
 
     pub fun getEntryMutBy[Q](&mut self, query: Q) ?HashMapEntryMut[K, V]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?.{ key: &self.keys[index], value: &mut self.values[index] }
-        } else {
-            null
-        }
+        let index = self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).?;
+        ?.{ key: &self.keys[index], value: &mut self.values[index] }
     }
 
     pub fun getKeyBy[Q](&self, query: Q) ?&K
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?&self.keys[index]
-        } else {
-            null
-        }
-    }
-
-    pub fun clone(&self, allocator: &mut mem::Allocator) mem::Error!HashMapWithContext[K, V, C] {
-        let mut cloned = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
-        if self.bucketCapacity() == 0 {
-            return !cloned;
-        }
-        cloned.allocate(allocator, self.bucketCapacity()).?;
-
-        for index in 0..self.bucketCapacity() {
-            if raw::isFull(self.ctrl[index]) {
-                cloned.insertExisting(self.keys[index], self.values[index]);
-            }
-        }
-
-        !cloned
+        let index = self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).?;
+        ?&self.keys[index]
     }
 
     pub fun insert(
@@ -472,8 +332,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fun insertNewAssumeCapacity(&mut self, key: K, value: V) () {
-        let slot = self.insertNewIndexAssumeCapacity(key, value);
-        _ = slot;
+        _ = self.insertNewIndexAssumeCapacity(key, value);
     }
 
     fun insertNewIndexAssumeCapacity(&mut self, key: K, value: V) usize {
@@ -501,73 +360,33 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fun remove(&mut self, key: &K) ?V {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            let value = self.values[index];
-            self.setCtrl(index, raw::ctrlDeleted);
-            self.len -= 1;
-            ?value
-        } else {
-            null
-        }
+        ?self.removeEntry(key).?.intoValue()
     }
 
     pub fun removeEntry(&mut self, key: &K) ?HashMapEntry[K, V] {
-        if self.findIndex(key, self.hashKey(key)) is ?index {
-            let foundKey = self.keys[index];
-            let value = self.values[index];
-            self.setCtrl(index, raw::ctrlDeleted);
-            self.len -= 1;
-            ?.{ key: foundKey, value }
-        } else {
-            null
-        }
+        let index = self.findIndex(key, self.hashKey(key)).?;
+        ?self.removeIndex(index)
     }
 
     pub fun removeEntryBy[Q](&mut self, query: Q) ?HashMapEntry[K, V]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            let foundKey = self.keys[index];
-            let value = self.values[index];
-            self.setCtrl(index, raw::ctrlDeleted);
-            self.len -= 1;
-            ?.{ key: foundKey, value }
-        } else {
-            null
-        }
+        let index = self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)).?;
+        ?self.removeIndex(index)
     }
 
-    pub fun reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        self.ensureUnusedCapacity(allocator, additional)
+    pub(super) fun removeIndex(&mut self, index: usize) HashMapEntry[K, V] {
+        let entry = HashMapEntry[K, V] { key: self.keys[index], value: self.values[index] };
+        self.setCtrl(index, raw::ctrlDeleted);
+        self.len -= 1;
+        entry
     }
 
-    fun ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
-        if additional <= self.growthLeft {
-            return !();
-        }
-        let needed = self.len.checkedAdd(additional)
-            .okOr(mem::Error::OutOfMemory).?;
-        if needed <= self.capacity() {
-            self.rehashToBuckets(allocator, self.bucketCapacity()).?;
-            return !();
-        }
-        self.growForCapacity(allocator, needed).?;
-        !()
-    }
-
-    pub fun ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
-        if capacity <= self.capacity() {
-            return !();
-        }
-        self.growForCapacity(allocator, capacity).?;
-        !()
-    }
-
-    fun bucketCapacity(&self) usize {
+    pub(super) fun bucketCapacity(&self) usize {
         self.bucketCount
     }
 
-    fun hashKey(&self, key: &K) u64 {
+    pub(super) fun hashKey(&self, key: &K) u64 {
         self.context.hash(self.seed, key)
     }
 
@@ -603,7 +422,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         null
     }
 
-    fun findInsertIndex(&self, valueHash: u64) usize {
+    pub(super) fun findInsertIndex(&self, valueHash: u64) usize {
         let mut cursor = raw::ProbeCursor::init(valueHash, self.bucketCapacity());
 
         while cursor.hasRemaining() {
@@ -618,110 +437,10 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         root::builtin::trap()
     }
 
-    fun growForCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
-        let target = raw::capacityToBuckets(capacity).?;
-        self.rehashToBuckets(allocator, target)
-    }
-
-    fun rehashToBuckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!() {
-        self.freeRetiredAllocations(allocator).?;
-        let mut newMap = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
-        newMap.allocate(allocator, target).?;
-
-        for index in 0..self.bucketCapacity() {
-            if raw::isFull(self.ctrl[index]) {
-                let key = self.keys[index];
-                let value = self.values[index];
-                newMap.insertExisting(key, value);
-            }
-        }
-
-        self.retiredStorageBlock = self.storageBlock;
-        self.ctrl = newMap.ctrl;
-        self.keys = newMap.keys;
-        self.values = newMap.values;
-        self.storageBlock = newMap.storageBlock;
-        self.bucketCount = newMap.bucketCount;
-        self.len = newMap.len;
-        self.growthLeft = newMap.growthLeft;
-        newMap.ctrl = raw::danglingSlice[u8]();
-        newMap.keys = raw::danglingSlice[K]();
-        newMap.values = raw::danglingSlice[V]();
-        newMap.storageBlock = null;
-        newMap.bucketCount = 0;
-        self.freeRetiredAllocations(allocator)
-    }
-
-    fun insertExisting(&mut self, key: K, value: V) () {
-        let valueHash = self.hashKey(&key);
-        let slot = self.findInsertIndex(valueHash);
-        self.setCtrl(slot, raw::tag(valueHash));
-        self.keys[slot] = key;
-        self.values[slot] = value;
-        self.len += 1;
-        self.growthLeft -= 1;
-    }
-
-    pub(root) fun setCtrl(&mut self, index: usize, value: u8) () {
+    pub(super) fun setCtrl(&mut self, index: usize, value: u8) () {
         self.ctrl[index] = value;
         if index < raw::groupWidth - 1 {
             self.ctrl[self.bucketCount + index] = value;
-        }
-    }
-
-    fun allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
-        let plan = storagePlan[K, V](capacity).?;
-        let storage = allocator.alloc(plan.layout).?;
-        self.ctrl = storageItems[u8](storage, 0, plan.ctrlLen);
-        if root::builtin::size[K]() == 0 {
-            self.keys = raw::danglingLenSlice[K](capacity);
-        } else {
-            self.keys = storageItems[K](storage, plan.keysOffset, capacity);
-        }
-        if root::builtin::size[V]() == 0 {
-            self.values = raw::danglingLenSlice[V](capacity);
-        } else {
-            self.values = storageItems[V](storage, plan.valuesOffset, capacity);
-        }
-        self.storageBlock = ?storage;
-        raw::fillCtrl(self.ctrl, raw::ctrlEmpty);
-        self.bucketCount = capacity;
-        self.len = 0;
-        self.growthLeft = raw::usableCapacity(capacity);
-        !()
-    }
-
-    // A failed release leaves the one combined ctrl/key/value owner attached
-    // so a caller can retry deinit without losing or double-freeing storage.
-    fun freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.storageBlock is ?block {
-            allocator.free(block).?;
-            self.storageBlock = null;
-            self.ctrl = raw::danglingSlice[u8]();
-            self.keys = raw::danglingSlice[K]();
-            self.values = raw::danglingSlice[V]();
-        }
-        !()
-    }
-
-    fun freeRetiredAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.retiredStorageBlock is ?block {
-            allocator.free(block).?;
-            self.retiredStorageBlock = null;
-        }
-        !()
-    }
-}
-
-extend os::Error : builtin::IntoError[HashMapInitError] {
-    const fun intoError(self) HashMapInitError {
-        match self {
-            .PermissionDenied => .PermissionDenied,
-            .Io => .Io,
-            .Again => .Again,
-            .Fault => .Fault,
-            .Invalid => .Invalid,
-            _ => .System,
         }
     }
 }
