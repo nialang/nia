@@ -17,6 +17,10 @@ This directory contains historical documents from the Nia compiler and standard 
 - `stdlib-review-2026-10.md` - Active checklist; archived after completion
 - `stdlib-refactor-examples.md` - Exploratory refactoring proposals
 
+### One-Time Validation Reports
+- `sized-provider-validation.md` - Sized/provider fix validation (Oct 30)
+- `wyhash-runtime-validation.md` - Wyhash streaming validation (Oct 30)
+
 ## Current Documentation
 
 For current compiler and standard library documentation, see the parent `docs/dev/` directory:
