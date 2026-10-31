@@ -117,7 +117,7 @@ pub fun metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) Erro
     !metadata.asOsMetadata()
 }
 
-pub(root) fun initPlatformDirectoryReader() platform::DirectoryReader {
+fun initPlatformDirectoryReader() platform::DirectoryReader {
     platform::initDirectoryReader()
 }
 
