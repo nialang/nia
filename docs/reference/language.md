@@ -405,8 +405,9 @@ error (`[1u8, 2u64]` does not widen). An empty literal needs an expected type.
 The repeat count must be a compile-time `usize`. `[T; _]` is valid only where
 an array or string literal supplies the length.
 
-Arrays never convert implicitly to slices or pointers. `arr[i]` indexes an
-array; it is a place when `arr` is a place.
+Array values do not implicitly convert to slices or pointers. An expected
+pointer type may implicitly take the address of an eligible array value, as
+described above. `arr[i]` indexes an array; it is a place when `arr` is a place.
 
 ### Slices
 
@@ -440,7 +441,7 @@ even when the slice itself comes from a call.
 
 When the expected type is exactly `&[T]` or `&mut [T]`, a pointer to an array
 converts to a slice of the whole array: `&[T; N]` to `&[T]`, and `&mut [T; N]`
-to `&mut [T]` or `&[T]`. Array values do not convert. Method calls apply the
+to `&mut [T]` or `&[T]`. Array values do not convert directly to slices. Method calls apply the
 same conversion when the array pointer has no matching method of its own but
 the slice type does; a read-only array pointer still cannot call a method that
 needs `&mut [T]`.
