@@ -8,6 +8,8 @@ Start with the guide, then use the reference when you need exact rules.
 | --- | --- |
 | [Getting started](guide/getting-started.md) | Installing Nia, a first program, and the `nia` commands |
 | [Language tour](guide/tour.md) | The language from simple values to traits, closures, and modules |
+| [Error handling patterns](guide/error-handling.md) | Propagation, option helpers, cleanup, and transactional updates |
+| [Memory management](guide/memory-management.md) | Explicit allocators, defer-based cleanup, and ownership patterns |
 | [Build scripts](guide/build-scripts.md) | `nia.toml` manifests, dependencies, and workspaces; writing `build.nia`: modules, executables, steps, and test suites |
 | [C interop](guide/c-interop.md) | Calling C, linking native libraries, and exporting Nia functions |
 | [Examples](../examples/README.md) | Complete programs arranged as reading material |
