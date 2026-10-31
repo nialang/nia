@@ -1,12 +1,14 @@
 // Memory compiler intrinsics.
 
-// Copies memory between non-overlapping slices.
+// Copies the common element prefix between non-overlapping slices.
 @[builtin("memcpy")]
-pub fun memcpy[T](dest: &mut [T], source: &[T]) ();
+pub fun memcpy[T](dest: &mut [T], source: &[T]) ()
+where T: Sized;
 
-// Moves memory between possibly overlapping slices.
+// Moves the common element prefix between possibly overlapping slices.
 @[builtin("memmove")]
-pub fun memmove[T](dest: &mut [T], source: &[T]) ();
+pub fun memmove[T](dest: &mut [T], source: &[T]) ()
+where T: Sized;
 
 // Sets bytes in a mutable byte slice.
 @[builtin("memset")]
@@ -14,4 +16,5 @@ pub fun memset(dest: &mut [u8], value: u8) ();
 
 // Loads `T` from a byte pointer without requiring alignment.
 @[builtin("loadUnaligned")]
-pub fun loadUnaligned[T](ptr: &u8) T;
+pub fun loadUnaligned[T](ptr: &u8) T
+where T: Sized;

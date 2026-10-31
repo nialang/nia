@@ -2,11 +2,13 @@
 
 // Returns the ABI size of `T` in bytes.
 @[builtin("size")]
-pub const fun size[T]() usize;
+pub const fun size[T]() usize
+where T: Sized;
 
 // Returns the ABI alignment of `T` in bytes.
 @[builtin("align")]
-pub const fun align[T]() usize;
+pub const fun align[T]() usize
+where T: Sized;
 
 // Returns the byte offset of a struct or union field.
 @[builtin("offset")]

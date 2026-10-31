@@ -15,8 +15,8 @@ A function marked `const fun` below can also run during
 
 | Declaration | Result |
 | --- | --- |
-| `const fun size[T]() usize` | size of `T` in bytes |
-| `const fun align[T]() usize` | alignment of `T` in bytes |
+| `const fun size[T]() usize where T: Sized` | size of `T` in bytes |
+| `const fun align[T]() usize where T: Sized` | alignment of `T` in bytes |
 | `const fun offset[T](field: &[char]) usize` | byte offset of a struct or union field |
 
 `size` and `align` require `T: Sized`; generic code states the bound in its
@@ -93,7 +93,8 @@ representation. The source must be initialized and readable, the destination
 writable. `memcpy` copies forward and requires that no overlap changes a source
 element before it is read; `memmove` permits any overlap. The destination
 argument must be a slice expression such as `&mut buffer[..]`; an array pointer
-is not converted here.
+is not converted here. The element type must be `Sized`, as must `T` loaded by
+`loadUnaligned`; generic callers state that bound in their `where` clause.
 
 `loadUnaligned` relaxes only alignment. At least `size[T]()` initialized bytes
 must be readable at `ptr`, and `T` must be `Sized`.
