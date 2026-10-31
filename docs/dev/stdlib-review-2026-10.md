@@ -358,6 +358,95 @@ This is a source survey, not evidence that production workloads exercise overflo
 - Validation: both maintained-target cross-compilation tests pass, as do the three Windows process executable tests.
 - Status: completed as a focused platform memory cleanup; the remaining OS providers stay queued for full review.
 
+### H34 - Separate hash-map storage ownership from map operations
+
+- Files: `lib/std/collections/hash_map.nia`, all providers under `lib/std/collections/hash_map/`, `lib/std/collections/hash_set.nia`, `maintain/fixtures/std-build-host-dependencies.json`, `crates/nia-cli/tests/std_hash_map.rs`, `crates/nia-cli/tests/std_hash_set.rs`, `crates/nia-loader-query/src/tests/std_provider_loading.rs`
+- Evidence: the map provider combined nominal type state, key/query operations, probing, allocation layout, capacity policy, rehash transfer, and retryable active/retired block cleanup. Those responsibilities have stable owners: `map.nia` owns the type and lookup/mutation boundary; `storage.nia` owns the combined block layout, capacity changes, clone/rehash, and cleanup; `raw.nia` owns probing primitives; `context.nia` owns hash/equality contexts; `entries.nia` owns returned entry values; iterators and formatting stay in their respective providers.
+- Result: restore the storage-only split without moving constructors away from the nominal type. The facade imports `storage` explicitly, the build-host closure lists it, and sibling collaboration uses `super` with `pub(super)` methods. Shared `removeIndex`, iterator construction, optional presence predicates, and the context-aware iterator aliases keep the public API native while avoiding duplicate state transitions. The storage provider centralizes `resetStorage`; after an active release succeeds, a retired-release failure leaves cleanup-only state reachable for a later retry.
+- The earlier reverted experiment moved constructor/initialization responsibilities and was coupled to conservative provider selection. This storage-only split does not move those constructors; the loader regression confirms an `ArrayList::init` demand still does not load the HashMap subtree. No compiler change or std workaround was needed.
+- Validation: all nine non-ignored `std_hash_map` tests pass, including capacity-boundary, collision, tombstone, clone, and allocation/free-failure cases; the new deinit regression injects a failure on the retired owner after the active owner succeeds and verifies the retry; the HashSet executable, String integration, 21 provider-loading tests, and equivalent public-import work test pass.
+- Status: completed as a focused collections refactor; the ordered-map split is recorded in H35.
+
+### H35 - Separate ordered-map storage, mutation, entries, and iterators
+
+- Files: `lib/std/collections/tree_map.nia`, all providers under `lib/std/collections/tree_map/`, `lib/std/collections/tree_set.nia`, `lib/std/collections.nia`, `maintain/fixtures/std-build-host-dependencies.json`
+- Evidence: the ordered map combined nominal node state, allocator-owned node layout and reusable-node cleanup, B-tree lookup/mutation/rank algorithms, entry views, and borrowed iterator state in one 900-line provider. These responsibilities have stable owners: `map.nia` keeps the nominal map and keyed operations, `storage.nia` owns node layout/capacity/cleanup, `entries.nia` owns returned values, `iterators.nia` owns traversal and `Iterable`, and `types.nia` owns shared node and iterator state.
+- Result: split the providers with explicit sibling imports and re-exports. Constructors remain with the nominal map provider, so the public initialization boundary is unchanged. The split also removed duplicated entry implementations that would otherwise create ambiguous method candidates.
+- Validation: all three `std_tree_map` executable tests pass, including B-tree split/merge/reuse, rank queries, mutable iteration, zero-sized values, fixed-buffer reservation, atomic insertion failure, and TreeSet integration. Dedicated loader regressions confirm TreeMap storage and iteration providers are found, while an ArrayList-only demand loads neither the TreeMap nor HashMap subtree. HashMap, HashSet, and String suites, 33 provider-loading tests, the equivalent public-import work test, `cargo maintain check`, formatting, and `git diff --check` pass.
+- Status: completed as a focused collections refactor; no compiler defect or std workaround was needed.
+
+### H36 - Keep I/O contracts and adapters at their actual ownership boundaries
+
+- Files: `lib/std/io.nia`, `lib/std/io/buffered.nia`, `lib/std/io/debug.nia`, `lib/std/io/error.nia`, `lib/std/io/file_adapter.nia`, `lib/std/io/fixed_buffer.nia`, `lib/std/io/limit.nia`, `lib/std/io/traits.nia`
+- Evidence: the I/O facade and providers already separate transfer contracts, error conversion, fixed storage, byte limits, buffering, file-handle adaptation, and debug output. `Reader`/`Writer` own the shared partial-transfer and invalid-count contracts; adapters preserve the wrapped error type and retain unread or unwritten bytes across failures.
+- Result: keep the current provider boundaries. The remaining loops are stateful transfer or compaction logic: replacing them with higher-level iterator plumbing would obscure the partial-I/O invariant, and no further split would clarify ownership.
+- Validation: all 18 `emit_exe_io` tests pass, including partial reads/writes, retryable buffered failures, zero-progress handling, invalid transfer counts, file adapters, fixed buffers, limits, and debug-print error conversion. No compiler or standard-library correctness defect was confirmed.
+- Status: review complete; no source change required.
+
+### H37 - Preserve the final small allocation when page release fails
+
+- Files: `lib/std/mem/general_purpose_allocator.nia`, `crates/nia-cli/tests/std_mem_allocators.rs`
+- Evidence: freeing the last live slot in a small page marked the slot free and decremented the page counters before releasing the backing page. If the child allocator rejected that release, `free` returned an error while the caller's `Block` was no longer represented as live; a retry could not validate the original block. The same review also found that small-page and large-allocation publication wrote metadata before validating malformed child block size, alignment, or address ranges.
+- Result: attempt the empty-page release before changing the final slot's ownership state, so a failed child release leaves the original block live and retryable. Validate child-provided backing size, alignment, address arithmetic, and payload bounds before publishing page or large-header metadata; failed rollback remains visible through the existing pending-free owner.
+- Validation: the new executable regression injects one failed child release, verifies `used` and `isEmpty` remain truthful, retries the original block, and then tears down successfully. The malformed small-page and large-header cases verify rollback retention. All 15 `std_mem_allocators` tests and both `std_mem_pool_allocator` tests pass.
+- Status: completed as an allocator correctness repair; no compiler defect or allocator split was justified after reviewing the ownership boundaries.
+
+### H38 - Keep process staging and child ownership boundaries explicit
+
+- Files: `lib/std/process.nia`, `lib/std/process/args.nia`, `lib/std/process/child.nia`, `lib/std/process/command.nia`, `lib/std/process/convert.nia`, `lib/std/process/env.nia`, `lib/std/process/exit_code.nia`, `lib/std/process/init.nia`, `lib/std/process/pipe.nia`, `lib/std/process/term.nia`, `lib/std/process/types.nia`, plus the platform process providers.
+- Evidence: process configuration stays borrowed until `spawn`; staging bytes, pointer arrays, native spawn state, and the pending outcome have one explicit `SpawnStorage` owner. `finish` releases every staging allocation before exposing the child or spawn error, while failed-child reaping remains attached to the native attempt. Child state caches a terminal status, and pipe wrappers consume their handle before close so a close failure cannot cause a second close.
+- Result: keep the current module boundaries and state machines. The repeated loops are protocol boundaries for NUL encoding, partial handshake I/O, PATH search, and platform wait semantics; replacing them with generic collection or iterator helpers would hide the ownership and retry invariants. Environment validation deliberately stays at the exact-environment spawn boundary, and open OS enums retain explicit fallback mappings.
+- Validation: the process executable suite covers PATH and cwd resolution, explicit and empty environments, UTF-8 arguments, all stdio modes, partial pipe transfer, EOF, repeatable wait/tryWait, kill, failed spawn cleanup, failed-child reap retry, custom allocator staging cleanup, and Windows handle inheritance. No compiler or standard-library correctness defect was confirmed in this review.
+- Status: review complete; no source change required.
+
+### H39 - Make const evaluation honor readonly automatic-address semantics
+
+- Files: `crates/nia-body-check/src/pipeline.rs`, `crates/nia-body-check/src/bir/const_value.rs`, `crates/nia-const-check/src/analyzer.rs`, `crates/nia-const-check/src/analyzer/array_literals.rs`, `crates/nia-const-check/src/analyzer/env_impl.rs`, `crates/nia-const-check/src/analyzer/generics.rs`, `crates/nia-const-check/src/analyzer/type_infer.rs`, and their focused tests.
+- Evidence: ordinary expressions already adapted array and string literals to readonly pointer and slice expectations, while const initialization and const-function execution followed a separate type/value path. That path retained the array value instead of materializing the implicit readonly address, so a global const or const call could disagree with an equivalent runtime call. Fixed-array pointer matching also compared only element types and could miss a length mismatch.
+- Result: the shared `nia-sema` layer now classifies implicit address formation for direct pointers and array-to-slice views. Body checking and const checking consume that same type-shape rule; each phase keeps only its own place checks, adjustment recording, generic inference, and value materialization. Const checking accepts array, string, and byte-string literals in readonly pointer and slice contexts, while const evaluation materializes frozen or temporary readonly pointer values with the existing escape checks and enforces fixed-array lengths. Const initializer queries pass the original expected type into const checking and reuse body-check adjustment recording afterward, reducing duplicate literal adaptation.
+- Validation: `nia-const-check` (65 tests), `nia-body-check` (427 tests), the LLVM low-level/const suite (including static storage generation), and the const-evaluation pointer-provenance suite pass. The standard-library sources keep the concise literal call sites; no std workaround was added.
+- Status: completed as a compiler semantic repair discovered during the standard-library review.
+
+### H40 - Close directory readers on malformed record progression
+
+- Files: `lib/std/os.nia`
+- Evidence: `DirectoryReader::next` closed the reader when a platform record could not be decoded, but returned `Error::Invalid` without closing it when `dirEntryNextOffset` could not produce the next offset. That leaves the reader in a non-progressing state while retaining platform enumeration resources.
+- Result: the invalid-offset branch now consumes the reader through `close` before returning the error. Platform-specific pointer and syscall addresses remain explicit because those calls cross the ABI boundary; ordinary string and byte-slice literal arguments use automatic address conversion where the compiler has validated the expected type.
+- Validation: Linux process, Windows process, Windows filesystem, and cross-target executable suites pass; formatting and `git diff --check` pass.
+- Status: completed as a focused OS ownership repair.
+
+### OS provider review
+
+- Reviewed the common OS facade, Linux type/fd/process/random/stat/syscall providers and all maintained Linux syscall tables, the Darwin facade and bindings, and the Windows facade, bindings, types, error, path, encoding, directory, fd, stat, random, process, executable, and stdio providers.
+- The facade owns portable value types, error translation, directory-reader state, and process result adaptation. Linux, Darwin, and Windows providers keep their own ABI layout, resource transaction, path containment, and partial-I/O rules. The repeated loops are protocol boundaries for NUL-terminated strings, directory records, PATH search, and spawn handshakes; a generic iterator rewrite would hide those invariants.
+- The first facade split exposed a loader implementation defect rather than a module-system design limit: provider summaries treated the final segment of a qualified target path as its defining module. A target such as `facade::SourceError` can name a type re-exported from `facade::types`, so that syntax-only segment cannot reject a canonical demand for `facade::types`.
+- The provider summary now narrows module identity only for a nominal type declared directly in the provider module. Qualified, imported, and re-exported targets remain conservative until semantic resolution supplies the canonical identity. With that repair, the split across `os/types`, `os/file`, and `os/process` preserves one provider edge per owner and does not require marker or duplicate trait implementations.
+- Explicit `&` remains in raw pointer, syscall, FFI, and layout code. High-level literal call sites already use the automatic address form; no compiler workaround was added.
+- Status: review complete for the current OS batch; H40 is the OS ownership repair, H41 is the provider-summary repair that makes the facade split reliable, and H42 closes the Windows cleanup provider edge found by the full filesystem suite.
+
+### H41 - Keep qualified provider paths conservative until semantic resolution
+
+- Files: `crates/nia-provider-summary/src/lib.rs`, `crates/nia-loader-query/src/tests/std_provider_loading.rs`
+- Evidence: a cross-provider `IntoError` fact was present in the provider module, but the summary compared the syntax segment `facade` from `extend facade::SourceError` with the canonical demand module `facade::types` and filtered out the only valid provider. The same boundary applies to imported aliases and public re-exports.
+- Result: qualified target paths are now treated as syntax hints only. Module filtering is strict for provider-local nominal declarations and conservative for every other target, so loader discovery cannot hide a semantically valid provider. No duplicate trait fact, marker import, or std-specific exception was added.
+- Validation: the provider-summary unit regression, the cross-package facade `IntoError` loader regression, all 22 provider-summary tests, all 135 loader-query tests, and all 304 compiler-query tests pass.
+- Status: completed as a Nia compiler/provider-discovery correctness repair.
+
+### H42 - Keep the Windows descriptor cleanup provider edge explicit
+
+- Files: `lib/std/os/windows/fd.nia`
+- Evidence: the Windows directory mutation helpers called `cleanupAfter`, but the provider that defines that extension was not imported in the Windows descriptor module. Linux and Darwin already carried the explicit `root::error` edge, while Windows-only filesystem compilations failed with an unknown-method diagnostic.
+- Result: add `using root::error;` to the Windows descriptor provider. The cleanup composition remains the shared typed-error operation; no duplicate extension or platform-specific workaround was introduced.
+- Validation: the complete 21-test `emit_exe_fs` suite passes, including Windows directory creation, deletion, rename, capability, and descriptor-reuse cases. The failure was a standard-library provider edge, not a compiler visibility rule.
+- Status: completed.
+
+### Parse and string-hash review
+
+- Reviewed `lib/std/parse/core.nia`, `lib/std/parse.nia`, `lib/std/string/hash.nia`, and their parse, string, and hash executable coverage. The parser keeps sign handling, prefix selection, digit validation, radix validation, and checked `u128` accumulation as separate boundaries; signed finalization handles the minimum signed value without negating it in the signed domain.
+- `From` and `FromRadix` remain the right extension protocols for Nia's type-directed parsing. The string hash provider only delegates owned text to the existing slice hash and supplies the borrowed `&[char]` lookup path, so there is no second hashing policy or ownership transfer to abstract away.
+- The parser's literal comparisons now use automatic address conversion in ordinary runtime calls. No explicit address remains where the expected type is a compile-time pointer initializer or an ABI boundary.
+- Status: review complete; no source correctness repair was required.
+
 ### Memory allocator contract review
 
 - Reviewed `lib/std/mem/allocator.nia` and `lib/std/mem/page_allocator.nia`. The allocator trait keeps remapping separate from allocation and preserves each block's release range through logical layout changes. `realloc` makes the old-free/replacement-free rollback state explicit and does not hide either owner after a failed cleanup.
@@ -379,6 +468,45 @@ This is a source survey, not evidence that production workloads exercise overflo
 - `file.nia` keeps path encoding on the caller stack and applies the operation context at every syscall boundary. Parent splitting is shared between delete/create/rename paths and preserves the lexical relative-path contract; no safe abstraction would remove the meaningful per-operation parameters.
 - Existing filesystem tests cover descriptor cleanup, path bounds, symlink policy, rename/delete containment, metadata, directory iteration, and allocator-rejection APIs. No compiler or standard-library correctness defect was confirmed in this review.
 - Status: review complete; only the arithmetic cleanup in H23 required source changes.
+
+### Builtin interface review
+
+- Reviewed `lib/std/builtin.nia` and all 13 builtin providers against the builtins and language references, compiler intrinsic dispatch, and focused tests. The providers are already split by coherent contract; keeping `Len` and `sliceLen` beside the place traits preserves their structural relationship, and splitting them further would add module wiring without clarifying ownership.
+- Compiler-backed calls have additional value and operand constraints that cannot all be represented as source-level trait bounds. Where the constraint is a normal `Sized` obligation, the memory intrinsic declarations now expose it explicitly, matching `size` and `align`; the compiler still validates intrinsic-specific operands at the call boundary.
+- `embed` is intentionally declared with a placeholder `()` result because the compiler derives `[u8; N]` from the embedded file length. Its source comment now makes that special signature behavior explicit. The implementation and reference agree on source-relative paths and const-only use.
+- Validation: body-check (426 tests), builtin-trait driver tests (52), const builtin/import tests (16), intrinsic executable tests (10), atomic executable test (1), and memory intrinsic/layout executable tests (5) pass. The new generic-bound regressions cover both rejection without `Sized` and acceptance with the bound.
+- Status: review complete; `mem.nia` and `control.nia` received focused clarifications, with no compiler defect found.
+
+### Atomic facade review
+
+- Reviewed `lib/std/atomic.nia` against the atomic builtin checker, LLVM validation, the memory-order reference, and the executable facade test. `Atomic[T]` keeps the low-level pointer bridge explicit while its public methods expose only orderings valid for each operation; compare-exchange failure orderings are no stronger than their corresponding success ordering.
+- The repeated named methods are intentional. Atomic order and RMW operation arguments are compile-time integer contracts, so moving them through a runtime-looking helper would reject otherwise valid calls. The direct calls preserve the builtin's constant propagation and keep each method's ordering proof visible at the call site.
+- Target-width and value-kind restrictions remain enforced by the shared builtin checker and backend validation. No standard-library or compiler correctness defect was confirmed; the attempted helper extraction was reverted after the compiler correctly rejected non-constant order parameters.
+- Validation: `emit_exe_atomic` passes after restoring the direct-call form; LLVM output covers load, RMW, compare-exchange, and fence lowering.
+- Status: review complete.
+
+### Unicode and source-location review
+
+- Reviewed `lib/std/unicode.nia` and `lib/std/source.nia` with the string and source-location executable suites. UTF-8 decoding checks empty input, leading-byte class, truncation, continuation bytes, overlong encodings, surrogate code points, and the maximum scalar boundary before constructing `char`.
+- `Utf8View` validates the complete backing slice before iteration; the iterator retains a bounded byte index and clears its state on an impossible post-validation decode, so a caller-side mutation cannot leave it repeatedly returning the same record. `SourceLocation` keeps the compiler's one-based line and Unicode-scalar column contract and formats the logical file identity without host-path assumptions.
+- Range slices and field projections still require explicit `&` when passed as slice pointers. Automatic address conversion is accepted for string and array literals in ordinary runtime calls, but it does not apply to these expressions; this is a compiler-validated language boundary rather than a std workaround.
+- Validation: `std_string` and the UTF-8 filesystem-path regression pass. No Unicode, source-location, or automatic-address correctness defect was confirmed.
+- Status: review complete.
+
+### Test facade review
+
+- Reviewed `lib/std/test.nia`, its caller-location behavior, borrowed callback model, and the build-runner integration suite. `Case` and `Runner` borrow the case table and callbacks, `runWith` reports every result without allocation, and fail-fast marks the remaining cases as skipped while preserving a complete total.
+- `Case::run` keeps the original typed assertion error, including its tracked source location. `RunSummary` counts passed, failed, and skipped results independently; `isSuccessful` intentionally means that no case failed, so a fail-fast run can report skipped work without converting cancellation into a test failure.
+- No ownership, callback, error-propagation, or caller-location defect was confirmed. Existing executable coverage exercises direct cases, stack-backed callbacks, fail-fast reporting, mutable reporters, and suite integration.
+- Status: review complete.
+
+### Top-level facade review
+
+- Reviewed `lib/std/build.nia`, `lib/std/cmp.nia`, `lib/std/error.nia`, `lib/std/fs.nia`, `lib/std/mem.nia`, `lib/std/root.nia`, and `lib/std/source.nia` as facade boundaries rather than as implementation providers. Each facade re-exports the public capability types while keeping provider modules behind package-root visibility; `build::probes` is the deliberate public exception because probes are part of the build-script API.
+- `cmp::min` and `cmp::max` require `Sized + Ord[T]` and preserve the left operand on equality. `error` exposes cleanup composition without wrapping Nia's native error union, `fs` keeps path and handle types together while delegating conversion to its private provider, and `mem` re-exports ownership primitives without creating a second allocator protocol.
+- `root.nia` keeps concise common names and explicit provider edges (`iter::range` and `hash`) without eagerly importing every subtree. `source.nia` exposes only stable logical coordinates and the tracked caller builtin; no host-path or lifetime assumption is added at the facade.
+- Validation: the existing build-target, filesystem, memory, error, source-location, and test-step suites pass; `std_cmp` now exercises both generic min/max directions and equal operands. The full filesystem run found and closed the missing Windows `root::error` provider edge recorded in H42.
+- Status: review complete; H42 was the only facade/provider correctness repair in this pass.
 
 ## File checklist
 
@@ -408,19 +536,19 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `builtin`
 
-- [ ] `lib/std/builtin/atomic.nia`
-- [ ] `lib/std/builtin/bits.nia`
-- [ ] `lib/std/builtin/control.nia`
-- [ ] `lib/std/builtin/error.nia`
-- [ ] `lib/std/builtin/iter.nia`
-- [ ] `lib/std/builtin/layout.nia`
-- [ ] `lib/std/builtin/marker.nia`
-- [ ] `lib/std/builtin/mem.nia`
-- [ ] `lib/std/builtin/ops.nia`
-- [ ] `lib/std/builtin/place.nia`
-- [ ] `lib/std/builtin/primitive.nia`
-- [ ] `lib/std/builtin/simd.nia`
-- [ ] `lib/std/builtin/target.nia`
+- [x] `lib/std/builtin/atomic.nia`
+- [x] `lib/std/builtin/bits.nia`
+- [x] `lib/std/builtin/control.nia`
+- [x] `lib/std/builtin/error.nia`
+- [x] `lib/std/builtin/iter.nia`
+- [x] `lib/std/builtin/layout.nia`
+- [x] `lib/std/builtin/marker.nia`
+- [x] `lib/std/builtin/mem.nia`
+- [x] `lib/std/builtin/ops.nia`
+- [x] `lib/std/builtin/place.nia`
+- [x] `lib/std/builtin/primitive.nia`
+- [x] `lib/std/builtin/simd.nia`
+- [x] `lib/std/builtin/target.nia`
 
 ### `checksum`
 
@@ -430,9 +558,9 @@ This is a source survey, not evidence that production workloads exercise overflo
 ### `collections`
 
 - [x] `lib/std/collections/array_list.nia`
-- [ ] `lib/std/collections/hash_map.nia`
+- [x] `lib/std/collections/hash_map.nia`
 - [x] `lib/std/collections/hash_set.nia`
-- [ ] `lib/std/collections/tree_map.nia`
+- [x] `lib/std/collections/tree_map.nia`
 - [x] `lib/std/collections/tree_set.nia`
 
 ### `collections/array_list`
@@ -443,13 +571,22 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `collections/hash_map`
 
-- [ ] `lib/std/collections/hash_map/context.nia`
-- [ ] `lib/std/collections/hash_map/entries.nia`
-- [ ] `lib/std/collections/hash_map/format.nia`
-- [ ] `lib/std/collections/hash_map/iterators.nia`
-- [ ] `lib/std/collections/hash_map/map.nia`
-- [ ] `lib/std/collections/hash_map/raw.nia`
-- [ ] `lib/std/collections/hash_map/types.nia`
+- [x] `lib/std/collections/hash_map/context.nia`
+- [x] `lib/std/collections/hash_map/entries.nia`
+- [x] `lib/std/collections/hash_map/format.nia`
+- [x] `lib/std/collections/hash_map/iterators.nia`
+- [x] `lib/std/collections/hash_map/map.nia`
+- [x] `lib/std/collections/hash_map/raw.nia`
+- [x] `lib/std/collections/hash_map/storage.nia`
+- [x] `lib/std/collections/hash_map/types.nia`
+
+### `collections/tree_map`
+
+- [x] `lib/std/collections/tree_map/entries.nia`
+- [x] `lib/std/collections/tree_map/iterators.nia`
+- [x] `lib/std/collections/tree_map/map.nia`
+- [x] `lib/std/collections/tree_map/storage.nia`
+- [x] `lib/std/collections/tree_map/types.nia`
 
 ### `crypto`
 
@@ -492,13 +629,13 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `io`
 
-- [ ] `lib/std/io/buffered.nia`
-- [ ] `lib/std/io/debug.nia`
-- [ ] `lib/std/io/error.nia`
-- [ ] `lib/std/io/file_adapter.nia`
+- [x] `lib/std/io/buffered.nia`
+- [x] `lib/std/io/debug.nia`
+- [x] `lib/std/io/error.nia`
+- [x] `lib/std/io/file_adapter.nia`
 - [x] `lib/std/io/fixed_buffer.nia`
 - [x] `lib/std/io/limit.nia`
-- [ ] `lib/std/io/traits.nia`
+- [x] `lib/std/io/traits.nia`
 
 ### `iter`
 
@@ -518,87 +655,90 @@ This is a source survey, not evidence that production workloads exercise overflo
 - [x] `lib/std/mem/arena_allocator.nia`
 - [x] `lib/std/mem/error.nia`
 - [x] `lib/std/mem/fixed_buffer_allocator.nia`
-- [ ] `lib/std/mem/general_purpose_allocator.nia`
+- [x] `lib/std/mem/general_purpose_allocator.nia`
 - [x] `lib/std/mem/layout.nia`
 - [x] `lib/std/mem/page_allocator.nia`
-- [ ] `lib/std/mem/pool_allocator.nia`
+- [x] `lib/std/mem/pool_allocator.nia`
 - [x] `lib/std/mem/types.nia`
 
 ### `os`
 
-- [ ] `lib/std/os/linux.nia`
-- [ ] `lib/std/os/macos.nia`
-- [ ] `lib/std/os/windows.nia`
+- [x] `lib/std/os/file.nia`
+- [x] `lib/std/os/linux.nia`
+- [x] `lib/std/os/macos.nia`
+- [x] `lib/std/os/windows.nia`
+- [x] `lib/std/os/process.nia`
+- [x] `lib/std/os/types.nia`
 
 ### `os/linux`
 
-- [ ] `lib/std/os/linux/aarch64.nia`
-- [ ] `lib/std/os/linux/fd.nia`
+- [x] `lib/std/os/linux/aarch64.nia`
+- [x] `lib/std/os/linux/fd.nia`
 - [x] `lib/std/os/linux/mem.nia`
-- [ ] `lib/std/os/linux/process.nia`
-- [ ] `lib/std/os/linux/random.nia`
-- [ ] `lib/std/os/linux/stat.nia`
-- [ ] `lib/std/os/linux/syscall.nia`
-- [ ] `lib/std/os/linux/types.nia`
-- [ ] `lib/std/os/linux/x86.nia`
-- [ ] `lib/std/os/linux/x86_64.nia`
+- [x] `lib/std/os/linux/process.nia`
+- [x] `lib/std/os/linux/random.nia`
+- [x] `lib/std/os/linux/stat.nia`
+- [x] `lib/std/os/linux/syscall.nia`
+- [x] `lib/std/os/linux/types.nia`
+- [x] `lib/std/os/linux/x86.nia`
+- [x] `lib/std/os/linux/x86_64.nia`
 
 ### `os/linux/aarch64`
 
-- [ ] `lib/std/os/linux/aarch64/syscall.nia`
+- [x] `lib/std/os/linux/aarch64/syscall.nia`
 
 ### `os/linux/x86`
 
-- [ ] `lib/std/os/linux/x86/syscall.nia`
+- [x] `lib/std/os/linux/x86/syscall.nia`
 
 ### `os/linux/x86_64`
 
-- [ ] `lib/std/os/linux/x86_64/syscall.nia`
+- [x] `lib/std/os/linux/x86_64/syscall.nia`
 
 ### `os/macos`
 
-- [ ] `lib/std/os/macos/bindings.nia`
+- [x] `lib/std/os/macos/bindings.nia`
 
 ### `os/windows`
 
-- [ ] `lib/std/os/windows/bindings.nia`
-- [ ] `lib/std/os/windows/command.nia`
-- [ ] `lib/std/os/windows/directory.nia`
-- [ ] `lib/std/os/windows/encoding.nia`
-- [ ] `lib/std/os/windows/error.nia`
-- [ ] `lib/std/os/windows/fd.nia`
+- [x] `lib/std/os/windows/bindings.nia`
+- [x] `lib/std/os/windows/command.nia`
+- [x] `lib/std/os/windows/directory.nia`
+- [x] `lib/std/os/windows/encoding.nia`
+- [x] `lib/std/os/windows/error.nia`
+- [x] `lib/std/os/windows/fd.nia`
 - [x] `lib/std/os/windows/mem.nia`
-- [ ] `lib/std/os/windows/path.nia`
-- [ ] `lib/std/os/windows/process.nia`
-- [ ] `lib/std/os/windows/random.nia`
-- [ ] `lib/std/os/windows/stat.nia`
-- [ ] `lib/std/os/windows/types.nia`
+- [x] `lib/std/os/windows/path.nia`
+- [x] `lib/std/os/windows/process.nia`
+- [x] `lib/std/os/windows/random.nia`
+- [x] `lib/std/os/windows/stat.nia`
+- [x] `lib/std/os/windows/types.nia`
 
 ### `os/windows/process`
 
-- [ ] `lib/std/os/windows/process/executable.nia`
-- [ ] `lib/std/os/windows/process/stdio.nia`
+- [x] `lib/std/os/windows/process/executable.nia`
+- [x] `lib/std/os/windows/process/stdio.nia`
 
 ### `parse`
 
-- [ ] `lib/std/parse/core.nia`
+- [x] `lib/std/parse/core.nia`
 
 ### `process`
 
 - [x] `lib/std/process/args.nia`
-- [ ] `lib/std/process/child.nia`
-- [ ] `lib/std/process/command.nia`
-- [ ] `lib/std/process/convert.nia`
+- [x] `lib/std/process/child.nia`
+- [x] `lib/std/process/command.nia`
+- [x] `lib/std/process/convert.nia`
 - [x] `lib/std/process/env.nia`
-- [ ] `lib/std/process/exit_code.nia`
-- [ ] `lib/std/process/init.nia`
-- [ ] `lib/std/process/pipe.nia`
-- [ ] `lib/std/process/term.nia`
-- [ ] `lib/std/process/types.nia`
+- [x] `lib/std/process/exit_code.nia`
+- [x] `lib/std/process/init.nia`
+- [x] `lib/std/process/pipe.nia`
+- [x] `lib/std/process/term.nia`
+- [x] `lib/std/process/types.nia`
 
 ### `string`
 
-- [ ] `lib/std/string/hash.nia`
+- [x] `lib/std/string/hash.nia`
 
 ### `slice`
 
@@ -606,30 +746,30 @@ This is a source survey, not evidence that production workloads exercise overflo
 
 ### `top-level`
 
-- [ ] `lib/std/atomic.nia`
-- [ ] `lib/std/build.nia`
-- [ ] `lib/std/builtin.nia`
+- [x] `lib/std/atomic.nia`
+- [x] `lib/std/build.nia`
+- [x] `lib/std/builtin.nia`
 - [x] `lib/std/checksum.nia`
-- [ ] `lib/std/cmp.nia`
+- [x] `lib/std/cmp.nia`
 - [x] `lib/std/collections.nia`
 - [x] `lib/std/crypto.nia`
 - [x] `lib/std/cstring.nia`
-- [ ] `lib/std/error.nia`
+- [x] `lib/std/error.nia`
 - [x] `lib/std/fmt.nia`
-- [ ] `lib/std/fs.nia`
+- [x] `lib/std/fs.nia`
 - [x] `lib/std/hash.nia`
-- [ ] `lib/std/io.nia`
+- [x] `lib/std/io.nia`
 - [x] `lib/std/iter.nia`
 - [x] `lib/std/math.nia`
-- [ ] `lib/std/mem.nia`
+- [x] `lib/std/mem.nia`
 - [x] `lib/std/option.nia`
-- [ ] `lib/std/os.nia`
-- [ ] `lib/std/parse.nia`
-- [ ] `lib/std/process.nia`
+- [x] `lib/std/os.nia`
+- [x] `lib/std/parse.nia`
+- [x] `lib/std/process.nia`
 - [x] `lib/std/result.nia`
-- [ ] `lib/std/root.nia`
+- [x] `lib/std/root.nia`
 - [x] `lib/std/slice.nia`
-- [ ] `lib/std/source.nia`
+- [x] `lib/std/source.nia`
 - [x] `lib/std/string.nia`
-- [ ] `lib/std/test.nia`
-- [ ] `lib/std/unicode.nia`
+- [x] `lib/std/test.nia`
+- [x] `lib/std/unicode.nia`
