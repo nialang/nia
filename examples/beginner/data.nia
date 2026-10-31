@@ -52,8 +52,8 @@ pub fun main(init: Init) ExitCode!() {
     let bytesLength = bytes.len();
     let stableLength = stable.len();
     io::debugPrint(
-        &"window={} name={} bytes={} stable={}\n",
-        &[&windowLength, &nameLength, &bytesLength, &stableLength],
+        "window={} name={} bytes={} stable={}\n",
+        [&windowLength, &nameLength, &bytesLength, &stableLength],
     ).?;
     !()
 }

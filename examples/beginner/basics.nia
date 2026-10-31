@@ -53,6 +53,6 @@ pub fun main(init: Init) ExitCode!() {
         _ => return ExitCode(2)!,
     }
 
-    io::debugPrint(&"distance={} total={} score={}\n", &[&distance, &total, &samples[2]]).?;
+    io::debugPrint("distance={} total={} score={}\n", [&distance, &total, &samples[2]]).?;
     !()
 }
