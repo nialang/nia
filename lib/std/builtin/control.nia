@@ -10,7 +10,9 @@ pub const fun trap() never;
 @[builtin("error")]
 pub const fun error(message: &[char]) never;
 
-// Embeds a file at const.
+// Embeds a file at const. The compiler specializes the result to the byte
+// array whose length matches the embedded file; `()` is only its declaration
+// placeholder.
 @[builtin("embed")]
 pub const fun embed(path: &[char]) ();
 
