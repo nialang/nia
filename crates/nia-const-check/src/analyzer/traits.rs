@@ -538,11 +538,15 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn current_trait_goals(&mut self) -> Vec<TraitGoal> {
+        let mut goals = self
+            .active_execution_frames()
+            .flat_map(|frame| frame.trait_goals.iter().cloned())
+            .collect::<Vec<_>>();
         let Some(function_id) = self.current_execution_function_id() else {
-            return Vec::new();
+            return goals;
         };
         let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {
-            return Vec::new();
+            return goals;
         };
         let Some(signature) = signatures
             .as_ref()
@@ -550,7 +554,7 @@ impl Analyzer<'_> {
             .get(&function_id.def_id)
             .cloned()
         else {
-            return Vec::new();
+            return goals;
         };
         let substitutions = self
             .active_execution_frames()
@@ -562,11 +566,12 @@ impl Analyzer<'_> {
             .find(|frame| frame.function_id == Some(function_id))
             .map(|frame| frame.const_substitutions.clone())
             .unwrap_or_default();
-        self.trait_goals_from_where_predicates(
+        goals.extend(self.trait_goals_from_where_predicates(
             &signature.where_predicates,
             &substitutions,
             &const_substitutions,
-        )
+        ));
+        goals
     }
 
     pub(super) fn trait_goals_from_where_predicates(

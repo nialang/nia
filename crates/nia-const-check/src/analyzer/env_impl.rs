@@ -1673,11 +1673,29 @@ impl Analyzer<'_> {
             .const_substitutions
             .into_iter()
             .collect::<SymbolMap<_>>();
+        let impl_where_predicates = self
+            .trait_impls_for_solver_module(user.impl_module_id)
+            .into_iter()
+            .find(|signature| {
+                signature.module_id == user.impl_module_id
+                    && signature
+                        .associated_values
+                        .iter()
+                        .any(|value| value.def_id == user.def_id.def_id)
+            })
+            .map(|signature| signature.where_predicates)
+            .unwrap_or_default();
+        let trait_goals = self.trait_goals_from_where_predicates(
+            &impl_where_predicates,
+            &type_substitutions,
+            &const_substitutions,
+        );
         let frame = ConstCallFrame {
             module_id: Some(user.impl_module_id),
             function_id: None,
             type_substitutions,
             const_substitutions,
+            trait_goals,
             ..ConstCallFrame::default()
         };
         self.call_locals.push(frame);

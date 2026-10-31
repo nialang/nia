@@ -224,8 +224,8 @@ impl Analyzer<'_> {
                         has_infer_slot = true;
                     }
                     (GenericParamSignatureKind::Type, ResolvedConstGenericArg::Type(arg)) => {
-                        let canonical =
-                            self.type_for_module(span, arg.ty(), signature_module_id)?;
+                        let arg_ty = self.substitute_ty_generics(arg.ty());
+                        let canonical = self.type_for_module(span, arg_ty, signature_module_id)?;
                         substitutions.insert(generic.name, canonical);
                     }
                     (

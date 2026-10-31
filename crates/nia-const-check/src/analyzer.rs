@@ -477,6 +477,7 @@ pub(crate) struct ConstCallFrame {
     mutable_locals: HashSet<LocalId>,
     type_substitutions: SymbolMap<InternedTyId>,
     const_substitutions: SymbolMap<ConstGenericArg>,
+    trait_goals: Vec<TraitGoal>,
     try_error_conversions: HashMap<Span, ResolvedConstCallee>,
     checked_try_error_conversions: HashSet<Span>,
 }
@@ -496,6 +497,7 @@ impl From<TypedConstFrame> for ConstCallFrame {
             mutable_locals: HashSet::new(),
             type_substitutions: frame.type_substitutions,
             const_substitutions: frame.const_substitutions,
+            trait_goals: Vec::new(),
             try_error_conversions: HashMap::new(),
             checked_try_error_conversions: HashSet::new(),
         }

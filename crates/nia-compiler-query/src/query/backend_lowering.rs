@@ -78,6 +78,7 @@ struct BackendAssociatedConstEvaluator {
     target: nia_target::TargetConfig,
     program_functions: HashMap<GlobalDefId, nia_item_signatures::ProgramFunctionSignature>,
     program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
+    program_trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
 struct BackendAssociatedConstInputs<'a> {
@@ -90,6 +91,7 @@ struct BackendAssociatedConstInputs<'a> {
     visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     program_functions: HashMap<GlobalDefId, nia_item_signatures::ProgramFunctionSignature>,
     program_function_signatures: HashMap<ModuleId, Arc<ItemSignatures>>,
+    program_trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
 impl BackendAssociatedConstEvaluator {
@@ -104,6 +106,7 @@ impl BackendAssociatedConstEvaluator {
             visible_extensions,
             program_functions,
             program_function_signatures,
+            program_trait_impls,
         } = input;
         if checked_modules.len() != const_modules.len()
             || checked_modules.len() != item_signatures.len()
@@ -164,6 +167,7 @@ impl BackendAssociatedConstEvaluator {
             target,
             program_functions,
             program_function_signatures,
+            program_trait_impls,
         })
     }
 
@@ -243,6 +247,7 @@ impl BackendAssociatedConstEvaluator {
                 .get(&module_id)
                 .map(|module| Arc::clone(&module.visible_extensions))
         };
+        let trait_impls_provider = |_module_id| Some(self.program_trait_impls.clone());
         let input = nia_const_check::ConstInput {
             module: module.module.as_ref(),
             defs: module.defs.as_ref(),
@@ -270,7 +275,7 @@ impl BackendAssociatedConstEvaluator {
                 const_values: Some(&const_values_provider),
                 global_initializer: Some(&global_initializer_provider),
                 program_is_enum: Some(&enum_provider),
-                trait_impls_for_module: None,
+                trait_impls_for_module: Some(&trait_impls_provider),
                 visible_extensions: Some(&extensions_provider),
             },
         };
@@ -295,6 +300,7 @@ impl BackendLoweringInputs {
                 type_store: parts.type_store.clone(),
                 target: parts.target,
                 visible_extensions: parts.visible_extensions.clone(),
+                program_trait_impls: parts.non_function_signatures.trait_impls.clone(),
                 program_functions: parts.functions.clone(),
                 program_function_signatures: parts.program_function_signatures.clone(),
             })?;
@@ -758,6 +764,7 @@ mod tests {
                 target: nia_target::TargetConfig::host().expect("host target"),
                 program_functions: HashMap::new(),
                 program_function_signatures: HashMap::new(),
+                program_trait_impls: Vec::new(),
             },
             visible_extensions: Vec::new(),
             extension_methods: Arc::new(ExtensionMethodIndexQueryValue {
