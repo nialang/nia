@@ -43,7 +43,5 @@ The command-line help (`nia help`, `nia help <command>`, and
 | [Repository maintenance](../maintain/README.md) | Audits, reports, and [performance baselines](../maintain/performance.md) |
 | [Release build](../tools/release/README.md) | Building and packaging release archives |
 
-Historical documents and temporary working notes are archived in `dev/archive/`.
-
 Each crate documents its own responsibilities in its `//!` crate docs
 (`cargo doc --workspace --no-deps`).
