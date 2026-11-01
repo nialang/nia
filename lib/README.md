@@ -12,28 +12,32 @@ version and resource protocol this tree belongs to.
 ## Modules
 
 Each module below is a public facade declared in `std/root.nia`. Common types
-are also re-exported at the root: `std::String`, `std::ArrayList`,
-`std::HashMap`, `std::Path`, `std::PathView`, `std::CString`,
-`std::CStringView`, `std::Atomic`, `std::SourceLocation`.
+are also re-exported at the root, such as `std::String`, `std::ArrayList`,
+`std::HashMap`, `std::HashSet`, `std::TreeMap`, `std::TreeSet`, `std::Path`,
+`std::PathView`, `std::CString`, `std::CStringView`, `std::Atomic`, and
+`std::SourceLocation`.
 
 | Module | Purpose |
 | --- | --- |
 | `std::atomic` | `Atomic[T]`, memory orderings, and fences |
 | `std::build` | Declarative build-script API: packages, modules, artifacts, steps, and test suites |
+| `std::checksum` | `Adler32`, `Crc32`, and `Crc32C` checksums for detecting accidental corruption |
 | `std::builtin` | Compiler-backed intrinsics (layout, bits, memory, SIMD, atomics, `asm`); see [builtins reference](../docs/reference/builtins.md) |
-| `std::cmp` | `Ordering` and `max` |
+| `std::cmp` | `Ordering`, `min`, and `max` |
 | `std::collections` | Allocator-explicit `ArrayList`, `HashMap`, `HashSet`, ordered `TreeMap`, and `TreeSet` with borrowed iterators |
+| `std::crypto` | Cryptographic digests: `Sha256` |
 | `std::cstring` | NUL-terminated `CString` owners and `CStringView` borrows for C interop |
 | `std::error` | Cleanup combinators: `cleanupAfter` and `CleanupAccumulator` |
 | `std::fmt` | `Format` trait, `Formatter`, format specs, and checked template printing |
 | `std::fs` | `Path`/`PathView`, files, directories, metadata, and directory iteration |
-| `std::hash` | `Hash` and `Hasher` traits and the Wyhash hasher |
+| `std::hash` | `Hash` and `Hasher` traits and the non-cryptographic hashers `Wyhash`, `SipHash13`, `SipHash24`, `XxHash64`, `Fnv1a32`, and `Fnv1a64` |
 | `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, `debugPrint` |
 | `std::iter` | Iterator adapters, ranges, and eager consumers such as `forEach` and `fold` |
 | `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...) |
-| `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, and general-purpose allocators, typed owners |
+| `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
+| `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
 | `std::option` | Operations on optional values (`?T`) |
-| `std::parse` | `From` and `FromRadix` parsing traits |
+| `std::parse` | `From` and `FromRadix` parsing traits and their `Error` |
 | `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
 | `std::result` | Operations on error unions (`E!T`) |
 | `std::slice` | Borrowed slice operations, iterators, splitting, sorting, binary search, bounds, and partition points |
@@ -43,12 +47,6 @@ are also re-exported at the root: `std::String`, `std::ArrayList`,
 | `std::unicode` | UTF-8 decoding and scalar-value validation |
 
 ## Conventions
-
-`std::hash::Wyhash` accepts incremental input without depending on write
-boundaries. Its cumulative length is mixed modulo 2^64 on every target, and
-`finish` does not consume or reset the state. A length wrap never returns the
-hasher to its short-input path. This defines the streaming extension beyond
-the single-slice length accepted by the reference one-shot algorithm.
 
 - Explicit allocators. Owned values such as `String`, `fs::Path`, and the
   collections take the allocator at every call that allocates, grows, copies,
@@ -105,10 +103,10 @@ fun comparesText() test::Error!() {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
-        .init(&"adds numbers", &addsNumbers),
-        .init(&"compares text", &comparesText),
+        .init("adds numbers", &addsNumbers),
+        .init("compares text", &comparesText),
     ];
-    let summary = test::Runner::init(&cases[..]).run();
+    let summary = test::Runner::init(cases).run();
     if not summary.isSuccessful() {
         return process::ExitCode(1)!;
     }
@@ -127,9 +125,8 @@ The library calls Windows directly and does not depend on the C runtime.
 Import descriptions are shipped only for the Win32 functions the toolchain's
 own sources use. A program that declares another Win32 function links that
 function's import library explicitly, like any native dependency
-(`-L <dir> -l <library>`). `Signal::Term` and `Signal::Kill` both terminate the
-child with `TerminateProcess`; see
-[Platform support](../docs/reference/platform-support.md).
+(`-L <dir> -l <library>`). Process signals on Windows are described in
+[Platform support](../docs/reference/platform-support.md#current-limits).
 
 `process::Command` finds its program the same way on every platform: a path
 that contains a separator names that file, relative to the child's working

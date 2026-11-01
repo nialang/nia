@@ -65,7 +65,9 @@ squares=4 names=4 live=true
 `collectSquares` returns the list it filled. The list now belongs to `main`,
 which releases it with the allocator that produced it. A function that
 returns an owner documents that the caller must release it; a function that
-borrows a value takes a pointer or a view and leaves ownership where it was.
+only uses a value takes a pointer or a view and leaves responsibility where it
+was. These are conventions of the library: the compiler tracks neither owners
+nor lifetimes, so keeping a pointer valid is the program's job.
 
 ## Choosing An Allocator
 
