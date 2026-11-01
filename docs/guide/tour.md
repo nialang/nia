@@ -224,6 +224,12 @@ type is already known, `.{ x: 1, y: 2 }` leaves it out, and `Point { x, y }`
 uses same-named locals as field values. Calling a method on a pointer
 dereferences it automatically; otherwise dereference explicitly with `p.*`.
 
+Nia also takes addresses for you. Where a function expects `&T`, pass the
+value; where it expects `&mut T`, pass a `let mut` variable or another writable
+place. `p.translate(1, 1)` works this way, and so does passing `p` to a
+`&mut Point` parameter. Write `&` yourself only when you want a pointer as a
+value of its own, as in `let view = &p;` or the function pointer `&double`.
+
 ## Enums And Match
 
 ```nia
@@ -356,8 +362,8 @@ all=15 partial=9 filled=14 text=5 bytes=4 third=?
 - `[T; N]` is a fixed-length array value; `[value; N]` repeats one value.
 - `&[T]` and `&mut [T]` are slices: a pointer plus a length. An array or a
   string literal can be passed where a read-only slice is expected; Nia takes
-  its address. A writable slice is written `&mut array`, and `&array[a..b]`
-  takes a sub-range.
+  its address, and a writable array passes as a `&mut [T]` slice the same way.
+  `&array[a..b]` and `&mut array[a..b]` take a sub-range.
 - A string literal `"..."` is an array of `char`, and `b"..."` is an array of
   `u8`. There is no implicit NUL terminator.
 - Indexing with `values[i]` is unchecked. `get(i)` returns an optional pointer
@@ -475,22 +481,22 @@ fun cleanupOrder(log: &mut Log) () {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut log = Log { entries: [0; 4], length: 0 };
-    cleanupOrder(&mut log);
+    cleanupOrder(log);
 
     // Allocation is explicit: the program chooses an allocator and passes it
     // to every operation that allocates or frees.
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
     defer allocator.deinit().?;
 
     let mut values: std::ArrayList[i32] = .init();
-    defer values.deinit(&mut allocator).?;
-    values.push(&mut allocator, 10).?;
-    values.push(&mut allocator, 20).?;
+    defer values.deinit(allocator).?;
+    values.push(allocator, 10).?;
+    values.push(allocator, 20).?;
 
     let mut text = std::String::init();
-    defer text.deinit(&mut allocator).?;
-    text.append(&mut allocator, "nia").?;
+    defer text.deinit(allocator).?;
+    text.append(allocator, "nia").?;
 
     let count = values.len();
     let length = text.len();
@@ -513,7 +519,7 @@ itself use `.?`.
 Nia never allocates implicitly. Containers such as `std::ArrayList`,
 `std::HashMap`, and `std::String` take an allocator argument on every call that
 may allocate or free, and must be released with `deinit` before their
-allocator is torn down. Writing `defer value.deinit(&mut allocator).?;` right
+allocator is torn down. Writing `defer value.deinit(allocator).?;` right
 after creating a value keeps that order correct. `std::mem` provides
 `PageAllocator`, `GeneralPurposeAllocator`, `ArenaAllocator`,
 `FixedBufferAllocator`, and `PoolAllocator[T]`; the

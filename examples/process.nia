@@ -22,7 +22,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         null => return process::ExitCode(1)!,
     };
     let mut output: [u8; 18] = [0; 18];
-    stdout.readExact(&mut output).?;
+    stdout.readExact(output).?;
     stdout.close().?;
 
     let status = child.wait().?;

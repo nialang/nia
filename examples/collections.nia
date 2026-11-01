@@ -9,15 +9,15 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
     // Registered first, so it runs last: every container is released by then.
     defer allocator.deinit().?;
 
     let mut values: std::ArrayList[i32] = .init();
-    defer values.deinit(&mut allocator).?;
-    values.push(&mut allocator, 30).?;
-    values.push(&mut allocator, 10).?;
-    values.push(&mut allocator, 20).?;
+    defer values.deinit(allocator).?;
+    values.push(allocator, 30).?;
+    values.push(allocator, 10).?;
+    values.push(allocator, 20).?;
 
     let mut listTotal = 0;
     for &value in values {
@@ -25,9 +25,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     let mut scores: std::HashMap[i32, i32] = .init();
-    defer scores.deinit(&mut allocator).?;
-    _ = scores.insert(&mut allocator, 7, 70).?;
-    _ = scores.insert(&mut allocator, 42, 420).?;
+    defer scores.deinit(allocator).?;
+    _ = scores.insert(allocator, 7, 70).?;
+    _ = scores.insert(allocator, 42, 420).?;
     match scores.getMut(&42) {
         ?score => score.* += 10,
         null => return process::ExitCode(1)!,
@@ -39,9 +39,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     // A `TreeMap` iterates in key order.
     let mut ordered: std::TreeMap[i32, i32] = .init();
-    defer ordered.deinit(&mut allocator).?;
+    defer ordered.deinit(allocator).?;
     for &value in values {
-        _ = ordered.insert(&mut allocator, value, value * 2).?;
+        _ = ordered.insert(allocator, value, value * 2).?;
     }
     let mut keys = 0;
     for entry in ordered.iter() {
@@ -49,9 +49,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     let mut text = std::String::init();
-    defer text.deinit(&mut allocator).?;
-    text.append(&mut allocator, "nia").?;
-    text.push(&mut allocator, '!').?;
+    defer text.deinit(allocator).?;
+    text.append(allocator, "nia").?;
+    text.push(allocator, '!').?;
 
     io::debugPrint("list={} total={} answer={} keys={} text={}\n", [
         values.len(), listTotal, answer, keys, text.len(),

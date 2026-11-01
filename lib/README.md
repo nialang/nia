@@ -132,7 +132,7 @@ function's import library explicitly, like any native dependency
 that contains a separator names that file, relative to the child's working
 directory, and a bare name is searched in the `PATH` of the child's
 environment. On Windows a bare name without an extension also tries each
-`PATHEXT` extension, so `Command::init(fs::PathView::init(&"git"), env)` finds
+`PATHEXT` extension, so `Command::init(fs::PathView::init("git"), env)` finds
 `git.exe`.
 
 ## API reference

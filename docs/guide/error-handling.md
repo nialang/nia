@@ -275,7 +275,7 @@ loaded=42 doubled=80 fallback=0 missing=true
 `defer` runs an expression when its block exits by any path, including `.?`,
 so cleanup written right after an acquisition also runs when a later step
 fails. Cleanup can fail too: the standard library's `deinit` and `close`
-operations return errors, and `defer resource.deinit(&mut allocator).?;`
+operations return errors, and `defer resource.deinit(allocator).?;`
 reports such a failure from the function.
 
 When one owner releases several resources, every release must be attempted
@@ -339,7 +339,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let rightClosed = pair.right.id == 0;
 
     let mut handle = Handle { id: 7, busy: false };
-    let used = if useAndClose(&mut handle) is !id { id } else { -1 };
+    let used = if useAndClose(handle) is !id { id } else { -1 };
     io::debugPrint("failed={} rightClosed={} used={}\n", [failed, rightClosed, used]).?;
     !()
 }
@@ -389,13 +389,13 @@ fun appendAll(
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
     defer allocator.deinit().?;
 
     let mut list: std::ArrayList[i32] = .init();
-    defer list.deinit(&mut allocator).?;
-    appendAll(&mut list, &mut allocator, [1, 2]).?;
-    let rejected = appendAll(&mut list, &mut allocator, [3, -1, 4]).isError();
+    defer list.deinit(allocator).?;
+    appendAll(list, allocator, [1, 2]).?;
+    let rejected = appendAll(list, allocator, [3, -1, 4]).isError();
     io::debugPrint("len={} rejected={}\n", [list.len(), rejected]).?;
     !()
 }

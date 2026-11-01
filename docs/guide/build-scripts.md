@@ -406,7 +406,7 @@ Each options type takes `init(name, rootModule)` and supports
 `withOutputName(fileName)` and `forTarget(target)`. The output name defaults to
 the artifact name and must be a plain file name. Executables also support:
 
-- `withStaticArchives(&[archive, ...])` to link static archives declared in the
+- `withStaticArchives([archive, ...])` to link static archives declared in the
   same script;
 - `withRuntime(build::Runtime::Bare)` to link no startup code. Executables are
   `build::Runtime::Freestanding` by default; see
@@ -438,8 +438,8 @@ let app = b.addExecutable(
         .withDebugInfo(build::DebugInfo::LineTables)
         .withPanicStrategy(build::PanicStrategy::Abort)
         .withLto(build::LtoMode::Thin)
-        .withDefines(&[build::ArtifactDefine::init("APP_FEATURE")])
-        .withSystemLibraries(&[
+        .withDefines([build::ArtifactDefine::init("APP_FEATURE")])
+        .withSystemLibraries([
             build::SystemLibrary::init("m", build::SystemLibraryMode::Default),
         ]),
 ).?;
@@ -517,19 +517,19 @@ pub fun build(b: &mut build::Build) build::Error!() {
     ];
     let app = b.addModule(
         build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"))
-            .withImports(&imports),
+            .withImports(imports),
     ).?;
     let exe = b.addExecutable(build::ExecutableOptions::init("app", app)).?;
 
     _ = b.addGeneratedFileStep(
         "generate-version",
         build::BuildPathView::init("gen/version.nia"),
-        &b"pub const text: [char; 3] = \"1.0\";\n",
+        b"pub const text: [char; 3] = \"1.0\";\n",
     ).?;
     let emit = b.addEmitExecutableStep("app", exe).?;
     _ = b.addCheckExecutableStep("check", exe).?;
     let runArgs: [&[char]; 1] = ["world"];
-    _ = b.addRunExecutableStep("run", build::RunOptions::init(exe).withArguments(&runArgs)).?;
+    _ = b.addRunExecutableStep("run", build::RunOptions::init(exe).withArguments(runArgs)).?;
     let install = b.addInstallExecutableStep("install", exe, build::BuildPathView::init("dist/app")).?;
 
     let all = b.addAggregateStep("all").?;
@@ -539,7 +539,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
     let tests = b.addModule(
         build::ModuleOptions::init("tests", fs::PathView::init("tests/main.nia"))
-            .withImports(&imports),
+            .withImports(imports),
     ).?;
     _ = b.addTestSuite("unit", tests).?;
     !()
@@ -577,7 +577,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let prefix = greeting::prefix;
     let squared = mathlib::square(7);
     let text = version::text;
-    io::debugPrint("{}{} {} {}\n", &[&prefix, &name, &squared, &text]).?;
+    io::debugPrint("{}{} {} {}\n", [prefix, name, squared, text]).?;
     !()
 }
 ```
@@ -611,7 +611,7 @@ writes:
 
 The remaining options:
 
-- `withEnvironment(&[CommandEnvironmentInput::init(name, value), ...])` sets
+- `withEnvironment([CommandEnvironmentInput::init(name, value), ...])` sets
   variables; `withClearedEnvironment()` starts from an empty environment
   instead of inheriting the caller's.
 - `withStdin(argument)` feeds a declared file to standard input.
@@ -700,9 +700,9 @@ it, `std::test` provides assertions that return `test::Error!()` and a runner:
 | `test::expectNotEqual(actual, expected)` | fails when the values are equal |
 | `test::fail()` | always fails |
 | `test::Case::init(name, &function)` | one named case; the function returns `test::Error!()` |
-| `test::Runner::init(&cases)` | runs a borrowed case table; `.withFailFast()` skips cases after a failure |
+| `test::Runner::init(cases)` | runs a borrowed case table; `.withFailFast()` skips cases after a failure |
 | `runner.run()` | runs the cases and returns a `RunSummary` |
-| `runner.runWith(&mut reporter)` | also passes each `CaseResult` to a `&mut Fun(test::CaseResult) ()` closure |
+| `runner.runWith(reporter)` | also passes each `CaseResult` to a `&mut Fun(test::CaseResult) ()` closure |
 
 A failed assertion records the source location of the failing call, which
 `CaseResult::error()` returns. `RunSummary` exposes `total()`, `passed()`,
@@ -732,10 +732,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
         test::Case::init("finds text", &findsText),
     ];
     let mut failures = 0;
-    let summary = test::Runner::init(&cases).runWith(&mut \[&mut failures] result: test::CaseResult -> {
+    let summary = test::Runner::init(cases).runWith(&mut \[&mut failures] result: test::CaseResult -> {
         if result.isFailed() {
             failures.* += 1;
-            _ = io::debugPrint("failed: {}\n", &[result.name()]);
+            _ = io::debugPrint("failed: {}\n", [result.name()]);
         }
     });
     if not summary.isSuccessful() {
@@ -756,12 +756,12 @@ probes, such as opening files directly, are not tracked.
 | Call | Records |
 | --- | --- |
 | `b.probeEnv(name)` | an environment variable: `?&[u8]`, `null` when unset |
-| `b.probeFile(path, &mut buffer)` | the contents of a package file that fits in `buffer` (at most 1 MiB) |
+| `b.probeFile(path, buffer)` | the contents of a package file that fits in `buffer` (at most 1 MiB) |
 | `b.probeFilePresence(path)` | whether a package-relative path is a regular file: `bool`; creating or removing the file reruns configuration |
-| `b.probeDirectory(path, &mut buffer)` | the entries (names, kinds, sizes) of a package directory; returns nothing |
-| `b.probeCommand(program, &args, &mut buffer)` | the standard output and exit status of a command run in the package root; returns the output (at most 64 KiB, 256 arguments) |
-| `b.probeTool(program, &mut buffer)` | the output of `program --version` and the program's identity |
-| `b.probeGitState(&mut buffer)` | the output of `git status --porcelain=v1 --branch` |
+| `b.probeDirectory(path, buffer)` | the entries (names, kinds, sizes) of a package directory; returns nothing |
+| `b.probeCommand(program, args, buffer)` | the standard output and exit status of a command run in the package root; returns the output (at most 64 KiB, 256 arguments) |
+| `b.probeTool(program, buffer)` | the output of `program --version` and the program's identity |
+| `b.probeGitState(buffer)` | the output of `git status --porcelain=v1 --branch` |
 
 Buffers are caller-owned byte arrays, and a result larger than its buffer is an
 error. Commands run by probes get no standard input, their standard error is
@@ -777,7 +777,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         null => false,
     };
     let mut versionBuffer: [u8; 64] = [0; 64];
-    let version = b.probeFile(fs::PathView::init("VERSION"), &mut versionBuffer).?;
+    let version = b.probeFile(fs::PathView::init("VERSION"), versionBuffer).?;
 
     let options = build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"));
     let app = b.addModule(

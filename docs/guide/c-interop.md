@@ -103,7 +103,7 @@ fun example() {
     let scaled = point_scale(Point { x: 1, y: 2 }, 3);
 
     let mut p = Point { x: 0, y: 0 };
-    point_translate(&mut p, 4, 5);
+    point_translate(p, 4, 5);
 }
 ```
 
@@ -122,7 +122,7 @@ extern fun divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
 fun example() {
     let mut quotient: i32 = 0;
     let mut remainder: i32 = 0;
-    if divide(7, 2, &mut quotient, &mut remainder) != 0 {
+    if divide(7, 2, quotient, remainder) != 0 {
         // quotient == 3, remainder == 1
     }
 }
@@ -436,12 +436,12 @@ pub fun main(init: Init) ExitCode!() {
     if scaled.x != 3 or scaled.y != 6 { return ExitCode(1)!; }
 
     let mut p = Point { x: 0, y: 0 };
-    point_translate(&mut p, 4, 5);
+    point_translate(p, 4, 5);
     if p.x != 4 or p.y != 5 { return ExitCode(2)!; }
 
     let mut quotient: i32 = 0;
     let mut remainder: i32 = 0;
-    if divide(7, 2, &mut quotient, &mut remainder) == 0 { return ExitCode(3)!; }
+    if divide(7, 2, quotient, remainder) == 0 { return ExitCode(3)!; }
     if quotient != 3 or remainder != 1 { return ExitCode(4)!; }
 
     if byte_length((&b"hello\0").ptr()) != 5 { return ExitCode(5)!; }

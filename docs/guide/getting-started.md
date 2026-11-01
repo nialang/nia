@@ -73,7 +73,7 @@ using process::{Init, ExitCode};
 
 pub fun main(init: Init) ExitCode!() {
     _ = init;
-    io::debugPrint(&"hello from nia\n", &[]).?;
+    io::debugPrint("hello from nia\n", []).?;
     !()
 }
 ```

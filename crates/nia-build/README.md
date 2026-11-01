@@ -403,9 +403,10 @@ A record whose manifest has the `Poison` policy or no observations at all is
 never reused and reports a `poisoned` miss. When the runner reports no
 observations, the host records the contents of `build.nia` as the only
 observation, so a script without probes is still reusable. A manifest-only
-package has no `build.nia` to observe, and a `build.nia` over the 1 MiB
-file-content observation limit cannot be observed, so such a record is empty
-and every invocation runs the runner again.
+package records that `build.nia` is absent instead, so its record is reused
+until a script appears. A `build.nia` over the 1 MiB file-content observation
+limit cannot be observed, so its record is empty and every invocation runs the
+runner again.
 
 The runner transports bounded file-content, file-presence, directory,
 environment, command, Git, and tool evidence in the draft envelope, and the
@@ -548,13 +549,10 @@ Dependency scopes in text and JSON use the stable names `build`, `runtime`,
 
 Text action-cache entries use stable status and reason names and include
 publication state and declared outputs. Component invalidations are listed on
-the following indented line. The text `--print-plan` artifact line is the
-exception to stable text naming: `render_build_plan_summary` formats the JSON
-value from `artifact_configuration_json` with Rust `Debug`, so the artifact
-configuration prints as
-`configuration=Object {"debug_info": String("line-tables"), ...}` with keys in
-alphabetical order. The JSON `build-plan` record carries the same values as a
-plain object.
+the following indented line. The text `--print-plan` artifact line prints the
+artifact configuration as compact JSON with keys in alphabetical order, such as
+`configuration={"debug_info":"line-tables","defines":[],...}`; the JSON
+`build-plan` record carries the same object.
 
 Dry runs consult action caches to predict hits and miss reasons. They do not run
 compiler, linker, or external-command actions, restore outputs, or publish cache

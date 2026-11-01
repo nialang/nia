@@ -13,7 +13,8 @@ see the output shown after it.
 ## Allocators And Owners
 
 An allocator implements the `mem::Allocator` trait. Functions that allocate
-take `&mut mem::Allocator`, a trait object, so any allocator can be passed.
+take `&mut mem::Allocator`, a trait object, so any allocator can be passed; a
+`let mut` allocator is passed by name, and Nia takes its address.
 Containers such as `std::ArrayList`, `std::HashMap`, `std::TreeMap`, and
 `std::String` do not store the allocator; they take it on every call that may
 allocate, grow, or free, and the caller passes the same allocator each time.
@@ -40,16 +41,16 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
     defer allocator.deinit().?;          // runs last
 
-    let mut squares = collectSquares(&mut allocator, 4).?;
-    defer squares.deinit(&mut allocator).?;
+    let mut squares = collectSquares(allocator, 4).?;
+    defer squares.deinit(allocator).?;
 
     let mut names: std::HashMap[i32, i32] = .init();
-    defer names.deinit(&mut allocator).?;
+    defer names.deinit(allocator).?;
     for &square in squares {
-        _ = names.insert(&mut allocator, square, square * 10).?;
+        _ = names.insert(allocator, square, square * 10).?;
     }
 
     let live = not allocator.isEmpty();
@@ -96,7 +97,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut page: mem::PageAllocator = .init();
-    let mut arena: mem::ArenaAllocator = .init(&mut page);
+    let mut arena: mem::ArenaAllocator = .init(page);
     defer arena.deinit().?;
 
     let mut total: usize = 0;
@@ -104,7 +105,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         // Lists allocated from the arena are released by `reset`, not one by one.
         let mut values: std::ArrayList[i32] = .init();
         for value in 0..100 {
-            values.push(&mut arena, value + round).?;
+            values.push(arena, value + round).?;
         }
         total += values.len();
         arena.reset().?;
@@ -134,13 +135,13 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut buffer: [u8; 64] = [0; 64];
-    let mut fixed: mem::FixedBufferAllocator = .init(&mut buffer);
+    let mut fixed: mem::FixedBufferAllocator = .init(buffer);
 
     let mut first = fixed.allocSlice[u8](48).?;
     let second = fixed.allocSlice[u8](32);
     let exhausted = if second is mem::Error::OutOfMemory! { true } else { false };
     let remaining = fixed.remaining();
-    first.deinit(&mut fixed).?;
+    first.deinit(fixed).?;
 
     io::debugPrint("exhausted={} remaining={}\n", [exhausted, remaining]).?;
     !()
@@ -173,15 +174,15 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
     defer allocator.deinit().?;
 
-    let mut point = mem::allocValue(&mut allocator, Point { x: 3, y: 4 }).?;
-    defer point.deinit(&mut allocator).?;
+    let mut point = mem::allocValue(allocator, Point { x: 3, y: 4 }).?;
+    defer point.deinit(allocator).?;
     point.valueMut().*.x += 1;
 
     let mut storage = allocator.allocSlice[u32](4).?;
-    defer storage.deinit(&mut allocator).?;
+    defer storage.deinit(allocator).?;
     let slots = storage.asMutSlice();
     for index in 0..slots.len() {
         slots[index] = index as u32 * 2;
@@ -212,8 +213,8 @@ using std::process;
 
 fun leakOne() bool {
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
-    let forgotten = mem::allocValue(&mut allocator, 42u64);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
+    let forgotten = mem::allocValue(allocator, 42u64);
     _ = forgotten;
     match allocator.deinit() {
         mem::Error::Leak! => true,
@@ -264,15 +265,15 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let mut page: mem::PageAllocator = .init();
-    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
     defer allocator.deinit().?;
 
     let mut values: std::ArrayList[i32] = .init();
-    defer values.deinit(&mut allocator).?;
-    values.push(&mut allocator, 1).?;
+    defer values.deinit(allocator).?;
+    values.push(allocator, 1).?;
     let before = sum(values.asSlice());
     for value in 2..=100 {
-        values.push(&mut allocator, value).?;   // may move the elements
+        values.push(allocator, value).?;   // may move the elements
     }
     let after = sum(values.asSlice());          // a fresh view
 

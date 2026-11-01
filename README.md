@@ -46,7 +46,7 @@ pub fun main(init: Init) ExitCode!() {
     let point = Point { x: 3, y: 4 };
     let values = [point.lengthSquared(), 7, 13];
 
-    if sum(&values) != 45 {
+    if sum(values) != 45 {
         return process::ExitCode(1)!;
     }
 

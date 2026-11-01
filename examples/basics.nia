@@ -65,7 +65,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     let mut log = [0; 3];
-    countDown(&mut log);
+    countDown(log);
 
     let level = classify(scores[1]) as u8;
     let high = if classify(scores[2]) is .High { 1 } else { 0 };

@@ -7,7 +7,7 @@ using std::process;
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut buffer: [u8; 128] = [0; 128];
-    let mut stdout = io::FileWriter::stdout(&mut buffer);
+    let mut stdout = io::FileWriter::stdout(buffer);
     let name = "nia";
     let answer: i32 = 42;
     let byte: u8 = 171;

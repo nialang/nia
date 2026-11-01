@@ -76,7 +76,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     let v = Vec2 { x: 3, y: 4 };
     let values = [add(40, 2), v.len2(), 7];
-    let pair = Pair[i32, i32] { first: values[0], second: sum(&values) };
+    let pair = Pair[i32, i32] { first: values[0], second: sum(values) };
 
     if score(pair) != 116 {
         return process::ExitCode(1)!;
@@ -359,6 +359,9 @@ address of a temporary; returning a string literal as `&[char]` returns a
 pointer to storage that has already ended. Where `&mut T` is expected, the
 address is taken implicitly only from a writable place, never from a temporary
 or a read-only value. At most one `&` is added: a `T` never becomes a `&&T`.
+Idiomatic code relies on this and writes `&` or `&mut` only where a pointer is
+wanted as a value of its own, or where no implicit address applies, such as a
+function pointer `&name` or a slice `&xs[a..b]`.
 
 Combined with the array-to-slice conversion described under [Slices](#slices),
 this lets an array value or a string literal be passed where a slice is
@@ -464,7 +467,7 @@ fun clear(xs: &mut [i32]) {
 
 fun use_arrays() i32 {
     let mut arr = [1, 2, 3];
-    clear(&mut arr);
+    clear(arr);
     first(arr) + first([4, 5, 6])
 }
 ```
@@ -1804,9 +1807,9 @@ module's imports or extensions on other targets into scope.
 fun methods() i32 {
     let mut v = Vec2::new(3, 4);
     v.shift(1);
-    let by_path = Vec2::len2(&v);         // receiver passed explicitly
+    let by_path = Vec2::len2(v);         // receiver passed explicitly
     let f: &fun(&Vec2) i32 = &Vec2::len2;  // unbound method as a function pointer
-    by_path + f(&v) + Vec2::ZERO.into_x()
+    by_path + f(v) + Vec2::ZERO.into_x()
 }
 ```
 
@@ -1841,7 +1844,7 @@ fun boxes() bool {
     let b = Box[i32] { value: 1 };
     let flag = b.swap_in[bool](true);
     let p: &fun(&Box[i32], bool) bool = &Box[i32]::swap_in[bool];
-    _ = p(&b, flag);
+    _ = p(b, flag);
     [&u8]::is_null(0usize as &u8)
 }
 ```
@@ -2078,7 +2081,7 @@ fun total(source: &Source[Item = i32]) i32 {
 
 fun dispatch() i32 {
     let counter = Counter { value: 3 };
-    total(&counter)
+    total(counter)
 }
 ```
 
