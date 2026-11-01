@@ -24,7 +24,9 @@ command interactive input. Its result depends only on the package, the host and
 artifact targets, and the facts it records through
 [configuration probes](#configuration-probes), so the same inputs always
 produce the same graph. When none of those inputs change, the next invocation
-reuses the recorded graph without running the script again.
+reuses the recorded graph without running the script again. Editing a source
+file of any package in the build, or selecting a different step, profile, or
+optimization level, runs the script again.
 
 ## Package Manifest
 
@@ -74,16 +76,15 @@ A dependency's scope is the table it appears in:
 | `[dependencies]` | package artifacts and their tests |
 | `[dev-dependencies]` | test suites only |
 | `[optional-dependencies]` | artifact modules only when the build plan explicitly imports them |
-| `[lazy-dependencies]` | artifact module resolution; source is loaded only when imported |
+| `[lazy-dependencies]` | the same as `[dependencies]` |
 
 A dependency name is local to the package that declares it and must be unique
 across its dependency tables. Runtime and development artifact sources open an
 available dependency under its manifest name, `using regex;`. Optional
 dependencies are not installed as general module roots; a build plan must add
 an explicit `ModuleImport::fromPackage` for an artifact module to use one.
-Lazy dependencies are available to runtime module resolution, while Nia's
-module loader reads their source only when the selected module closure imports
-them. Neither scope eagerly loads every source file in the dependency.
+No dependency is loaded eagerly: the module loader reads a dependency's
+source only when the selected module closure imports it.
 
 The name resolves to the dependency's `[library].path`, so a package that other
 packages import must declare one; the file must lie inside its source roots.
@@ -189,9 +190,9 @@ Archives are checked against the digest in the registry index before they are
 unpacked, and their package trees are cached only after the whole tree
 validates.
 
-The first build records each Git dependency's commit and content hash, and each
-registry dependency's selected version, archive digest, and content hash, in
-`nia.lock` next to the root `nia.toml` (the workspace root in a workspace).
+The first build records each path dependency's content hash, each Git
+dependency's commit and content hash, and each registry dependency's selected
+version, archive digest, and content hash, in `nia.lock` next to the root `nia.toml` (the workspace root in a workspace).
 Later builds reuse the locked source and reject cached content that no longer
 matches its recorded hash.
 Entries that no manifest in the package or workspace still reaches, in any
@@ -312,10 +313,10 @@ using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
     let planner = b.addModule(
-        build::ModuleOptions::init(&"planner", fs::PathView::init(&"src/main.nia")),
+        build::ModuleOptions::init("planner", fs::PathView::init("src/main.nia")),
     ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init(&"planner", planner)).?;
-    let emit = b.addEmitExecutableStep(&"planner", exe).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("planner", planner)).?;
+    let emit = b.addEmitExecutableStep("planner", exe).?;
     b.setDefaultStep(emit).?;
     !()
 }
@@ -330,9 +331,9 @@ path separators.
 Options are built with an `init` constructor followed by `with*` methods, each
 of which returns an updated copy:
 
-```nia
-build::ExecutableOptions::init(&"planner", root)
-    .withOutputName(&"planner-cli")
+```nia ignore
+build::ExecutableOptions::init("planner", planner)
+    .withOutputName("planner-cli")
     .forTarget(b.hostTarget())
 ```
 
@@ -369,9 +370,11 @@ a `[library].path` needs nothing in the script; see
 [Package manifest](#package-manifest). Use `addDependency` when the script
 needs a handle to a dependency package itself, for example to import a file
 other than its library entry or to pass one of its files to a command. It
-takes the dependency name from `[dependencies]` or `[dev-dependencies]`, so
-path and Git dependencies use the same API; only test suites can compile a
-development dependency's sources. Build
+takes the dependency name from `[dependencies]`, `[dev-dependencies]`,
+`[optional-dependencies]`, or `[lazy-dependencies]`, so path, Git, and registry
+dependencies use the same API; this is the only way to import an optional
+dependency, and only test suites can compile a development dependency's
+sources. Build
 dependencies are rejected because `build.nia` already imports them directly:
 
 ```toml
@@ -379,10 +382,10 @@ dependencies are rejected because `build.nia` already imports them directly:
 mathlib = { path = "vendor/mathlib" }
 ```
 
-```nia
-let mathlib = b.addDependency(&"mathlib").?;
+```nia ignore
+let mathlib = b.addDependency("mathlib").?;
 let imports = [
-    build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"root.nia")),
+    build::ModuleImport::fromPackage("mathlib", mathlib, fs::PathView::init("root.nia")),
 ];
 ```
 
@@ -420,31 +423,33 @@ the artifact declaration and is frozen into the build plan:
 | Method | Meaning |
 | --- | --- |
 | `withLinkage(Linkage::Static)` / `StaticPie` / `Dynamic` | Selects the native linkage form. Executables default to `StaticPie`; objects and archives default to `Static`. |
-| `withDebugInfo(DebugInfo::None)` / `LineTables` / `Full` | Selects emitted debug metadata. |
-| `withPanicStrategy(PanicStrategy::Abort)` / `Unwind` | Selects panic lowering for the artifact. |
+| `withDebugInfo(DebugInfo::None)` / `LineTables` / `Full` | Records the requested debug metadata in the plan. |
+| `withPanicStrategy(PanicStrategy::Abort)` / `Unwind` | Records the requested panic strategy in the plan. |
 | `withLto(LtoMode::Off)` / `Thin` / `Full` | Selects the final-link optimization policy. |
-| `withDefines(&[ArtifactDefine])` | Adds the ordered conditional-compilation symbols passed to the compiler. Use `ArtifactDefine::init(name)` for each symbol. |
+| `withDefines(&[ArtifactDefine])` | Records ordered symbols in the plan. Use `ArtifactDefine::init(name)` for each symbol. |
 | `withSystemLibraries(&[SystemLibrary])` | Adds ordered native libraries for the linker. Use `SystemLibrary::init(name, mode)` with `Default`, `Static`, or `Dynamic` search mode. |
 
 For example:
 
-```nia
+```nia ignore
 let app = b.addExecutable(
-    build::ExecutableOptions::init(&"app", root)
+    build::ExecutableOptions::init("app", app)
         .withLinkage(build::Linkage::Dynamic)
         .withDebugInfo(build::DebugInfo::LineTables)
         .withPanicStrategy(build::PanicStrategy::Abort)
         .withLto(build::LtoMode::Thin)
-        .withDefines(&[build::ArtifactDefine::init(&"APP_FEATURE")])
+        .withDefines(&[build::ArtifactDefine::init("APP_FEATURE")])
         .withSystemLibraries(&[
-            build::SystemLibrary::init(&"m", build::SystemLibraryMode::Default),
+            build::SystemLibrary::init("m", build::SystemLibraryMode::Default),
         ]),
 ).?;
 ```
 
-The configuration is artifact-owned rather than an invocation-global compiler
-flag. Changing any configured field invalidates the affected check, emit, and
-link actions; `--print-plan` and `--explain` show the frozen values.
+Linkage, LTO, and system libraries change how the artifact is linked; linkage
+applies to Linux executables. Debug information, the panic strategy, and
+defines are recorded in the plan and its cache identity, but the compiler does
+not act on them. Changing any configured field invalidates the affected check,
+emit, and link actions, and `--print-plan` shows the frozen values.
 
 ### Targets
 
@@ -459,7 +464,7 @@ the host, or the target given with `nia build --target <name>`.
 
 A `TargetView` exposes `name()`, `arch()`, `vendor()`, `os()`, `env()`,
 `endian()`, `pointerWidth()`, and `equals(other)`. The script can branch on
-them, for example `if b.hostTarget().os().equals(&"windows") { ... }`.
+them, for example `if b.hostTarget().os().equals("windows") { ... }`.
 
 ## Steps
 
@@ -504,39 +509,39 @@ using std::build;
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let mathlib = b.addDependency(&"mathlib").?;
+    let mathlib = b.addDependency("mathlib").?;
     let imports = [
-        build::ModuleImport::init(&"greeting", fs::PathView::init(&"src/greeting.nia")),
-        build::ModuleImport::fromPackage(&"mathlib", mathlib, fs::PathView::init(&"root.nia")),
-        build::ModuleImport::fromBuild(&"version", build::BuildPathView::init(&"gen/version.nia")),
+        build::ModuleImport::init("greeting", fs::PathView::init("src/greeting.nia")),
+        build::ModuleImport::fromPackage("mathlib", mathlib, fs::PathView::init("root.nia")),
+        build::ModuleImport::fromBuild("version", build::BuildPathView::init("gen/version.nia")),
     ];
     let app = b.addModule(
-        build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia"))
+        build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"))
             .withImports(&imports),
     ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init(&"app", app)).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("app", app)).?;
 
     _ = b.addGeneratedFileStep(
-        &"generate-version",
-        build::BuildPathView::init(&"gen/version.nia"),
+        "generate-version",
+        build::BuildPathView::init("gen/version.nia"),
         &b"pub const text: [char; 3] = \"1.0\";\n",
     ).?;
-    let emit = b.addEmitExecutableStep(&"app", exe).?;
-    _ = b.addCheckExecutableStep(&"check", exe).?;
-    let runArgs: [&[char]; 1] = [&"world"];
-    _ = b.addRunExecutableStep(&"run", build::RunOptions::init(exe).withArguments(&runArgs)).?;
-    let install = b.addInstallExecutableStep(&"install", exe, build::BuildPathView::init(&"dist/app")).?;
+    let emit = b.addEmitExecutableStep("app", exe).?;
+    _ = b.addCheckExecutableStep("check", exe).?;
+    let runArgs: [&[char]; 1] = ["world"];
+    _ = b.addRunExecutableStep("run", build::RunOptions::init(exe).withArguments(&runArgs)).?;
+    let install = b.addInstallExecutableStep("install", exe, build::BuildPathView::init("dist/app")).?;
 
-    let all = b.addAggregateStep(&"all").?;
+    let all = b.addAggregateStep("all").?;
     b.dependOn(all, emit).?;
     b.dependOn(all, install).?;
     b.setDefaultStep(all).?;
 
     let tests = b.addModule(
-        build::ModuleOptions::init(&"tests", fs::PathView::init(&"tests/main.nia"))
+        build::ModuleOptions::init("tests", fs::PathView::init("tests/main.nia"))
             .withImports(&imports),
     ).?;
-    _ = b.addTestSuite(&"unit", tests).?;
+    _ = b.addTestSuite("unit", tests).?;
     !()
 }
 ```
@@ -557,7 +562,7 @@ pub fun square(value: i32) i32 {
 
 `src/main.nia` opens the three imports by name:
 
-```nia
+```nia ignore
 using std::io;
 using std::process;
 using greeting;
@@ -572,7 +577,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let prefix = greeting::prefix;
     let squared = mathlib::square(7);
     let text = version::text;
-    io::debugPrint(&"{}{} {} {}\n", &[&prefix, &name, &squared, &text]).?;
+    io::debugPrint("{}{} {} {}\n", &[&prefix, &name, &squared, &text]).?;
     !()
 }
 ```
@@ -586,7 +591,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 of the command's environment, falling back to the host's when the command
 does not declare one. A name containing a separator is relative to the
 working directory instead. On Windows a name without an extension also tries
-each `PATHEXT` extension, so `search(&"cmd")` finds `cmd.exe`; probes and
+each `PATHEXT` extension, so `search("cmd")` finds `cmd.exe`; probes and
 `std::process::Command` follow the same rules. The
 command runs in the package root unless `withPackageWorkingDirectory(path)`
 names a package-relative directory, and its standard input is closed.
@@ -619,16 +624,20 @@ A command reruns on every build unless it selects a cache policy:
 | Option | Reused when |
 | --- | --- |
 | `withDeclaredInputCache()` | the declared inputs and the explicit environment are unchanged; needs `withClearedEnvironment()` and at least one `buildOutput` |
-| `withToolAndInputCache()` | additionally, the program itself is unchanged; clears the environment |
+| `withToolAndInputCache()` | the declared inputs are unchanged; clears the environment |
 | `withFullEnvironmentCache()` | the declared inputs and the whole inherited environment are unchanged; cannot be combined with `withEnvironment` |
 
-A cache policy is a promise that the typed arguments describe every file the
-command reads and writes. A cacheable command runs from a temporary working
+Every cache policy also compares the contents of the program itself. A cache
+policy is a promise that the typed arguments describe every file the command
+reads and writes. A cacheable command runs from a temporary working
 directory containing only its declared inputs, so a relative read of an
 undeclared file fails. Links and input trees beyond the depth, entry, or byte
-limits are rejected. Only `InputPath` arguments and declared stdin are mapped
-into that view; literal arguments keep their exact text. Declared outputs still
-go to staged build paths. This is
+limits are rejected. Only the typed input arguments (`packageInput`,
+`buildInput`, `artifactInput`, `objectInput`, `staticArchiveInput`) and declared
+stdin are mapped into that view; literal arguments keep their exact text.
+Declared outputs still go to staged build paths, and a cacheable command that
+creates, changes, or deletes any other file in the view fails. Every external
+command is stopped after seven minutes. This is
 not an OS-level sandbox: absolute paths and paths outside that working view are
 not intercepted, so commands requiring them must remain uncacheable. This step
 upper-cases a package file into the build directory and reruns only when
@@ -641,16 +650,16 @@ using std::fs;
 pub fun build(b: &mut build::Build) build::Error!() {
     let package = b.rootPackage();
     let arguments = [
-        build::CommandArgument::literal(&"-c"),
-        build::CommandArgument::literal(&"tr a-z A-Z < \"$1\" > \"$2\""),
-        build::CommandArgument::literal(&"upper"),
-        build::CommandArgument::packageInput(package, fs::PathView::init(&"input.txt")),
-        build::CommandArgument::buildOutput(build::BuildPathView::init(&"upper.txt")),
+        build::CommandArgument::literal("-c"),
+        build::CommandArgument::literal("tr a-z A-Z < \"$1\" > \"$2\""),
+        build::CommandArgument::literal("upper"),
+        build::CommandArgument::packageInput(package, fs::PathView::init("input.txt")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("upper.txt")),
     ];
     let upper = b.addExternalCommandStep(
-        &"upper",
-        build::ExternalCommandOptions::search(&"sh")
-            .withArguments(&arguments)
+        "upper",
+        build::ExternalCommandOptions::search("sh")
+            .withArguments(arguments)
             .withClearedEnvironment()
             .withDeclaredInputCache(),
     ).?;
@@ -719,14 +728,14 @@ fun findsText() test::Error!() {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases = [
-        test::Case::init(&"adds numbers", &addsNumbers),
-        test::Case::init(&"finds text", &findsText),
+        test::Case::init("adds numbers", &addsNumbers),
+        test::Case::init("finds text", &findsText),
     ];
     let mut failures = 0;
     let summary = test::Runner::init(&cases).runWith(&mut \[&mut failures] result: test::CaseResult -> {
         if result.isFailed() {
             failures.* += 1;
-            _ = io::debugPrint(&"failed: {}\n", &[result.name()]);
+            _ = io::debugPrint("failed: {}\n", &[result.name()]);
         }
     });
     if not summary.isSuccessful() {
@@ -739,7 +748,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ## Configuration Probes
 
 A script that depends on the outside world reads it through a probe. Each probe
-returns its result and records it; the next `nia build` compares the recorded
+records what it observed, and returns what the table shows; the next `nia build` compares the recorded
 facts with the current ones and runs the script again when any of them
 differs, including a value that was missing and now exists. Reads that bypass
 probes, such as opening files directly, are not tracked.
@@ -749,8 +758,8 @@ probes, such as opening files directly, are not tracked.
 | `b.probeEnv(name)` | an environment variable: `?&[u8]`, `null` when unset |
 | `b.probeFile(path, &mut buffer)` | the contents of a package file that fits in `buffer` (at most 1 MiB) |
 | `b.probeFilePresence(path)` | whether a package-relative path is a regular file: `bool`; creating or removing the file reruns configuration |
-| `b.probeDirectory(path, &mut buffer)` | the entries (names, kinds, sizes) of a package directory |
-| `b.probeCommand(program, &args, &mut buffer)` | the standard output and exit status of a command run in the package root |
+| `b.probeDirectory(path, &mut buffer)` | the entries (names, kinds, sizes) of a package directory; returns nothing |
+| `b.probeCommand(program, &args, &mut buffer)` | the standard output and exit status of a command run in the package root; returns the output (at most 64 KiB, 256 arguments) |
 | `b.probeTool(program, &mut buffer)` | the output of `program --version` and the program's identity |
 | `b.probeGitState(&mut buffer)` | the output of `git status --porcelain=v1 --branch` |
 
@@ -763,20 +772,20 @@ using std::build;
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let release = match b.probeEnv(&"APP_RELEASE").? {
+    let release = match b.probeEnv("APP_RELEASE").? {
         ?value => value.len() != 0,
         null => false,
     };
     let mut versionBuffer: [u8; 64] = [0; 64];
-    let version = b.probeFile(fs::PathView::init(&"VERSION"), &mut versionBuffer).?;
+    let version = b.probeFile(fs::PathView::init("VERSION"), &mut versionBuffer).?;
 
-    let options = build::ModuleOptions::init(&"app", fs::PathView::init(&"src/main.nia"));
+    let options = build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"));
     let app = b.addModule(
         if release { options.withOptimization(build::OptimizationMode::O2) } else { options },
     ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init(&"app", app)).?;
-    let emit = b.addEmitExecutableStep(&"build", exe).?;
-    _ = b.addGeneratedFileStep(&"version", build::BuildPathView::init(&"version.txt"), version).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("app", app)).?;
+    let emit = b.addEmitExecutableStep("build", exe).?;
+    _ = b.addGeneratedFileStep("version", build::BuildPathView::init("version.txt"), version).?;
     b.setDefaultStep(emit).?;
     !()
 }
@@ -806,8 +815,8 @@ named, after the steps it depends on.
 | `--workspace` | selects every workspace member |
 | `--locked` | fails instead of changing `nia.lock` |
 | `--offline` | uses cached Git checkouts, registry indexes, and registry archives only |
-| `--dry-run` | configures and validates the graph, and predicts action-cache decisions without running build actions |
-| `--explain` | shows the selected step, targets, action closure, and configure-cache decision |
+| `--dry-run` | configures and validates the graph, and predicts each action's cache decision (`hit`, `miss`, or `unavailable` when the action's inputs do not exist yet) without running build actions |
+| `--explain` | shows the selected step, targets, configuration, dependencies and whether each was loaded and used, observations, tools, the action closure, and every cache decision with its invalidated components |
 | `--print-plan` | prints the frozen graph and selection context, including module imports, artifact outputs, action outputs, and step dependencies |
 | `--print-cache` | prints configure and action cache hits and misses; with `--dry-run`, reports predicted outcomes without restoring outputs or publishing records |
 | `--print-observations` | prints the facts recorded by probes |
@@ -817,7 +826,7 @@ named, after the steps it depends on.
 | `--target <name>` | sets the artifact target |
 | `--debug`, `--release`, `--profile <debug\|release>` | selects the build profile; `--release` defaults to `-O2` |
 | `-O<level>` | sets the default optimization level, overriding the profile's |
-| `--lto <off\|thin\|full>` | selects link-time optimization for executables |
+| `--lto <off|thin|full>` | selects link-time optimization for the build runner; artifacts use `withLto` ||thin\|full>` | selects link-time optimization for executables |
 
 Text action-cache records show the stable outcome and reason, publication
 status, declared outputs, and any invalidated identity components. JSON records
@@ -870,7 +879,7 @@ Repeat `-v` for more detail. Each level includes the one before it:
 
 `-q` cannot be combined with `-v`, and the level stops at `-vvv`.
 
-`--progress` (also written `--progress <mode>`) selects the output form:
+`--progress <mode>` (or `--progress=<mode>`) selects the output form:
 
 | Mode | Output |
 | --- | --- |

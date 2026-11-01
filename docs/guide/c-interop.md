@@ -69,15 +69,19 @@ Calls look like any other call. Visibility comes first and `extern` second:
 String and byte-string literals are arrays, not pointers. Write a
 NUL-terminated byte string and pass a pointer to its first byte:
 
-```nia
-let length = byte_length((&b"hello\0").ptr());
+```nia continued
+fun example() {
+    let length = byte_length((&b"hello\0").ptr());
+}
 ```
 
 `&b"hello\0"` is a `&[u8; 6]`; `.ptr()` gives the `&u8` C expects. The array
 lives only as long as the enclosing expression or frame, so a C function must
 not keep the pointer. Put the bytes in a `static` when C needs a stable
 address. `std::cstring` provides `CString` and `CStringView` for building and
-reading NUL-terminated strings at runtime.
+reading NUL-terminated strings that Nia owns. A `CStringView` over bytes that
+C returns is made from a slice that includes the terminator: measure the
+length, take `&p[0..length + 1]`, and pass it to `CStringView::fromBytes`.
 
 ## Structs By Value And By Pointer
 
@@ -94,11 +98,13 @@ extern fun point_scale(p: Point, factor: i32) Point;
 extern fun point_translate(p: &mut Point, dx: i32, dy: i32);
 ```
 
-```nia
-let scaled = point_scale(Point { x: 1, y: 2 }, 3);
+```nia continued
+fun example() {
+    let scaled = point_scale(Point { x: 1, y: 2 }, 3);
 
-let mut p = Point { x: 0, y: 0 };
-point_translate(&mut p, 4, 5);
+    let mut p = Point { x: 0, y: 0 };
+    point_translate(&mut p, 4, 5);
+}
 ```
 
 By-value structs follow the target's C calling convention, including register
@@ -113,10 +119,12 @@ Pass `&mut` to a local:
 ```nia
 extern fun divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
 
-let mut quotient: i32 = 0;
-let mut remainder: i32 = 0;
-if divide(7, 2, &mut quotient, &mut remainder) != 0 {
-    // quotient == 3, remainder == 1
+fun example() {
+    let mut quotient: i32 = 0;
+    let mut remainder: i32 = 0;
+    if divide(7, 2, &mut quotient, &mut remainder) != 0 {
+        // quotient == 3, remainder == 1
+    }
 }
 ```
 
@@ -129,9 +137,11 @@ written as `0usize as &T`:
 ```nia
 extern fun lookup(id: i32) &u8;
 
-let name = lookup(1);
-if name != 0usize as &u8 {
-    let first = name.*;
+fun example() {
+    let name = lookup(1);
+    if name != 0usize as &u8 {
+        let first = name.*;
+    }
 }
 ```
 
@@ -145,9 +155,11 @@ parts separately:
 ```nia
 extern fun sum_bytes(data: &u8, len: usize) u32;
 
-let bytes: [u8; 3] = [1, 2, 3];
-let view: &[u8] = &bytes[..];
-let total = sum_bytes(view.ptr(), view.len());
+fun example() {
+    let bytes: [u8; 3] = [1, 2, 3];
+    let view: &[u8] = &bytes[..];
+    let total = sum_bytes(view.ptr(), view.len());
+}
 ```
 
 For an array, `&array[0]` is the element pointer. A C pointer and length
@@ -171,9 +183,11 @@ extern fun add_to_total(value: i32, context: &mut opaque) {
     total.* += value as i64;
 }
 
-let values: [i32; 3] = [10, 20, 30];
-let mut total: i64 = 0;
-for_each(&values[0], 3, &add_to_total, &mut total as &mut opaque);
+fun example() {
+    let values: [i32; 3] = [10, 20, 30];
+    let mut total: i64 = 0;
+    for_each(&values[0], 3, &add_to_total, &mut total as &mut opaque);
+}
 ```
 
 ## Variadic Functions
@@ -185,11 +199,14 @@ widen to 32 bits and `f32` widens to `f64`.
 ```nia
 extern fun sum_ints(count: i32, ...) i64;
 
-let six = sum_ints(3, 1, 2, 3);
+fun example() {
+    let six = sum_ints(3, 1, 2, 3);
+}
 ```
 
-Nia cannot define a variadic function, and a variadic function cannot be taken
-as a function pointer. Calling `printf` works the same way once the C library
+Nia cannot define a variadic function, and a variadic function pointer type
+cannot appear in an `extern` parameter, return type, or field. The extra
+arguments follow the same boundary rules as fixed ones. Calling `printf` works the same way once the C library
 that provides it is linked.
 
 ## Globals
@@ -199,7 +216,9 @@ that provides it is linked.
 ```nia
 extern static mut counter: i32;
 
-counter += 1;
+fun example() {
+    counter += 1;
+}
 ```
 
 `@[linkName("...")]` renames the referenced symbol. Nia cannot export data to
@@ -231,7 +250,9 @@ On Windows, compile with `clang --target=x86_64-pc-windows-msvc` and use the
 `.obj` or `.lib` file the same way.
 
 Build scripts link Nia static archives through
-`ExecutableOptions::withStaticArchives`; see [build scripts](build-scripts.md).
+`ExecutableOptions::withStaticArchives` and system libraries through
+`withSystemLibraries`; see
+[artifact configuration](build-scripts.md#artifact-configuration).
 
 ### Windows Import Libraries
 
@@ -282,6 +303,10 @@ nia emit --obj mathlib.nia -o mathlib.o
 cc main.c mathlib.o -o main
 ```
 
+`-o` names a single object, which works while the library compiles to one
+codegen unit. A library that uses the standard library usually produces
+several; write them with `--out-dir objs` and link every object in `objs`.
+
 ```c
 #include <stdint.h>
 struct Pair { int32_t a, b; };
@@ -293,11 +318,10 @@ int32_t nia_clamp(int32_t value, int32_t low, int32_t high);
 process entry. Only `extern` definitions are visible outside the linked image;
 ordinary Nia functions such as `clamp` stay internal.
 
-In a Nia executable, every top-level `pub extern fun` definition of the entry
-package is exported and kept even when Nia never calls it, so linked C code can
-call back into the program (`nia_square` in the complete example). A
-freestanding executable must not define the entry symbol that the toolchain
-runtime exports, such as `_start`.
+A Nia executable exports its `pub extern fun` definitions even when Nia never
+calls them, so linked C code can call back into the program (`nia_square` in
+the complete example); the exact rule is in
+[Executable Exports](../reference/abi.md#executable-exports).
 
 ## C And Nia Type Mapping
 
@@ -318,7 +342,7 @@ runtime exports, such as `_start`.
 | `__int128` | `i128` (not on `x86-unknown-linux`) |
 | `float`, `double` | `f32`, `f64` |
 | `bool`, `_Bool` | `u8` |
-| `wchar_t` | `u16` on Windows, `i32` elsewhere |
+| `wchar_t` | `u16` on Windows, `u32` on `aarch64-unknown-linux`, `i32` on the other targets |
 | `const T *` / `T *` | `&T` / `&mut T` |
 | `volatile T *` | `^T` / `^mut T` |
 | `const void *` / `void *` | `&opaque` / `&mut opaque` |
@@ -334,8 +358,9 @@ Nia has no packed or over-aligned struct form, and no C bit-fields.
 
 ## Common Errors
 
-`nia check`, `nia emit`, and builds report boundary errors as `E0501` on the
-offending declaration, whether or not anything calls it:
+`nia check`, `nia emit`, and builds report boundary errors on the offending
+declaration, whether or not anything calls it. The type rules are reported as
+`E0501`:
 
 | Message | Fix |
 | --- | --- |
@@ -352,9 +377,14 @@ offending declaration, whether or not anything calls it:
 | `extern parameter cannot use empty struct by value` | add a field, or pass a pointer |
 | ``extern parameter cannot use a 128-bit integer on `x86-unknown-linux` `` | split the value into two 64-bit integers |
 | `extern parameter cannot use union by value` | pass a pointer to an `extern union` |
-| ``extern return type cannot use `never` directly`` | return `()` |
+| ``extern return type cannot use `never` `` | return `()` |
 | `extern variadic function definition is not supported` | define a fixed-parameter function |
 | `extern parameter cannot use variadic function pointer` | call the variadic function directly |
+
+Attribute placement is reported as `E0203` and declaration syntax as `E0101`:
+
+| Message | Fix |
+| --- | --- |
 | `` `@[exportName]` requires an extern function definition `` | use `linkName` on a declaration |
 | `` `@[linkName]` is only valid on an external function declaration `` | use `exportName` on a definition |
 | ``expected `struct`, `union`, `fun`, or `static` after `extern` `` | write `pub extern fun`, not `extern pub fun` |
