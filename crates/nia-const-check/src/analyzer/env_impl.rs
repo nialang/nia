@@ -12,13 +12,11 @@ use crate::{
 };
 use nia_const_eval::{
     ConstAbiField, ConstAbiType, ConstAllocationId, ConstAllocationOrigin, ConstCommonEnv,
-    ConstError, ConstPointerPathElem, ConstPointerValue, ConstScalarType, ConstUnionValue,
-    ConstValue, ResolvedConstEnv,
+    ConstError, ConstPointerValue, ConstScalarType, ConstUnionValue, ConstValue, ResolvedConstEnv,
 };
 use nia_const_ir::{
-    ConstNameResolution, ResolvedConstAssignPathElemKind, ResolvedConstAssignTarget,
-    ResolvedConstAssignTargetKind, ResolvedConstBinding, ResolvedConstExpr,
-    ResolvedConstGenericArg, ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstTypeArg,
+    ConstNameResolution, ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg,
+    ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstTypeArg,
 };
 use nia_defs::DefKind;
 use nia_ids::{
@@ -51,6 +49,14 @@ impl ConstCommonEnv for Analyzer<'_> {
 
     fn symbol_name(&self, symbol: SymbolId) -> String {
         Analyzer::symbol_name(self, symbol)
+    }
+
+    fn local_name(&self, local: LocalId) -> Option<SymbolId> {
+        self.input
+            .locals
+            .locals
+            .get(local)
+            .and_then(|binding| binding.name.symbol())
     }
 
     fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
@@ -132,7 +138,7 @@ impl ConstCommonEnv for Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let ty = self.substitute_ty_generics(ty);
         let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
-            return Ok(value);
+            return Ok(self.normalize_runtime_typed_const_value(value, ty));
         };
         let value = match value {
             ConstValue::Enum {
@@ -242,6 +248,7 @@ impl ConstCommonEnv for Analyzer<'_> {
         Ok(ConstValue::Pointer(ConstPointerValue::Place {
             allocation,
             path: Vec::new(),
+            is_readonly,
         }))
     }
 
@@ -252,7 +259,9 @@ impl ConstCommonEnv for Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         match pointer {
             ConstPointerValue::Frozen { pointee, .. } => Ok((**pointee).clone()),
-            ConstPointerValue::Place { allocation, path } => {
+            ConstPointerValue::Place {
+                allocation, path, ..
+            } => {
                 let root = self
                     .call_locals
                     .iter()
@@ -274,7 +283,7 @@ impl ConstCommonEnv for Analyzer<'_> {
                         message: "const pointer refers to storage whose lifetime has ended"
                             .to_string(),
                     })?;
-                read_const_pointer_path(span, root, path, self)
+                nia_const_eval::read_resolved_const_place_path(span, root, path, self)
             }
         }
     }
@@ -574,36 +583,12 @@ impl Analyzer<'_> {
         &mut self,
         assign: &nia_const_ir::ResolvedConstAssign,
     ) -> Option<PrimitiveTy> {
-        let ResolvedConstAssignTargetKind::Local { local_id, path, .. } = assign.lhs().kind();
-        let mut target = self.call_local_type(*local_id)?;
-        for element in path {
-            target = match element.kind() {
-                ResolvedConstAssignPathElemKind::Field { name, .. } => {
-                    self.const_field_type(target, name)?
-                }
-                ResolvedConstAssignPathElemKind::Index { .. } => match target {
-                    ConstValueType::Array { elem, .. } => *elem,
-                    ConstValueType::Runtime(ty) => match self.ty_kind(ty)? {
-                        TyKind::Array { elem, .. }
-                        | TyKind::Slice {
-                            is_readonly: false,
-                            elem,
-                        } => ConstValueType::Runtime(
-                            self.type_for_module_or_none(elem, self.current_execution_module_id())?,
-                        ),
-                        _ => return None,
-                    },
-                    _ => return None,
-                },
-            };
+        let place = assign.lhs().place_expr();
+        let ty = self.resolved_const_arg_runtime_type(&place, None)?;
+        match self.ty_kind(ty)? {
+            TyKind::Primitive(primitive) => Some(primitive),
+            _ => None,
         }
-        let ConstValueType::Runtime(ty) = target else {
-            return None;
-        };
-        let TyKind::Primitive(primitive) = self.ty_kind(ty)? else {
-            return None;
-        };
-        Some(primitive)
     }
 }
 
@@ -623,30 +608,48 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         place: &nia_const_eval::ResolvedConstPlace,
-        _value: ConstValue,
-        _is_readonly: bool,
+        is_readonly: bool,
     ) -> Result<ConstValue, ConstError> {
-        let allocation = self
-            .call_local_allocation(place.local_id)
-            .ok_or_else(|| ConstError {
+        let (allocation, mut path, source_is_readonly) = match &place.base {
+            nia_const_eval::ResolvedConstPlaceBase::Local(local_id) => (
+                self.call_local_allocation(*local_id)
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "const reference target has no live allocation".to_string(),
+                    })?,
+                Vec::new(),
+                self.const_local_is_mutable(*local_id) != Some(true),
+            ),
+            nia_const_eval::ResolvedConstPlaceBase::Pointer(ConstPointerValue::Place {
+                allocation,
+                path,
+                is_readonly,
+            }) => (*allocation, path.clone(), *is_readonly),
+            nia_const_eval::ResolvedConstPlaceBase::Pointer(ConstPointerValue::Frozen {
+                ..
+            }) => {
+                if !is_readonly {
+                    return Err(ConstError {
+                        span,
+                        message: "const mutable reference requires live writable storage"
+                            .to_string(),
+                    });
+                }
+                let value = nia_const_eval::read_resolved_const_place(span, place, self)?;
+                return self.reference_const_value(span, value, true);
+            }
+        };
+        if !is_readonly && source_is_readonly {
+            return Err(ConstError {
                 span,
-                message: "const reference target has no live allocation".to_string(),
-            })?;
-        let path = place
-            .path
-            .iter()
-            .map(|elem| match elem {
-                nia_const_eval::ResolvedConstPlaceElem::Field(name) => {
-                    ConstPointerPathElem::Field(*name)
-                }
-                nia_const_eval::ResolvedConstPlaceElem::Index(index) => {
-                    ConstPointerPathElem::Index(*index)
-                }
-            })
-            .collect();
+                message: "const mutable reference requires writable storage".to_string(),
+            });
+        }
+        path.extend_from_slice(&place.path);
         Ok(ConstValue::Pointer(ConstPointerValue::Place {
             allocation,
             path,
+            is_readonly,
         }))
     }
 
@@ -724,12 +727,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         assign: &nia_const_ir::ResolvedConstAssign,
     ) -> Result<(), ConstError> {
-        if matches!(
-            assign.rhs().kind(),
-            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
-        ) {
-            self.check_resolved_const_assignment(assign.rhs().span(), assign);
-        }
+        self.check_resolved_const_assignment(assign.rhs().span(), assign);
         Ok(())
     }
 
@@ -1047,7 +1045,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     let receiver = if matches!(receiver, ConstValue::Pointer(_)) {
                         receiver.clone()
                     } else if let Some(place) = receiver_place {
-                        self.reference_resolved_place(span, place, receiver.clone(), !mutable)?
+                        self.reference_resolved_place(span, place, !mutable)?
                     } else {
                         if mutable {
                             return Err(ConstError {
@@ -1376,26 +1374,98 @@ impl ResolvedConstEnv for Analyzer<'_> {
         self.bind_local_value(span, local_id, binding.is_mutable(), value, ty)
     }
 
-    fn assign_resolved_local(
+    fn assign_resolved_pointer(
         &mut self,
         span: Span,
-        target: &ResolvedConstAssignTarget,
+        pointer: &ConstPointerValue,
         value: ConstValue,
     ) -> Result<(), ConstError> {
-        match target.kind() {
-            ResolvedConstAssignTargetKind::Local { name, local_id, .. } => {
-                self.assign_local_value(span, *local_id, Some(name), value)
-            }
+        let ConstPointerValue::Place {
+            allocation,
+            path,
+            is_readonly,
+        } = pointer
+        else {
+            return Err(ConstError {
+                span,
+                message: "const pointer assignment requires live writable storage".to_string(),
+            });
+        };
+        if *is_readonly {
+            return Err(ConstError {
+                span,
+                message: "const assignment target is not assignable: pointer is read-only"
+                    .to_string(),
+            });
         }
+        let (frame_index, local_id) = self
+            .call_locals
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(frame_index, frame)| {
+                if let Some(local_id) =
+                    frame
+                        .allocation_ids
+                        .iter()
+                        .find_map(|(local_id, candidate)| {
+                            (candidate == allocation).then_some(*local_id)
+                        })
+                {
+                    Some((frame_index, Some(local_id)))
+                } else {
+                    frame
+                        .temporary_allocations
+                        .contains_key(allocation)
+                        .then_some((frame_index, None))
+                }
+            })
+            .ok_or_else(|| ConstError {
+                span,
+                message: "const pointer refers to storage whose lifetime has ended".to_string(),
+            })?;
+        let frame = &self.call_locals[frame_index];
+        let root = if let Some(local_id) = local_id {
+            if !frame.mutable_locals.contains(&local_id) {
+                return Err(ConstError {
+                    span,
+                    message: "const pointer assignment requires writable storage".to_string(),
+                });
+            }
+            frame.locals[&local_id].clone()
+        } else {
+            frame.temporary_allocations[allocation].clone()
+        };
+        let value = nia_const_eval::write_resolved_const_place_path(span, root, path, value, self)?;
+        if let Some(local_id) = local_id {
+            let ty = self.call_locals[frame_index]
+                .local_types
+                .get(&local_id)
+                .cloned();
+            let value = if let Some(ty) = ty {
+                let value = self.normalize_typed_const_value(value, &ty);
+                self.validate_typed_value(span, &value, &ty);
+                value
+            } else {
+                value
+            };
+            self.call_locals[frame_index].locals.insert(local_id, value);
+        } else {
+            self.call_locals[frame_index]
+                .temporary_allocations
+                .insert(*allocation, value);
+        }
+        Ok(())
     }
 
     fn assign_resolved_place_local(
         &mut self,
         span: Span,
         local_id: LocalId,
+        name: Option<SymbolId>,
         value: ConstValue,
     ) -> Result<(), ConstError> {
-        self.assign_local_value(span, local_id, None, value)
+        self.assign_local_value(span, local_id, name.as_ref(), value)
     }
 }
 
@@ -2340,54 +2410,6 @@ fn const_string_message(value: &ConstValue) -> Option<String> {
         ConstValue::Pointer(ConstPointerValue::Place { .. }) => None,
         _ => None,
     }
-}
-
-fn read_const_pointer_path(
-    span: Span,
-    root: ConstValue,
-    path: &[ConstPointerPathElem],
-    analyzer: &Analyzer<'_>,
-) -> Result<ConstValue, ConstError> {
-    let Some((head, tail)) = path.split_first() else {
-        return Ok(root);
-    };
-    let value = match (head, root) {
-        (ConstPointerPathElem::Field(name), ConstValue::Struct(mut fields)) => {
-            fields.remove(name).ok_or_else(|| ConstError {
-                span,
-                message: format!(
-                    "unknown const pointer field `{}`",
-                    analyzer.symbol_name(*name)
-                ),
-            })?
-        }
-        (ConstPointerPathElem::Field(name), ConstValue::Union(union)) => {
-            union.read(*name).map_err(|message| ConstError {
-                span,
-                message: format!("{message} `{}`", analyzer.symbol_name(*name)),
-            })?
-        }
-        (ConstPointerPathElem::Index(index), ConstValue::Array(values)) => {
-            values.get(*index).cloned().ok_or_else(|| ConstError {
-                span,
-                message: format!("const pointer index {index} is out of bounds"),
-            })?
-        }
-        (ConstPointerPathElem::Field(_), _) => {
-            return Err(ConstError {
-                span,
-                message: "const pointer field projection requires an aggregate allocation"
-                    .to_string(),
-            });
-        }
-        (ConstPointerPathElem::Index(_), _) => {
-            return Err(ConstError {
-                span,
-                message: "const pointer index projection requires an array allocation".to_string(),
-            });
-        }
-    };
-    read_const_pointer_path(span, value, tail, analyzer)
 }
 
 fn validate_const_pointer_escape(

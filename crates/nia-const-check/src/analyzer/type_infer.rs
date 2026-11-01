@@ -1107,121 +1107,46 @@ impl Analyzer<'_> {
         span: Span,
         assign: &ResolvedConstAssign,
     ) {
-        let ResolvedConstAssignTargetKind::Local {
-            name,
-            local_id,
-            path,
-            ..
-        } = assign.lhs().kind();
-        let Some(mut target_ty) = self.call_local_type(*local_id) else {
-            let _ = self.resolved_const_expr_type(assign.rhs(), None);
-            return;
-        };
-
-        if self.const_local_is_mutable(*local_id) == Some(false) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                span,
-                format!(
+        let place = assign.lhs().place_expr();
+        let target_ty = self.resolved_const_expr_type(&place, None);
+        if !self.resolved_const_place_is_writable(&place) {
+            let message = match assign.lhs().kind() {
+                nia_const_ir::ResolvedConstAssignTargetKind::Local { name, .. } => format!(
                     "cannot assign to immutable const local `{}`",
                     self.symbol_name(*name)
                 ),
-            ));
-        }
-
-        for (element_index, element) in path.iter().enumerate() {
-            if self.const_assignment_target_type_is_unresolved(&target_ty) {
-                for remaining in &path[element_index..] {
-                    if let ResolvedConstAssignPathElemKind::Index { index, .. } = remaining.kind() {
-                        let _ = self.resolved_const_expr_type(index, None);
-                    }
-                }
-                let _ = self.resolved_const_expr_type(assign.rhs(), None);
-                return;
-            }
-            target_ty = match element.kind() {
-                ResolvedConstAssignPathElemKind::Field {
-                    span: field_span,
-                    name,
-                } => match self.const_field_type(target_ty, name) {
-                    Some(field_ty) => field_ty,
-                    None => {
-                        self.push_invalid_const_assignment_target(*field_span);
-                        let _ = self.resolved_const_expr_type(assign.rhs(), None);
-                        return;
-                    }
-                },
-                ResolvedConstAssignPathElemKind::Index {
-                    span: index_span,
-                    index,
-                } => {
-                    let _ = self.resolved_const_expr_type(index, None);
-                    match self.const_assignment_index_elem_type(&target_ty) {
-                        Some(elem_ty) => elem_ty,
-                        None => {
-                            self.push_invalid_const_assignment_target(*index_span);
-                            let _ = self.resolved_const_expr_type(assign.rhs(), None);
-                            return;
-                        }
-                    }
+                nia_const_ir::ResolvedConstAssignTargetKind::Pointer { .. } => {
+                    "const assignment requires a writable place".to_string()
                 }
             };
+            self.push_const_type_error(span, &message);
         }
-
-        let expected = target_ty.runtime();
+        let expected = target_ty.as_ref().and_then(ConstValueType::runtime);
         let actual = self.resolved_const_expr_type(assign.rhs(), expected);
+        let Some(target_ty) = target_ty else {
+            return;
+        };
         if !matches!(assign.op(), ConstAssignOp::Assign)
             && !self.const_compound_assignment_type_is_supported(assign.op(), &target_ty)
         {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.push_const_type_error(
                 span,
-                "const compound assignment requires compatible numeric operands".to_string(),
-            ));
+                "const compound assignment requires compatible numeric operands",
+            );
         }
         if let Some(actual) = actual
             && !self.const_assignment_types_match(&target_ty, &actual)
         {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                assign.rhs().span(),
-                "const assignment value does not match the target type".to_string(),
-            ));
-        }
-    }
-
-    fn const_assignment_target_type_is_unresolved(&self, target: &ConstValueType) -> bool {
-        let ConstValueType::Runtime(target) = target else {
-            return false;
-        };
-        matches!(
-            self.ty_kind(*target),
-            Some(
-                TyKind::GenericParam(_)
-                    | TyKind::SelfParam
-                    | TyKind::Projection { .. }
-                    | TyKind::Error
-            )
-        )
-    }
-
-    fn const_assignment_index_elem_type(
-        &mut self,
-        target: &ConstValueType,
-    ) -> Option<ConstValueType> {
-        match target {
-            ConstValueType::Array { elem, .. } => Some((**elem).clone()),
-            ConstValueType::Runtime(ty) => match self.ty_kind(*ty)? {
-                TyKind::Array { elem, .. }
-                | TyKind::Slice {
-                    is_readonly: false,
-                    elem,
-                } => self
-                    .type_for_module_or_none(elem, self.current_execution_module_id())
-                    .map(ConstValueType::Runtime),
-                _ => None,
-            },
-            ConstValueType::Int | ConstValueType::Bool | ConstValueType::String => None,
+            let context = match target_ty.runtime().and_then(|ty| self.ty_kind(ty)) {
+                Some(TyKind::Primitive(primitive)) => {
+                    format!("primitive type {}", primitive.name())
+                }
+                Some(TyKind::Optional { .. }) => "expected optional type".to_string(),
+                Some(TyKind::ErrorUnion { .. }) => "expected error union type".to_string(),
+                _ => "target type".to_string(),
+            };
+            let message = format!("const assignment value does not match the {context}");
+            self.push_const_type_error(assign.rhs().span(), &message);
         }
     }
 
@@ -1264,14 +1189,6 @@ impl Analyzer<'_> {
             }
             _ => expected == actual,
         }
-    }
-
-    fn push_invalid_const_assignment_target(&mut self, span: Span) {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            "invalid const assignment target path".to_string(),
-        ));
     }
 
     pub(super) fn find_resolved_pattern_local_type(
@@ -1728,9 +1645,14 @@ impl Analyzer<'_> {
         name: &SymbolId,
     ) -> Option<ConstValueType> {
         match &lhs {
-            ConstValueType::Runtime(ty) => self
-                .const_nominal_aggregate_field_type(*ty, name)
-                .map(ConstValueType::Runtime),
+            ConstValueType::Runtime(ty) => {
+                let mut ty = *ty;
+                while let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(ty) {
+                    ty = elem;
+                }
+                self.const_nominal_aggregate_field_type(ty, name)
+                    .map(ConstValueType::Runtime)
+            }
             ConstValueType::Array { .. }
             | ConstValueType::Int
             | ConstValueType::Bool

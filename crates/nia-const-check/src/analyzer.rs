@@ -19,10 +19,9 @@ use nia_const_eval::{
 use nia_const_ir::{
     ConstAssignOp, ConstBinaryOp, ConstEnumPatternFields, ConstNameResolution,
     ConstNamedPatternField, ConstStringLiteral, ConstUnaryOp, ResolvedConstArrayElements,
-    ResolvedConstArrayElementsKind, ResolvedConstAssign, ResolvedConstAssignPathElemKind,
-    ResolvedConstAssignTargetKind, ResolvedConstAssociatedTarget, ResolvedConstBlock,
-    ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit,
-    ResolvedConstGenericArg, ResolvedConstMatch, ResolvedConstMatchArmBody,
+    ResolvedConstArrayElementsKind, ResolvedConstAssign, ResolvedConstAssociatedTarget,
+    ResolvedConstBlock, ResolvedConstEnum, ResolvedConstExpr, ResolvedConstExprKind,
+    ResolvedConstFieldInit, ResolvedConstGenericArg, ResolvedConstMatch, ResolvedConstMatchArmBody,
     ResolvedConstMatchArmBodyKind, ResolvedConstModule, ResolvedConstPattern,
     ResolvedConstPatternBinding, ResolvedConstPatternKind, ResolvedConstStmtKind,
 };
@@ -198,6 +197,35 @@ pub fn infer_resolved_const_expr_type(
     let mut analyzer = Analyzer::for_typed_query(input);
     let result = analyzer.resolved_const_expr_type(expr, expected);
     analyzer.finish(result)
+}
+
+#[derive(Debug)]
+/// Value, diagnostics and provider dependencies of one standalone const query.
+pub struct ConstExprEvaluation {
+    /// Evaluation result, retaining source errors independently of diagnostics.
+    pub value: Result<ConstValue, ConstError>,
+    /// Semantic errors found while typing and executing the expression.
+    pub diagnostics: Vec<Diagnostic>,
+    /// Provider facts required by the selected const calls.
+    pub provider_demands: HashSet<ProviderDemand>,
+}
+
+/// Evaluates a body-checking const query with the module analyzer's memory,
+/// typing and call semantics. No separate snapshot interpreter is required.
+pub fn evaluate_resolved_const_expr(
+    input: TypedConstQueryInput<'_>,
+    expr: &ResolvedConstExpr,
+) -> nia_ice::IceResult<ConstExprEvaluation> {
+    let mut analyzer = Analyzer::for_typed_query(input);
+    analyzer.resolved_expr_types.push(HashMap::new());
+    let _ = analyzer.resolved_const_expr_type(expr, None);
+    let value = nia_const_eval::eval_resolved_const_expr(expr, &mut analyzer);
+    analyzer.finish(())?;
+    Ok(ConstExprEvaluation {
+        value,
+        diagnostics: analyzer.diagnostics,
+        provider_demands: analyzer.provider_demands,
+    })
 }
 
 /// Runs every const-analysis phase for a module in dependency order.
@@ -447,6 +475,7 @@ pub(crate) struct Analyzer<'a> {
     active: HashSet<ConstKey>,
     program_type_normalizations:
         RefCell<HashMap<ModuleId, Arc<nia_type_normalize::TypeNormalization>>>,
+    instantiated_type_normalizations: RefCell<HashMap<InternedTyId, InternedTyId>>,
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
@@ -525,6 +554,7 @@ impl Analyzer<'_> {
             provider_demands: HashSet::new(),
             active: HashSet::new(),
             program_type_normalizations: RefCell::new(HashMap::new()),
+            instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_instantiations: HashMap::new(),
@@ -554,7 +584,11 @@ impl Analyzer<'_> {
                 source_text: input.source_text,
                 program: input.program,
             },
-            values: HashMap::new(),
+            values: input
+                .typed_values
+                .iter()
+                .map(|(key, typed)| (*key, typed.value.clone()))
+                .collect(),
             typed_values: HashMap::new(),
             external_typed_values: Some(input.typed_values),
             call_locals: input
@@ -571,6 +605,7 @@ impl Analyzer<'_> {
             provider_demands: HashSet::new(),
             active: HashSet::new(),
             program_type_normalizations: RefCell::new(HashMap::new()),
+            instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_instantiations: HashMap::new(),
@@ -947,16 +982,27 @@ impl Analyzer<'_> {
                     value => value,
                 }
             }
-            Some(TyKind::Pointer { elem, .. }) => match value {
+            Some(TyKind::Pointer { elem, is_readonly }) => match value {
                 ConstValue::Pointer(ConstPointerValue::Frozen {
                     origin,
-                    is_readonly,
+                    is_readonly: source_readonly,
                     pointee,
                 }) => ConstValue::Pointer(ConstPointerValue::Frozen {
                     origin,
-                    is_readonly,
+                    is_readonly: is_readonly || source_readonly,
                     pointee: Box::new(self.normalize_runtime_typed_const_value(*pointee, elem)),
                 }),
+                ConstValue::Pointer(mut pointer) => {
+                    pointer.restrict_readonly(is_readonly);
+                    ConstValue::Pointer(pointer)
+                }
+                value => value,
+            },
+            Some(TyKind::Slice { is_readonly, .. }) => match value {
+                ConstValue::Pointer(mut pointer) => {
+                    pointer.restrict_readonly(is_readonly);
+                    ConstValue::Pointer(pointer)
+                }
                 value => value,
             },
             Some(TyKind::Optional { elem }) => match value {

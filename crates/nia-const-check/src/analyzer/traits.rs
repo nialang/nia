@@ -96,9 +96,44 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn normalized_ty(&self, ty: InternedTyId) -> InternedTyId {
-        self.type_normalization_for_module(self.current_execution_module_id())
+        if let Some(normalized) = self.instantiated_type_normalizations.borrow().get(&ty) {
+            return *normalized;
+        }
+        let module_id = self.current_execution_module_id();
+        if let Some(normalized) = self
+            .type_normalization_for_module(module_id)
             .and_then(|normalization| normalization.as_ref().normalized.get(&ty).copied())
-            .unwrap_or(ty)
+        {
+            return normalized;
+        }
+        // Substitution creates types after the module normalization product was
+        // built. Normalize those roots with the same alias expander, including
+        // aliases defined in another module; never inspect their raw shape.
+        let Some(signatures) = self.signatures_for_module(module_id) else {
+            return ty;
+        };
+        let external_alias = |def_id| {
+            self.program_type_alias_signature(def_id)
+                .map(|alias| alias.signature)
+        };
+        let Some(normalization) =
+            self.recover_internal(nia_type_normalize::normalize_module_types(
+                nia_type_normalize::TypeNormalizationInput {
+                    module_id,
+                    type_store: self.input.type_store,
+                    input_ids: &[ty],
+                    signatures: signatures.as_ref(),
+                    external_alias: Some(&external_alias),
+                },
+            ))
+        else {
+            return self.input.type_store.error();
+        };
+        let result = normalization.normalized.get(&ty).copied().unwrap_or(ty);
+        self.instantiated_type_normalizations
+            .borrow_mut()
+            .extend(normalization.normalized);
+        result
     }
 
     pub(super) fn proves_trait_obligation(

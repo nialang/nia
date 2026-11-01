@@ -1035,7 +1035,9 @@ impl Analyzer<'_> {
         // A stale handle can arrive from an incremental or cross-module
         // product. Treat it as the existing error type so callers preserve
         // their normal diagnostic paths instead of aborting the analysis.
-        type_kind_or_error(self.input.type_store, ty)
+        // Shape queries must see transparent aliases consistently, including
+        // literal checking, indexing, pointer adaptation and generic inference.
+        type_kind_or_error(self.input.type_store, self.normalized_ty(ty))
     }
 
     pub(super) fn type_context(&self, module_id: ModuleId) -> super::ConstTypeCx<'_> {
@@ -1100,7 +1102,7 @@ impl Analyzer<'_> {
             .map(|signature| nia_item_signatures::ProgramEnumSignature { signature })
     }
 
-    fn program_type_alias_signature_for_layout(
+    pub(super) fn program_type_alias_signature(
         &self,
         def_id: GlobalDefId,
     ) -> Option<nia_item_signatures::ProgramTypeAliasSignature> {
@@ -1207,7 +1209,7 @@ impl Analyzer<'_> {
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
-        let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature(def_id);
         let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let Some(layouts) = self.recover_internal(
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
@@ -1325,7 +1327,7 @@ impl Analyzer<'_> {
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
-        let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature(def_id);
         let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
         let input = nia_layout::LayoutComputationInput {
             type_store: self.input.type_store,
@@ -1650,7 +1652,7 @@ impl Analyzer<'_> {
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
-        let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature(def_id);
         let layouts = self.recover_internal(nia_layout::compute_layouts_with_program_context(
             nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,

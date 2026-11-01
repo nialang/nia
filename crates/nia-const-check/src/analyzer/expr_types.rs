@@ -52,7 +52,9 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::Name(ConstNameResolution::Local(local_id)) => {
                 self.const_local_is_mutable(*local_id) == Some(true)
             }
-            ResolvedConstExprKind::Field { lhs, .. } | ResolvedConstExprKind::Index { lhs, .. } => {
+            ResolvedConstExprKind::Field { lhs, .. }
+            | ResolvedConstExprKind::Index { lhs, .. }
+            | ResolvedConstExprKind::Slice { lhs, .. } => {
                 if let Some(ty) = self.resolved_const_arg_runtime_type(lhs, None)
                     && let Some(
                         TyKind::Pointer { is_readonly, .. } | TyKind::Slice { is_readonly, .. },
