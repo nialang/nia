@@ -82,8 +82,10 @@ child allocator, or a buffer, to get its own memory from.
 | `FixedBufferAllocator` | allocation from a caller-provided buffer, with no system calls | the buffer's owner |
 | `PoolAllocator[T]` | many values of one type that are created and freed often | `deinit` |
 
-An arena frees nothing individually; its memory is released all at once. It
-suits work with a clear end, such as handling one request or one build step:
+An arena reclaims space only when its most recent allocation is freed; the rest
+is released together, either by `reset`, which keeps the memory for the next
+round, or by `deinit`, which returns it to the child allocator. It suits work
+with a clear end, such as handling one request or one build step:
 
 ```nia
 using std::io;
@@ -119,7 +121,8 @@ total=300 used=0
 
 A fixed buffer allocator works without an operating system, which makes it the
 allocator for early startup, embedded targets, and tests of out-of-memory
-handling. When the buffer is full, allocation fails with
+handling. Like an arena, it reclaims only its most recent allocation. When the
+buffer is full, allocation fails with
 `mem::Error::OutOfMemory`:
 
 ```nia

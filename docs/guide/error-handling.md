@@ -373,10 +373,8 @@ fun appendAll(
 ) mem::Error!() {
     let original = list.len();
     let mut committed = false;
-    defer {
-        if not committed {
-            list.truncate(original);
-        }
+    defer if not committed {
+        list.truncate(original);
     };
     for &value in values {
         if value < 0 {
