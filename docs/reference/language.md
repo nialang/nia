@@ -2375,14 +2375,14 @@ to the first byte:
 extern fun puts(text: &u8) i32;
 
 fun greet() {
-    _ = puts((&b"hello\0").ptr());
+    _ = puts(b"hello\0".ptr());
 }
 ```
 
-`(&array).ptr()` views the array as a slice and returns its data pointer;
-`&bytes[0]` is equivalent. A literal evaluated inside a function gets
-no static storage, so a pointer into it must not outlive the enclosing block.
-Use a `static` for data that foreign code keeps.
+`array.ptr()` automatically addresses the array, views it as a slice, and
+returns its data pointer; `&bytes[0]` is equivalent. A literal evaluated inside
+a function gets no static storage, so a pointer into it must not outlive the
+enclosing block. Use a `static` for data that foreign code keeps.
 
 The types that may cross the boundary, layout, calling conventions, and symbol
 names are specified in the [ABI reference](abi.md#the-c-abi-boundary). The

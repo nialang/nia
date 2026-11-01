@@ -71,14 +71,14 @@ NUL-terminated byte string and pass a pointer to its first byte:
 
 ```nia continued
 fun example() {
-    let length = byte_length((&b"hello\0").ptr());
+    let length = byte_length(b"hello\0".ptr());
 }
 ```
 
-`&b"hello\0"` is a `&[u8; 6]`; `.ptr()` gives the `&u8` C expects. The array
-lives only as long as the enclosing expression or frame, so a C function must
-not keep the pointer. Put the bytes in a `static` when C needs a stable
-address. `std::cstring` provides `CString` and `CStringView` for building and
+`.ptr()` automatically addresses the byte array and gives the `&u8` C expects.
+The array lives only as long as the enclosing expression or frame, so a C
+function must not keep the pointer. Put the bytes in a `static` when C needs
+a stable address. `std::cstring` provides `CString` and `CStringView` for building and
 reading NUL-terminated strings that Nia owns. A `CStringView` over bytes that
 C returns is made from a slice that includes the terminator: measure the
 length, take `&p[0..length + 1]`, and pass it to `CStringView::fromBytes`.
@@ -395,7 +395,7 @@ Type mismatches at call sites are ordinary type errors:
 | Message | Fix |
 | --- | --- |
 | `expected &extern fun(i32, &mut opaque), got &fun(i32, &mut opaque)` | define the callback as `extern fun` |
-| `expected &u8, got &[u8; 6]` | add `.ptr()` to the array reference |
+| `expected &u8, got &[u8; 6]` | use `bytes.ptr()` to project the first element |
 | `expected &mut opaque, got &mut i64` | cast: `&mut value as &mut opaque` |
 
 ## Complete Example
@@ -445,7 +445,7 @@ pub fun main(init: Init) ExitCode!() {
     if divide(7, 2, quotient, remainder) == 0 { return ExitCode(3)!; }
     if quotient != 3 or remainder != 1 { return ExitCode(4)!; }
 
-    if byte_length((&b"hello\0").ptr()) != 5 { return ExitCode(5)!; }
+    if byte_length(b"hello\0".ptr()) != 5 { return ExitCode(5)!; }
 
     let bytes: [u8; 3] = [1, 2, 3];
     let view: &[u8] = &bytes[..];

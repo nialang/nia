@@ -313,9 +313,12 @@ takes priority.
 | `ptr()` | `&[T]` or `&mut [T]` | `&T` to the first element |
 | `ptrMut()` | `&mut [T]` | `&mut T` to the first element |
 
-An array pointer reaches `ptr()` through the array-to-slice conversion, so
-`(&bytes).ptr()` works, but an array value does not: `b"text\0".ptr()` is an
-error. An empty slice has a data pointer, but dereferencing it is invalid.
+Array receivers use the same automatic address and array-to-slice conversions
+as ordinary slice arguments: `bytes.ptr()` and `b"text\0".ptr()` return a
+pointer to the first element. `bytes.ptrMut()` requires a writable array place;
+it cannot address an immutable binding or a temporary as mutable. Explicit
+array pointers remain accepted. An empty slice has a data pointer, but
+dereferencing it is invalid.
 
 ```nia
 fun first_bytes(data: &mut [u8]) usize {
