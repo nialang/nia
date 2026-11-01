@@ -1509,7 +1509,9 @@ impl<'a> BodyChecker<'a> {
             self.report_invalid_numeric_literal_suffix(expr, "float");
             return self.error();
         }
-        self.f64()
+        let ty = self.f64();
+        self.check_float_literal_target(expr, ty, "default type");
+        ty
     }
 
     fn check_if_expr(

@@ -52,6 +52,25 @@ fn default_signed_integer_literal_range_uses_the_signed_value() {
 }
 
 #[test]
+fn default_float_literal_range_is_checked_before_emit() {
+    let root = temp_dir("default_float_literal_range_is_checked_before_emit");
+    write(
+        &root.join("main.nia"),
+        "fun main() f64 { let value = 1e400; value }\n",
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("out of range")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn duplicate_parameter_diagnostic_keeps_previous_declaration() {
     let root = temp_dir("duplicate_parameter_diagnostic_keeps_previous_declaration");
     write(

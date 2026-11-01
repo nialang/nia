@@ -115,11 +115,10 @@ impl Analyzer<'_> {
                 // establishes the element type before the integer defaults.
                 let mut elem_ty = None;
                 let mut types_match = true;
+                let mut deferred = Vec::new();
                 for elem in elems {
                     let Some(actual) = self.resolved_const_array_elem_type(elem) else {
-                        if !self.is_untyped_const_integer_expr(elem) {
-                            types_match = false;
-                        }
+                        deferred.push(elem);
                         continue;
                     };
                     match &elem_ty {
@@ -139,19 +138,25 @@ impl Analyzer<'_> {
                 if elem_ty.is_none()
                     && elems
                         .iter()
-                        .all(|elem| self.is_untyped_const_integer_expr(elem))
+                        .all(|elem| self.is_untyped_const_numeric_expr(elem))
                 {
-                    elem_ty = Some(ConstValueType::Runtime(
-                        self.current_runtime_primitive_type(PrimitiveTy::I32),
-                    ));
-                    types_match = true;
+                    // Keep the same anchor rule as body checking: if no
+                    // concrete peer fixes the element type, the first
+                    // unsuffixed numeric literal supplies the default. The
+                    // remaining elements are then checked against it, which
+                    // correctly rejects mixed unsuffixed integer/float lists.
+                    let default = elems
+                        .first()
+                        .and_then(|elem| self.untyped_const_numeric_default_primitive(elem));
+                    elem_ty = default.map(|primitive| {
+                        ConstValueType::Runtime(self.current_runtime_primitive_type(primitive))
+                    });
                 }
                 if let Some(expected_elem) = elem_ty.as_ref().and_then(ConstValueType::runtime) {
-                    for elem in elems {
-                        if !self.is_untyped_const_integer_expr(elem) {
-                            continue;
-                        }
-                        let Some(actual) = self.resolved_const_expr_type(elem, Some(expected_elem))
+                    for elem in deferred {
+                        let Some(actual) = self
+                            .resolved_const_expr_type(elem, Some(expected_elem))
+                            .or_else(|| self.resolved_const_expr_with_numeric_defaults(elem))
                         else {
                             types_match = false;
                             continue;
@@ -175,7 +180,11 @@ impl Analyzer<'_> {
                 (elem_ty?, Some(u64::try_from(elems.len()).ok()?))
             }
             ResolvedConstArrayElementsKind::Repeat { value, count } => {
-                let elem_ty = self.resolved_const_array_elem_type(value);
+                let elem_ty = self.resolved_const_array_elem_type(value).or_else(|| {
+                    self.is_untyped_const_numeric_expr(value)
+                        .then(|| self.resolved_const_expr_with_numeric_defaults(value))
+                        .flatten()
+                });
                 let count_ty = self.resolved_const_arg_runtime_type(count, None);
                 if count_ty.is_some_and(|count_ty| {
                     self.const_runtime_type_is_known(count_ty)
@@ -205,16 +214,10 @@ impl Analyzer<'_> {
         if let Some(actual) = self.resolved_const_expr_type(elem, None) {
             return Some(actual);
         }
-        if self.is_untyped_const_integer_expr(elem) {
+        if self.is_untyped_const_numeric_expr(elem) {
             return None;
         }
-        let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
-        let diagnostic_len = self.diagnostics.len();
-        let result = self.resolved_const_expr_type(elem, Some(default_int));
-        if result.is_none() {
-            self.diagnostics.truncate(diagnostic_len);
-        }
-        result
+        self.resolved_const_expr_with_numeric_defaults(elem)
     }
 
     pub(super) fn expected_array_parts(

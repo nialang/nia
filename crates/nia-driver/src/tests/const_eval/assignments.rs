@@ -469,7 +469,8 @@ const fun throughSlicePointer() i32 {
 
 const fun inferredBinaryLocal() i32 {
     let mut value = -1 + 2;
-    value += 4;
+    let pointer = &mut value;
+    pointer.* += 4;
     value
 }
 
@@ -480,12 +481,139 @@ const fun inferredTupleLocal() i32 {
     pair.0
 }
 
+const fun inferredRepeatLocal() i32 {
+    let mut values = [1; 3];
+    let pointer = &mut values[1];
+    pointer.* = 9;
+    values[1]
+}
+
+const fun inferredRangeLocal() i32 {
+    let range = 1..3;
+    range.start() + range.end()
+}
+
+const fun inferredFloatLocal() f64 {
+    let mut value = 1.0;
+    let pointer = &mut value;
+    pointer.* += 2.0;
+    value
+}
+
+const fun inferredMixedIntegerArray() u64 {
+    let mut values = [1, 2u64];
+    let pointer = &mut values[0];
+    pointer.* = 9;
+    values[0] + values[1]
+}
+
+const fun inferredMixedFloatArray() f32 {
+    let mut values = [1.0, 2.0f32];
+    let pointer = &mut values[0];
+    pointer.* = 9.0;
+    values[0] + values[1]
+}
+
+const fun inferredRepeatedFloatArray() f64 {
+    let mut values = [1.0; 2];
+    let pointer = &mut values[1];
+    pointer.* = 4.0;
+    values[0] + values[1]
+}
+
+const fun inferredIfPeer() usize {
+    let value = if true { 1 } else { 2usize };
+    value
+}
+
+const fun inferredIfDefault() i32 {
+    let value = if true { 1 } else { 2 };
+    value
+}
+
+const fun inferredMatchPeer(flag: bool) usize {
+    match flag {
+        true => 1,
+        false => 2usize,
+    }
+}
+
+const fun inferredNestedArray() i32 {
+    let mut values = [[1, 2], [3, 4]];
+    let pointer = &mut values[1][0];
+    pointer.* = 9;
+    values[1][0]
+}
+
+struct InferredPoint {
+    value: i32,
+}
+
+struct InferredOuter {
+    point: InferredPoint,
+}
+
+const fun inferredAggregateArray() i32 {
+    let values = [InferredPoint { value: 1 }, .{ value: 2 }];
+    values[1].value
+}
+
+const fun inferredAggregateTuple() i32 {
+    let values: (InferredPoint, InferredPoint) = (InferredPoint { value: 3 }, .{ value: 4 });
+    values.1.value
+}
+
+const fun inferredNestedAggregate() i32 {
+    let value: InferredOuter = InferredOuter { point: .{ value: 5 } };
+    value.point.value
+}
+
+const fun readPoint(point: InferredPoint) i32 {
+    point.value
+}
+
+const fun inferredCallAggregate() i32 {
+    readPoint(.{ value: 6 })
+}
+
 const elementValue: i32 = throughElementPointer();
 const sliceValue: i32 = throughSlicePointer();
 const binaryValue: i32 = inferredBinaryLocal();
 const tupleValue: i32 = inferredTupleLocal();
+const repeatValue: i32 = inferredRepeatLocal();
+const rangeValue: i32 = inferredRangeLocal();
+const floatValue: f64 = inferredFloatLocal();
+const mixedIntegerValue: u64 = inferredMixedIntegerArray();
+const mixedFloatValue: f32 = inferredMixedFloatArray();
+const repeatedFloatValue: f64 = inferredRepeatedFloatArray();
+const ifPeerValue: usize = inferredIfPeer();
+const ifDefaultValue: i32 = inferredIfDefault();
+const matchPeerValue: usize = inferredMatchPeer(true);
+const nestedArrayValue: i32 = inferredNestedArray();
+const aggregateArrayValue: i32 = inferredAggregateArray();
+const aggregateTupleValue: i32 = inferredAggregateTuple();
+const nestedAggregateValue: i32 = inferredNestedAggregate();
+const callAggregateValue: i32 = inferredCallAggregate();
 
-fun main() i32 { elementValue + sliceValue + binaryValue + tupleValue }
+fun main() i32 {
+    (elementValue
+        + sliceValue
+        + binaryValue
+        + tupleValue
+        + repeatValue
+        + rangeValue
+        + mixedIntegerValue as i32
+        + mixedFloatValue as i32
+        + repeatedFloatValue as i32
+        + ifPeerValue as i32
+        + ifDefaultValue
+        + matchPeerValue as i32
+        + nestedArrayValue
+        + aggregateArrayValue
+        + aggregateTupleValue
+        + nestedAggregateValue
+        + callAggregateValue) as i32
+}
 "#,
     );
 

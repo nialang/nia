@@ -657,7 +657,21 @@ impl Analyzer<'_> {
                 _ => None,
             })
         })?;
-        let value = nia_literals::eval_int_literal(text).ok()?;
+        let value = match nia_literals::eval_int_literal(text) {
+            Ok(value) => value,
+            Err(_) => {
+                self.push_const_type_error(
+                    expr.span(),
+                    &format!(
+                        "const integer literal {text} is out of range for {}",
+                        primitive.name()
+                    ),
+                );
+                return Some(ConstValueType::Runtime(
+                    self.current_runtime_primitive_type(primitive),
+                ));
+            }
+        };
         let fits = if negative {
             if !primitive.is_signed_integer() {
                 false
@@ -693,6 +707,73 @@ impl Analyzer<'_> {
         ))
     }
 
+    pub(super) fn resolved_const_float_literal_type(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        text: &str,
+        expected: Option<InternedTyId>,
+    ) -> Option<ConstValueType> {
+        let primitive = float_literal_suffix_ty(text).or_else(|| {
+            expected.and_then(|ty| match self.ty_kind(ty) {
+                Some(TyKind::Primitive(primitive)) if primitive.is_float() => Some(primitive),
+                _ => None,
+            })
+        })?;
+        let value = match nia_literals::eval_float_literal(text) {
+            Ok(value) => value,
+            Err(_) => {
+                self.push_const_type_error(
+                    expr.span(),
+                    &format!(
+                        "const float literal `{text}` is out of range for {}",
+                        primitive.name()
+                    ),
+                );
+                return Some(ConstValueType::Runtime(
+                    self.current_runtime_primitive_type(primitive),
+                ));
+            }
+        };
+        let fits = match primitive {
+            PrimitiveTy::F32 => (value as f32).is_finite(),
+            PrimitiveTy::F64 => value.is_finite(),
+            _ => true,
+        };
+        if !fits {
+            self.push_const_type_error(
+                expr.span(),
+                &format!(
+                    "const float literal `{text}` is out of range for {}",
+                    primitive.name()
+                ),
+            );
+        }
+        Some(ConstValueType::Runtime(
+            self.current_runtime_primitive_type(primitive),
+        ))
+    }
+
+    pub(super) fn resolved_const_expr_with_numeric_defaults(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Option<ConstValueType> {
+        let diagnostic_len = self.diagnostics.len();
+        let mut last_failed_diagnostics = Vec::new();
+        for primitive in [PrimitiveTy::I32, PrimitiveTy::F64] {
+            let default_ty = self.current_runtime_primitive_type(primitive);
+            if let Some(result) = self.resolved_const_expr_type(expr, Some(default_ty)) {
+                return Some(result);
+            }
+            let failed_diagnostics = self.diagnostics.split_off(diagnostic_len);
+            if !failed_diagnostics.is_empty() {
+                last_failed_diagnostics = failed_diagnostics;
+            }
+            self.diagnostics.truncate(diagnostic_len);
+        }
+        self.diagnostics.extend(last_failed_diagnostics);
+        None
+    }
+
     fn resolved_const_tuple_elem_runtime_type(
         &mut self,
         elem: &ResolvedConstExpr,
@@ -704,13 +785,8 @@ impl Analyzer<'_> {
         if expected.is_some() {
             return None;
         }
-        let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
-        let diagnostic_len = self.diagnostics.len();
-        let result = self.resolved_const_arg_runtime_type(elem, Some(default_int));
-        if result.is_none() {
-            self.diagnostics.truncate(diagnostic_len);
-        }
-        result
+        self.resolved_const_expr_with_numeric_defaults(elem)
+            .and_then(|ty| ty.runtime())
     }
 
     fn resolved_const_expr_type_inner(
@@ -726,19 +802,7 @@ impl Analyzer<'_> {
                 self.resolved_const_integer_literal_type(expr, text, expected, false)
             }
             ResolvedConstExprKind::Float(text) => {
-                let primitive = float_literal_suffix_ty(text)
-                    .or_else(|| {
-                        expected.and_then(|ty| match self.ty_kind(ty) {
-                            Some(TyKind::Primitive(primitive)) if primitive.is_float() => {
-                                Some(primitive)
-                            }
-                            _ => None,
-                        })
-                    })
-                    .unwrap_or(PrimitiveTy::F64);
-                Some(ConstValueType::Runtime(
-                    self.current_runtime_primitive_type(primitive),
-                ))
+                self.resolved_const_float_literal_type(expr, text, expected)
             }
             ResolvedConstExprKind::Char(_) => Some(ConstValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Char),
@@ -2149,8 +2213,42 @@ impl Analyzer<'_> {
             }
             return Some(ConstValueType::Runtime(then_ty));
         }
-        let then_ty = self.resolved_const_block_tail_type(then_branch, None)?;
-        let else_ty = self.resolved_const_expr_type(else_branch, None)?;
+        let then_is_numeric = then_branch
+            .tail()
+            .is_some_and(|tail| self.is_untyped_const_numeric_expr(tail));
+        let else_is_numeric = self.is_untyped_const_numeric_expr(else_branch);
+        if then_is_numeric && !else_is_numeric {
+            let else_ty = self.resolved_const_expr_type(else_branch, None)?;
+            let else_runtime = else_ty.runtime()?;
+            let then_ty =
+                self.resolved_const_block_tail_runtime_type(then_branch, Some(else_runtime))?;
+            if then_ty != else_runtime {
+                self.push_const_type_error(
+                    else_branch.span(),
+                    "const if branches have incompatible types",
+                );
+                return None;
+            }
+            return Some(ConstValueType::Runtime(then_ty));
+        }
+        let then_ty = self
+            .resolved_const_block_tail_type(then_branch, None)
+            .or_else(|| {
+                then_is_numeric
+                    .then(|| self.resolved_const_block_tail_numeric_default(then_branch))
+                    .flatten()
+            })?;
+        let else_ty = if !then_is_numeric && else_is_numeric {
+            let then_runtime = then_ty.runtime()?;
+            self.resolved_const_expr_type(else_branch, Some(then_runtime))?
+        } else {
+            self.resolved_const_expr_type(else_branch, None)
+                .or_else(|| {
+                    else_is_numeric
+                        .then(|| self.resolved_const_expr_with_numeric_defaults(else_branch))
+                        .flatten()
+                })?
+        };
         if then_ty != else_ty {
             if self.const_value_types_have_known_mismatch(&then_ty, &else_ty) {
                 self.push_const_type_error(
@@ -2161,6 +2259,14 @@ impl Analyzer<'_> {
             return None;
         }
         Some(then_ty)
+    }
+
+    fn resolved_const_block_tail_numeric_default(
+        &mut self,
+        block: &ResolvedConstBlock,
+    ) -> Option<ConstValueType> {
+        let tail = block.tail()?;
+        self.resolved_const_expr_with_numeric_defaults(tail)
     }
 
     pub(super) fn usable_const_expected_type(&self, ty: InternedTyId) -> Option<InternedTyId> {

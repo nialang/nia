@@ -1223,7 +1223,30 @@ impl<'a> BodyChecker<'a> {
         context: &str,
     ) -> bool {
         let Some(value) = integer_literal_value(expr) else {
-            return false;
+            let literal = match &expr.kind {
+                ExprKind::Integer(text) => Some(text.as_str()),
+                ExprKind::Unary {
+                    op: UnaryOp::Neg,
+                    expr,
+                } => match &expr.kind {
+                    ExprKind::Integer(text) => Some(text.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(literal) = literal else {
+                return false;
+            };
+            let summary = format!(
+                "integer literal `{literal}` is out of range for {} in {context}",
+                self.ty_name(expected)
+            );
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    .primary(expr.span, summary)
+                    .finish(),
+            );
+            return true;
         };
         let expected = self.normalization.normalize(expected);
         let Some(TyKind::Primitive(primitive)) = self.interner.get(expected) else {

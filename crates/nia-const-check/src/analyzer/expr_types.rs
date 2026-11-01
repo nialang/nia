@@ -61,11 +61,7 @@ impl Analyzer<'_> {
         if explicit.is_some() {
             return None;
         }
-        if !self.is_untyped_const_integer_expr(binding.value()) {
-            return None;
-        }
-        let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
-        self.resolved_const_expr_type(binding.value(), Some(default_int))
+        self.resolved_const_expr_with_numeric_defaults(binding.value())
     }
 
     pub(super) fn is_untyped_const_integer_expr(&self, expr: &ResolvedConstExpr) -> bool {
@@ -80,6 +76,39 @@ impl Analyzer<'_> {
                     if integer_literal_suffix_ty(text).is_none()
             ),
             _ => false,
+        }
+    }
+
+    pub(super) fn is_untyped_const_numeric_expr(&self, expr: &ResolvedConstExpr) -> bool {
+        self.untyped_const_numeric_default_primitive(expr).is_some()
+    }
+
+    pub(super) fn untyped_const_numeric_default_primitive(
+        &self,
+        expr: &ResolvedConstExpr,
+    ) -> Option<PrimitiveTy> {
+        match expr.kind() {
+            ResolvedConstExprKind::Integer(text) if integer_literal_suffix_ty(text).is_none() => {
+                Some(PrimitiveTy::I32)
+            }
+            ResolvedConstExprKind::Float(text) if float_literal_suffix_ty(text).is_none() => {
+                Some(PrimitiveTy::F64)
+            }
+            ResolvedConstExprKind::Unary {
+                op: ConstUnaryOp::Neg,
+                expr,
+            } => match expr.kind() {
+                ResolvedConstExprKind::Integer(text)
+                    if integer_literal_suffix_ty(text).is_none() =>
+                {
+                    Some(PrimitiveTy::I32)
+                }
+                ResolvedConstExprKind::Float(text) if float_literal_suffix_ty(text).is_none() => {
+                    Some(PrimitiveTy::F64)
+                }
+                _ => None,
+            },
+            _ => None,
         }
     }
 
@@ -276,15 +305,32 @@ impl Analyzer<'_> {
             }) if expected_kind == kind => bound,
             _ => None,
         });
-        let start_ty = match range.start() {
-            Some(start) => Some(self.resolved_const_arg_runtime_type(start, expected_bound)?),
-            None => None,
-        };
-        let end_ty = match range.end() {
-            Some(end) => {
-                Some(self.resolved_const_arg_runtime_type(end, expected_bound.or(start_ty))?)
+        let (start_ty, end_ty) = match (range.start(), range.end(), expected_bound) {
+            (Some(start), Some(end), None)
+                if self.is_untyped_const_integer_expr(start)
+                    && !self.is_untyped_const_integer_expr(end) =>
+            {
+                let end_ty = self.resolved_const_range_bound_runtime_type(end, None);
+                let start_ty = self.resolved_const_range_bound_runtime_type(start, end_ty);
+                (start_ty, end_ty)
             }
-            None => None,
+            (Some(start), Some(end), None)
+                if !self.is_untyped_const_integer_expr(start)
+                    && self.is_untyped_const_integer_expr(end) =>
+            {
+                let start_ty = self.resolved_const_range_bound_runtime_type(start, None);
+                let end_ty = self.resolved_const_range_bound_runtime_type(end, start_ty);
+                (start_ty, end_ty)
+            }
+            _ => {
+                let start_ty = range.start().and_then(|start| {
+                    self.resolved_const_range_bound_runtime_type(start, expected_bound)
+                });
+                let end_ty = range.end().and_then(|end| {
+                    self.resolved_const_range_bound_runtime_type(end, expected_bound.or(start_ty))
+                });
+                (start_ty, end_ty)
+            }
         };
         let bound = match (start_ty, end_ty) {
             (Some(start_ty), Some(end_ty)) if start_ty == end_ty => Some(start_ty),
@@ -303,6 +349,21 @@ impl Analyzer<'_> {
         Some(ConstValueType::Runtime(ty))
     }
 
+    fn resolved_const_range_bound_runtime_type(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        self.resolved_const_arg_runtime_type(expr, expected)
+            .or_else(|| {
+                if expected.is_some() || !self.is_untyped_const_integer_expr(expr) {
+                    return None;
+                }
+                let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
+                self.resolved_const_arg_runtime_type(expr, Some(default_int))
+            })
+    }
+
     pub(super) fn resolved_const_binary_expr_type(
         &mut self,
         lhs: &ResolvedConstExpr,
@@ -318,8 +379,8 @@ impl Analyzer<'_> {
                 self.resolved_const_equality_expr_type(lhs, rhs)
             }
             ConstBinaryOp::Lt | ConstBinaryOp::Le | ConstBinaryOp::Gt | ConstBinaryOp::Ge => {
-                let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
-                let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
+                let (lhs_ty, rhs_ty) =
+                    self.resolved_const_binary_operand_types(lhs, rhs, expected)?;
                 if lhs_ty != rhs_ty
                     || (!self.is_integer_runtime_type(lhs_ty)
                         && !self.is_float_runtime_type(lhs_ty))
@@ -341,8 +402,8 @@ impl Analyzer<'_> {
             | ConstBinaryOp::BitAnd
             | ConstBinaryOp::BitXor
             | ConstBinaryOp::BitOr => {
-                let lhs_ty = self.resolved_const_arg_runtime_type(lhs, expected)?;
-                let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
+                let (lhs_ty, rhs_ty) =
+                    self.resolved_const_binary_operand_types(lhs, rhs, expected)?;
                 let allowed = match op {
                     ConstBinaryOp::Shl
                     | ConstBinaryOp::Shr
@@ -359,6 +420,32 @@ impl Analyzer<'_> {
                 Some(ConstValueType::Runtime(lhs_ty))
             }
         }
+    }
+
+    fn resolved_const_binary_operand_types(
+        &mut self,
+        lhs: &ResolvedConstExpr,
+        rhs: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<(InternedTyId, InternedTyId)> {
+        if expected.is_some() {
+            let lhs_ty = self.resolved_const_arg_runtime_type(lhs, expected)?;
+            let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
+            return Some((lhs_ty, rhs_ty));
+        }
+        if self.is_untyped_const_numeric_expr(lhs) && !self.is_untyped_const_numeric_expr(rhs) {
+            let rhs_ty = self.resolved_const_arg_runtime_type(rhs, None)?;
+            let lhs_ty = self.resolved_const_arg_runtime_type(lhs, Some(rhs_ty))?;
+            return Some((lhs_ty, rhs_ty));
+        }
+        if !self.is_untyped_const_numeric_expr(lhs) && self.is_untyped_const_numeric_expr(rhs) {
+            let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
+            let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
+            return Some((lhs_ty, rhs_ty));
+        }
+        let lhs_ty = self.resolved_const_arg_runtime_type(lhs, None)?;
+        let rhs_ty = self.resolved_const_arg_runtime_type(rhs, Some(lhs_ty))?;
+        Some((lhs_ty, rhs_ty))
     }
 
     pub(super) fn resolved_const_cast_type(
@@ -412,10 +499,30 @@ impl Analyzer<'_> {
         lhs: &ResolvedConstExpr,
         rhs: &ResolvedConstExpr,
     ) -> Option<ConstValueType> {
-        let lhs_ty = self.resolved_const_expr_type(lhs, None)?;
-        let rhs_ty = self
-            .resolved_const_expr_type(rhs, lhs_ty.runtime())
-            .or_else(|| self.resolved_const_expr_type(rhs, None))?;
+        let (lhs_ty, rhs_ty) = if self.is_untyped_const_numeric_expr(lhs)
+            && !self.is_untyped_const_numeric_expr(rhs)
+        {
+            let rhs_ty = self.resolved_const_arg_runtime_type(rhs, None)?;
+            let lhs_ty = self.resolved_const_expr_type(lhs, Some(rhs_ty))?;
+            (lhs_ty, ConstValueType::Runtime(rhs_ty))
+        } else if !self.is_untyped_const_numeric_expr(lhs)
+            && self.is_untyped_const_numeric_expr(rhs)
+        {
+            let lhs_ty = self.resolved_const_expr_type(lhs, None)?;
+            let rhs_ty = self.resolved_const_expr_type(rhs, lhs_ty.runtime())?;
+            (lhs_ty, rhs_ty)
+        } else {
+            let lhs_ty = self.resolved_const_expr_type(lhs, None).or_else(|| {
+                self.resolved_const_expr_type(
+                    lhs,
+                    Some(self.current_runtime_primitive_type(PrimitiveTy::I32)),
+                )
+            })?;
+            let rhs_ty = self
+                .resolved_const_expr_type(rhs, lhs_ty.runtime())
+                .or_else(|| self.resolved_const_expr_type(rhs, None))?;
+            (lhs_ty, rhs_ty)
+        };
         if lhs_ty != rhs_ty && !self.const_equality_types_are_compatible(&lhs_ty, &rhs_ty) {
             if let (Some(lhs_ty), Some(rhs_ty)) = (lhs_ty.runtime(), rhs_ty.runtime()) {
                 self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
