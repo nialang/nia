@@ -44,8 +44,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     // `map` is lazy; `fold` and `position` consume the iterator.
     let squares = (1..5).iter().map(\value -> value * value);
-    let squareTotal = squares.fold(0, &\total, value -> total + value);
-    let firstLarge = (1..10).iter().position(&\value -> value * value > 20);
+    let squareTotal = squares.fold(0, \total, value -> total + value);
+    let firstLarge = (1..10).iter().position(\value -> value * value > 20);
     let index = if firstLarge is ?index { index } else { 0 };
 
     io::debugPrint("a={} b={} c={} calls={} d={} answer={}\n", [

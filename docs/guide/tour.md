@@ -656,7 +656,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     // `map` transforms lazily; `fold` consumes the mapped values.
     let squares = (1..5).iter().map(\value -> value * value);
-    let squareTotal = squares.fold(0, &\total, value -> total + value);
+    let squareTotal = squares.fold(0, \total, value -> total + value);
 
     io::debugPrint("a={} b={} c={} calls={} d={} squares={}\n", [
         a, b, c, calls, d, squareTotal,
