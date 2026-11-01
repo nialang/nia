@@ -372,7 +372,7 @@ fn signed_int_range(bits: u32) -> (IntConst, IntConst) {
     let min_bits = 1u128 << (bits - 1);
     let mask = int_mask(bits);
     (
-        IntConst::signed_bits(min_bits),
+        IntConst::signed_bits(0u128.wrapping_sub(min_bits)),
         IntConst::signed_bits(mask ^ min_bits),
     )
 }
@@ -1493,6 +1493,13 @@ mod tests {
             SyntaxKind::Expr,
             NodeChildPath::from_steps([step]),
         )
+    }
+
+    #[test]
+    fn signed_integer_limits_use_two_complement_minimum_bits() {
+        let (min, max) = signed_int_range(32);
+        assert_eq!(min, IntConst::signed(i32::MIN as i128));
+        assert_eq!(max, IntConst::signed(i32::MAX as i128));
     }
 
     #[test]

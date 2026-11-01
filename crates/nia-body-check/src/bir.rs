@@ -26,8 +26,9 @@ use nia_ty::{ArrayLenTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::{
-    decode_byte_string_literal, decode_char_literal, decode_string_literal,
-    float_literal_suffix_ty, integer_literal_suffix_ty, numeric_literal_body,
+    IntegerLiteralRangeValue, decode_byte_string_literal, decode_char_literal,
+    decode_string_literal, float_literal_suffix_ty, integer_literal_suffix_ty,
+    integer_literal_value, numeric_literal_body,
 };
 
 mod asm;
@@ -582,7 +583,7 @@ impl<'a> BodyChecker<'a> {
                 fields: Vec::new(),
             };
         }
-        if (self.is_integer(target_ty) || self.is_bool(target_ty))
+        if (self.is_integer(target_ty) || self.is_bool(target_ty) || self.is_char(target_ty))
             && let Some(value) = self.node_pattern_values.get(&expr.node_key).copied()
         {
             return TypedPatternKind::CheckedInt { value };
@@ -1154,6 +1155,28 @@ impl<'a> BodyChecker<'a> {
                             .collect(),
                     }
                 }
+            }
+            ExprKind::Unary {
+                op: UnaryOp::Neg, ..
+            } if matches!(
+                self.interner.get(ty),
+                Some(TyKind::Primitive(primitive)) if primitive.is_signed_integer()
+            ) && matches!(
+                integer_literal_value(expr),
+                Some(IntegerLiteralRangeValue::Representable(value)) if value.is_signed()
+            ) =>
+            {
+                let Some(IntegerLiteralRangeValue::Representable(value)) =
+                    integer_literal_value(expr)
+                else {
+                    unreachable!("negative integer literal guard must have a representable value")
+                };
+                TypedExprKind::Integer(
+                    value
+                        .as_i128()
+                        .expect("representable signed integer literal")
+                        .to_string(),
+                )
             }
             ExprKind::Unary { op, expr: inner }
                 if let Some(trait_id) = BuiltinOperatorOp::Unary(*op).trait_id() =>
