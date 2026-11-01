@@ -40,6 +40,10 @@ pub(super) fn collect_semantic_layout_roots(
                     roots.add(value.function_ty);
                     roots.add(value.pointer_ty);
                 }
+                nia_sema_ir::ExprAdjustment::ClosureToFunctionPointer(value) => {
+                    roots.add(value.closure_ty);
+                    roots.add(value.pointer_ty);
+                }
                 nia_sema_ir::ExprAdjustment::PointerArrayToSlice(value) => {
                     roots.add(value.pointer_ty);
                     roots.add(value.array_ty);

@@ -1007,6 +1007,19 @@ pub struct FunctionItemToPointerCoercion {
     pub pointer_ty: InternedTyId,
 }
 
+/// Contextual conversion from a non-capturing closure to a thin function
+/// pointer. The closure environment is absent, so the resulting pointer can
+/// use the ordinary Nia callable ABI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClosureToFunctionPointerCoercion {
+    /// Identity of the closure entry being converted.
+    pub closure_id: nia_ids::ClosureId,
+    /// Closure-state type before the conversion.
+    pub closure_ty: InternedTyId,
+    /// Thin function-pointer type produced by the conversion.
+    pub pointer_ty: InternedTyId,
+}
+
 /// Coercion from a mutable pointer to its readonly view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MutableToReadonlyCoercion {
@@ -1051,6 +1064,7 @@ pub enum ExprAdjustment {
     AddressOf(AddressOfCoercion),
     ClosureCallableView(ClosureCallableViewCoercion),
     FunctionItemToPointer(FunctionItemToPointerCoercion),
+    ClosureToFunctionPointer(ClosureToFunctionPointerCoercion),
     PointerArrayToSlice(PointerArrayToSliceCoercion),
     MutableToReadonly(MutableToReadonlyCoercion),
     FunctionPointerToCallable(FunctionPointerToCallableCoercion),
@@ -1064,6 +1078,7 @@ impl ExprAdjustment {
             Self::AddressOf(value) => value.source_ty,
             Self::ClosureCallableView(value) => value.source_ty,
             Self::FunctionItemToPointer(value) => value.function_ty,
+            Self::ClosureToFunctionPointer(value) => value.closure_ty,
             Self::PointerArrayToSlice(value) => value.pointer_ty,
             Self::MutableToReadonly(value) => value.source_ty,
             Self::FunctionPointerToCallable(value) => value.function_ty,
@@ -1077,6 +1092,7 @@ impl ExprAdjustment {
             Self::AddressOf(value) => value.target_ty,
             Self::ClosureCallableView(value) => value.target_ty,
             Self::FunctionItemToPointer(value) => value.pointer_ty,
+            Self::ClosureToFunctionPointer(value) => value.pointer_ty,
             Self::PointerArrayToSlice(value) => value.slice_ty,
             Self::MutableToReadonly(value) => value.target_ty,
             Self::FunctionPointerToCallable(value) => value.callable_ty,

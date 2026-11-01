@@ -56,7 +56,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        self.check_expr_with_expected_and_closure_view(expr, expected, true)
+        self.check_expr_with_expected_and_closure_view(expr, expected, true, true)
     }
 
     fn check_expr_with_expected_and_closure_view(
@@ -64,6 +64,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
         allow_closure_view: bool,
+        allow_auto_address: bool,
     ) -> InternedTyId {
         let adaptation_expected = expected;
         let expected = self.expected_literal_type_for_auto_address(expr, expected);
@@ -325,6 +326,7 @@ impl<'a> BodyChecker<'a> {
                             inner,
                             expected_ref_target,
                             false,
+                            false,
                         );
                         let inner_ty = expected_ref_target
                             .and_then(|expected| {
@@ -348,6 +350,7 @@ impl<'a> BodyChecker<'a> {
                         let inner_ty = self.check_expr_with_expected_and_closure_view(
                             inner,
                             expected_ref_target,
+                            false,
                             false,
                         );
                         let inner_ty = expected_ref_target
@@ -524,8 +527,14 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = if let Some(expected) = adaptation_expected {
             let actual = ty;
-            self.adapt_expr_to_expected_type(expr, expected, actual, true, allow_closure_view)
-                .unwrap_or(actual)
+            self.adapt_expr_to_expected_type(
+                expr,
+                expected,
+                actual,
+                allow_auto_address,
+                allow_closure_view,
+            )
+            .unwrap_or(actual)
         } else {
             ty
         };

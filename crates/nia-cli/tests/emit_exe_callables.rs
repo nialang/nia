@@ -17,11 +17,20 @@ using std::process;
 
 fun addsNumbers(left: i32, right: i32) i32 { left + right }
 fun invoke(callback: &fun(i32, i32) i32) i32 { callback(2, 3) }
+fun invokeView(callback: &Fun(i32, i32) i32) i32 { callback(2, 3) }
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let pointer: &fun(i32, i32) i32 = addsNumbers;
-    if pointer(4, 5) != 9 or invoke(addsNumbers) != 5 {
+    let view: &Fun(i32, i32) i32 = addsNumbers;
+    let callback = \left: i32, right: i32 -> left + right;
+    let closure_pointer: &fun(i32, i32) i32 = callback;
+    if pointer(4, 5) != 9
+        or invoke(addsNumbers) != 5
+        or view(6, 7) != 13
+        or invokeView(addsNumbers) != 5
+        or closure_pointer(8, 9) != 17
+    {
         return process::ExitCode(1)!;
     }
     !()

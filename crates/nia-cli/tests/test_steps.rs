@@ -59,8 +59,8 @@ fun recordCaseResult(result: test::CaseResult) () {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
-        .init(&"passing", &passingCase),
-        .init(&"failing", &failingCase),
+        .init(&"passing", passingCase),
+        .init(&"failing", failingCase),
     ];
     let first = cases[0].run();
     if not first.isPassed() {
@@ -98,8 +98,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(14)!;
     }
     let failFastCases: [test::Case; 2] = [
-        .init(&"failing", &failingCase),
-        .init(&"passing", &passingCase),
+        .init(&"failing", failingCase),
+        .init(&"passing", passingCase),
     ];
     let failFast = test::Runner::init(&failFastCases[..]).withFailFast().run();
     if failFast.total() != 2 or failFast.passed() != 0 or failFast.failed() != 1

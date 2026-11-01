@@ -68,6 +68,25 @@ impl<'a> BodyChecker<'a> {
         if allow_auto_address
             && let Some(target_ty) = self.coerce_auto_function_item_pointer(expr, expected, actual)
         {
+            if target_ty != expected
+                && let Some(callable_ty) =
+                    self.coerce_function_pointer_to_callable(expected, target_ty)
+            {
+                self.record_function_pointer_to_callable_coercion(
+                    expr,
+                    FunctionPointerToCallableCoercion {
+                        function_ty: target_ty,
+                        callable_ty,
+                    },
+                );
+                return Some(callable_ty);
+            }
+            return Some(target_ty);
+        }
+        if allow_auto_address
+            && let Some(target_ty) =
+                self.coerce_auto_closure_function_pointer(expr, expected, actual)
+        {
             return Some(target_ty);
         }
         if allow_auto_address
@@ -145,12 +164,26 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let expected = self.normalize_aliases_in_type(expected);
         let actual = self.normalize_aliases_in_type(actual);
+        let expected_pointer = match self.interner.get(expected).cloned() {
+            Some(TyKind::FunctionPointer { .. }) => expected,
+            Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }) => self.interner.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: false,
+                abi: nia_ty::FunctionPointerAbi::Nia,
+            }),
+            _ => return None,
+        };
         let Some(TyKind::FunctionPointer {
             params: expected_params,
             return_type: expected_return,
             is_variadic: expected_variadic,
             abi: expected_abi,
-        }) = self.interner.get(expected).cloned()
+        }) = self.interner.get(expected_pointer).cloned()
         else {
             return None;
         };
@@ -165,6 +198,19 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let resolved = self.resolved_function_signature(def_id)?;
+        if resolved.signature.attributes.iter().any(|attribute| {
+            matches!(
+                attribute,
+                nia_item_signatures::FunctionAttribute::TrackCaller
+            )
+        }) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                "tracked-caller functions cannot be used as ordinary function pointers or callable values",
+            ));
+            return Some(self.error());
+        }
         let actual_abi = if resolved.signature.is_extern {
             nia_ty::FunctionPointerAbi::C
         } else {
@@ -189,6 +235,80 @@ impl<'a> BodyChecker<'a> {
             expr,
             FunctionItemToPointerCoercion {
                 function_ty: actual,
+                pointer_ty: expected_pointer,
+            },
+        );
+        Some(expected_pointer)
+    }
+
+    pub(crate) fn coerce_auto_closure_function_pointer(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        if matches!(
+            expr.kind,
+            ExprKind::Unary {
+                op: UnaryOp::Ref | UnaryOp::RefReadOnly,
+                ..
+            }
+        ) {
+            return None;
+        }
+        let expected = self.normalize_aliases_in_type(expected);
+        let actual = self.normalize_aliases_in_type(actual);
+        let Some(TyKind::FunctionPointer {
+            params: expected_params,
+            return_type: expected_return,
+            is_variadic: false,
+            abi: nia_ty::FunctionPointerAbi::Nia,
+        }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        let Some(TyKind::ClosureState {
+            closure_id,
+            captures,
+            params: actual_params,
+            return_type: actual_return,
+            ..
+        }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        if !captures.is_empty() {
+            let summary = "capturing closures cannot be converted to thin function pointers";
+            self.diagnostics.push(
+                Diagnostic::user_error(codes::TYPE_CHECK, summary)
+                    .primary(expr.span, summary)
+                    .note(format!(
+                        "this closure captures {} value(s), but a thin function pointer has no environment storage",
+                        captures.len()
+                    ))
+                    .help("use a callable view such as `&Fun(...)` to retain the closure environment")
+                    .finish(),
+            );
+            return Some(self.error());
+        }
+        if expected_params.len() != actual_params.len()
+            || !expected_params
+                .iter()
+                .zip(actual_params)
+                .all(|(expected, actual)| self.types_match(*expected, actual))
+            || !self.types_match(expected_return, actual_return)
+        {
+            return None;
+        }
+        self.reject_const_operation(
+            expr.span,
+            "function pointer values are not available during const evaluation",
+        );
+        self.record_closure_to_function_pointer_coercion(
+            expr,
+            nia_sema_ir::ClosureToFunctionPointerCoercion {
+                closure_id,
+                closure_ty: actual,
                 pointer_ty: expected,
             },
         );

@@ -2165,6 +2165,84 @@ fun main() i32 {
 }
 
 #[test]
+fn auto_addresses_non_capturing_closures_in_thin_pointer_contexts() {
+    let checked = pipeline(
+        r#"
+fun invoke(callback: &fun(i32) i32) i32 { callback(4) }
+
+fun main() i32 {
+    let callback = \value: i32 -> value + 1;
+    let pointer: &fun(i32) i32 = callback;
+    pointer(2) + invoke(callback)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let plans = checked
+        .facts
+        .iter_node_expr_adjustments()
+        .filter(|(_, plan)| {
+            plan.steps.iter().any(|step| {
+                matches!(
+                    step,
+                    nia_sema_ir::ExprAdjustment::ClosureToFunctionPointer(_)
+                )
+            })
+        })
+        .count();
+    assert_eq!(
+        plans,
+        2,
+        "{:#?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn auto_addresses_function_items_in_callable_view_contexts() {
+    let checked = pipeline(
+        r#"
+fun increment(value: i32) i32 { value + 1 }
+
+fun invoke(callback: &Fun(i32) i32) i32 { callback(4) }
+
+fun main() i32 {
+    let view: &Fun(i32) i32 = increment;
+    view(2) + invoke(increment)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let plans = checked
+        .facts
+        .iter_node_expr_adjustments()
+        .filter(|(_, plan)| {
+            plan.steps
+                .iter()
+                .any(|step| matches!(step, nia_sema_ir::ExprAdjustment::FunctionItemToPointer(_)))
+                && plan.steps.iter().any(|step| {
+                    matches!(
+                        step,
+                        nia_sema_ir::ExprAdjustment::FunctionPointerToCallable(_)
+                    )
+                })
+        })
+        .count();
+    assert_eq!(
+        plans,
+        2,
+        "{:#?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn rejects_capturing_closure_to_thin_function_pointer_with_dedicated_diagnostic() {
     let checked = pipeline(
         r#"
@@ -2293,10 +2371,31 @@ fun tracked() i32 { 1 }
 fun main() () {
     _ = &tracked;
 }
-
 "#,
     );
 
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic.summary.contains(
+            "tracked-caller functions cannot be used as ordinary function pointers or callable values"
+        )),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn rejects_tracked_caller_function_items_in_implicit_pointer_contexts() {
+    let checked = pipeline(
+        r#"
+@[trackCaller]
+fun tracked() i32 { 1 }
+
+fun main() i32 {
+    let pointer: &fun() i32 = tracked;
+    pointer()
+}
+"#,
+    );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic.summary.contains(
             "tracked-caller functions cannot be used as ordinary function pointers or callable values"

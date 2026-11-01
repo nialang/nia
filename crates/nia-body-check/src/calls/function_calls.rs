@@ -111,6 +111,39 @@ impl<'a> BodyChecker<'a> {
             return (self.diagnostics.len() != diagnostics_before).then_some(self.error());
         };
         if !is_readonly {
+            let normalized_expected =
+                expected.map(|expected| self.normalize_aliases_in_type(expected));
+            let expects_function_value = normalized_expected.is_some_and(|expected| {
+                matches!(
+                    self.interner.get(expected),
+                    Some(TyKind::FunctionPointer { .. }) | Some(TyKind::Callable { .. })
+                )
+            });
+            let signature = &item.resolved.signature;
+            if expects_function_value && let Some(builtin) = builtin_function(signature) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    format!(
+                        "builtin function `{}` cannot be used as a function pointer",
+                        builtin.name()
+                    ),
+                ));
+                return Some(self.error());
+            }
+            if expects_function_value
+                && signature
+                    .attributes
+                    .iter()
+                    .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
+            {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "tracked-caller functions cannot be used as ordinary function pointers or callable values",
+                ));
+                return Some(self.error());
+            }
             // A bare function name is the statically-known function item. It
             // is a zero-sized value and does not require a runtime pointer.
             // Pointer formation is handled by the explicit unary-reference
