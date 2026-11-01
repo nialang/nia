@@ -1,232 +1,411 @@
-# Error Handling Patterns
+# Error Handling
 
-This guide demonstrates idiomatic error handling in Nia, based on patterns from the standard library.
+Nia has no exceptions. A function that can fail says so in its return type, and
+the caller decides what happens next. This guide shows the patterns the
+standard library uses, from propagating a failure to cleaning up after one.
+The [language tour](tour.md#optionals-and-errors) introduces the syntax, and the
+[language reference](../reference/language.md#propagation) has the exact rules.
 
-## Core Principles
+Every program here is complete; build one with `nia emit --exe` and run it to
+see the output shown after it.
 
-Nia has no exceptions. Operations that can fail return:
-- `?T` for optional values (present `?value` or `null`)
-- `E!T` for error unions (success `!value` or error `error!`)
+## Choosing A Result Type
 
-Error handling is explicit, composable, and never hidden in control flow.
+Two types carry an outcome:
 
-## Pattern 1: Propagation with `.?`
+- `?T` is an optional: `?value` when there is one, `null` when there is not.
+  Use it when absence is an ordinary answer, as in a lookup.
+- `E!T` is an error union: `!value` on success, `error!` on failure. Use it
+  when the caller needs to know why an operation failed.
 
-The `.?` operator unwraps success or returns early. This is the primary error-handling pattern:
+`E` can be any type. Most modules declare one enum with a variant per cause,
+and a variant may carry details. An operation with nothing to return on
+success returns `E!()` and succeeds with `!()`.
 
 ```nia
-fun parseAndValidate(text: &[char]) ParseError!i32 {
-    let value = parseDigits(text).?;  // returns early on error
-    if value < 0 {
-        return ParseError::Invalid!;
+using std::io;
+using std::process;
+
+enum ParseError {
+    Empty,
+    BadDigit(char),
+    TooLarge,
+}
+
+fun parseU8(text: &[char]) ParseError!u8 {
+    if text.len() == 0 {
+        return ParseError::Empty!;
     }
-    !value
+    let mut value: u32 = 0;
+    for &ch in text {
+        if ch < '0' or ch > '9' {
+            return ParseError::BadDigit(ch)!;
+        }
+        value = value * 10 + (ch as u32 - '0' as u32);
+        if value > 255 {
+            return ParseError::TooLarge!;
+        }
+    }
+    !(value as u8)
 }
-```
 
-For optionals, `.?` returns `null` from the enclosing function:
-
-```nia
-fun getFirst(items: &[i32]) ?i32 {
-    let value = items.get(0).?;  // returns null if get returns null
-    ?value.*
+fun describe(text: &[char]) i32 {
+    match parseU8(text) {
+        !value => value as i32,
+        ParseError::Empty! => -1,
+        ParseError::BadDigit(_)! => -2,
+        ParseError::TooLarge! => -3,
+    }
 }
-```
 
-## Pattern 2: Checked Arithmetic with Option Helpers
-
-Stdlib uses option helpers like `.okOr()` to convert from optional to error union. This is the idiomatic way to handle overflow:
-
-```nia
-// From lib/std/string.nia
-fun appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
-    let oldLen = self.len();
-    let newLen = oldLen.checkedAdd(view.scalarCount()).okOr(mem::Error::OutOfMemory).?;
-    self.text.ensureTotalCapacity(allocator, newLen).?;
-    // ...
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    io::debugPrint("{} {} {} {}\n", [
+        describe("42"), describe(""), describe("4x"), describe("300"),
+    ]).?;
     !()
 }
 ```
 
-Key pattern: `checkedAdd()` returns `?usize`, `.okOr()` converts to `mem::Error!usize`, then `.?` propagates.
-
-## Pattern 3: Pattern Matching for Branching
-
-When you need different behavior for different outcomes, use `if-is` or `match`:
-
-```nia
-// Simple optional check
-if self.storageBlock is ?block {
-    allocator.free(block).?;
-}
-
-// Error union with different paths
-match operation() {
-    !value => processSuccess(value),
-    SpecificError::OutOfMemory! => handleOom(),
-    error! => handleOtherError(error),
-}
+```text
+42 -1 -2 -3
 ```
 
-## Pattern 4: Presence Checks
+A `match` on an error union must cover the success case and every error it
+can hold. `if result is !value { ... }` and `if result is error! { ... }` test
+one case.
 
-Use dedicated methods for boolean queries:
+## Propagating With `.?`
+
+Most code does not handle a failure where it happens; it passes the failure to
+its caller. `.?` does that: on success it yields the value, and on failure it
+returns the error from the current function. On an optional it returns `null`
+instead.
+
+When the error types differ, `.?` converts the error with an
+`std::builtin::IntoError` implementation. An application-level error type
+usually wraps the errors of the modules it calls:
 
 ```nia
-// Good: explicit presence check
-fun containsKey(&self, key: &K) bool {
-    self.findIndex(key, self.hashKey(key)).isPresent()
+using std::io;
+using std::process;
+
+enum ParseError {
+    Empty,
+    BadDigit(char),
 }
 
-// Don't write:
-// if self.findIndex(key, hash) is ?_ { true } else { false }
-```
-
-Standard library provides `.isPresent()`, `.isNull()` for optionals and `.isSuccess()`, `.isError()` for error unions.
-
-## Pattern 5: Multiple Cleanup with CleanupAccumulator
-
-When multiple cleanup operations can fail, use `CleanupAccumulator` to collect errors:
-
-```nia
-// From lib/std/string.nia
-fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-    let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
-    cleanup.attempt(self.text.deinit(allocator));
-    cleanup.attempt(self.formatBytes.deinit(allocator));
-    cleanup.finish()
+enum ConfigError {
+    Parse(ParseError),
+    PortOutOfRange(u32),
 }
-```
 
-This ensures all cleanup is attempted even if some fail, and reports the first error.
-
-## Pattern 6: Transactional Updates with `defer`
-
-Use `defer` to roll back partial state on error:
-
-```nia
-// From lib/std/string.nia
-fun appendFormat(/* ... */) TextFormatError!() {
-    let oldLen = self.len();
-    let mut committed = false;
-    defer if not committed {
-        self.text.truncate(oldLen);  // rollback on error
-    };
-    
-    // ... complex operations that may fail ...
-    
-    committed = true;  // mark success
-    !()
+extend ParseError : std::builtin::IntoError[ConfigError] {
+    const fun intoError(self) ConfigError {
+        ConfigError::Parse(self)
+    }
 }
-```
 
-If any intermediate operation fails and propagates with `.?`, the `defer` restores the old state.
-
-## Pattern 7: Error Conversion
-
-Convert between error types with `.mapError()`:
-
-```nia
-// From lib/std/mem/allocator.nia
-fun realloc(&mut self, block: Block, newLayout: Layout) ReallocError!Block {
-    let newBlock = self.alloc(newLayout)
-        .mapError(.Allocation).?;  // convert mem::Error to ReallocError::Allocation
-    // ...
-}
-```
-
-## Pattern 8: Result Transformation
-
-Transform success values while preserving errors:
-
-```nia
-extend[Value, Source] Source!Value {
-    pub fun map[Mapped, Mapper](self, mapper: Mapper) Source!Mapped
-    where Mapper: Fun(Value) Mapped
-    {
+// Lets `.?` in `main` turn a configuration error into an exit status.
+extend ConfigError : std::builtin::IntoError[process::ExitCode] {
+    const fun intoError(self) process::ExitCode {
         match self {
-            !value => !mapper(value),
-            error! => error!,
+            .Parse(_) => process::ExitCode(2),
+            .PortOutOfRange(_) => process::ExitCode(3),
         }
     }
 }
-```
 
-This allows chaining: `result.map(\x -> x * 2).map(\x -> x + 1).?`
-
-## Pattern 9: Checking Presence Before Use
-
-Don't check and then use. Use pattern matching to check and bind in one step:
-
-```nia
-// Good: check and bind together
-if maybeValue is ?value {
-    use(value);
-}
-
-// Good: early return
-let value = maybeValue.?;
-use(value);
-
-// Avoid: separate check and unwrap
-if maybeValue.isPresent() {
-    use(maybeValue.?);  // .? could still be null in other paths
-}
-```
-
-## Pattern 10: Empty Error Return
-
-Functions that can fail but have no success value return `E!()`:
-
-```nia
-fun validate(input: &[u8]) ValidationError!() {
-    if input.len() == 0 {
-        return ValidationError::Empty!;
+fun parseNumber(text: &[char]) ParseError!u32 {
+    if text.len() == 0 {
+        return ParseError::Empty!;
     }
-    !()  // success with unit value
+    let mut value: u32 = 0;
+    for &ch in text {
+        if ch < '0' or ch > '9' {
+            return ParseError::BadDigit(ch)!;
+        }
+        value = value * 10 + (ch as u32 - '0' as u32);
+    }
+    !value
+}
+
+fun parsePort(text: &[char]) ConfigError!u16 {
+    let port = parseNumber(text).?;     // a ParseError becomes a ConfigError
+    if port > 65535 {
+        return ConfigError::PortOutOfRange(port)!;
+    }
+    !(port as u16)
+}
+
+fun firstDigit(text: &[char]) ?u32 {
+    let first = text.get(0).?;          // returns null for an empty slice
+    if first.* < '0' or first.* > '9' {
+        return null;
+    }
+    ?(first.* as u32 - '0' as u32)
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let port = parsePort("8080").?;
+    let failed = if parsePort("80a") is ConfigError::Parse(.BadDigit(ch))! { ch } else { '-' };
+    let digit = if firstDigit("7") is ?value { value } else { 0 };
+    let none = firstDigit("").isNull();
+    io::debugPrint("port={} failed={} digit={} none={}\n", [port, failed, digit, none]).?;
+    !()
 }
 ```
 
-## Anti-Patterns to Avoid
-
-**Don't ignore errors:**
-```nia
-// Bad
-_ = operation().?;  // .? can't be discarded, it's control flow
-
-// Good
-operation().?;  // propagate
-_ = operation();  // or explicitly ignore the whole result
+```text
+port=8080 failed=a digit=7 none=true
 ```
 
-**Don't check-then-act:**
+`main` returns `process::ExitCode!()`, so `.?` in `main` needs the error to
+convert to an exit status. The standard library's error types already do; the
+second `IntoError` implementation above gives `ConfigError` the same ability,
+choosing a status for each cause.
+
+## Optional Values As Errors
+
+An operation that returns `?T` often means "failed" in a particular caller.
+`okOr` turns an optional into an error union with the error you choose, and
+`okOrElse` computes the error only when it is needed. The standard library
+uses this for checked arithmetic, whose operations return `null` on overflow:
+
 ```nia
-// Bad: race between check and use
-if map.containsKey(&key) {
-    let value = map.get(&key).?;  // key could be gone
+using std::io;
+using std::mem;
+using std::process;
+
+fun totalLength(parts: &[usize]) mem::Error!usize {
+    let mut total: usize = 0;
+    for &part in parts {
+        total = total.checkedAdd(part).okOr(mem::Error::OutOfMemory).?;
+    }
+    !total
 }
 
-// Good: get returns optional, use it
-if map.get(&key) is ?value {
-    use(value);
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let small = totalLength([3, 4, 5]).?;
+    let overflow = totalLength([usize::MAX, 1]).isError();
+    io::debugPrint("small={} overflow={}\n", [small, overflow]).?;
+    !()
 }
 ```
 
-**Don't manually construct option/error wrappers:**
-```nia
-// Bad
-if condition { ?value } else { null }
-
-// Good: use standard library helpers
-someResult.okOr(error)
+```text
+small=12 overflow=true
 ```
 
-## Summary
+## Transforming Results
 
-Nia's error handling is:
-- **Explicit**: errors are values, not hidden control flow
-- **Composable**: `.?`, `.map()`, `.okOr()` chain naturally
-- **Zero-cost**: error unions are plain tagged unions
-- **Transactional**: `defer` enables rollback on any exit path
+The helpers on optionals and error unions change one side of a result and
+pass the other side through:
 
-Follow stdlib patterns for idiomatic, robust error handling.
+| Helper | On | Effect |
+| --- | --- | --- |
+| `map(f)` | `?T`, `E!T` | applies `f` to the value |
+| `andThen(f)` | `?T`, `E!T` | applies `f`, which itself returns a result |
+| `mapError(f)` | `E!T` | converts the error with `f` |
+| `orElse(f)` | `E!T` | replaces a failure with the result of `f` |
+| `inspectError(f)` | `E!T` | calls `f` with the error and returns the result unchanged |
+| `isPresent()`, `isNull()` | `?T` | tests the case |
+| `isSuccess()`, `isError()` | `E!T` | tests the case |
+
+`mapError` accepts an enum variant constructor directly, which keeps a
+wrapping conversion to one word:
+
+```nia
+using std::io;
+using std::process;
+
+enum ReadError {
+    Missing,
+}
+
+enum LoadError {
+    Read(ReadError),
+}
+
+fun readSetting(present: bool) ReadError!i32 {
+    if present { !40 } else { ReadError::Missing! }
+}
+
+fun loadSetting(present: bool) LoadError!i32 {
+    let value = readSetting(present).mapError(&LoadError::Read).?;
+    !(value + 2)
+}
+
+fun doubledSetting() ReadError!i32 {
+    readSetting(true).map(\value -> value * 2)
+}
+
+fun settingOrZero(present: bool) ReadError!i32 {
+    readSetting(present).orElse(\cause -> {
+        _ = cause;
+        !0
+    })
+}
+
+fun valueOr(result: ReadError!i32, fallback: i32) i32 {
+    if result is !value { value } else { fallback }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let loaded = if loadSetting(true) is !value { value } else { -1 };
+    let doubled = valueOr(doubledSetting(), -1);
+    let fallback = valueOr(settingOrZero(false), -1);
+    let missing = loadSetting(false).isError();
+    io::debugPrint("loaded={} doubled={} fallback={} missing={}\n", [
+        loaded, doubled, fallback, missing,
+    ]).?;
+    !()
+}
+```
+
+```text
+loaded=42 doubled=80 fallback=0 missing=true
+```
+
+## Cleaning Up
+
+`defer` runs an expression when its block exits by any path, including `.?`,
+so cleanup written right after an acquisition also runs when a later step
+fails. Cleanup can fail too: the standard library's `deinit` and `close`
+operations return errors, and `defer resource.deinit(&mut allocator).?;`
+reports such a failure from the function.
+
+When one owner releases several resources, every release must be attempted
+even after one fails. `std::error::CleanupAccumulator` collects the first
+failure without stopping, and `cleanupAfter` combines an operation's result
+with the result of its cleanup, keeping the operation's failure as the one
+reported:
+
+```nia
+using std::error;
+using std::io;
+using std::process;
+
+enum CloseError {
+    Busy,
+}
+
+struct Handle {
+    id: i32,
+    busy: bool,
+}
+
+extend Handle {
+    fun close(&mut self) CloseError!() {
+        if self.busy {
+            return CloseError::Busy!;
+        }
+        self.id = 0;
+        !()
+    }
+}
+
+struct Pair {
+    left: Handle,
+    right: Handle,
+}
+
+extend Pair {
+    // Attempts both releases; the first failure is reported.
+    fun close(&mut self) CloseError!() {
+        let mut cleanup: error::CleanupAccumulator[CloseError] = .init();
+        cleanup.attempt(self.left.close());
+        cleanup.attempt(self.right.close());
+        cleanup.finish()
+    }
+}
+
+fun useAndClose(handle: &mut Handle) CloseError!i32 {
+    let id = handle.id;
+    let closed = handle.close();
+    (!id).cleanupAfter(closed)
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut pair = Pair {
+        left: Handle { id: 1, busy: true },
+        right: Handle { id: 2, busy: false },
+    };
+    let failed = pair.close().isError();
+    let rightClosed = pair.right.id == 0;
+
+    let mut handle = Handle { id: 7, busy: false };
+    let used = if useAndClose(&mut handle) is !id { id } else { -1 };
+    io::debugPrint("failed={} rightClosed={} used={}\n", [failed, rightClosed, used]).?;
+    !()
+}
+```
+
+```text
+failed=true rightClosed=true used=7
+```
+
+The left handle is still open after the failed `close`, so its owner can retry.
+Standard-library owners follow the same rule: after a failed `deinit` a value is
+cleanup-only, and calling `deinit` again retries what is left.
+
+## Leaving State Unchanged On Failure
+
+An operation that modifies a value in several steps should leave it as it was
+when a step fails, so the caller never sees half an update. The simplest way is
+to do the fallible work first and change the value only once nothing can fail.
+When a value must change as you go, record what to restore and undo it in a
+`defer` unless the operation finished:
+
+```nia
+using std::io;
+using std::mem;
+using std::process;
+
+fun appendAll(
+    list: &mut std::ArrayList[i32],
+    allocator: &mut mem::Allocator,
+    values: &[i32],
+) mem::Error!() {
+    let original = list.len();
+    let mut committed = false;
+    defer {
+        if not committed {
+            list.truncate(original);
+        }
+    };
+    for &value in values {
+        if value < 0 {
+            return mem::Error::Invalid!;
+        }
+        list.push(allocator, value).?;
+    }
+    committed = true;
+    !()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    defer allocator.deinit().?;
+
+    let mut list: std::ArrayList[i32] = .init();
+    defer list.deinit(&mut allocator).?;
+    appendAll(&mut list, &mut allocator, [1, 2]).?;
+    let rejected = appendAll(&mut list, &mut allocator, [3, -1, 4]).isError();
+    io::debugPrint("len={} rejected={}\n", [list.len(), rejected]).?;
+    !()
+}
+```
+
+```text
+len=2 rejected=true
+```
+
+The failed call pushed `3` before it found `-1`, and the `defer` removed it
+again.

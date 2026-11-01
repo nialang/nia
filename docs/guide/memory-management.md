@@ -1,281 +1,281 @@
-# Memory and Resource Management
+# Memory Management
 
-This guide demonstrates idiomatic memory and resource management patterns in Nia, based on standard library practices.
+Nia never allocates behind the program's back. There is no garbage collector,
+no destructor, and no hidden allocator: memory comes from an allocator value
+that the program creates, passes to every operation that needs it, and tears
+down when it is done. This guide shows how the standard library's allocators
+and owning types fit together. The library conventions are summarized in the
+[standard library overview](../../lib/README.md#conventions).
 
-## Core Principles
+Every program here is complete; build one with `nia emit --exe` and run it to
+see the output shown after it.
 
-Nia has no garbage collector, no borrow checker, and no RAII. Instead:
-- Allocation is explicit and parameterized by allocator
-- Cleanup is explicit with `defer`
-- Ownership is documented through API contracts, not enforced by the compiler
+## Allocators And Owners
 
-## Pattern 1: Allocator as Parameter
+An allocator implements the `mem::Allocator` trait. Functions that allocate
+take `&mut mem::Allocator`, a trait object, so any allocator can be passed.
+Containers such as `std::ArrayList`, `std::HashMap`, `std::TreeMap`, and
+`std::String` do not store the allocator; they take it on every call that may
+allocate, grow, or free, and the caller passes the same allocator each time.
 
-Containers take an allocator argument for every operation that may allocate or free:
+A program usually builds a small chain: a `PageAllocator` that gets memory from
+the operating system, and a `GeneralPurposeAllocator` on top of it that serves
+individual allocations. Owners are released in the reverse order of their
+creation, which is exactly the order in which `defer` runs:
 
 ```nia
-fun buildList(allocator: &mut mem::Allocator) mem::Error!ArrayList[i32] {
-    let mut list: ArrayList[i32] = .init();
-    list.push(allocator, 10).?;
-    list.push(allocator, 20).?;
-    !list
+using std::io;
+using std::mem;
+using std::process;
+
+fun collectSquares(allocator: &mut mem::Allocator, limit: i32) mem::Error!std::ArrayList[i32] {
+    let mut squares: std::ArrayList[i32] = .init();
+    for value in 1..=limit {
+        squares.push(allocator, value * value).?;
+    }
+    !squares
 }
-```
 
-Never store an allocator in a container. Operations receive `&mut mem::Allocator` each time.
-
-## Pattern 2: `defer` for Cleanup
-
-Register cleanup immediately after acquisition, in reverse dependency order:
-
-```nia
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    
+
     let mut page: mem::PageAllocator = .init();
     let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
-    defer allocator.deinit().?;  // deallocate all memory
-    
-    let mut values: ArrayList[i32] = .init();
-    defer values.deinit(&mut allocator).?;  // release container storage
-    
-    values.push(&mut allocator, 42).?;
-    // ...
-    !()
-}  // defer runs in reverse: values, then allocator
-```
+    defer allocator.deinit().?;          // runs last
 
-This ensures cleanup happens on any exit path: normal return, `return` statement, or `.?` propagation.
+    let mut squares = collectSquares(&mut allocator, 4).?;
+    defer squares.deinit(&mut allocator).?;
 
-## Pattern 3: Zero-Initialization
-
-Containers initialize with zero capacity and no allocation:
-
-```nia
-// From lib/std/collections/array_list/list.nia
-pub fun init() ArrayList[T] {
-    .{
-        items: raw::danglingSlice[T](0),
-        capacity: 0,
-        storageBlock: null,
-        replacementBlock: null,
-        aliasBlock: null,
+    let mut names: std::HashMap[i32, i32] = .init();
+    defer names.deinit(&mut allocator).?;
+    for &square in squares {
+        _ = names.insert(&mut allocator, square, square * 10).?;
     }
-}
-```
 
-This allows cheap initialization. First push/insert allocates.
-
-## Pattern 4: Pre-allocation for Known Capacity
-
-When capacity is known upfront, pre-allocate to avoid multiple reallocations:
-
-```nia
-let mut list = ArrayList[i32]::initCapacity(&mut allocator, 100).?;
-// Now 100 pushes won't reallocate
-```
-
-## Pattern 5: Owned vs Borrowed Views
-
-Containers own their storage but provide borrowed views:
-
-```nia
-extend[T] ArrayList[T]
-where T: Sized
-{
-    pub fun asSlice(&self) &[T] {
-        &self.items[0..self.len()]
-    }
-    
-    pub fun asMutSlice(&mut self) &mut [T] {
-        &mut self.items[0..self.len()]
-    }
-}
-```
-
-Callers receive slices, never raw pointers to internal storage.
-
-## Pattern 6: Ownership Transfer
-
-APIs that transfer ownership consume by value and document it:
-
-```nia
-// Takes ownership of allocation
-pub fun fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
-    let len = allocation.len();
-    let block = allocation.intoBlock();
-    // ... uses block, now owns it
-}
-```
-
-Methods like `intoOwnedSlice` consume the container and return owned storage:
-
-```nia
-let owned = list.intoOwnedSlice(&mut allocator).?;  // list is now empty
-defer owned.deinit(&mut allocator).?;
-```
-
-## Pattern 7: Assume-Capacity Operations
-
-After ensuring capacity, use assume-capacity variants to skip checks:
-
-```nia
-// From lib/std/string.nia
-fun fromUtf8View(allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!String {
-    let mut out = String::initCapacity(allocator, view.scalarCount()).?;
-    for scalar in view {
-        out.text.appendAssumeCapacity(scalar);  // capacity guaranteed
-    }
-    !out
-}
-```
-
-This is safe when the invariant is maintained by the caller.
-
-## Pattern 8: Storage Block Ownership
-
-Containers retain the storage block separately from logical capacity:
-
-```nia
-pub struct ArrayList[T] {
-    items: &mut [T],
-    capacity: usize,
-    storageBlock: ?mem::Block,  // actual allocation owner
-    // ...
-}
-```
-
-This allows empty lists to be reallocated without reconstructing the block from capacity.
-
-## Pattern 9: Multiple Cleanup with Accumulator
-
-When multiple resources need cleanup and each can fail, use `CleanupAccumulator`:
-
-```nia
-pub fun deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-    let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
-    cleanup.attempt(self.freeItems(allocator));
-    cleanup.attempt(self.freeReplacementItems(allocator));
-    cleanup.attempt(self.freeAliasItems(allocator));
-    if not cleanup.isClean() {
-        return cleanup.finish();
-    }
-    self.items = raw::danglingSlice[T](0);
-    self.capacity = 0;
-    self.storageBlock = null;
+    let live = not allocator.isEmpty();
+    io::debugPrint("squares={} names={} live={}\n", [squares.len(), names.len(), live]).?;
     !()
 }
 ```
 
-This attempts all cleanup operations and reports the first error, ensuring partial cleanup on failure.
+```text
+squares=4 names=4 live=true
+```
 
-## Pattern 10: Transactional Growth
+`collectSquares` returns the list it filled. The list now belongs to `main`,
+which releases it with the allocator that produced it. A function that
+returns an owner documents that the caller must release it; a function that
+borrows a value takes a pointer or a view and leaves ownership where it was.
 
-On reallocation failure, preserve the old allocation rather than leaving the container in an invalid state:
+## Choosing An Allocator
+
+`std::mem` provides these allocators. Each one except `PageAllocator` takes a
+child allocator, or a buffer, to get its own memory from.
+
+| Allocator | Use it for | Released by |
+| --- | --- | --- |
+| `PageAllocator` | whole pages from the operating system; the usual root | nothing to release |
+| `GeneralPurposeAllocator` | general allocations of any size, with leak reporting | `deinit` |
+| `ArenaAllocator` | many allocations that end together | `deinit`, or `reset` to reuse |
+| `FixedBufferAllocator` | allocation from a caller-provided buffer, with no system calls | the buffer's owner |
+| `PoolAllocator[T]` | many values of one type that are created and freed often | `deinit` |
+
+An arena frees nothing individually; its memory is released all at once. It
+suits work with a clear end, such as handling one request or one build step:
 
 ```nia
-// From lib/std/collections/array_list/list.nia
-fun grow(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
-    let newBlock = allocator.alloc(layout).?;
-    let mut newItems = raw::blockItems[T](newBlock, newCapacity);
-    _ = newItems.copyFrom(self.asSlice());
-    
-    // Only after successful copy, replace old block
-    self.releaseReplacedBlock(allocator, oldBlock, newBlock).?;
-    self.items = newItems;
-    self.capacity = newCapacity;
-    self.storageBlock = ?newBlock;
+using std::io;
+using std::mem;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut page: mem::PageAllocator = .init();
+    let mut arena: mem::ArenaAllocator = .init(&mut page);
+    defer arena.deinit().?;
+
+    let mut total: usize = 0;
+    for round in 0..3 {
+        // Lists allocated from the arena are released by `reset`, not one by one.
+        let mut values: std::ArrayList[i32] = .init();
+        for value in 0..100 {
+            values.push(&mut arena, value + round).?;
+        }
+        total += values.len();
+        arena.reset().?;
+    }
+
+    io::debugPrint("total={} used={}\n", [total, arena.used()]).?;
     !()
 }
 ```
 
-If allocation fails, the original container remains valid.
-
-## Pattern 11: Allocator Hierarchy
-
-Standard library provides a hierarchy of allocators:
-
-```nia
-// Low-level: OS memory pages
-let mut page: mem::PageAllocator = .init();
-
-// General-purpose: suitable for most containers
-let mut general: mem::GeneralPurposeAllocator = .init(&mut page);
-
-// Specialized: arena for batch allocation/free
-let mut arena: mem::ArenaAllocator = .init(&mut page);
-
-// Specialized: pool for fixed-size objects
-let mut pool: mem::PoolAllocator[Point] = .init(&mut page);
+```text
+total=300 used=0
 ```
 
-Choose based on allocation patterns, not performance guesses.
-
-## Pattern 12: ZST Optimization
-
-Zero-sized types need no allocation:
+A fixed buffer allocator works without an operating system, which makes it the
+allocator for early startup, embedded targets, and tests of out-of-memory
+handling. When the buffer is full, allocation fails with
+`mem::Error::OutOfMemory`:
 
 ```nia
-if root::builtin::size[T]() == 0 {
-    return !.fromBlock(mem::Block::empty(layout), len);
+using std::io;
+using std::mem;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut buffer: [u8; 64] = [0; 64];
+    let mut fixed: mem::FixedBufferAllocator = .init(&mut buffer);
+
+    let mut first = fixed.allocSlice[u8](48).?;
+    let second = fixed.allocSlice[u8](32);
+    let exhausted = if second is mem::Error::OutOfMemory! { true } else { false };
+    let remaining = fixed.remaining();
+    first.deinit(&mut fixed).?;
+
+    io::debugPrint("exhausted={} remaining={}\n", [exhausted, remaining]).?;
+    !()
 }
 ```
 
-Standard library checks ZSTs explicitly in allocation paths.
-
-## Pattern 13: Layout Queries
-
-Never hard-code sizes or alignments. Query them:
-
-```nia
-let layout = mem::Layout::array[T](len).?;
-let block = allocator.alloc(layout).?;
+```text
+exhausted=true remaining=16
 ```
 
-`Layout` encapsulates size, alignment, and overflow checking.
+## Single Values And Raw Storage
 
-## Common Mistakes
+A container is not always needed. `mem::allocValue` stores one value and
+returns an `Allocated[T]` owner; `allocSlice[T]` on an allocator returns a
+`SliceAllocation[T]` owner for a run of uninitialized elements. Both are
+released with `deinit`, and both expose the storage through pointers and
+slices that are valid until then:
 
-**Don't forget `defer`:**
 ```nia
-// Bad: leaks if early return happens
-let mut list: ArrayList[i32] = .init();
-list.push(&mut allocator, 10).?;
-list.deinit(&mut allocator).?;  // unreachable if push fails
+using std::io;
+using std::mem;
+using std::process;
 
-// Good: defer ensures cleanup
-let mut list: ArrayList[i32] = .init();
-defer list.deinit(&mut allocator).?;
-list.push(&mut allocator, 10).?;
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    defer allocator.deinit().?;
+
+    let mut point = mem::allocValue(&mut allocator, Point { x: 3, y: 4 }).?;
+    defer point.deinit(&mut allocator).?;
+    point.valueMut().*.x += 1;
+
+    let mut storage = allocator.allocSlice[u32](4).?;
+    defer storage.deinit(&mut allocator).?;
+    let slots = storage.asMutSlice();
+    for index in 0..slots.len() {
+        slots[index] = index as u32 * 2;
+    }
+
+    let view = storage.asSlice();
+    io::debugPrint("x={} slots={} last={}\n", [point.value().x, view.len(), view[3]]).?;
+    !()
+}
 ```
 
-**Don't use slices to recreate ownership:**
-```nia
-// Bad: slice doesn't carry allocation info
-let slice = list.asSlice();
-// ... how do you free this later?
-
-// Good: transfer ownership explicitly
-let owned = list.intoOwnedSlice(&mut allocator).?;
-defer owned.deinit(&mut allocator).?;
+```text
+x=4 slots=4 last=6
 ```
 
-**Don't allocate implicitly:**
+## Leaks And Failed Cleanup
+
+`GeneralPurposeAllocator::deinit` releases everything it still holds and then
+reports `mem::Error::Leak` if user allocations were still live. The memory is
+gone at that point; the error tells you which allocator was left with owners
+that were never released. `deinitWithoutLeakCheck` performs the same cleanup
+without the report:
+
 ```nia
-// There's no: vec![1, 2, 3]
-// Write:
-let mut list: ArrayList[i32] = .init();
-defer list.deinit(&mut allocator).?;
-list.push(&mut allocator, 1).?;
-list.push(&mut allocator, 2).?;
+using std::io;
+using std::mem;
+using std::process;
+
+fun leakOne() bool {
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    let forgotten = mem::allocValue(&mut allocator, 42u64);
+    _ = forgotten;
+    match allocator.deinit() {
+        mem::Error::Leak! => true,
+        _ => false,
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    io::debugPrint("leak reported={}\n", [leakOne()]).?;
+    !()
+}
 ```
 
-## Summary
+```text
+leak reported=true
+```
 
-Nia's memory management is:
-- **Explicit**: every allocation names an allocator
-- **Flexible**: choose allocators per use case
-- **Predictable**: cleanup order is source order, reversed
-- **Compositional**: `defer` works with all control flow
+Every `deinit` and `close` in the standard library can fail, because releasing
+memory or a handle can fail. A failed `deinit` attempts every resource the
+value owns and keeps the ones it could not release; the value is then
+cleanup-only, and calling `deinit` again with the same allocator retries the
+rest. The [error handling guide](error-handling.md#cleaning-up) shows how to
+write owners with the same behavior.
 
-Trust the programmer. Document ownership. Use `defer`.
+## Views Do Not Own
+
+A slice, a `PathView`, or a `CStringView` borrows storage that someone else
+owns. A view never extends that storage's life, and nothing checks it: a view
+into a list becomes invalid when the list grows and moves its elements, and a
+view into a released owner points at freed memory. Take views for the duration
+of an operation, and take them again after anything that may reallocate:
+
+```nia
+using std::io;
+using std::mem;
+using std::process;
+
+fun sum(values: &[i32]) i32 {
+    let mut total = 0;
+    for &value in values {
+        total += value;
+    }
+    total
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    defer allocator.deinit().?;
+
+    let mut values: std::ArrayList[i32] = .init();
+    defer values.deinit(&mut allocator).?;
+    values.push(&mut allocator, 1).?;
+    let before = sum(values.asSlice());
+    for value in 2..=100 {
+        values.push(&mut allocator, value).?;   // may move the elements
+    }
+    let after = sum(values.asSlice());          // a fresh view
+
+    io::debugPrint("before={} after={}\n", [before, after]).?;
+    !()
+}
+```
+
+```text
+before=1 after=5050
+```
