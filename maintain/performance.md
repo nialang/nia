@@ -113,7 +113,7 @@ cargo build --release -p nia-cli --features perf-alloc
 The compiler can also emit one structured timing record directly:
 
 ```sh
-target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia
+target/release/nia --resource-root lib --timings=detail --timings-format=json check benchmarks/minimal.nia
 ```
 
 A normal build emits every timing field except the allocation counters, which
@@ -123,8 +123,8 @@ To audit persistent frontend reuse across separate compiler processes, give both
 checks the same explicit artifact cache directory:
 
 ```sh
-target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
-target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
+target/release/nia --resource-root lib --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
+target/release/nia --resource-root lib --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
 ```
 
 The detailed counters include executions for parsing, loader item-tree and
@@ -145,8 +145,8 @@ cargo maintain baseline competitive
 By default this builds the release Nia compiler, takes five samples of both
 development and release profiles, and writes a revision-labelled report below
 `target/nia-perf/competitive/`. `--no-build`, `--repeat`, `--profile`,
-`--workload`, `--nia`, `--rustc`, `--cargo`, `--zig`, `--time`, `--resource-root`, and
-`--output` make every material input explicit. The profile and workload options
+`--workload`, `--nia`, `--rustc`, `--cargo`, `--zig`, `--time`, `--resource-root`,
+`--timeout-seconds`, and `--output` make every material input explicit. The profile and workload options
 may be repeated to select distinct entries; duplicate selections are rejected
 rather than measured twice accidentally.
 

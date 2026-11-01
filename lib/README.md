@@ -144,5 +144,5 @@ lifetime, error, and cleanup contracts.
 ## Maintaining the library
 
 The repository audits that guard these sources are described in
-[Repository maintenance](../maintain/README.md#standard-library-audits), and
+[Repository maintenance](../maintain/README.md#repository-audits), and
 conformance tests in [Testing](../docs/dev/testing.md).

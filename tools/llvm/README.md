@@ -16,7 +16,8 @@ not provide static archives. Development builds may continue using the distro
 LLVM installation; release builds consume this prefix through
 `tools/release/build.sh`.
 
-Useful overrides:
+Useful overrides for `build-static.sh` (the PowerShell script always builds the
+`X86;AArch64` targets):
 
 ```sh
 LLVM_TARGETS_TO_BUILD=X86 LLVM_BUILD_JOBS=8 tools/llvm/build-static.sh
@@ -32,7 +33,7 @@ be set after increasing the WSL memory and swap allocation.
 
 The release package contains the Nia compiler and its `lib` resources, not
 this LLVM source tree. LLVM build inputs and the resolved source revision are
-release-build inputs and should be recorded in the release evidence.
+release-build inputs.
 
 On Windows, use the PowerShell build entry point. It pins the source tree to
 the same LLVM release, configures the MSVC static runtime, and disables

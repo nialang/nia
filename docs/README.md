@@ -36,7 +36,7 @@ The command-line help (`nia help`, `nia help <command>`, and
 | [Testing](dev/testing.md) | Validation gates, test layout, and harness rules |
 | [Compiler architecture](dev/architecture.md) | Pipeline, query model, crate layers, and data flows |
 | [ABI internals](dev/abi-internals.md) | How the compiler implements the ABI |
-| [Closure inference](dev/closure-inference.md) | Generic callable closure inference specification |
+| [Closure inference](../crates/nia-body-check/README.md) | How the checker infers closures passed to generic calls |
 | [Build system internals](../crates/nia-build/README.md) | Build plans, caching, execution, progress observation, and publication |
 | [Package metadata](../crates/nia-package-metadata/README.md) | Version selection, registry index and archive formats, `nia.lock`, and source identity |
 | [Native Git client](../crates/nia-git/README.md) | Security model, enforced limits, and known gaps of `nia-git` |

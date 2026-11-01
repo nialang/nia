@@ -826,7 +826,7 @@ named, after the steps it depends on.
 | `--target <name>` | sets the artifact target |
 | `--debug`, `--release`, `--profile <debug\|release>` | selects the build profile; `--release` defaults to `-O2` |
 | `-O<level>` | sets the default optimization level, overriding the profile's |
-| `--lto <off|thin|full>` | selects link-time optimization for the build runner; artifacts use `withLto` ||thin\|full>` | selects link-time optimization for executables |
+| `--lto <off|thin|full>` | selects link-time optimization for the build runner; artifacts use `withLto` |
 
 Text action-cache records show the stable outcome and reason, publication
 status, declared outputs, and any invalidated identity components. JSON records

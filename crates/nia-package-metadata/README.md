@@ -25,36 +25,42 @@ Package release versions and source selectors are separate concepts. A package v
 
 ## Dependency declarations and resolution
 
-Dependencies select exactly one explicit source: `path`, `git`, or `registry`. Registry dependencies require an explicit SemVer requirement:
+The dependency source forms and SemVer requirement syntax are user-facing and
+are specified in
+[Dependency sources](../../docs/guide/build-scripts.md#dependency-sources) and
+[Registry dependencies](../../docs/guide/build-scripts.md#registry-dependencies).
+The parser accepts exactly one source per dependency and never infers a
+compatibility operator for a bare version. Registry dependencies select
+immutable published package versions. No source fallback or implicit override
+is permitted.
 
-```toml
-[dependencies]
-json = { registry = "nia", package = "acme/json", version = "^1.4" }
-```
+The manifest reader reads all five dependency tables into `DependencyScope`
+values: `Build`, `Runtime`, `Development`, `Optional`, and `Lazy`. The resolver
+resolves, fetches, and locks the build, runtime, optional, and lazy
+dependencies of every package in the graph, but the development dependencies
+of the graph's root packages only (the package, or the workspace members
+being resolved), because only a root's tests are built.
 
-Use standard SemVer requirement syntax; do not infer a compatibility operator when it is omitted. Path dependencies remain direct local sources. Git source selectors retain their current semantics. Registry dependencies select immutable published package versions. No source fallback or implicit override is permitted.
-
-The initial resolver selects one version per `(namespace, name)` across the complete selected graph, including all selected workspace members, build, runtime, and selected development scopes. Intersect all requirements and select the highest stable version satisfying them. SemVer build metadata remains part of package identity but does not affect precedence; when candidates have equal precedence, select the lexicographically greatest canonical version text so the result is independent of index record order. Prereleases are eligible only when a requirement explicitly admits that prerelease. On conflict, report each requiring package, its constraint, and its dependency chain. Reject aliases duplicated within a manifest; aliases may differ from package names. Multiple versions of the same identity are unsupported.
+The initial resolver selects one version per `(namespace, name)` across that complete graph. Intersect all requirements and select the highest stable version satisfying them. SemVer build metadata remains part of package identity but does not affect precedence; when candidates have equal precedence, select the lexicographically greatest canonical version text so the result is independent of index record order. Prereleases are eligible only when a requirement explicitly admits that prerelease. On conflict, report each requiring package, its constraint, and its dependency chain. Reject aliases duplicated within a manifest; aliases may differ from package names. Multiple versions of the same identity are unsupported.
 
 ## Registry
 
-Registries are named HTTPS endpoints alongside path and Git sources; `nia` is
-the conventional default name. Only the root `nia.toml` (the workspace root in
-a workspace) configures endpoints; a member `[registries]` table is rejected,
-because it would otherwise be silently ignored:
-
-```toml
-[registries]
-nia = "https://packages.example.test"
-```
+Registries are named endpoints configured in the root manifest; the
+`[registries]` syntax and the workspace-member rule are in
+[Registry dependencies](../../docs/guide/build-scripts.md#registry-dependencies).
+There is no built-in registry: `nia` is only a conventional name, and fetching
+from an unconfigured name fails. `RegistryEndpoint::new` requires every
+endpoint base URL to be `https://` without credentials, a query, or a
+fragment, and the index is fetched from `<base>/index.toml`.
 
 A versioned index maps `(namespace, package, version)` to an immutable archive
-URL and cryptographic digest. Require HTTPS for the public registry. The index
-and archive format are versioned and validated strictly; unknown schema
-versions and malformed records fail closed. The registry distributes packages
-but does not define package semantics. Publishing, namespace ownership,
-account management, private registry authentication, and signing are separate
-work.
+URL and cryptographic digest. Index and archive fetches go through
+`nia_git::fetch_https_with_limit` with the index or archive size bound and
+never send credentials. The index and archive format are versioned and
+validated strictly; unknown schema versions and malformed records fail
+closed. The registry distributes packages but does not define package
+semantics. Publishing, namespace ownership, account management, private
+registry authentication, and signing are not part of this crate.
 
 Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Within one resolved graph, a `(namespace, package)` identity must come from exactly one named registry; requesting it from multiple registries is an error rather than combining unrelated indexes. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
 
@@ -97,22 +103,26 @@ and source fingerprint. Registry records contain
 registry identity, package namespace/name, selected SemVer version, archive
 digest, and source fingerprint. They cannot depend on mutable index responses
 after locking. A package coordinate can be bound to only one registry in a
-lockfile. Schema version 1 and any unknown schema are rejected without
-migration. `--locked` resolves only from lock entries and cached artifacts and
-fails before network access if required data is unavailable. `--offline` uses
-cached registry metadata and artifacts only. `nia update` refreshes registry
-selections within requirements and Git selectors; the CLI reports registry
+lockfile. Schema version 1 and any unknown schema are rejected without being
+migrated or rewritten; users regenerate the lockfile with the current resolver.
+
+The `nia build --locked` and `--offline` flags and `nia update` are described
+for users in
+[Registry dependencies](../../docs/guide/build-scripts.md#registry-dependencies).
+They map onto `LockPolicy` and `update_lock`. With `LockPolicy::locked`, the
+resolver fails instead of adding, changing, or removing a lock entry, and it
+never fetches: a locked Git or registry source must already be in the package
+or registry cache. `LockPolicy::offline` permits lock changes but reads
+registry indexes and archives and Git checkouts from the caches only.
+`update_lock` returns each changed entry so that the CLI can report registry
 version changes separately from Git revision changes. Unchanged resolution
 leaves lockfile bytes untouched. A workspace update holds the package state
 lock across all member resolutions, intersects their registry constraints in
 one graph, and either publishes the complete result or restores the original
-lock before releasing the lock.
-Rollback restores the original bytes, including formatting, or removes a
-newly published lockfile when no lockfile existed before the update. The
-transaction also covers reading the published result for change reporting.
-
-Older lock schemas are not read, migrated, or rewritten; users regenerate the
-lockfile with the current resolver.
+lock before releasing the lock. Rollback restores the original bytes,
+including formatting, or removes a newly published lockfile when no lockfile
+existed before the update. The transaction also covers reading the published
+result for change reporting.
 
 ## Graph restarts
 

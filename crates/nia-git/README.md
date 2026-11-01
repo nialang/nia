@@ -12,7 +12,10 @@ credential, and proxy contract is in
 [Build scripts](../../docs/guide/build-scripts.md#dependency-sources).
 
 The public surface is `checkout_source(source, revision, destination)` for
-dependency checkouts and `fetch_https` for credential-free registry resources.
+dependency checkouts and two credential-free HTTPS fetches:
+`fetch_https_with_limit(source, limit)`, which the registry client in
+`nia-package-metadata` calls with its own index and archive bounds, and
+`fetch_https(source)`, the same fetch at the default 128 MiB response limit.
 
 This README is the crate's security model: what the client enforces, the
 limits it applies, and what it does not protect against. It is an internal
@@ -126,6 +129,8 @@ readers share one bounded-read helper.
 | --- | --- |
 | HTTP, Git TCP, or SSH response | 128 MiB (registry fetches choose their own bound, at most 256 MiB) |
 | HTTP response headers / each chunk header / trailer section | 64 KiB each |
+| HTTPS proxy `CONNECT` response headers | 16 KiB |
+| HTTP(S), Git TCP, and SSH connection: connect / each read or write | 15 s / 30 s |
 | Local pack or compressed loose object | 128 MiB |
 | Decoded object or delta result | 64 MiB per object |
 | Objects in a pack | 1,000,000 |
@@ -134,8 +139,10 @@ readers share one bounded-read helper.
 | Streamed packet-line advertisement, including flush | 16 MiB |
 | Loose reference / packed references | 4 KiB / 16 MiB |
 | Symbolic reference / annotated tag dereferences | 8 / 8 |
+| SSH server identification: bytes per line, including its end / lines read, including it | 255 / 50 |
+| SSH packet payload, and each SSH agent message | 256 KiB |
 | SSH identity / known hosts | 1 MiB / 16 MiB |
-| SSH agent identities | 1,024 |
+| SSH agent identities / agent I/O timeout | 1,024 / 30 s |
 | SSH channel incoming payloads, including stderr and control messages | 128 MiB per session |
 | SSH channel receive window / maximum data packet | 2 MiB / 32 KiB |
 | SSH plaintext key exchange | 1,024 messages / 1 MiB |

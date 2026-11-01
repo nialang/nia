@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Module maps, stable identities, and import-graph construction utilities.
 //!
-//! A [`ModuleMap`] binds package names to source roots; the `entry`, `root`,
-//! `builtin`, `std`, and private `runtime` roots are reserved for the
-//! compiler. The [`ModuleGraph`] is built from those roots and normalizes
-//! `using` paths relative to the current module, its parent, the current
-//! package root, or a named package or child declaration. Graph construction
-//! reports duplicate module declarations; resolving and checking the names a
-//! `using` selects belongs to `nia-public-surface`.
+//! A [`ModuleMap`] binds package names to source roots. The `root` and
+//! `builtin` roots are reserved for the compiler, and `std` maps to the
+//! toolchain library. The [`ModuleGraph`] is built from those roots and
+//! normalizes `using` paths relative to the current module, its parent, the
+//! current package root, or a named package or child declaration. Graph
+//! construction reports duplicate module declarations; resolving and checking
+//! the names a `using` selects belongs to `nia-public-surface`.
 //!
 //! Stable module and definition keys derive from source identities rather
 //! than session handles. The graph retains each module's owning

@@ -59,15 +59,19 @@ source files
   -> type name resolution
   -> type lowering
   -> item signatures
+  -> ABI check
   -> type normalization
+  -> trait solving
   -> value path resolution
   -> local name resolution
   -> const value checking
   -> layout computation
-  -> ABI check
   -> static initializer check
   -> flow check
   -> body check
+  -> closure escape check
+  -> function lowering and optimization
+  -> executable reachability
   -> monomorphization
   -> backend lowering
   -> LLVM codegen
@@ -221,15 +225,8 @@ they do not implement cache invalidation independently. A query asking for
 itself is caught on the requesting thread, and a process-wide wait-for graph
 reports cross-thread cycles before a thread blocks.
 
-Parallel work holds one of the process's CPU permits, one for each CPU the
-process may use (affinity masks and Linux cgroup quotas included). The budget
-belongs to the process: a parent build tool's jobserver does not throttle it.
-LLVM work additionally holds a process-wide memory
-permit. At most four LLVM lanes run at once; the cap is further limited by the
-available CPUs and by half the observable memory limit (system or cgroup)
-divided by a 512 MiB per-lane cost. When no memory limit is observable, one
-lane is used. Another lane is admitted only while at least 1 GiB (the 512 MiB
-lane cost plus 512 MiB headroom) is observed as available.
+Parallel work is bounded by the session's CPU and LLVM memory permits; the
+budgets and admission rules are specified in the `nia-query` crate docs.
 
 ### 2.3 Crate Dependency Layers
 
@@ -459,7 +456,7 @@ Expected-type adaptations are semantic facts as well. In particular, implicit
 address formation is recorded separately from pointer-array-to-slice views:
 `T -> &T` may create storage, while `&[T; N] -> &[T]` creates a slice view.
 Lowering consumes both facts in order and never reconstructs an address
-adjustment from source syntax. Explicit `as` casts and `. ?` error conversions
+adjustment from source syntax. Explicit `as` casts and `.?` error conversions
 remain separate operations because they have different evaluation and
 dispatch rules.
 
@@ -592,7 +589,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-item-signatures` | Module-local declaration signatures. |
 | `nia-type-normalize` | Alias expansion and canonicalization of interned types. |
 | `nia-value-resolve` | Resolution of value paths, qualified values, and associated values. |
-| `nia-local-resolve` | Local scopes, bindings, and block-local imports. |
+| `nia-local-resolve` | Local bindings, lexical uses, and type-prefix identities. |
 | **IR data models** | |
 | `nia-sema-ir` | Persistent semantic fact schema keyed by definitions, locals, and node keys. |
 | `nia-const-ir` | Early and resolved const-capable IR. |
@@ -613,7 +610,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-query` | Query storage, dependency tracking, invalidation, cycle detection, bounded parallelism. |
 | `nia-ty` | Type model and session-wide canonical `TypeStore`. |
 | `nia-ids` | Session-local typed ids and the builtin registry. |
-| `nia-symbol` | Stable hashed symbol identities, known symbols, and source-defined predeclared trait contracts. |
+| `nia-symbol` | Stable hashed symbol identities and the well-known language symbol registry. |
 | `nia-symbol-table` | Concurrent reverse text storage for symbols. |
 | `nia-source` | Source identities, revisions, paths, and concurrent source storage. |
 | `nia-span` | Half-open source ranges. |

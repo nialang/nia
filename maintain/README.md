@@ -35,8 +35,12 @@ canonical `_N...` symbols when possible. Use `--json` for machine-readable
 attribution; the default text report is limited to the top 20 entries unless a
 different `--limit` is supplied.
 
-## Standard library audits
+## Repository audits
 
+- `audit compatibility` keeps persisted identities in one owner: fingerprint
+  domains are owner-local typed constants without numeric version suffixes and
+  are declared once, registered format magic is defined only in `nia-compat`,
+  and only `nia-compat` reads the release version.
 - `audit system-imports` requires `lib/imports/windows/*.def` to list exactly
   the Win32 `extern fun` declarations in the Windows sources, because the linker
   builds their import libraries from those files.
@@ -45,7 +49,7 @@ different `--limit` is supplied.
   module on that path changes the closure; review it, then update the fixture
   from `--print`.
 
-Both run as part of `cargo maintain check`.
+All three run as part of `cargo maintain check`.
 
 ## Performance
 

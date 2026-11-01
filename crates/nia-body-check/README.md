@@ -1,9 +1,12 @@
-# Generic Callable Closure Inference
+# nia-body-check: Closure Inference
 
-This note specifies the contract between generic-call inference, closure
-body checking, and callable-state validation. It describes Nia's equality-based
-inference and direct error conversion rules; it does not import Rust's closure
-or error semantics.
+This document specifies how `nia-body-check` infers closures passed to generic
+calls: the contract between generic-call inference, closure body checking,
+and callable-state validation. The crate's other responsibilities are in its
+`//!` crate docs; the user-visible rules are in the
+[language reference](../../docs/reference/language.md#parameter-inference).
+Inference is equality-based and error conversion is a direct `IntoError`
+obligation.
 
 ## Call Constraint
 
@@ -31,7 +34,7 @@ admissible.
 An explicit callable-view parameter has a different representation and a
 different admissibility check:
 
-```nia
+```nia ignore
 fun consume(callback: &Fun(A) R) R { ... }
 ```
 
@@ -135,11 +138,23 @@ instantiable.
 A solved closure signature alone is insufficient. Consider:
 
 ```nia
-fun fail[Value]() SourceError!Value { SourceError::Failed! }
+enum SourceError {
+    Failed,
+}
 
-// The later use supplies `Fun(i32) SourceError!i64` to this local.
-let fallback = \cause -> !(fail().?);
-consume(fallback)
+fun fail[Value]() SourceError!Value {
+    SourceError::Failed!
+}
+
+fun consume(callback: &Fun(i32) SourceError!i64) SourceError!i64 {
+    callback(1)
+}
+
+fun example() SourceError!i64 {
+    // The later use supplies `Fun(i32) SourceError!i64` to this local.
+    let fallback = \cause -> !(fail().?);
+    consume(fallback)
+}
 ```
 
 The graph connects the callable result's `i64` to the propagation payload,
@@ -209,21 +224,3 @@ type. Only justified equalities are added, so later contexts refine an
 existing monomorphic signature instead of creating a second instance of a
 local closure. These are implementation invariants and typing rules, not a
 claim of a machine-checked soundness proof for Nia's entire type system.
-
-## Regression Coverage
-
-The body-check tests cover generic functions, generic extension methods, trait
-methods, and trait default methods. They verify inference of nominal closure
-results without parameter annotations, preservation of `IntoError` as a
-separate obligation, optional and error-union propagation in local closures
-contextualized by later uses, generic call and method results beneath `.?`,
-propagation without closures, and rejection of an unconstrained source error.
-They also cover structural pattern bindings and calls in `match`, pattern
-conditions and pattern-condition chains, propagation whose payload differs
-from the enclosing success type, and interdependent operator/propagation
-obligations. Diverging branches cannot impose unit on contextual call payloads.
-Runtime-erased views still fail static `F: Fun(...)` bounds.
-The executable `std_error` regression checks an actual source-to-target error
-conversion through both generic and borrowed callbacks, plus a closure in a
-trait default method. The streaming hash test also exercises the default
-allocator reallocation path through full code generation and execution.

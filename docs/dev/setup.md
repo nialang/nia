@@ -150,9 +150,15 @@ Linux packaging.
 ## Environment Variables
 
 Normal compiler behavior is configured with CLI flags or typed API options.
-The variables the toolchain and test harness read are registered here; do not add a new
-`NIA_*` variable without adding it to this table and deciding whether it should
-be a CLI/API option instead.
+This table registers the Nia-specific variables that the toolchain and test
+harness read; do not add a new `NIA_*` variable without adding it here and
+deciding whether it should be a CLI/API option instead. Standard variables keep
+their usual meaning: `PATH` and `PATHEXT` for program search, `TERM` and `CI`
+for [progress output](../guide/build-scripts.md#progress-output), the proxy
+variables and `SSH_AUTH_SOCK` for
+[dependency sources](../guide/build-scripts.md#dependency-sources), and `HOME`
+or `USERPROFILE` for SSH configuration. The release scripts' own variables are
+described in [`tools/release/README.md`](../../tools/release/README.md).
 
 | Variable | Scope | Effect |
 | --- | --- | --- |
