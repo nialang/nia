@@ -148,7 +148,7 @@ no keyword spelling.
 
 ### Integer Literals
 
-```nia
+```nia ignore
 0
 42
 0xff
@@ -166,7 +166,7 @@ i8 i16 i32 i64 i128 isize
 u8 u16 u32 u64 u128 usize
 ```
 
-```nia
+```nia fragment
 let mask = 0xffu8;
 let bits = 0b1010_0000u8;
 let mode = 0o755usize;
@@ -178,7 +178,7 @@ context applies.
 
 ### Floating-Point Literals
 
-```nia
+```nia ignore
 1.0
 1e3
 1_000.5
@@ -237,7 +237,7 @@ Any other character after `\` is an error.
 Adjacent string literals with the same prefix form one literal. This is
 source-level concatenation, and mixing `"..."` with `b"..."` is an error:
 
-```nia
+```nia fragment
 let greeting =
     "hello, "
     "world\n";
@@ -246,11 +246,11 @@ let bytes =
     b"a\0";
 ```
 
-A string literal is an array value. Where a slice is expected, implicit address
-formation followed by array-pointer-to-slice coercion allows the literal to be
-passed directly. Taking its address explicitly is also supported:
+A string literal is an array value. Where a slice such as `&[char]` or
+`&[u8]` is expected, the literal can be written directly; Nia takes its address
+and views the array as a slice. Writing the `&` explicitly is equivalent:
 
-```nia
+```nia fragment
 let text: &[char] = "nia";
 let bytes: &[u8] = b"nia";
 let explicit: &[char] = &"nia";
@@ -281,11 +281,13 @@ Every integer type has associated constants `MIN` and `MAX`, such as
 `()` is also the zero-element tuple. A function without a written return type
 returns `()`.
 
-`never` is the type of expressions that do not complete normally: `return`,
-`break`, `continue`, a `loop` with no reachable exit, and calls to functions
-returning `never`. A `never` expression is accepted wherever a value is
-expected. `never` is valid as a function or function-pointer return type; it is
-not valid as the type of a variable, field, parameter, or array element.
+`never` is the type of expressions that do not complete normally: calls to
+functions returning `never`, and blocks or `match` arms that end in `return`,
+`break`, `continue`, or a `loop` with no reachable exit. (`return`, `break`,
+`continue`, and `loop` themselves are statements.) A `never` expression is
+accepted wherever a value is expected. `never` is valid as a function or
+function-pointer return type; it is not valid as the type of a variable, field,
+parameter, or array element.
 
 ### SIMD Vector Types
 
@@ -326,7 +328,7 @@ patterns use the same syntax. `.0`, `.1`, `.10` select an element by position;
 the position is a decimal literal without leading zeros, and an out-of-range
 position is an error. An element selection is a place when its base is a place.
 
-```nia
+```nia fragment
 let pair = (1, true);
 let (number, flag) = pair;
 let single = (5,);
@@ -348,21 +350,23 @@ accepted where `&T` is expected; every other pointer conversion is an explicit
 [cast](#casts). There is no pointer arithmetic: cast to `usize`, compute, and
 cast back.
 
-When an expression is used where `&T` is expected, Nia may take its address
-implicitly. Places and materializable temporary values are eligible for a
-read-only address. An expected `&mut T` may be formed implicitly only from a
-writable place; it never creates mutable access to a temporary or a read-only
-value. This applies to arguments, initializers, returns, and method receivers.
-The adjustment is performed at most once. Array values can therefore reach a
-slice parameter through the two explicit semantic steps `T -> &T` and
-`&[T; N] -> &[T]`; an array value is still not itself a slice.
+When a value of type `T` is used where `&T` is expected, Nia takes its address
+implicitly, so `&` may be left out of arguments, initializers, returns, and
+method receivers. Any place or temporary value except a `never` expression can
+receive a read-only address this way; a temporary lives until the end of the
+enclosing block, as with an explicit `&`, so a function must not return the
+address of a temporary; returning a string literal as `&[char]` returns a
+pointer to storage that has already ended. Where `&mut T` is expected, the
+address is taken implicitly only from a writable place, never from a temporary
+or a read-only value. At most one `&` is added: a `T` never becomes a `&&T`.
 
-An expected callable view also accepts a closure value directly. Nia forms the
-closure-state view required by `&Fun(...)` or `&mut Fun(...)`; the same
-writable-place rule applies to mutable views. This is a dedicated closure
-conversion, not another ordinary address adjustment. It is therefore not
-applied inside an explicit `&closure` expression, and it never converts a
-capturing closure into a thin `&fun(...)` pointer.
+Combined with the array-to-slice conversion described under [Slices](#slices),
+this lets an array value or a string literal be passed where a slice is
+expected. The array itself is still not a slice.
+
+A closure value is likewise accepted where a callable view `&Fun(...)` or
+`&mut Fun(...)` is expected, under the same writable-place rule for mutable
+views. This never turns a capturing closure into a thin `&fun(...)` pointer.
 
 `&place` takes a read-only pointer and `&mut place` a writable one; `&mut`
 requires a writable place. `p.*` dereferences. Reads and writes through `^T`
@@ -391,7 +395,7 @@ dereference.
 `[T; N]` is an array of `N` elements; the length is a compile-time `usize`
 and part of the type. Array literals list elements or repeat one value:
 
-```nia
+```nia fragment
 let xs = [1, 2, 3];                        // [i32; 3]
 let wide = [1i64, 2, 3];                   // [i64; 3]
 let inferred: [i32; _] = [4, 5, 6];        // `_` takes the literal's length
@@ -405,9 +409,10 @@ error (`[1u8, 2u64]` does not widen). An empty literal needs an expected type.
 The repeat count must be a compile-time `usize`. `[T; _]` is valid only where
 an array or string literal supplies the length.
 
-Array values do not implicitly convert to slices or pointers. An expected
-pointer type may implicitly take the address of an eligible array value, as
-described above. `arr[i]` indexes an array; it is a place when `arr` is a place.
+An array value is not a slice or a pointer. Where a pointer or slice is
+expected, its address is taken implicitly as described under
+[Pointers](#pointers). `arr[i]` indexes an array; it is a place when `arr` is
+a place.
 
 ### Slices
 
@@ -416,7 +421,7 @@ length. `[T]` itself is unsized and appears only behind a pointer or as an
 `extend` target. A slice is formed by range-indexing a base and taking the
 address:
 
-```nia
+```nia fragment
 let mut xs: [i32; 4] = [1, 2, 3, 4];
 let all = &xs[..];          // &[i32], length 4
 let middle = &xs[1..3];     // &[i32], length 2
@@ -424,11 +429,13 @@ let tail = &mut xs[2..];    // &mut [i32], length 2
 tail[0] = 10;
 ```
 
-The base may be an array, a slice, or a pointer to a single element. For a
-pointer base, an omitted upper bound means length 1, and an explicit range is
-taken as given (`&p[0..12]` claims twelve elements; the program is responsible
-for that claim). Range bounds in slicing have type `usize`, and unsuffixed
-literals in them are inferred as `usize`.
+The base may be an array, a slice, or a pointer. A pointer `&T` is treated as
+pointing at the first of a run of `T` values: an omitted upper bound means
+length 1, and an explicit range is taken as given (`&p[0..12]` claims twelve
+elements; the program is responsible for that claim). For a pointer to an
+array, the elements of that run are whole arrays, so `p[1]` is the array after
+`p.*`; write `p.*[1]` to index inside the array. Range bounds in slicing have
+type `usize`, and unsuffixed literals in them are inferred as `usize`.
 
 A writable slice requires writable elements: slicing an array value with
 `&mut` needs a writable array place, and slicing through a pointer or slice
@@ -458,7 +465,7 @@ fun clear(xs: &mut [i32]) {
 fun use_arrays() i32 {
     let mut arr = [1, 2, 3];
     clear(&mut arr);
-    first(&arr) + first(&[4, 5, 6])
+    first(arr) + first([4, 5, 6])
 }
 ```
 
@@ -501,7 +508,7 @@ is also the expected type of `value`.
 constructs the success case and `value!` the error case. Both constructors
 require an expected `E!T`; `let x = !10i32;` is an error because `E` is unknown.
 
-```nia
+```nia fragment
 let present: ?i32 = ?10;
 let absent: ?i32 = null;
 let ok: u8!i32 = !10;
@@ -550,7 +557,7 @@ convention, created by `&` on an `extern fun`; `extern` appears only in the
 type. Function pointer types describe runtime calls and are never callable
 during constant evaluation.
 
-```nia
+```nia continued
 fun pointers() i32 {
     let p = &add;                       // &fun(i32, i32) i32
     let q: &fun(i32) i32 = &id[i32];
@@ -558,8 +565,9 @@ fun pointers() i32 {
 }
 ```
 
-Non-unit enum variants and receiver methods also have function-item forms; see
-[Enums](#enums) and [Methods](#methods).
+Enum variants with a tuple payload and methods also convert to function
+pointers with `&`, as in `&Event::Data` and `&Vec2::len2`; see [Enums](#enums)
+and [Methods](#methods).
 
 ### Callable Views
 
@@ -590,7 +598,8 @@ dispatch dynamically; see [Trait Objects](#trait-object-coercion-and-dispatch).
 ## Declarations
 
 A source file is a sequence of items. Every item may be preceded by
-[attributes](#attributes) and a [visibility](#visibility) modifier:
+[attributes](#attributes), and every item except an `extend` block by a
+[visibility](#visibility) modifier:
 
 | Item | Form |
 | --- | --- |
@@ -661,8 +670,8 @@ extern static mut shared_counter: usize;
 - `extern static` declares a foreign global and requires a type; it has no
   initializer.
 - `extern fun` cannot be `const` or generic.
-- In an executable, every top-level `pub extern fun` definition of the program's
-  root module is exported even if Nia code never calls it.
+- In an executable, every top-level `pub extern fun` definition in a module of
+  the entry package is exported, even if Nia code never calls it.
 
 There are no `extern { ... }` blocks and no ABI strings. Which types may cross
 the boundary, symbol naming, and argument promotion for variadic calls are
@@ -690,7 +699,7 @@ Construction names the type. A field initializer `x` is shorthand for `x: x`.
 Inside an `extend` block `Self { ... }` names the extended type. When an
 expected type is known, the name may be omitted with `.{ ... }`:
 
-```nia
+```nia continued
 fun points() i32 {
     let x = 1;
     let p = Point { x, y: 2 };
@@ -737,9 +746,10 @@ enum Event {
 ```
 
 An enum lists variants. A variant is unit-like, carries a tuple payload
-(`Data(i32)`), or carries named fields (`Resize { ... }`). Unit-like variants
-may have explicit integer values (`Red = 10`); otherwise values start at 0 and
-increase by one. The backing integer type follows `:` and defaults to `i32`.
+(`Data(i32)`), or carries named fields (`Resize { ... }`). Any variant may have
+an explicit integer value (`Red = 10`); otherwise values start at 0 and
+increase by one from the previous variant. The backing integer type follows `:`
+and defaults to `u8`; every value must fit in it.
 
 Variants are named through the enum: `Color::Black`, `Event::Data(1)`,
 `Event::Resize { width: 1, height: 2 }`. Where the expected type is an enum,
@@ -750,7 +760,7 @@ An enum value casts to any integer type. Integers do not cast to an ordinary
 type is then a valid value, integers cast to it, and every `match` on it needs a
 `_` arm:
 
-```nia
+```nia continued
 enum Flag: u32 {
     A,
     B,
@@ -771,7 +781,7 @@ fields in order and returning the enum. `&mut` cannot form a constructor
 pointer, unit variants are not constructors, and constructor pointers cannot be
 used in constant evaluation.
 
-```nia
+```nia continued
 fun constructors() Event {
     let data: &fun(i32) Event = &Event::Data;
     let resize: &fun(i32, i32) Event = &.Resize;
@@ -812,17 +822,18 @@ The type may be inferred from the initializer. A static without an initializer
 needs a type and is zero-initialized (`extern static` instead refers to foreign
 storage). Initializers must be static data: literals, arithmetic on constants,
 aggregates of static data, addresses of other statics, and named `const`
-values. They cannot run code, so `static bad = { 1 + 2 };` is an error. A static
-does not decay to its address; `static q: &i32 = target;` is an error where
-`&target` is meant.
+values. They cannot run code, so `static bad = { 1 + 2 };` is an error. Where a
+pointer is expected, the address of another static is taken implicitly:
+`static q: &i32 = target;` stores `&target`.
 
 Use `static`, not `const`, when data needs an address, for example when it is
 passed to foreign code.
 
 ### Constants
 
-`const` binds a compile-time value. It has no storage and no address, so `&`
-on a constant is an error. The initializer is evaluated by
+`const` binds a compile-time value. It has no storage of its own: `&name` on a
+constant points to a temporary copy, as for any other value, and `&mut name` is
+an error. The initializer is evaluated by
 [constant evaluation](#constant-evaluation), and cyclic constants are errors.
 
 ```nia
@@ -925,13 +936,13 @@ to ordinary code as constants in `std::builtin::target`.
 
 ```nia
 @[if os == "linux" and arch == "x86_64"]
-fun platform_name() &[char] {
-    &"linux-x86_64"
+fun platform_name() [char; 12] {
+    "linux-x86_64"
 }
 
 @[if not (os == "linux" and arch == "x86_64")]
-fun platform_name() &[char] {
-    &"other"
+fun platform_name() [char; 5] {
+    "other"
 }
 
 fun word_size() usize {
@@ -941,9 +952,9 @@ fun word_size() usize {
 }
 ```
 
-The whole file must parse, so inactive code must be syntactically valid. Inactive
-items and statements are removed before name resolution and type checking;
-errors inside them are not reported for that target. Code meant for several
+The whole file must parse, so inactive code must be syntactically valid.
+Inactive items and statements are otherwise ignored for that target, including
+any type or name errors inside them. Code meant for several
 targets is checked once per target.
 
 #### Build Profiles And Tests
@@ -1010,8 +1021,8 @@ accept all of them.
 | `null` | an empty optional | no |
 | `!p` | an error-union success whose value matches `p` | no |
 | `p!` | an error-union error whose value matches `p` | no |
-| literal | an equal scalar value (`0`, `'a'`, `true`) | no |
-| `a..b`, `a..=b` | an integer in the closed range | no |
+| literal | an equal integer, `char`, or `bool` value (`0`, `'a'`, `true`) | no |
+| `a..b`, `a..=b` | an integer in the half-open or inclusive range | no |
 | `path::NAME`, `(expr)` | a value equal to a named constant | no |
 
 A bare identifier always introduces a binding, whatever its spelling. To match
@@ -1021,8 +1032,8 @@ contextual form (`.Red`), or parentheses (`(limit)`).
 Struct patterns name the type. Field `x` is shorthand for `x: x`; `field: _`
 ignores one field. Fields may appear in any order. All fields must be listed
 unless the pattern ends with `..`, which may appear once, last. `..` exists only
-in struct and named-variant patterns; tuple and slice patterns have no rest
-form. Unknown or repeated fields are errors.
+in struct and named-variant patterns; tuple patterns have no rest form, and
+there are no slice patterns. Unknown or repeated fields are errors.
 
 Optional and error-union patterns nest: in a `?(E!T)` scrutinee, `?!v` matches
 a present success and `?e!` a present error.
@@ -1081,7 +1092,7 @@ fun nested(value: ?(u8!i32)) i32 {
 
 In bindings, pointer and struct patterns destructure without a `match`:
 
-```nia
+```nia continued
 fun swap_sum(pair: &(i32, i32), point: Point) i32 {
     let &(a, b) = pair;
     let Point { x, .. } = point;
@@ -1119,7 +1130,7 @@ statements need none. A block's final expression without `;` is its tail.
 An expression statement must not silently drop a value. If the value is
 neither `()` nor `never`, discard it explicitly with `_ =`:
 
-```nia
+```nia continued
 fun compute() i32 {
     1
 }
@@ -1142,14 +1153,14 @@ ends in a `loop` without `break`, has type `never`.
 
 ### If
 
-```nia
-fun grade(score: i32) &[char] {
+```nia continued
+fun grade(score: i32) char {
     if score >= 90 {
-        &"excellent"
+        'A'
     } else if score >= 60 {
-        &"pass"
+        'B'
     } else {
-        &"fail"
+        'C'
     }
 }
 ```
@@ -1163,7 +1174,7 @@ compatible branch types. Without `else` its type is `()`.
 expression is evaluated once, and bindings are visible in the `then` branch
 only. `mut` goes inside the pattern: `if maybe is mut ?value { ... }`.
 
-```nia
+```nia continued
 fun first_or_zero(maybe: ?i32) i32 {
     if maybe is ?value {
         value
@@ -1178,7 +1189,7 @@ first failure; each clause sees the bindings of earlier `is` clauses, and none
 of them are visible in `else`. Plain boolean clauses may come before, between,
 or after `is` clauses.
 
-```nia
+```nia continued
 fun ready_width(enabled: bool, maybe: ?Point) i32 {
     if enabled and maybe is ?p and p.x > 0 and not (p.y == 0) {
         p.x
@@ -1194,11 +1205,11 @@ alternatives. `is` is valid only in `if` conditions.
 
 ### Match
 
-```nia
-fun code(color: Color) i32 {
-    match color {
-        Color::Black => 0,
-        Color::White => 1,
+```nia continued
+fun code(shape: Shape) i32 {
+    match shape {
+        Shape::Dot => 0,
+        Shape::Circle(_) => 1,
         _ => return -1,
     }
 }
@@ -1275,8 +1286,9 @@ fun deferred() i32 {
 }
 ```
 
-Control flow inside a deferred expression happens when it runs: `return` and
-`.?` leave the current function, and `break` or `continue` target a loop that
+Control flow inside a deferred expression happens when it runs, and is written
+in block form, as in `defer { break; };`. `return` and `.?` leave the current
+function, and `break` or `continue` target a loop that
 encloses the `defer` statement. Such a jump replaces the exit that triggered the
 deferred code. Nia has no exceptions, so there is no unwinding.
 
@@ -1347,7 +1359,7 @@ implicit. The valid casts are:
 | --- | --- |
 | any type | the same type |
 | integer or floating-point type | any integer or floating-point type |
-| numeric vector | numeric vector |
+| numeric vector | numeric vector with the same lane count |
 | `char` | `u32` |
 | enum | any integer type |
 | integer | open enum |
@@ -1365,11 +1377,13 @@ closed enums. A pointer cast to or from any integer type other than `usize` or
 `f(args)` calls a function item, function pointer, callable view, or closure.
 `value.field` reads a field; `value.method(args)` calls a method resolved
 statically from visible `extend` blocks (see [Methods](#methods)). When no
-method matches, a field holding a function pointer may be called the same way.
+method matches, a field holding a function pointer or a callable view may be
+called the same way.
 
 Field access and method receivers dereference pointers automatically: if `p` is
-a `&Point` or `&mut Point`, `p.x` and `p.len2()` work. This is the only implicit
-dereference.
+a `&Point` or `&mut Point`, `p.x` and `p.len2()` work. Field access follows any
+number of pointers; a method receiver follows one. These are the only implicit
+dereferences.
 
 `expr[...]` is an index, a range index, or an explicit generic instantiation.
 It is an instantiation when `expr` names a generic function, method, or type and
@@ -1393,7 +1407,6 @@ The operand is evaluated once, conversion happens only on the error path, and
 nothing is allocated.
 
 ```nia
-
 struct ParseError {
     code: i32,
 }
@@ -1416,7 +1429,7 @@ fun parse(text: &[char]) ParseError!i32 {
 }
 
 fun run() AppError!i32 {
-    let value = parse(&"42").?;
+    let value = parse("42").?;
     !(value * 2)
 }
 ```
@@ -1480,56 +1493,44 @@ fun curried() i32 {
 
 ### Parameter Inference
 
-A parameter type may be omitted when it can be determined from the closure's
-uses in the same function body: an expected callable type, a direct call, or a
-later address conversion to a callable view at a function or method call.
-When the expected parameter is a callable view, passing the closure directly
-also supplies that context; writing `&closure` is optional.
-Generic callable parameters participate in the same inference. Return types are
-inferred from the body and context; a closure has no return annotation. A
-closure is monomorphic, so all uses must agree on its parameter types. A
-parameter type that appears in neither the body nor any callable context cannot
-be inferred and must be annotated.
+A parameter type may be omitted when the closure's uses in the same function
+body determine it: an expected callable type where the closure is written, a
+direct call of the closure, or a later use where a callable view or callable
+bound is expected. A closure has no return annotation; its return type comes
+from the body and that context. A closure is monomorphic, so all of its uses
+must agree on its parameter types; when two uses disagree, the error names both.
+A parameter type that neither the body nor any use determines must be
+annotated.
 
-For a generic parameter constrained by `F: Fun(Args) Return`, the bound has
-two distinct roles during a call:
+The expected signature also checks the closure body. In a call to
+`fun apply(callback: &Fun(A) R, ...)`, the body is checked with parameter types
+`A` and expected result `R`. When `R` is an error union `E!T`, `!value` in the
+body is checked against `T` and `error!` against `E`, and a `.?` inside the body
+converts errors to `E` through [`IntoError`](#propagation) like any other
+propagation.
 
-1. The callable shape supplies expected parameter and return types while the
-   closure body is inferred. Its generic variables are shared with the
-   corresponding variables in the callee's ordinary parameter and result
-   types, so constraints from the closure result and other arguments can
-   determine the same instantiation.
-2. After inference, the closure's concrete state type is checked against `F`.
-   The bound does not replace the parameter type or bypass callable-state and
-   mutability checks.
-
-An error-union callable result such as `Target!Value` therefore contexts both
-`!value` and `error!`; `Target` may be inferred from a nominal error constructor
-in the closure, while `Value` is determined by another argument. The local
-inference pass preserves `.?` operand shape so calls inside its operand take
-part in this process. It models the propagated value component and keeps the
-operand's error type distinct from the enclosing function's error type:
-`IntoError` is a direct conversion obligation checked by ordinary body
-checking, not an equality rule in closure inference.
-
-An explicit parameter such as `callback: &Fun(Args) Return` uses the same
-expected invocation signature to infer an inline or local closure's body, then
-checks the resulting closure state against the requested callable view. The
-invocation signature is contextual information; it does not replace the
-runtime view type. If `Return` is an error union, both its success and error
-constructors receive their corresponding expected payload types. A `.?`
-inside that body still checks `IntoError` at its own propagation boundary.
+Generic callees work the same way. For a generic parameter with a bound
+`F: Fun(A) R`, or a parameter `&Fun(A) R` whose types mention the callee's
+generic parameters, the closure body and the other arguments are inferred
+together: a constructor in the closure body can determine a generic error type,
+while another argument determines the success type. After inference, the
+closure is checked against the instantiated bound, including its captures and
+mutability. Named functions satisfy `F: Fun(A) R` bounds as well.
 
 ```nia
 fun apply(callback: &Fun(i32) i32, value: i32) i32 {
     callback(value)
 }
 
+fun supply[T](supplier: &Fun() T) T {
+    supplier()
+}
+
 fun inferred() i32 {
     let double = \value -> value * 2;
     let increment = \value -> value + 1;
     let direct = double(3);
-    direct + apply(increment, 1)
+    direct + apply(increment, 1) + supply(\-> 4)
 }
 ```
 
@@ -1539,11 +1540,10 @@ A closure is a value with its own anonymous type. It converts in two ways:
 
 - To a callable view `&Fun(...)` or `&mut Fun(...)`, either by taking the
   closure's address or by passing the closure value directly where that view is
-  expected. Direct conversion follows the same addressability rules as implicit
-  address formation: a read-only view accepts addressable places and
-  materializable temporaries, while a writable view requires a writable place.
-  An explicit `&closure` gives a read-only view; `&mut closure` gives either
-  kind. Parameter and return types must match.
+  expected. A read-only view can be formed from any closure value, a writable
+  view only from a closure in a writable place. An explicit `&closure` gives a
+  read-only view; `&mut closure` gives either kind. Parameter and return types
+  must match.
 - To a thin `&fun(...)` pointer, only for a closure without captures and only
   with `&closure`.
 
@@ -1565,10 +1565,12 @@ fun views() i32 {
 
 ### Lifetime Of Views
 
-Views and closure state are stack-backed. A view may be called and copied into
-local aggregates while the closure is live, but it cannot be returned, stored
-through a pointer or in a static, assigned to an outer scope, or passed to an
-operation that may retain it. The same holds for a closure whose state captures
+Views and closure state are stack-backed. A view of a closure created in the
+current function may be called and copied into local aggregates while the
+closure is live, but it cannot be returned, stored through a pointer or in a
+static, assigned to an outer scope, or passed to a function that stores it.
+Passing it through a function pointer counts as storing it, because the callee
+is unknown. The same holds for a closure whose state captures
 the address of a local or temporary. A longer-lived callable needs an explicit
 owner from a library.
 
@@ -1611,9 +1613,10 @@ const fun count_up(limit: usize) usize {
     value
 }
 
-const fun shifted_sum(point: Point) i32 {
-    let mut Point { x, y }: Point = point;
+const fun shifted_sum(pair: (i32, i32)) i32 {
+    let mut (x, y) = pair;
     x += 1;
+    y += 1;
     x + y
 }
 ```
@@ -1632,7 +1635,8 @@ Pointers in constant evaluation follow these rules:
 
 Calls through function pointers or callable views are not constant
 evaluation. In a `const fun`, a `for` loop requires the selected `Iterable::iter`
-and `Iterator::next` implementations to be `const fun`.
+and `Iterator::next` implementations to be `const fun`; the standard library's
+ranges and slices do not provide them, so loops in a `const fun` use `while`.
 
 `std::builtin::trap()` returns `never`; reached during constant evaluation it is
 a compile-time error at the call, and at runtime it traps.
@@ -1641,7 +1645,8 @@ reached. Either may appear in a branch that a particular evaluation does not
 take. `error` is const-only: a `const fun` that contains it cannot be called
 from runtime code. The
 layout builtins `size`, `align`, and `offset` are constants when their type
-argument is concrete and can be used in array lengths and static initializers;
+argument is concrete and can be used in array lengths and `const` initializers;
+a static initializer uses them through a named `const`.
 `std::builtin::embed` is valid only in constant evaluation. See the
 [builtins reference](builtins.md).
 
@@ -1700,7 +1705,7 @@ Generic types are instantiated with brackets directly after the name:
 `Pair[i32, bool]`, `Buffer[64]`. Calls may infer every argument or list all of
 them; a partial list is an error, and `_` asks for inference in one position:
 
-```nia
+```nia continued
 fun choose[T, U](value: T, other: U) T {
     _ = other;
     value
@@ -1726,10 +1731,9 @@ header. Predicates are separated by commas, and several bounds on one parameter
 are joined with `+`:
 
 ```nia
-fun describe[T, U](value: &T, other: &U) bool
-where T: Ord[U] + Show, U: Eq[U] {
-    _ = other;
-    value.show() == 0
+fun at_most[T, U](value: &T, limit: &U) bool
+where T: Ord[U] + Eq[U], U: Sized {
+    value.* < limit.* or value.* == limit.*
 }
 ```
 
@@ -1784,9 +1788,11 @@ allowed. An `extend` block itself has no visibility; visibility is written on
 each member.
 
 Method calls resolve statically; `.` never implies dynamic dispatch except on
-[trait objects](#trait-object-coercion-and-dispatch). Candidates are the
-methods declared in `extend` blocks for the receiver type: public methods from
-modules reached through `using`, and private methods in their own module. Two
+[trait objects](#trait-object-coercion-and-dispatch). Candidates are the trait
+implementation methods for the receiver type, which need no import (see
+[Extension Targets](#extension-targets)), and the methods of plain `extend`
+blocks for it: public ones from modules imported with `using`, and private ones
+in their own module. Two
 visible methods with the same name for the same receiver type make a call
 ambiguous.
 
@@ -1794,7 +1800,7 @@ A nominal type also exposes public inherent members declared in its defining
 module, including through a qualified type path. This does not bring that
 module's imports or extensions on other targets into scope.
 
-```nia
+```nia continued
 fun methods() i32 {
     let mut v = Vec2::new(3, 4);
     v.shift(1);
@@ -1844,14 +1850,14 @@ A structural target is named in a path by wrapping it in brackets:
 `[&u8]::is_null`, `[&[char]]::name`. This is only a path to the target's
 members; it neither captures a receiver nor creates a short name.
 
-Trait implementations are package-owned facts. An implementation for a
-nominal type may be declared only in the package that defines the type or in
-the package that defines the trait; [built-in traits](#built-in-traits) belong
-to `std`. Primitive and structural types have no defining package, so their
-implementations must be declared in the trait's package. The compiler searches
-those owner packages directly; a `using` declaration does not change which
-implementations exist or make a third package eligible, so trait methods such
-as `xs.len()` and loops such as `for i in 0..3` need no import. A `pub(root)` or
+A trait implementation for a nominal type may be declared only in the package
+that defines the type or in the package that defines the trait;
+[built-in traits](#built-in-traits) belong to `std`. Primitive and structural
+types have no defining package, so their implementations must be declared in
+the trait's package. An implementation applies wherever its trait is visible,
+whatever the current module imports: trait methods such as `xs.len()` and loops
+such as `for i in 0..3` need no `using`, and an import cannot add an
+implementation from a third package. A `pub(root)` or
 private trait's implementations apply only where the trait is visible.
 Extension methods declared without a trait are different: they are scoped and
 need a `using` of their module.
@@ -1933,7 +1939,7 @@ members of that trait: every required method and every associated type and
 constant the trait declares, and nothing else. Inherent methods go in a plain
 `extend Type { ... }` block.
 
-```nia
+```nia continued
 struct Point {
     x: i32,
 }
@@ -1958,7 +1964,7 @@ extend Point : Comparable {
 `Child` may call them. Implementing `Child` does not implement `Parent`; each
 implementation is written separately.
 
-```nia
+```nia continued
 trait Ordered : Comparable {
     fun less(&self, other: &Self) bool;
 }
@@ -1982,7 +1988,7 @@ with the explicit form `[T as Trait]::Name`; there is no `T::Name` shorthand.
 Associated types take no generic parameters and are defined only in trait
 implementations.
 
-```nia
+```nia continued
 trait Source {
     type Item;
 
@@ -2019,7 +2025,7 @@ A bound may fix associated types after the positional trait arguments:
 be an associated type of the trait and may be bound once. The binding is part
 of that bound, not a separate equality.
 
-```nia
+```nia continued
 fun mapped[T](value: &T) i32
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map(1, true)
@@ -2030,9 +2036,10 @@ where T: Mapper[i32, bool, C = i32, D = bool] {
 
 A trait declares `const NAME: Type;` without a value, and each implementation
 supplies `const NAME: Type = value;`. Inherent `extend` blocks may also define
-associated constants. They are read as `Type::NAME`.
+associated constants. They are read as `Type::NAME`; in generic code, where the
+implementing type is a parameter, use the projection form `[T as Lanes]::COUNT`.
 
-```nia
+```nia continued
 trait Lanes {
     const COUNT: usize;
 }
@@ -2055,12 +2062,16 @@ pointers.
 
 A pointer to a concrete type converts to a trait object pointer (`&Trait`,
 `&mut Trait`, `&Trait[Item = i32]`) when the type implements the trait with
-matching associated-type bindings. Calls through a trait object dispatch
-dynamically. Methods callable on an object must take a `&self` or `&mut self`
-receiver and have no generic parameters of their own. Built-in traits cannot be
-used as objects.
+matching associated-type bindings. A value converts too: its address is taken
+implicitly as described under [Pointers](#pointers), and `&mut Trait` needs a
+writable place. Calls through a trait object dispatch dynamically.
 
-```nia
+A trait can be used as an object only when every method takes `&self` or
+`&mut self` and has no generic parameters of its own, the trait declares no
+associated constants, and every associated type that a method signature uses
+is bound in the object type. Built-in traits cannot be used as objects.
+
+```nia continued
 fun total(source: &Source[Item = i32]) i32 {
     source.get()
 }
@@ -2073,10 +2084,11 @@ fun dispatch() i32 {
 
 A trait object converts to an object of a declared supertrait with the same
 mutability. If the target binds associated types, the source must carry the
-same bindings; bindings for supertraits other than the first use projection
-keys, as in `&Child[[Self as A]::Item = i32, [Self as B]::Item = usize]`.
+same bindings. A plain name binds only the trait's own associated types;
+associated types of a supertrait are bound with projection keys, as in
+`&Child[[Self as A]::Item = i32, [Self as B]::Item = usize]`.
 
-```nia
+```nia continued
 trait Parent {}
 trait Child : Parent {}
 
@@ -2092,8 +2104,9 @@ fun forward(child: &Child) {
 ### Built-In Traits
 
 The language gives these traits fixed meanings. They are declared in
-`std::builtin`, and all except `IntoError` are visible by name in every module
-without an import; `IntoError` is written `std::builtin::IntoError`. They are implemented
+`std::builtin`. All except `IntoError` and `Len` are visible by name in every
+module without an import; those two are written `std::builtin::IntoError` and
+`std::builtin::Len`. They are implemented
 with ordinary `extend Type : Trait` blocks. Their method names are fixed.
 
 Operator traits. Binary operators take both operands by value:
@@ -2193,6 +2206,7 @@ Other built-in traits:
 | `Len` | `const fun len(&self) usize`; implemented for arrays and slices, so `xs.len()` works on both |
 | `Iterable`, `Iterator` | the [`for` loop](#loops) protocol (below) |
 | `IntoError[Target]` | error conversion for [`.?`](#propagation) |
+| `Simd`, `SimdMask` | implemented by the [SIMD vector types](#simd-vector-types); see [builtins](builtins.md#simd) |
 
 ```nia
 trait Iterable {
@@ -2215,14 +2229,14 @@ the module graph already contains; it never discovers files. How a child
 declaration maps to a file is defined by the toolchain; see
 [Build Scripts](../guide/build-scripts.md).
 
-```nia
+```nia ignore
 module math;            // private child module
 pub module geometry;    // child module that is part of this module's public surface
 ```
 
 ### Paths
 
-Paths separate segments with `::`. These roots are reserved:
+Paths separate segments with `::`. These roots have fixed meanings:
 
 | Root | Names |
 | --- | --- |
@@ -2231,7 +2245,9 @@ Paths separate segments with `::`. These roots are reserved:
 | `self` | the current module |
 | `super` | the parent module |
 
-Other package names are supplied by the toolchain. A path that starts with a
+`root`, `self`, and `super` are keywords. `std` is the package name of the
+standard library, and other package names are supplied by the toolchain. A path
+that starts with a
 declared child module's name starts at that child, in any module including a
 package's root: after `module util;`, `util::Point` and `self::util::Point` are
 the same type. A child declaration shadows a package of the same name.
@@ -2245,7 +2261,7 @@ the other reaches the module through the keeping tree's package name.
 `using` brings a module, item, or enum variant into scope. At top level it is
 visible in the whole file; in a block, only in that block.
 
-```nia
+```nia ignore
 using std::process;                       // a module
 using root::math as m;                    // renamed
 using math::add;                          // one item
@@ -2271,7 +2287,7 @@ module's public surface. It accepts the same forms as `using`. Users may then
 reach an item through the re-exporting module (`facade::add`) or through a
 re-exported module (`facade::impl::add`). Re-exports may chain.
 
-```nia
+```nia ignore
 // facade.nia
 using root::impl;
 pub using impl;                  // the module itself
@@ -2341,8 +2357,8 @@ fun greet() {
 }
 ```
 
-`(&array).ptr()` converts the array pointer to a slice and returns its data
-pointer; `&bytes[0]` is equivalent. A literal evaluated inside a function gets
+`(&array).ptr()` views the array as a slice and returns its data pointer;
+`&bytes[0]` is equivalent. A literal evaluated inside a function gets
 no static storage, so a pointer into it must not outlive the enclosing block.
 Use a `static` for data that foreign code keeps.
 
