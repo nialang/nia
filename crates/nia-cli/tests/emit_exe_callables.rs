@@ -6,6 +6,48 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn emit_exe_auto_addresses_function_items_for_thin_pointer_contexts() {
+    let root = temp_dir("auto_addresses_function_items_for_thin_pointer_contexts");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+fun addsNumbers(left: i32, right: i32) i32 { left + right }
+fun invoke(callback: &fun(i32, i32) i32) i32 { callback(2, 3) }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let pointer: &fun(i32, i32) i32 = addsNumbers;
+    if pointer(4, 5) != 9 or invoke(addsNumbers) != 5 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write function-pointer source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit function-item pointer conversion executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run function-item pointer conversion executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn generic_methods_infer_and_execute_capturing_callable_arguments() {
     let root = temp_dir("generic_methods_infer_and_execute_capturing_callable_arguments");
     let main = root.join("main.nia");

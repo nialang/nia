@@ -659,6 +659,14 @@ impl<'a> BodyChecker<'a> {
                         closure_id: coercion.closure_id,
                     },
                 },
+                ExprAdjustment::FunctionItemToPointer(coercion) => TypedExpr {
+                    span: expr.span,
+                    ty: coercion.pointer_ty,
+                    kind: TypedExprKind::Unary {
+                        op: UnaryOp::RefReadOnly,
+                        expr: Box::new(value),
+                    },
+                },
                 ExprAdjustment::PointerArrayToSlice(coercion) => TypedExpr {
                     span: expr.span,
                     ty: coercion.slice_ty,

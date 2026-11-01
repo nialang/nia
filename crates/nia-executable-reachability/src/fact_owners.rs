@@ -117,6 +117,9 @@ fn collect_function_fact_owner_modules(
                 ExprAdjustment::ClosureCallableView(value) => {
                     type_ids.extend([value.source_ty, value.state_ty, value.target_ty])
                 }
+                ExprAdjustment::FunctionItemToPointer(value) => {
+                    type_ids.extend([value.function_ty, value.pointer_ty])
+                }
                 ExprAdjustment::PointerArrayToSlice(value) => {
                     type_ids.extend([value.pointer_ty, value.array_ty, value.slice_ty])
                 }

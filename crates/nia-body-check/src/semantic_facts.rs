@@ -284,6 +284,14 @@ impl<'a> BodyChecker<'a> {
         self.record_expr_adjustment(expr, ExprAdjustment::ClosureCallableView(coercion));
     }
 
+    pub(super) fn record_function_item_to_pointer_coercion(
+        &mut self,
+        expr: &Expr,
+        coercion: nia_sema_ir::FunctionItemToPointerCoercion,
+    ) {
+        self.record_expr_adjustment(expr, ExprAdjustment::FunctionItemToPointer(coercion));
+    }
+
     pub(super) fn record_function_pointer_to_callable_coercion(
         &mut self,
         expr: &Expr,

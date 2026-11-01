@@ -995,6 +995,18 @@ pub struct ClosureCallableViewCoercion {
     pub is_readonly: bool,
 }
 
+/// Contextual conversion from a statically known function item to a thin
+/// function pointer. This is the function-item analogue of implicit address
+/// formation; it does not address storage because function items are
+/// zero-sized compile-time values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FunctionItemToPointerCoercion {
+    /// Function-item type before the conversion.
+    pub function_ty: InternedTyId,
+    /// Thin function-pointer type produced by the conversion.
+    pub pointer_ty: InternedTyId,
+}
+
 /// Coercion from a mutable pointer to its readonly view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MutableToReadonlyCoercion {
@@ -1038,6 +1050,7 @@ pub struct TraitObjectUpcast {
 pub enum ExprAdjustment {
     AddressOf(AddressOfCoercion),
     ClosureCallableView(ClosureCallableViewCoercion),
+    FunctionItemToPointer(FunctionItemToPointerCoercion),
     PointerArrayToSlice(PointerArrayToSliceCoercion),
     MutableToReadonly(MutableToReadonlyCoercion),
     FunctionPointerToCallable(FunctionPointerToCallableCoercion),
@@ -1050,6 +1063,7 @@ impl ExprAdjustment {
         match self {
             Self::AddressOf(value) => value.source_ty,
             Self::ClosureCallableView(value) => value.source_ty,
+            Self::FunctionItemToPointer(value) => value.function_ty,
             Self::PointerArrayToSlice(value) => value.pointer_ty,
             Self::MutableToReadonly(value) => value.source_ty,
             Self::FunctionPointerToCallable(value) => value.function_ty,
@@ -1062,6 +1076,7 @@ impl ExprAdjustment {
         match self {
             Self::AddressOf(value) => value.target_ty,
             Self::ClosureCallableView(value) => value.target_ty,
+            Self::FunctionItemToPointer(value) => value.pointer_ty,
             Self::PointerArrayToSlice(value) => value.slice_ty,
             Self::MutableToReadonly(value) => value.target_ty,
             Self::FunctionPointerToCallable(value) => value.callable_ty,

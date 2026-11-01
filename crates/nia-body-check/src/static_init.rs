@@ -79,6 +79,10 @@ impl<'a> BodyChecker<'a> {
                             step,
                             nia_sema_ir::ExprAdjustment::AddressOf(adjustment)
                                 if adjustment.target_ty == ty
+                        ) || matches!(
+                            step,
+                            nia_sema_ir::ExprAdjustment::FunctionItemToPointer(adjustment)
+                                if adjustment.pointer_ty == ty
                         )
                     })
             })

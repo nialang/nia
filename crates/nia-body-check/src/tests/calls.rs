@@ -2126,6 +2126,45 @@ fun main() i32 {
 }
 
 #[test]
+fn auto_addresses_function_items_in_thin_pointer_contexts() {
+    let checked = pipeline(
+        r#"
+fun addsNumbers(left: i32, right: i32) i32 { left + right }
+extern fun foreign(value: i32) i32;
+
+fun invoke(callback: &fun(i32, i32) i32) i32 {
+    callback(2, 3)
+}
+
+fun main() i32 {
+    let pointer: &fun(i32, i32) i32 = addsNumbers;
+    let foreign_pointer: &extern fun(i32) i32 = foreign;
+    pointer(4, 5) + invoke(addsNumbers)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let plans = checked
+        .facts
+        .iter_node_expr_adjustments()
+        .filter(|(_, plan)| {
+            plan.steps
+                .iter()
+                .any(|step| matches!(step, nia_sema_ir::ExprAdjustment::FunctionItemToPointer(_)))
+        })
+        .count();
+    assert_eq!(
+        plans,
+        3,
+        "{:#?}",
+        checked
+            .facts
+            .iter_node_expr_adjustments()
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn rejects_capturing_closure_to_thin_function_pointer_with_dedicated_diagnostic() {
     let checked = pipeline(
         r#"

@@ -90,6 +90,27 @@ static callback: &fun(i32) i32 = &identity[i32];
 }
 
 #[test]
+fn static_function_item_pointer_initializers_accept_implicit_addressing() {
+    let checked = pipeline_static_facts(
+        r#"
+fun identity[T](value: T) T { value }
+
+static callback: &fun(i32) i32 = identity[i32];
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let refs = checked
+        .static_init_refs
+        .values()
+        .next()
+        .expect("callback static initializer references");
+    assert!(refs.functions.is_empty());
+    assert_eq!(refs.function_instances.len(), 1);
+    assert_eq!(refs.function_instances[0].args.len(), 1);
+}
+
+#[test]
 fn static_fact_references_retain_const_generic_function_instances() {
     let checked = pipeline_static_facts(
         r#"

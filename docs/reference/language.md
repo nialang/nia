@@ -361,7 +361,11 @@ address is taken implicitly only from a writable place, never from a temporary
 or a read-only value. At most one `&` is added: a `T` never becomes a `&&T`.
 Idiomatic code relies on this and writes `&` or `&mut` only where a pointer is
 wanted as a value of its own, or where no implicit address applies, such as a
-function pointer `&name` or a slice `&xs[a..b]`.
+slice `&xs[a..b]`. A function item is automatically converted to a thin
+function pointer when the surrounding context explicitly expects
+`&fun(...)` or `&extern fun(...)`; without an expected pointer type, `&name`
+still requests the conversion and a bare `name` remains the zero-sized
+function item.
 
 Combined with the array-to-slice conversion described under [Slices](#slices),
 this lets an array value or a string literal be passed where a slice is
@@ -552,8 +556,10 @@ fun call_items() i32 {
 }
 ```
 
-`&fun(A, B) R` is a thin function pointer. `&name` turns a function item into
-one; a generic function must be instantiated first (`&id[i32]`, not `&id`).
+`&fun(A, B) R` is a thin function pointer. A function item is converted to one
+when this pointer type is expected, and `&name` requests the same conversion
+explicitly; a generic function must be instantiated first (`id[i32]`, not
+`id`).
 An omitted return type means `()`. Only the read-only form exists; `&mut fun`
 is an error. `&extern fun(A, B) R` is a pointer to a function with the C calling
 convention, created by `&` on an `extern fun`; `extern` appears only in the

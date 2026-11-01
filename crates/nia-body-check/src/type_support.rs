@@ -11,8 +11,8 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_hash::FastHashMap;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::{
-    AddressOfCoercion, ClosureCallableViewCoercion, FunctionPointerToCallableCoercion,
-    MutableToReadonlyCoercion, PointerArrayToSliceCoercion,
+    AddressOfCoercion, ClosureCallableViewCoercion, FunctionItemToPointerCoercion,
+    FunctionPointerToCallableCoercion, MutableToReadonlyCoercion, PointerArrayToSliceCoercion,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
@@ -65,6 +65,11 @@ impl<'a> BodyChecker<'a> {
         allow_auto_address: bool,
         allow_implicit_views: bool,
     ) -> Option<InternedTyId> {
+        if allow_auto_address
+            && let Some(target_ty) = self.coerce_auto_function_item_pointer(expr, expected, actual)
+        {
+            return Some(target_ty);
+        }
         if allow_auto_address
             && let Some(target_ty) = self.coerce_auto_address(expr, expected, actual)
         {
@@ -127,6 +132,67 @@ impl<'a> BodyChecker<'a> {
             return Some(target_ty);
         }
         self.materialize_inferred_array_type(expected, actual)
+    }
+
+    /// Converts a statically known function item to a thin pointer when the
+    /// surrounding context already requires the pointer type. A bare function
+    /// item remains a zero-sized direct-call value when no such context exists.
+    pub(crate) fn coerce_auto_function_item_pointer(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalize_aliases_in_type(expected);
+        let actual = self.normalize_aliases_in_type(actual);
+        let Some(TyKind::FunctionPointer {
+            params: expected_params,
+            return_type: expected_return,
+            is_variadic: expected_variadic,
+            abi: expected_abi,
+        }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        let Some(TyKind::FunctionItem {
+            def_id,
+            params: actual_params,
+            return_type: actual_return,
+            is_variadic: actual_variadic,
+            ..
+        }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        let resolved = self.resolved_function_signature(def_id)?;
+        let actual_abi = if resolved.signature.is_extern {
+            nia_ty::FunctionPointerAbi::C
+        } else {
+            nia_ty::FunctionPointerAbi::Nia
+        };
+        if actual_abi != expected_abi
+            || actual_variadic != expected_variadic
+            || expected_params.len() != actual_params.len()
+            || !expected_params
+                .iter()
+                .zip(actual_params)
+                .all(|(expected, actual)| self.types_match(*expected, actual))
+            || !self.types_match(expected_return, actual_return)
+        {
+            return None;
+        }
+        self.reject_const_operation(
+            expr.span,
+            "function pointer values are not available during const evaluation",
+        );
+        self.record_function_item_to_pointer_coercion(
+            expr,
+            FunctionItemToPointerCoercion {
+                function_ty: actual,
+                pointer_ty: expected,
+            },
+        );
+        Some(expected)
     }
 
     pub(crate) fn expected_literal_type_for_auto_address(
