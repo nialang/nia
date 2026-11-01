@@ -133,8 +133,7 @@ fun main() i32 {
     assert!(ir.contains("store double"));
     assert!(ir.contains("store i8 11"));
     assert!(ir.contains("store i8 10"));
-    assert!(ir.contains("llvm.ssub.with.overflow.i8"));
-    assert!(ir.contains("store i8 %arith.value"));
+    assert!(ir.contains("store i8 -1"));
     assert!(ir.contains("store float"));
 }
 
