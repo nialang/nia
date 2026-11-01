@@ -373,7 +373,10 @@ expected. The array itself is still not a slice.
 
 A closure value is likewise accepted where a callable view `&Fun(...)` or
 `&mut Fun(...)` is expected, under the same writable-place rule for mutable
-views. This never turns a capturing closure into a thin `&fun(...)` pointer.
+views. A function item can be passed directly to a callable view; it decays to
+a thin function pointer before the view conversion. A non-capturing closure can
+also be passed directly where a thin `&fun(...)` pointer is expected. Neither
+conversion turns a capturing closure into a thin function pointer.
 
 `&place` takes a read-only pointer and `&mut place` a writable one; `&mut`
 requires a writable place. `p.*` dereferences. Reads and writes through `^T`
@@ -560,8 +563,9 @@ fun call_items() i32 {
 where that pointer type is expected, as an argument, initializer, field,
 element, or return value; without an expected pointer type, `&name` requests
 the conversion and a bare `name` stays a function item. A generic function must
-be instantiated first (`id[i32]`, not `id`). A function item does not convert
-implicitly to a [callable view](#callable-views); write `&name` there.
+be instantiated first (`id[i32]`, not `id`). Where a callable view is expected,
+the function item first decays to a thin pointer and then to the view, so `name`
+may be passed directly.
 An omitted return type means `()`. Only the read-only form exists; `&mut fun`
 is an error. `&extern fun(A, B) R` is a pointer to a function with the C calling
 convention, formed the same way from an `extern fun`; `extern` appears only in
@@ -1555,8 +1559,9 @@ A closure is a value with its own anonymous type. It converts in two ways:
   view only from a closure in a writable place. An explicit `&closure` gives a
   read-only view; `&mut closure` gives either kind. Parameter and return types
   must match.
-- To a thin `&fun(...)` pointer, only for a closure without captures and only
-  with `&closure`.
+- To a thin `&fun(...)` pointer, only for a closure without captures. The
+  conversion is automatic when that pointer type is expected; `&closure` still
+  explicitly requests the same conversion.
 
 Storing a closure-state pointer first and converting it later is not a
 conversion. A closure with captures cannot become a `&fun(...)`.

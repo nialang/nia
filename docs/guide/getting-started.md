@@ -160,8 +160,8 @@ fun measuresText() test::Error!() {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
-        .init("adds numbers", &addsNumbers),
-        .init("measures text", &measuresText),
+        .init("adds numbers", addsNumbers),
+        .init("measures text", measuresText),
     ];
     let summary = test::Runner::init(cases).run();
     if not summary.isSuccessful() {

@@ -103,8 +103,8 @@ fun comparesText() test::Error!() {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
-        .init("adds numbers", &addsNumbers),
-        .init("compares text", &comparesText),
+        .init("adds numbers", addsNumbers),
+        .init("compares text", comparesText),
     ];
     let summary = test::Runner::init(cases).run();
     if not summary.isSuccessful() {

@@ -699,7 +699,7 @@ it, `std::test` provides assertions that return `test::Error!()` and a runner:
 | `test::expectEqual(actual, expected)` | fails when the values differ (`Eq` bound) |
 | `test::expectNotEqual(actual, expected)` | fails when the values are equal |
 | `test::fail()` | always fails |
-| `test::Case::init(name, &function)` | one named case; the function returns `test::Error!()` |
+| `test::Case::init(name, function)` | one named case; the function returns `test::Error!()` |
 | `test::Runner::init(cases)` | runs a borrowed case table; `.withFailFast()` skips cases after a failure |
 | `runner.run()` | runs the cases and returns a `RunSummary` |
 | `runner.runWith(reporter)` | also passes each `CaseResult` to a `&mut Fun(test::CaseResult) ()` closure |
@@ -728,8 +728,8 @@ fun findsText() test::Error!() {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases = [
-        test::Case::init("adds numbers", &addsNumbers),
-        test::Case::init("finds text", &findsText),
+        test::Case::init("adds numbers", addsNumbers),
+        test::Case::init("finds text", findsText),
     ];
     let mut failures = 0;
     let summary = test::Runner::init(cases).runWith(&mut \[&mut failures] result: test::CaseResult -> {
