@@ -89,10 +89,9 @@ scalar has the same placement in both.
 | `i128`, `u128` | 16 | 16 |
 | `isize`, `usize` | pointer size | pointer alignment |
 | `()` | 0 | 1 |
-| `never` | 0 | 1 |
 
-`()` is a zero-sized type (ZST) with one value. `never` has no values; its
-zero-sized layout only lets diverging expressions be handled uniformly.
+`()` is a zero-sized type (ZST) with one value. `never` has no values and no
+layout that a program can query.
 Function items (a function name used as a value before `&` is applied) are also
 zero-sized.
 
@@ -128,7 +127,7 @@ the type:
 
 | Type | Produced by | Convention |
 | --- | --- | --- |
-| `&fun(A) R` | `&name` of an ordinary function | Nia |
+| `&fun(A) R` | `&name` of an ordinary function or method, `&Enum::Variant`, or `&closure` for a closure without captures | Nia |
 | `&extern fun(A) R` | `&name` of an `extern fun` | target C |
 
 A function pointer type consists of its parameter types, return type, variadic
@@ -221,7 +220,8 @@ round the size up to the largest field alignment
 ```
 
 For example, `struct Mixed { a: u8, b: i64, c: u8 }` places `b` at offset 0,
-`a` at 8, and `c` at 9, for a size of 16. Tuple structs and tuples keep
+`a` at 8, and `c` at 9, for a size of 16 on 64-bit targets (12 on
+`x86-unknown-linux`, where `i64` is 4-byte aligned). Tuple structs and tuples keep
 declaration order.
 
 An `extern struct` uses C layout: fields stay in declaration order, each
@@ -263,7 +263,7 @@ to an `extern union`.
 
 ## Enums
 
-A unit-only enum is represented exactly as its backing integer type (`i32` if
+A unit-only enum is represented exactly as its backing integer type (`u8` if
 none is written). A payload-bearing enum is a tagged aggregate: the backing
 integer tag followed by payload storage aligned for the largest variant, with
 each variant's fields in declaration order.
@@ -341,11 +341,11 @@ with the extension of their own signedness, and `f32` widens to `f64`.
 
 ### Executable Exports
 
-An executable's C interface is every top-level `pub extern fun` definition of
-its root module. Those definitions are compiled and kept even when no Nia
-code calls them, so linked foreign code can call them by name. Other
-functions, including non-`pub` `extern` definitions, are compiled only when
-reachable.
+An executable's C interface is every top-level `pub extern fun` definition in
+a module of its entry package. Those functions are always present in the
+executable, even when no Nia code calls them, so linked foreign code can call
+them by name. Other functions, including non-`pub` `extern` definitions, are
+present only when the program uses them.
 
 A freestanding executable links the toolchain runtime, which exports the
 platform entry symbol (`_start`, or `main` on macOS); defining the same
@@ -385,12 +385,11 @@ visibility: it links between the objects of one program but is never exported
 from a shared object or preempted. A program's external interface is therefore
 exactly its `extern` items.
 
-Objects use the platform's position-independent code model on Linux and macOS.
-Data that holds addresses, such as vtables, is placed where load-time
-relocation can write it, so Nia objects link into position-independent
-executables and shared objects without text relocations.
+Objects use the platform's position-independent code model on Linux and macOS,
+so Nia objects link into position-independent executables and shared objects
+without text relocations.
 
 ## Inline Assembly
 
-Inline assembly operands use the ABI representation of their types. See
-[`std::builtin::asm`](builtins.md) for the operand rules.
+Inline assembly operands use the ABI representation of their types. The operand
+rules are in [`std::builtin::asm`](builtins.md#inline-assembly).

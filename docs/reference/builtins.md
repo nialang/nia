@@ -22,8 +22,9 @@ A function marked `const fun` below can also run during
 `size` and `align` require `T: Sized`; generic code states the bound in its
 `where` clause. The `offset` argument is a string literal naming the field;
 every union field has offset 0. With a concrete type argument these calls are
-compile-time constants, usable in array lengths and static initializers. The
-values come from the [ABI](abi.md).
+compile-time constants, usable in array lengths and `const` initializers; a
+`static` initializer uses them through a named `const`, as below. The values
+come from the [ABI](abi.md).
 
 ```nia
 using std::builtin;
@@ -49,7 +50,7 @@ where T: Sized {
 | --- | --- |
 | `const fun trap() never` | terminates execution; a compile-time error during constant evaluation |
 | `const fun error(message: &[char]) never` | reports `message` as a compile-time error; const-only |
-| `embed(path)` | the bytes of a file as a `[u8; N]` value; const-only |
+| `const fun embed(path: &[char]) [u8; N]` | the bytes of a file; const-only |
 
 `trap` executes the target's trap instruction at runtime. `error` takes a
 string literal or another constant string. A `const fun` that contains `error`
@@ -57,7 +58,9 @@ cannot be called from runtime code.
 
 `embed` reads a file at compile time. The path is a string literal resolved
 relative to the source file that contains the call, not the working directory.
-It may appear only in a constant context, and the bytes are not parsed.
+It may appear only in a `const` initializer or a `const fun` body; a `static`
+that needs the bytes is initialized from a named `const`. The bytes are not
+parsed.
 
 ```nia
 using std::builtin;
@@ -138,11 +141,12 @@ const leading: u8 = std::builtin::clz[u8](0);        // 8
 | `const fun insert[V](vector: V, index: usize, value: Lane) V` | a copy with one lane replaced |
 | `const fun bitmask[V](mask: V) usize` | packs a `boolxN` mask, lane 0 in the least significant bit |
 
-`V` is a [vector type](language.md#simd-vector-types) and `Lane` its lane
-type. `splat` usually needs its type argument; `extract` and `insert` infer it
+`V` is a concrete [vector type](language.md#simd-vector-types) and `Lane` its
+lane type; these functions do not accept a generic `V`, even one bounded by
+`Simd`. `splat` requires its type argument; `extract` and `insert` infer it
 from the vector. An out-of-range lane index is a compile-time error during
-constant evaluation and traps at runtime before any lane is accessed. The
-largest lane count `bitmask` accepts is target-defined.
+constant evaluation and traps at runtime before any lane is accessed. `bitmask`
+accepts at most as many lanes as the target pointer has bits.
 
 ```nia
 using std::builtin;
@@ -190,11 +194,12 @@ Allowed orderings:
 | load | `Unordered`, `Monotonic`, `Acquire`, `SeqCst` |
 | store | `Unordered`, `Monotonic`, `Release`, `SeqCst` |
 | read-modify-write, compare-and-exchange success | `Monotonic`, `Acquire`, `Release`, `AcqRel`, `SeqCst` |
-| compare-and-exchange failure | `Monotonic`, `Acquire`, `SeqCst`, and no stronger than the success ordering |
+| compare-and-exchange failure | `Monotonic` with any success ordering; `Acquire` when success is `Acquire`, `AcqRel`, or `SeqCst`; `SeqCst` when success is `SeqCst` |
 | fence | `Acquire`, `Release`, `AcqRel`, `SeqCst` |
 
-The atomic value types are `bool`, integers, enums, and ordinary object
-pointers no wider than the target pointer. Volatile pointers, floating-point
+The atomic value types are `bool`, `char`, integers, enums, and ordinary object
+pointers, each no wider than the target pointer; `u64` is therefore not atomic
+on `x86-unknown-linux`. Volatile pointers, floating-point
 types, slices, structs, arrays, and unions are not atomic value types.
 `std::atomic::Atomic[T]` wraps these operations in named methods.
 
@@ -241,13 +246,16 @@ same way.
 | `inputs` | register name or class mapped to an expression |
 | `outputs` | register name or class mapped to an assignable place |
 | `clobbers` | an array of byte string literals naming clobbered registers and `b"memory"` |
-| `options` | a byte string literal or an array of them; the available options are target-defined |
+| `options` | a byte string literal or an array of them; the only option is `b"volatile"` |
 
 In `inputs` and `outputs`, `reg` selects a general-purpose register class,
 `freg` a floating-point register class, and any other name, such as `rax` or
-`rdi`, a fixed register. Operand types follow the target's assembly and
-[ABI](abi.md#inline-assembly) conventions; the assembly text is opaque to the
-type checker.
+`rdi`, a fixed register. In `code`, `$0`, `$1`, ... name the operands, outputs
+first and then inputs, in the order they are written. An operand is a scalar,
+a pointer, a function pointer, or an enum value, represented as in the
+[ABI](abi.md#inline-assembly); aggregates, slices, vectors, optionals, and
+error unions are rejected. The assembly text itself is opaque to the type
+checker.
 
 The assembler accepts all of its directives. On x86 each `asm` call starts in
 Intel syntax without register prefixes; `.att_syntax prefix` switches syntax

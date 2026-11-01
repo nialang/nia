@@ -30,9 +30,11 @@ the compiler links.
 | `x86_64-apple-macos` | macOS Intel | yes |
 | `aarch64-apple-macos` | macOS Apple silicon | yes |
 
-Every executable links with LLD for its target. Windows links import
-`kernel32` and `bcryptprimitives` through import descriptions shipped with the
-toolchain, so they need no Windows SDK.
+By default every executable links with LLD for its target; `nia help emit --exe`
+lists the options that select another linker. Windows links import `kernel32`
+and `bcryptprimitives`, and macOS links `libSystem`, through import
+descriptions shipped with the toolchain, so neither needs a platform SDK. macOS
+executables require macOS 15 or later.
 
 ## Target Facts
 
@@ -111,7 +113,7 @@ counterpart in this model.
 macOS keeps neither its system-call numbers nor its system-call ABI stable, and
 every macOS process starts through `dyld`, so `libSystem` is the stable
 boundary there, in the same role that `kernel32` has on Windows. Nia uses its
-POSIX system interfaces, such as `open`, `mmap`, `fork`, and `execve`, and
+POSIX system interfaces, such as `openat`, `mmap`, `fork`, and `execve`, and
 leaves its C library facilities to programs that link them explicitly. The
 macOS entry symbol `main` (`_main` in Mach-O) is Nia startup, not a C runtime
 `main`.
@@ -135,7 +137,7 @@ matching macOS Intel and Apple silicon runners in the build correctness matrix.
 - LLVM: the default LLVM release of the newest stable Fedora (LLVM 23.1).
   Development builds may use a host LLVM installation; release builds use a
   pinned LLVM and are self-contained.
-- Linker: LLD for every target, bundled in release archives.
+- Linker: LLD for every target by default, bundled in release archives.
 - Target sysroots, CRT objects, libc, and dynamic loaders are platform inputs
   that a program brings in explicitly, not general toolchain requirements.
 
