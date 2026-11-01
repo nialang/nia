@@ -1579,7 +1579,7 @@ pub fn render_build_plan_summary(
     for artifact in plan.artifacts() {
         let _ = writeln!(
             output,
-            "  artifact {}::{}: kind={}, output={}, runtime={}, mode={}, configuration={:?}",
+            "  artifact {}::{}: kind={}, output={}, runtime={}, mode={}, configuration={}",
             artifact.key.package().as_str(),
             artifact.key.name(),
             artifact_kind_name(&artifact.kind),
@@ -3760,7 +3760,15 @@ fn run_build_runner(
                     };
                     if manifest.observations().is_empty()
                         && let Ok(observation) =
-                            observe_file_contents(&invocation.package_root, "build.nia")
+                            observe_file_contents(&invocation.package_root, "build.nia").or_else(
+                                |error| {
+                                    if error.kind() == io::ErrorKind::NotFound {
+                                        observe_file_presence(&invocation.package_root, "build.nia")
+                                    } else {
+                                        Err(error)
+                                    }
+                                },
+                            )
                     {
                         manifest
                             .push(observation)
