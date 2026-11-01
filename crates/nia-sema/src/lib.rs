@@ -86,6 +86,27 @@ where
     }
 }
 
+/// Returns the element type for a slice-method receiver, including arrays
+/// that can be addressed and array pointers that can be viewed as slices.
+/// Callers supply normalized shapes and check expression addressability.
+pub fn slice_method_receiver_element(
+    receiver: &TyKind,
+    pointer_element: Option<&TyKind>,
+    slice_is_readonly: bool,
+) -> Option<InternedTyId> {
+    match receiver {
+        TyKind::Array { elem, .. } => Some(*elem),
+        TyKind::Slice { is_readonly, elem } if slice_is_readonly || !is_readonly => Some(*elem),
+        TyKind::Pointer { is_readonly, .. } if slice_is_readonly || !is_readonly => {
+            match pointer_element? {
+                TyKind::Array { elem, .. } => Some(*elem),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Result of reconciling an array literal length with an expected type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArrayLiteralLenCheck {

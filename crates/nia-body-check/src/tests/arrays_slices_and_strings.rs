@@ -452,6 +452,65 @@ fun main() usize {
 }
 
 #[test]
+fn builtin_array_receivers_use_contextual_slice_adjustments() {
+    let checked = pipeline(
+        r#"
+fun main() i32 {
+    let values = [1i32, 2];
+    let mut writable = [3i32, 4];
+    let read = values.ptr();
+    let write = writable.ptrMut();
+    write.* = 5;
+    let literal = b"text\0".ptr();
+    read.* + write.* + literal[0] as i32
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let addresses = checked
+        .facts
+        .iter_node_expr_adjustments()
+        .filter_map(|(_, plan)| match plan.steps.as_slice() {
+            [
+                ExprAdjustment::AddressOf(address),
+                ExprAdjustment::PointerArrayToSlice(view),
+            ] => {
+                assert_eq!(address.target_ty, view.pointer_ty);
+                assert_eq!(address.is_readonly, view.is_readonly);
+                Some(address.is_readonly)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(addresses.len(), 3);
+    assert_eq!(addresses.iter().filter(|readonly| **readonly).count(), 2);
+}
+
+#[test]
+fn builtin_mutable_array_receivers_require_a_writable_place() {
+    for source in [
+        "fun main() () { let values = [1i32, 2]; _ = values.ptrMut(); }",
+        "fun main() () { _ = [1i32, 2].ptrMut(); }",
+        "fun main() () { _ = b\"text\\0\".ptrMut(); }",
+        "fun main(values: &[i32; 2]) () { _ = values.ptrMut(); }",
+    ] {
+        let checked = pipeline(source);
+        assert!(!checked.diagnostics.is_empty(), "{source}");
+        assert!(
+            checked.facts.iter_node_expr_adjustments().all(|(_, plan)| {
+                !plan.steps.iter().any(|step| {
+                    matches!(
+                        step,
+                        ExprAdjustment::AddressOf(_) | ExprAdjustment::PointerArrayToSlice(_)
+                    )
+                })
+            }),
+            "a rejected receiver must not retain a partial conversion: {source}"
+        );
+    }
+}
+
+#[test]
 fn checks_slices_len_ptr_and_indexing() {
     let checked = pipeline_with_len_provider(
         r#"

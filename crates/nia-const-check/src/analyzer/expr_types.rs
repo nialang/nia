@@ -47,6 +47,40 @@ impl Analyzer<'_> {
         })
     }
 
+    pub(super) fn resolved_const_place_is_writable(&mut self, expr: &ResolvedConstExpr) -> bool {
+        match expr.kind() {
+            ResolvedConstExprKind::Name(ConstNameResolution::Local(local_id)) => {
+                self.const_local_is_mutable(*local_id) == Some(true)
+            }
+            ResolvedConstExprKind::Field { lhs, .. } | ResolvedConstExprKind::Index { lhs, .. } => {
+                if let Some(ty) = self.resolved_const_arg_runtime_type(lhs, None)
+                    && let Some(
+                        TyKind::Pointer { is_readonly, .. } | TyKind::Slice { is_readonly, .. },
+                    ) = self.ty_kind(ty)
+                {
+                    return !is_readonly;
+                }
+                self.resolved_const_place_is_writable(lhs)
+            }
+            ResolvedConstExprKind::Unary {
+                op: ConstUnaryOp::Deref,
+                expr: inner,
+            } => self
+                .resolved_const_arg_runtime_type(inner, None)
+                .and_then(|ty| self.ty_kind(ty))
+                .is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        TyKind::Pointer {
+                            is_readonly: false,
+                            ..
+                        }
+                    )
+                }),
+            _ => false,
+        }
+    }
+
     pub(super) fn resolved_const_unary_expr_type(
         &mut self,
         op: ConstUnaryOp,

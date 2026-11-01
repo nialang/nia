@@ -1033,18 +1033,27 @@ const fun first_mut(values: &mut [usize]) usize {
 }
 
 const fun read_array(values: [usize; 3]) usize {
-    first(&values[..])
+    values.ptr().* + first(values)
 }
 
 const fun read_mut_array() usize {
     let mut values: [usize; 2] = [4, 5];
-    first_mut(&mut values[..])
+    let pointer = values.ptrMut();
+    values[0] = 6;
+    pointer.* + first_mut(&mut values[..])
 }
 
-const n: usize = read_array([7usize, 8usize, 9usize]) + read_mut_array();
+const fun read_mut_param(values: [usize; 2]) usize {
+    let pointer = values.ptrMut();
+    values[0] = 8;
+    pointer.*
+}
+
+const n: usize = read_array([7usize, 8usize, 9usize]) + read_mut_array()
+    + read_mut_param([1usize, 2usize]);
 
 fun main() i32 {
-    let mut values: [i32; n] = [0; n];
+    let mut values: [i32; 34] = [0; n];
     values.len() as i32
 }
 "#,
@@ -1055,32 +1064,61 @@ fun main() i32 {
 }
 
 #[test]
-fn const_extension_takes_priority_over_slice_pointer_fallback() {
-    let root = temp_dir("const_extension_takes_priority_over_slice_pointer_fallback");
-    write(
-        &root.join("main.nia"),
-        r#"
-extend[T] [T] {
-    const fun ptr(&self) usize {
-        6usize
+fn const_array_pointer_methods_reject_immutable_places_and_temporaries() {
+    for body in [
+        "let values: [usize; 2] = [1, 2]; let pointer = values.ptrMut();",
+        "let pointer = b\"text\\0\".ptrMut();",
+        "let packet = Packet { bytes: [1, 2] }; let pointer = packet.bytes.ptrMut();",
+    ] {
+        let root = temp_dir("const_array_pointer_methods_reject_immutable_places_and_temporaries");
+        write(
+            &root.join("main.nia"),
+            &format!(
+                "struct Packet {{ bytes: [usize; 2] }}\nconst fun invalid() usize {{ {body} 0 }}\nconst result: usize = invalid();"
+            ),
+        );
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("requires a writable place")),
+            "{body}: {:?}",
+            program.diagnostics
+        );
     }
 }
 
+#[test]
+fn const_extension_takes_priority_over_slice_pointer_fallback() {
+    for declaration in [
+        "extend[T] [T] { const fun ptr(&self) usize { 6usize } }",
+        "extend[T] &[T] { const fun ptr(self) usize { 6usize } }",
+    ] {
+        let root = temp_dir("const_extension_takes_priority_over_slice_pointer_fallback");
+        write(
+            &root.join("main.nia"),
+            r#"
+$DECLARATION
+
 const fun projected(values: [usize; 2]) usize {
-    (&values[..]).ptr()
+    values.ptr()
 }
 
 const n: usize = projected([1usize, 2usize]);
 
 fun main() i32 {
-    let mut values: [i32; n] = [0; n];
+    let mut values: [i32; 6] = [0; n];
     values.len() as i32
 }
-"#,
-    );
+"#
+            .replace("$DECLARATION", declaration)
+            .as_str(),
+        );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    }
 }
 
 #[test]

@@ -480,10 +480,10 @@ impl Analyzer<'_> {
             return ResolvedConstCalleeSelection::NoMatch;
         };
         let actual_receiver_ty = normalization.as_ref().normalize(target_ty);
-        let actual_target_tys = if receiver.is_some() {
-            self.const_method_target_tys(actual_receiver_ty)
+        let actual_target_tys = if let Some(receiver) = &receiver {
+            self.const_method_receiver_targets(receiver, actual_receiver_ty)
         } else {
-            vec![actual_receiver_ty]
+            vec![(0, actual_receiver_ty)]
         };
         let mut visible_methods = visible_extensions.all_methods_named(&name);
         visible_methods.extend(visible_extensions.all_trait_witnesses_named(&name));
@@ -512,7 +512,7 @@ impl Analyzer<'_> {
                 actual_target_tys
                     .iter()
                     .copied()
-                    .find_map(|actual_target_ty| {
+                    .find_map(|(priority, actual_target_ty)| {
                         let mut target_instantiation = ConstGenericInstantiation::default();
                         self.infer_generic_substitutions_from_tys(
                             callee.span(),
@@ -531,6 +531,7 @@ impl Analyzer<'_> {
                         )?;
                         self.const_function_types_match(substituted_target, actual_target_ty)
                             .then_some((
+                                priority,
                                 candidate_target_ty == actual_target_ty,
                                 ResolvedConstCallee {
                                     function_id,
@@ -541,15 +542,21 @@ impl Analyzer<'_> {
                     })
             })
             .collect::<Vec<_>>();
+        if let Some(priority) = candidates.iter().map(|(priority, _, _)| *priority).min() {
+            candidates.retain(|(candidate_priority, _, _)| *candidate_priority == priority);
+        }
         if candidates.len() > 1 {
-            let exact = candidates.iter().filter(|(is_exact, _)| *is_exact).count();
+            let exact = candidates
+                .iter()
+                .filter(|(_, is_exact, _)| *is_exact)
+                .count();
             if exact == 1 {
-                candidates.retain(|(is_exact, _)| *is_exact);
+                candidates.retain(|(_, is_exact, _)| *is_exact);
             }
         }
         match candidates.len() {
             0 => ResolvedConstCalleeSelection::NoMatch,
-            1 => ResolvedConstCalleeSelection::Unique(candidates.remove(0).1),
+            1 => ResolvedConstCalleeSelection::Unique(candidates.remove(0).2),
             _ => ResolvedConstCalleeSelection::Ambiguous,
         }
     }
@@ -604,10 +611,24 @@ impl Analyzer<'_> {
             _ => return None,
         };
         let receiver_ty = self.resolved_const_arg_runtime_type(receiver, None)?;
-        let TyKind::Slice { is_readonly, elem } = self.ty_kind(receiver_ty)? else {
-            return None;
+        let receiver_kind = self.ty_kind(receiver_ty)?;
+        let pointer_element = match &receiver_kind {
+            TyKind::Pointer { elem, .. } => self.ty_kind(*elem),
+            _ => None,
         };
-        if mutable && is_readonly {
+        let elem = nia_sema::slice_method_receiver_element(
+            &receiver_kind,
+            pointer_element.as_ref(),
+            !mutable,
+        )?;
+        if mutable
+            && matches!(receiver_kind, TyKind::Array { .. })
+            && !self.resolved_const_place_is_writable(receiver)
+        {
+            self.push_const_type_error(
+                receiver.span(),
+                "const mutable slice pointer requires a writable place",
+            );
             return None;
         }
         let elem = self.type_for_module_or_none(elem, self.current_execution_module_id())?;
@@ -631,6 +652,65 @@ impl Analyzer<'_> {
             }
             targets.push(next);
             current = next;
+        }
+        targets
+    }
+
+    fn const_method_receiver_targets(
+        &mut self,
+        receiver: &ResolvedConstExpr,
+        receiver_ty: InternedTyId,
+    ) -> Vec<(usize, InternedTyId)> {
+        let mut targets = self
+            .const_method_target_tys(receiver_ty)
+            .into_iter()
+            .map(|ty| (0, ty))
+            .collect::<Vec<_>>();
+        let Some(receiver_kind) = self.ty_kind(receiver_ty) else {
+            return targets;
+        };
+        let pointer_element = match &receiver_kind {
+            TyKind::Pointer { elem, .. } => self.ty_kind(*elem),
+            _ => None,
+        };
+        let array_value = matches!(receiver_kind, TyKind::Array { .. });
+        let writable = !array_value || self.resolved_const_place_is_writable(receiver);
+        for (index, is_readonly) in [false, true].into_iter().enumerate() {
+            if !is_readonly && !writable {
+                continue;
+            }
+            let Some(elem) = nia_sema::slice_method_receiver_element(
+                &receiver_kind,
+                pointer_element.as_ref(),
+                is_readonly,
+            ) else {
+                continue;
+            };
+            let priority = index * 2 + 1;
+            if array_value {
+                targets.push((
+                    priority,
+                    self.intern_type_for_module(
+                        self.current_execution_module_id(),
+                        TyKind::Pointer {
+                            is_readonly,
+                            elem: receiver_ty,
+                        },
+                    ),
+                ));
+            } else if !matches!(pointer_element, Some(TyKind::Array { .. })) {
+                continue;
+            }
+            let slice_ty = self.intern_type_for_module(
+                self.current_execution_module_id(),
+                TyKind::Slice { is_readonly, elem },
+            );
+            let slice_priority = priority + usize::from(array_value);
+            targets.extend(
+                self.const_method_target_tys(slice_ty)
+                    .into_iter()
+                    .map(|ty| (slice_priority, ty)),
+            );
         }
         targets
     }

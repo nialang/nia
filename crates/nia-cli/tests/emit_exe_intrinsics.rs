@@ -6,6 +6,102 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn array_pointer_methods_preserve_storage_and_evaluate_receivers_once() {
+    let root = temp_dir("array_pointer_methods_preserve_storage_and_evaluate_receivers_once");
+    let source = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &source,
+        r#"
+using std::process;
+
+type Bytes = [u8; 3];
+struct Packet { bytes: Bytes }
+struct ConstPacket { bytes: [u8; 3] }
+fun make(calls: &mut usize) [i32; 2] {
+    calls.* += 1;
+    [7, 8]
+}
+fun index(calls: &mut usize) usize {
+    calls.* += 1;
+    0
+}
+fun first[T, N: usize](values: [T; N]) T { values.ptr().* }
+const fun localCopy(values: [i32; 2]) i32 {
+    let pointer = values.ptrMut();
+    values[0] = 8;
+    pointer.*
+}
+const copied: i32 = localCopy([1, 2]);
+const fun projected() i32 {
+    let mut values: [i32; 2] = [1, 2];
+    let pointer = values.ptrMut();
+    values[0] = 5;
+    let mut packet = ConstPacket { bytes: [1, 2, 3] };
+    let bytes = packet.bytes.ptrMut();
+    packet.bytes[0] = 4;
+    pointer.* + b"a\0".ptr().* as i32 + "a".ptr().* as u32 as i32
+        + (&"a").ptr().* as u32 as i32 + bytes.* as i32
+}
+const result: i32 = projected();
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let values = [1i32, 2];
+    let read: &i32 = values.ptr();
+    if read as usize != (&values).ptr() as usize or read.* != 1 {
+        return process::ExitCode(1)!;
+    }
+    let mut writable = [3i32, 4];
+    let write: &mut i32 = writable.ptrMut();
+    write.* = 9;
+    if writable[0] != 9 { return process::ExitCode(2)!; }
+    let mut packet = Packet { bytes: [1, 2, 3] };
+    packet.bytes.ptrMut()[1] = 6;
+    if packet.bytes[1] != 6 or packet.bytes.ptr()[0] != 1 {
+        return process::ExitCode(3)!;
+    }
+    let text = b"nia\0".ptr();
+    if text[0] != b'n' or text[3] != 0u8 or "nia".ptr()[0] != 'n' {
+        return process::ExitCode(4)!;
+    }
+    let mut calls = 0usize;
+    if make(calls).ptr()[1] != 8 or calls != 1 {
+        return process::ExitCode(5)!;
+    }
+    let mut nested = [[1i32, 2], [3, 4]];
+    nested[index(calls)].ptrMut().* = 11;
+    if nested[0][0] != 11 or calls != 2 {
+        return process::ExitCode(6)!;
+    }
+    let mut mutablePointer = &mut writable;
+    mutablePointer.ptrMut().* = 12;
+    if writable[0] != 12 or first([13i32, 14]) != 13 or first([true]) != true
+        or result != 300 or projected() != result or copied != 8
+        or localCopy(values) != copied or values[0] != 1
+    { return process::ExitCode(7)!; }
+    !()
+}
+"#,
+    )
+    .expect("write array pointer-method source");
+    let build = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit array pointer-method executable");
+    assert!(
+        build.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run array pointer-method executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn runtime_shifts_trap_on_overflow_but_widened_rotations_truncate() {
     let root = temp_dir("runtime_shifts_trap_on_overflow_but_widened_rotations_truncate");
     let rotate_source = root.join("rotate.nia");

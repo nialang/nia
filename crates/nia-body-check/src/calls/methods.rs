@@ -1295,40 +1295,31 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let trait_method = crate::symbols::builtin_trait_method_symbol(*name);
         let receiver_ty = self.normalization.normalize(receiver_ty);
-        let Some(TyKind::Pointer {
-            is_readonly,
-            elem: array_ty,
-        }) = self.interner.get(receiver_ty).cloned()
-        else {
-            return None;
-        };
-        let array_ty = self.normalization.normalize(array_ty);
-        let Some(TyKind::Array { elem, .. }) = self.interner.get(array_ty).cloned() else {
-            return None;
-        };
         let slice_is_readonly = match (trait_method, *name) {
-            (Some(BuiltinTraitMethod::SliceMut), _) | (_, known::PTR_MUT) => {
-                if is_readonly {
-                    return None;
-                }
-                false
-            }
+            (Some(BuiltinTraitMethod::SliceMut), _) | (_, known::PTR_MUT) => false,
             (Some(BuiltinTraitMethod::Slice), _) | (_, known::PTR) => true,
             _ => return None,
         };
+        let receiver_kind = self.interner.get(receiver_ty)?.clone();
+        let pointer_element = match &receiver_kind {
+            TyKind::Pointer { elem, .. } => self
+                .interner
+                .get(self.normalization.normalize(*elem))
+                .cloned(),
+            _ => None,
+        };
+        let elem = nia_sema::slice_method_receiver_element(
+            &receiver_kind,
+            pointer_element.as_ref(),
+            slice_is_readonly,
+        )?;
         let slice_ty = self.interner.intern(TyKind::Slice {
             is_readonly: slice_is_readonly,
             elem,
         });
-        self.record_pointer_array_to_slice_node_coercion(
-            receiver,
-            nia_sema_ir::PointerArrayToSliceCoercion {
-                pointer_ty: receiver_ty,
-                array_ty,
-                slice_ty,
-                is_readonly: slice_is_readonly,
-            },
-        );
-        Some(slice_ty)
+        // Builtin receivers are contextual arguments too. Reuse the ordinary
+        // conversion pipeline so addressability, mutability and BIR adjustments
+        // agree with passing the same expression to a slice parameter.
+        self.adapt_expr_to_expected_type(receiver, slice_ty, receiver_ty, true, false)
     }
 }

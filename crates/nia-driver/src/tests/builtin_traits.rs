@@ -579,28 +579,24 @@ fun main(slice: & [usize], sliceMut: &mut [usize]) usize {
 }
 
 #[test]
-fn inherent_pointer_methods_do_not_apply_to_array_values() {
-    let root = temp_dir("inherent_pointer_methods_do_not_apply_to_array_values");
+fn inherent_pointer_methods_auto_address_array_values() {
+    let root = temp_dir("inherent_pointer_methods_auto_address_array_values");
     write(
         &root.join("main.nia"),
         r#"
 fun main() i32 {
     let mut array: [i32; 4] = [1, 2, 3, 4];
-    array.ptr().*
+    let mut pointer = array.ptr();
+    let mut write_pointer = array.ptrMut();
+    write_pointer.* = 5;
+    pointer.* + write_pointer.* + b"text\0".ptr()[0] as i32
 }
 
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("unknown method `ptr`")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -620,7 +616,9 @@ extend[T] [T] {
 }
 
 fun main(read: &[usize], write: &mut [usize]) usize {
-    read.ptr() + write.ptrMut()
+    let array = [1usize, 2];
+    let mut mutableArray = [3usize, 4];
+    read.ptr() + write.ptrMut() + array.ptr() + mutableArray.ptrMut()
 }
 "#,
     );

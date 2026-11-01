@@ -211,6 +211,11 @@ impl ConstCommonEnv for Analyzer<'_> {
         value: ConstValue,
         is_readonly: bool,
     ) -> Result<ConstValue, ConstError> {
+        // String literals have array storage whenever their address is formed.
+        let value = match value {
+            ConstValue::String(value) => ConstValue::Array(const_string_to_char_array(&value)),
+            value => value,
+        };
         if !self
             .call_locals
             .iter()
@@ -1039,7 +1044,21 @@ impl ResolvedConstEnv for Analyzer<'_> {
                             message: "const slice pointer method requires one receiver".to_string(),
                         });
                     };
-                    let ConstValue::Pointer(pointer) = receiver else {
+                    let receiver = if matches!(receiver, ConstValue::Pointer(_)) {
+                        receiver.clone()
+                    } else if let Some(place) = receiver_place {
+                        self.reference_resolved_place(span, place, receiver.clone(), !mutable)?
+                    } else {
+                        if mutable {
+                            return Err(ConstError {
+                                span,
+                                message: "const mutable slice pointer requires a writable place"
+                                    .to_string(),
+                            });
+                        }
+                        self.reference_const_value(span, receiver.clone(), true)?
+                    };
+                    let ConstValue::Pointer(pointer) = &receiver else {
                         return Err(ConstError {
                             span,
                             message: "const slice pointer method requires a slice pointer"
@@ -1056,11 +1075,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                                 .to_string(),
                         });
                     }
-                    return nia_const_eval::eval_const_slice_pointer_value(
-                        span,
-                        receiver.clone(),
-                        mutable,
-                    );
+                    return nia_const_eval::eval_const_slice_pointer_value(span, receiver, mutable);
                 }
                 return Err(ConstError {
                     span,
@@ -1302,7 +1317,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
         self.bind_local_value(
             span,
             param.local_id(),
-            param.receiver() == Some(nia_ids::ReceiverKind::Ref),
+            // Value parameters own writable local storage, just as runtime
+            // parameters do. Only a read-only reference receiver restricts it.
+            param.receiver() != Some(nia_ids::ReceiverKind::RefReadOnly),
             value,
             ty,
         )
