@@ -455,6 +455,13 @@ impl AbiChecker<'_> {
 
     fn check(&mut self) {
         for (def_id, signature) in self.signatures.functions {
+            if signature.is_variadic && !signature.is_extern {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::STATIC_CHECK,
+                    signature.span,
+                    "non-extern variadic function is not supported",
+                ));
+            }
             if signature.is_extern {
                 self.check_extern_function(*def_id, signature);
             }

@@ -3,6 +3,26 @@ use super::common::*;
 use crate::{CheckRequest, Driver, DriverConfig};
 
 #[test]
+fn block_imports_load_reexported_standard_library_items() {
+    let root = temp_dir("block_imports_std_process");
+    let entry = root.join("main.nia");
+    write(
+        &entry,
+        r#"
+fun inspect() () {
+    using std::process;
+    let code: process::ExitCode = process::ExitCode(0);
+    _ = code;
+}
+"#,
+    );
+    test_driver()
+        .check_all_modules(CheckRequest::new(entry.to_string_lossy().into_owned()))
+        .result
+        .expect("block standard-library import check");
+}
+
+#[test]
 fn block_imports_failed_namespace_hides_a_declared_module() {
     let root = temp_dir("block_failed_namespace_shadow");
     let entry = root.join("main.nia");

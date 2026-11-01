@@ -262,7 +262,11 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
 
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         if let StmtKind::Using(using) = &stmt.kind {
+            let path_start = self.paths.len();
             self.collect_using(using);
+            for path in &mut self.paths[path_start..] {
+                *path = path.with_processing(UsedModulePathProcessing::Always);
+            }
         }
         walk_stmt(self, stmt);
     }
@@ -803,6 +807,49 @@ pub(crate) enum UsedModulePath {
 }
 
 impl UsedModulePath {
+    pub(crate) fn with_processing(&self, processing: UsedModulePathProcessing) -> Self {
+        match self {
+            UsedModulePath::Package {
+                package,
+                segments,
+                include_declared_children,
+                ..
+            } => UsedModulePath::Package {
+                package: *package,
+                segments: segments.clone(),
+                include_declared_children: *include_declared_children,
+                processing,
+            },
+            UsedModulePath::Root {
+                segments,
+                include_declared_children,
+                ..
+            } => UsedModulePath::Root {
+                segments: segments.clone(),
+                include_declared_children: *include_declared_children,
+                processing,
+            },
+            UsedModulePath::ParentRelative {
+                segments,
+                include_declared_children,
+                ..
+            } => UsedModulePath::ParentRelative {
+                segments: segments.clone(),
+                include_declared_children: *include_declared_children,
+                processing,
+            },
+            UsedModulePath::Local {
+                segments,
+                include_declared_children,
+                ..
+            } => UsedModulePath::Local {
+                segments: segments.clone(),
+                include_declared_children: *include_declared_children,
+                processing,
+            },
+        }
+    }
+
     pub(crate) fn with_appended_segments(
         &self,
         extra: &[SymbolId],

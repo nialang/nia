@@ -1085,6 +1085,29 @@ impl<'a> BodyChecker<'a> {
                 },
                 covered_intervals,
             );
+        } else if self.is_char(target_ty) {
+            let Some(value) = self.pattern_int_value(pattern) else {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    pattern.span,
+                    format!("{context} must be a compile-time character constant"),
+                ));
+                return;
+            };
+            self.check_match_interval_overlap(
+                MatchInterval {
+                    start: value,
+                    end: value,
+                    span: pattern.span,
+                },
+                covered_intervals,
+            );
+        } else if enum_id.is_none() && !self.is_error_recovery_ty(target_ty) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                pattern.span,
+                format!("{context} requires an integer, character, boolean, or enum target"),
+            ));
         }
     }
 

@@ -33,7 +33,7 @@ use nia_span::Span;
 use nia_symbol::{
     SymbolId, SymbolText, known, symbol_identity_key, symbol_text_from_optional_resolver,
 };
-use nia_ty::{PrimitiveTy, TraitId, TyKind, TypeStore, TypeStoreAppend};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyKind, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 
 mod collector;

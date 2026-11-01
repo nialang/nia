@@ -1508,7 +1508,16 @@ impl<'a> SignatureCollector<'a> {
     fn ty_for_type(&mut self, ty_ref: &TypeRef) -> InternedTyId {
         if let Some(ty) = self.lowered.ty_for_key(&ty_ref.node_key) {
             if self.type_store.get(ty).is_some() {
-                ty
+                if self.contains_inferred_array_len(ty) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::ITEM_SIGNATURE,
+                        ty_ref.span,
+                        "inferred array length is only valid when an array literal supplies the length",
+                    ));
+                    self.error()
+                } else {
+                    ty
+                }
             } else {
                 self.record_internal(nia_ice::Ice::new(format!(
                     "lowered type {ty:?} is outside the session type store at {:?}: node {:?}",
@@ -1523,6 +1532,26 @@ impl<'a> SignatureCollector<'a> {
             )));
             self.error()
         }
+    }
+
+    fn contains_inferred_array_len(&self, ty: InternedTyId) -> bool {
+        let Some(kind) = self.type_store.get(ty) else {
+            return false;
+        };
+        if matches!(
+            kind,
+            TyKind::Array {
+                len: ArrayLenTy::Infer,
+                ..
+            }
+        ) {
+            return true;
+        }
+        let mut found = false;
+        kind.visit_referenced_types(|nested| {
+            found |= self.contains_inferred_array_len(nested);
+        });
+        found
     }
 
     fn record_internal(&mut self, error: nia_ice::Ice) {
