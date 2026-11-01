@@ -28,7 +28,6 @@ no `using std::fmt;` declaration is required.
 ```nia
 using std::io;
 using std::process;
-using std::iter;
 
 const limit: usize = 3;
 
@@ -56,8 +55,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = mask;
     _ = big;
 
-    io::debugPrint(&"answer={} wide={} code={} count={} first={}\n", &[
-        &answer, &wide, &code, &count, &first,
+    io::debugPrint("answer={} wide={} code={} count={} first={}\n", [
+        answer, wide, code, count, first,
     ]).?;
     !()
 }
@@ -143,8 +142,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let total = sumTo(10);
     let power = firstPowerAbove(100);
     let odd = countOdd(9);
-    io::debugPrint(&"block={} label={} total={} power={} odd={}\n", &[
-        &block, &label, &total, &power, &odd,
+    io::debugPrint("block={} label={} total={} power={} odd={}\n", [
+        block, label, total, power, odd,
     ]).?;
     !()
 }
@@ -206,7 +205,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let r = q.swapped();
     let Point { x, y } = r;           // destructuring
     let length = p.lengthSquared();
-    io::debugPrint(&"length={} x={} y={}\n", &[&length, &x, &y]).?;
+    io::debugPrint("length={} x={} y={}\n", [length, x, y]).?;
     !()
 }
 ```
@@ -278,7 +277,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     let size = describe(3);
     if band is .Middle {
-        io::debugPrint(&"band={} total={} size={}\n", &[&code, &total, &size]).?;
+        io::debugPrint("band={} total={} size={}\n", [code, total, size]).?;
     }
     !()
 }
@@ -297,7 +296,8 @@ is known, `.Middle` leaves out the `Band::` prefix.
 An arm can list several patterns separated by commas, and integer ranges with
 both ends. `if value is pattern { ... }` tests one pattern; its bindings are
 visible only in the `if` branch. A bare name in a pattern always introduces a
-binding, so constants are matched through a path such as `Color::Red`.
+binding, so a named constant is matched through a path such as `limits::MAX` or
+written in parentheses, as in `(limit)`.
 
 ## Arrays, Slices, And Strings
 
@@ -324,16 +324,16 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let numbers: [i32; 5] = [1, 2, 3, 4, 5];
     let mut zeros = [0; 4];              // [i32; 4], every element 0
 
-    let all = sum(&numbers);             // &[i32; 5] coerces to &[i32]
+    let all = sum(numbers);              // the array is passed as a slice
     let middle = &numbers[1..4];         // elements 1, 2, 3
     let partial = sum(middle);
 
     fill(&mut zeros[2..], 7);
-    let filled = sum(&zeros);
+    let filled = sum(zeros);
 
     let text = "héllo";                  // [char; 5]
     let bytes = b"nia\0";                // [u8; 4], NUL written explicitly
-    let view: &[char] = &text;
+    let view: &[char] = text;
     let textLength = view.len();
     let byteLength = bytes.len();
 
@@ -342,8 +342,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
         null => '?',
     };
 
-    io::debugPrint(&"all={} partial={} filled={} text={} bytes={} third={}\n", &[
-        &all, &partial, &filled, &textLength, &byteLength, &third,
+    io::debugPrint("all={} partial={} filled={} text={} bytes={} third={}\n", [
+        all, partial, filled, textLength, byteLength, third,
     ]).?;
     !()
 }
@@ -354,10 +354,12 @@ all=15 partial=9 filled=14 text=5 bytes=4 third=?
 ```
 
 - `[T; N]` is a fixed-length array value; `[value; N]` repeats one value.
-- `&[T]` and `&mut [T]` are slices: a pointer plus a length. `&array` converts
-  to a slice where a slice is expected, and `&array[a..b]` takes a sub-range.
+- `&[T]` and `&mut [T]` are slices: a pointer plus a length. An array or a
+  string literal can be passed where a read-only slice is expected; Nia takes
+  its address. A writable slice is written `&mut array`, and `&array[a..b]`
+  takes a sub-range.
 - A string literal `"..."` is an array of `char`, and `b"..."` is an array of
-  `u8`. Take `&` to get a slice. There is no implicit NUL terminator.
+  `u8`. There is no implicit NUL terminator.
 - Indexing with `values[i]` is unchecked. `get(i)` returns an optional pointer
   instead, and the standard library provides further checked operations such
   as `copyFrom` and `equals` on slices.
@@ -413,17 +415,17 @@ fun sumOf(left: &[char], right: &[char]) ParseError!u32 {
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let total = match sumOf(&"40", &"2") {
+    let total = match sumOf("40", "2") {
         !value => value,
         ParseError::Empty! => return process::ExitCode(1)!,
         ParseError::BadDigit(_)! => return process::ExitCode(2)!,
     };
-    if sumOf(&"4x", &"2") is !_ {
+    if sumOf("4x", "2") is !_ {
         return process::ExitCode(3)!;
     }
-    let doubled = if firstTwice(&"A") is ?value { value } else { 0 };
-    let missing = if firstTwice(&"") is ?_ { 1 } else { 0 };
-    io::debugPrint(&"total={} doubled={} missing={}\n", &[&total, &doubled, &missing]).?;
+    let doubled = if firstTwice("A") is ?value { value } else { 0 };
+    let missing = if firstTwice("") is ?_ { 1 } else { 0 };
+    io::debugPrint("total={} doubled={} missing={}\n", [total, doubled, missing]).?;
     !()
 }
 ```
@@ -488,12 +490,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     let mut text = std::String::init();
     defer text.deinit(&mut allocator).?;
-    text.append(&mut allocator, &"nia").?;
+    text.append(&mut allocator, "nia").?;
 
     let count = values.len();
     let length = text.len();
-    io::debugPrint(&"log={} {} {} values={} text={}\n", &[
-        &log.entries[0], &log.entries[1], &log.entries[2], &count, &length,
+    io::debugPrint("log={} {} {} values={} text={}\n", [
+        log.entries[0], log.entries[1], log.entries[2], count, length,
     ]).?;
     !()
 }
@@ -514,18 +516,8 @@ may allocate or free, and must be released with `deinit` before their
 allocator is torn down. Writing `defer value.deinit(&mut allocator).?;` right
 after creating a value keeps that order correct. `std::mem` provides
 `PageAllocator`, `GeneralPurposeAllocator`, `ArenaAllocator`,
-`FixedBufferAllocator`, and `PoolAllocator[T]`. A pool keeps fixed-size slots
-for `T`, reuses freed slots, and accepts smaller layouts that fit the slot's
-size and alignment. Its `deinit` releases all backing pages and reports live
-slots as `mem::Error::Leak`; `deinitWithoutLeakCheck` performs the same cleanup
-without that diagnostic.
-
-`std::os` exposes low-level operating-system services. Platform-specific
-interfaces are available under `std::os::linux`, `std::os::windows`, and
-`std::os::macos`; Linux exposes its syscall ABI through `syscall`, while
-Windows and macOS expose their declared native bindings through `bindings`.
-These APIs retain platform-specific calling conventions and error results;
-use `std::fs` and `std::process` when their portable interfaces are sufficient.
+`FixedBufferAllocator`, and `PoolAllocator[T]`; the
+[memory management guide](memory-management.md) shows how to combine them.
 
 ## Generics And Traits
 
@@ -598,12 +590,12 @@ where S: Shape
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let pair = Pair[i32] { first: 1, second: 2 }.swap();
-    let ints = total(&[1, 2, 3], 0);
+    let ints = total([1, 2, 3], 0);
     let prices = [Money { cents: 250 }, Money { cents: 199 }];
-    let bill = total(&prices, Money { cents: 0 });
-    let large = describe(&Square { side: 11 });
-    io::debugPrint(&"first={} ints={} cents={} large={}\n", &[
-        &pair.first, &ints, &bill.cents, &large,
+    let bill = total(prices, Money { cents: 0 });
+    let large = describe(Square { side: 11 });
+    io::debugPrint("first={} ints={} cents={} large={}\n", [
+        pair.first, ints, bill.cents, large,
     ]).?;
     !()
 }
@@ -631,7 +623,6 @@ generic code requires the `Sized` bound on `T`.
 ```nia
 using std::io;
 using std::process;
-using std::iter;
 
 // `&Fun(i32) i32` is a non-owning view of any closure with that signature.
 fun applyTwice(f: &Fun(i32) i32, value: i32) i32 {
@@ -655,9 +646,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
         x
     };
 
-    let a = applyTwice(&increment, 0);
-    let b = applyTwice(&addStep, 1);
-    let c = applyTwice(&counted, 5);
+    let a = applyTwice(increment, 0);
+    let b = applyTwice(addStep, 1);
+    let c = applyTwice(counted, 5);
 
     // A plain function pointer has no captured state.
     let pointer: &fun(i32) i32 = &double;
@@ -667,8 +658,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let squares = (1..5).iter().map(\value -> value * value);
     let squareTotal = squares.fold(0, &\total, value -> total + value);
 
-    io::debugPrint(&"a={} b={} c={} calls={} d={} squares={}\n", &[
-        &a, &b, &c, &calls, &d, &squareTotal,
+    io::debugPrint("a={} b={} c={} calls={} d={} squares={}\n", [
+        a, b, c, calls, d, squareTotal,
     ]).?;
     !()
 }
@@ -683,14 +674,14 @@ module-level items unless it captures locals explicitly: `[name]` copies the
 value, `[&name]` captures a read-only pointer, and `[&mut name]` a writable
 one, used through `.*` in the body.
 
-Parameter types are inferred from how the closure is used. Written directly
-where a callable is expected, as in the `fold` call, it needs no annotations.
-A closure bound with `let` can use the same inference when a later `&` address
-conversion supplies its callable type; an annotation is needed only when the
-body and all callable uses leave a parameter unconstrained.
+Parameter types are inferred from how the closure is used: `increment` gets its
+type from being passed to `applyTwice`, and the `map` and `fold` closures from
+the iterator they are called on. An annotation is needed only when no use
+determines a parameter.
 
 A function that accepts any closure takes a callable view, `&Fun(Args) Return`
-or `&mut Fun(Args) Return`, made with `&closure`. A view points at the closure's
+or `&mut Fun(Args) Return`. Passing the closure where a view is expected
+creates the view; `&closure` writes it explicitly. A view points at the closure's
 state: it never allocates and must not outlive the closure, so the compiler
 rejects returning it or storing it past the closure's scope. Ordinary pointers
 carry no such check; keeping them valid is the program's job.
@@ -710,7 +701,7 @@ geometry/shapes.nia
 
 `main.nia`:
 
-```nia
+```nia ignore
 module geometry;
 
 using std::io;
@@ -723,14 +714,14 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let corner = Point { x: 3, y: 4 };
     let rect = Rect { min: origin(), max: corner };
     let area = rect.area();
-    io::debugPrint(&"area={}\n", &[&area]).?;
+    io::debugPrint("area={}\n", [area]).?;
     !()
 }
 ```
 
 `geometry.nia`:
 
-```nia
+```nia ignore
 pub module shapes;
 
 pub struct Point {
@@ -755,7 +746,7 @@ pub(root) fun span(low: i32, high: i32) i32 {
 
 `geometry/shapes.nia`:
 
-```nia
+```nia ignore
 using super::{Point, span};
 
 pub struct Rect {
@@ -813,7 +804,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let name = platformName();
     let width = target::pointerWidth;
-    io::debugPrint(&"platform={} pointerWidth={}\n", &[&name, &width]).?;
+    io::debugPrint("platform={} pointerWidth={}\n", [name, width]).?;
     !()
 }
 ```
@@ -832,6 +823,8 @@ compilation.
 
 ## Where Next
 
+- [Error handling](error-handling.md) and [memory management](memory-management.md):
+  the patterns the standard library uses for failures, cleanup, and ownership.
 - [Language reference](../reference/language.md): every rule in full,
   including unions, pointers, constant evaluation, and attributes.
 - [C interop](c-interop.md): `extern` declarations, linking native libraries,

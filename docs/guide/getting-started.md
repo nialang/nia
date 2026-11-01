@@ -160,10 +160,10 @@ fun measuresText() test::Error!() {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let cases: [test::Case; 2] = [
-        .init(&"adds numbers", &addsNumbers),
-        .init(&"measures text", &measuresText),
+        .init("adds numbers", &addsNumbers),
+        .init("measures text", &measuresText),
     ];
-    let summary = test::Runner::init(&cases).run();
+    let summary = test::Runner::init(cases).run();
     if not summary.isSuccessful() {
         return process::ExitCode(1)!;
     }
@@ -217,9 +217,10 @@ nia emit --exe src/main.nia -o hello
 `emit` accepts `--tokens`, `--ast`, `--checked`, `--backend`, and `--llvm` to
 print intermediate forms, `--obj` to write object files, and `--exe` to write
 an executable. `-M <name>=<path>` maps an extra package name to a source file
-or to a package directory's `[library].path`, so `using name;` can find it; a
-build script declares its
-packages instead, so `nia build` does not accept `-M`.
+or to a package directory's `[library].path`, so `using name;` can find it.
+`nia check` and `nia emit` do not read the dependencies in `nia.toml`; a
+package's dependencies reach them only through `-M`. A build script declares
+its packages instead, so `nia build` does not accept `-M`.
 
 Global options apply to every command and may come before or after it:
 `-O0` through `-O3`, `-Os`, `-Oz` (`-O` means `-O2`), `--debug` / `--release`
@@ -229,8 +230,8 @@ or `--profile <debug|release>` (the default optimization is `-O0` for debug and
 
 Every option that takes a value accepts both `--option value` and
 `--option=value`, and the next argument is always the value, even when it
-starts with `-`. When an option is repeated, the last value wins; `-M`, `-L`,
-`-l`, `--link-arg`, and `--rpath` accumulate instead. `--` ends the options, so
+starts with `-`. When an option is repeated, the last value wins; `-M`, `-p`, `-L`, `-l`,
+`--link-arg`, and `--rpath` accumulate instead. `--` ends the options, so
 later arguments are taken literally. A malformed command line exits with
 status 2; a failed check, build, or test exits with status 1.
 
@@ -248,6 +249,8 @@ details are in [Platform support](../reference/platform-support.md#runtime-model
 
 - [Language tour](tour.md): the language from simple values to generics and
   modules.
+- [Error handling](error-handling.md) and [memory management](memory-management.md):
+  idiomatic patterns for failures, cleanup, and allocation.
 - [Build scripts](build-scripts.md): everything `build.nia` can declare.
 - [Examples](../../examples/README.md): complete programs to read and run.
 - [Standard library](../../lib/README.md): library modules and conventions.
