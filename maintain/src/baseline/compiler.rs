@@ -145,25 +145,19 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
         ),
         (
             "std_hello_check".to_owned(),
-            vec!["check".to_owned(), path("examples/beginner/hello.nia")],
+            vec!["check".to_owned(), path("examples/hello.nia")],
         ),
         (
             "strings_slices".to_owned(),
-            vec!["check".to_owned(), path("examples/beginner/data.nia")],
+            vec!["check".to_owned(), path("examples/data.nia")],
         ),
         (
             "array_list".to_owned(),
-            vec![
-                "check".to_owned(),
-                path("examples/intermediate/collections.nia"),
-            ],
+            vec!["check".to_owned(), path("examples/collections.nia")],
         ),
         (
             "traits".to_owned(),
-            vec![
-                "check".to_owned(),
-                path("examples/intermediate/generic.nia"),
-            ],
+            vec!["check".to_owned(), path("examples/traits.nia")],
         ),
         (
             "const_eval".to_owned(),
@@ -174,7 +168,7 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             vec![
                 "emit".to_owned(),
                 "--backend".to_owned(),
-                path("examples/intermediate/modules/main.nia"),
+                path("examples/modules/main.nia"),
             ],
         ),
         (
@@ -208,7 +202,7 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             vec![
                 "emit".to_owned(),
                 "--exe".to_owned(),
-                path("examples/intermediate/collections.nia"),
+                path("examples/collections.nia"),
                 "-o".to_owned(),
                 output.join("array_list").to_string_lossy().into_owned(),
             ],
@@ -218,7 +212,7 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             vec![
                 "emit".to_owned(),
                 "--exe".to_owned(),
-                path("examples/beginner/hello.nia"),
+                path("examples/hello.nia"),
                 "-o".to_owned(),
                 output.join("std-hello").to_string_lossy().into_owned(),
             ],

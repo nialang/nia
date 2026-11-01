@@ -1,3 +1,4 @@
+// The public face of the example: re-exports from the implementation modules.
 using root::geometry;
 using root::colors;
 

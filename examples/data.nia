@@ -1,0 +1,53 @@
+// Arrays, slices and mutable slices, text and byte literals, `const`, and
+// `static` storage.
+using std::io;
+using std::process;
+
+const width: usize = 4;
+static greeting = b"nia";
+
+fun byteSum(bytes: &[u8]) usize {
+    let mut total: usize = 0;
+    for &byte in bytes {
+        total += byte as usize;
+    }
+    total
+}
+
+fun fill(values: &mut [i32], value: i32) () {
+    for index in 0..values.len() {
+        values[index] = value;
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    // `[T; N]` is a value; `&[T]` is a pointer and a length.
+    let values: [i32; width] = [1, 2, 3, 4];
+    let window = &values[1..=2];
+
+    let mut zeros = [0; 6];
+    fill(&mut zeros[2..], 7);
+
+    // String literals are `char` arrays; byte literals are `u8` arrays.
+    let name = "héllo";
+    let bytes = b"ni" b"a";
+    let terminated = b"nia\0";
+
+    let mut copy: [u8; 8] = [0; 8];
+    let copied = copy.copyFrom(bytes);
+
+    let third = match window.get(5) {
+        ?value => value.*,
+        null => -1,
+    };
+
+    io::debugPrint("window={} {} filled={} name={} bytes={} sum={}\n", [
+        window[0], window[1], zeros[5], name.len(), bytes.len(), byteSum(greeting),
+    ]).?;
+    io::debugPrint("terminated={} copied={} missing={}\n", [
+        terminated.len(), copied, third,
+    ]).?;
+    !()
+}

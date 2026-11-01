@@ -1,0 +1,77 @@
+// Functions, structs and methods, enums and `match`, loops over ranges and
+// slices, and `defer`.
+using std::io;
+using std::process;
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    fun distanceSquared(&self) i32 {
+        self.x * self.x + self.y * self.y
+    }
+
+    fun translate(&mut self, dx: i32, dy: i32) () {
+        self.x += dx;
+        self.y += dy;
+    }
+}
+
+enum Band: u8 {
+    Low,
+    Middle,
+    High,
+}
+
+fun classify(score: i32) Band {
+    match score {
+        0..60 => .Low,
+        60..90 => .Middle,
+        _ => .High,
+    }
+}
+
+fun sum(values: &[i32]) i32 {
+    let mut total = 0;
+    for &value in values {
+        total += value;
+    }
+    total
+}
+
+fun countDown(log: &mut [i32]) () {
+    // Deferred expressions run when the block exits, last one first.
+    defer log[0] = 1;
+    defer log[1] = 2;
+    log[2] = 3;
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut point = Point { x: 3, y: 4 };
+    point.translate(1, 1);
+    let distance = point.distanceSquared();
+
+    let scores = [distance, 75, 95];
+    let total = sum(scores);
+    let mut evens = 0;
+    for value in 0..10 {
+        if value % 2 == 0 {
+            evens += 1;
+        }
+    }
+
+    let mut log = [0; 3];
+    countDown(&mut log);
+
+    let level = classify(scores[1]) as u8;
+    let high = if classify(scores[2]) is .High { 1 } else { 0 };
+    io::debugPrint("distance={} total={} evens={} level={} high={}\n", [
+        distance, total, evens, level, high,
+    ]).?;
+    io::debugPrint("defer order={} {} {}\n", [log[2], log[1], log[0]]).?;
+    !()
+}

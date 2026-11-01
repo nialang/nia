@@ -1,0 +1,114 @@
+// Generic types and functions, traits with default methods, operator traits,
+// bounds in `where` clauses, and dynamic dispatch through trait objects.
+using std::io;
+using std::process;
+
+struct Pair[T] {
+    first: T,
+    second: T,
+}
+
+extend[T] Pair[T] {
+    fun swap(self) Pair[T] {
+        Pair[T] { first: self.second, second: self.first }
+    }
+}
+
+trait Shape {
+    fun area(&self) i32;
+
+    // A default method; implementations may leave it out.
+    fun isLarge(&self) bool {
+        self.area() > 100
+    }
+}
+
+struct Square {
+    side: i32,
+}
+
+struct Rect {
+    width: i32,
+    height: i32,
+}
+
+extend Square : Shape {
+    fun area(&self) i32 {
+        self.side * self.side
+    }
+}
+
+extend Rect : Shape {
+    fun area(&self) i32 {
+        self.width * self.height
+    }
+}
+
+struct Money {
+    cents: i32,
+}
+
+// `a + b` on a user type needs an `Add` implementation.
+extend Money : Add[Money] {
+    type Output = Money;
+
+    fun add(self, rhs: Money) Money {
+        Money { cents: self.cents + rhs.cents }
+    }
+}
+
+fun total[T](values: &[T], start: T) T
+where T: Add[T, Output = T] + Sized
+{
+    let mut sum = start;
+    for &value in values {
+        sum = sum + value;
+    }
+    sum
+}
+
+// Static dispatch: one instance per shape type.
+fun countLarge[S](shapes: &[S]) i32
+where S: Shape + Sized
+{
+    let mut count = 0;
+    for &shape in shapes {
+        if shape.isLarge() {
+            count += 1;
+        }
+    }
+    count
+}
+
+// Dynamic dispatch: `&Shape` points at any implementation.
+fun largestArea(shapes: &[&Shape]) i32 {
+    let mut largest = 0;
+    for &shape in shapes {
+        let area = shape.area();
+        if area > largest {
+            largest = area;
+        }
+    }
+    largest
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let pair = Pair[i32] { first: 1, second: 2 }.swap();
+    let ints = total([1, 2, 3], 0);
+    let bill = total([Money { cents: 250 }, Money { cents: 199 }], Money { cents: 0 });
+
+    let squares = [Square { side: 5 }, Square { side: 11 }, Square { side: 12 }];
+    let large = countLarge(squares);
+
+    let square = Square { side: 9 };
+    let rect = Rect { width: 4, height: 30 };
+    let mixed: [&Shape; 2] = [square, rect];
+    let largest = largestArea(mixed);
+
+    io::debugPrint("first={} ints={} cents={} large={} largest={}\n", [
+        pair.first, ints, bill.cents, large, largest,
+    ]).?;
+    !()
+}

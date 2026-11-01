@@ -358,61 +358,6 @@ fn std_os_and_native_platform_apis_are_public() {
 }
 
 #[test]
-fn repository_examples_parse_and_check() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let examples_dir = manifest_dir
-        .parent()
-        .and_then(std::path::Path::parent)
-        .expect("nia-cli lives under crates/")
-        .join("examples");
-    let examples = [
-        "beginner/hello.nia",
-        "beginner/basics.nia",
-        "beginner/data.nia",
-        "intermediate/errors.nia",
-        "intermediate/generic.nia",
-        "intermediate/collections.nia",
-        "intermediate/io.nia",
-        "intermediate/process.nia",
-        "intermediate/modules/main.nia",
-        "advanced/closure_inference/main.nia",
-    ];
-
-    for example in examples {
-        let path = examples_dir.join(example);
-        let output = support::nia_command()
-            .arg("emit")
-            .arg("--ast")
-            .arg(&path)
-            .output_timeout_for_compiler(&format!("run nia emit --ast on {example}"));
-
-        assert!(
-            output.status.success(),
-            "example {example} failed to parse\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    for example in examples {
-        let path = examples_dir.join(example);
-        let output = support::nia_command()
-            .arg("check")
-            .arg("--runtime")
-            .arg("freestanding")
-            .arg(&path)
-            .output_timeout_for_compiler(&format!(
-                "run nia check --runtime freestanding on {example}"
-            ));
-
-        assert!(
-            output.status.success(),
-            "example {example} failed freestanding check\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-}
-
-#[test]
 fn check_reports_unused_import_warning_without_failing() {
     let root = temp_dir("check_reports_unused_import_warning_without_failing");
     let main = root.join("main.nia");

@@ -1,0 +1,77 @@
+// Optional values, error unions, pattern matching on both, `.?` propagation,
+// and conversion between error types with `IntoError`.
+using std::io;
+using std::process;
+
+enum ParseError {
+    Empty,
+    BadDigit(char),
+}
+
+enum ConfigError {
+    Parse(ParseError),
+    OutOfRange(u32),
+}
+
+extend ParseError : std::builtin::IntoError[ConfigError] {
+    const fun intoError(self) ConfigError {
+        ConfigError::Parse(self)
+    }
+}
+
+fun parseDigits(text: &[char]) ParseError!u32 {
+    if text.len() == 0 {
+        return ParseError::Empty!;
+    }
+    let mut value: u32 = 0;
+    for &ch in text {
+        if ch < '0' or ch > '9' {
+            return ParseError::BadDigit(ch)!;
+        }
+        value = value * 10 + (ch as u32 - '0' as u32);
+    }
+    !value
+}
+
+// `.?` converts a `ParseError` into a `ConfigError` on the way out.
+fun parsePort(text: &[char]) ConfigError!u32 {
+    let port = parseDigits(text).?;
+    if port > 65535 {
+        return ConfigError::OutOfRange(port)!;
+    }
+    !port
+}
+
+// `.?` on an optional returns `null` from a function returning an optional.
+fun firstDigit(text: &[char]) ?u32 {
+    let ch = text.get(0).?;
+    if ch.* < '0' or ch.* > '9' {
+        return null;
+    }
+    ?(ch.* as u32 - '0' as u32)
+}
+
+fun describe(text: &[char]) u32 {
+    match parsePort(text) {
+        !port => port,
+        ConfigError::Parse(ParseError::Empty)! => 1,
+        ConfigError::Parse(ParseError::BadDigit(_))! => 2,
+        ConfigError::OutOfRange(_)! => 3,
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let good = describe("8080");
+    let empty = describe("");
+    let bad = describe("80x0");
+    let large = describe("99999");
+
+    let digit = if firstDigit("7up") is ?value { value } else { 0 };
+    let none = if firstDigit("up") is ?_ { 1 } else { 0 };
+
+    io::debugPrint("good={} empty={} bad={} large={}\n", [good, empty, bad, large]).?;
+    io::debugPrint("digit={} none={}\n", [digit, none]).?;
+    !()
+}

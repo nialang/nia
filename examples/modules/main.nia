@@ -1,3 +1,6 @@
+// A program split into modules: child files next to the root, a facade that
+// re-exports a curated API, selected and renamed imports, and enum variants
+// brought into scope by name.
 pub module api;
 pub module colors;
 pub module config;
@@ -8,9 +11,8 @@ using std::process;
 using root::api;
 using root::config;
 using api::{Point, add as plus, Color::Green};
-using process::{Init, ExitCode};
 
-pub fun main(init: Init) ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let point = Point { x: 3, y: 4 };
     let values: [i32; config::width] = [1, 2, 3, 4];
@@ -20,8 +22,8 @@ pub fun main(init: Init) ExitCode!() {
     let diff = api::geometry::sub(10, 5);
 
     if sum + len2 + color + diff != 38 {
-        return ExitCode(1)!;
+        return process::ExitCode(1)!;
     }
-    io::debugPrint(&"sum={} len2={} color={} diff={}\n", &[&sum, &len2, &color, &diff]).?;
+    io::debugPrint("sum={} len2={} color={} diff={}\n", [sum, len2, color, diff]).?;
     !()
 }

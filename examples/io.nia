@@ -1,9 +1,11 @@
-using std::fmt::template;  // For .print() extension method
+// Formatted output through a buffered stdout writer: width, fill, precision,
+// sign, alternate forms, and pointer formatting.
+using std::fmt::template;
 using std::io;
 using std::process;
-using process::{Init, ExitCode};
 
-pub fun main(init: Init) ExitCode!() {
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
     let mut buffer: [u8; 128] = [0; 128];
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     let name = "nia";
@@ -11,6 +13,7 @@ pub fun main(init: Init) ExitCode!() {
     let byte: u8 = 171;
     let ptr = &answer;
 
+    // `&ptr` formats the pointer itself; `ptr` would format the value it points to.
     stdout.print(
         "name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
         [name, answer, byte, &ptr],

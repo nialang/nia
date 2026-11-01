@@ -1,0 +1,60 @@
+// Explicit allocation: an allocator chain owned by `main`, containers that take
+// the allocator on every call that allocates or frees, and `defer` cleanup in
+// the order the owners require.
+using std::io;
+using std::mem;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
+    // Registered first, so it runs last: every container is released by then.
+    defer allocator.deinit().?;
+
+    let mut values: std::ArrayList[i32] = .init();
+    defer values.deinit(&mut allocator).?;
+    values.push(&mut allocator, 30).?;
+    values.push(&mut allocator, 10).?;
+    values.push(&mut allocator, 20).?;
+
+    let mut listTotal = 0;
+    for &value in values {
+        listTotal += value;
+    }
+
+    let mut scores: std::HashMap[i32, i32] = .init();
+    defer scores.deinit(&mut allocator).?;
+    _ = scores.insert(&mut allocator, 7, 70).?;
+    _ = scores.insert(&mut allocator, 42, 420).?;
+    match scores.getMut(&42) {
+        ?score => score.* += 10,
+        null => return process::ExitCode(1)!,
+    }
+    let answer = match scores.get(&42) {
+        ?value => value.*,
+        null => return process::ExitCode(2)!,
+    };
+
+    // A `TreeMap` iterates in key order.
+    let mut ordered: std::TreeMap[i32, i32] = .init();
+    defer ordered.deinit(&mut allocator).?;
+    for &value in values {
+        _ = ordered.insert(&mut allocator, value, value * 2).?;
+    }
+    let mut keys = 0;
+    for entry in ordered.iter() {
+        keys = keys * 100 + entry.key().*;
+    }
+
+    let mut text = std::String::init();
+    defer text.deinit(&mut allocator).?;
+    text.append(&mut allocator, "nia").?;
+    text.push(&mut allocator, '!').?;
+
+    io::debugPrint("list={} total={} answer={} keys={} text={}\n", [
+        values.len(), listTotal, answer, keys, text.len(),
+    ]).?;
+    !()
+}

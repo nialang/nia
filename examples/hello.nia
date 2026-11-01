@@ -1,0 +1,10 @@
+// The smallest complete program: the standard entry point and one line of
+// output. Every example starts from this shape.
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    io::debugPrint("hello from nia\n", []).?;
+    !()
+}

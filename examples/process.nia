@@ -1,0 +1,35 @@
+// Starting a child process with typed arguments, an explicit environment,
+// and a piped stdout. It runs `/bin/sh`, so it needs a POSIX host.
+using std::fs;
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 2] = ["-c", "printf '%s\n' \"$NIA_EXAMPLE_MODE\""];
+    let environment: [process::EnvEntry; 1] = [
+        .init("NIA_EXAMPLE_MODE", "typed environment"),
+    ];
+    let command = process::Command::init(fs::PathView::init("/bin/sh"), init.env())
+        .withArguments(arguments)
+        .withEnvironment(environment)
+        .withStdout(process::StdIo::Pipe);
+
+    // `spawn` returns an attempt; `finish` yields the child once setup is done.
+    let mut attempt = command.spawn();
+    let mut child = attempt.finish().?;
+    let mut stdout = match child.takeStdout() {
+        ?pipe => pipe,
+        null => return process::ExitCode(1)!,
+    };
+    let mut output: [u8; 18] = [0; 18];
+    stdout.readExact(&mut output).?;
+    stdout.close().?;
+
+    let status = child.wait().?;
+    if not status.succeeded() or not output.equals(b"typed environment\n") {
+        return process::ExitCode(2)!;
+    }
+    let length = output.len();
+    io::debugPrint("child wrote {} bytes and exited cleanly\n", [length]).?;
+    !()
+}
