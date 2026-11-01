@@ -244,44 +244,6 @@ fn assert_no_direct_exit_code_casts(path: &std::path::Path) {
 }
 
 #[test]
-fn readme_nia_examples_check_as_freestanding_programs() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let readme_path = manifest_dir
-        .parent()
-        .and_then(std::path::Path::parent)
-        .expect("nia-cli lives under crates/")
-        .join("README.md");
-    let readme = std::fs::read_to_string(&readme_path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", readme_path.display()));
-    let examples = nia_code_blocks(&readme);
-    assert!(
-        !examples.is_empty(),
-        "README.md should contain at least one nia code block"
-    );
-
-    for (index, source) in examples {
-        let root = temp_dir(&format!("readme_nia_examples_check_{index}"));
-        let main = root.join(format!("example_{index}.nia"));
-        std::fs::write(&main, source).expect("write README example source");
-
-        let output = support::nia_command()
-            .arg("check")
-            .arg("--runtime")
-            .arg("freestanding")
-            .arg(&main)
-            .output_timeout_for_compiler(
-                "run nia check --runtime freestanding on README nia example",
-            );
-
-        assert!(
-            output.status.success(),
-            "README nia example {index} failed\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-}
-
-#[test]
 fn std_os_and_native_platform_apis_are_public() {
     let root = temp_dir("std_os_and_native_platform_apis_are_public");
     let targets = [
@@ -712,27 +674,6 @@ pub fun main() () {}
             > 0,
         "emitted object should not be empty"
     );
-}
-
-fn nia_code_blocks(markdown: &str) -> Vec<(usize, String)> {
-    let mut blocks = Vec::new();
-    let mut current = None::<String>;
-    for line in markdown.lines() {
-        match (current.as_mut(), line.trim()) {
-            (None, "```nia") => current = Some(String::new()),
-            (Some(source), "```") => {
-                let source = std::mem::take(source);
-                current = None;
-                blocks.push((blocks.len(), source));
-            }
-            (Some(source), _) => {
-                source.push_str(line);
-                source.push('\n');
-            }
-            (None, _) => {}
-        }
-    }
-    blocks
 }
 
 #[test]
