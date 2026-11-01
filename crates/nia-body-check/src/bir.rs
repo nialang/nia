@@ -709,15 +709,68 @@ impl<'a> BodyChecker<'a> {
         value
     }
 
+    fn lower_closure_callable_view_with_target(
+        &mut self,
+        expr: &Expr,
+        coercion: nia_sema_ir::ClosureCallableViewCoercion,
+        target_ty: nia_ids::InternedTyId,
+    ) -> TypedExpr {
+        let value = self.lower_expr_with_ty(expr, Some(coercion.source_ty));
+        let state_ty = self.interner.intern(TyKind::Pointer {
+            is_readonly: coercion.is_readonly,
+            elem: value.ty,
+        });
+        if self
+            .coerce_closure_pointer_to_callable(target_ty, state_ty)
+            .is_none()
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: target_ty,
+                kind: TypedExprKind::Error,
+            };
+        }
+        TypedExpr {
+            span: expr.span,
+            ty: target_ty,
+            kind: TypedExprKind::CallableCoercion {
+                state: Box::new(TypedExpr {
+                    span: expr.span,
+                    ty: state_ty,
+                    kind: TypedExprKind::Unary {
+                        op: if coercion.is_readonly {
+                            UnaryOp::RefReadOnly
+                        } else {
+                            UnaryOp::Ref
+                        },
+                        expr: Box::new(value),
+                    },
+                }),
+                closure_id: coercion.closure_id,
+            },
+        }
+    }
+
     fn lower_expr_with_ty(
         &mut self,
         expr: &Expr,
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
-        if let Some(plan) = self.node_expr_adjustments.get(&expr.node_key).cloned()
-            && forced_ty.is_none_or(|ty| ty == plan.target_ty)
-        {
-            return self.lower_expr_adjustment_plan(expr, &plan);
+        if let Some(plan) = self.node_expr_adjustments.get(&expr.node_key).cloned() {
+            if forced_ty.is_none_or(|ty| ty == plan.target_ty) {
+                return self.lower_expr_adjustment_plan(expr, &plan);
+            }
+            // Generic callable arguments can be checked first against an
+            // unresolved callable shape and later lowered with the concrete
+            // instantiated shape. Reuse the recorded closure state, then
+            // validate and wrap it against that concrete target instead of
+            // re-entering closure lowering with a callable type.
+            if forced_ty != Some(plan.source_ty)
+                && let (Some(target_ty), [ExprAdjustment::ClosureCallableView(coercion)]) =
+                    (forced_ty, plan.steps.as_slice())
+            {
+                return self.lower_closure_callable_view_with_target(expr, *coercion, target_ty);
+            }
         }
         let forced_ty = self
             .materialize_forced_expr_ty(expr, forced_ty)

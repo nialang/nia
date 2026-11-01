@@ -215,6 +215,51 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_iterator_accepts_implicit_inline_callable_views() {
+    let root = temp_dir("emit_exe_std_iterator_accepts_implicit_inline_callable_views");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let sum = (1..5).iter().fold(0, \acc, value -> acc + value);
+    let target = 4;
+    let index = (1..6).iter().position(\[target] value: i32 -> value == target);
+    match index {
+        ?found => if found != 3 { return process::ExitCode(1)!; },
+        null => return process::ExitCode(2)!,
+    }
+    if sum != 10 { return process::ExitCode(3)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit -- implicit inline callable views");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_iterator_callbacks_infer_projected_item_parameters() {
     let root = temp_dir("emit_exe_std_iterator_callbacks_infer_projected_item_parameters");
     let main = root.join("main.nia");
