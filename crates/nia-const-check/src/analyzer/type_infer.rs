@@ -1143,6 +1143,7 @@ impl Analyzer<'_> {
                 }
                 Some(TyKind::Optional { .. }) => "expected optional type".to_string(),
                 Some(TyKind::ErrorUnion { .. }) => "expected error union type".to_string(),
+                Some(TyKind::Array { .. }) => "expected array type".to_string(),
                 _ => "target type".to_string(),
             };
             let message = format!("const assignment value does not match the {context}");
