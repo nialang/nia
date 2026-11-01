@@ -8,11 +8,11 @@ Start with the guide, then use the reference when you need exact rules.
 | --- | --- |
 | [Getting started](guide/getting-started.md) | Installing Nia, a first program, and the `nia` commands |
 | [Language tour](guide/tour.md) | The language from simple values to traits, closures, and modules |
-| [Error handling patterns](guide/error-handling.md) | Propagation, option helpers, cleanup, and transactional updates |
-| [Memory management](guide/memory-management.md) | Explicit allocators, defer-based cleanup, and ownership patterns |
+| [Error handling](guide/error-handling.md) | Choosing result types, propagation and conversion, cleanup, and leaving state unchanged on failure |
+| [Memory management](guide/memory-management.md) | Allocators and how to choose one, release order, typed owners, leaks, and views |
 | [Build scripts](guide/build-scripts.md) | `nia.toml` manifests, dependencies, and workspaces; writing `build.nia`: modules, executables, steps, and test suites |
 | [C interop](guide/c-interop.md) | Calling C, linking native libraries, and exporting Nia functions |
-| [Examples](../examples/README.md) | Complete programs arranged as reading material |
+| [Examples](../examples/README.md) | Complete programs to read in order |
 
 ## Reference
 
@@ -20,7 +20,7 @@ Start with the guide, then use the reference when you need exact rules.
 | --- | --- |
 | [Language reference](reference/language.md) | Syntax and semantics of the language |
 | [Built-in operations](reference/builtins.md) | `std::builtin` intrinsics, SIMD, atomics, and inline assembly |
-| [Standard library](../lib/README.md) | Library modules and their ownership conventions |
+| [Standard library](../lib/README.md) | Library modules and their allocation and cleanup conventions |
 | [ABI reference](reference/abi.md) | Data representation, layout, and C boundary rules |
 | [Platform support](reference/platform-support.md) | Targets, runtime model, and current limits |
 

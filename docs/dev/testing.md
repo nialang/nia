@@ -102,7 +102,7 @@ updates that table and the owning module's tests together.
 | Location | Contents |
 | --- | --- |
 | `#[cfg(test)]` modules or `src/tests/` in each crate | Unit and owner tests for the owning crate and module. |
-| `crates/nia-cli/tests/*.rs` | End-to-end suites for the `nia` binary: commands, `emit_exe_*` executable behavior, `std_*` standard-library behavior, C ABI and interop, cross targets, build system (`build_cases`, `std_build_*`), toolchain relocation. |
+| `crates/nia-cli/tests/*.rs` | End-to-end suites for the `nia` binary: commands, `emit_exe_*` executable behavior, `std_*` standard-library behavior, C ABI and interop, cross targets, build system (`build_cases`, `std_build_*`), toolchain relocation, examples (`examples_run`), and documentation code blocks (`documentation`). |
 | `crates/nia-cli/tests/cases/` | Data-driven fixture trees (`build`, `commands`, `linker`, `optimization`), each described by a `case.meta` manifest. |
 | `crates/nia-driver/tests/cases/` | Driver fixtures for check, codegen, object, executable, LLVM, and persistent-cache cases. |
 | `crates/nia-test-support/` | Shared harness: resource accounting, command helpers, owned scratch directories, case manifests. |

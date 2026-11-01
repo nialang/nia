@@ -143,7 +143,17 @@ the language and toolchain without compiler internals. Developer documentation
 subsystem contracts. Crate-level `//!` docs own a crate's internal invariants,
 and source comments explain local reasoning. Each rule has one owner document,
 updated in the same change that establishes it; other documents link to it.
-Dated measurements and completion notes belong in Git history, not in docs.
+Dated measurements and completion notes belong in Git history, not in docs,
+and so do investigations, review checklists, and plans.
+
+Every `nia` code block in the documentation is type-checked by
+`crates/nia-cli/tests/documentation.rs`. Write a block as a complete source
+file where possible; mark statements with ` ```nia fragment `, a block that
+builds on the previous one with ` ```nia continued `, and a block that cannot
+stand alone, such as one file of a multi-file layout, with ` ```nia ignore `.
+Each example program lists its expected output in
+`crates/nia-cli/tests/examples_run.rs`. Write examples in the standard
+library's current style.
 
 ## Review
 
