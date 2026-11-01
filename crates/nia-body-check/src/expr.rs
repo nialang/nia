@@ -302,18 +302,31 @@ impl<'a> BodyChecker<'a> {
                                         .map(|primitive| self.primitive(primitive))
                                 })
                                 .or(expected_ref_target)
+                                .or_else(|| {
+                                    matches!(inner.kind, ExprKind::Integer(_)).then(|| self.i32())
+                                })
                         } else {
                             expected_ref_target
                         };
+                        let unsuffixed_signed_integer = matches!(
+                            (&inner.kind, signed_integer_literal_ty, expected),
+                            (ExprKind::Integer(_), None, Some(expected))
+                                if self.is_integer(expected)
+                        );
                         let inner_ty = if let Some(suffix_ty) = signed_integer_literal_ty {
                             self.check_integer_literal_range(expr, suffix_ty, "literal suffix");
                             self.record_expr_node_type(inner, suffix_ty);
                             suffix_ty
+                        } else if unsuffixed_signed_integer {
+                            let ty = expected.expect("unsuffixed signed integer has expected type");
+                            self.check_integer_literal_range(expr, ty, "unary operator");
+                            self.record_expr_node_type(inner, ty);
+                            ty
                         } else {
                             self.check_expr_with_expected(inner, expected)
                         };
                         if let Some(expected) = expected {
-                            if signed_integer_literal_ty.is_some() {
+                            if signed_integer_literal_ty.is_some() || unsuffixed_signed_integer {
                                 self.expect_type(inner.span, expected, inner_ty, "unary operator");
                             } else {
                                 self.expect_expr_type(inner, expected, inner_ty, "unary operator");
@@ -1481,7 +1494,9 @@ impl<'a> BodyChecker<'a> {
             self.report_invalid_numeric_literal_suffix(expr, "integer");
             return self.error();
         }
-        self.i32()
+        let ty = self.i32();
+        self.check_integer_literal_range(expr, ty, "default type");
+        ty
     }
 
     fn float_literal_type(&mut self, expr: &Expr) -> InternedTyId {

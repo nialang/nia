@@ -61,14 +61,26 @@ impl Analyzer<'_> {
         if explicit.is_some() {
             return None;
         }
-        let ResolvedConstExprKind::Integer(text) = binding.value().kind() else {
-            return None;
-        };
-        if integer_literal_suffix_ty(text).is_some() {
+        if !self.is_untyped_const_integer_expr(binding.value()) {
             return None;
         }
         let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
-        Some(ConstValueType::Runtime(default_int))
+        self.resolved_const_expr_type(binding.value(), Some(default_int))
+    }
+
+    pub(super) fn is_untyped_const_integer_expr(&self, expr: &ResolvedConstExpr) -> bool {
+        match expr.kind() {
+            ResolvedConstExprKind::Integer(text) => integer_literal_suffix_ty(text).is_none(),
+            ResolvedConstExprKind::Unary {
+                op: ConstUnaryOp::Neg,
+                expr,
+            } => matches!(
+                expr.kind(),
+                ResolvedConstExprKind::Integer(text)
+                    if integer_literal_suffix_ty(text).is_none()
+            ),
+            _ => false,
+        }
     }
 
     pub(super) fn const_local_is_mutable(&self, local_id: LocalId) -> Option<bool> {
@@ -142,7 +154,12 @@ impl Analyzer<'_> {
                 Some(ConstValueType::Runtime(bool_ty))
             }
             ConstUnaryOp::Neg => {
-                let inner_ty = self.resolved_const_arg_runtime_type(inner, expected)?;
+                let inner_ty = match inner.kind() {
+                    ResolvedConstExprKind::Integer(text) => self
+                        .resolved_const_integer_literal_type(inner, text, expected, true)?
+                        .runtime()?,
+                    _ => self.resolved_const_arg_runtime_type(inner, expected)?,
+                };
                 if !self.is_integer_runtime_type(inner_ty) && !self.is_float_runtime_type(inner_ty)
                 {
                     if self.const_runtime_type_is_known_builtin_scalar(inner_ty) {

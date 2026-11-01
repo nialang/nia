@@ -447,6 +447,81 @@ fun main() i32 { directValue + pointerValue }
 }
 
 #[test]
+fn const_function_infers_unannotated_aggregate_places_and_rejects_default_overflow() {
+    let root =
+        temp_dir("const_function_infers_unannotated_array_places_and_rejects_default_overflow");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fun throughElementPointer() i32 {
+    let mut values = [1, 2, 3];
+    let pointer = &mut values[1];
+    pointer.* = 9;
+    values[1]
+}
+
+const fun throughSlicePointer() i32 {
+    let mut values = [1, 2, 3];
+    let slice = &mut values[0..2];
+    slice[1] = 7;
+    values[1]
+}
+
+const fun inferredBinaryLocal() i32 {
+    let mut value = -1 + 2;
+    value += 4;
+    value
+}
+
+const fun inferredTupleLocal() i32 {
+    let mut pair = (1, 2);
+    let pointer = &mut pair.0;
+    pointer.* = 9;
+    pair.0
+}
+
+const elementValue: i32 = throughElementPointer();
+const sliceValue: i32 = throughSlicePointer();
+const binaryValue: i32 = inferredBinaryLocal();
+const tupleValue: i32 = inferredTupleLocal();
+
+fun main() i32 { elementValue + sliceValue + binaryValue + tupleValue }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    let overflow_root = temp_dir("const_function_rejects_default_integer_overflow");
+    write(
+        &overflow_root.join("main.nia"),
+        r#"
+const fun value() i32 {
+    let value = 3000000000;
+    value
+}
+
+const result: i32 = value();
+fun main() i32 { result }
+"#,
+    );
+    let overflow_program = check_program(
+        overflow_root
+            .join("main.nia")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    assert!(
+        overflow_program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("out of range")),
+        "{:?}",
+        overflow_program.diagnostics
+    );
+}
+
+#[test]
 fn const_compound_assignment_evaluates_index_once() {
     let root = temp_dir("const_compound_assignment_evaluates_index_once");
     write(

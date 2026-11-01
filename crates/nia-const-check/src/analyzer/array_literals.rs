@@ -110,11 +110,16 @@ impl Analyzer<'_> {
                     );
                     return None;
                 }
+                // Match body-check inference: an unsuffixed integer is a
+                // deferred candidate, so a concrete peer such as `2u64`
+                // establishes the element type before the integer defaults.
                 let mut elem_ty = None;
                 let mut types_match = true;
                 for elem in elems {
-                    let Some(actual) = self.resolved_const_expr_type(elem, None) else {
-                        types_match = false;
+                    let Some(actual) = self.resolved_const_array_elem_type(elem) else {
+                        if !self.is_untyped_const_integer_expr(elem) {
+                            types_match = false;
+                        }
                         continue;
                     };
                     match &elem_ty {
@@ -131,13 +136,46 @@ impl Analyzer<'_> {
                         None => elem_ty = Some(actual),
                     }
                 }
+                if elem_ty.is_none()
+                    && elems
+                        .iter()
+                        .all(|elem| self.is_untyped_const_integer_expr(elem))
+                {
+                    elem_ty = Some(ConstValueType::Runtime(
+                        self.current_runtime_primitive_type(PrimitiveTy::I32),
+                    ));
+                    types_match = true;
+                }
+                if let Some(expected_elem) = elem_ty.as_ref().and_then(ConstValueType::runtime) {
+                    for elem in elems {
+                        if !self.is_untyped_const_integer_expr(elem) {
+                            continue;
+                        }
+                        let Some(actual) = self.resolved_const_expr_type(elem, Some(expected_elem))
+                        else {
+                            types_match = false;
+                            continue;
+                        };
+                        let Some(actual) = actual.runtime() else {
+                            types_match = false;
+                            continue;
+                        };
+                        if !self.const_function_types_match(expected_elem, actual) {
+                            self.push_const_type_error(
+                                elem.span(),
+                                "const array literal element does not match its expected type",
+                            );
+                            types_match = false;
+                        }
+                    }
+                }
                 if !types_match {
                     return None;
                 }
                 (elem_ty?, Some(u64::try_from(elems.len()).ok()?))
             }
             ResolvedConstArrayElementsKind::Repeat { value, count } => {
-                let elem_ty = self.resolved_const_expr_type(value, None);
+                let elem_ty = self.resolved_const_array_elem_type(value);
                 let count_ty = self.resolved_const_arg_runtime_type(count, None);
                 if count_ty.is_some_and(|count_ty| {
                     self.const_runtime_type_is_known(count_ty)
@@ -158,6 +196,25 @@ impl Analyzer<'_> {
             elem: Box::new(elem_ty),
             len,
         })
+    }
+
+    fn resolved_const_array_elem_type(
+        &mut self,
+        elem: &ResolvedConstExpr,
+    ) -> Option<ConstValueType> {
+        if let Some(actual) = self.resolved_const_expr_type(elem, None) {
+            return Some(actual);
+        }
+        if self.is_untyped_const_integer_expr(elem) {
+            return None;
+        }
+        let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
+        let diagnostic_len = self.diagnostics.len();
+        let result = self.resolved_const_expr_type(elem, Some(default_int));
+        if result.is_none() {
+            self.diagnostics.truncate(diagnostic_len);
+        }
+        result
     }
 
     pub(super) fn expected_array_parts(

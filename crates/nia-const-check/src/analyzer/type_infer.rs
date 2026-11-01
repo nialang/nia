@@ -644,6 +644,75 @@ impl Analyzer<'_> {
         inferred
     }
 
+    pub(super) fn resolved_const_integer_literal_type(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        text: &str,
+        expected: Option<InternedTyId>,
+        negative: bool,
+    ) -> Option<ConstValueType> {
+        let primitive = integer_literal_suffix_ty(text).or_else(|| {
+            expected.and_then(|ty| match self.ty_kind(ty) {
+                Some(TyKind::Primitive(primitive)) if primitive.is_integer() => Some(primitive),
+                _ => None,
+            })
+        })?;
+        let value = nia_literals::eval_int_literal(text).ok()?;
+        let fits = if negative {
+            if !primitive.is_signed_integer() {
+                false
+            } else if value == 1_u128 << 127 {
+                IntConst::signed(i128::MIN)
+                    .fits_primitive_int(primitive, self.input.target.pointer_width())
+            } else if let Ok(value) = i128::try_from(value) {
+                IntConst::signed(value.checked_neg()?)
+                    .fits_primitive_int(primitive, self.input.target.pointer_width())
+            } else {
+                false
+            }
+        } else {
+            IntConst::unsigned(value)
+                .fits_primitive_int(primitive, self.input.target.pointer_width())
+        };
+        if !fits {
+            let value_name = if negative {
+                format!("-{value}")
+            } else {
+                value.to_string()
+            };
+            self.push_const_type_error(
+                expr.span(),
+                &format!(
+                    "const integer literal {value_name} is out of range for {}",
+                    primitive.name()
+                ),
+            );
+        }
+        Some(ConstValueType::Runtime(
+            self.current_runtime_primitive_type(primitive),
+        ))
+    }
+
+    fn resolved_const_tuple_elem_runtime_type(
+        &mut self,
+        elem: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        if let Some(actual) = self.resolved_const_arg_runtime_type(elem, expected) {
+            return Some(actual);
+        }
+        if expected.is_some() {
+            return None;
+        }
+        let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
+        let diagnostic_len = self.diagnostics.len();
+        let result = self.resolved_const_arg_runtime_type(elem, Some(default_int));
+        if result.is_none() {
+            self.diagnostics.truncate(diagnostic_len);
+        }
+        result
+    }
+
     fn resolved_const_expr_type_inner(
         &mut self,
         expr: &ResolvedConstExpr,
@@ -654,15 +723,7 @@ impl Analyzer<'_> {
                 .resolved_const_enum_variant_value_type(expr)
                 .or_else(|| self.const_name_resolution_type(resolution.clone())),
             ResolvedConstExprKind::Integer(text) => {
-                if let Some(primitive) = integer_literal_suffix_ty(text) {
-                    Some(ConstValueType::Runtime(
-                        self.current_runtime_primitive_type(primitive),
-                    ))
-                } else {
-                    expected
-                        .filter(|ty| self.is_integer_runtime_type(*ty))
-                        .map(ConstValueType::Runtime)
-                }
+                self.resolved_const_integer_literal_type(expr, text, expected, false)
             }
             ResolvedConstExprKind::Float(text) => {
                 let primitive = float_literal_suffix_ty(text)
@@ -712,7 +773,7 @@ impl Analyzer<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, elem)| {
-                        self.resolved_const_arg_runtime_type(
+                        self.resolved_const_tuple_elem_runtime_type(
                             elem,
                             expected_elems.as_ref().map(|elems| elems[index]),
                         )

@@ -5,6 +5,53 @@ use nia_mangle::{MangleModuleId, MangleSymbolKind, demangle_stable_symbol};
 use nia_symbol::{SymbolId, known, stable_hash};
 
 #[test]
+fn default_integer_literal_range_is_checked_before_emit() {
+    let root = temp_dir("default_integer_literal_range_is_checked_before_emit");
+    write(
+        &root.join("main.nia"),
+        "fun main() i32 { let value = 3000000000; value }\n",
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("out of range")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn default_signed_integer_literal_range_uses_the_signed_value() {
+    let root = temp_dir("default_signed_integer_literal_range_uses_the_signed_value");
+    write(
+        &root.join("main.nia"),
+        "fun main() i32 { let value = -2147483648; value }\n",
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    let invalid_root = temp_dir("default_signed_integer_literal_range_rejects_underflow");
+    write(
+        &invalid_root.join("main.nia"),
+        "fun main() i32 { let value = -2147483649; value }\n",
+    );
+    let invalid_program =
+        check_program(invalid_root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        invalid_program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("out of range")),
+        "{:?}",
+        invalid_program.diagnostics
+    );
+}
+
+#[test]
 fn duplicate_parameter_diagnostic_keeps_previous_declaration() {
     let root = temp_dir("duplicate_parameter_diagnostic_keeps_previous_declaration");
     write(
