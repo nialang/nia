@@ -227,9 +227,9 @@ dereferences it automatically; otherwise dereference explicitly with `p.*`.
 Nia also takes addresses for you. Where a function expects `&T`, pass the
 value; where it expects `&mut T`, pass a `let mut` variable or another writable
 place. `p.translate(1, 1)` works this way, and so does passing `p` to a
-`&mut Point` parameter. A function name likewise becomes a function pointer
-where one is expected. Write `&` yourself only when you want a pointer as a
-value of its own, as in `let view = &p;`.
+`&mut Point` parameter. A function name likewise becomes a function pointer or
+a callable view where one is expected. Write `&` yourself only when you want a
+pointer as a value of its own, as in `let view = &p;`.
 
 ## Enums And Match
 
@@ -692,9 +692,9 @@ creates the view; `&closure` writes it explicitly. A view points at the closure'
 state: it never allocates and must not outlive the closure, so the compiler
 rejects returning it or storing it past the closure's scope. Ordinary pointers
 carry no such check; keeping them valid is the program's job.
-`&fun(Args) Return` is a plain function pointer. A named function converts to
-one wherever one is expected, as `double` does above; a closure without
-captures converts with `&closure`.
+`&fun(Args) Return` is a plain function pointer. A named function and a closure
+without captures both convert to one wherever one is expected, as `double` does
+above.
 
 ## Modules And Visibility
 

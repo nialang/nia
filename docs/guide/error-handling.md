@@ -234,7 +234,7 @@ fun readSetting(present: bool) ReadError!i32 {
 }
 
 fun loadSetting(present: bool) LoadError!i32 {
-    let value = readSetting(present).mapError(&LoadError::Read).?;
+    let value = readSetting(present).mapError(LoadError::Read).?;
     !(value + 2)
 }
 

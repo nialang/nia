@@ -589,21 +589,22 @@ the first parameter; no instance is captured. See [Enums](#enums) and
 
 ### Callable Views
 
-`Fun(A, B) R` is the unsized interface shared by all [closures](#closures) with
-parameter types `A, B` and return type `R`; an omitted `R` means `()`. It is
-used only behind a pointer:
+`Fun(A, B) R` is the unsized interface shared by all callables with parameter
+types `A, B` and return type `R`: [closures](#closures), functions, methods,
+and enum constructors. An omitted `R` means `()`. It is used only behind a
+pointer:
 
 | Type | Meaning |
 | --- | --- |
 | `&Fun(A) R` | read-only callable view |
 | `&mut Fun(A) R` | writable callable view |
 
-A view is a non-owning value that refers to a closure's state; it never
-allocates, frees, or extends the life of that state. `Fun` types cannot be
-variadic. A view can be created by taking the address of a closure, or by
-passing a closure value where a callable view is expected; see
-[Closures](#closures) for the rules. `&Fun(...)` and `&fun(...)` are different
-types. The representation is in the
+A view is a non-owning value that refers to a closure's state or to a function;
+it never allocates, frees, or extends the life of that state. `Fun` types
+cannot be variadic. A view is created by passing a closure, a function item, or
+a function pointer where a callable view is expected, or by taking the address
+of a closure there; see [Closures](#closures) for the rules. `&Fun(...)` and
+`&fun(...)` are different types. The representation is in the
 [ABI reference](abi.md#callable-views-and-closures).
 
 ### Trait Objects
@@ -1573,10 +1574,10 @@ conversion. A closure with captures cannot become a `&fun(...)`.
 fun views() i32 {
     let base = 5;
     let add_base = \[base] value: i32 -> base + value;
-    let view: &Fun(i32) i32 = &add_base;
+    let view: &Fun(i32) i32 = add_base;
 
     let increment = \value: i32 -> value + 1;
-    let pointer: &fun(i32) i32 = &increment;
+    let pointer: &fun(i32) i32 = increment;
 
     view(1) + pointer(2)
 }

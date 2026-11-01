@@ -127,8 +127,8 @@ the type:
 
 | Type | Produced by | Convention |
 | --- | --- | --- |
-| `&fun(A) R` | an ordinary function or payload enum variant where this type is expected, `&name` of one or of a method, or `&closure` for a closure without captures | Nia |
-| `&extern fun(A) R` | an `extern fun` where this type is expected, or `&name` of one | target C |
+| `&fun(A) R` | an ordinary function, method, payload enum variant, or closure without captures, where this type is expected or through `&` | Nia |
+| `&extern fun(A) R` | an `extern fun`, where this type is expected or through `&` | target C |
 
 A function pointer type consists of its parameter types, return type, variadic
 marker, and convention. Functions marked `@[trackCaller]` cannot be converted to

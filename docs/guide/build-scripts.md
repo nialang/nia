@@ -484,7 +484,7 @@ Steps are the units that `nia build <step>` runs. Each step has a unique name.
 | `addAggregateStep(name)` | does nothing itself; groups dependencies |
 | `addTestSuite(name, module)` | builds and runs a test executable; see [Tests](#tests) |
 
-`RunOptions::init(exe).withArguments(&args)` passes arguments to the program.
+`RunOptions::init(exe).withArguments(args)` passes arguments to the program.
 A run step needs an emit step for the same executable, and depends on it
 automatically.
 

@@ -455,10 +455,13 @@ source spans and declaration order while preserving the required constraints.
 Expected-type adaptations are semantic facts as well. In particular, implicit
 address formation is recorded separately from pointer-array-to-slice views:
 `T -> &T` may create storage, while `&[T; N] -> &[T]` creates a slice view.
-Lowering consumes both facts in order and never reconstructs an address
-adjustment from source syntax. Explicit `as` casts and `.?` error conversions
-remain separate operations because they have different evaluation and
-dispatch rules.
+Callable adaptations are separate facts too: a function item or a capture-free
+closure becomes a thin function pointer, and a closure state or function
+pointer becomes a callable view, so a function item passed to a view is two
+recorded steps. Lowering consumes these facts in order and never reconstructs
+an address or callable adjustment from source syntax. Explicit `as` casts and
+`.?` error conversions remain separate operations because they have different
+evaluation and dispatch rules.
 
 ### 4.3 Executable Closure And Backend Partitioning
 
