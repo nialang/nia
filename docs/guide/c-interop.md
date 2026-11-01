@@ -157,12 +157,14 @@ extern fun sum_bytes(data: &u8, len: usize) u32;
 
 fun example() {
     let bytes: [u8; 3] = [1, 2, 3];
-    let view: &[u8] = &bytes[..];
-    let total = sum_bytes(view.ptr(), view.len());
+    let total = sum_bytes(bytes.ptr(), bytes.len());
+    let view: &[u8] = &bytes[1..];
+    let rest = sum_bytes(view.ptr(), view.len());
 }
 ```
 
-For an array, `&array[0]` is the element pointer. A C pointer and length
+Arrays and slices both provide `ptr()`, `ptrMut()` for a writable array or
+slice, and `len()`. A C pointer and length
 become a slice by range-indexing the pointer: `&ptr[0..len]`. Nia does not
 check that the range is valid.
 
@@ -187,7 +189,7 @@ extern fun add_to_total(value: i32, context: &mut opaque) {
 fun example() {
     let values: [i32; 3] = [10, 20, 30];
     let mut total: i64 = 0;
-    for_each(&values[0], 3, add_to_total, &mut total as &mut opaque);
+    for_each(values.ptr(), values.len(), add_to_total, &mut total as &mut opaque);
 }
 ```
 
@@ -371,7 +373,7 @@ declaration, whether or not anything calls it. The type rules are reported as
 | `extern parameter cannot use nia slice directly` | pass `slice.ptr()` and `slice.len()` |
 | `extern parameter cannot use optional by value` | use a pointer compared with `0usize as &T` |
 | `extern parameter cannot use enum directly; use its backing integer type` | pass the backing integer |
-| `extern parameter cannot use array by value` | pass `&array[0]` |
+| `extern parameter cannot use array by value` | pass `array.ptr()` and the length |
 | `extern parameter cannot use tuple by value` | use an `extern struct` |
 | ``extern parameter cannot use `()` `` | remove the parameter; `()` is only valid as a return type |
 | `extern parameter must use a C function pointer` | write the type as `&extern fun(...)` and pass an `extern fun` |
@@ -448,12 +450,11 @@ pub fun main(init: Init) ExitCode!() {
     if byte_length(b"hello\0".ptr()) != 5 { return ExitCode(5)!; }
 
     let bytes: [u8; 3] = [1, 2, 3];
-    let view: &[u8] = &bytes[..];
-    if sum_bytes(view.ptr(), view.len()) != 6 { return ExitCode(6)!; }
+    if sum_bytes(bytes.ptr(), bytes.len()) != 6 { return ExitCode(6)!; }
 
     let values: [i32; 3] = [10, 20, 30];
     let mut total: i64 = 0;
-    for_each(&values[0], 3, add_to_total, &mut total as &mut opaque);
+    for_each(values.ptr(), values.len(), add_to_total, &mut total as &mut opaque);
     if total != 60 { return ExitCode(7)!; }
 
     if lookup(2) != 0usize as &u8 { return ExitCode(8)!; }

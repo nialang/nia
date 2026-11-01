@@ -458,10 +458,15 @@ even when the slice itself comes from a call.
 
 When the expected type is exactly `&[T]` or `&mut [T]`, a pointer to an array
 converts to a slice of the whole array: `&[T; N]` to `&[T]`, and `&mut [T; N]`
-to `&mut [T]` or `&[T]`. Array values do not convert directly to slices. Method calls apply the
-same conversion when the array pointer has no matching method of its own but
-the slice type does; a read-only array pointer still cannot call a method that
-needs `&mut [T]`.
+to `&mut [T]` or `&[T]`. An array value reaches a slice through the implicit
+address described under [Pointers](#pointers) followed by this conversion.
+
+Method calls apply the same steps to the receiver when the array type has no
+matching method of its own but the slice type does, so `values.len()`,
+`[1, 2, 3].len()`, and `bytes.ptr()` work on arrays directly. A method that
+takes `&mut self` on a slice needs a writable array place: a `let mut` array
+or an array behind a writable pointer, never a `let` binding, a temporary, or a
+read-only array pointer.
 
 ```nia
 fun first(xs: &[i32]) i32 {
@@ -475,7 +480,8 @@ fun clear(xs: &mut [i32]) {
 fun use_arrays() i32 {
     let mut arr = [1, 2, 3];
     clear(arr);
-    first(arr) + first([4, 5, 6])
+    let count = arr.len() as i32;
+    first(arr) + first([4, 5, 6]) + count
 }
 ```
 

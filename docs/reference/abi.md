@@ -169,7 +169,7 @@ align = align(T)
 Arrays of zero-sized elements have size 0.
 
 Crosses the C boundary: not by value. Arrays are allowed as `extern struct`
-fields; pass a pointer to the first element (`&array[0]`) as a parameter.
+fields; pass a pointer to the first element (`array.ptr()`) as a parameter.
 
 ## Slices
 
