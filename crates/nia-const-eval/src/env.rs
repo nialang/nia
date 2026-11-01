@@ -3,8 +3,8 @@ use crate::{ConstAllocationOrigin, ConstPointerValue, ConstValue, ResolvedConstP
 use nia_const_ir::{
     ConstNameResolution, EarlyConstAssignTarget, EarlyConstBinding, EarlyConstExpr,
     EarlyConstGenericArg, EarlyConstName, EarlyConstParam, EarlyConstPatternBinding,
-    EarlyConstTypeArg, ResolvedConstAssignTarget, ResolvedConstBinding, ResolvedConstExpr,
-    ResolvedConstGenericArg, ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstTypeArg,
+    EarlyConstTypeArg, ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg,
+    ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstTypeArg,
 };
 use nia_ids::{
     BuiltinConstValue, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin,
@@ -205,6 +205,11 @@ pub trait ConstCommonEnv {
     /// Renders a symbol for diagnostics.
     fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_from_optional_resolver(None, symbol)
+    }
+
+    /// Returns the source symbol for a resolved local when available.
+    fn local_name(&self, _local: nia_ids::LocalId) -> Option<SymbolId> {
+        None
     }
 
     /// Reports whether a global definition denotes an enum variant.
@@ -494,10 +499,10 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
     fn reference_resolved_place(
         &mut self,
         span: Span,
-        _place: &ResolvedConstPlace,
-        value: ConstValue,
+        place: &ResolvedConstPlace,
         is_readonly: bool,
     ) -> Result<ConstValue, ConstError> {
+        let value = crate::read_resolved_const_place(span, place, self)?;
         self.reference_const_value(span, value, is_readonly)
     }
 
@@ -714,18 +719,18 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
-    /// Assigns a value to a resolved local or projected target.
-    fn assign_resolved_local(
+    /// Writes through a mutable pointer to a live const allocation.
+    fn assign_resolved_pointer(
         &mut self,
         span: Span,
-        target: &ResolvedConstAssignTarget,
+        pointer: &ConstPointerValue,
         value: ConstValue,
     ) -> Result<(), ConstError> {
-        let _ = target;
+        let _ = pointer;
         let _ = value;
         Err(ConstError {
             span,
-            message: "resolved const assignment is not available in this context".to_string(),
+            message: "const pointer assignment is not available in this context".to_string(),
         })
     }
 
@@ -734,6 +739,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         &mut self,
         span: Span,
         local_id: nia_ids::LocalId,
+        _name: Option<SymbolId>,
         value: ConstValue,
     ) -> Result<(), ConstError> {
         let _ = local_id;

@@ -730,26 +730,30 @@ fn lower_assign_target_with_context(
     // Recursion reaches the local first and appends projections while
     // unwinding. The resulting path is root-to-leaf, which is the order both
     // const checking and evaluation consume during read and writeback.
-    let (span, name, local_id) = lower_assign_target_base_with_context(expr, context, &mut path)?;
-    Ok(EarlyConstAssignTarget::Local {
-        span,
-        name,
-        local_id,
-        path,
-    })
+    let mut target = lower_assign_target_base_with_context(expr, context, &mut path)?;
+    match &mut target {
+        EarlyConstAssignTarget::Local {
+            path: target_path, ..
+        }
+        | EarlyConstAssignTarget::Pointer {
+            path: target_path, ..
+        } => *target_path = path,
+    }
+    Ok(target)
 }
 
 fn lower_assign_target_base_with_context(
     expr: &nia_ast::Expr,
     context: &dyn ConstLowerContext,
     path: &mut Vec<EarlyConstAssignPathElem>,
-) -> Result<(Span, SymbolId, Option<LocalId>), ConstLowerError> {
+) -> Result<EarlyConstAssignTarget, ConstLowerError> {
     match &expr.kind {
-        nia_ast::ExprKind::Ident(name) => Ok((
-            expr.span,
-            *name,
-            lower_local_use(context, &expr.node_key, expr.span)?,
-        )),
+        nia_ast::ExprKind::Ident(name) => Ok(EarlyConstAssignTarget::Local {
+            span: expr.span,
+            name: *name,
+            local_id: lower_local_use(context, &expr.node_key, expr.span)?,
+            path: Vec::new(),
+        }),
         nia_ast::ExprKind::SelfValue => {
             let Some(name) = context.intern_name("self", expr.span)? else {
                 return Err(ConstLowerError {
@@ -757,12 +761,21 @@ fn lower_assign_target_base_with_context(
                     message: "const receiver lowering requires a symbol table".to_string(),
                 });
             };
-            Ok((
-                expr.span,
+            Ok(EarlyConstAssignTarget::Local {
+                span: expr.span,
                 name,
-                lower_local_use(context, &expr.node_key, expr.span)?,
-            ))
+                local_id: lower_local_use(context, &expr.node_key, expr.span)?,
+                path: Vec::new(),
+            })
         }
+        nia_ast::ExprKind::Unary {
+            op: nia_ast::UnaryOp::Deref,
+            expr: pointer,
+        } => Ok(EarlyConstAssignTarget::Pointer {
+            span: expr.span,
+            pointer: lower_expr_internal(pointer, context)?,
+            path: Vec::new(),
+        }),
         nia_ast::ExprKind::Field { lhs, name } => {
             let base = lower_assign_target_base_with_context(lhs, context, path)?;
             path.push(EarlyConstAssignPathElem::Field {

@@ -52,6 +52,13 @@ pub enum ConstPointerPathElem {
     Field(SymbolId),
     /// Selects an indexed sequence element.
     Index(usize),
+    /// Selects a contiguous range within an array allocation.
+    Slice {
+        /// Inclusive start element.
+        start: usize,
+        /// Exclusive end element.
+        end: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +79,20 @@ pub enum ConstPointerValue {
         allocation: ConstAllocationId,
         /// Projections from the allocation root to the addressed value.
         path: Vec<ConstPointerPathElem>,
+        /// Whether writes through this pointer are forbidden.
+        is_readonly: bool,
     },
+}
+
+impl ConstPointerValue {
+    /// Restricts access during a typed readonly conversion, preserving identity.
+    pub fn restrict_readonly(&mut self, readonly: bool) {
+        match self {
+            Self::Place { is_readonly, .. } | Self::Frozen { is_readonly, .. } => {
+                *is_readonly |= readonly
+            }
+        }
+    }
 }
 
 impl PartialEq for ConstPointerValue {
@@ -83,10 +103,12 @@ impl PartialEq for ConstPointerValue {
                 Self::Place {
                     allocation: lhs_allocation,
                     path: lhs_path,
+                    ..
                 },
                 Self::Place {
                     allocation: rhs_allocation,
                     path: rhs_path,
+                    ..
                 },
             ) => lhs_allocation == rhs_allocation && lhs_path == rhs_path,
             _ => false,
@@ -950,23 +972,28 @@ pub struct ResolvedConstIterator {
     pub value: ConstValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// Resolved writable place rooted at a function-local binding.
+#[derive(Debug, Clone, PartialEq)]
+/// Resolved place rooted at a local binding or an evaluated pointer.
 pub struct ResolvedConstPlace {
-    /// Root local identity.
-    pub local_id: LocalId,
+    /// Storage root retained during address formation and writeback.
+    pub base: ResolvedConstPlaceBase,
+    /// Source name used for stable immutable-local diagnostics.
+    pub name: Option<SymbolId>,
     /// Projections from the local to the addressed nested value.
     pub path: Vec<ResolvedConstPlaceElem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// One projection within a resolved writable const place.
-pub enum ResolvedConstPlaceElem {
-    /// Selects a named aggregate field.
-    Field(SymbolId),
-    /// Selects an indexed sequence element.
-    Index(usize),
+#[derive(Debug, Clone, PartialEq)]
+/// Storage root of a resolved const place.
+pub enum ResolvedConstPlaceBase {
+    /// Local storage in the active execution frame.
+    Local(LocalId),
+    /// Storage reached by an already evaluated pointer expression.
+    Pointer(ConstPointerValue),
 }
+
+/// Place projections use the same paths as live const pointers.
+pub type ResolvedConstPlaceElem = ConstPointerPathElem;
 
 #[derive(Debug, Clone, PartialEq)]
 /// Payload shape of a const enum variant.

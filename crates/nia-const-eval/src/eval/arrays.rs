@@ -109,46 +109,6 @@ pub(super) fn eval_array_index_flow(
         })
 }
 
-pub(super) fn eval_resolved_array_index_flow(
-    span: Span,
-    lhs: &ResolvedConstExpr,
-    index: &ResolvedConstExpr,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let values = match eval_resolved_value_or_return_flow!(lhs, env) {
-        ConstValue::Array(values) => values,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const index access requires an array value".to_string(),
-            });
-        }
-    };
-    let index_span = index.span();
-    let index_value = match eval_resolved_value_or_return_flow!(index, env) {
-        ConstValue::Int(value) => value,
-        _ => {
-            return Err(ConstError {
-                span: index_span,
-                message: "const array index must be an integer".to_string(),
-            });
-        }
-    };
-    let index = super::int_to_array_len(index_span, index_value)?;
-    let index = usize::try_from(index).map_err(|_| ConstError {
-        span: index_span,
-        message: "const array index is too large".to_string(),
-    })?;
-    values
-        .get(index)
-        .cloned()
-        .map(ConstEvalFlow::Value)
-        .ok_or_else(|| ConstError {
-            span,
-            message: format!("const array index {index} is out of bounds"),
-        })
-}
-
 enum SliceBoundFlow {
     Value(usize),
     Flow(ConstEvalFlow),
@@ -203,33 +163,23 @@ pub(super) fn eval_array_slice_flow(
     )))
 }
 
-pub(super) fn eval_resolved_array_slice_flow(
+pub(super) fn eval_resolved_slice_bounds(
     span: Span,
-    lhs: &ResolvedConstExpr,
     range: &ResolvedConstSliceRange,
+    len: usize,
     env: &mut impl ResolvedConstEnv,
-) -> Result<ConstEvalFlow, ConstError> {
-    let values = match eval_resolved_value_or_return_flow!(lhs, env) {
-        ConstValue::Array(values) => values,
-        _ => {
-            return Err(ConstError {
-                span,
-                message: "const slicing requires an array value".to_string(),
-            });
-        }
-    };
-    let len = values.len();
+) -> Result<Result<(usize, usize), ConstEvalFlow>, ConstError> {
     let start = match range.start() {
         Some(start) => match eval_resolved_slice_bound_flow(start, env)? {
             SliceBoundFlow::Value(value) => value,
-            SliceBoundFlow::Flow(flow) => return Ok(flow),
+            SliceBoundFlow::Flow(flow) => return Ok(Err(flow)),
         },
         None => 0,
     };
     let mut end = match range.end() {
         Some(end) => match eval_resolved_slice_bound_flow(end, env)? {
             SliceBoundFlow::Value(value) => value,
-            SliceBoundFlow::Flow(flow) => return Ok(flow),
+            SliceBoundFlow::Flow(flow) => return Ok(Err(flow)),
         },
         None => len,
     };
@@ -245,9 +195,7 @@ pub(super) fn eval_resolved_array_slice_flow(
             message: format!("const slice range {start}..{end} is out of bounds"),
         });
     }
-    Ok(ConstEvalFlow::Value(ConstValue::Array(
-        values[start..end].to_vec(),
-    )))
+    Ok(Ok((start, end)))
 }
 
 fn eval_slice_bound_flow(

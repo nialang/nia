@@ -671,9 +671,70 @@ impl ResolvedConstAssignTarget {
         }
     }
 
+    /// Creates a target reached by dereferencing a pointer expression.
+    pub fn pointer(
+        span: Span,
+        pointer: ResolvedConstExpr,
+        path: Vec<ResolvedConstAssignPathElem>,
+    ) -> Self {
+        Self {
+            kind: ResolvedConstAssignTargetKind::Pointer {
+                span,
+                pointer,
+                path,
+            },
+        }
+    }
+
     /// Returns the target identity and projection payload.
     pub fn kind(&self) -> &ResolvedConstAssignTargetKind {
         &self.kind
+    }
+
+    /// Reconstructs the place expression shared by typing and evaluation.
+    pub fn place_expr(&self) -> ResolvedConstExpr {
+        let (mut expr, path) = match &self.kind {
+            ResolvedConstAssignTargetKind::Local {
+                span,
+                local_id,
+                path,
+                ..
+            } => (
+                ResolvedConstExpr::name(*span, ConstNameResolution::Local(*local_id)),
+                path,
+            ),
+            ResolvedConstAssignTargetKind::Pointer {
+                span,
+                pointer,
+                path,
+            } => (
+                ResolvedConstExpr::from_parts(
+                    *span,
+                    ResolvedConstExprKind::Unary {
+                        op: ConstUnaryOp::Deref,
+                        expr: Box::new(pointer.clone()),
+                    },
+                ),
+                path,
+            ),
+        };
+        for projection in path {
+            expr = match projection.kind() {
+                ResolvedConstAssignPathElemKind::Field { span, name } => {
+                    ResolvedConstExpr::field(*span, expr, *name)
+                }
+                ResolvedConstAssignPathElemKind::Index { span, index } => {
+                    ResolvedConstExpr::from_parts(
+                        *span,
+                        ResolvedConstExprKind::Index {
+                            lhs: Box::new(expr),
+                            index: Box::new(index.clone()),
+                        },
+                    )
+                }
+            };
+        }
+        expr
     }
 }
 
@@ -689,6 +750,15 @@ pub enum ResolvedConstAssignTargetKind {
         /// Semantic local identity.
         local_id: LocalId,
         /// Projections from root to the assigned leaf.
+        path: Vec<ResolvedConstAssignPathElem>,
+    },
+    /// A writable pointee reached by evaluating a pointer expression.
+    Pointer {
+        /// Source span of the dereference target.
+        span: Span,
+        /// Pointer expression whose pointee is assigned.
+        pointer: ResolvedConstExpr,
+        /// Projections from the pointee to the assigned leaf.
         path: Vec<ResolvedConstAssignPathElem>,
     },
 }
@@ -1724,6 +1794,15 @@ pub enum EarlyConstAssignTarget {
         /// Optional local identity.
         local_id: Option<LocalId>,
         /// Projections ordered root to leaf.
+        path: Vec<EarlyConstAssignPathElem>,
+    },
+    /// A writable pointee reached by evaluating a pointer expression.
+    Pointer {
+        /// Target source span.
+        span: Span,
+        /// Pointer expression whose pointee is assigned.
+        pointer: EarlyConstExpr,
+        /// Projections from the pointee to the assigned leaf.
         path: Vec<EarlyConstAssignPathElem>,
     },
 }

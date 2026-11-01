@@ -104,7 +104,9 @@ fn resolved_lowering_uses_local_uses_for_assignment_targets() {
     let ResolvedConstExprKind::Assign(assign) = lowered.kind() else {
         panic!("expression should lower to assignment");
     };
-    let ResolvedConstAssignTargetKind::Local { local_id, .. } = assign.lhs().kind();
+    let ResolvedConstAssignTargetKind::Local { local_id, .. } = assign.lhs().kind() else {
+        panic!("assignment target should be a local");
+    };
     assert_eq!(*local_id, LocalId(7));
 }
 
@@ -156,7 +158,9 @@ fn assignment_projection_path_is_stored_root_to_leaf() {
     let ResolvedConstExprKind::Assign(assign) = lowered.kind() else {
         panic!("expression should lower to assignment");
     };
-    let ResolvedConstAssignTargetKind::Local { path, .. } = assign.lhs().kind();
+    let ResolvedConstAssignTargetKind::Local { path, .. } = assign.lhs().kind() else {
+        panic!("assignment target should be a local");
+    };
     assert!(matches!(
         path.as_slice(),
         [first, second]

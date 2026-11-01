@@ -32,6 +32,7 @@ pub use eval::*;
 pub use literals::{
     eval_byte_string_literal, eval_float_literal, eval_int_literal, eval_string_literal,
 };
+pub use numeric::int_to_array_len;
 pub use value::*;
 
 #[cfg(test)]

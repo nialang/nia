@@ -1,7 +1,7 @@
 use crate::{
     ConstCommonEnv, ConstEnumPayload, ConstError, ConstPointerPathElem, ConstPointerValue,
     ConstRangeValue, ConstValue, EarlyConstEnv, ResolvedConstCallOutput, ResolvedConstEnv,
-    ResolvedConstPlace, ResolvedConstPlaceElem,
+    ResolvedConstPlace, ResolvedConstPlaceBase, ResolvedConstPlaceElem,
     literals::{
         bytes_to_array, const_error_message, decode_byte_char_literal, decode_char_literal,
         eval_byte_string_literal, eval_float_literal, eval_int_literal, eval_string_literal,
@@ -21,13 +21,11 @@ use nia_const_ir::{
     EarlyConstMatch, EarlyConstMatchArm, EarlyConstMatchArmBody, EarlyConstName, EarlyConstParam,
     EarlyConstPattern, EarlyConstPatternBinding, EarlyConstRange, EarlyConstSliceRange,
     EarlyConstStmt, EarlyConstStmtKind, ResolvedConstArrayElements, ResolvedConstArrayElementsKind,
-    ResolvedConstAssign, ResolvedConstAssignPathElem, ResolvedConstAssignPathElemKind,
-    ResolvedConstAssignTarget, ResolvedConstAssignTargetKind, ResolvedConstBlock,
-    ResolvedConstExpr, ResolvedConstExprKind, ResolvedConstFieldInit, ResolvedConstForIn,
-    ResolvedConstFunction, ResolvedConstMatch, ResolvedConstMatchArm, ResolvedConstMatchArmBody,
-    ResolvedConstMatchArmBodyKind, ResolvedConstParam, ResolvedConstPatternBinding,
-    ResolvedConstPatternKind, ResolvedConstRange, ResolvedConstSliceRange, ResolvedConstStmt,
-    ResolvedConstStmtKind,
+    ResolvedConstAssign, ResolvedConstBlock, ResolvedConstExpr, ResolvedConstExprKind,
+    ResolvedConstFieldInit, ResolvedConstForIn, ResolvedConstFunction, ResolvedConstMatch,
+    ResolvedConstMatchArm, ResolvedConstMatchArmBody, ResolvedConstMatchArmBodyKind,
+    ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstPatternKind, ResolvedConstRange,
+    ResolvedConstSliceRange, ResolvedConstStmt, ResolvedConstStmtKind,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
@@ -201,7 +199,7 @@ mod calls;
 mod control_flow;
 mod patterns;
 mod ranges;
-pub use assignment::write_resolved_const_place;
+pub use assignment::{write_resolved_const_place, write_resolved_const_place_path};
 use blocks::{
     eval_function_block, eval_function_stmt, eval_function_tail_expr, eval_resolved_function_block,
     eval_resolved_function_stmt, eval_resolved_function_tail_expr,
@@ -265,31 +263,10 @@ fn eval_resolved_const_expr_flow(
             }
             _ => env.resolve_resolved_name(span, resolution.clone())?,
         },
-        ResolvedConstExprKind::Field { lhs, name } => {
-            match eval_resolved_value_or_return_flow!(lhs, env) {
-                ConstValue::Struct(fields) => {
-                    fields.get(name).cloned().ok_or_else(|| ConstError {
-                        span,
-                        message: format!("unknown const field `{}`", env.symbol_name(*name)),
-                    })?
-                }
-                ConstValue::Union(value) => value.read(*name).map_err(|message| ConstError {
-                    span,
-                    message: format!("{message} `{}`", env.symbol_name(*name)),
-                })?,
-                _ => {
-                    return Err(ConstError {
-                        span,
-                        message: "const field access requires a struct value".to_string(),
-                    });
-                }
-            }
-        }
-        ResolvedConstExprKind::Index { lhs, index } => {
-            return arrays::eval_resolved_array_index_flow(span, lhs, index, env);
-        }
-        ResolvedConstExprKind::Slice { lhs, range } => {
-            return arrays::eval_resolved_array_slice_flow(span, lhs, range, env);
+        ResolvedConstExprKind::Field { .. }
+        | ResolvedConstExprKind::Index { .. }
+        | ResolvedConstExprKind::Slice { .. } => {
+            return eval_resolved_call_receiver(expr, env)?.into_flow(span, env);
         }
         ResolvedConstExprKind::Tuple(elems) => {
             let mut values = Vec::with_capacity(elems.len());
@@ -392,8 +369,8 @@ fn eval_resolved_const_expr_flow(
                 let mut receiver_place = None;
                 if let ResolvedConstExprKind::Method { receiver, .. } = callee.kind() {
                     match eval_resolved_call_receiver(receiver, env)? {
-                        ResolvedConstCallReceiver::Place { value, place } => {
-                            values.push(value);
+                        ResolvedConstCallReceiver::Place(place) => {
+                            values.push(read_resolved_const_place(receiver.span(), &place, env)?);
                             receiver_place = Some(place);
                         }
                         ResolvedConstCallReceiver::Value(value) => values.push(value),
@@ -486,12 +463,9 @@ fn eval_resolved_const_expr_flow(
             op: op @ (ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref),
             expr: inner,
         } => match eval_resolved_call_receiver(inner, env)? {
-            ResolvedConstCallReceiver::Place { value, place } => env.reference_resolved_place(
-                span,
-                &place,
-                value,
-                matches!(op, ConstUnaryOp::RefReadOnly),
-            )?,
+            ResolvedConstCallReceiver::Place(place) => {
+                env.reference_resolved_place(span, &place, matches!(op, ConstUnaryOp::RefReadOnly))?
+            }
             ResolvedConstCallReceiver::Value(value) => {
                 env.reference_const_value(span, value, matches!(op, ConstUnaryOp::RefReadOnly))?
             }
@@ -893,13 +867,123 @@ fn eval_const_if_expr_flow(
     }
 }
 
+// A place is resolved independently of its leaf value. Plain assignment must
+// not read an inactive/uninitialized union field, and dynamic projections must
+// run only once even when a compound assignment subsequently writes back.
 enum ResolvedConstCallReceiver {
-    Place {
-        value: ConstValue,
-        place: ResolvedConstPlace,
-    },
+    Place(ResolvedConstPlace),
     Value(ConstValue),
     Flow(ConstEvalFlow),
+}
+
+impl ResolvedConstCallReceiver {
+    fn into_flow(
+        self,
+        span: Span,
+        env: &mut impl ResolvedConstEnv,
+    ) -> Result<ConstEvalFlow, ConstError> {
+        match self {
+            Self::Place(place) => {
+                read_resolved_const_place(span, &place, env).map(ConstEvalFlow::Value)
+            }
+            Self::Value(value) => Ok(ConstEvalFlow::Value(value)),
+            Self::Flow(flow) => Ok(flow),
+        }
+    }
+
+    fn project(
+        self,
+        span: Span,
+        projection: ResolvedConstPlaceElem,
+        env: &mut impl ResolvedConstEnv,
+    ) -> Result<Self, ConstError> {
+        match self {
+            Self::Place(mut place) => {
+                place.path.push(projection);
+                Ok(Self::Place(place))
+            }
+            Self::Value(value) => {
+                read_resolved_const_place_path(span, value, &[projection], env).map(Self::Value)
+            }
+            Self::Flow(flow) => Ok(Self::Flow(flow)),
+        }
+    }
+}
+
+/// Reads a place through its current allocation, rather than a receiver snapshot.
+pub fn read_resolved_const_place(
+    span: Span,
+    place: &ResolvedConstPlace,
+    env: &mut (impl ResolvedConstEnv + ?Sized),
+) -> Result<ConstValue, ConstError> {
+    let root = match &place.base {
+        ResolvedConstPlaceBase::Local(local_id) => {
+            env.resolve_resolved_name(span, ConstNameResolution::Local(*local_id))?
+        }
+        ResolvedConstPlaceBase::Pointer(pointer) => env.dereference_const_pointer(span, pointer)?,
+    };
+    read_resolved_const_place_path(span, root, &place.path, env)
+}
+
+/// Reads the shared field, index and slice projections used by live pointers.
+pub fn read_resolved_const_place_path(
+    span: Span,
+    mut value: ConstValue,
+    path: &[ConstPointerPathElem],
+    env: &(impl ConstCommonEnv + ?Sized),
+) -> Result<ConstValue, ConstError> {
+    for elem in path {
+        value = match (elem, value) {
+            (ConstPointerPathElem::Field(name), ConstValue::Struct(mut fields)) => {
+                fields.remove(name).ok_or_else(|| ConstError {
+                    span,
+                    message: format!("unknown const field `{}`", env.symbol_name(*name)),
+                })?
+            }
+            (ConstPointerPathElem::Field(name), ConstValue::Union(union)) => {
+                union.read(*name).map_err(|message| ConstError {
+                    span,
+                    message: format!("{message} `{}`", env.symbol_name(*name)),
+                })?
+            }
+            (ConstPointerPathElem::Index(index), ConstValue::Array(values)) => {
+                values.get(*index).cloned().ok_or_else(|| ConstError {
+                    span,
+                    message: format!("const array index {index} is out of bounds"),
+                })?
+            }
+            (ConstPointerPathElem::Slice { start, end }, ConstValue::Array(values)) => {
+                ConstValue::Array(
+                    values
+                        .get(*start..*end)
+                        .ok_or_else(|| ConstError {
+                            span,
+                            message: "const slice range is out of bounds".to_string(),
+                        })?
+                        .to_vec(),
+                )
+            }
+            (ConstPointerPathElem::Field(_), _) => {
+                return Err(ConstError {
+                    span,
+                    message: "const field access requires a struct value".to_string(),
+                });
+            }
+            (ConstPointerPathElem::Index(_), _) => {
+                return Err(ConstError {
+                    span,
+                    message: "const index access requires an array value".to_string(),
+                });
+            }
+            (ConstPointerPathElem::Slice { .. }, _) => {
+                return Err(ConstError {
+                    span,
+                    message: "const slicing requires an array value".to_string(),
+                });
+            }
+        };
+    }
+    Ok(value)
 }
 
 fn eval_resolved_call_receiver(
@@ -908,70 +992,69 @@ fn eval_resolved_call_receiver(
 ) -> Result<ResolvedConstCallReceiver, ConstError> {
     match expr.kind() {
         ResolvedConstExprKind::Name(ConstNameResolution::Local(local_id)) => {
-            let value =
-                env.resolve_resolved_name(expr.span(), ConstNameResolution::Local(*local_id))?;
-            Ok(ResolvedConstCallReceiver::Place {
-                value,
-                place: ResolvedConstPlace {
-                    local_id: *local_id,
-                    path: Vec::new(),
-                },
-            })
+            Ok(ResolvedConstCallReceiver::Place(ResolvedConstPlace {
+                base: ResolvedConstPlaceBase::Local(*local_id),
+                name: env.local_name(*local_id),
+                path: Vec::new(),
+            }))
         }
         ResolvedConstExprKind::Field { lhs, name } => {
-            let receiver = eval_resolved_call_receiver(lhs, env)?;
-            let (value, mut place) = match receiver {
-                ResolvedConstCallReceiver::Place { value, place } => (value, Some(place)),
-                ResolvedConstCallReceiver::Value(value) => (value, None),
-                ResolvedConstCallReceiver::Flow(flow) => {
-                    return Ok(ResolvedConstCallReceiver::Flow(flow));
-                }
-            };
-            if let Some(place) = &mut place {
-                place.path.push(ResolvedConstPlaceElem::Field(*name));
-            }
-            let ConstValue::Struct(fields) = value else {
-                return Err(ConstError {
-                    span: expr.span(),
-                    message: "const field access requires a struct value".to_string(),
-                });
-            };
-            let value = fields.get(name).cloned().ok_or_else(|| ConstError {
-                span: expr.span(),
-                message: format!("unknown const field `{}`", env.symbol_name(*name)),
-            })?;
-            Ok(match place {
-                Some(place) => ResolvedConstCallReceiver::Place { value, place },
-                None => ResolvedConstCallReceiver::Value(value),
-            })
+            let receiver = eval_resolved_projection_base(lhs, env)?;
+            receiver.project(expr.span(), ResolvedConstPlaceElem::Field(*name), env)
         }
         ResolvedConstExprKind::Index { lhs, index } => {
-            let receiver = eval_resolved_call_receiver(lhs, env)?;
-            let (value, mut place) = match receiver {
-                ResolvedConstCallReceiver::Place { value, place } => (value, Some(place)),
-                ResolvedConstCallReceiver::Value(value) => (value, None),
-                ResolvedConstCallReceiver::Flow(flow) => {
-                    return Ok(ResolvedConstCallReceiver::Flow(flow));
-                }
-            };
-            let index = assignment::eval_resolved_assign_path_index(index.span(), index, env)?;
-            if let Some(place) = &mut place {
-                place.path.push(ResolvedConstPlaceElem::Index(index));
+            let receiver = eval_resolved_projection_base(lhs, env)?;
+            if let ResolvedConstCallReceiver::Flow(_) = receiver {
+                return Ok(receiver);
             }
+            let index = assignment::eval_resolved_assign_path_index(index.span(), index, env)?;
+            receiver.project(expr.span(), ResolvedConstPlaceElem::Index(index), env)
+        }
+        ResolvedConstExprKind::Slice { lhs, range } => {
+            let receiver = eval_resolved_projection_base(lhs, env)?;
+            let value = match &receiver {
+                ResolvedConstCallReceiver::Place(place) => {
+                    read_resolved_const_place(lhs.span(), place, env)?
+                }
+                ResolvedConstCallReceiver::Value(value) => value.clone(),
+                ResolvedConstCallReceiver::Flow(_) => return Ok(receiver),
+            };
             let ConstValue::Array(values) = value else {
                 return Err(ConstError {
                     span: expr.span(),
-                    message: "const index access requires an array value".to_string(),
+                    message: "const slicing requires an array value".to_string(),
                 });
             };
-            let value = values.get(index).cloned().ok_or_else(|| ConstError {
-                span: expr.span(),
-                message: format!("const array index {index} is out of bounds"),
-            })?;
-            Ok(match place {
-                Some(place) => ResolvedConstCallReceiver::Place { value, place },
-                None => ResolvedConstCallReceiver::Value(value),
-            })
+            let (start, end) =
+                match arrays::eval_resolved_slice_bounds(expr.span(), range, values.len(), env)? {
+                    Ok(bounds) => bounds,
+                    Err(flow) => return Ok(ResolvedConstCallReceiver::Flow(flow)),
+                };
+            receiver.project(
+                expr.span(),
+                ResolvedConstPlaceElem::Slice { start, end },
+                env,
+            )
+        }
+        ResolvedConstExprKind::Unary {
+            op: ConstUnaryOp::Deref,
+            expr: pointer,
+        } => {
+            let pointer = match eval_resolved_const_expr_flow(pointer, env)? {
+                ConstEvalFlow::Value(ConstValue::Pointer(pointer)) => pointer,
+                ConstEvalFlow::Value(_) | ConstEvalFlow::Void => {
+                    return Err(ConstError {
+                        span: expr.span(),
+                        message: "const dereference requires a pointer value".to_string(),
+                    });
+                }
+                flow => return Ok(ResolvedConstCallReceiver::Flow(flow)),
+            };
+            Ok(ResolvedConstCallReceiver::Place(ResolvedConstPlace {
+                base: ResolvedConstPlaceBase::Pointer(pointer),
+                name: None,
+                path: Vec::new(),
+            }))
         }
         _ => match eval_resolved_const_expr_flow(expr, env)? {
             ConstEvalFlow::Value(value) => Ok(ResolvedConstCallReceiver::Value(value)),
@@ -981,6 +1064,31 @@ fn eval_resolved_call_receiver(
             }),
             flow => Ok(ResolvedConstCallReceiver::Flow(flow)),
         },
+    }
+}
+
+fn eval_resolved_projection_base(
+    expr: &ResolvedConstExpr,
+    env: &mut impl ResolvedConstEnv,
+) -> Result<ResolvedConstCallReceiver, ConstError> {
+    let receiver = eval_resolved_call_receiver(expr, env)?;
+    let value = match &receiver {
+        ResolvedConstCallReceiver::Place(place) => {
+            read_resolved_const_place(expr.span(), place, env)?
+        }
+        ResolvedConstCallReceiver::Value(value) => value.clone(),
+        ResolvedConstCallReceiver::Flow(_) => return Ok(receiver),
+    };
+    // Field and slice projections dereference their receiver without copying
+    // its pointee into new storage. The pointer carries both identity and access.
+    if let ConstValue::Pointer(pointer) = value {
+        Ok(ResolvedConstCallReceiver::Place(ResolvedConstPlace {
+            base: ResolvedConstPlaceBase::Pointer(pointer),
+            name: None,
+            path: Vec::new(),
+        }))
+    } else {
+        Ok(receiver)
     }
 }
 
@@ -1065,11 +1173,19 @@ pub fn eval_const_slice_pointer_value(
         ConstPointerValue::Place {
             allocation,
             mut path,
+            is_readonly,
         } => {
+            if mutable && is_readonly {
+                return Err(ConstError {
+                    span,
+                    message: "const mutable slice pointer requires a mutable slice".to_string(),
+                });
+            }
             path.push(ConstPointerPathElem::Index(0));
             Ok(ConstValue::Pointer(ConstPointerValue::Place {
                 allocation,
                 path,
+                is_readonly: is_readonly || !mutable,
             }))
         }
     }

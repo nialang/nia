@@ -353,6 +353,17 @@ fn resolve_const_assign_target(
                     .collect::<Result<Vec<_>, _>>()?,
             ))
         }
+        EarlyConstAssignTarget::Pointer {
+            span,
+            pointer,
+            path,
+        } => Ok(ResolvedConstAssignTarget::pointer(
+            span,
+            resolve_expr(pointer)?,
+            path.into_iter()
+                .map(resolve_const_assign_path_elem)
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
     }
 }
 

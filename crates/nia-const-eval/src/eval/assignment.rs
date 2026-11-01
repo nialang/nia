@@ -25,21 +25,30 @@ pub(super) fn eval_resolved_assign_expr_flow(
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
     let rhs = eval_resolved_value_or_return_flow!(assign.rhs(), env);
+    let target = assign.lhs().place_expr();
+    let place = match eval_resolved_call_receiver(&target, env)? {
+        ResolvedConstCallReceiver::Place(place) => place,
+        ResolvedConstCallReceiver::Flow(flow) => return Ok(flow),
+        ResolvedConstCallReceiver::Value(_) => {
+            return Err(ConstError {
+                span,
+                message: "const assignment requires a writable place".to_string(),
+            });
+        }
+    };
     let value = if matches!(assign.op(), ConstAssignOp::Assign) {
-        resolved_assign_target_writeback_value(span, assign.lhs(), rhs, env)?
+        rhs
     } else {
-        let (lhs, path) = eval_resolved_assign_target_value(span, assign.lhs(), env)?;
-        let value = eval_compound_assignment_value(
+        eval_compound_assignment_value(
             span,
-            lhs,
+            read_resolved_const_place(span, &place, env)?,
             assign.op(),
             rhs,
             env.resolved_assignment_float_semantics(assign),
             env.resolved_assignment_integer_semantics(assign),
-        )?;
-        resolved_assign_target_writeback_value_with_path(span, assign.lhs(), &path, value, env)?
+        )?
     };
-    env.assign_resolved_local(span, assign.lhs(), value)?;
+    write_resolved_const_place(span, &place, value, env)?;
     Ok(ConstEvalFlow::Void)
 }
 
@@ -116,6 +125,11 @@ pub(super) fn assign_target_writeback_value(
             let root = eval_assign_target_root_value(span, target, env)?;
             write_assign_path_value(span, root, path, value, env)
         }
+        EarlyConstAssignTarget::Pointer { .. } => Err(ConstError {
+            span,
+            message: "resolved pointer assignment requires the resolved const evaluator"
+                .to_string(),
+        }),
     }
 }
 
@@ -133,37 +147,6 @@ fn assign_target_writeback_value_with_path(
     write_evaluated_assign_path_value(span, root, path, value, env)
 }
 
-pub(super) fn resolved_assign_target_writeback_value(
-    span: Span,
-    target: &ResolvedConstAssignTarget,
-    value: ConstValue,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstValue, ConstError> {
-    match target.kind() {
-        ResolvedConstAssignTargetKind::Local { path, .. } => {
-            if path.is_empty() {
-                return Ok(value);
-            }
-            let root = eval_resolved_assign_target_root_value(target, env)?;
-            write_resolved_assign_path_value(span, root, path, value, env)
-        }
-    }
-}
-
-fn resolved_assign_target_writeback_value_with_path(
-    span: Span,
-    target: &ResolvedConstAssignTarget,
-    path: &[EvaluatedAssignPathElem],
-    value: ConstValue,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstValue, ConstError> {
-    if path.is_empty() {
-        return Ok(value);
-    }
-    let root = eval_resolved_assign_target_root_value(target, env)?;
-    write_resolved_evaluated_assign_path_value(span, root, path, value, env)
-}
-
 /// Rebuilds and writes a resolved projected place from leaf to local root.
 ///
 /// Aggregate values are immutable snapshots in the evaluator, so updating a
@@ -175,9 +158,27 @@ pub fn write_resolved_const_place(
     value: ConstValue,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<(), ConstError> {
-    let root = env.resolve_resolved_name(span, ConstNameResolution::Local(place.local_id))?;
-    let value = write_resolved_const_place_path(span, root, &place.path, value, env)?;
-    env.assign_resolved_place_local(span, place.local_id, value)
+    let value = if place.path.is_empty() {
+        value
+    } else {
+        let root = match &place.base {
+            ResolvedConstPlaceBase::Local(local_id) => {
+                env.resolve_resolved_name(span, ConstNameResolution::Local(*local_id))?
+            }
+            ResolvedConstPlaceBase::Pointer(pointer) => {
+                env.dereference_const_pointer(span, pointer)?
+            }
+        };
+        write_resolved_const_place_path(span, root, &place.path, value, env)?
+    };
+    match &place.base {
+        ResolvedConstPlaceBase::Local(local_id) => {
+            env.assign_resolved_place_local(span, *local_id, place.name, value)
+        }
+        ResolvedConstPlaceBase::Pointer(pointer) => {
+            env.assign_resolved_pointer(span, pointer, value)
+        }
+    }
 }
 
 fn eval_assign_target_root_value(
@@ -206,17 +207,11 @@ fn eval_assign_target_root_value(
                 &EarlyConstName::resolved(*name, ConstNameResolution::Local(*local_id)),
             )
         }
-    }
-}
-
-fn eval_resolved_assign_target_root_value(
-    target: &ResolvedConstAssignTarget,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstValue, ConstError> {
-    match target.kind() {
-        ResolvedConstAssignTargetKind::Local { span, local_id, .. } => {
-            env.resolve_resolved_name(*span, ConstNameResolution::Local(*local_id))
-        }
+        EarlyConstAssignTarget::Pointer { .. } => Err(ConstError {
+            span,
+            message: "resolved pointer assignment requires the resolved const evaluator"
+                .to_string(),
+        }),
     }
 }
 
@@ -289,88 +284,16 @@ fn eval_assign_target_value(
         EarlyConstAssignTarget::Local { path, .. } => {
             eval_assign_path_value(span, value, path, env)
         }
+        EarlyConstAssignTarget::Pointer { .. } => Err(ConstError {
+            span,
+            message: "resolved pointer assignment requires the resolved const evaluator"
+                .to_string(),
+        }),
     }
 }
 
-fn eval_resolved_assign_target_value(
-    span: Span,
-    target: &ResolvedConstAssignTarget,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<(ConstValue, Vec<EvaluatedAssignPathElem>), ConstError> {
-    let value = eval_resolved_assign_target_root_value(target, env)?;
-    match target.kind() {
-        ResolvedConstAssignTargetKind::Local { path, .. } => {
-            eval_resolved_assign_path_value(span, value, path, env)
-        }
-    }
-}
-
-fn eval_resolved_assign_path_value(
-    span: Span,
-    mut value: ConstValue,
-    path: &[ResolvedConstAssignPathElem],
-    env: &mut impl ResolvedConstEnv,
-) -> Result<(ConstValue, Vec<EvaluatedAssignPathElem>), ConstError> {
-    let mut evaluated_path = Vec::with_capacity(path.len());
-    for elem in path {
-        value = match elem.kind() {
-            ResolvedConstAssignPathElemKind::Field { span, name } => {
-                evaluated_path.push(EvaluatedAssignPathElem::Field {
-                    span: *span,
-                    name: *name,
-                });
-                match value {
-                    ConstValue::Struct(fields) => {
-                        fields.get(name).cloned().ok_or_else(|| ConstError {
-                            span: *span,
-                            message: format!(
-                                "unknown const assignment field `{}`",
-                                env.symbol_name(*name)
-                            ),
-                        })?
-                    }
-                    ConstValue::Union(value) => {
-                        value.read(*name).map_err(|message| ConstError {
-                            span: *span,
-                            message: format!("{message} `{}`", env.symbol_name(*name)),
-                        })?
-                    }
-                    _ => {
-                        return Err(ConstError {
-                            span: *span,
-                            message: "const field assignment requires a struct value".to_string(),
-                        });
-                    }
-                }
-            }
-            ResolvedConstAssignPathElemKind::Index {
-                span: elem_span,
-                index,
-            } => match value {
-                ConstValue::Array(values) => {
-                    let index = eval_resolved_assign_path_index(*elem_span, index, env)?;
-                    evaluated_path.push(EvaluatedAssignPathElem::Index {
-                        span: *elem_span,
-                        index,
-                    });
-                    values.get(index).cloned().ok_or_else(|| ConstError {
-                        span,
-                        message: format!("const array assignment index {index} is out of bounds"),
-                    })?
-                }
-                _ => {
-                    return Err(ConstError {
-                        span: *elem_span,
-                        message: "const index assignment requires an array value".to_string(),
-                    });
-                }
-            },
-        };
-    }
-    Ok((value, evaluated_path))
-}
-
-fn write_resolved_const_place_path(
+/// Rebuilds an allocation value after writing one projection path.
+pub fn write_resolved_const_place_path(
     span: Span,
     root: ConstValue,
     path: &[ResolvedConstPlaceElem],
@@ -428,6 +351,39 @@ fn write_resolved_const_place_path(
             let current = values.remove(*index);
             let updated = write_resolved_const_place_path(span, current, tail, value, env)?;
             values.insert(*index, updated);
+            Ok(ConstValue::Array(values))
+        }
+        ResolvedConstPlaceElem::Slice { start, end } => {
+            let ConstValue::Array(mut values) = root else {
+                return Err(ConstError {
+                    span,
+                    message: "const slice writeback requires an array allocation".to_string(),
+                });
+            };
+            let current = values.get(*start..*end).ok_or_else(|| ConstError {
+                span,
+                message: "const slice writeback range is out of bounds".to_string(),
+            })?;
+            let updated = write_resolved_const_place_path(
+                span,
+                ConstValue::Array(current.to_vec()),
+                tail,
+                value,
+                env,
+            )?;
+            let ConstValue::Array(updated) = updated else {
+                return Err(ConstError {
+                    span,
+                    message: "const slice writeback requires an array value".to_string(),
+                });
+            };
+            if updated.len() != end - start {
+                return Err(ConstError {
+                    span,
+                    message: "const slice writeback cannot change its length".to_string(),
+                });
+            }
+            values[*start..*end].clone_from_slice(&updated);
             Ok(ConstValue::Array(values))
         }
     }
@@ -540,153 +496,6 @@ fn write_evaluated_assign_path_value(
             }
             let current = values.remove(*index);
             let updated = write_evaluated_assign_path_value(span, current, tail, value, env)?;
-            values.insert(*index, updated);
-            Ok(ConstValue::Array(values))
-        }
-    }
-}
-
-fn write_resolved_assign_path_value(
-    span: Span,
-    root: ConstValue,
-    path: &[ResolvedConstAssignPathElem],
-    value: ConstValue,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstValue, ConstError> {
-    let Some((head, tail)) = path.split_first() else {
-        return Ok(value);
-    };
-    match head.kind() {
-        ResolvedConstAssignPathElemKind::Field {
-            span: field_span,
-            name,
-        } => match root {
-            ConstValue::Struct(mut fields) => {
-                let current = fields.remove(name).ok_or_else(|| ConstError {
-                    span: *field_span,
-                    message: format!(
-                        "unknown const assignment field `{}`",
-                        env.symbol_name(*name)
-                    ),
-                })?;
-                let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
-                fields.insert(*name, updated);
-                Ok(ConstValue::Struct(fields))
-            }
-            ConstValue::Union(mut union) => {
-                let updated = if tail.is_empty() {
-                    value
-                } else {
-                    let current = union.read(*name).map_err(|message| ConstError {
-                        span: *field_span,
-                        message: format!("{message} `{}`", env.symbol_name(*name)),
-                    })?;
-                    write_resolved_assign_path_value(span, current, tail, value, env)?
-                };
-                union.write(*name, updated).map_err(|message| ConstError {
-                    span: *field_span,
-                    message: format!("{message} `{}`", env.symbol_name(*name)),
-                })?;
-                Ok(ConstValue::Union(union))
-            }
-            _ => Err(ConstError {
-                span: *field_span,
-                message: "const field assignment requires a struct value".to_string(),
-            }),
-        },
-        ResolvedConstAssignPathElemKind::Index {
-            span: index_span,
-            index,
-        } => {
-            let ConstValue::Array(mut values) = root else {
-                return Err(ConstError {
-                    span: *index_span,
-                    message: "const index assignment requires an array value".to_string(),
-                });
-            };
-            let index = eval_resolved_assign_path_index(*index_span, index, env)?;
-            if index >= values.len() {
-                return Err(ConstError {
-                    span,
-                    message: format!("const array assignment index {index} is out of bounds"),
-                });
-            }
-            let current = values.remove(index);
-            let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
-            values.insert(index, updated);
-            Ok(ConstValue::Array(values))
-        }
-    }
-}
-
-fn write_resolved_evaluated_assign_path_value(
-    span: Span,
-    root: ConstValue,
-    path: &[EvaluatedAssignPathElem],
-    value: ConstValue,
-    env: &mut impl ResolvedConstEnv,
-) -> Result<ConstValue, ConstError> {
-    let Some((head, tail)) = path.split_first() else {
-        return Ok(value);
-    };
-    match head {
-        EvaluatedAssignPathElem::Field {
-            span: field_span,
-            name,
-        } => match root {
-            ConstValue::Struct(mut fields) => {
-                let current = fields.remove(name).ok_or_else(|| ConstError {
-                    span: *field_span,
-                    message: format!(
-                        "unknown const assignment field `{}`",
-                        env.symbol_name(*name)
-                    ),
-                })?;
-                let updated =
-                    write_resolved_evaluated_assign_path_value(span, current, tail, value, env)?;
-                fields.insert(*name, updated);
-                Ok(ConstValue::Struct(fields))
-            }
-            ConstValue::Union(mut union) => {
-                let updated = if tail.is_empty() {
-                    value
-                } else {
-                    let current = union.read(*name).map_err(|message| ConstError {
-                        span: *field_span,
-                        message: format!("{message} `{}`", env.symbol_name(*name)),
-                    })?;
-                    write_resolved_evaluated_assign_path_value(span, current, tail, value, env)?
-                };
-                union.write(*name, updated).map_err(|message| ConstError {
-                    span: *field_span,
-                    message: format!("{message} `{}`", env.symbol_name(*name)),
-                })?;
-                Ok(ConstValue::Union(union))
-            }
-            _ => Err(ConstError {
-                span: *field_span,
-                message: "const field assignment requires a struct value".to_string(),
-            }),
-        },
-        EvaluatedAssignPathElem::Index {
-            span: index_span,
-            index,
-        } => {
-            let ConstValue::Array(mut values) = root else {
-                return Err(ConstError {
-                    span: *index_span,
-                    message: "const index assignment requires an array value".to_string(),
-                });
-            };
-            if *index >= values.len() {
-                return Err(ConstError {
-                    span,
-                    message: format!("const array assignment index {index} is out of bounds"),
-                });
-            }
-            let current = values.remove(*index);
-            let updated =
-                write_resolved_evaluated_assign_path_value(span, current, tail, value, env)?;
             values.insert(*index, updated);
             Ok(ConstValue::Array(values))
         }

@@ -48,7 +48,8 @@ pub(super) fn const_typed_bit_not(
     }
 }
 
-pub(super) fn int_to_array_len(span: Span, value: IntConst) -> Result<u64, ConstError> {
+/// Converts a const integer into a non-negative, representable array length.
+pub fn int_to_array_len(span: Span, value: IntConst) -> Result<u64, ConstError> {
     let Some(value) = value.as_i128() else {
         return Err(ConstError {
             span,
